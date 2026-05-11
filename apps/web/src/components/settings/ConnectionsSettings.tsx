@@ -2398,15 +2398,18 @@ export function ConnectionsSettings() {
     // the backend to come up (cold WSL boots + node-pty prep can be slow),
     // the welcome wait is 45s after that, and reauth has its own retry loop.
     // Cap the total so a hung step can't strand the modal forever.
+    let aborted = false;
+    let flowTimeoutHandle: number | null = null;
     const flowTimeout = new Promise<never>((_, reject) => {
-      window.setTimeout(
-        () => reject(new Error("Backend swap took too long. Check WSL is responsive and try again.")),
-        180_000,
-      );
+      flowTimeoutHandle = window.setTimeout(() => {
+        aborted = true;
+        reject(new Error("Backend swap took too long. Check WSL is responsive and try again."));
+      }, 180_000);
     });
 
     const runSwap = async () => {
       const updated = await desktopBridge.setWslBackend(target);
+      if (aborted) return;
       setDesktopWslState(updated);
 
       if (previousPrimaryEnvId) {
@@ -2419,6 +2422,7 @@ export function ConnectionsSettings() {
       // Descriptor is the same URL across the swap, so it'll be re-fetched
       // lazily by the next consumer — no need to force a refresh here.
       await reauthenticatePrimaryEnvironment();
+      if (aborted) return;
 
       // Wait for the new backend's welcome event so the modal stays open
       // until threads are actually ready. Bounded by 45s.
@@ -2429,6 +2433,7 @@ export function ConnectionsSettings() {
           window.setTimeout(resolve, 45_000);
         }),
       ]);
+      if (aborted) return;
 
       if (previousPrimaryEnvId) {
         useStore.getState().removeEnvironmentState(previousPrimaryEnvId);
@@ -2437,6 +2442,7 @@ export function ConnectionsSettings() {
 
     try {
       await suppressReconnect(() => Promise.race([runSwap(), flowTimeout]));
+      if (flowTimeoutHandle !== null) window.clearTimeout(flowTimeoutHandle);
 
       setPendingDesktopWslSelection(null);
       toastManager.add({

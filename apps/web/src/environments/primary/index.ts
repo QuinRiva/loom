@@ -1,7 +1,6 @@
 export {
   getPrimaryKnownEnvironment,
   readPrimaryEnvironmentDescriptor,
-  refreshPrimaryEnvironmentDescriptor,
   resetPrimaryEnvironmentDescriptorForTests,
   resolveInitialPrimaryEnvironmentDescriptor,
   usePrimaryEnvironmentId,

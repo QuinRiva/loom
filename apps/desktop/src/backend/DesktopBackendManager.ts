@@ -600,14 +600,18 @@ const makeDesktopBackendManager = Effect.fn("makeDesktopBackendManager")(functio
 
   const waitForReady = (timeout: Duration.Duration): Effect.Effect<boolean> =>
     Effect.gen(function* () {
+      const current = yield* Ref.get(state);
+      // Return false early if an external `stop()` flipped desiredRunning off
+      // — no point polling for a backend that is being torn down.
+      if (!current.desiredRunning) return { done: true, ready: false };
       const ready = yield* Ref.get(desktopState.backendReady);
-      if (ready) return true;
-      return false;
+      return ready ? { done: true, ready: true } : { done: false, ready: false };
     }).pipe(
       Effect.repeat({
-        until: (ready) => ready,
+        until: (status) => status.done,
         schedule: Schedule.spaced(Duration.millis(100)),
       }),
+      Effect.map((status) => status.ready),
       Effect.timeoutOption(timeout),
       Effect.map(Option.getOrElse(() => false)),
     );

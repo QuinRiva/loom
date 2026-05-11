@@ -102,9 +102,12 @@ const runWslShell = (
     Effect.gen(function* () {
       const spawnerService = yield* spawner;
       const handle = yield* spawnerService.spawn(command);
-      const stdoutBytes = yield* Stream.runCollect(handle.stdout);
-      const stderrBytes = yield* Stream.runCollect(handle.stderr);
-      const exitCode = yield* handle.exitCode;
+      // Drain stdout and stderr concurrently so neither pipe buffer can fill
+      // and stall the child (node-gyp rebuild emits large output on both).
+      const [stdoutBytes, stderrBytes, exitCode] = yield* Effect.all(
+        [Stream.runCollect(handle.stdout), Stream.runCollect(handle.stderr), handle.exitCode],
+        { concurrency: "unbounded" },
+      );
       return {
         exitCode: exitCode as unknown as number,
         stdout: decodeUtf8(concatChunks(stdoutBytes)),
