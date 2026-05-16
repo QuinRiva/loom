@@ -57,6 +57,39 @@ const WSL_FORWARDED_ENV_NAMES = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] as const
 const backendChildEnvPatch = (): Record<string, string | undefined> =>
   Object.fromEntries(DESKTOP_BACKEND_ENV_NAMES.map((name) => [name, undefined]));
 
+const getWslEnvEntryName = (entry: string): string => {
+  const slashIndex = entry.indexOf("/");
+  return slashIndex === -1 ? entry : entry.slice(0, slashIndex);
+};
+
+const mergeWslEnv = (
+  existingWslEnv: string | undefined,
+  forwardedEnvNames: ReadonlyArray<string>,
+): string | undefined => {
+  const entries: string[] = [];
+  const seenNames = new Set<string>();
+
+  for (const rawEntry of existingWslEnv?.split(":") ?? []) {
+    const entry = rawEntry.trim();
+    if (entry.length === 0) continue;
+
+    const name = getWslEnvEntryName(entry);
+    if (name.length === 0 || seenNames.has(name)) continue;
+
+    seenNames.add(name);
+    entries.push(entry);
+  }
+
+  for (const name of forwardedEnvNames) {
+    if (seenNames.has(name)) continue;
+
+    seenNames.add(name);
+    entries.push(name);
+  }
+
+  return entries.length > 0 ? entries.join(":") : undefined;
+};
+
 const { logWarning: logBackendConfigurationWarning } = DesktopObservability.makeComponentLogger(
   "desktop-backend-configuration",
 );
@@ -249,7 +282,6 @@ const resolveBackendStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         forwardedEnvNames.push(name);
       }
     }
-    const wslEnvNames = [...new Set(forwardedEnvNames)];
 
     // Build an explicit copy of process.env minus T3CODE_HOME (dev-runner
     // exports the Windows-side base dir for the local backend; if it leaks
@@ -261,6 +293,7 @@ const resolveBackendStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       if (key === "T3CODE_HOME") continue;
       parentEnvWithoutT3Home[key] = value;
     }
+    const wslEnv = mergeWslEnv(parentEnvWithoutT3Home.WSLENV, forwardedEnvNames);
 
     const baseConfig = {
       executablePath: "wsl.exe",
@@ -270,7 +303,7 @@ const resolveBackendStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ...parentEnvWithoutT3Home,
         ...backendChildEnvPatch(),
         ...forwardedEnv,
-        ...(wslEnvNames.length > 0 ? { WSLENV: wslEnvNames.join(":") } : {}),
+        ...(wslEnv !== undefined ? { WSLENV: wslEnv } : {}),
       },
       // env is already a complete process.env minus T3CODE_HOME; pass it
       // verbatim instead of letting the spawner re-merge process.env on top.
