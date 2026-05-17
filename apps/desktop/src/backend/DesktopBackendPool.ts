@@ -33,17 +33,33 @@
 //     picker that shows up when the toggle is on. Default-off, so
 //     users who never opted in see the same surface as before.
 //
-// What's left (out-of-band work the desktop side is ready for but the
-// renderer hasn't wired up):
-//   - The web env runtime still treats the primary as the only local
-//     environment. Registering the WSL bootstrap as a sibling local
-//     environment (sidebar/env switcher, project routing keyed by
-//     env id) needs per-environment auth bootstrap (each backend
-//     signs its own session cookies), which is a meaningful auth-layer
-//     refactor. The desktop side exposes everything needed
-//     (getLocalEnvironmentBootstraps, targetEnvironmentId on pickFolder);
-//     the renderer can take this up when the per-env auth design is
-//     settled.
+// Renderer-side wiring (apps/web/src/environments/local/):
+//   - reconcileLocalSecondaryEnvironments() runs at app boot and after
+//     WSL settings changes. It reads getLocalEnvironmentBootstraps(),
+//     skips the primary (which the existing primary/ runtime owns),
+//     and for every other entry POSTs the shared bootstrap token to
+//     /api/auth/bootstrap/bearer on that backend's URL, fetches the
+//     descriptor, builds a SavedEnvironmentRecord marked desktopLocal,
+//     writes the bearer to the secret store, and opens a connection
+//     through the same saved-env path remote envs use.
+//   - The desktopLocal marker filters records out of saved-env
+//     persistence, so toggling WSL off or switching distros doesn't
+//     pollute the user's settings file. The sidebar, CommandPalette,
+//     env switcher, and project-id routing all read the saved-env
+//     registry, so the WSL backend shows up there without any
+//     per-surface changes.
+//
+// Browser validation (2026-05-17, dev:desktop with wslBackendEnabled=true,
+// wslDistro="Ubuntu"):
+//   - Two backends listening on distinct loopback ports
+//     (server.log: 13773 primary, 13774 wsl).
+//   - Per-instance log files: server-child.log + server-child-wsl_Ubuntu.log.
+//   - Distinct environment ids reported by each backend's
+//     /.well-known/t3/environment (Windows vs Linux platform).
+//   - Renderer completes the bearer-token bootstrap against the WSL
+//     backend (POST /api/auth/bootstrap/bearer 200), obtains a
+//     ws-token (POST /api/auth/ws-token 200), and holds an
+//     ESTABLISHED WebSocket connection to both ports (netstat).
 //
 // Migration history (commits):
 //   1. Reshape `DesktopBackendManager` into an instance factory and route
@@ -58,6 +74,10 @@
 //   6. Widen getLocalEnvironmentBootstrap to *Bootstraps (plural). (bad66041)
 //   7. pickFolder takes optional targetEnvironmentId. (5d80468d)
 //   8. Settings UX: toggle + distro picker, no swap dialog. (eb5a03ea)
+//   9. Register WSL backend as desktop-local saved env via
+//      reconcileLocalSecondaryEnvironments. (1c7e7873 + c17897bd)
+//   10. CommandPalette enables file-manager picker for desktop-local
+//       envs, routes pickFolder by env id. (38e8477a)
 
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
