@@ -60,18 +60,16 @@ function useExpandedImageKeyboardShortcuts(input: {
 }
 
 function ExpandedImageDialogContent({ preview, onClose }: ExpandedImageDialogProps) {
-  const [currentIndex, setCurrentIndex] = useState(preview.index);
+  const [indexOffset, setIndexOffset] = useState(0);
   const images = preview.images;
   const canNavigate = images.length > 1;
+  const currentIndex = canNavigate
+    ? (preview.index + indexOffset + images.length) % images.length
+    : preview.index;
 
   const navigateImage = (direction: -1 | 1) => {
-    setCurrentIndex((existingIndex) => {
-      if (!canNavigate) return existingIndex;
-      const safeExistingIndex =
-        existingIndex >= 0 && existingIndex < images.length ? existingIndex : preview.index;
-      const nextIndex = (safeExistingIndex + direction + images.length) % images.length;
-      return nextIndex === existingIndex ? existingIndex : nextIndex;
-    });
+    if (!canNavigate) return;
+    setIndexOffset((existingOffset) => existingOffset + direction);
   };
 
   useExpandedImageKeyboardShortcuts({
