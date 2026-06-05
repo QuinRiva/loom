@@ -1,6 +1,6 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import {
   readCachedPullRequestResolution,
@@ -43,6 +43,30 @@ export function PullRequestThreadDialog({
   onOpenChange,
   onPrepared,
 }: PullRequestThreadDialogProps) {
+  const stateResetKey = open ? `open:${initialReference ?? ""}` : "closed";
+  return (
+    <PullRequestThreadDialogContent
+      key={stateResetKey}
+      open={open}
+      environmentId={environmentId}
+      threadId={threadId}
+      cwd={cwd}
+      initialReference={initialReference}
+      onOpenChange={onOpenChange}
+      onPrepared={onPrepared}
+    />
+  );
+}
+
+function PullRequestThreadDialogContent({
+  open,
+  environmentId,
+  threadId,
+  cwd,
+  initialReference,
+  onOpenChange,
+  onPrepared,
+}: PullRequestThreadDialogProps) {
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
   const [referenceDirty, setReferenceDirty] = useState(false);
@@ -60,23 +84,7 @@ export function PullRequestThreadDialog({
   const terminology = sourceControlPresentation.terminology;
   const SourceControlIcon = sourceControlPresentation.Icon;
 
-  useEffect(() => {
-    if (!open) return;
-    setReference(initialReference ?? "");
-    setReferenceDirty(false);
-    setPreparingMode(null);
-  }, [initialReference, open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => {
-      referenceInputRef.current?.focus();
-      referenceInputRef.current?.select();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [open]);
+  useFocusReferenceInputWhenOpen(open, referenceInputRef);
 
   const parsedReference = parsePullRequestReference(reference);
   const parsedDebouncedReference = parsePullRequestReference(debouncedReference);
@@ -298,4 +306,20 @@ export function PullRequestThreadDialog({
       </DialogPopup>
     </Dialog>
   );
+}
+
+function useFocusReferenceInputWhenOpen(
+  open: boolean,
+  referenceInputRef: RefObject<HTMLInputElement | null>,
+) {
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      referenceInputRef.current?.focus();
+      referenceInputRef.current?.select();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [open, referenceInputRef]);
 }
