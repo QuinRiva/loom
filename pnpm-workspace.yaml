@@ -16,15 +16,15 @@ ignoredBuiltDependencies:
   - msw
 
 catalog:
-  effect: 4.0.0-beta.73
-  "@effect/atom-react": 4.0.0-beta.73
-  "@effect/openapi-generator": 4.0.0-beta.73
-  "@effect/platform-bun": 4.0.0-beta.73
-  "@effect/platform-node": 4.0.0-beta.73
-  "@effect/platform-node-shared": 4.0.0-beta.73
-  "@effect/sql-pg": 4.0.0-beta.73
-  "@effect/sql-sqlite-bun": 4.0.0-beta.73
-  "@effect/vitest": 4.0.0-beta.73
+  effect: 4.0.0-beta.78
+  "@effect/atom-react": 4.0.0-beta.78
+  "@effect/openapi-generator": 4.0.0-beta.78
+  "@effect/platform-bun": 4.0.0-beta.78
+  "@effect/platform-node": 4.0.0-beta.78
+  "@effect/platform-node-shared": 4.0.0-beta.78
+  "@effect/sql-pg": 4.0.0-beta.78
+  "@effect/sql-sqlite-bun": 4.0.0-beta.78
+  "@effect/vitest": 4.0.0-beta.78
   "@effect/tsgo": 0.11.4
   "@noble/curves": 1.9.1
   "@noble/hashes": 1.8.0
@@ -75,6 +75,5 @@ packageExtensions:
 patchedDependencies:
   "@expo/metro-config@56.0.13": patches/@expo%2Fmetro-config@56.0.13.patch
   "@pierre/diffs@1.1.20": patches/@pierre%2Fdiffs@1.1.20.patch
-  alchemy@2.0.0-beta.49: patches/alchemy@2.0.0-beta.49.patch
-  effect@4.0.0-beta.73: patches/effect@4.0.0-beta.73.patch
+  effect@4.0.0-beta.78: patches/effect@4.0.0-beta.78.patch
   react-native-nitro-modules@0.35.9: patches/react-native-nitro-modules@0.35.9.patch
