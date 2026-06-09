@@ -1,6 +1,7 @@
 import { p256 } from "@noble/curves/nist";
 import { sha256 } from "@noble/hashes/sha2";
 import * as Encoding from "effect/Encoding";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -17,21 +18,28 @@ export const DpopPublicJwk = Schema.Struct({
   y: Schema.String.check(Schema.isNonEmpty()),
 });
 export type DpopPublicJwk = typeof DpopPublicJwk.Type;
-const isDpopPublicJwk = Schema.is(DpopPublicJwk);
 
-interface DpopJwtHeader {
-  readonly typ: string;
-  readonly alg: string;
-  readonly jwk: DpopPublicJwk;
-}
+const DpopJwtHeader = Schema.Struct({
+  typ: Schema.Literal(DPOP_TYP),
+  alg: Schema.Literal(DPOP_ALG),
+  jwk: DpopPublicJwk,
+});
+type DpopJwtHeader = typeof DpopJwtHeader.Type;
 
-interface DpopJwtPayload {
-  readonly htm: string;
-  readonly htu: string;
-  readonly jti: string;
-  readonly iat: number;
-  readonly ath?: string;
-}
+const DpopJwtPayload = Schema.Struct({
+  htm: Schema.String.check(Schema.isNonEmpty()),
+  htu: Schema.String.check(Schema.isNonEmpty()),
+  jti: Schema.String.check(Schema.isNonEmpty()),
+  iat: Schema.Int,
+  ath: Schema.optional(Schema.String),
+});
+type DpopJwtPayload = typeof DpopJwtPayload.Type;
+
+const decodeDpopJwtHeaderJson = Schema.decodeUnknownOption(
+  Schema.fromJsonString(DpopJwtHeader),
+  { onExcessProperty: "preserve" },
+);
+const decodeDpopJwtPayloadJson = Schema.decodeUnknownOption(Schema.fromJsonString(DpopJwtPayload));
 
 export type DpopVerificationResult =
   | {
@@ -49,40 +57,24 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Result.getOrThrow(Encoding.decodeBase64Url(value));
 }
 
-function decodeBase64UrlJson(value: string): unknown {
-  return JSON.parse(Result.getOrThrow(Encoding.decodeBase64UrlString(value))) as unknown;
+function decodeBase64UrlJsonOption<T>(
+  value: string,
+  decode: (input: unknown) => Option.Option<T>,
+): Option.Option<T> {
+  const decoded = Encoding.decodeBase64UrlString(value);
+  return Result.isFailure(decoded) ? Option.none() : decode(decoded.success);
 }
 
-function isDpopJwtHeader(value: unknown): value is DpopJwtHeader {
-  if (typeof value !== "object" || value === null) {
-    return false;
+function decodeDpopJwtHeader(value: string): Option.Option<DpopJwtHeader> {
+  const header = decodeBase64UrlJsonOption(value, decodeDpopJwtHeaderJson);
+  if (Option.isNone(header)) {
+    return Option.none();
   }
-  const record = value as Record<string, unknown>;
-  return (
-    record.typ === DPOP_TYP &&
-    record.alg === DPOP_ALG &&
-    typeof record.jwk === "object" &&
-    record.jwk !== null &&
-    !("d" in record.jwk) &&
-    isDpopPublicJwk(record.jwk)
-  );
+  return "d" in header.value.jwk ? Option.none() : header;
 }
 
-function isDpopJwtPayload(value: unknown): value is DpopJwtPayload {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.htm === "string" &&
-    record.htm.length > 0 &&
-    typeof record.htu === "string" &&
-    record.htu.length > 0 &&
-    typeof record.jti === "string" &&
-    record.jti.length > 0 &&
-    typeof record.iat === "number" &&
-    Number.isInteger(record.iat)
-  );
+function decodeDpopJwtPayload(value: string): Option.Option<DpopJwtPayload> {
+  return decodeBase64UrlJsonOption(value, decodeDpopJwtPayloadJson);
 }
 
 function dpopThumbprintInput(jwk: DpopPublicJwk): string {
@@ -145,14 +137,16 @@ export function verifyDpopProof(input: {
   }
 
   try {
-    const header = decodeBase64UrlJson(parts[0]);
-    const payload = decodeBase64UrlJson(parts[1]);
-    if (!isDpopJwtHeader(header)) {
+    const headerOption = decodeDpopJwtHeader(parts[0]);
+    if (Option.isNone(headerOption)) {
       return { ok: false, reason: "Invalid DPoP JWT header." };
     }
-    if (!isDpopJwtPayload(payload)) {
+    const payloadOption = decodeDpopJwtPayload(parts[1]);
+    if (Option.isNone(payloadOption)) {
       return { ok: false, reason: "Invalid DPoP JWT payload." };
     }
+    const header = headerOption.value;
+    const payload = payloadOption.value;
 
     const thumbprint = computeDpopJwkThumbprint(header.jwk);
     if (input.expectedThumbprint && thumbprint !== input.expectedThumbprint) {

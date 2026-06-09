@@ -25,6 +25,7 @@ import {
   SshEnvironmentManager,
   waitForHttpReady,
 } from "./tunnel.ts";
+import { SshReadinessTimedOutError } from "./errors.ts";
 
 const TEST_NODE_ENGINE_RANGE = "^22.16 || ^23.11 || >=24.10";
 
@@ -255,7 +256,12 @@ describe("ssh tunnel scripts", () => {
 
       assert.isTrue(Result.isFailure(result));
       if (Result.isFailure(result)) {
+        assert.instanceOf(result.failure, SshReadinessTimedOutError);
+        assert.equal(result.failure._tag, "SshReadinessTimedOutError");
+        assert.equal(result.failure.timeoutMs, 1_000);
+        assert.equal(result.failure.probeTimeoutMs, 250);
         assert.include(result.failure.message, "Timed out waiting 1000ms");
+        assert.isDefined(result.failure.lastFailure);
       }
     }).pipe(
       Effect.provide(

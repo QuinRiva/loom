@@ -47,6 +47,10 @@ import {
   SshPairingError,
   SshPasswordPromptError,
   SshReadinessError,
+  SshReadinessProbeFailedError,
+  SshReadinessProbeTimedOutError,
+  SshReadinessTimedOutError,
+  isSshReadinessError,
 } from "./errors.ts";
 
 export const DEFAULT_REMOTE_PORT = 3773;
@@ -233,12 +237,39 @@ function applyScriptPlaceholders(
 }
 
 export function describeReadinessCause(cause: unknown): unknown {
-  if (cause instanceof SshReadinessError) {
-    return {
-      _tag: cause._tag,
-      message: cause.message,
-      ...(cause.cause === undefined ? {} : { cause: describeReadinessCause(cause.cause) }),
-    };
+  if (isSshReadinessError(cause)) {
+    switch (cause._tag) {
+      case "SshReadinessProbeFailedError":
+        return {
+          _tag: cause._tag,
+          message: cause.message,
+          requestUrl: cause.requestUrl,
+          attempt: cause.attempt,
+          cause: describeReadinessCause(cause.cause),
+        };
+      case "SshReadinessProbeTimedOutError":
+        return {
+          _tag: cause._tag,
+          message: cause.message,
+          requestUrl: cause.requestUrl,
+          attempt: cause.attempt,
+          probeTimeoutMs: cause.probeTimeoutMs,
+        };
+      case "SshReadinessTimedOutError":
+        return {
+          _tag: cause._tag,
+          message: cause.message,
+          baseUrl: cause.baseUrl,
+          requestUrl: cause.requestUrl,
+          timeoutMs: cause.timeoutMs,
+          intervalMs: cause.intervalMs,
+          probeTimeoutMs: cause.probeTimeoutMs,
+          attempts: cause.attempts,
+          ...(cause.lastFailure === undefined
+            ? {}
+            : { lastFailure: describeReadinessCause(cause.lastFailure) }),
+        };
+    }
   }
   if (cause instanceof Error) {
     return {
@@ -879,7 +910,7 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
   );
   const requestUrl = new URL(input.path ?? "/", input.baseUrl).toString();
   const client = yield* HttpClient.HttpClient;
-  const lastProbeFailure = yield* Ref.make<unknown>(null);
+  const lastProbeFailure = yield* Ref.make<Option.Option<unknown>>(Option.none());
   let attempt = 0;
 
   yield* Effect.logDebug("ssh.tunnel.httpReady.start", {
@@ -899,8 +930,9 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
           Effect.timeoutOption(Duration.millis(probeTimeoutMs)),
           Effect.mapError(
             (cause) =>
-              new SshReadinessError({
-                message: `Backend readiness probe failed at ${requestUrl}.`,
+              new SshReadinessProbeFailedError({
+                requestUrl,
+                attempt,
                 cause,
               }),
           ),
@@ -909,30 +941,25 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
           onSome: Effect.succeed,
           onNone: () =>
             Effect.fail(
-              new SshReadinessError({
-                message: `Backend readiness probe exceeded ${probeTimeoutMs}ms at ${requestUrl}.`,
-                cause: {
-                  kind: "probe-timeout",
-                  attempt,
-                  probeTimeoutMs,
-                },
+              new SshReadinessProbeTimedOutError({
+                requestUrl,
+                attempt,
+                probeTimeoutMs,
               }),
             ),
         });
       }).pipe(
         Effect.mapError((cause) =>
-          cause instanceof SshReadinessError
+          isSshReadinessError(cause)
             ? cause
-            : new SshReadinessError({
-                message: `Backend readiness probe failed at ${requestUrl}.`,
+            : new SshReadinessProbeFailedError({
+                requestUrl,
+                attempt,
                 cause,
               }),
         ),
         Effect.tapError((cause) =>
-          Ref.set(lastProbeFailure, {
-            attempt,
-            cause: describeReadinessCause(cause),
-          }),
+          Ref.set(lastProbeFailure, Option.some(describeReadinessCause(cause))),
         ),
       ),
     ),
@@ -942,10 +969,11 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
 
   const result = yield* readinessClient.execute(HttpClientRequest.get(requestUrl)).pipe(
     Effect.mapError((cause) =>
-      cause instanceof SshReadinessError
+      isSshReadinessError(cause)
         ? cause
-        : new SshReadinessError({
-            message: `Backend readiness probe failed at ${requestUrl}.`,
+        : new SshReadinessProbeFailedError({
+            requestUrl,
+            attempt,
             cause,
           }),
     ),
@@ -961,7 +989,7 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
       }),
     onNone: () =>
       Effect.gen(function* () {
-        const lastFailure = yield* Ref.get(lastProbeFailure);
+        const lastFailure = Option.getOrUndefined(yield* Ref.get(lastProbeFailure));
         yield* Effect.logWarning("ssh.tunnel.httpReady.timedOut", {
           baseUrl: input.baseUrl,
           requestUrl,
@@ -971,9 +999,14 @@ export const waitForHttpReady = Effect.fn("ssh/tunnel.waitForHttpReady")(functio
           attempts: attempt,
           lastFailure,
         });
-        return yield* new SshReadinessError({
-          message: `Timed out waiting ${timeoutMs}ms for backend readiness at ${input.baseUrl}.`,
-          cause: lastFailure,
+        return yield* new SshReadinessTimedOutError({
+          baseUrl: input.baseUrl,
+          requestUrl,
+          timeoutMs,
+          intervalMs,
+          probeTimeoutMs,
+          attempts: attempt,
+          ...(lastFailure === undefined ? {} : { lastFailure }),
         });
       }),
   });
