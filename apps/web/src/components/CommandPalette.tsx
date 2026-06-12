@@ -480,15 +480,6 @@ function OpenCommandPaletteDialog() {
     savedEnvironmentRegistry,
     savedEnvironmentRuntimeById,
   ]);
-  const wslAddProjectEnvironmentOption = useMemo(
-    () =>
-      addProjectEnvironmentOptions.find((option) =>
-        isDesktopLocalWslInstance(
-          savedEnvironmentRegistry[option.environmentId]?.desktopLocal?.instanceId,
-        ),
-      ) ?? null,
-    [addProjectEnvironmentOptions, savedEnvironmentRegistry],
-  );
   const defaultAddProjectEnvironmentId = addProjectEnvironmentOptions[0]?.environmentId ?? null;
   const browseEnvironmentId = addProjectEnvironmentId ?? defaultAddProjectEnvironmentId;
   const browseEnvironmentPlatform = useMemo(() => {
@@ -1073,21 +1064,6 @@ function OpenCommandPaletteDialog() {
       openAddProjectFlow();
     },
   });
-
-  if (wslAddProjectEnvironmentOption) {
-    actionItems.push({
-      kind: "action",
-      value: "action:add-project:wsl-folder",
-      searchTerms: ["add project", "open", "wsl", "linux", "ubuntu", "folder", "directory"],
-      title: "Open WSL folder",
-      description: wslAddProjectEnvironmentOption.label,
-      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
-      keepOpen: true,
-      run: async () => {
-        startAddProjectBrowse(wslAddProjectEnvironmentOption.environmentId);
-      },
-    });
-  }
 
   actionItems.push({
     kind: "action",

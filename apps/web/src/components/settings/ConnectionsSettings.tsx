@@ -1511,6 +1511,40 @@ function SavedBackendListRow({
       : null,
   ].filter((value): value is string => value !== null);
 
+  // The WSL backend is a desktop-managed local backend (instanceId "wsl:<distro>"),
+  // not a remote environment you connect to or remove here — its lifecycle is driven
+  // by the WSL on/off + distro picker on this page. Disabling Connect/Disconnect/Remove
+  // avoids confusing no-ops (reconcile would just re-create a removed WSL env).
+  const isWslEnvironment = record.desktopLocal?.instanceId?.startsWith("wsl:") === true;
+  const actionButtons = (
+    <span className="flex items-center gap-2">
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={isWslEnvironment || (isConnected ? isDisconnecting : isConnecting)}
+        onClick={() =>
+          void (isConnected ? onDisconnect(environmentId) : onConnect(environmentId))
+        }
+      >
+        {isConnected
+          ? isDisconnecting
+            ? "Disconnecting…"
+            : "Disconnect"
+          : isConnecting
+            ? "Connecting…"
+            : "Connect"}
+      </Button>
+      <Button
+        size="xs"
+        variant="destructive-outline"
+        disabled={isWslEnvironment || removingEnvironmentId === environmentId}
+        onClick={() => void onRemove(environmentId)}
+      >
+        {removingEnvironmentId === environmentId ? "Removing…" : "Remove"}
+      </Button>
+    </span>
+  );
+
   return (
     <div className={ITEM_ROW_CLASSNAME}>
       <div className={ITEM_ROW_INNER_CLASSNAME}>
@@ -1543,30 +1577,16 @@ function SavedBackendListRow({
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={isConnected ? isDisconnecting : isConnecting}
-            onClick={() =>
-              void (isConnected ? onDisconnect(environmentId) : onConnect(environmentId))
-            }
-          >
-            {isConnected
-              ? isDisconnecting
-                ? "Disconnecting…"
-                : "Disconnect"
-              : isConnecting
-                ? "Connecting…"
-                : "Connect"}
-          </Button>
-          <Button
-            size="xs"
-            variant="destructive-outline"
-            disabled={removingEnvironmentId === environmentId}
-            onClick={() => void onRemove(environmentId)}
-          >
-            {removingEnvironmentId === environmentId ? "Removing…" : "Remove"}
-          </Button>
+          {isWslEnvironment ? (
+            <Tooltip>
+              <TooltipTrigger render={actionButtons} />
+              <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap leading-tight">
+                The WSL backend is managed by the WSL setting above — turn it on or off there.
+              </TooltipPopup>
+            </Tooltip>
+          ) : (
+            actionButtons
+          )}
         </div>
       </div>
     </div>
