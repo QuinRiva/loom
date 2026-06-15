@@ -27,6 +27,7 @@ import {
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -136,16 +137,108 @@ function withInstanceIdentity(input: {
   });
 }
 
+/**
+ * Curated "top / recommended" shortlist surfaced first in the model picker —
+ * the latest model per provider. The default (`PI_DEFAULT_MODEL`, Opus 4.8 on
+ * Vertex) leads. GPT-5.5 is deliberately the `openai-codex` provider id, not
+ * the plain `openai` one. The remaining catalogue (fetched live via
+ * `get_available_models`, see {@link enrichPiSnapshot}) follows in pi's own order.
+ */
+const CURATED_PI_MODELS: ReadonlyArray<{ readonly slug: string; readonly name: string }> = [
+  { slug: PI_DEFAULT_MODEL, name: "Claude Opus 4.8 (Vertex)" },
+  { slug: "openai-codex/gpt-5.5", name: "GPT-5.5" },
+  { slug: "google-vertex/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview (Vertex)" },
+];
+const curatedRank = (slug: string): number => {
+  const index = CURATED_PI_MODELS.findIndex((model) => model.slug === slug);
+  return index === -1 ? CURATED_PI_MODELS.length : index;
+};
+
+interface PiAvailableModel {
+  readonly id: string;
+  readonly name: string;
+  readonly provider: string;
+}
+
+function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
+  return settings.customModels.map((slug) => ({
+    slug,
+    name: slug,
+    isCustom: true,
+    capabilities: PI_CAPABILITIES,
+  }));
+}
+
+/** Synchronous snapshot shown before the live catalogue arrives. */
 function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   return [
-    { slug: PI_DEFAULT_MODEL, name: "Default", isCustom: false, capabilities: PI_CAPABILITIES },
-    ...settings.customModels.map((slug) => ({
-      slug,
-      name: slug,
-      isCustom: true,
+    ...CURATED_PI_MODELS.map((model) => ({
+      slug: model.slug,
+      name: model.name,
+      isCustom: false,
       capabilities: PI_CAPABILITIES,
     })),
+    ...piCustomModels(settings),
   ];
+}
+
+/** Full pi catalogue, curated shortlist first, then pi's own order, then custom. */
+function piCatalogModels(
+  available: ReadonlyArray<PiAvailableModel>,
+  settings: PiSettings,
+): ReadonlyArray<ServerProviderModel> {
+  const builtIn = available
+    .map((model) => ({
+      slug: `${model.provider}/${model.id}`,
+      name: model.name,
+      isCustom: false as const,
+      capabilities: PI_CAPABILITIES,
+    }))
+    .sort((a, b) => curatedRank(a.slug) - curatedRank(b.slug));
+  return [...builtIn, ...piCustomModels(settings)];
+}
+
+/**
+ * Replace the snapshot's placeholder model list with pi's live catalogue by
+ * running a throwaway `pi --mode rpc` process and asking `get_available_models`.
+ * Failures (pi not installed, not authed, RPC error) are logged and ignored so
+ * the picker falls back to the curated shortlist.
+ */
+function enrichPiSnapshot(input: {
+  readonly settings: PiSettings;
+  readonly serverConfig: ServerConfigShape;
+  readonly snapshot: ServerProvider;
+  readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
+}): Effect.Effect<void> {
+  if (!input.settings.enabled) return Effect.void;
+  return Effect.gen(function* () {
+    const platform = yield* HostProcessPlatform;
+    const response = yield* Effect.acquireUseRelease(
+      Effect.promise(() =>
+        createPiRpcProcess({
+          binaryPath: input.settings.binaryPath,
+          platform,
+          cwd: input.serverConfig.cwd,
+          env: process.env,
+        }),
+      ),
+      (proc) =>
+        Effect.promise(() =>
+          proc.request<{ readonly models: ReadonlyArray<PiAvailableModel> }>({
+            type: "get_available_models",
+          }),
+        ),
+      (proc) => Effect.promise(() => proc.stop()),
+    );
+    yield* input.publishSnapshot({
+      ...input.snapshot,
+      models: piCatalogModels(response.data?.models ?? [], input.settings),
+    });
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Pi model catalog enrichment failed", { cause: Cause.pretty(cause) }),
+    ),
+  );
 }
 
 function makePiProvider(settings: PiSettings, checkedAt: string): ServerProviderDraft {
@@ -222,7 +315,6 @@ function toolItemType(
 }
 
 function resolvePiModel(model: string): { provider: string; modelId: string } | undefined {
-  if (model === PI_DEFAULT_MODEL) return undefined;
   const slash = model.indexOf("/");
   return slash > 0 && slash < model.length - 1
     ? { provider: model.slice(0, slash), modelId: model.slice(slash + 1) }
@@ -728,6 +820,13 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         checkProvider: nowIso.pipe(
           Effect.map((checkedAt) => stampIdentity(makePiProvider(effectiveConfig, checkedAt))),
         ),
+        enrichSnapshot: ({ snapshot: currentSnapshot, publishSnapshot }) =>
+          enrichPiSnapshot({
+            settings: effectiveConfig,
+            serverConfig,
+            snapshot: currentSnapshot,
+            publishSnapshot,
+          }),
         refreshInterval: SNAPSHOT_REFRESH_INTERVAL,
       }).pipe(
         Effect.mapError(

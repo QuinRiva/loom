@@ -136,7 +136,7 @@ const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
 export const DEFAULT_MODEL = "gpt-5.4";
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL = "gpt-5.4-mini";
-export const PI_DEFAULT_MODEL = "pi/default";
+export const PI_DEFAULT_MODEL = "google-vertex-claude/claude-opus-4-8";
 export const PI_THINKING_LEVEL_OPTIONS = [
   "off",
   "minimal",
