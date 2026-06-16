@@ -1,4 +1,5 @@
 import { FileDiff, Virtualizer } from "@pierre/diffs/react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import type { TurnId } from "@t3tools/contracts";
@@ -39,6 +40,7 @@ import { selectProjectByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { useSettings } from "../hooks/useSettings";
+import { resolvePrimaryEnvironmentHttpUrl } from "../environments/primary";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -147,6 +149,16 @@ const DIFF_PANEL_UNSAFE_CSS = `
 
 interface DiffPanelProps {
   mode?: DiffPanelMode;
+}
+
+async function fetchHeadDiff(input: { cwd: string; ignoreWhitespace: boolean }): Promise<string> {
+  const url = resolvePrimaryEnvironmentHttpUrl("/api/goals/diff", {
+    cwd: input.cwd,
+    ...(input.ignoreWhitespace ? { ignoreWhitespace: "1" } : {}),
+  });
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(await response.text());
+  return response.text();
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -273,12 +285,17 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     },
     { enabled: isGitRepo },
   );
+  const headDiffQuery = useQuery({
+    queryKey: ["headDiff", activeCwd, diffIgnoreWhitespace],
+    queryFn: () => fetchHeadDiff({ cwd: activeCwd!, ignoreWhitespace: diffIgnoreWhitespace }),
+    enabled: isGitRepo && activeCwd != null && !selectedTurn,
+  });
   const selectedTurnCheckpointDiff = selectedTurn ? activeCheckpointDiff.data?.diff : undefined;
-  const conversationCheckpointDiff = selectedTurn ? undefined : activeCheckpointDiff.data?.diff;
-  const isLoadingCheckpointDiff = activeCheckpointDiff.isPending;
-  const checkpointDiffError = activeCheckpointDiff.error;
+  const headDiff = selectedTurn ? undefined : headDiffQuery.data;
+  const isLoadingCheckpointDiff = selectedTurn ? activeCheckpointDiff.isPending : headDiffQuery.isPending;
+  const checkpointDiffError = selectedTurn ? activeCheckpointDiff.error : headDiffQuery.error;
 
-  const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
+  const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : headDiff;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
@@ -491,7 +508,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   : "border-border/70 bg-background/70 text-muted-foreground/80 hover:border-border hover:text-foreground/80",
               )}
             >
-              <div className="text-[10px] leading-tight font-medium">All turns</div>
+              <div className="text-[10px] leading-tight font-medium">HEAD diff</div>
             </div>
           </button>
           {orderedTurnDiffSummaries.map((summary) => (
@@ -611,10 +628,6 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
-      ) : orderedTurnDiffSummaries.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
-          No completed turns yet.
-        </div>
       ) : (
         <>
           <div
@@ -623,7 +636,11 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
           >
             {checkpointDiffError && !renderablePatch && (
               <div className="px-3">
-                <p className="mb-2 text-[11px] text-red-500/80">{checkpointDiffError}</p>
+                <p className="mb-2 text-[11px] text-red-500/80">
+                  {checkpointDiffError instanceof Error
+                    ? checkpointDiffError.message
+                    : checkpointDiffError}
+                </p>
               </div>
             )}
             {!renderablePatch ? (
@@ -633,7 +650,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
                   <p>
                     {hasNoNetChanges
-                      ? "No net changes in this selection."
+                      ? "No git diff vs HEAD for this worktree."
                       : "No patch available for this selection."}
                   </p>
                 </div>

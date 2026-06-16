@@ -2,7 +2,12 @@
 
 > Updated 2026-06-16 by the Phase 3 worker: sub-part 1 sidebar mixed tree is implemented and headless-verified (`pnpm typecheck`, `pnpm build`).
 
-## Phase 3 (goal UI) — IN PROGRESS (2026-06-16)
+## Phase 3 (goal UI) — DONE HEADLESS (2026-06-16)
+
+### Sub-part 4 — Diff vs HEAD using @pierre/diffs — DONE
+- `GET /api/goals/diff?cwd=...` returns `git diff --no-ext-diff --no-color` for the session worktree, with the existing whitespace toggle mapped to `--ignore-all-space`.
+- `DiffPanel.tsx` now uses the existing `@pierre/diffs` renderer for the default `HEAD diff` view, with checkpoint/turn diffs still available when a specific turn is selected.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
 
 ### Sub-part 3 — Goal overview + file-backed goal/task rendering — DONE
 - The chat index now becomes a goal overview when file-backed goals exist.

@@ -6,11 +6,13 @@
  * the source of truth and the next scan picks it up.
  */
 // @effect-diagnostics nodeBuiltinImport:off
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -42,6 +44,20 @@ export const goalsRouteLayer = Layer.mergeAll(
       const goalsService = yield* GoalsService;
       const goals = yield* goalsService.rescan();
       return HttpServerResponse.jsonUnsafe({ goals });
+    }),
+  ),
+  HttpRouter.add(
+    "GET",
+    "/api/goals/diff",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = HttpServerRequest.toURL(request);
+      if (Option.isNone(url)) return HttpServerResponse.text("Bad Request", { status: 400 });
+      const cwd = url.value.searchParams.get("cwd");
+      if (!cwd) return HttpServerResponse.text("cwd is required.", { status: 400 });
+      const args = ["diff", "--no-ext-diff", "--no-color"];
+      if (url.value.searchParams.get("ignoreWhitespace") === "1") args.push("--ignore-all-space");
+      return HttpServerResponse.text(execFileSync("git", args, { cwd, encoding: "utf8" }));
     }),
   ),
   HttpRouter.add(
