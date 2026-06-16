@@ -58,6 +58,9 @@ export const ProviderSessionStartInput = Schema.Struct({
   cwd: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
+  // Standing instruction appended to the session's system prompt once at
+  // session spawn (e.g. the active-goal context). Not part of any turn input.
+  appendSystemPrompt: Schema.optional(TrimmedNonEmptyString),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,

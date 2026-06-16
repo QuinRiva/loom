@@ -88,9 +88,9 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
-const GOALLESS_CONTEXT_PREFIX = "No active goal is set. If this becomes substantial multi-step work, create one at `goals/<slug>/goal.md` using: `# <title>` / `## Goal <one-paragraph objective>` / `## Tasks` (nested `- [ ]` checklist).";
+const GOALLESS_CONTEXT_INSTRUCTION = "No active goal is set. If this becomes substantial multi-step work, create one at `goals/<slug>/goal.md` using: `# <title>` / `## Goal <one-paragraph objective>` / `## Tasks` (nested `- [ ]` checklist).";
 
-const activeGoalContextPrefix = (goalFilePath: string) =>
+const activeGoalContextInstruction = (goalFilePath: string) =>
   `Active goal: \`${goalFilePath}\`. Read it before substantive work. Keep its \`## Tasks\` checklist updated as you complete items (check off \`- [x]\`, add new subtasks as they emerge). The \`## Goal\` paragraph is the north star — if the work diverges from it, update the paragraph or flag the divergence.`;
 
 export function providerErrorLabel(value: string | undefined): string {
@@ -355,17 +355,19 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const buildGoalContextPrefix = Effect.fn("buildGoalContextPrefix")(function* (thread: {
+  // Standing goal-context instruction, delivered once per session by appending
+  // to the pi system prompt at session spawn (never prepended per turn).
+  const buildGoalSystemPrompt = Effect.fn("buildGoalSystemPrompt")(function* (thread: {
     readonly projectId: ProjectId;
     readonly goalSlug: string | null;
   }) {
-    if (!thread.goalSlug) return GOALLESS_CONTEXT_PREFIX;
+    if (!thread.goalSlug) return GOALLESS_CONTEXT_INSTRUCTION;
     const goals = yield* goalsService.rescan();
     const goalFilePath =
       goals
         .find((goal) => goal.projectId === thread.projectId && goal.slug === thread.goalSlug)
         ?.packagePath.replaceAll("\\", "/") ?? `goals/${thread.goalSlug}`;
-    return activeGoalContextPrefix(`${goalFilePath}/goal.md`);
+    return activeGoalContextInstruction(`${goalFilePath}/goal.md`);
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -494,14 +496,18 @@ const make = Effect.gen(function* () {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderDriverKind;
     }) =>
-      providerService.startSession(threadId, {
-        threadId,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
-        providerInstanceId: desiredInstanceId,
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
+      Effect.gen(function* () {
+        const goalSystemPrompt = yield* buildGoalSystemPrompt(thread);
+        return yield* providerService.startSession(threadId, {
+          threadId,
+          ...(preferredProvider ? { provider: preferredProvider } : {}),
+          providerInstanceId: desiredInstanceId,
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          ...(goalSystemPrompt ? { appendSystemPrompt: goalSystemPrompt } : {}),
+          runtimeMode: desiredRuntimeMode,
+        });
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -624,13 +630,8 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedMessage = toNonEmptyProviderInput(input.messageText);
+    const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
-    const goalContextPrefix = yield* buildGoalContextPrefix(thread);
-    const normalizedInput =
-      normalizedMessage || normalizedAttachments.length > 0
-        ? `${goalContextPrefix}${normalizedMessage ? `\n\n${normalizedMessage}` : ""}`
-        : undefined;
     const activeSession = yield* providerService
       .listSessions()
       .pipe(

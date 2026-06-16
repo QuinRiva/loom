@@ -544,6 +544,9 @@ function makePiAdapter(input: {
               binaryPath: input.settings.binaryPath,
               platform,
               cwd: startInput.cwd ?? input.serverConfig.cwd,
+              ...(startInput.appendSystemPrompt
+                ? { appendSystemPrompt: startInput.appendSystemPrompt }
+                : {}),
               env: process.env,
             }),
           catch: (cause) =>

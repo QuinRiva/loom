@@ -145,6 +145,7 @@ export interface PiRpcProcessOptions {
   readonly platform: NodeJS.Platform;
   readonly cwd?: string | undefined;
   readonly sessionFile?: string | undefined;
+  readonly appendSystemPrompt?: string | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
 }
 
@@ -213,6 +214,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
   const args = [
     ...invocation.args,
     ...(options.sessionFile ? ["--session", options.sessionFile] : []),
+    ...(options.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),
   ];
   const useWindowsShell = shouldUseWindowsPiShell(invocation.command, options.platform);
   const command = useWindowsShell

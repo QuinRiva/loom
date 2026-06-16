@@ -1,12 +1,13 @@
 # pi-frontend progress
 
-> Updated 2026-06-16 by the agent-participation worker: goal-context prefixes are now prepended on provider turn start from thread `goalSlug` + `GoalsService`; `pnpm typecheck` and `pnpm build` are green.
+> Updated 2026-06-16 by the goal-context fix worker: replaced the per-turn goal-context prefix with a once-per-session standing instruction injected via pi `--append-system-prompt` at session spawn; `pnpm typecheck` and `pnpm build` are green.
 
-## Agent participation layer — DONE HEADLESS (2026-06-16)
-- Provider turn-start now prepends a goal-context prefix to the prompt text before dispatching to the pi provider.
-- Threads with `goalSlug` resolve the goal package via `GoalsService.rescan()` and inject the discovered `goals/<slug>/goal.md` path; missing goal packages fall back to the conventional `goals/<slug>/goal.md` path.
-- Goalless threads get a lighter nudge to create a goal package if the work becomes substantial.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Real-pi behavior (whether pi updates `goal.md`) remains for the user to verify.
+## Agent participation layer — REWORKED: once-per-session (2026-06-16)
+- **Removed** the per-turn prepend in `buildSendTurnRequestForThread` (it polluted every user message and wasted tokens). Turn input is now the raw normalized message again.
+- Goal context is delivered **once per session** by appending it to the pi system prompt at spawn: `ProviderSessionStartInput.appendSystemPrompt` (new optional field) → `ProviderService.startSession` → `PiDriver.startSession` → `createPiRpcProcess` → `pi --mode rpc --append-system-prompt <text>`.
+- `ProviderCommandReactor.ensureSessionForThread` builds the instruction lazily inside `startProviderSession` (so the `GoalsService.rescan()` only runs when a session actually starts/restarts, not on every turn). Threads with `goalSlug` resolve `goals/<slug>/goal.md` via `GoalsService.rescan()`; missing packages fall back to the conventional path. Goalless threads get the lighter "create a goal" nudge — also once per session.
+- Non-pi drivers ignore `appendSystemPrompt` (only PiDriver reads it). The `GoalsService` test/integration mock layers added in `e1e3adf` are retained because the reactor still depends on `GoalsService`.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Real-pi behavior (whether the appended system prompt lands and pi updates `goal.md`) remains for the user to verify against a running instance.
 
 > Updated 2026-06-16 by the defect-fix worker: fixed goal/project sidebar collapse behavior and the dots-only goal slug guard; `pnpm typecheck` and `pnpm build` are green.
 
