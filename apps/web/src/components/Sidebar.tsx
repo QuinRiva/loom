@@ -921,6 +921,17 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     }
     return rows;
   }, [goalBySlug, projectGoals, threadsByGoalSlug]);
+  const [collapsedGoalSlugs, setCollapsedGoalSlugs] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleGoal = useCallback((slug: string) => {
+    setCollapsedGoalSlugs((current) => {
+      const next = new Set(current);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }, []);
 
   return (
     <SidebarMenuSub
@@ -937,17 +948,29 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
           </div>
         </SidebarMenuSubItem>
       ) : null}
-      {shouldShowThreadPanel &&
+      {projectExpanded &&
         goalRows.map((goal) => {
           const goalThreads = threadsByGoalSlug.get(goal.slug) ?? [];
+          const goalExpanded = !collapsedGoalSlugs.has(goal.slug);
           return (
-            <SidebarMenuSubItem key={`goal:${goal.slug}`} className="w-full" data-thread-selection-safe>
-              <div
+            <SidebarMenuSubItem
+              key={`goal:${goal.slug}`}
+              className="w-full"
+              data-thread-selection-safe
+            >
+              <button
+                type="button"
                 data-thread-selection-safe
-                className="flex h-6 w-full translate-x-0 items-center gap-1.5 px-2 text-left text-[10px] text-muted-foreground/80"
+                className="flex h-6 w-full translate-x-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
                 title={goal.title || goal.slug}
+                aria-expanded={goalExpanded}
+                onClick={() => toggleGoal(goal.slug)}
               >
-                <ChevronRightIcon className="size-3 rotate-90 text-muted-foreground/60" />
+                <ChevronRightIcon
+                  className={`size-3 text-muted-foreground/60 transition-transform ${
+                    goalExpanded ? "rotate-90" : ""
+                  }`}
+                />
                 <span className="min-w-0 flex-1 truncate font-medium">
                   {goal.title || goal.slug}
                 </span>
@@ -956,44 +979,48 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                     {goal.progress.done}/{goal.progress.total}
                   </span>
                 ) : null}
-              </div>
-              <SidebarMenuSub className="mx-0 ml-3 gap-0.5 overflow-hidden px-0 py-0">
-                {goalThreads.map((thread) => {
-                  const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-                  return (
-                    <SidebarThreadRow
-                      key={threadKey}
-                      thread={thread}
-                      projectCwd={projectCwd}
-                      orderedProjectThreadKeys={orderedProjectThreadKeys}
-                      isActive={activeRouteThreadKey === threadKey}
-                      jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
-                      appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-                      renamingThreadKey={renamingThreadKey}
-                      renamingTitle={renamingTitle}
-                      setRenamingTitle={setRenamingTitle}
-                      renamingInputRef={renamingInputRef}
-                      renamingCommittedRef={renamingCommittedRef}
-                      confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-                      setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-                      confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-                      handleThreadClick={handleThreadClick}
-                      navigateToThread={navigateToThread}
-                      handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-                      handleThreadContextMenu={handleThreadContextMenu}
-                      clearSelection={clearSelection}
-                      commitRename={commitRename}
-                      cancelRename={cancelRename}
-                      attemptArchiveThread={attemptArchiveThread}
-                      openPrLink={openPrLink}
-                    />
-                  );
-                })}
-              </SidebarMenuSub>
+              </button>
+              {goalExpanded ? (
+                <SidebarMenuSub className="mx-0 ml-3 gap-0.5 overflow-hidden px-0 py-0">
+                  {goalThreads.map((thread) => {
+                    const threadKey = scopedThreadKey(
+                      scopeThreadRef(thread.environmentId, thread.id),
+                    );
+                    return (
+                      <SidebarThreadRow
+                        key={threadKey}
+                        thread={thread}
+                        projectCwd={projectCwd}
+                        orderedProjectThreadKeys={orderedProjectThreadKeys}
+                        isActive={activeRouteThreadKey === threadKey}
+                        jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
+                        appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+                        renamingThreadKey={renamingThreadKey}
+                        renamingTitle={renamingTitle}
+                        setRenamingTitle={setRenamingTitle}
+                        renamingInputRef={renamingInputRef}
+                        renamingCommittedRef={renamingCommittedRef}
+                        confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+                        setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+                        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                        handleThreadClick={handleThreadClick}
+                        navigateToThread={navigateToThread}
+                        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                        handleThreadContextMenu={handleThreadContextMenu}
+                        clearSelection={clearSelection}
+                        commitRename={commitRename}
+                        cancelRename={cancelRename}
+                        attemptArchiveThread={attemptArchiveThread}
+                        openPrLink={openPrLink}
+                      />
+                    );
+                  })}
+                </SidebarMenuSub>
+              ) : null}
             </SidebarMenuSubItem>
           );
         })}
-      {shouldShowThreadPanel &&
+      {projectExpanded &&
         looseThreads.map((thread) => {
           const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
           return (
@@ -1375,7 +1402,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       renderedThreads,
       showEmptyThreadState:
         projectExpanded && visibleProjectThreads.length === 0 && projectGoals.length === 0,
-      shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
+      shouldShowThreadPanel: projectExpanded,
     };
   }, [
     isThreadListExpanded,
@@ -3344,17 +3371,7 @@ export default function Sidebar() {
           sidebarThreadSortOrder,
         );
         const projectExpanded = projectExpandedById[project.projectKey] ?? true;
-        const activeThreadKey = routeThreadKey ?? undefined;
-        const pinnedCollapsedThread =
-          !projectExpanded && activeThreadKey
-            ? (projectThreads.find(
-                (thread) =>
-                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                  activeThreadKey,
-              ) ?? null)
-            : null;
-        const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
-        if (!shouldShowThreadPanel) {
+        if (!projectExpanded) {
           return [];
         }
         const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
@@ -3363,8 +3380,7 @@ export default function Sidebar() {
           isThreadListExpanded || !hasOverflowingThreads
             ? projectThreads
             : projectThreads.slice(0, sidebarThreadPreviewCount);
-        const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
-        return renderedThreads.map((thread) =>
+        return previewThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
       }),
@@ -3373,7 +3389,6 @@ export default function Sidebar() {
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,
       projectExpandedById,
-      routeThreadKey,
       sortedProjects,
       threadsByProjectKey,
     ],

@@ -1,5 +1,13 @@
 # pi-frontend progress
 
+> Updated 2026-06-16 by the defect-fix worker: fixed goal/project sidebar collapse behavior and the dots-only goal slug guard; `pnpm typecheck` and `pnpm build` are green.
+
+## Phase 3 defect fixes — DONE HEADLESS (2026-06-16)
+- Goal rows in `Sidebar.tsx` now have per-goal collapse state keyed by goal slug; clicking the goal caret expands/collapses that goal's sessions.
+- Collapsed project rows now hide the Phase 3 goal subtree and loose sessions instead of leaving goal rows visible.
+- `POST /api/goals` now rejects cleaned slugs that are empty or dots-only, preventing `..` from escaping `goals/`.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser behavior remains for the user to verify in-browser.
+
 > Updated 2026-06-16 by the Phase 3 worker: sub-part 1 sidebar mixed tree is implemented and headless-verified (`pnpm typecheck`, `pnpm build`).
 
 ## Phase 3 (goal UI) — DONE HEADLESS (2026-06-16)

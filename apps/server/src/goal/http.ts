@@ -67,7 +67,9 @@ export const goalsRouteLayer = Layer.mergeAll(
       const request = yield* HttpServerRequest.HttpServerRequest;
       const body = (yield* request.json) as unknown as CreateGoalRequest;
       const slug = cleanSlug(body.slug);
-      if (!slug) return HttpServerResponse.text("Goal slug is required.", { status: 400 });
+      if (!slug || /^\.+$/.test(slug)) {
+        return HttpServerResponse.text("Goal slug is required.", { status: 400 });
+      }
 
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
       const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
