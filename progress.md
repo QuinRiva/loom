@@ -1,5 +1,13 @@
 # pi-frontend progress
 
+> Updated 2026-06-16 by the agent-participation worker: goal-context prefixes are now prepended on provider turn start from thread `goalSlug` + `GoalsService`; `pnpm typecheck` and `pnpm build` are green.
+
+## Agent participation layer — DONE HEADLESS (2026-06-16)
+- Provider turn-start now prepends a goal-context prefix to the prompt text before dispatching to the pi provider.
+- Threads with `goalSlug` resolve the goal package via `GoalsService.rescan()` and inject the discovered `goals/<slug>/goal.md` path; missing goal packages fall back to the conventional `goals/<slug>/goal.md` path.
+- Goalless threads get a lighter nudge to create a goal package if the work becomes substantial.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Real-pi behavior (whether pi updates `goal.md`) remains for the user to verify.
+
 > Updated 2026-06-16 by the defect-fix worker: fixed goal/project sidebar collapse behavior and the dots-only goal slug guard; `pnpm typecheck` and `pnpm build` are green.
 
 ## Phase 3 defect fixes — DONE HEADLESS (2026-06-16)

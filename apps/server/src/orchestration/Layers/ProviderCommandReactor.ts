@@ -41,6 +41,7 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { GoalsService } from "../../goal/GoalsService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -87,6 +88,10 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
+const GOALLESS_CONTEXT_PREFIX = "No active goal is set. If this becomes substantial multi-step work, create one at `goals/<slug>/goal.md` using: `# <title>` / `## Goal <one-paragraph objective>` / `## Tasks` (nested `- [ ]` checklist).";
+
+const activeGoalContextPrefix = (goalFilePath: string) =>
+  `Active goal: \`${goalFilePath}\`. Read it before substantive work. Keep its \`## Tasks\` checklist updated as you complete items (check off \`- [x]\`, add new subtasks as they emerge). The \`## Goal\` paragraph is the north star — if the work diverges from it, update the paragraph or flag the divergence.`;
 
 export function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -196,6 +201,7 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const goalsService = yield* GoalsService;
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -347,6 +353,19 @@ const make = Effect.gen(function* () {
       method: "thread.turn.start",
       detail: `Thread '${input.threadId}' cannot switch models after the conversation has started. Start a new thread to use '${requestedModelSelection.model}'.`,
     });
+  });
+
+  const buildGoalContextPrefix = Effect.fn("buildGoalContextPrefix")(function* (thread: {
+    readonly projectId: ProjectId;
+    readonly goalSlug: string | null;
+  }) {
+    if (!thread.goalSlug) return GOALLESS_CONTEXT_PREFIX;
+    const goals = yield* goalsService.rescan();
+    const goalFilePath =
+      goals
+        .find((goal) => goal.projectId === thread.projectId && goal.slug === thread.goalSlug)
+        ?.packagePath.replaceAll("\\", "/") ?? `goals/${thread.goalSlug}`;
+    return activeGoalContextPrefix(`${goalFilePath}/goal.md`);
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -605,8 +624,13 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
+    const normalizedMessage = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
+    const goalContextPrefix = yield* buildGoalContextPrefix(thread);
+    const normalizedInput =
+      normalizedMessage || normalizedAttachments.length > 0
+        ? `${goalContextPrefix}${normalizedMessage ? `\n\n${normalizedMessage}` : ""}`
+        : undefined;
     const activeSession = yield* providerService
       .listSessions()
       .pipe(
