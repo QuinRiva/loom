@@ -63,6 +63,7 @@ import {
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { resolvePrimaryEnvironmentHttpUrl, usePrimaryEnvironmentId } from "../environments/primary";
+import { fetchGoalIndex, type GoalIndexEntry } from "../goals/goalIndex";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -216,29 +217,6 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
-
-interface GoalTaskNode {
-  readonly text: string;
-  readonly done: boolean;
-  readonly children: ReadonlyArray<GoalTaskNode>;
-}
-
-interface GoalIndexEntry {
-  readonly projectId: ProjectId;
-  readonly slug: string;
-  readonly title: string;
-  readonly goalParagraph: string;
-  readonly tasks: ReadonlyArray<GoalTaskNode>;
-  readonly progress: { readonly done: number; readonly total: number };
-}
-
-async function fetchGoalIndex(): Promise<ReadonlyArray<GoalIndexEntry>> {
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/goals"));
-  if (!response.ok) {
-    throw new Error(`Failed to load goals (${response.status})`);
-  }
-  return ((await response.json()) as { goals?: ReadonlyArray<GoalIndexEntry> }).goals ?? [];
-}
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
   repository_path: "Group by repository path",
