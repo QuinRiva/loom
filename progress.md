@@ -1,5 +1,56 @@
 # pi-frontend progress
 
+> Updated 2026-06-16 by the goal-UI-redesign worker: implemented the approved
+> `ui-redesign-spec.md` (header goal section, Tasks right-panel surface,
+> new-session-under-a-goal, and the goal-index/TaskTree refactor).
+> `pnpm typecheck` + `pnpm build` GREEN; touched unit tests pass.
+
+## Goal UI redesign — DONE HEADLESS (2026-06-16)
+
+### Refactor (shared goal client + hoisted TaskTree)
+- New `apps/web/src/goals/goalIndex.tsx`: single definition of `GoalTaskNode` /
+  `GoalIndexEntry` (carries `projectId`), `fetchGoalIndex`, a `useGoalIndex()`
+  polling hook (5s), and the shared `TaskTree` renderer. The triplicated copies
+  in `_chat.index.tsx` and `Sidebar.tsx` now import from it.
+
+### 1. Header goal section (`chat/ChatHeader.tsx`)
+- `GoalHeaderSection` renders next to the session title only when the active
+  thread has a `goalSlug`. Collapsed = title + `done/total`; expanded (click) =
+  the `## Goal` paragraph. Live via `useGoalIndex`; missing package → compact
+  "Missing goal package: <slug>" pill. `goalSlug` prop threaded from ChatView.
+
+### 2. Tasks right-panel surface
+- `rightPanelStore.ts`: `"tasks"` added to `RIGHT_PANEL_KINDS`, the
+  `RightPanelSurface` union (`{ id: "tasks"; kind: "tasks" }`), and the
+  `singletonSurface` factory.
+- `RightPanelTabs.tsx`: `ListTodo` icon + "Tasks" title in `SurfaceIcon` /
+  `surfaceTitle`, plus an add-menu item (`onAddTasks` / `tasksAvailable`).
+- `ChatView.tsx`: new `GoalTasksPanel` (read-only, `useGoalIndex`) rendered in
+  BOTH the inline (wide) and sheet (narrow) content switches. **Fixed the
+  pre-existing asymmetry** where the `plan` surface rendered `null` in the inline
+  branch (plan now renders in both). `addTasksSurface` callback + auto-open
+  effect for goal-bound sessions (mirrors `autoOpenPlanSidebar`, keyed on thread
+  id + goalSlug). Plan/Diff/Terminal/Preview untouched.
+
+### 3. New session under a goal
+- `Sidebar.tsx`: hover-revealed new-session button on each real goal node (skips
+  synthetic "missing package" rows) → `createGoalSession(slug, projectId)` →
+  `createThreadForProjectMember(member, { goalSlug })`. Project new-thread and
+  the retroactive assign/create menus are unchanged.
+- `goalSlug` threaded at creation: `useHandleNewThread` options →
+  `composerDraftStore` (`DraftSessionState` + persisted schema + hydrate +
+  `createDraftThreadState` + `setDraftThreadContext` + `draftThreadsEqual`) →
+  `buildLocalDraftThread` → ChatView `bootstrap.createThread` →
+  `ThreadTurnStartBootstrapCreateThread` contract (added `goalSlug`) → `ws.ts`
+  `thread.create` dispatch. Decider/projector already persist `goalSlug`, so the
+  session nests under the goal immediately.
+
+### Verification
+- `pnpm typecheck` GREEN; `pnpm build` GREEN. Unit tests for the touched areas
+  pass (composerDraftStore 68, rightPanelStore/ChatView.logic 50, Sidebar.logic
+  + chatThreadActions + contracts 88). Interactive behavior (expand/collapse,
+  auto-open, nesting, both layouts) is for the user to verify in-browser.
+
 > Updated 2026-06-16 by the goal-context fix worker: replaced the per-turn goal-context prefix with a once-per-session standing instruction injected via pi `--append-system-prompt` at session spawn; `pnpm typecheck` and `pnpm build` are green.
 
 ## Agent participation layer — REWORKED: once-per-session (2026-06-16)
