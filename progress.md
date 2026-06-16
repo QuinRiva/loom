@@ -4,6 +4,12 @@
 
 ## Phase 3 (goal UI) — IN PROGRESS (2026-06-16)
 
+### Sub-part 3 — Goal overview + file-backed goal/task rendering — DONE
+- The chat index now becomes a goal overview when file-backed goals exist.
+- Each goal card renders the H1 title, the `## Goal` paragraph, progress, and the nested `## Tasks` checklist from `/api/goals`.
+- The view polls `/api/goals`, so edits to `goal.md` are picked up by the existing file-centric rescan path.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
+
 ### Sub-part 2 — Create goal from session / assign session to goal — DONE
 - `thread.meta.update` now accepts/emits `goalSlug` so a thread can be assigned/reassigned/cleared after creation; decider, projector, projection pipeline, and web store all apply it.
 - `POST /api/goals` scaffolds `goals/<slug>/goal.md` in the active thread worktree (or project root fallback) and rescans the file-centric goal index.
