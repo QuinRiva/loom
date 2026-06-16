@@ -14,7 +14,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export const RIGHT_PANEL_KINDS = ["plan", "diff", "preview", "terminal"] as const;
+export const RIGHT_PANEL_KINDS = ["plan", "tasks", "diff", "preview", "terminal"] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export type RightPanelSurface =
@@ -29,7 +29,8 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
-  | { id: "plan"; kind: "plan" };
+  | { id: "plan"; kind: "plan" }
+  | { id: "tasks"; kind: "tasks" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 5;
@@ -77,6 +78,8 @@ const singletonSurface = (
       return { id: "diff", kind };
     case "plan":
       return { id: "plan", kind };
+    case "tasks":
+      return { id: "tasks", kind };
   }
 };
 

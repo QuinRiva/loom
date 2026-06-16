@@ -114,6 +114,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
+import { GoalTasksPanel } from "./GoalTasksPanel";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { RightPanelTabs } from "./RightPanelTabs";
@@ -2257,6 +2258,10 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
     threadId,
   ]);
+  const addTasksSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "tasks");
+  }, [activeThreadRef]);
   // Right-panel arbitration:
   //   - The diff panel's openness is mirrored by the `?diff=1` URL search
   //     param so it deep-links cleanly. The store still records preview/plan
@@ -3173,6 +3178,17 @@ export default function ChatView(props: ChatViewProps) {
     planSidebarOpen,
     sidebarProposedPlan?.turnId,
   ]);
+
+  // Auto-open the Tasks surface once when a goal-bound session becomes active,
+  // so the goal's TODO tree is visible without a manual open (mirrors the plan
+  // sidebar auto-open). Keyed on thread id + goal so it fires per goal session,
+  // not on every render; the user can still close it within the session.
+  useEffect(() => {
+    if (!activeThreadRef) return;
+    if (!activeThread?.goalSlug) return;
+    useRightPanelStore.getState().open(activeThreadRef, "tasks");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
+  }, [activeThread?.id, activeThread?.goalSlug]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -4740,8 +4756,10 @@ export default function ChatView(props: ChatViewProps) {
           onAddBrowser={createBrowserSurface}
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
+          onAddTasks={addTasksSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
+          tasksAvailable={Boolean(activeThread.goalSlug)}
         >
           {activeRightPanelSurface?.kind === "preview" ? (
             <Suspense fallback={null}>
@@ -4777,6 +4795,21 @@ export default function ChatView(props: ChatViewProps) {
                 <DiffPanel mode="embedded" />
               </Suspense>
             </DiffWorkerPoolProvider>
+          ) : activeRightPanelSurface?.kind === "plan" ? (
+            <PlanSidebar
+              activePlan={activePlan}
+              activeProposedPlan={sidebarProposedPlan}
+              label={planSidebarLabel}
+              environmentId={environmentId}
+              threadRef={activeThreadRef}
+              markdownCwd={gitCwd ?? undefined}
+              workspaceRoot={activeWorkspaceRoot}
+              timestampFormat={timestampFormat}
+              mode="embedded"
+              onClose={closePlanSidebar}
+            />
+          ) : activeRightPanelSurface?.kind === "tasks" ? (
+            <GoalTasksPanel goalSlug={activeThread.goalSlug ?? null} />
           ) : null}
         </RightPanelTabs>
       ) : null}
@@ -4794,8 +4827,10 @@ export default function ChatView(props: ChatViewProps) {
             onAddBrowser={createBrowserSurface}
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
+            onAddTasks={addTasksSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
+            tasksAvailable={Boolean(activeThread.goalSlug)}
           >
             {activeRightPanelSurface?.kind === "preview" ? (
               <Suspense fallback={null}>
@@ -4844,6 +4879,8 @@ export default function ChatView(props: ChatViewProps) {
                 mode="embedded"
                 onClose={closePlanSidebar}
               />
+            ) : activeRightPanelSurface?.kind === "tasks" ? (
+              <GoalTasksPanel goalSlug={activeThread.goalSlug ?? null} />
             ) : null}
           </RightPanelTabs>
         </RightPanelSheet>

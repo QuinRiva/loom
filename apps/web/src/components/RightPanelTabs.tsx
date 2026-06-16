@@ -1,6 +1,6 @@
 import type { PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { ClipboardList, FileDiff, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import { ClipboardList, FileDiff, Globe2, ListTodo, Plus, TerminalSquare, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { isElectron } from "~/env";
@@ -23,8 +23,10 @@ interface RightPanelTabsProps {
   onAddBrowser: () => void;
   onAddTerminal: () => void;
   onAddDiff: () => void;
+  onAddTasks: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
+  tasksAvailable: boolean;
   children: ReactNode;
 }
 
@@ -108,6 +110,8 @@ function surfaceTitle(
       );
     case "plan":
       return "Plan";
+    case "tasks":
+      return "Tasks";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -156,6 +160,8 @@ function SurfaceIcon({
       return <TerminalSquare className="size-3.5 shrink-0" />;
     case "plan":
       return <ClipboardList className="size-3.5 shrink-0" />;
+    case "tasks":
+      return <ListTodo className="size-3.5 shrink-0" />;
   }
 }
 
@@ -232,6 +238,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             <MenuItem onClick={props.onAddDiff} disabled={!props.diffAvailable}>
               <FileDiff />
               Diff
+            </MenuItem>
+            <MenuItem onClick={props.onAddTasks} disabled={!props.tasksAvailable}>
+              <ListTodo />
+              Tasks
             </MenuItem>
           </MenuPopup>
         </Menu>
