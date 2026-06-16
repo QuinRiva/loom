@@ -1334,6 +1334,7 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.goalSlug !== undefined ? { goalSlug: event.payload.goalSlug } : {}),
         updatedAt: event.payload.updatedAt,
       }));
 

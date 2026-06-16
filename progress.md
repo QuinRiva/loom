@@ -4,6 +4,12 @@
 
 ## Phase 3 (goal UI) — IN PROGRESS (2026-06-16)
 
+### Sub-part 2 — Create goal from session / assign session to goal — DONE
+- `thread.meta.update` now accepts/emits `goalSlug` so a thread can be assigned/reassigned/cleared after creation; decider, projector, projection pipeline, and web store all apply it.
+- `POST /api/goals` scaffolds `goals/<slug>/goal.md` in the active thread worktree (or project root fallback) and rescans the file-centric goal index.
+- Thread context menu now has `Create goal from thread` and `Assign to goal` actions; create writes the file then sets the thread's `goalSlug`.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
+
 ### Sub-part 1 — Sidebar mixed Project → Goal → Session tree — DONE
 - `Sidebar.tsx` now polls `GET /api/goals` and joins goal metadata to thread `goalSlug`.
 - Project rows render goal package nodes (H1 `title`, falling back to `slug`, with progress) with grouped sessions nested beneath them, while goalless sessions stay directly under the project.

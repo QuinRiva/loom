@@ -53,7 +53,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
@@ -1121,6 +1121,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (settings) => settings.sidebarThreadPreviewCount,
   );
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const toggleProject = useUiStateStore((state) => state.toggleProject);
@@ -2094,10 +2095,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       );
       const threadWorkspacePath = thread.worktreePath ?? threadProject?.cwd ?? project.cwd ?? null;
+      const assignGoalItems: ContextMenuItem<string>[] = projectGoals.map((goal) => ({
+        id: `assign-goal:${goal.slug}`,
+        label: goal.title || goal.slug,
+      }));
+      if (thread.goalSlug) {
+        assignGoalItems.push({ id: "assign-goal:", label: "Clear goal" });
+      }
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
+          { id: "create-goal", label: "Create goal from thread" },
+          ...(assignGoalItems.length > 0
+            ? [{ id: "assign-goal", label: "Assign to goal", children: assignGoalItems }]
+            : []),
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true, icon: "trash" },
@@ -2114,6 +2126,57 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "mark-unread") {
         markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        return;
+      }
+      if (clicked === "create-goal") {
+        const title = window.prompt("Goal title", thread.title)?.trim();
+        if (!title) return;
+        const slug = window
+          .prompt(
+            "Goal slug",
+            title
+              .toLowerCase()
+              .replace(/[^a-z0-9._-]+/g, "-")
+              .replace(/^-+|-+$/g, ""),
+          )
+          ?.trim();
+        if (!slug) return;
+        const goalParagraph = window.prompt("Goal paragraph", title)?.trim() || title;
+        const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/goals"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: thread.projectId,
+            threadId: thread.id,
+            slug,
+            title,
+            goalParagraph,
+          }),
+        });
+        if (!response.ok) {
+          toastManager.add({ type: "error", title: await response.text() });
+          return;
+        }
+        const environmentApi = readEnvironmentApi(thread.environmentId);
+        if (!environmentApi) return;
+        await environmentApi.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: thread.id,
+          goalSlug: slug,
+        });
+        await queryClient.invalidateQueries({ queryKey: ["goals"] });
+        return;
+      }
+      if (clicked?.startsWith("assign-goal:")) {
+        const environmentApi = readEnvironmentApi(thread.environmentId);
+        if (!environmentApi) return;
+        await environmentApi.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: thread.id,
+          goalSlug: clicked.slice("assign-goal:".length) || null,
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -2156,6 +2219,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       markThreadUnread,
       memberProjectByScopedKey,
       project.cwd,
+      projectGoals,
+      queryClient,
     ],
   );
 
