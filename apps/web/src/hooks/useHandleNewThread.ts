@@ -36,6 +36,7 @@ function useNewThreadState() {
       options?: {
         branch?: string | null;
         worktreePath?: string | null;
+        goalSlug?: string | null;
         envMode?: DraftThreadEnvMode;
       },
     ): Promise<void> => {
@@ -58,6 +59,7 @@ function useNewThreadState() {
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
+      const hasGoalSlugOption = options?.goalSlug !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const latestActiveDraftThread: DraftThreadState | null = currentRouteTarget
@@ -67,10 +69,16 @@ function useNewThreadState() {
         : null;
       if (storedDraftThread) {
         return (async () => {
-          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+          if (
+            hasBranchOption ||
+            hasWorktreePathOption ||
+            hasGoalSlugOption ||
+            hasEnvModeOption
+          ) {
             setDraftThreadContext(storedDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+              ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             });
           }
@@ -96,10 +104,16 @@ function useNewThreadState() {
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null
       ) {
-        if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+        if (
+          hasBranchOption ||
+          hasWorktreePathOption ||
+          hasGoalSlugOption ||
+          hasEnvModeOption
+        ) {
           setDraftThreadContext(currentRouteTarget.draftId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+            ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           });
         }
@@ -110,6 +124,7 @@ function useNewThreadState() {
           interactionMode: latestActiveDraftThread.interactionMode,
           ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
           ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+          ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
           ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
         });
         return Promise.resolve();
@@ -124,6 +139,7 @@ function useNewThreadState() {
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
+          goalSlug: options?.goalSlug ?? null,
           envMode: options?.envMode ?? "local",
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });

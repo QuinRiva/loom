@@ -3788,6 +3788,7 @@ export default function ChatView(props: ChatViewProps) {
                 ? {
                     createThread: {
                       projectId: activeProject.id,
+                      goalSlug: activeThread.goalSlug ?? null,
                       title,
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,

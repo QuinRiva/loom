@@ -820,6 +820,7 @@ interface SidebarProjectThreadListProps {
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
+  onNewGoalSession: (goalSlug: string, goalProjectId: ProjectId) => void;
 }
 
 const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
@@ -860,6 +861,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     openPrLink,
     expandThreadListForProject,
     collapseThreadListForProject,
+    onNewGoalSession,
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
@@ -936,28 +938,47 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
               className="w-full"
               data-thread-selection-safe
             >
-              <button
-                type="button"
-                data-thread-selection-safe
-                className="flex h-6 w-full translate-x-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
-                title={goal.title || goal.slug}
-                aria-expanded={goalExpanded}
-                onClick={() => toggleGoal(goal.slug)}
-              >
-                <ChevronRightIcon
-                  className={`size-3 text-muted-foreground/60 transition-transform ${
-                    goalExpanded ? "rotate-90" : ""
-                  }`}
-                />
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  {goal.title || goal.slug}
-                </span>
-                {goal.progress.total > 0 ? (
-                  <span className="shrink-0 tabular-nums text-muted-foreground/55">
-                    {goal.progress.done}/{goal.progress.total}
+              <div className="group/goal-header relative flex w-full items-center">
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  className="flex h-6 w-full translate-x-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
+                  title={goal.title || goal.slug}
+                  aria-expanded={goalExpanded}
+                  onClick={() => toggleGoal(goal.slug)}
+                >
+                  <ChevronRightIcon
+                    className={`size-3 text-muted-foreground/60 transition-transform ${
+                      goalExpanded ? "rotate-90" : ""
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {goal.title || goal.slug}
                   </span>
+                  {goal.progress.total > 0 ? (
+                    <span className="shrink-0 tabular-nums text-muted-foreground/55">
+                      {goal.progress.done}/{goal.progress.total}
+                    </span>
+                  ) : null}
+                </button>
+                {goalBySlug.has(goal.slug) ? (
+                  <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/goal-header:pointer-events-auto group-hover/goal-header:opacity-100 group-focus-within/goal-header:pointer-events-auto group-focus-within/goal-header:opacity-100">
+                    <button
+                      type="button"
+                      aria-label={`New session under ${goal.title || goal.slug}`}
+                      title="New session under this goal"
+                      className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onNewGoalSession(goal.slug, goal.projectId);
+                      }}
+                    >
+                      <SquarePenIcon className="size-3.5" />
+                    </button>
+                  </div>
                 ) : null}
-              </button>
+              </div>
               {goalExpanded ? (
                 <SidebarMenuSub className="mx-0 ml-3 gap-0.5 overflow-hidden px-0 py-0">
                   {goalThreads.map((thread) => {
@@ -1839,7 +1860,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   const createThreadForProjectMember = useCallback(
-    (member: SidebarProjectGroupMember) => {
+    (member: SidebarProjectGroupMember, threadOptions?: { goalSlug?: string }) => {
       const currentRouteParams =
         router.state.matches[router.state.matches.length - 1]?.params ?? {};
       const currentRouteTarget = resolveThreadRouteTarget(currentRouteParams);
@@ -1885,10 +1906,21 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ...(seedContext.worktreePath !== undefined
           ? { worktreePath: seedContext.worktreePath }
           : {}),
+        ...(threadOptions?.goalSlug ? { goalSlug: threadOptions.goalSlug } : {}),
         envMode: seedContext.envMode,
       });
     },
     [defaultThreadEnvMode, handleNewThread, isMobile, router, setOpenMobile],
+  );
+
+  const createGoalSession = useCallback(
+    (goalSlug: string, goalProjectId: ProjectId) => {
+      const member =
+        project.memberProjects.find((candidate) => candidate.id === goalProjectId) ??
+        project.memberProjects[0];
+      if (member) createThreadForProjectMember(member, { goalSlug });
+    },
+    [createThreadForProjectMember, project.memberProjects],
   );
 
   const handleCreateThreadClick = useCallback(
@@ -2366,6 +2398,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         openPrLink={openPrLink}
         expandThreadListForProject={expandThreadListForProject}
         collapseThreadListForProject={collapseThreadListForProject}
+        onNewGoalSession={createGoalSession}
       />
 
       <Dialog
