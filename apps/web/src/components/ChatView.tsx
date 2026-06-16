@@ -4517,6 +4517,7 @@ export default function ChatView(props: ChatViewProps) {
             terminalOpen={Boolean(terminalUiState.terminalOpen)}
             rightPanelAvailable={Boolean(activeProject)}
             rightPanelOpen={rightPanelOpen}
+            goalSlug={activeThread.goalSlug ?? null}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}

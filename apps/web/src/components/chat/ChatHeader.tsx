@@ -6,10 +6,12 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { memo } from "react";
+import { memo, useState } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { PanelBottomIcon, PanelRightIcon } from "lucide-react";
+import { ChevronDownIcon, PanelBottomIcon, PanelRightIcon, TargetIcon } from "lucide-react";
+import { useGoalIndex } from "../../goals/goalIndex";
+import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -33,6 +35,7 @@ interface ChatHeaderProps {
   terminalOpen: boolean;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
+  goalSlug: string | null;
   gitCwd: string | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
@@ -54,6 +57,54 @@ export function shouldShowOpenInPicker(input: {
   );
 }
 
+function GoalHeaderSection({ goalSlug }: { goalSlug: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const goal = useGoalIndex().data?.find((entry) => entry.slug === goalSlug);
+
+  if (!goal) {
+    return (
+      <span className="shrink-0 truncate rounded-md border border-dashed border-border/70 px-2 py-0.5 text-xs text-muted-foreground/70">
+        Missing goal package: {goalSlug}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded((value) => !value)}
+      aria-expanded={expanded}
+      title={goal.title || goal.slug}
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
+        expanded ? "max-w-md" : "max-w-56",
+      )}
+    >
+      <TargetIcon className="size-3.5 shrink-0" />
+      {expanded ? (
+        <span className="min-w-0 whitespace-pre-wrap text-left leading-relaxed">
+          {goal.goalParagraph || goal.title || goal.slug}
+        </span>
+      ) : (
+        <>
+          <span className="min-w-0 truncate font-medium">{goal.title || goal.slug}</span>
+          {goal.progress.total > 0 ? (
+            <span className="shrink-0 tabular-nums text-muted-foreground/60">
+              {goal.progress.done}/{goal.progress.total}
+            </span>
+          ) : null}
+        </>
+      )}
+      <ChevronDownIcon
+        className={cn(
+          "size-3 shrink-0 text-muted-foreground/55 transition-transform",
+          expanded ? "rotate-180" : "",
+        )}
+      />
+    </button>
+  );
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -69,6 +120,7 @@ export const ChatHeader = memo(function ChatHeader({
   terminalOpen,
   rightPanelAvailable,
   rightPanelOpen,
+  goalSlug,
   gitCwd,
   onRunProjectScript,
   onAddProjectScript,
@@ -103,6 +155,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
         </Tooltip>
+        {goalSlug ? <GoalHeaderSection goalSlug={goalSlug} /> : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:shrink-0 sm:justify-end @3xl/header-actions:gap-3">
         {activeProjectScripts && (
