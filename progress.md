@@ -1,5 +1,19 @@
 # pi-frontend progress
 
+> Updated 2026-06-16 by the Phase 3 worker: sub-part 1 sidebar mixed tree is implemented and headless-verified (`pnpm typecheck`, `pnpm build`).
+
+## Phase 3 (goal UI) — IN PROGRESS (2026-06-16)
+
+### Sub-part 1 — Sidebar mixed Project → Goal → Session tree — DONE
+- `Sidebar.tsx` now polls `GET /api/goals` and joins goal metadata to thread `goalSlug`.
+- Project rows render goal package nodes (H1 `title`, falling back to `slug`, with progress) with grouped sessions nested beneath them, while goalless sessions stay directly under the project.
+- Orphaned `goalSlug` references render as `Missing goal package: <slug>` instead of crashing.
+- Existing project grouping, project expand/collapse, thread sorting, thread preview/show-more, keyboard prewarm/jump, and thread row behavior are reused rather than rewritten.
+- `apps/web/src/store.ts` / `types.ts` now carry `goalSlug` into the web thread/sidebar summaries.
+- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
+
+---
+
 > Updated 2026-06-16 by the Phase 2 worker: executed the **v3 FILE-CENTRIC
 > pivot** — removed the event-sourced Goal aggregate entirely and stood up the
 > file-centric backend (`goalSlug` on the thread + an in-memory goals index +
