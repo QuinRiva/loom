@@ -16,7 +16,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
-import { ProjectionGoalRepository } from "../../persistence/Services/ProjectionGoals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -36,7 +35,6 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
-import { ProjectionGoalRepositoryLive } from "../../persistence/Layers/ProjectionGoals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -60,7 +58,6 @@ import {
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
-  goals: "projection.goals",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -476,7 +473,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const eventStore = yield* OrchestrationEventStore;
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
-    const projectionGoalRepository = yield* ProjectionGoalRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
@@ -548,63 +544,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const applyGoalsProjection: ProjectorDefinition["apply"] = Effect.fn("applyGoalsProjection")(
-      function* (event, _attachmentSideEffects) {
-        switch (event.type) {
-          case "goal.created":
-            yield* projectionGoalRepository.upsert({
-              goalId: event.payload.goalId,
-              projectId: event.payload.projectId,
-              slug: event.payload.slug,
-              title: event.payload.title,
-              worktreePath: event.payload.worktreePath,
-              branch: event.payload.branch,
-              packagePath: event.payload.packagePath,
-              createdAt: event.payload.createdAt,
-              updatedAt: event.payload.updatedAt,
-              deletedAt: null,
-            });
-            return;
-
-          case "goal.meta-updated": {
-            const existingRow = yield* projectionGoalRepository.getById({
-              goalId: event.payload.goalId,
-            });
-            if (Option.isNone(existingRow)) return;
-            yield* projectionGoalRepository.upsert({
-              ...existingRow.value,
-              ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-              ...(event.payload.worktreePath !== undefined
-                ? { worktreePath: event.payload.worktreePath }
-                : {}),
-              ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
-              ...(event.payload.packagePath !== undefined
-                ? { packagePath: event.payload.packagePath }
-                : {}),
-              updatedAt: event.payload.updatedAt,
-            });
-            return;
-          }
-
-          case "goal.deleted": {
-            const existingRow = yield* projectionGoalRepository.getById({
-              goalId: event.payload.goalId,
-            });
-            if (Option.isNone(existingRow)) return;
-            yield* projectionGoalRepository.upsert({
-              ...existingRow.value,
-              deletedAt: event.payload.deletedAt,
-              updatedAt: event.payload.deletedAt,
-            });
-            return;
-          }
-
-          default:
-            return;
-        }
-      },
-    );
-
     const refreshThreadShellSummary = Effect.fn("refreshThreadShellSummary")(function* (
       threadId: ThreadId,
     ) {
@@ -658,9 +597,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
-            ...(event.payload.goalId !== undefined
-              ? { goalId: event.payload.goalId }
-              : { goalId: null }),
+            goalSlug: event.payload.goalSlug ?? null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -1529,10 +1466,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
-        name: ORCHESTRATION_PROJECTOR_NAMES.goals,
-        apply: applyGoalsProjection,
-      },
-      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1659,7 +1592,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline(),
 ).pipe(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
-  Layer.provideMerge(ProjectionGoalRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

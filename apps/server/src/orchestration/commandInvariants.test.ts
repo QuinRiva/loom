@@ -56,6 +56,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.make("thread-1"),
       projectId: ProjectId.make("project-a"),
+      goalSlug: null,
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -79,6 +80,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.make("thread-2"),
       projectId: ProjectId.make("project-b"),
+      goalSlug: null,
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

@@ -1,9 +1,79 @@
 # pi-frontend progress
 
+> Updated 2026-06-16 by the Phase 2 worker: executed the **v3 FILE-CENTRIC
+> pivot** — removed the event-sourced Goal aggregate entirely and stood up the
+> file-centric backend (`goalSlug` on the thread + an in-memory goals index +
+> `GET /api/goals`). See "Phase 2 (v3 file-centric)" below. Phase 3 (UI) is
+> intentionally NOT done (browser-verified separately).
+
+## Phase 2 (v3 file-centric) — DONE & headless-verified (2026-06-16)
+
+### Removed (clean deletion, no compat) — the whole Goal aggregate
+- Contracts (`packages/contracts/src/orchestration.ts` + `baseSchemas.ts`):
+  `OrchestrationGoal` / `OrchestrationGoalShell`, the `"goal"` aggregate kind,
+  `goal.create/meta.update/delete` commands, `goal.created/meta-updated/deleted`
+  events + payloads, `goal-upserted/removed` shell-stream events, the `GoalId`
+  brand (now unused), the `goals` field on read-model/shell-snapshot, and the
+  `GoalId` member of the event-store `aggregateId` union.
+- Server: goal cases in `decider.ts` (incl. `requireGoal`/`requireGoalAbsent`,
+  `findGoalById`, `listThreadsByGoalId` in `commandInvariants.ts`), goal
+  handlers in `projector.ts`, `applyGoalsProjection` + `goals` projector wiring
+  in `ProjectionPipeline.ts`, all goal reads/builders in
+  `ProjectionSnapshotQuery.ts`, goal cases in `OrchestrationEngine.ts`
+  `commandToAggregateRef`, `GoalId` from the event-store + command-receipt
+  id-unions, and `ProjectionGoals` repo Service+Layer (files deleted).
+- Persistence: migration `033_ProjectionGoals.ts` deleted + de-registered;
+  replaced by `033_ProjectionThreadsGoalSlug.ts` (adds the nullable
+  `goal_slug` column; no `projection_goals` table). Local DB is reset (fresh
+  migrations re-run); no data migration.
+- Web/client: removed dead `goal.*` / `goal-*` cases in `apps/web/src/store.ts`.
+
+### Added (file-centric backend)
+- `goalSlug: string | null` on the thread aggregate (replaces the removed
+  `goalId` FK): contracts (`OrchestrationThread`/`Shell`, `thread.create`
+  command, `thread.created` payload), `projection_threads.goal_slug` column,
+  `ProjectionThreads` repo read/write, projector + all snapshot-query thread
+  builders. No DB FK, no `requireGoal` invariant (§1.3).
+- `apps/server/src/goal/GoalsService.ts` — in-memory goal index built via
+  `GoalPackage.discoverGoals` across each registered project's worktrees
+  (startup warm-scan + re-scan on demand; never authoritative — files win).
+- `apps/server/src/goal/http.ts` — `GET /api/goals` (modeled on the raw route
+  layers in `http.ts`); re-scans then returns index entries + per-goal task
+  progress. Wired into `server.ts` (`GoalsServiceLive` folded into
+  `ProviderRuntimeLayerLive` so it gets `ProjectionSnapshotQuery`;
+  `goalsRouteLayer` added to `makeRoutesLayer`).
+- KEPT untouched: `GoalPackage.ts` (the scanner/parser), PiDriver/transport,
+  model picker.
+
+### Verification (headless — all green)
+- `pnpm typecheck` GREEN; `pnpm build` GREEN.
+- Booted built server against a fresh temp `--base-dir` (non-destructive to the
+  user's `~/.t3`): migrations ran cleanly through `33_ProjectionThreadsGoalSlug`,
+  no goal-aggregate migration, no errors, HTTP listening.
+- `GET /api/goals` returned the dogfood goal (`goals/pi-frontend/goal.md`) with
+  parsed title / `## Goal` paragraph / nested `## Tasks` tree / progress 6/11.
+- Appending a task to `goal.md` → next `GET /api/goals` showed 7/12 with the new
+  node (re-scan trigger works). File restored afterward.
+- Tests: `projector.test.ts` updated for `goalSlug` (10/10 pass); all client/
+  server fixtures threading `OrchestrationThread(Shell)` updated to carry
+  `goalSlug`. Pre-existing failures NOT caused by this work and confirmed
+  identical on baseline `ee0c9ef`: `addProject.test.ts` (1, stale codex/gpt-5.4
+  default), `ProviderRegistry.test.ts` (3) + `serverRuntimeStartup.test.ts` (1)
+  (stale Codex-default assertions from the pi-only/model-picker checkpoint).
+
+### Deferred (Phase 3, browser-verified separately)
+- Sidebar Project→Goal→Session tier (group threads by `goalSlug`, join
+  `/api/goals`), goal deep-view (`## Goal` + `## Tasks` rendering), goal
+  overview, diff panel (`@pierre/diffs`).
+
+---
+
+## (Historical) Pre-pivot notes
+
+> The notes below predate the v3 file-centric pivot and describe the now-removed
+> event-sourced Goal aggregate. Kept for context only; the aggregate is gone.
 > Rewritten 2026-06-15 by the continuation worker after reconciling the on-disk
-> state against `goals/pi-frontend/architecture-plan.md`. The previous notes
-> badly understated what was actually built (it claimed Phases 2–3 "not started"
-> — in fact the entire Goal aggregate is on disk and compiles).
+> state against `goals/pi-frontend/architecture-plan.md`.
 
 ## Canonical commands (Phase 0 — established & verified)
 - Boot/dev: `pnpm dev` (server+web) or `pnpm dev:server` + `pnpm dev:web`.

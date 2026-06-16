@@ -1,7 +1,5 @@
 import type {
   OrchestrationCommand,
-  GoalId,
-  OrchestrationGoal,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -31,20 +29,6 @@ export function findProjectById(
   projectId: ProjectId,
 ): OrchestrationProject | undefined {
   return readModel.projects.find((project) => project.id === projectId);
-}
-
-export function findGoalById(
-  readModel: OrchestrationReadModel,
-  goalId: GoalId,
-): OrchestrationGoal | undefined {
-  return (readModel.goals ?? []).find((goal) => goal.id === goalId);
-}
-
-export function listThreadsByGoalId(
-  readModel: OrchestrationReadModel,
-  goalId: GoalId,
-): ReadonlyArray<OrchestrationThread> {
-  return readModel.threads.filter((thread) => thread.goalId === goalId);
 }
 
 export function listThreadsByProjectId(
@@ -83,39 +67,6 @@ export function requireProjectAbsent(input: {
     invariantError(
       input.command.type,
       `Project '${input.projectId}' already exists and cannot be created twice.`,
-    ),
-  );
-}
-
-export function requireGoal(input: {
-  readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
-  readonly goalId: GoalId;
-}): Effect.Effect<OrchestrationGoal, OrchestrationCommandInvariantError> {
-  const goal = findGoalById(input.readModel, input.goalId);
-  if (goal) {
-    return Effect.succeed(goal);
-  }
-  return Effect.fail(
-    invariantError(
-      input.command.type,
-      `Goal '${input.goalId}' does not exist for command '${input.command.type}'.`,
-    ),
-  );
-}
-
-export function requireGoalAbsent(input: {
-  readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
-  readonly goalId: GoalId;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!findGoalById(input.readModel, input.goalId)) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    invariantError(
-      input.command.type,
-      `Goal '${input.goalId}' already exists and cannot be created twice.`,
     ),
   );
 }

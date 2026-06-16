@@ -133,6 +133,7 @@ describe("OrchestrationEngine", () => {
         {
           id: ThreadId.make("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
+          goalSlug: null,
           title: "Bootstrap Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

@@ -6,7 +6,6 @@ import {
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
-  OrchestrationGoalShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
@@ -17,7 +16,6 @@ import {
   type OrchestrationMessage,
   type OrchestrationProjectShell,
   type OrchestrationProposedPlan,
-  type OrchestrationGoal,
   type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationThreadActivity,
@@ -43,7 +41,6 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
-import { ProjectionGoal } from "../../persistence/Services/ProjectionGoals.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -70,7 +67,6 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
 );
-const ProjectionGoalDbRowSchema = ProjectionGoal;
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
@@ -145,7 +141,6 @@ const ProjectionFullThreadDiffContextRowSchema = Schema.Struct({
 
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
-  ORCHESTRATION_PROJECTOR_NAMES.goals,
   ORCHESTRATION_PROJECTOR_NAMES.threads,
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
@@ -244,22 +239,6 @@ function mapProjectShellRow(
   };
 }
 
-function mapGoalShellRow(
-  row: Schema.Schema.Type<typeof ProjectionGoalDbRowSchema>,
-): OrchestrationGoalShell {
-  return {
-    id: row.goalId,
-    projectId: row.projectId,
-    slug: row.slug,
-    title: row.title,
-    worktreePath: row.worktreePath,
-    branch: row.branch,
-    packagePath: row.packagePath,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
 function mapProposedPlanRow(
   row: Schema.Schema.Type<typeof ProjectionThreadProposedPlanDbRowSchema>,
 ): OrchestrationProposedPlan {
@@ -336,27 +315,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listGoalRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionGoalDbRowSchema,
-    execute: () =>
-      sql`
-        SELECT
-          goal_id AS "goalId",
-          project_id AS "projectId",
-          slug,
-          title,
-          worktree_path AS "worktreePath",
-          branch,
-          package_path AS "packagePath",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_goals
-        ORDER BY created_at ASC, goal_id ASC
-      `,
-  });
-
   const listThreadRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionThreadDbRowSchema,
@@ -365,6 +323,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          goal_slug AS "goalSlug",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -385,28 +344,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listActiveGoalRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionGoalDbRowSchema,
-    execute: () =>
-      sql`
-        SELECT
-          goal_id AS "goalId",
-          project_id AS "projectId",
-          slug,
-          title,
-          worktree_path AS "worktreePath",
-          branch,
-          package_path AS "packagePath",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_goals
-        WHERE deleted_at IS NULL
-        ORDER BY project_id ASC, created_at ASC, goal_id ASC
-      `,
-  });
-
   const listActiveThreadRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionThreadDbRowSchema,
@@ -415,6 +352,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          goal_slug AS "goalSlug",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -445,6 +383,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          goal_slug AS "goalSlug",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -807,6 +746,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          goal_slug AS "goalSlug",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1006,14 +946,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
-          listGoalRows(undefined).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getSnapshot:listGoals:query",
-                "ProjectionSnapshotQuery.getSnapshot:listGoals:decodeRows",
-              ),
-            ),
-          ),
           listThreadRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -1084,7 +1016,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.flatMap(
           ([
             projectRows,
-            goalRows,
             threadRows,
             messageRows,
             proposedPlanRows,
@@ -1105,9 +1036,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               let updatedAt: string | null = null;
 
               for (const row of projectRows) {
-                updatedAt = maxIso(updatedAt, row.updatedAt);
-              }
-              for (const row of goalRows) {
                 updatedAt = maxIso(updatedAt, row.updatedAt);
               }
               for (const row of threadRows) {
@@ -1248,23 +1176,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 deletedAt: row.deletedAt,
               }));
 
-              const goals: ReadonlyArray<OrchestrationGoal> = goalRows.map((row) => ({
-                id: row.goalId,
-                projectId: row.projectId,
-                slug: row.slug,
-                title: row.title,
-                worktreePath: row.worktreePath,
-                branch: row.branch,
-                packagePath: row.packagePath,
-                createdAt: row.createdAt,
-                updatedAt: row.updatedAt,
-                deletedAt: row.deletedAt,
-              }));
-
               const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => ({
                 id: row.threadId,
                 projectId: row.projectId,
-                ...(row.goalId !== null ? { goalId: row.goalId } : {}),
+                goalSlug: row.goalSlug,
                 title: row.title,
                 modelSelection: row.modelSelection,
                 runtimeMode: row.runtimeMode,
@@ -1286,7 +1201,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
                 projects,
-                goals,
                 threads,
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               };
@@ -1315,14 +1229,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getCommandReadModel:listProjects:query",
                 "ProjectionSnapshotQuery.getCommandReadModel:listProjects:decodeRows",
-              ),
-            ),
-          ),
-          listGoalRows(undefined).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getCommandReadModel:listGoals:query",
-                "ProjectionSnapshotQuery.getCommandReadModel:listGoals:decodeRows",
               ),
             ),
           ),
@@ -1370,19 +1276,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       )
       .pipe(
         Effect.flatMap(
-          ([
-            projectRows,
-            goalRows,
-            threadRows,
-            proposedPlanRows,
-            sessionRows,
-            latestTurnRows,
-            stateRows,
-          ]) =>
+          ([projectRows, threadRows, proposedPlanRows, sessionRows, latestTurnRows, stateRows]) =>
             Effect.sync(() => {
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
-              const goals: OrchestrationGoal[] = [];
               const threads: OrchestrationThread[] = [];
 
               for (let index = 0; index < projectRows.length; index += 1) {
@@ -1397,23 +1294,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   workspaceRoot: row.workspaceRoot,
                   defaultModelSelection: row.defaultModelSelection,
                   scripts: row.scripts,
-                  createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
-                  deletedAt: row.deletedAt,
-                });
-              }
-              for (let index = 0; index < goalRows.length; index += 1) {
-                const row = goalRows[index];
-                if (!row) continue;
-                updatedAt = maxIso(updatedAt, row.updatedAt);
-                goals.push({
-                  id: row.goalId,
-                  projectId: row.projectId,
-                  slug: row.slug,
-                  title: row.title,
-                  worktreePath: row.worktreePath,
-                  branch: row.branch,
-                  packagePath: row.packagePath,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   deletedAt: row.deletedAt,
@@ -1498,7 +1378,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 threads.push({
                   id: row.threadId,
                   projectId: row.projectId,
-                  ...(row.goalId !== null ? { goalId: row.goalId } : {}),
+                  goalSlug: row.goalSlug,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -1521,7 +1401,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               return {
                 snapshotSequence: computeSnapshotSequence(stateRows),
                 projects,
-                goals,
                 threads,
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               } satisfies OrchestrationReadModel;
@@ -1544,14 +1423,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               toPersistenceSqlOrDecodeError(
                 "ProjectionSnapshotQuery.getShellSnapshot:listProjects:query",
                 "ProjectionSnapshotQuery.getShellSnapshot:listProjects:decodeRows",
-              ),
-            ),
-          ),
-          listActiveGoalRows(undefined).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getShellSnapshot:listGoals:query",
-                "ProjectionSnapshotQuery.getShellSnapshot:listGoals:decodeRows",
               ),
             ),
           ),
@@ -1591,13 +1462,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       )
       .pipe(
         Effect.flatMap(
-          ([projectRows, goalRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
+          ([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
             Effect.gen(function* () {
               let updatedAt: string | null = null;
               for (const row of projectRows) {
-                updatedAt = maxIso(updatedAt, row.updatedAt);
-              }
-              for (const row of goalRows) {
                 updatedAt = maxIso(updatedAt, row.updatedAt);
               }
               for (const row of threadRows) {
@@ -1637,15 +1505,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       )
                     : Result.failVoid,
                 ),
-                goals: Arr.filterMap(goalRows, (row) =>
-                  row.deletedAt === null ? Result.succeed(mapGoalShellRow(row)) : Result.failVoid,
-                ),
                 threads: Arr.filterMap(threadRows, (row) =>
                   row.deletedAt === null
                     ? Result.succeed({
                         id: row.threadId,
                         projectId: row.projectId,
-                        ...(row.goalId !== null ? { goalId: row.goalId } : {}),
+                        goalSlug: row.goalSlug,
                         title: row.title,
                         modelSelection: row.modelSelection,
                         runtimeMode: row.runtimeMode,
@@ -1780,6 +1645,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 (row): OrchestrationThreadShell => ({
                   id: row.threadId,
                   projectId: row.projectId,
+                  goalSlug: row.goalSlug,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -2020,7 +1886,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       return Option.some({
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
-        ...(threadRow.value.goalId !== null ? { goalId: threadRow.value.goalId } : {}),
+        goalSlug: threadRow.value.goalSlug,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
@@ -2115,7 +1981,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       const thread = {
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
-        ...(threadRow.value.goalId !== null ? { goalId: threadRow.value.goalId } : {}),
+        goalSlug: threadRow.value.goalSlug,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,

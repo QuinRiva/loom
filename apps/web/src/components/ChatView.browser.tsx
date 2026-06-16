@@ -427,6 +427,7 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        goalSlug: null,
         title: THREAD_TITLE,
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -493,6 +494,7 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
+        goalSlug: null,
         title: "New thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -831,6 +833,7 @@ function createSnapshotWithSecondaryProject(options?: {
         {
           id: "thread-secondary-project" as ThreadId,
           projectId: SECOND_PROJECT_ID,
+          goalSlug: null,
           title: "Release checklist",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",
@@ -863,6 +866,7 @@ function createSnapshotWithSecondaryProject(options?: {
         {
           id: ARCHIVED_SECONDARY_THREAD_ID,
           projectId: SECOND_PROJECT_ID,
+          goalSlug: null,
           title: "Archived Docs Notes",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",

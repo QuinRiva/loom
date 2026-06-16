@@ -210,6 +210,7 @@ function makeThreadShellSnapshot(params: {
       {
         id: params.threadId,
         projectId,
+        goalSlug: null,
         title: "Thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

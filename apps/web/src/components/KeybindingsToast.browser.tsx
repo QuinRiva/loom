@@ -195,6 +195,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        goalSlug: null,
         title: "Test thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

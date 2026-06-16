@@ -87,6 +87,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { GoalsService, type GoalsServiceShape } from "./goal/GoalsService.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import {
@@ -181,6 +182,7 @@ const makeDefaultOrchestrationReadModel = () => {
       {
         id: defaultThreadId,
         projectId: defaultProjectId,
+        goalSlug: null,
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -209,6 +211,7 @@ const makeDefaultOrchestrationThreadShell = (
   return {
     id: defaultThreadId,
     projectId: defaultProjectId,
+    goalSlug: null,
     title: "Default Thread",
     modelSelection: defaultModelSelection,
     runtimeMode: "full-access",
@@ -357,6 +360,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
+    goalsService?: Partial<GoalsServiceShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
@@ -699,6 +703,12 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
+        Layer.mergeAll(
+        Layer.mock(GoalsService)({
+          list: () => Effect.succeed([]),
+          rescan: () => Effect.succeed([]),
+          ...options?.layers?.goalsService,
+        }),
         Layer.mock(ProjectionSnapshotQuery)({
           getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
@@ -726,6 +736,7 @@ const buildAppUnderTest = (options?: {
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
         }),
+        ),
       ),
       Layer.provide(
         Layer.mock(CheckpointDiffQuery)({
@@ -5271,6 +5282,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ThreadId.make("thread-1"),
             projectId: ProjectId.make("project-a"),
+            goalSlug: null,
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,

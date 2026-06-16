@@ -1,12 +1,10 @@
 import type {
-  GoalId,
   OrchestrationEvent,
   OrchestrationReadModel,
   ThreadId,
 } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
-  OrchestrationGoal,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
@@ -20,9 +18,6 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
-  GoalCreatedPayload,
-  GoalDeletedPayload,
-  GoalMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
@@ -37,7 +32,6 @@ import {
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
-type GoalPatch = Partial<Omit<OrchestrationGoal, "id" | "projectId">>;
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
@@ -69,14 +63,6 @@ function settledTurnStateForSessionStatus(
     case "running":
       return null;
   }
-}
-
-function updateGoal(
-  goals: ReadonlyArray<OrchestrationGoal>,
-  goalId: GoalId,
-  patch: GoalPatch,
-): OrchestrationGoal[] {
-  return goals.map((goal) => (goal.id === goalId ? { ...goal, ...patch } : goal));
 }
 
 function updateThread(
@@ -200,7 +186,6 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
     projects: [],
-    goals: [],
     threads: [],
     updatedAt: nowIso,
   };
@@ -282,65 +267,6 @@ export function projectEvent(
         })),
       );
 
-    case "goal.created":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          GoalCreatedPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const goal: OrchestrationGoal = yield* decodeForEvent(
-          OrchestrationGoal,
-          {
-            id: payload.goalId,
-            projectId: payload.projectId,
-            slug: payload.slug,
-            title: payload.title,
-            worktreePath: payload.worktreePath,
-            branch: payload.branch,
-            packagePath: payload.packagePath,
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
-            deletedAt: null,
-          },
-          event.type,
-          "goal",
-        );
-        const existing = (nextBase.goals ?? []).find((entry) => entry.id === goal.id);
-        return {
-          ...nextBase,
-          goals: existing
-            ? (nextBase.goals ?? []).map((entry) => (entry.id === goal.id ? goal : entry))
-            : [...(nextBase.goals ?? []), goal],
-        };
-      });
-
-    case "goal.meta-updated":
-      return decodeForEvent(GoalMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          goals: updateGoal(nextBase.goals ?? [], payload.goalId, {
-            ...(payload.title !== undefined ? { title: payload.title } : {}),
-            ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
-            ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
-            ...(payload.packagePath !== undefined ? { packagePath: payload.packagePath } : {}),
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
-    case "goal.deleted":
-      return decodeForEvent(GoalDeletedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          goals: updateGoal(nextBase.goals ?? [], payload.goalId, {
-            deletedAt: payload.deletedAt,
-            updatedAt: payload.deletedAt,
-          }),
-        })),
-      );
-
     case "thread.created":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -354,7 +280,7 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
-            ...(payload.goalId !== undefined ? { goalId: payload.goalId } : {}),
+            goalSlug: payload.goalSlug ?? null,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,

@@ -1,5 +1,4 @@
 import type {
-  GoalId,
   OrchestrationEvent,
   OrchestrationReadModel,
   ProjectId,
@@ -58,8 +57,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "goal" | "thread";
-  readonly aggregateId: ProjectId | GoalId | ThreadId;
+  readonly aggregateKind: "project" | "thread";
+  readonly aggregateId: ProjectId | ThreadId;
 } {
   switch (command.type) {
     case "project.create":
@@ -68,13 +67,6 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
-      };
-    case "goal.create":
-    case "goal.meta.update":
-    case "goal.delete":
-      return {
-        aggregateKind: "goal",
-        aggregateId: command.goalId,
       };
     default:
       return {

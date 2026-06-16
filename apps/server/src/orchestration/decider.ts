@@ -11,10 +11,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
-  listThreadsByGoalId,
   listThreadsByProjectId,
-  requireGoal,
-  requireGoalAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -214,129 +211,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "goal.create": {
-      yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireGoalAbsent({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.created",
-        payload: {
-          goalId: command.goalId,
-          projectId: command.projectId,
-          slug: command.slug,
-          title: command.title,
-          worktreePath: command.worktreePath,
-          branch: command.branch,
-          packagePath: command.packagePath,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "goal.meta.update": {
-      yield* requireGoal({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.meta-updated",
-        payload: {
-          goalId: command.goalId,
-          ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
-          ...(command.branch !== undefined ? { branch: command.branch } : {}),
-          ...(command.packagePath !== undefined ? { packagePath: command.packagePath } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "goal.delete": {
-      yield* requireGoal({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      const activeThreads = listThreadsByGoalId(readModel, command.goalId).filter(
-        (thread) => thread.deletedAt === null,
-      );
-      if (activeThreads.length > 0 && command.force !== true) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Goal '${command.goalId}' is not empty and cannot be deleted without force=true.`,
-        });
-      }
-      if (activeThreads.length > 0) {
-        return yield* decideCommandSequence({
-          readModel,
-          commands: [
-            ...activeThreads.map(
-              (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
-                type: "thread.delete",
-                commandId: command.commandId,
-                threadId: thread.id,
-              }),
-            ),
-            {
-              type: "goal.delete",
-              commandId: command.commandId,
-              goalId: command.goalId,
-            },
-          ],
-        });
-      }
-
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.deleted" as const,
-        payload: {
-          goalId: command.goalId,
-          deletedAt: occurredAt,
-        },
-      };
-    }
-
     case "thread.create": {
       yield* requireProject({
         readModel,
         command,
         projectId: command.projectId,
       });
-      if (command.goalId !== undefined) {
-        yield* requireGoal({
-          readModel,
-          command,
-          goalId: command.goalId,
-        });
-      }
       yield* requireThreadAbsent({
         readModel,
         command,
@@ -353,7 +233,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
-          ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
+          ...(command.goalSlug !== undefined ? { goalSlug: command.goalSlug } : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,

@@ -11,7 +11,6 @@ import {
   CheckpointRef,
   CommandId,
   EventId,
-  GoalId,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
@@ -222,20 +221,6 @@ export const OrchestrationProject = Schema.Struct({
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
-export const OrchestrationGoal = Schema.Struct({
-  id: GoalId,
-  projectId: ProjectId,
-  slug: TrimmedNonEmptyString,
-  title: TrimmedNonEmptyString,
-  worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
-  packagePath: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-  deletedAt: Schema.NullOr(IsoDateTime),
-});
-export type OrchestrationGoal = typeof OrchestrationGoal.Type;
-
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
@@ -359,7 +344,7 @@ export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
-  goalId: Schema.optional(GoalId),
+  goalSlug: Schema.NullOr(TrimmedNonEmptyString),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -386,7 +371,6 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
-  goals: Schema.optionalKey(Schema.Array(OrchestrationGoal)),
   threads: Schema.Array(OrchestrationThread),
   updatedAt: IsoDateTime,
 });
@@ -404,23 +388,10 @@ export const OrchestrationProjectShell = Schema.Struct({
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
-export const OrchestrationGoalShell = Schema.Struct({
-  id: GoalId,
-  projectId: ProjectId,
-  slug: TrimmedNonEmptyString,
-  title: TrimmedNonEmptyString,
-  worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
-  packagePath: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type OrchestrationGoalShell = typeof OrchestrationGoalShell.Type;
-
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
-  goalId: Schema.optional(GoalId),
+  goalSlug: Schema.NullOr(TrimmedNonEmptyString),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -444,7 +415,6 @@ export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProjectShell),
-  goals: Schema.optionalKey(Schema.Array(OrchestrationGoalShell)),
   threads: Schema.Array(OrchestrationThreadShell),
   updatedAt: IsoDateTime,
 });
@@ -460,16 +430,6 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     kind: Schema.Literal("project-removed"),
     sequence: NonNegativeInt,
     projectId: ProjectId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("goal-upserted"),
-    sequence: NonNegativeInt,
-    goal: OrchestrationGoalShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("goal-removed"),
-    sequence: NonNegativeInt,
-    goalId: GoalId,
   }),
   Schema.Struct({
     kind: Schema.Literal("thread-upserted"),
@@ -532,42 +492,12 @@ const ProjectDeleteCommand = Schema.Struct({
   force: Schema.optional(Schema.Boolean),
 });
 
-const GoalCreateCommand = Schema.Struct({
-  type: Schema.Literal("goal.create"),
-  commandId: CommandId,
-  goalId: GoalId,
-  projectId: ProjectId,
-  slug: TrimmedNonEmptyString,
-  title: TrimmedNonEmptyString,
-  worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
-  packagePath: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-});
-
-const GoalMetaUpdateCommand = Schema.Struct({
-  type: Schema.Literal("goal.meta.update"),
-  commandId: CommandId,
-  goalId: GoalId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  worktreePath: Schema.optional(TrimmedNonEmptyString),
-  branch: Schema.optional(TrimmedNonEmptyString),
-  packagePath: Schema.optional(TrimmedNonEmptyString),
-});
-
-const GoalDeleteCommand = Schema.Struct({
-  type: Schema.Literal("goal.delete"),
-  commandId: CommandId,
-  goalId: GoalId,
-  force: Schema.optional(Schema.Boolean),
-});
-
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
-  goalId: Schema.optional(GoalId),
+  goalSlug: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -733,9 +663,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
-  GoalCreateCommand,
-  GoalMetaUpdateCommand,
-  GoalDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -757,9 +684,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
-  GoalCreateCommand,
-  GoalMetaUpdateCommand,
-  GoalDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -862,9 +786,6 @@ export const OrchestrationEventType = Schema.Literals([
   "project.created",
   "project.meta-updated",
   "project.deleted",
-  "goal.created",
-  "goal.meta-updated",
-  "goal.deleted",
   "thread.created",
   "thread.deleted",
   "thread.archived",
@@ -887,7 +808,7 @@ export const OrchestrationEventType = Schema.Literals([
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "goal", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -917,36 +838,10 @@ export const ProjectDeletedPayload = Schema.Struct({
   deletedAt: IsoDateTime,
 });
 
-export const GoalCreatedPayload = Schema.Struct({
-  goalId: GoalId,
-  projectId: ProjectId,
-  slug: TrimmedNonEmptyString,
-  title: TrimmedNonEmptyString,
-  worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
-  packagePath: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const GoalMetaUpdatedPayload = Schema.Struct({
-  goalId: GoalId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  worktreePath: Schema.optional(TrimmedNonEmptyString),
-  branch: Schema.optional(TrimmedNonEmptyString),
-  packagePath: Schema.optional(TrimmedNonEmptyString),
-  updatedAt: IsoDateTime,
-});
-
-export const GoalDeletedPayload = Schema.Struct({
-  goalId: GoalId,
-  deletedAt: IsoDateTime,
-});
-
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
-  goalId: Schema.optional(GoalId),
+  goalSlug: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1098,7 +993,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, GoalId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -1121,21 +1016,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("project.deleted"),
     payload: ProjectDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("goal.created"),
-    payload: GoalCreatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("goal.meta-updated"),
-    payload: GoalMetaUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("goal.deleted"),
-    payload: GoalDeletedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

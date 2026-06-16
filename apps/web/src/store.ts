@@ -1279,6 +1279,7 @@ function applyEnvironmentOrchestrationEvent(
         {
           id: event.payload.threadId,
           projectId: event.payload.projectId,
+          goalSlug: event.payload.goalSlug ?? null,
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -1690,9 +1691,6 @@ function applyEnvironmentOrchestrationEvent(
         };
       });
 
-    case "goal.created":
-    case "goal.meta-updated":
-    case "goal.deleted":
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
@@ -1755,9 +1753,6 @@ function applyEnvironmentShellEvent(
         projectIds: removeId(state.projectIds, event.projectId),
       };
     }
-    case "goal-upserted":
-    case "goal-removed":
-      return state;
     case "thread-upserted":
       return writeThreadShellState(state, mapThreadShell(event.thread, environmentId));
     case "thread-removed":
