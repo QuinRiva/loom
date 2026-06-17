@@ -1,5 +1,53 @@
 # pi-frontend progress
 
+> Updated 2026-06-17 (diagnosis, not yet implemented): root-caused the "one UI
+> thread, many amnesiac pi sessions" behavior. **PiDriver has no session
+> resume.** Recorded the bug + fix path below; added two open items to
+> `goal.md` (PiDriver resume; dispatch thread-launched subagents `async`).
+
+## PiDriver session-resume gap — DIAGNOSED (2026-06-17)
+
+### Symptom
+A single UI thread (`79d2a9fb…`) showed "Working" counting past 30 min while no
+pi process was alive. Forensics: that one thread is backed by **4 distinct pi
+session files today**, and the live one (`019ed3a3`) has `parentSession=NONE` —
+it has no memory of the earlier conversation. The UI looks continuous only
+because the server persists thread events (event-sourced projection) and
+replays them; the live pi process is amnesiac.
+
+### Root cause
+Unlike `CodexSessionRuntime` (which persists a resume cursor / rollout path and
+calls `thread/resume`), `PiDriver` never resumes:
+- `ProjectionThreadSession` persists **no** pi session file (only providerName,
+  providerInstanceId, activeTurnId, lastError).
+- `PiDriver.startSession` calls `createPiRpcProcess` **without** `sessionFile`,
+  so every (re)start spawns a cold pi session.
+- The only thread→process binding is the in-memory `sessions:
+  Map<ThreadId, ActivePiSession>`; `process.child.once("exit")` deletes the
+  entry. The map is wiped on any server restart or pi-child exit.
+- The pi RPC layer **already supports** resume (`RpcProcess.ts:216` passes
+  `--session <file>` when given one) — PiDriver just never captures, persists,
+  or replays the path.
+
+### Trigger (this incident)
+Server runs under `node --watch src/bin.ts`. The agents edited `apps/server/*`
+(plus the uncommitted `contracts/src/server.ts`) → `--watch` restarted the
+server → in-memory `sessions` map wiped → the **foreground** `gpt55-worker`'s
+parent pi process was killed mid-launch (empty `…/bdf46c68/` run dir), and every
+subsequent reconnect spun up a fresh, parentless pi session. Re-running
+`pnpm dev` resets state but does NOT fix the defect.
+
+### Fix path (not yet implemented)
+1. Capture pi's session-file path at start (or control `--session <path>`
+   ourselves at spawn).
+2. Persist it per thread (new `ProjectionThreadSession` column, or reuse
+   `ProviderSessionRuntime.resumeCursor`).
+3. In `startSession`, if a persisted file exists for the thread, pass
+   `sessionFile` so pi resumes via `--session` instead of starting cold.
+4. Separately: dispatch subagents launched from a pi-backed thread `async` so a
+   worker never blocks/freezes the UI turn.
+
+
 > Updated 2026-06-16 by the goal-UI-redesign worker: implemented the approved
 > `ui-redesign-spec.md` (header goal section, Tasks right-panel surface,
 > new-session-under-a-goal, and the goal-index/TaskTree refactor).
