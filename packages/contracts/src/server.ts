@@ -498,6 +498,44 @@ export const ServerConfigStreamEvent = Schema.Union([
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 
+export const GoalTaskProgress = Schema.Struct({
+  done: NonNegativeInt,
+  total: NonNegativeInt,
+});
+export type GoalTaskProgress = typeof GoalTaskProgress.Type;
+
+const GoalTaskNodeRef = Schema.suspend((): Schema.Codec<GoalTaskNode> => GoalTaskNode);
+export const GoalTaskNode = Schema.Struct({
+  text: Schema.String,
+  done: Schema.Boolean,
+  children: Schema.Array(GoalTaskNodeRef),
+});
+export type GoalTaskNode = {
+  readonly text: string;
+  readonly done: boolean;
+  readonly children: ReadonlyArray<GoalTaskNode>;
+};
+
+export const GoalIndexEntry = Schema.Struct({
+  projectId: ProjectId,
+  slug: Schema.String,
+  title: Schema.String,
+  goalParagraph: Schema.String,
+  worktreePath: Schema.String,
+  branch: Schema.String,
+  packagePath: Schema.String,
+  tasks: Schema.Array(GoalTaskNode),
+  progress: GoalTaskProgress,
+});
+export type GoalIndexEntry = typeof GoalIndexEntry.Type;
+
+export const GoalIndexStreamEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("goals"),
+  goals: Schema.Array(GoalIndexEntry),
+});
+export type GoalIndexStreamEvent = typeof GoalIndexStreamEvent.Type;
+
 export const ServerLifecycleReadyPayload = Schema.Struct({
   at: IsoDateTime,
   environment: ExecutionEnvironmentDescriptor,
