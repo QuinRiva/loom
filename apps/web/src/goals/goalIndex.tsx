@@ -44,7 +44,9 @@ export function TaskTree({ tasks }: { tasks: ReadonlyArray<GoalTaskNode> }) {
       {tasks.map((task, index) => (
         <li key={`${task.text}:${index}`}>
           <div className="flex gap-2">
-            <span className="font-mono text-muted-foreground">{task.done ? "[x]" : "[ ]"}</span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-muted-foreground">
+              {task.done ? "[x]" : "[ ]"}
+            </span>
             <span className={task.done ? "text-muted-foreground line-through" : undefined}>
               {task.text}
             </span>
