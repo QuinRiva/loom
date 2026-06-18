@@ -52,11 +52,11 @@ function ChatThreadRouteView() {
   }, [bootstrapComplete, environmentHasAnyThreads, navigate, routeThreadExists, threadRef]);
 
   useEffect(() => {
-    if (!threadRef || !serverThreadStarted || !draftThread?.promotedTo) {
+    if (!threadRef || !serverThreadStarted || !draftThread) {
       return;
     }
     finalizePromotedDraftThreadByRef(threadRef);
-  }, [draftThread?.promotedTo, serverThreadStarted, threadRef]);
+  }, [draftThread, serverThreadStarted, threadRef]);
 
   if (!threadRef || !bootstrapComplete || !routeThreadExists) {
     return null;

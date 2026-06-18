@@ -1,8 +1,13 @@
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedProjectKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
+  markPromotedDraftThreadByRef,
   type DraftThreadEnvMode,
   type DraftThreadState,
   useComposerDraftStore,
@@ -14,7 +19,7 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { useProjects, useThreadDetail } from "../state/entities";
+import { readThreadShell, useProjects, useThreadDetail } from "../state/entities";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useSettings } from "./useSettings";
@@ -58,32 +63,47 @@ export function useNewThreadHandler() {
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
+      const storedDraftThreadRef = storedDraftThread
+        ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
+        : null;
+      const reusableStoredDraftThread =
+        storedDraftThreadRef && readThreadShell(storedDraftThreadRef) !== null
+          ? null
+          : storedDraftThread;
+      if (storedDraftThreadRef && reusableStoredDraftThread === null) {
+        markPromotedDraftThreadByRef(storedDraftThreadRef);
+      }
       const latestActiveDraftThread: DraftThreadState | null = currentRouteTarget
         ? currentRouteTarget.kind === "server"
           ? getDraftThread(currentRouteTarget.threadRef)
           : getDraftSession(currentRouteTarget.draftId)
         : null;
-      if (storedDraftThread) {
+      if (reusableStoredDraftThread) {
         return (async () => {
           if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
-            setDraftThreadContext(storedDraftThread.draftId, {
+            setDraftThreadContext(reusableStoredDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             });
           }
-          setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, storedDraftThread.draftId, {
-            threadId: storedDraftThread.threadId,
-          });
+          setLogicalProjectDraftThreadId(
+            logicalProjectKey,
+            projectRef,
+            reusableStoredDraftThread.draftId,
+            {
+              threadId: reusableStoredDraftThread.threadId,
+            },
+          );
           if (
             currentRouteTarget?.kind === "draft" &&
-            currentRouteTarget.draftId === storedDraftThread.draftId
+            currentRouteTarget.draftId === reusableStoredDraftThread.draftId
           ) {
             return;
           }
           await router.navigate({
             to: "/draft/$draftId",
-            params: { draftId: storedDraftThread.draftId },
+            params: { draftId: reusableStoredDraftThread.draftId },
           });
         })();
       }

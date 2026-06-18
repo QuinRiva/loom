@@ -13,24 +13,6 @@ import type {
   TurnId,
 } from "@t3tools/contracts";
 
-/**
- * Retention limits for collections within synchronized thread state.
- * These prevent unbounded growth of in-memory thread state.
- */
-export interface ThreadDetailRetentionLimits {
-  readonly maxMessages: number;
-  readonly maxProposedPlans: number;
-  readonly maxCheckpoints: number;
-  readonly maxActivities: number;
-}
-
-export const DEFAULT_THREAD_DETAIL_LIMITS: ThreadDetailRetentionLimits = {
-  maxMessages: 512,
-  maxProposedPlans: 64,
-  maxCheckpoints: 256,
-  maxActivities: 128,
-};
-
 export type ThreadDetailReducerResult =
   | { readonly kind: "updated"; readonly thread: OrchestrationThread }
   | { readonly kind: "deleted" }
@@ -65,7 +47,6 @@ const activityOrder = O.combineAll<OrchestrationThreadActivity>([
 export function applyThreadDetailEvent(
   thread: OrchestrationThread,
   event: OrchestrationEvent,
-  limits: ThreadDetailRetentionLimits = DEFAULT_THREAD_DETAIL_LIMITS,
 ): ThreadDetailReducerResult {
   switch (event.type) {
     // ── Project events (irrelevant to thread detail) ────────────────
@@ -231,8 +212,6 @@ export function applyThreadDetailEvent(
                 },
           )
         : Arr.append(thread.messages, message);
-      const cappedMessages = Arr.takeRight(messages, limits.maxMessages);
-
       // Update latestTurn for assistant messages bound to a turn. A completed
       // assistant message only settles the turn once the session is no longer
       // running it — providers may emit several assistant messages per turn
@@ -287,7 +266,7 @@ export function applyThreadDetailEvent(
         kind: "updated",
         thread: {
           ...thread,
-          messages: cappedMessages,
+          messages,
           checkpoints,
           latestTurn,
           updatedAt: event.occurredAt,
@@ -369,7 +348,6 @@ export function applyThreadDetailEvent(
         Arr.filter((entry) => entry.id !== proposedPlan.id),
         Arr.append(proposedPlan),
         Arr.sort(proposedPlanOrder),
-        Arr.takeRight(limits.maxProposedPlans),
       );
 
       return {
@@ -401,7 +379,6 @@ export function applyThreadDetailEvent(
         Arr.filter((entry) => entry.turnId !== checkpoint.turnId),
         Arr.append(checkpoint),
         Arr.sort(checkpointOrder),
-        Arr.takeRight(limits.maxCheckpoints),
       );
 
       // Mid-turn diff updates produce placeholder checkpoints; record the
@@ -438,18 +415,13 @@ export function applyThreadDetailEvent(
             entry.checkpointTurnCount <= event.payload.turnCount,
         ),
         Arr.sort(checkpointOrder),
-        Arr.takeRight(limits.maxCheckpoints),
       );
 
       const retainedTurnIds = new Set(Arr.map(checkpoints, (entry) => entry.turnId));
-      const messages = pipe(
-        retainMessagesAfterRevert(thread.messages, retainedTurnIds),
-        Arr.takeRight(limits.maxMessages),
-      );
+      const messages = retainMessagesAfterRevert(thread.messages, retainedTurnIds);
       const proposedPlans = pipe(
         thread.proposedPlans,
         Arr.filter((plan) => plan.turnId === null || retainedTurnIds.has(plan.turnId)),
-        Arr.takeRight(limits.maxProposedPlans),
       );
       const activities = pipe(
         thread.activities,
@@ -490,7 +462,6 @@ export function applyThreadDetailEvent(
         Arr.filter((activity) => activity.id !== event.payload.activity.id),
         Arr.append(event.payload.activity),
         Arr.sort(activityOrder),
-        Arr.takeRight(limits.maxActivities),
       );
 
       return {

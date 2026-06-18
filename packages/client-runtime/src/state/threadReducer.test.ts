@@ -523,6 +523,49 @@ describe("applyThreadDetailEvent", () => {
         expect(result.thread.activities[0]?.kind).toBe("file-edit");
       }
     });
+
+    it("preserves the complete activity history when live events arrive", () => {
+      const existingActivities = Array.from({ length: 129 }, (_, index) => ({
+        id: EventId.make(`activity-${index}`),
+        tone: "tool" as const,
+        kind: "command",
+        summary: `Ran command ${index}`,
+        payload: {},
+        turnId: TurnId.make("turn-1"),
+        sequence: index,
+        createdAt: "2026-04-01T11:00:00.000Z",
+      }));
+      const result = applyThreadDetailEvent(
+        { ...baseThread, activities: existingActivities },
+        {
+          ...baseEventFields,
+          sequence: 130,
+          occurredAt: "2026-04-01T11:01:00.000Z",
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          type: "thread.activity-appended",
+          payload: {
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-129"),
+              tone: "tool",
+              kind: "command",
+              summary: "Ran command 129",
+              payload: {},
+              turnId: TurnId.make("turn-1"),
+              sequence: 129,
+              createdAt: "2026-04-01T11:01:00.000Z",
+            },
+          },
+        },
+      );
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.activities).toHaveLength(130);
+        expect(result.thread.activities[0]?.id).toBe("activity-0");
+      }
+    });
   });
 
   describe("thread.turn-diff-completed", () => {

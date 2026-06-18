@@ -13,6 +13,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 import { RpcClientError } from "effect/unstable/rpc";
 
 import {
@@ -300,6 +301,58 @@ describe("environment RPC", () => {
 
       expect(subscriptions).toEqual(["first", "second"]);
       expect(yield* Ref.get(retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect("retries handled domain failures within the same session when configured", () =>
+    Effect.gen(function* () {
+      const domainError = new Error("thread not found yet");
+      const subscriptionCount = yield* Ref.make(0);
+      const expectedFailureCount = yield* Ref.make(0);
+      const client = {
+        [WS_METHODS.subscribeTerminalEvents]: () =>
+          Stream.unwrap(
+            Ref.getAndUpdate(subscriptionCount, (count) => count + 1).pipe(
+              Effect.map((count) => (count === 0 ? Stream.fail(domainError) : Stream.never)),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      const subscriptionFiber = yield* subscribe(
+        WS_METHODS.subscribeTerminalEvents,
+        {},
+        {
+          onExpectedFailure: () => Ref.update(expectedFailureCount, (count) => count + 1),
+          retryExpectedFailureAfter: "100 millis",
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((yield* Ref.get(expectedFailureCount)) >= 1) {
+          break;
+        }
+        yield* Effect.yieldNow;
+      }
+
+      expect(yield* Ref.get(subscriptionCount)).toBe(1);
+      expect(yield* Ref.get(expectedFailureCount)).toBe(1);
+
+      yield* TestClock.adjust("100 millis");
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((yield* Ref.get(subscriptionCount)) >= 2) {
+          break;
+        }
+        yield* Effect.yieldNow;
+      }
+      yield* Fiber.interrupt(subscriptionFiber);
+
+      expect(yield* Ref.get(subscriptionCount)).toBe(2);
+      expect(yield* Ref.get(expectedFailureCount)).toBe(1);
     }),
   );
 

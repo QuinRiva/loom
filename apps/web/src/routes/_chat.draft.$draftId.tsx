@@ -1,8 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
-import { useComposerDraftStore, DraftId } from "../composerDraftStore";
+import {
+  DraftId,
+  markPromotedDraftThreadByRef,
+  useComposerDraftStore,
+} from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThreadDetail, useThreadRefs } from "../state/entities";
@@ -13,29 +17,24 @@ function DraftChatThreadRouteView() {
   const draftId = DraftId.make(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
   const threadRefs = useThreadRefs();
-  const inferredThreadRef = useMemo(
-    () =>
-      draftSession
-        ? (threadRefs.find((ref) => ref.threadId === draftSession.threadId) ?? null)
-        : null,
-    [draftSession, threadRefs],
-  );
-  const serverThread = useThreadDetail(draftSession?.promotedTo ?? inferredThreadRef);
+  const inferredThreadRef = draftSession
+    ? (threadRefs.find(
+        (ref) =>
+          ref.environmentId === draftSession.environmentId &&
+          ref.threadId === draftSession.threadId,
+      ) ?? null)
+    : null;
+  const serverThreadRef = draftSession?.promotedTo ?? inferredThreadRef;
+  const serverThread = useThreadDetail(serverThreadRef);
   const serverThreadStarted = threadHasStarted(serverThread);
-  const canonicalThreadRef = useMemo(
-    () =>
-      draftSession?.promotedTo
-        ? serverThreadStarted
-          ? draftSession.promotedTo
-          : null
-        : serverThread
-          ? {
-              environmentId: serverThread.environmentId,
-              threadId: serverThread.id,
-            }
-          : null,
-    [draftSession?.promotedTo, serverThread, serverThreadStarted],
-  );
+  const canonicalThreadRef = serverThreadStarted ? serverThreadRef : null;
+
+  useEffect(() => {
+    if (!inferredThreadRef || draftSession?.promotedTo) {
+      return;
+    }
+    markPromotedDraftThreadByRef(inferredThreadRef);
+  }, [draftSession?.promotedTo, inferredThreadRef]);
 
   useEffect(() => {
     if (!canonicalThreadRef) {

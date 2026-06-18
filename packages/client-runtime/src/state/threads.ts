@@ -20,11 +20,7 @@ import { connectionProjectionPhase } from "../connection/model.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { EnvironmentCacheStore } from "../platform/persistence.ts";
 import { subscribe } from "../rpc/client.ts";
-import {
-  DEFAULT_THREAD_DETAIL_LIMITS,
-  applyThreadDetailEvent,
-  type ThreadDetailRetentionLimits,
-} from "./threadReducer.ts";
+import { applyThreadDetailEvent } from "./threadReducer.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 
 export type EnvironmentThreadStatus = "empty" | "cached" | "synchronizing" | "live" | "deleted";
@@ -54,7 +50,6 @@ function formatThreadError(cause: Cause.Cause<unknown>): string {
 
 export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make")(function* (
   threadId: ThreadIdType,
-  limits: ThreadDetailRetentionLimits,
 ) {
   const supervisor = yield* EnvironmentSupervisor;
   const cache = yield* EnvironmentCacheStore;
@@ -178,7 +173,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       }
       return;
     }
-    const result = applyThreadDetailEvent(current.data.value, item.event, limits);
+    const result = applyThreadDetailEvent(current.data.value, item.event);
     if (result.kind === "updated") {
       yield* setThread(result.thread);
     } else if (result.kind === "deleted") {
@@ -206,6 +201,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     { threadId },
     {
       onExpectedFailure: setStreamError,
+      retryExpectedFailureAfter: "250 millis",
     },
   ).pipe(Stream.runForEach(applyItem), Effect.forkScoped);
 
@@ -223,20 +219,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   return state;
 });
 
-export function threadStateChanges(
-  environmentId: EnvironmentIdType,
-  threadId: ThreadIdType,
-  options?: {
-    readonly limits?: ThreadDetailRetentionLimits;
-  },
-) {
+export function threadStateChanges(environmentId: EnvironmentIdType, threadId: ThreadIdType) {
   return followStreamInEnvironment(
     environmentId,
-    Stream.unwrap(
-      makeEnvironmentThreadState(threadId, options?.limits ?? DEFAULT_THREAD_DETAIL_LIMITS).pipe(
-        Effect.map(SubscriptionRef.changes),
-      ),
-    ),
+    Stream.unwrap(makeEnvironmentThreadState(threadId).pipe(Effect.map(SubscriptionRef.changes))),
   );
 }
 

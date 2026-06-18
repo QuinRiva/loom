@@ -8,6 +8,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
@@ -67,6 +68,28 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     status: shellStatusForSnapshot(cachedSnapshot),
     error: Option.none(),
   });
+  const persistence = yield* Queue.sliding<OrchestrationShellSnapshot>(1);
+
+  const persist = Effect.fn("EnvironmentShellState.persist")(function* (
+    snapshot: OrchestrationShellSnapshot,
+  ) {
+    yield* cache.saveShell(environmentId, snapshot).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not persist environment shell cache.").pipe(
+          Effect.annotateLogs({
+            environmentId,
+            error: error.message,
+          }),
+        ),
+      ),
+    );
+  });
+
+  yield* Stream.fromQueue(persistence).pipe(
+    Stream.debounce("500 millis"),
+    Stream.runForEach(persist),
+    Effect.forkScoped,
+  );
 
   const setDisconnected = SubscriptionRef.update(state, (current) => ({
     ...current,
@@ -111,21 +134,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       return;
     }
 
-    yield* cache.saveShell(environmentId, nextSnapshot).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("Could not persist environment shell cache.").pipe(
-          Effect.annotateLogs({
-            environmentId,
-            error: error.message,
-          }),
-        ),
-      ),
-    );
     yield* SubscriptionRef.set(state, {
       snapshot: Option.some(nextSnapshot),
       status: "live",
       error: Option.none(),
     });
+    yield* Queue.offer(persistence, nextSnapshot);
   });
 
   yield* subscribe(

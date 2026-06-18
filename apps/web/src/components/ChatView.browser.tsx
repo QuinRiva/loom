@@ -42,11 +42,7 @@ import {
 import { render } from "vitest-browser-react";
 
 import { useCommandPaletteStore } from "../commandPaletteStore";
-import {
-  useComposerDraftStore,
-  DraftId,
-  markPromotedDraftThreadByRef,
-} from "../composerDraftStore";
+import { useComposerDraftStore, DraftId } from "../composerDraftStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   removeInlineTerminalContextPlaceholder,
@@ -59,7 +55,7 @@ import { getRouter } from "../router";
 import { primaryServerConfigAtom } from "../state/server";
 import { environmentSnapshotAtom } from "../state/shell";
 import { environmentProjects } from "../state/projects";
-import { readThreadDetail } from "../state/entities";
+import { readThreadDetail, readThreadShell } from "../state/entities";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import { shortcutLabelForCommand } from "../keybindings";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
@@ -591,12 +587,17 @@ async function materializePromotedDraftThreadViaDomainEvent(threadId: ThreadId):
   await waitForWsClient();
   fixture.snapshot = addThreadToSnapshot(fixture.snapshot, threadId);
   fixture.snapshot = updateThreadSessionInSnapshot(fixture.snapshot, threadId, null);
-  markPromotedDraftThreadByRef(threadRefFor(threadId));
   await waitForLayout();
   rpcHarness.emitStreamValue(ORCHESTRATION_WS_METHODS.subscribeShell, {
     kind: "snapshot",
     snapshot: toShellSnapshot(fixture.snapshot),
   });
+  await vi.waitFor(
+    () => {
+      expect(readThreadShell(threadRefFor(threadId))?.id).toBe(threadId);
+    },
+    { timeout: 8_000, interval: 16 },
+  );
 }
 
 async function startPromotedServerThreadViaDomainEvent(threadId: ThreadId): Promise<void> {
@@ -1090,6 +1091,17 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
       label: "Terminal 1",
       updatedAt: NOW_ISO,
     };
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+    return { sequence: fixture.snapshot.snapshotSequence + 1 };
+  }
+  if (
+    tag === WS_METHODS.terminalWrite ||
+    tag === WS_METHODS.terminalResize ||
+    tag === WS_METHODS.terminalClear ||
+    tag === WS_METHODS.terminalClose
+  ) {
+    return null;
   }
   return {};
 }

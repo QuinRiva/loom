@@ -3513,12 +3513,16 @@ export function markPromotedDraftThreadsByRef(serverThreadRefs: Iterable<ScopedT
 export function finalizePromotedDraftThreadByRef(threadRef: ScopedThreadRef): void {
   const draftStore = useComposerDraftStore.getState();
   for (const [draftId, draftThread] of Object.entries(draftStore.draftThreadsByThreadKey)) {
-    if (
-      draftThread.promotedTo &&
-      draftThread.promotedTo.environmentId === threadRef.environmentId &&
-      draftThread.promotedTo.threadId === threadRef.threadId
-    ) {
-      draftStore.finalizePromotedDraftThread(DraftId.make(draftId));
+    const promotedRef = draftThread.promotedTo;
+    const matches = promotedRef
+      ? promotedRef.environmentId === threadRef.environmentId &&
+        promotedRef.threadId === threadRef.threadId
+      : draftThread.environmentId === threadRef.environmentId &&
+        draftThread.threadId === threadRef.threadId;
+    if (matches) {
+      const target = DraftId.make(draftId);
+      draftStore.markDraftThreadPromoting(target, threadRef);
+      draftStore.finalizePromotedDraftThread(target);
     }
   }
 }

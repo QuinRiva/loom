@@ -1,6 +1,7 @@
 import { ORCHESTRATION_WS_METHODS, type ServerConfig, WS_METHODS } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -154,6 +155,7 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
     readonly onExpectedFailure?: (
       cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
     ) => Effect.Effect<void, never, never>;
+    readonly retryExpectedFailureAfter?: Duration.Input;
   },
 ): Stream.Stream<
   EnvironmentRpcStreamValue<TTag>,
@@ -174,34 +176,54 @@ export function subscribe<TTag extends EnvironmentSubscriptionRpcTag>(
                   EnvironmentRpcStreamValue<TTag>,
                   EnvironmentRpcStreamFailure<TTag>
                 >;
-                return method(input).pipe(
-                  Stream.catchCause((cause) => {
-                    const hasOnlyExpectedFailures =
-                      cause.reasons.length > 0 &&
-                      cause.reasons.every((reason) => reason._tag === "Fail");
-                    const isTransportFailure =
-                      hasOnlyExpectedFailures &&
-                      cause.reasons.every(
-                        (reason) => reason._tag === "Fail" && isRpcClientError(reason.error),
-                      );
-                    if (isTransportFailure) {
-                      return Stream.fromEffect(
-                        Effect.logWarning(
-                          "Durable RPC subscription lost its transport; waiting for the next session.",
-                          {
-                            cause: Cause.pretty(cause),
-                            method: tag,
-                            environmentId: supervisor.target.environmentId,
-                          },
-                        ),
-                      ).pipe(Stream.drain);
-                    }
-                    if (hasOnlyExpectedFailures && options?.onExpectedFailure !== undefined) {
-                      return Stream.fromEffect(options.onExpectedFailure(cause)).pipe(Stream.drain);
-                    }
-                    return Stream.failCause(cause);
-                  }),
-                );
+                const subscribeToSession = (): Stream.Stream<
+                  EnvironmentRpcStreamValue<TTag>,
+                  EnvironmentRpcStreamFailure<TTag>
+                > =>
+                  Stream.suspend(() =>
+                    method(input).pipe(
+                      Stream.catchCause((cause) => {
+                        const hasOnlyExpectedFailures =
+                          cause.reasons.length > 0 &&
+                          cause.reasons.every((reason) => reason._tag === "Fail");
+                        const isTransportFailure =
+                          hasOnlyExpectedFailures &&
+                          cause.reasons.every(
+                            (reason) => reason._tag === "Fail" && isRpcClientError(reason.error),
+                          );
+                        if (isTransportFailure) {
+                          return Stream.fromEffect(
+                            Effect.logWarning(
+                              "Durable RPC subscription lost its transport; waiting for the next session.",
+                              {
+                                cause: Cause.pretty(cause),
+                                method: tag,
+                                environmentId: supervisor.target.environmentId,
+                              },
+                            ),
+                          ).pipe(Stream.drain);
+                        }
+                        if (hasOnlyExpectedFailures && options?.onExpectedFailure !== undefined) {
+                          const handled = Stream.fromEffect(options.onExpectedFailure(cause)).pipe(
+                            Stream.drain,
+                          );
+                          if (options.retryExpectedFailureAfter === undefined) {
+                            return handled;
+                          }
+                          return handled.pipe(
+                            Stream.concat(
+                              Stream.fromEffect(
+                                Effect.sleep(options.retryExpectedFailureAfter),
+                              ).pipe(Stream.drain),
+                            ),
+                            Stream.concat(subscribeToSession()),
+                          );
+                        }
+                        return Stream.failCause(cause);
+                      }),
+                    ),
+                  );
+                return subscribeToSession();
               },
             }),
           ),

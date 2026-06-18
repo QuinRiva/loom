@@ -50,7 +50,7 @@ function session(client: WsRpcProtocolClient): RpcSession {
 }
 
 describe("environment shell synchronization", () => {
-  it.effect("does not overwrite a live snapshot when the supervisor becomes ready", () =>
+  it.effect("publishes live state before persistence and preserves it when ready", () =>
     Effect.gen(function* () {
       const events = yield* Queue.unbounded<OrchestrationShellStreamItem>();
       const client = {
@@ -71,7 +71,7 @@ describe("environment shell synchronization", () => {
       } satisfies EnvironmentSupervisorService);
       const cache = EnvironmentCacheStore.of({
         loadShell: () => Effect.succeed(Option.none()),
-        saveShell: () => Effect.void,
+        saveShell: () => Effect.never,
         loadThread: () => Effect.succeed(Option.none()),
         saveThread: () => Effect.void,
         removeThread: () => Effect.void,

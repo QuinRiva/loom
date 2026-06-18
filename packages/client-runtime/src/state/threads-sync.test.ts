@@ -35,7 +35,6 @@ import {
   makeEnvironmentThreadState,
   type EnvironmentThreadState,
 } from "./threads.ts";
-import { DEFAULT_THREAD_DETAIL_LIMITS } from "./threadReducer.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -146,10 +145,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
       Ref.update(removedThreads, (current) => [...current, threadId]),
     clear: () => Effect.void,
   });
-  const threadState = yield* makeEnvironmentThreadState(
-    THREAD_ID,
-    DEFAULT_THREAD_DETAIL_LIMITS,
-  ).pipe(
+  const threadState = yield* makeEnvironmentThreadState(THREAD_ID).pipe(
     Effect.provideService(EnvironmentSupervisor, supervisor),
     Effect.provideService(EnvironmentCacheStore, cache),
   );
@@ -331,6 +327,46 @@ describe("EnvironmentThreads", () => {
 
       expect(Option.isNone(recovered.error)).toBe(true);
       expect(yield* Ref.get(harness.subscriptionCount)).toBe(2);
+    }),
+  );
+
+  it.effect("recovers from a transient domain failure without replacing the session", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      yield* Queue.offer(harness.inputs, new Error("thread not found yet"));
+
+      const failed = yield* awaitThreadState(harness.observed, (value) =>
+        Option.isSome(value.error),
+      );
+      expect(Option.getOrThrow(failed.error)).toBe("thread not found yet");
+      expect(yield* Ref.get(harness.subscriptionCount)).toBe(1);
+
+      yield* TestClock.adjust("250 millis");
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((yield* Ref.get(harness.subscriptionCount)) >= 2) {
+          break;
+        }
+        yield* Effect.yieldNow;
+      }
+      yield* Queue.offer(
+        harness.inputs,
+        snapshot({
+          ...BASE_THREAD,
+          title: "Materialized thread",
+        }),
+      );
+
+      const recovered = yield* awaitThreadState(
+        harness.observed,
+        (value) =>
+          value.status === "live" &&
+          Option.isSome(value.data) &&
+          value.data.value.title === "Materialized thread",
+      );
+
+      expect(Option.isNone(recovered.error)).toBe(true);
+      expect(yield* Ref.get(harness.subscriptionCount)).toBe(2);
+      expect(yield* Ref.get(harness.retryCount)).toBe(0);
     }),
   );
 
