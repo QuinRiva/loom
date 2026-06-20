@@ -1163,6 +1163,7 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         exitCode,
         stderrBytes: utf8ByteLength(stderr),
         target: input.resolvedTarget.alias,
+        cause: new Error(stderr),
       });
       return Effect.logWarning("ssh.tunnel.process.exited", {
         ...sshTargetLogFields(input.resolvedTarget),

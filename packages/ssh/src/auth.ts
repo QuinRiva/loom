@@ -221,8 +221,10 @@ const isSshAuthFailureCauseWrapper = Schema.is(
   Schema.Union([
     SshErrors.SshCommandSpawnError,
     SshErrors.SshCommandExecutionError,
+    SshErrors.SshCommandExitError,
     SshErrors.SshTunnelSpawnError,
     SshErrors.SshTunnelMonitorError,
+    SshErrors.SshTunnelExitError,
   ]),
 );
 

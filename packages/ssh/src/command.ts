@@ -267,6 +267,7 @@ const runSshCommandInScope = Effect.fn("ssh/command.runSshCommand.inScope")(func
       stdoutBytes: utf8ByteLength(stdout),
       stderrBytes: utf8ByteLength(stderr),
       target: hostSpec,
+      cause: new Error(stderr),
     });
   }
 

@@ -92,7 +92,7 @@ export class SshCommandExecutionError extends Schema.TaggedErrorClass<SshCommand
 export class SshCommandExitError extends Schema.TaggedErrorClass<SshCommandExitError>()(
   "SshCommandExitError",
   {
-    ...SshCommandErrorFields,
+    ...SshCommandFailureFields,
   },
 ) {
   override get message(): string {
@@ -147,7 +147,7 @@ export class SshTunnelMonitorError extends Schema.TaggedErrorClass<SshTunnelMoni
 export class SshTunnelExitError extends Schema.TaggedErrorClass<SshTunnelExitError>()(
   "SshTunnelExitError",
   {
-    ...SshCommandErrorFields,
+    ...SshCommandFailureFields,
   },
 ) {
   override get message(): string {
