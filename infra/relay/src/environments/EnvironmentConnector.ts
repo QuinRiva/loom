@@ -26,6 +26,7 @@ import {
   verifyRelayJwt,
 } from "@t3tools/shared/relayJwt";
 import { stableStringify } from "@t3tools/shared/relaySigning";
+import { getUrlDiagnostics } from "@t3tools/shared/urlDiagnostics";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -93,40 +94,140 @@ export class EnvironmentConnectNotAuthorized extends Schema.TaggedErrorClass<Env
   }
 }
 
+const httpBaseUrlDiagnosticSchema = {
+  httpBaseUrlInputLength: Schema.Number,
+  httpBaseUrlProtocol: Schema.optionalKey(Schema.String),
+  httpBaseUrlHostname: Schema.optionalKey(Schema.String),
+} as const;
+
+function httpBaseUrlDiagnosticFields(httpBaseUrl: string) {
+  const diagnostics = getUrlDiagnostics(httpBaseUrl);
+  return {
+    httpBaseUrlInputLength: diagnostics.inputLength,
+    ...(diagnostics.protocol === undefined ? {} : { httpBaseUrlProtocol: diagnostics.protocol }),
+    ...(diagnostics.hostname === undefined ? {} : { httpBaseUrlHostname: diagnostics.hostname }),
+  };
+}
+
+function urlDiagnosticSpanAttributes(prefix: string, input: string) {
+  const diagnostics = getUrlDiagnostics(input);
+  return {
+    [`${prefix}.input_length`]: diagnostics.inputLength,
+    ...(diagnostics.protocol === undefined ? {} : { [`${prefix}.protocol`]: diagnostics.protocol }),
+    ...(diagnostics.hostname === undefined ? {} : { [`${prefix}.hostname`]: diagnostics.hostname }),
+  };
+}
+
 export class EnvironmentMintRequestFailed extends Schema.TaggedErrorClass<EnvironmentMintRequestFailed>()(
   "EnvironmentMintRequestFailed",
   {
+    userId: Schema.String,
     environmentId: Schema.String,
     operation: Schema.Literals(["connect", "status"]),
+    stage: Schema.Literals(["generate_nonce", "generate_request_id", "sign_proof", "send_request"]),
+    ...httpBaseUrlDiagnosticSchema,
+    deviceId: Schema.optional(Schema.String),
     cause: Schema.Defect(),
   },
 ) {
+  static fromEndpoint(input: {
+    readonly userId: string;
+    readonly environmentId: string;
+    readonly operation: "connect" | "status";
+    readonly stage: "generate_nonce" | "generate_request_id" | "sign_proof" | "send_request";
+    readonly httpBaseUrl: string;
+    readonly deviceId?: string;
+    readonly cause: unknown;
+  }): EnvironmentMintRequestFailed {
+    const { httpBaseUrl, ...context } = input;
+    return new EnvironmentMintRequestFailed({
+      ...context,
+      ...httpBaseUrlDiagnosticFields(httpBaseUrl),
+    });
+  }
+
   override get message(): string {
-    return `Environment '${this.environmentId}' ${this.operation} request failed`;
+    return `Environment '${this.environmentId}' ${this.operation} request failed during ${this.stage}`;
   }
 }
 
 export class EnvironmentMintRequestTimedOut extends Schema.TaggedErrorClass<EnvironmentMintRequestTimedOut>()(
   "EnvironmentMintRequestTimedOut",
   {
+    userId: Schema.String,
     environmentId: Schema.String,
+    ...httpBaseUrlDiagnosticSchema,
+    deviceId: Schema.optional(Schema.String),
     timeoutMs: Schema.Number,
   },
 ) {
+  static fromEndpoint(input: {
+    readonly userId: string;
+    readonly environmentId: string;
+    readonly httpBaseUrl: string;
+    readonly deviceId?: string;
+    readonly timeoutMs: number;
+  }): EnvironmentMintRequestTimedOut {
+    const { httpBaseUrl, ...context } = input;
+    return new EnvironmentMintRequestTimedOut({
+      ...context,
+      ...httpBaseUrlDiagnosticFields(httpBaseUrl),
+    });
+  }
+
   override get message(): string {
     return `Environment '${this.environmentId}' mint request timed out after ${this.timeoutMs}ms`;
   }
 }
 
+export const EnvironmentMintResponseInvalidReason = Schema.Literals([
+  "environment_public_key_missing",
+  "proof_verification_failed",
+  "response_environment_id_mismatch",
+  "proof_environment_id_mismatch",
+  "request_nonce_mismatch",
+  "client_proof_key_thumbprint_mismatch",
+  "credential_mismatch",
+  "expires_at_invalid",
+  "expires_at_mismatch",
+  "status_mismatch",
+  "checked_at_invalid",
+  "checked_at_mismatch",
+  "descriptor_mismatch",
+  "checked_at_out_of_range",
+]);
+export type EnvironmentMintResponseInvalidReason = typeof EnvironmentMintResponseInvalidReason.Type;
+
 export class EnvironmentMintResponseInvalid extends Schema.TaggedErrorClass<EnvironmentMintResponseInvalid>()(
   "EnvironmentMintResponseInvalid",
   {
+    userId: Schema.String,
     environmentId: Schema.String,
     operation: Schema.Literals(["connect", "status"]),
+    ...httpBaseUrlDiagnosticSchema,
+    deviceId: Schema.optional(Schema.String),
+    reason: EnvironmentMintResponseInvalidReason,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
+  static fromEndpoint(input: {
+    readonly userId: string;
+    readonly environmentId: string;
+    readonly operation: "connect" | "status";
+    readonly httpBaseUrl: string;
+    readonly deviceId?: string;
+    readonly reason: EnvironmentMintResponseInvalidReason;
+    readonly cause?: unknown;
+  }): EnvironmentMintResponseInvalid {
+    const { httpBaseUrl, ...context } = input;
+    return new EnvironmentMintResponseInvalid({
+      ...context,
+      ...httpBaseUrlDiagnosticFields(httpBaseUrl),
+    });
+  }
+
   override get message(): string {
-    return `Environment '${this.environmentId}' returned an invalid ${this.operation} response`;
+    return `Environment '${this.environmentId}' returned an invalid ${this.operation} response (${this.reason})`;
   }
 }
 
@@ -210,17 +311,24 @@ const verifyWithEnvironmentKeys = Effect.fnUntraced(function* <A, E>(input: {
   readonly decodePayload: (input: unknown) => Effect.Effect<A, E>;
 }) {
   const { decodePayload, ...rest } = input;
+  let lastFailure: { readonly cause: unknown } | undefined;
   for (const publicKey of input.environmentPublicKeys) {
-    const proof = yield* verifyRelayJwt({ ...rest, publicKey }).pipe(
+    const result = yield* verifyRelayJwt({ ...rest, publicKey }).pipe(
       Effect.flatMap(decodePayload),
-      Effect.option,
+      Effect.match({
+        onFailure: (cause) => ({ _tag: "Failure" as const, cause }),
+        onSuccess: (proof) => ({ _tag: "Success" as const, proof }),
+      }),
     );
-    if (Option.isSome(proof)) {
-      return proof.value;
+    if (result._tag === "Success") {
+      return result;
     }
+    lastFailure = result;
     // A linked environment can have rotated keys; try the remaining active keys.
   }
-  return null;
+  return lastFailure
+    ? { _tag: "Failure" as const, cause: lastFailure.cause }
+    : { _tag: "MissingPublicKey" as const };
 });
 
 function verifyEnvironmentResponse(input: {
@@ -241,18 +349,35 @@ function verifyEnvironmentResponse(input: {
     environmentPublicKeys: input.environmentPublicKeys,
     decodePayload: decodeMintResponseProof,
   }).pipe(
-    Effect.map(
-      (proof) =>
-        proof !== null &&
-        proof.environmentId === input.environmentId &&
-        proof.requestNonce === input.requestNonce &&
-        proof.clientProofKeyThumbprint === input.clientProofKeyThumbprint &&
-        proof.credential === input.response.credential &&
-        Option.match(DateTime.make(input.response.expiresAt), {
-          onNone: () => false,
-          onSome: (expiresAt) => Math.floor(expiresAt.epochMilliseconds / 1_000) === proof.exp,
-        }),
-    ),
+    Effect.map((verification) => {
+      if (verification._tag === "MissingPublicKey") {
+        return { reason: "environment_public_key_missing" as const };
+      }
+      if (verification._tag === "Failure") {
+        return { reason: "proof_verification_failed" as const, cause: verification.cause };
+      }
+      const proof = verification.proof;
+      if (proof.environmentId !== input.environmentId) {
+        return { reason: "proof_environment_id_mismatch" as const };
+      }
+      if (proof.requestNonce !== input.requestNonce) {
+        return { reason: "request_nonce_mismatch" as const };
+      }
+      if (proof.clientProofKeyThumbprint !== input.clientProofKeyThumbprint) {
+        return { reason: "client_proof_key_thumbprint_mismatch" as const };
+      }
+      if (proof.credential !== input.response.credential) {
+        return { reason: "credential_mismatch" as const };
+      }
+      const expiresAt = DateTime.make(input.response.expiresAt);
+      if (Option.isNone(expiresAt)) {
+        return { reason: "expires_at_invalid" as const };
+      }
+      if (Math.floor(expiresAt.value.epochMilliseconds / 1_000) !== proof.exp) {
+        return { reason: "expires_at_mismatch" as const };
+      }
+      return null;
+    }),
   );
 }
 
@@ -274,28 +399,45 @@ function verifyEnvironmentHealthResponse(input: {
     environmentPublicKeys: input.environmentPublicKeys,
     decodePayload: decodeHealthResponseProof,
   }).pipe(
-    Effect.map((proof) => {
-      if (
-        proof === null ||
-        input.response.environmentId !== input.environmentId ||
-        proof.environmentId !== input.environmentId ||
-        proof.requestNonce !== input.requestNonce ||
-        proof.status !== input.response.status ||
-        proof.checkedAt !== input.response.checkedAt ||
-        stableStringify(proof.descriptor) !== stableStringify(input.response.descriptor)
-      ) {
-        return false;
+    Effect.map((verification) => {
+      if (verification._tag === "MissingPublicKey") {
+        return { reason: "environment_public_key_missing" as const };
+      }
+      if (verification._tag === "Failure") {
+        return { reason: "proof_verification_failed" as const, cause: verification.cause };
+      }
+      const proof = verification.proof;
+      if (input.response.environmentId !== input.environmentId) {
+        return { reason: "response_environment_id_mismatch" as const };
+      }
+      if (proof.environmentId !== input.environmentId) {
+        return { reason: "proof_environment_id_mismatch" as const };
+      }
+      if (proof.requestNonce !== input.requestNonce) {
+        return { reason: "request_nonce_mismatch" as const };
+      }
+      if (proof.status !== input.response.status) {
+        return { reason: "status_mismatch" as const };
+      }
+      if (proof.checkedAt !== input.response.checkedAt) {
+        return { reason: "checked_at_mismatch" as const };
+      }
+      if (stableStringify(proof.descriptor) !== stableStringify(input.response.descriptor)) {
+        return { reason: "descriptor_mismatch" as const };
       }
       const checkedAt = DateTime.make(input.response.checkedAt);
       if (Option.isNone(checkedAt)) {
-        return false;
+        return { reason: "checked_at_invalid" as const };
       }
-      return (
-        checkedAt.value.epochMilliseconds >=
-          input.requestIssuedAt.epochMilliseconds - ENVIRONMENT_HEALTH_CLOCK_SKEW_MILLIS &&
-        checkedAt.value.epochMilliseconds <=
+      if (
+        checkedAt.value.epochMilliseconds <
+          input.requestIssuedAt.epochMilliseconds - ENVIRONMENT_HEALTH_CLOCK_SKEW_MILLIS ||
+        checkedAt.value.epochMilliseconds >
           input.now.epochMilliseconds + ENVIRONMENT_HEALTH_CLOCK_SKEW_MILLIS
-      );
+      ) {
+        return { reason: "checked_at_out_of_range" as const };
+      }
+      return null;
     }),
   );
 }
@@ -384,12 +526,24 @@ const make = Effect.gen(function* () {
       ) {
         yield* Effect.annotateCurrentSpan({
           ...allocationAttributes,
-          "relay.authorization.linked_http_base_url": input.link.endpoint.httpBaseUrl,
-          "relay.authorization.linked_ws_base_url": input.link.endpoint.wsBaseUrl,
+          ...urlDiagnosticSpanAttributes(
+            "relay.authorization.linked_http_base_url",
+            input.link.endpoint.httpBaseUrl,
+          ),
+          ...urlDiagnosticSpanAttributes(
+            "relay.authorization.linked_ws_base_url",
+            input.link.endpoint.wsBaseUrl,
+          ),
           ...(endpoint
             ? {
-                "relay.authorization.resolved_http_base_url": endpoint.httpBaseUrl,
-                "relay.authorization.resolved_ws_base_url": endpoint.wsBaseUrl,
+                ...urlDiagnosticSpanAttributes(
+                  "relay.authorization.resolved_http_base_url",
+                  endpoint.httpBaseUrl,
+                ),
+                ...urlDiagnosticSpanAttributes(
+                  "relay.authorization.resolved_ws_base_url",
+                  endpoint.wsBaseUrl,
+                ),
               }
             : {}),
         });
@@ -431,13 +585,15 @@ const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const expiresAt = DateTime.add(now, { minutes: 2 });
       const nonce = yield* crypto.randomUUIDv4.pipe(
-        Effect.mapError(
-          (cause) =>
-            new EnvironmentMintRequestFailed({
-              environmentId: input.environmentId,
-              operation: "status",
-              cause,
-            }),
+        Effect.mapError((cause) =>
+          EnvironmentMintRequestFailed.fromEndpoint({
+            userId: input.userId,
+            environmentId: input.environmentId,
+            operation: "status",
+            stage: "generate_nonce",
+            httpBaseUrl: endpoint.httpBaseUrl,
+            cause,
+          }),
         ),
       );
       const payload = {
@@ -445,13 +601,15 @@ const make = Effect.gen(function* () {
         aud: `t3-env:${link.environmentId}`,
         sub: input.userId,
         jti: yield* crypto.randomUUIDv4.pipe(
-          Effect.mapError(
-            (cause) =>
-              new EnvironmentMintRequestFailed({
-                environmentId: input.environmentId,
-                operation: "status",
-                cause,
-              }),
+          Effect.mapError((cause) =>
+            EnvironmentMintRequestFailed.fromEndpoint({
+              userId: input.userId,
+              environmentId: input.environmentId,
+              operation: "status",
+              stage: "generate_request_id",
+              httpBaseUrl: endpoint.httpBaseUrl,
+              cause,
+            }),
           ),
         ),
         iat: Math.floor(now.epochMilliseconds / 1_000),
@@ -465,13 +623,15 @@ const make = Effect.gen(function* () {
         typ: RELAY_HEALTH_REQUEST_TYP,
         payload,
       }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new EnvironmentMintRequestFailed({
-              environmentId: input.environmentId,
-              operation: "status",
-              cause,
-            }),
+        Effect.mapError((cause) =>
+          EnvironmentMintRequestFailed.fromEndpoint({
+            userId: input.userId,
+            environmentId: input.environmentId,
+            operation: "status",
+            stage: "sign_proof",
+            httpBaseUrl: endpoint.httpBaseUrl,
+            cause,
+          }),
         ),
       );
       const checkedAt = DateTime.formatIso(now);
@@ -492,7 +652,7 @@ const make = Effect.gen(function* () {
         });
         yield* Effect.logWarning("Managed endpoint health request timed out", {
           environmentId: link.environmentId,
-          endpoint: endpoint.httpBaseUrl,
+          ...httpBaseUrlDiagnosticFields(endpoint.httpBaseUrl),
           traceId,
         });
         return {
@@ -513,7 +673,7 @@ const make = Effect.gen(function* () {
         });
         yield* Effect.logWarning("Managed endpoint health request failed", {
           environmentId: link.environmentId,
-          endpoint: endpoint.httpBaseUrl,
+          ...httpBaseUrlDiagnosticFields(endpoint.httpBaseUrl),
           failureReason,
           traceId,
         });
@@ -527,7 +687,7 @@ const make = Effect.gen(function* () {
         };
       }
       const decoded = responseOption.value.response;
-      const verified = yield* verifyEnvironmentHealthResponse({
+      const invalidResponse = yield* verifyEnvironmentHealthResponse({
         response: decoded,
         environmentId: input.environmentId,
         requestNonce: nonce,
@@ -536,10 +696,14 @@ const make = Effect.gen(function* () {
         relayIssuer,
         now: yield* DateTime.now,
       });
-      if (!verified) {
-        return yield* new EnvironmentMintResponseInvalid({
+      if (invalidResponse) {
+        return yield* EnvironmentMintResponseInvalid.fromEndpoint({
+          userId: input.userId,
           environmentId: input.environmentId,
           operation: "status",
+          httpBaseUrl: endpoint.httpBaseUrl,
+          reason: invalidResponse.reason,
+          ...(invalidResponse.cause !== undefined ? { cause: invalidResponse.cause } : {}),
         });
       }
       return {
@@ -586,13 +750,16 @@ const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const expiresAt = DateTime.add(now, { minutes: 2 });
       const nonce = yield* crypto.randomUUIDv4.pipe(
-        Effect.mapError(
-          (cause) =>
-            new EnvironmentMintRequestFailed({
-              environmentId: input.environmentId,
-              operation: "connect",
-              cause,
-            }),
+        Effect.mapError((cause) =>
+          EnvironmentMintRequestFailed.fromEndpoint({
+            userId: input.userId,
+            environmentId: input.environmentId,
+            operation: "connect",
+            stage: "generate_nonce",
+            httpBaseUrl: endpoint.httpBaseUrl,
+            ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+            cause,
+          }),
         ),
       );
       const payload = {
@@ -600,13 +767,16 @@ const make = Effect.gen(function* () {
         aud: `t3-env:${link.environmentId}`,
         sub: input.userId,
         jti: yield* crypto.randomUUIDv4.pipe(
-          Effect.mapError(
-            (cause) =>
-              new EnvironmentMintRequestFailed({
-                environmentId: input.environmentId,
-                operation: "connect",
-                cause,
-              }),
+          Effect.mapError((cause) =>
+            EnvironmentMintRequestFailed.fromEndpoint({
+              userId: input.userId,
+              environmentId: input.environmentId,
+              operation: "connect",
+              stage: "generate_request_id",
+              httpBaseUrl: endpoint.httpBaseUrl,
+              ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+              cause,
+            }),
           ),
         ),
         iat: Math.floor(now.epochMilliseconds / 1_000),
@@ -623,13 +793,16 @@ const make = Effect.gen(function* () {
         typ: RELAY_MINT_REQUEST_TYP,
         payload,
       }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new EnvironmentMintRequestFailed({
-              environmentId: input.environmentId,
-              operation: "connect",
-              cause,
-            }),
+        Effect.mapError((cause) =>
+          EnvironmentMintRequestFailed.fromEndpoint({
+            userId: input.userId,
+            environmentId: input.environmentId,
+            operation: "connect",
+            stage: "sign_proof",
+            httpBaseUrl: endpoint.httpBaseUrl,
+            ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+            cause,
+          }),
         ),
       );
       const environmentClient = yield* makeEnvironmentClient(endpoint.httpBaseUrl);
@@ -637,21 +810,27 @@ const make = Effect.gen(function* () {
         .t3MintCredential({ payload: { proof } })
         .pipe(
           withoutRedirects,
-          Effect.mapError(
-            (cause) =>
-              new EnvironmentMintRequestFailed({
-                environmentId: input.environmentId,
-                operation: "connect",
-                cause,
-              }),
+          Effect.mapError((cause) =>
+            EnvironmentMintRequestFailed.fromEndpoint({
+              userId: input.userId,
+              environmentId: input.environmentId,
+              operation: "connect",
+              stage: "send_request",
+              httpBaseUrl: endpoint.httpBaseUrl,
+              ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+              cause,
+            }),
           ),
           Effect.timeoutOption(Duration.millis(ENVIRONMENT_MINT_REQUEST_TIMEOUT_MS)),
           Effect.flatMap(
             Option.match({
               onNone: () =>
                 Effect.fail(
-                  new EnvironmentMintRequestTimedOut({
+                  EnvironmentMintRequestTimedOut.fromEndpoint({
+                    userId: input.userId,
                     environmentId: input.environmentId,
+                    httpBaseUrl: endpoint.httpBaseUrl,
+                    ...(input.deviceId ? { deviceId: input.deviceId } : {}),
                     timeoutMs: ENVIRONMENT_MINT_REQUEST_TIMEOUT_MS,
                   }),
                 ),
@@ -659,7 +838,7 @@ const make = Effect.gen(function* () {
             }),
           ),
         );
-      const verified = yield* verifyEnvironmentResponse({
+      const invalidResponse = yield* verifyEnvironmentResponse({
         response: decoded,
         environmentId: input.environmentId,
         requestNonce: nonce,
@@ -668,10 +847,15 @@ const make = Effect.gen(function* () {
         relayIssuer,
         nowEpochSeconds: Math.floor(now.epochMilliseconds / 1_000),
       });
-      if (!verified) {
-        return yield* new EnvironmentMintResponseInvalid({
+      if (invalidResponse) {
+        return yield* EnvironmentMintResponseInvalid.fromEndpoint({
+          userId: input.userId,
           environmentId: input.environmentId,
           operation: "connect",
+          httpBaseUrl: endpoint.httpBaseUrl,
+          ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+          reason: invalidResponse.reason,
+          ...(invalidResponse.cause !== undefined ? { cause: invalidResponse.cause } : {}),
         });
       }
       return {
