@@ -716,6 +716,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         }
 
         case "thread.message-sent":
+        case "thread.message-reasoning":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
@@ -844,6 +845,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
+            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.message-reasoning": {
+          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
+            messageId: event.payload.messageId,
+          });
+          const previousMessage = Option.getOrUndefined(existingMessage);
+          yield* projectionThreadMessageRepository.upsert({
+            messageId: event.payload.messageId,
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            // Reasoning may precede the answer; default a stub assistant message.
+            role: previousMessage?.role ?? "assistant",
+            text: previousMessage?.text ?? "",
+            ...(previousMessage?.attachments !== undefined
+              ? { attachments: [...previousMessage.attachments] }
+              : {}),
+            isStreaming: previousMessage?.isStreaming ?? true,
+            reasoningText: `${previousMessage?.reasoningText ?? ""}${event.payload.reasoningDelta}`,
+            reasoningStreaming: event.payload.reasoningStreaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });

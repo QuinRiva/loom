@@ -651,6 +651,17 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(""),
   });
 
+  // Reasoning (thinking) traces always stream live, independent of
+  // enableAssistantStreaming: live reasoning is the feature's value and also
+  // direct evidence the agent is actively working. `reasoningActiveByMessageId`
+  // tracks which messages still have an open reasoning stream so completion is
+  // dispatched exactly once.
+  const reasoningActiveByMessageId = yield* Cache.make<MessageId, boolean>({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed(false),
+  });
+
   const assistantSegmentStateByTurnKey = yield* Cache.make<string, AssistantSegmentState>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
     timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
@@ -831,6 +842,55 @@ const make = Effect.gen(function* () {
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
+  // Dispatch a reasoning (thinking) delta live and mark the message's reasoning
+  // stream open so completion fires exactly once.
+  const handleReasoningDelta = (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    messageId: MessageId;
+    turnId?: TurnId;
+    delta: string;
+    createdAt: string;
+  }) =>
+    Effect.gen(function* () {
+      yield* Cache.set(reasoningActiveByMessageId, input.messageId, true);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.reasoning.delta",
+        commandId: yield* providerCommandId(input.event, "reasoning-delta"),
+        threadId: input.threadId,
+        messageId: input.messageId,
+        delta: input.delta,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+      });
+    });
+
+  // Flush any buffered reasoning and close the reasoning stream for a message.
+  // Idempotent: a no-op once the message's reasoning stream is already closed,
+  // so it is safe to call from both the first answer delta and turn end.
+  const completeReasoningForMessage = (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    messageId: MessageId;
+    turnId?: TurnId;
+    createdAt: string;
+  }) =>
+    Effect.gen(function* () {
+      const active = yield* Cache.getOption(reasoningActiveByMessageId, input.messageId);
+      if (Option.isNone(active) || active.value !== true) {
+        return;
+      }
+      yield* Cache.invalidate(reasoningActiveByMessageId, input.messageId);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.reasoning.complete",
+        commandId: yield* providerCommandId(input.event, "reasoning-complete"),
+        threadId: input.threadId,
+        messageId: input.messageId,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+      });
+    });
+
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
       Effect.flatMap((existingEntry) => {
@@ -856,7 +916,13 @@ const make = Effect.gen(function* () {
     Cache.invalidate(bufferedProposedPlanById, planId);
 
   const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
+    Effect.all(
+      [
+        clearBufferedAssistantText(messageId),
+        Cache.invalidate(reasoningActiveByMessageId, messageId),
+      ],
+      { discard: true },
+    );
 
   const flushBufferedAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -1376,6 +1442,17 @@ const make = Effect.gen(function* () {
           yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
         }
 
+        // The answer starting is the reasoning-end signal (pi does not forward
+        // thinking_end): close the reasoning stream so the UI flips from
+        // "Thinking…" to "Thought for Xs" before the answer text renders.
+        yield* completeReasoningForMessage({
+          event,
+          threadId: thread.id,
+          messageId: assistantMessageId,
+          ...(turnId ? { turnId } : {}),
+          createdAt: now,
+        });
+
         const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
           serverSettingsService.getSettings,
           (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
@@ -1404,6 +1481,32 @@ const make = Effect.gen(function* () {
             createdAt: now,
           });
         }
+      }
+
+      const reasoningDelta =
+        event.type === "content.delta" &&
+        (event.payload.streamKind === "reasoning_text" ||
+          event.payload.streamKind === "reasoning_summary_text")
+          ? event.payload.delta
+          : undefined;
+      if (reasoningDelta && reasoningDelta.length > 0) {
+        const turnId = toTurnId(event.turnId);
+        const reasoningMessageId = yield* getOrCreateAssistantMessageId({
+          threadId: thread.id,
+          event,
+          ...(turnId ? { turnId } : {}),
+        });
+        if (turnId) {
+          yield* rememberAssistantMessageId(thread.id, turnId, reasoningMessageId);
+        }
+        yield* handleReasoningDelta({
+          event,
+          threadId: thread.id,
+          messageId: reasoningMessageId,
+          ...(turnId ? { turnId } : {}),
+          delta: reasoningDelta,
+          createdAt: now,
+        });
       }
 
       const pauseForUserTurnId =
@@ -1502,6 +1605,14 @@ const make = Effect.gen(function* () {
             yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
           }
 
+          yield* completeReasoningForMessage({
+            event,
+            threadId: thread.id,
+            messageId: assistantMessageId,
+            ...(turnId ? { turnId } : {}),
+            createdAt: now,
+          });
+
           yield* finalizeAssistantMessage({
             event,
             threadId: thread.id,
@@ -1549,15 +1660,24 @@ const make = Effect.gen(function* () {
           yield* Effect.forEach(
             assistantMessageIds,
             (assistantMessageId) =>
-              finalizeAssistantMessage({
-                event,
-                threadId: thread.id,
-                messageId: assistantMessageId,
-                turnId,
-                createdAt: now,
-                commandTag: "assistant-complete-finalize",
-                finalDeltaCommandTag: "assistant-delta-finalize-fallback",
-                hasProjectedMessage: findMessageById(messages, assistantMessageId) !== undefined,
+              Effect.gen(function* () {
+                yield* completeReasoningForMessage({
+                  event,
+                  threadId: thread.id,
+                  messageId: assistantMessageId,
+                  turnId,
+                  createdAt: now,
+                });
+                yield* finalizeAssistantMessage({
+                  event,
+                  threadId: thread.id,
+                  messageId: assistantMessageId,
+                  turnId,
+                  createdAt: now,
+                  commandTag: "assistant-complete-finalize",
+                  finalDeltaCommandTag: "assistant-delta-finalize-fallback",
+                  hasProjectedMessage: findMessageById(messages, assistantMessageId) !== undefined,
+                });
               }),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);

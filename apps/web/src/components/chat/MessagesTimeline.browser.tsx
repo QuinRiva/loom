@@ -68,6 +68,7 @@ function buildProps() {
     markdownCwd: undefined,
     resolvedTheme: "dark" as const,
     timestampFormat: "24-hour" as const,
+    reasoningDisplay: "collapsed" as const,
     workspaceRoot: undefined,
     onIsAtEndChange: vi.fn(),
   };

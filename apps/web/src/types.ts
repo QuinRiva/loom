@@ -53,6 +53,13 @@ export interface ChatMessage {
   createdAt: string;
   completedAt?: string | undefined;
   streaming: boolean;
+  // Model reasoning/thinking trace for an assistant message. `reasoningText`
+  // is absent when the message has no reasoning. `reasoningStreaming` is true
+  // while the trace is still arriving. `reasoningCompletedAt` is captured at the
+  // moment reasoning closes so the UI can show an accurate "Thought for Xs".
+  reasoningText?: string | undefined;
+  reasoningStreaming?: boolean | undefined;
+  reasoningCompletedAt?: string | undefined;
 }
 
 export interface ProposedPlan {

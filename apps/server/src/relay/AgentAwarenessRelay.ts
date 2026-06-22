@@ -69,6 +69,9 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
   switch (event.type) {
     case "thread.message-sent":
       return !event.payload.streaming;
+    case "thread.message-reasoning":
+      // Reasoning is incremental thinking detail, not a turn-state change.
+      return false;
     case "thread.proposed-plan-upserted":
     case "thread.runtime-mode-set":
     case "thread.interaction-mode-set":

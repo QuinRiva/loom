@@ -13,6 +13,13 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
+// Tri-state visibility for the model reasoning/thinking block rendered above
+// assistant answers. `off` hides it entirely; `collapsed` shows a summary
+// header ("Thought for Xs") closed by default; `expanded` opens it by default.
+export const ReasoningDisplayMode = Schema.Literals(["off", "collapsed", "expanded"]);
+export type ReasoningDisplayMode = typeof ReasoningDisplayMode.Type;
+export const DEFAULT_REASONING_DISPLAY_MODE: ReasoningDisplayMode = "collapsed";
+
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
@@ -91,6 +98,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
+  ),
+  reasoningDisplay: ReasoningDisplayMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_REASONING_DISPLAY_MODE)),
   ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
@@ -573,5 +583,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  reasoningDisplay: Schema.optionalKey(ReasoningDisplayMode),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

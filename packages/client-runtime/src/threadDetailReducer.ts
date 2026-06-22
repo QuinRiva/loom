@@ -296,6 +296,37 @@ export function applyThreadDetailEvent(
       };
     }
 
+    case "thread.message-reasoning": {
+      const existingMessage = thread.messages.find((entry) => entry.id === event.payload.messageId);
+      const messages = existingMessage
+        ? Arr.map(thread.messages, (entry) =>
+            entry.id !== event.payload.messageId
+              ? entry
+              : {
+                  ...entry,
+                  reasoningText: `${entry.reasoningText ?? ""}${event.payload.reasoningDelta}`,
+                  reasoningStreaming: event.payload.reasoningStreaming,
+                  updatedAt: event.payload.updatedAt,
+                },
+          )
+        : Arr.append(thread.messages, {
+            id: event.payload.messageId,
+            role: "assistant",
+            text: "",
+            turnId: event.payload.turnId,
+            streaming: true,
+            reasoningText: event.payload.reasoningDelta,
+            reasoningStreaming: event.payload.reasoningStreaming,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          } satisfies OrchestrationMessage);
+      const cappedMessages = Arr.takeRight(messages, limits.maxMessages);
+      return {
+        kind: "updated",
+        thread: { ...thread, messages: cappedMessages, updatedAt: event.occurredAt },
+      };
+    }
+
     // ── Session ─────────────────────────────────────────────────────
     case "thread.session-set": {
       // Leaving the "running" session status is the turn-end signal: settle a

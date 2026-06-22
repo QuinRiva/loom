@@ -39,10 +39,12 @@ import {
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
+  BrainIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ChevronUpIcon,
+  Loader2Icon,
   CircleAlertIcon,
   EyeIcon,
   GlobeIcon,
@@ -90,7 +92,7 @@ import {
 } from "~/lib/previewAnnotation";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat, type ReasoningDisplayMode } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
 
 import {
@@ -115,6 +117,7 @@ import {
 
 interface TimelineRowSharedState {
   timestampFormat: TimestampFormat;
+  reasoningDisplay: ReasoningDisplayMode;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
@@ -162,6 +165,7 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
+  reasoningDisplay: ReasoningDisplayMode;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   onIsAtEndChange: (isAtEnd: boolean) => void;
@@ -189,6 +193,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   markdownCwd,
   resolvedTheme,
   timestampFormat,
+  reasoningDisplay,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
   onIsAtEndChange,
@@ -312,6 +317,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       timestampFormat,
+      reasoningDisplay,
       routeThreadKey,
       threadRef: parseScopedThreadKey(routeThreadKey),
       markdownCwd,
@@ -326,6 +332,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [
       timestampFormat,
+      reasoningDisplay,
       routeThreadKey,
       markdownCwd,
       resolvedTheme,
@@ -580,11 +587,17 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const hasReasoning =
+    ctx.reasoningDisplay !== "off" && (row.message.reasoningText?.length ?? 0) > 0;
+  // Suppress the "(empty response)" placeholder when a message carries only
+  // reasoning so far (reasoning-only in-flight message renders just the block).
+  const messageText =
+    row.message.text || (row.message.streaming || hasReasoning ? "" : "(empty response)");
 
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
+        {hasReasoning ? <ReasoningBlock message={row.message} mode={ctx.reasoningDisplay} /> : null}
         <ChatMarkdown
           text={messageText}
           cwd={ctx.markdownCwd}
@@ -625,6 +638,80 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
     </>
   );
 }
+
+// Collapsible "thinking" trace rendered above an assistant answer. Shows a live
+// "Thinking…" header with elapsed time while streaming, then "Thought for Xs".
+const ReasoningBlock = memo(function ReasoningBlock({
+  message,
+  mode,
+}: {
+  message: TimelineMessage;
+  mode: ReasoningDisplayMode;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const streaming = Boolean(message.reasoningStreaming);
+  const [open, setOpen] = useState(mode === "expanded" || streaming);
+  const wasStreamingRef = useRef(streaming);
+  useEffect(() => {
+    const wasStreaming = wasStreamingRef.current;
+    wasStreamingRef.current = streaming;
+    if (streaming) {
+      setOpen(true);
+    } else if (wasStreaming && mode === "collapsed") {
+      setOpen(false);
+    }
+  }, [streaming, mode]);
+
+  const duration = streaming
+    ? null
+    : formatWorkingTimer(
+        message.createdAt,
+        message.reasoningCompletedAt ?? message.completedAt ?? message.createdAt,
+      );
+
+  return (
+    <div className="mb-1.5 rounded-lg border border-border/60 bg-muted/30">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {streaming ? (
+          <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
+        ) : (
+          <BrainIcon className="size-3.5" aria-hidden />
+        )}
+        <span className="font-medium">
+          {streaming ? (
+            <>
+              Thinking <WorkingTimer createdAt={message.createdAt} />
+            </>
+          ) : duration ? (
+            `Thought for ${duration}`
+          ) : (
+            "Thought"
+          )}
+        </span>
+        <ChevronDownIcon
+          className={cn("ml-auto size-3.5 transition-transform", open ? "rotate-180" : null)}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="min-w-0 border-t border-border/60 px-2 py-1.5 text-sm text-muted-foreground">
+          <ChatMarkdown
+            text={message.reasoningText ?? ""}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={streaming}
+            skills={ctx.skills}
+            className="text-muted-foreground"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+});
 
 function AssistantCopyButton({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const assistantCopyState = resolveAssistantMessageCopyState({

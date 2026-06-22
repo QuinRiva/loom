@@ -183,6 +183,15 @@ function mapMessage(environmentId: EnvironmentId, message: OrchestrationMessage)
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(message.reasoningText !== undefined ? { reasoningText: message.reasoningText } : {}),
+    ...(message.reasoningStreaming !== undefined
+      ? { reasoningStreaming: message.reasoningStreaming }
+      : {}),
+    // Reloaded threads only expose the message's updatedAt; use it as the best
+    // available reasoning-completion time for a finished trace.
+    ...(message.reasoningText !== undefined && message.reasoningStreaming === false
+      ? { reasoningCompletedAt: message.updatedAt }
+      : {}),
   };
 }
 
@@ -1486,6 +1495,44 @@ function applyEnvironmentOrchestrationEvent(
           latestTurn,
           updatedAt: event.occurredAt,
         };
+      });
+
+    case "thread.message-reasoning":
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const existingMessage = thread.messages.find(
+          (entry) => entry.id === event.payload.messageId,
+        );
+        const messages = existingMessage
+          ? thread.messages.map((entry) =>
+              entry.id !== event.payload.messageId
+                ? entry
+                : {
+                    ...entry,
+                    reasoningText: `${entry.reasoningText ?? ""}${event.payload.reasoningDelta}`,
+                    reasoningStreaming: event.payload.reasoningStreaming,
+                    ...(event.payload.reasoningStreaming
+                      ? {}
+                      : { reasoningCompletedAt: event.payload.updatedAt }),
+                  },
+            )
+          : [
+              ...thread.messages,
+              {
+                id: event.payload.messageId,
+                role: "assistant" as const,
+                text: "",
+                turnId: event.payload.turnId,
+                createdAt: event.payload.createdAt,
+                streaming: true,
+                reasoningText: event.payload.reasoningDelta,
+                reasoningStreaming: event.payload.reasoningStreaming,
+                ...(event.payload.reasoningStreaming
+                  ? {}
+                  : { reasoningCompletedAt: event.payload.updatedAt }),
+              } satisfies ChatMessage,
+            ];
+        const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+        return { ...thread, messages: cappedMessages, updatedAt: event.occurredAt };
       });
 
     case "thread.session-set":

@@ -938,6 +938,26 @@ function coalesceOrchestrationUiEvents(
       continue;
     }
 
+    // Mirror the assistant-text coalescing for streaming reasoning deltas so a
+    // long thinking trace produces one store update per batch instead of one
+    // per chunk (performance parity with the answer stream).
+    if (
+      previous?.type === "thread.message-reasoning" &&
+      event.type === "thread.message-reasoning" &&
+      previous.payload.threadId === event.payload.threadId &&
+      previous.payload.messageId === event.payload.messageId
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...event,
+        payload: {
+          ...event.payload,
+          createdAt: previous.payload.createdAt,
+          reasoningDelta: previous.payload.reasoningDelta + event.payload.reasoningDelta,
+        },
+      };
+      continue;
+    }
+
     coalesced.push(event);
   }
 

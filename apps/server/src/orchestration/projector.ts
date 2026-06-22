@@ -1,8 +1,4 @@
-import type {
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -15,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
+  ThreadMessageReasoningPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
@@ -436,6 +433,61 @@ export function projectEvent(
                 : entry,
             )
           : [...thread.messages, message];
+        const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            messages: cappedMessages,
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
+    case "thread.message-reasoning":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadMessageReasoningPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        const existingMessage = thread.messages.find((entry) => entry.id === payload.messageId);
+        const messages = existingMessage
+          ? thread.messages.map((entry) =>
+              entry.id === payload.messageId
+                ? {
+                    ...entry,
+                    reasoningText: `${entry.reasoningText ?? ""}${payload.reasoningDelta}`,
+                    reasoningStreaming: payload.reasoningStreaming,
+                    updatedAt: payload.updatedAt,
+                  }
+                : entry,
+            )
+          : [
+              ...thread.messages,
+              yield* decodeForEvent(
+                OrchestrationMessage,
+                {
+                  id: payload.messageId,
+                  role: "assistant",
+                  text: "",
+                  turnId: payload.turnId,
+                  streaming: true,
+                  reasoningText: payload.reasoningDelta,
+                  reasoningStreaming: payload.reasoningStreaming,
+                  createdAt: payload.createdAt,
+                  updatedAt: payload.updatedAt,
+                },
+                event.type,
+                "message",
+              ),
+            ];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
 
         return {

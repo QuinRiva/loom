@@ -21,6 +21,8 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    reasoningText: Schema.NullOr(Schema.String),
+    reasoningStreaming: Schema.NullOr(Schema.Number),
   }),
 );
 
@@ -37,6 +39,10 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+    ...(row.reasoningText !== null ? { reasoningText: row.reasoningText } : {}),
+    ...(row.reasoningStreaming !== null
+      ? { reasoningStreaming: row.reasoningStreaming === 1 }
+      : {}),
   };
 }
 
@@ -57,6 +63,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           attachments_json,
           is_streaming,
+          reasoning_text,
+          reasoning_streaming,
           created_at,
           updated_at
         )
@@ -75,6 +83,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             )
           ),
           ${row.isStreaming ? 1 : 0},
+          ${row.reasoningText ?? null},
+          ${row.reasoningStreaming === undefined ? null : row.reasoningStreaming ? 1 : 0},
           ${row.createdAt},
           ${row.updatedAt}
         )
@@ -89,6 +99,14 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             projection_thread_messages.attachments_json
           ),
           is_streaming = excluded.is_streaming,
+          reasoning_text = COALESCE(
+            excluded.reasoning_text,
+            projection_thread_messages.reasoning_text
+          ),
+          reasoning_streaming = COALESCE(
+            excluded.reasoning_streaming,
+            projection_thread_messages.reasoning_streaming
+          ),
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `;
@@ -108,6 +126,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          reasoning_text AS "reasoningText",
+          reasoning_streaming AS "reasoningStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -129,6 +149,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          reasoning_text AS "reasoningText",
+          reasoning_streaming AS "reasoningStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
