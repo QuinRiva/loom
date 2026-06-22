@@ -544,6 +544,10 @@ function makePiAdapter(input: {
               binaryPath: input.settings.binaryPath,
               platform,
               cwd: startInput.cwd ?? input.serverConfig.cwd,
+              // Deterministic per-thread session id so pi create-or-resumes the
+              // SAME session file across server restarts / reconnects, instead
+              // of silently spawning a fresh, amnesiac session each time.
+              sessionId: startInput.threadId.replace(/[^a-zA-Z0-9_-]/g, "-"),
               ...(startInput.appendSystemPrompt
                 ? { appendSystemPrompt: startInput.appendSystemPrompt }
                 : {}),
