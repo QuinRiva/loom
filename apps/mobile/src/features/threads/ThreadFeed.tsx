@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
@@ -1132,7 +1133,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const isNearEndRef = useRef(true);
   const initialScrollReadyRef = useRef(false);
   const lastContentHeightRef = useRef(0);
-  const { width: viewportWidth } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
+  const [viewportWidth, setViewportWidth] = useState(windowWidth);
   const [interactionState, setInteractionState] = useState<{
     readonly copiedRowId: string | null;
     readonly expandedWorkGroups: Record<string, boolean>;
@@ -1156,6 +1158,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const insets = useSafeAreaInsets();
   const topContentInset = props.contentTopInset ?? insets.top + 44;
   const bottomContentInset = props.contentBottomInset ?? 18;
+
+  const handleViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextWidth = Math.round(event.nativeEvent.layout.width);
+    setViewportWidth((current) => (Math.abs(current - nextWidth) > 1 ? nextWidth : current));
+  }, []);
 
   const iconSubtleColor = useThemeColor("--color-icon-subtle");
   const userBubbleColor = useThemeColor("--color-user-bubble");
@@ -1472,7 +1479,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 
   return (
     <>
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1 }} onLayout={handleViewportLayout}>
         <KeyboardAvoidingLegendList
           ref={listRef}
           key={props.threadId}
