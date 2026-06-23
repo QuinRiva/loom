@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import type { OrchestrationThread } from "@t3tools/contracts";
 
-import { applyThreadDetailEvent } from "./threadDetailReducer.ts";
+import { applyReasoningStreamItem, applyThreadDetailEvent } from "./threadDetailReducer.ts";
 
 const baseEventFields = {
   eventId: EventId.make("event-1"),
@@ -42,6 +42,106 @@ const baseThread: OrchestrationThread = {
   checkpoints: [],
   session: null,
 };
+
+describe("applyReasoningStreamItem", () => {
+  const now = "2026-04-01T02:00:00.000Z";
+  const messageId = MessageId.make("assistant:item-r");
+  const deltaItem = (text: string) =>
+    ({
+      kind: "delta" as const,
+      threadId: ThreadId.make("thread-1"),
+      messageId,
+      turnId: TurnId.make("turn-r"),
+      text,
+    }) as const;
+
+  it("stubs an assistant message and appends consecutive deltas", () => {
+    const first = applyReasoningStreamItem(baseThread, deltaItem("Think"), false, now);
+    expect(first.kind).toBe("updated");
+    const afterFirst = first.kind === "updated" ? first.thread : baseThread;
+    expect(afterFirst.messages[0]?.reasoningText).toBe("Think");
+    expect(afterFirst.messages[0]?.reasoningStreaming).toBe(true);
+
+    const second = applyReasoningStreamItem(afterFirst, deltaItem("ing"), false, now);
+    const afterSecond = second.kind === "updated" ? second.thread : afterFirst;
+    expect(afterSecond.messages[0]?.reasoningText).toBe("Thinking");
+  });
+
+  it("flips streaming off on a transient complete", () => {
+    const streamed = applyReasoningStreamItem(baseThread, deltaItem("Think"), false, now);
+    const thread = streamed.kind === "updated" ? streamed.thread : baseThread;
+    const completed = applyReasoningStreamItem(
+      thread,
+      {
+        kind: "complete",
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        reasoningCompletedAt: now,
+      },
+      false,
+      now,
+    );
+    const result = completed.kind === "updated" ? completed.thread : thread;
+    expect(result.messages[0]?.reasoningStreaming).toBe(false);
+    expect(result.messages[0]?.reasoningText).toBe("Think");
+  });
+
+  it("drops transient items once the message is durably finalized", () => {
+    const streamed = applyReasoningStreamItem(baseThread, deltaItem("Think"), false, now);
+    const thread = streamed.kind === "updated" ? streamed.thread : baseThread;
+    // finalized=true simulates the durable REPLACE event having been applied.
+    const dropped = applyReasoningStreamItem(thread, deltaItem("-stale"), true, now);
+    expect(dropped.kind).toBe("unchanged");
+  });
+
+  it("reopens a paused reasoning burst on a later delta", () => {
+    const streamed = applyReasoningStreamItem(baseThread, deltaItem("Think"), false, now);
+    const thread = streamed.kind === "updated" ? streamed.thread : baseThread;
+    const paused = applyReasoningStreamItem(
+      thread,
+      {
+        kind: "complete",
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        reasoningCompletedAt: now,
+      },
+      false,
+      now,
+    );
+    const pausedThread = paused.kind === "updated" ? paused.thread : thread;
+    expect(pausedThread.messages[0]?.reasoningStreaming).toBe(false);
+
+    const reopened = applyReasoningStreamItem(pausedThread, deltaItem(" more"), false, now);
+    const reopenedThread = reopened.kind === "updated" ? reopened.thread : pausedThread;
+    expect(reopenedThread.messages[0]?.reasoningStreaming).toBe(true);
+    expect(reopenedThread.messages[0]?.reasoningText).toBe("Think more");
+  });
+
+  it("durable thread.message-reasoning REPLACES (not appends) the reasoning text", () => {
+    const streamed = applyReasoningStreamItem(baseThread, deltaItem("partial-live"), false, now);
+    const thread = streamed.kind === "updated" ? streamed.thread : baseThread;
+    const durable = applyThreadDetailEvent(thread, {
+      ...baseEventFields,
+      sequence: 2,
+      occurredAt: now,
+      aggregateKind: "thread",
+      aggregateId: ThreadId.make("thread-1"),
+      type: "thread.message-reasoning",
+      payload: {
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        turnId: TurnId.make("turn-r"),
+        reasoningText: "full authoritative reasoning",
+        reasoningStreaming: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+    } as any);
+    const result = durable.kind === "updated" ? durable.thread : thread;
+    expect(result.messages[0]?.reasoningText).toBe("full authoritative reasoning");
+    expect(result.messages[0]?.reasoningStreaming).toBe(false);
+  });
+});
 
 describe("applyThreadDetailEvent", () => {
   describe("project events", () => {

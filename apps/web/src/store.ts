@@ -15,6 +15,7 @@ import type {
   OrchestrationThreadShell,
   OrchestrationThreadActivity,
   ProjectId,
+  ReasoningStreamItem,
   ScopedProjectRef,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -1498,6 +1499,8 @@ function applyEnvironmentOrchestrationEvent(
       });
 
     case "thread.message-reasoning":
+      // v2 durable event: REPLACE with the authoritative full reasoning text and
+      // mark the message finalized so out-of-order transient deltas are dropped.
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const existingMessage = thread.messages.find(
           (entry) => entry.id === event.payload.messageId,
@@ -1508,11 +1511,10 @@ function applyEnvironmentOrchestrationEvent(
                 ? entry
                 : {
                     ...entry,
-                    reasoningText: `${entry.reasoningText ?? ""}${event.payload.reasoningDelta}`,
-                    reasoningStreaming: event.payload.reasoningStreaming,
-                    ...(event.payload.reasoningStreaming
-                      ? {}
-                      : { reasoningCompletedAt: event.payload.updatedAt }),
+                    reasoningText: event.payload.reasoningText,
+                    reasoningStreaming: false,
+                    reasoningCompletedAt: entry.reasoningCompletedAt ?? event.payload.updatedAt,
+                    reasoningFinalized: true,
                   },
             )
           : [
@@ -1524,11 +1526,10 @@ function applyEnvironmentOrchestrationEvent(
                 turnId: event.payload.turnId,
                 createdAt: event.payload.createdAt,
                 streaming: true,
-                reasoningText: event.payload.reasoningDelta,
-                reasoningStreaming: event.payload.reasoningStreaming,
-                ...(event.payload.reasoningStreaming
-                  ? {}
-                  : { reasoningCompletedAt: event.payload.updatedAt }),
+                reasoningText: event.payload.reasoningText,
+                reasoningStreaming: false,
+                reasoningCompletedAt: event.payload.updatedAt,
+                reasoningFinalized: true,
               } satisfies ChatMessage,
             ];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
@@ -1995,6 +1996,75 @@ export function applyOrchestrationEvent(
   );
 }
 
+// v2 ephemeral reasoning: apply a transient ReasoningStreamItem (delta/complete)
+// for live display only. Deltas append; complete flips to "Thought for Xs";
+// items for a durably-finalized message are dropped (out-of-order on the merged
+// WS stream) so they never duplicate the authoritative full text.
+function applyEnvironmentReasoningStreamItem(
+  state: EnvironmentState,
+  item: ReasoningStreamItem,
+): EnvironmentState {
+  return updateThreadState(state, item.threadId, (thread) => {
+    const existing = thread.messages.find((entry) => entry.id === item.messageId);
+    if (item.kind === "complete") {
+      if (!existing || existing.reasoningFinalized) {
+        return thread;
+      }
+      return {
+        ...thread,
+        messages: thread.messages.map((entry) =>
+          entry.id !== item.messageId
+            ? entry
+            : {
+                ...entry,
+                reasoningStreaming: false,
+                reasoningCompletedAt: entry.reasoningCompletedAt ?? item.reasoningCompletedAt,
+              },
+        ),
+      };
+    }
+    if (existing?.reasoningFinalized) {
+      return thread;
+    }
+    const messages = existing
+      ? thread.messages.map((entry) =>
+          entry.id !== item.messageId
+            ? entry
+            : {
+                ...entry,
+                reasoningText: `${entry.reasoningText ?? ""}${item.text}`,
+                reasoningStreaming: true,
+              },
+        )
+      : [
+          ...thread.messages,
+          {
+            id: item.messageId,
+            role: "assistant" as const,
+            text: "",
+            turnId: item.turnId,
+            createdAt: new Date().toISOString(),
+            streaming: true,
+            reasoningText: item.text,
+            reasoningStreaming: true,
+          } satisfies ChatMessage,
+        ];
+    return { ...thread, messages: messages.slice(-MAX_THREAD_MESSAGES) };
+  });
+}
+
+export function applyReasoningStreamItem(
+  state: AppState,
+  item: ReasoningStreamItem,
+  environmentId: EnvironmentId,
+): AppState {
+  return commitEnvironmentState(
+    state,
+    environmentId,
+    applyEnvironmentReasoningStreamItem(getStoredEnvironmentState(state, environmentId), item),
+  );
+}
+
 export function applyShellEvent(
   state: AppState,
   event: OrchestrationShellStreamEvent,
@@ -2072,6 +2142,7 @@ interface AppStore extends AppState {
     events: ReadonlyArray<OrchestrationEvent>,
     environmentId: EnvironmentId,
   ) => void;
+  applyReasoningStreamItem: (item: ReasoningStreamItem, environmentId: EnvironmentId) => void;
   applyShellEvent: (event: OrchestrationShellStreamEvent, environmentId: EnvironmentId) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadBranch: (
@@ -2095,6 +2166,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => applyOrchestrationEvent(state, event, environmentId)),
   applyOrchestrationEvents: (events, environmentId) =>
     set((state) => applyOrchestrationEvents(state, events, environmentId)),
+  applyReasoningStreamItem: (item, environmentId) =>
+    set((state) => applyReasoningStreamItem(state, item, environmentId)),
   applyShellEvent: (event, environmentId) =>
     set((state) => applyShellEvent(state, event, environmentId)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

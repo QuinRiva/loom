@@ -734,21 +734,17 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadMessageReasoningDeltaCommand = Schema.Struct({
-  type: Schema.Literal("thread.message.reasoning.delta"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  messageId: MessageId,
-  delta: Schema.String,
-  turnId: Schema.optional(TurnId),
-  createdAt: IsoDateTime,
-});
-
+// v2 (ephemeral reasoning): streaming reasoning chunks are NOT persisted as
+// domain events — they flow over the transient ReasoningStreamBus. The only
+// durable reasoning command is the completion, which carries the full
+// accumulated text and is dispatched once per assistant segment at
+// finalization. The projector REPLACES `reasoningText` with this full text.
 const ThreadMessageReasoningCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.message.reasoning.complete"),
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  reasoningText: Schema.String,
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -795,7 +791,6 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
-  ThreadMessageReasoningDeltaCommand,
   ThreadMessageReasoningCompleteCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
@@ -939,9 +934,11 @@ export const ThreadMessageReasoningPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.NullOr(TurnId),
-  // Incremental reasoning chunk (empty on the completion event); accumulated
-  // onto the assistant message's `reasoningText` by the projector.
-  reasoningDelta: Schema.String,
+  // Full accumulated reasoning text for the segment. The projector REPLACES the
+  // message's `reasoningText` with this value (not append) — see the v2 plan's
+  // ordering contract. Persisted reasoning is always complete, so
+  // `reasoningStreaming` is always false here.
+  reasoningText: Schema.String,
   reasoningStreaming: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1162,6 +1159,27 @@ export const OrchestrationEvent = Schema.Union([
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
+// Transient reasoning stream item (the ephemeral channel). These never hit the
+// event store; they drive live "Thinking… ⟷ Thought for Xs" display only. The
+// durable `thread.message-reasoning` event (REPLACE full text) is the source of
+// truth on reload.
+export const ReasoningStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("delta"),
+    threadId: ThreadId,
+    messageId: MessageId,
+    turnId: Schema.NullOr(TurnId),
+    text: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("complete"),
+    threadId: ThreadId,
+    messageId: MessageId,
+    reasoningCompletedAt: IsoDateTime,
+  }),
+]);
+export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
+
 export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("snapshot"),
@@ -1170,6 +1188,10 @@ export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("event"),
     event: OrchestrationEvent,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("reasoning-delta"),
+    payload: ReasoningStreamItem,
   }),
 ]);
 export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem.Type;

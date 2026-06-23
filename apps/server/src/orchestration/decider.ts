@@ -656,32 +656,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.message.reasoning.delta": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.message-reasoning",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          turnId: command.turnId ?? null,
-          reasoningDelta: command.delta,
-          reasoningStreaming: true,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
+    // v2: streaming reasoning chunks are transient (ReasoningStreamBus) and
+    // never become domain events. The only durable reasoning event is the
+    // completion, carrying the full accumulated text with REPLACE semantics.
     case "thread.message.reasoning.complete": {
       yield* requireThread({
         readModel,
@@ -700,7 +677,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.messageId,
           turnId: command.turnId ?? null,
-          reasoningDelta: "",
+          reasoningText: command.reasoningText,
           reasoningStreaming: false,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,

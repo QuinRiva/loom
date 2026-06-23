@@ -32,6 +32,7 @@ import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionT
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ReasoningStreamBus } from "../Services/ReasoningStreamBus.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
@@ -634,6 +635,7 @@ const make = Effect.gen(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const reasoningStreamBus = yield* ReasoningStreamBus;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -657,6 +659,24 @@ const make = Effect.gen(function* () {
   // tracks which messages still have an open reasoning stream so completion is
   // dispatched exactly once.
   const reasoningActiveByMessageId = yield* Cache.make<MessageId, boolean>({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed(false),
+  });
+
+  // v2 ephemeral reasoning: accumulate all reasoning chunks for a message across
+  // bursts as an array (joined once at finalization — never per-chunk string
+  // concat). The buffer is retired only when the message id is retired at turn
+  // end / session exit, so the durable completion event always carries the FULL
+  // text (REPLACE semantics stay correct even when reasoning reopens after a
+  // live "complete"). `reasoningPersistedByMessageId` guards against emitting
+  // more than one durable event per segment unless reasoning reopens.
+  const reasoningChunksByMessageId = yield* Cache.make<MessageId, string[]>({
+    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed<string[]>([]),
+  });
+  const reasoningPersistedByMessageId = yield* Cache.make<MessageId, boolean>({
     capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
     lookup: () => Effect.succeed(false),
@@ -842,33 +862,70 @@ const make = Effect.gen(function* () {
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
-  // Dispatch a reasoning (thinking) delta live and mark the message's reasoning
-  // stream open so completion fires exactly once.
+  const readReasoningText = (messageId: MessageId) =>
+    Cache.getOption(reasoningChunksByMessageId, messageId).pipe(
+      Effect.map((chunks) => Option.getOrElse(chunks, () => [] as string[]).join("")),
+    );
+
+  // v2 ephemeral reasoning delta: accumulate the chunk, mark the burst open, and
+  // (in streaming delivery mode) push it onto the transient ReasoningStreamBus
+  // for live display. NO domain event / event-store write / projection pass.
+  // A new chunk after a durable persist reopens the segment so a later burst is
+  // re-persisted with the full text.
   const handleReasoningDelta = (input: {
-    event: ProviderRuntimeEvent;
     threadId: ThreadId;
     messageId: MessageId;
     turnId?: TurnId;
     delta: string;
+    liveStreaming: boolean;
+  }) =>
+    Effect.gen(function* () {
+      const existing = yield* Cache.getOption(reasoningChunksByMessageId, input.messageId);
+      yield* Cache.set(reasoningChunksByMessageId, input.messageId, [
+        ...Option.getOrElse(existing, () => [] as string[]),
+        input.delta,
+      ]);
+      yield* Cache.set(reasoningActiveByMessageId, input.messageId, true);
+      yield* Cache.invalidate(reasoningPersistedByMessageId, input.messageId);
+      if (input.liveStreaming) {
+        yield* reasoningStreamBus.publish({
+          kind: "delta",
+          threadId: input.threadId,
+          messageId: input.messageId,
+          turnId: input.turnId ?? null,
+          text: input.delta,
+        });
+      }
+    });
+
+  // Transient "reasoning paused" signal: flips live UI from "Thinking…" to
+  // "Thought for Xs" without any durable write. Used at the first answer delta
+  // (the answer starting is the reasoning-end signal). Idempotent per burst; a
+  // later delta reopens the burst via handleReasoningDelta.
+  const pauseReasoningForMessage = (input: {
+    threadId: ThreadId;
+    messageId: MessageId;
     createdAt: string;
   }) =>
     Effect.gen(function* () {
-      yield* Cache.set(reasoningActiveByMessageId, input.messageId, true);
-      yield* orchestrationEngine.dispatch({
-        type: "thread.message.reasoning.delta",
-        commandId: yield* providerCommandId(input.event, "reasoning-delta"),
+      const active = yield* Cache.getOption(reasoningActiveByMessageId, input.messageId);
+      if (Option.isNone(active) || active.value !== true) {
+        return;
+      }
+      yield* Cache.set(reasoningActiveByMessageId, input.messageId, false);
+      yield* reasoningStreamBus.publish({
+        kind: "complete",
         threadId: input.threadId,
         messageId: input.messageId,
-        delta: input.delta,
-        ...(input.turnId ? { turnId: input.turnId } : {}),
-        createdAt: input.createdAt,
+        reasoningCompletedAt: input.createdAt,
       });
     });
 
-  // Flush any buffered reasoning and close the reasoning stream for a message.
-  // Idempotent: a no-op once the message's reasoning stream is already closed,
-  // so it is safe to call from both the first answer delta and turn end.
-  const completeReasoningForMessage = (input: {
+  // Segment/turn finalization: persist reasoning exactly once as a single
+  // durable `thread.message-reasoning` event carrying the FULL accumulated text
+  // (REPLACE semantics), and flip live UI to complete. No-op when there is no
+  // reasoning, or when it is already persisted and has not reopened since.
+  const finalizeReasoningForMessage = (input: {
     event: ProviderRuntimeEvent;
     threadId: ThreadId;
     messageId: MessageId;
@@ -877,19 +934,46 @@ const make = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const active = yield* Cache.getOption(reasoningActiveByMessageId, input.messageId);
-      if (Option.isNone(active) || active.value !== true) {
+      if (Option.isSome(active) && active.value === true) {
+        yield* Cache.set(reasoningActiveByMessageId, input.messageId, false);
+        yield* reasoningStreamBus.publish({
+          kind: "complete",
+          threadId: input.threadId,
+          messageId: input.messageId,
+          reasoningCompletedAt: input.createdAt,
+        });
+      }
+      const persisted = yield* Cache.getOption(reasoningPersistedByMessageId, input.messageId);
+      if (Option.isSome(persisted) && persisted.value === true) {
         return;
       }
-      yield* Cache.invalidate(reasoningActiveByMessageId, input.messageId);
+      const reasoningText = yield* readReasoningText(input.messageId);
+      if (reasoningText.length === 0) {
+        return;
+      }
+      yield* Cache.set(reasoningPersistedByMessageId, input.messageId, true);
       yield* orchestrationEngine.dispatch({
         type: "thread.message.reasoning.complete",
         commandId: yield* providerCommandId(input.event, "reasoning-complete"),
         threadId: input.threadId,
         messageId: input.messageId,
+        reasoningText,
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
     });
+
+  // Drop all transient reasoning state for a message once its segment is fully
+  // retired (turn end / session exit), after any durable persist has fired.
+  const retireReasoningForMessage = (messageId: MessageId) =>
+    Effect.all(
+      [
+        Cache.invalidate(reasoningChunksByMessageId, messageId),
+        Cache.invalidate(reasoningActiveByMessageId, messageId),
+        Cache.invalidate(reasoningPersistedByMessageId, messageId),
+      ],
+      { discard: true },
+    );
 
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
@@ -916,13 +1000,9 @@ const make = Effect.gen(function* () {
     Cache.invalidate(bufferedProposedPlanById, planId);
 
   const clearAssistantMessageState = (messageId: MessageId) =>
-    Effect.all(
-      [
-        clearBufferedAssistantText(messageId),
-        Cache.invalidate(reasoningActiveByMessageId, messageId),
-      ],
-      { discard: true },
-    );
+    Effect.all([clearBufferedAssistantText(messageId), retireReasoningForMessage(messageId)], {
+      discard: true,
+    });
 
   const flushBufferedAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -1048,6 +1128,16 @@ const make = Effect.gen(function* () {
         return;
       }
 
+      // Pausing for user input finalizes this segment: persist its reasoning once
+      // (durable, full text) before the assistant message is finalized.
+      yield* finalizeReasoningForMessage({
+        event: input.event,
+        threadId: input.threadId,
+        messageId: activeMessageId.value,
+        turnId: input.turnId,
+        createdAt: input.createdAt,
+      });
+
       yield* finalizeAssistantMessage({
         event: input.event,
         threadId: input.threadId,
@@ -1061,6 +1151,7 @@ const make = Effect.gen(function* () {
           (input.flushedMessageIds?.has(activeMessageId.value) ?? false),
       });
       yield* forgetAssistantMessageId(input.threadId, input.turnId, activeMessageId.value);
+      yield* retireReasoningForMessage(activeMessageId.value);
 
       const state = yield* getAssistantSegmentStateForTurn(input.threadId, input.turnId);
       if (Option.isSome(state)) {
@@ -1443,13 +1534,12 @@ const make = Effect.gen(function* () {
         }
 
         // The answer starting is the reasoning-end signal (pi does not forward
-        // thinking_end): close the reasoning stream so the UI flips from
-        // "Thinking…" to "Thought for Xs" before the answer text renders.
-        yield* completeReasoningForMessage({
-          event,
+        // thinking_end): flip the live UI from "Thinking…" to "Thought for Xs"
+        // via a transient complete (no durable write). The durable reasoning
+        // event is dispatched once at segment/turn finalization.
+        yield* pauseReasoningForMessage({
           threadId: thread.id,
           messageId: assistantMessageId,
-          ...(turnId ? { turnId } : {}),
           createdAt: now,
         });
 
@@ -1499,13 +1589,18 @@ const make = Effect.gen(function* () {
         if (turnId) {
           yield* rememberAssistantMessageId(thread.id, turnId, reasoningMessageId);
         }
+        // Streaming delivery → push live transient deltas; buffered delivery →
+        // accumulate only (the user opted out of live token streaming).
+        const liveStreaming = yield* Effect.map(
+          serverSettingsService.getSettings,
+          (settings) => settings.enableAssistantStreaming,
+        );
         yield* handleReasoningDelta({
-          event,
           threadId: thread.id,
           messageId: reasoningMessageId,
           ...(turnId ? { turnId } : {}),
           delta: reasoningDelta,
-          createdAt: now,
+          liveStreaming,
         });
       }
 
@@ -1605,7 +1700,7 @@ const make = Effect.gen(function* () {
             yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
           }
 
-          yield* completeReasoningForMessage({
+          yield* finalizeReasoningForMessage({
             event,
             threadId: thread.id,
             messageId: assistantMessageId,
@@ -1661,7 +1756,7 @@ const make = Effect.gen(function* () {
             assistantMessageIds,
             (assistantMessageId) =>
               Effect.gen(function* () {
-                yield* completeReasoningForMessage({
+                yield* finalizeReasoningForMessage({
                   event,
                   threadId: thread.id,
                   messageId: assistantMessageId,
@@ -1678,6 +1773,7 @@ const make = Effect.gen(function* () {
                   finalDeltaCommandTag: "assistant-delta-finalize-fallback",
                   hasProjectedMessage: findMessageById(messages, assistantMessageId) !== undefined,
                 });
+                yield* retireReasoningForMessage(assistantMessageId);
               }),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);

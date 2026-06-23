@@ -44,6 +44,7 @@ import { KeybindingsLive } from "./keybindings.ts";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup.ts";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor.ts";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus.ts";
+import { ReasoningStreamBusLive } from "./orchestration/Layers/ReasoningStreamBus.ts";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
@@ -164,6 +165,10 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
+  // Transient reasoning channel shared by the ingestion producer and ws
+  // subscribeThread consumer. Provided last (like RuntimeReceiptBusLive) so it
+  // is available to the earlier reactors and exported for the routes layer.
+  Layer.provideMerge(ReasoningStreamBusLive),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(

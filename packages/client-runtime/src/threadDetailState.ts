@@ -6,6 +6,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import type {
+  MessageId,
   OrchestrationThread,
   OrchestrationThreadStreamItem,
   EnvironmentId,
@@ -15,6 +16,7 @@ import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
 import {
   DEFAULT_THREAD_DETAIL_LIMITS,
+  applyReasoningStreamItem,
   applyThreadDetailEvent,
   type ThreadDetailRetentionLimits,
 } from "./threadDetailReducer.ts";
@@ -113,6 +115,13 @@ export interface ThreadDetailManagerConfig {
 
 export function createThreadDetailManager(config: ThreadDetailManagerConfig) {
   const entries = new Map<string, ThreadDetailEntry>();
+  // Per-target (per-thread) message ids whose reasoning has been durably
+  // finalized (REPLACE event seen). Used to drop out-of-order transient
+  // reasoning items on the merged stream. Keyed by targetKey because message
+  // ids are NOT globally unique across threads — a manager-wide set would let
+  // one thread's finalization silently drop another thread's live reasoning,
+  // and would grow unbounded. Reset on each fresh snapshot and on disposal.
+  const reasoningFinalizedByTarget = new Map<string, Set<MessageId>>();
 
   function getSnapshot(target: ThreadDetailTarget): ThreadDetailState {
     const targetKey = getThreadDetailTargetKey(target);
@@ -168,6 +177,7 @@ export function createThreadDetailManager(config: ThreadDetailManagerConfig) {
     clearEntryEviction(entry);
     entry.teardown();
     entries.delete(targetKey);
+    reasoningFinalizedByTarget.delete(targetKey);
   }
 
   function evictIdleEntriesToCapacity(): void {
@@ -249,6 +259,9 @@ export function createThreadDetailManager(config: ThreadDetailManagerConfig) {
     threadId: ThreadIdType,
   ): void {
     if (item.kind === "snapshot") {
+      // Fresh snapshot bakes in all durable reasoning to date; reset stale-drop
+      // tracking so it cannot leak across resubscribes (bounds growth too).
+      reasoningFinalizedByTarget.delete(targetKey);
       setData(targetKey, item.snapshot.thread);
       return;
     }
@@ -259,10 +272,33 @@ export function createThreadDetailManager(config: ThreadDetailManagerConfig) {
     }).data;
 
     if (current === null) {
-      if (item.event.type === "thread.deleted") {
+      if (item.kind === "event" && item.event.type === "thread.deleted") {
         setDeleted(targetKey);
       }
       return;
+    }
+
+    if (item.kind === "reasoning-delta") {
+      const result = applyReasoningStreamItem(
+        current,
+        item.payload,
+        reasoningFinalizedByTarget.get(targetKey)?.has(item.payload.messageId) ?? false,
+        DateTime.formatIso(DateTime.nowUnsafe()),
+        config.limits ?? DEFAULT_THREAD_DETAIL_LIMITS,
+      );
+      if (result.kind === "updated") {
+        setData(targetKey, result.thread);
+      }
+      return;
+    }
+
+    if (item.event.type === "thread.message-reasoning") {
+      let finalized = reasoningFinalizedByTarget.get(targetKey);
+      if (finalized === undefined) {
+        finalized = new Set<MessageId>();
+        reasoningFinalizedByTarget.set(targetKey, finalized);
+      }
+      finalized.add(item.event.payload.messageId);
     }
 
     const result = applyThreadDetailEvent(

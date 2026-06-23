@@ -2,11 +2,13 @@ import { QueryClient } from "@tanstack/react-query";
 import type { WsRpcClient } from "@t3tools/client-runtime";
 import {
   EnvironmentId,
+  MessageId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   TurnId,
   type OrchestrationShellSnapshot,
+  type ReasoningStreamItem,
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -375,6 +377,74 @@ describe("retainThreadDetailSubscription", () => {
     await resetEnvironmentServiceForTests();
   });
 
+  it("buffers and coalesces transient reasoning-delta items into one store update per frame", async () => {
+    type RafCallback = (time: number) => void;
+    let rafCallback: RafCallback | null = null;
+    const readRaf = (): RafCallback | null => rafCallback;
+    vi.stubGlobal("requestAnimationFrame", (cb: RafCallback) => {
+      rafCallback = cb;
+      return 1;
+    });
+
+    const {
+      retainThreadDetailSubscription,
+      startEnvironmentConnectionService,
+      resetEnvironmentServiceForTests,
+    } = await import("./service");
+    const { useStore } = await import("../../store");
+
+    const stop = startEnvironmentConnectionService(new QueryClient());
+    const environmentId = EnvironmentId.make("env-1");
+    const threadId = ThreadId.make("thread-reasoning");
+    const messageId = MessageId.make("assistant:item-1");
+
+    type ThreadStreamHandler = (item: {
+      kind: "reasoning-delta";
+      payload: ReasoningStreamItem;
+    }) => void;
+    let capturedCallback: ThreadStreamHandler | null = null;
+    // Read through a function so control-flow analysis doesn't narrow the
+    // closure-assigned variable back to its initial `null`.
+    const readCallback = (): ThreadStreamHandler | null => capturedCallback;
+    mockSubscribeThread.mockImplementation((_input: unknown, handler: ThreadStreamHandler) => {
+      capturedCallback = handler;
+      return mockThreadUnsubscribe;
+    });
+
+    const release = retainThreadDetailSubscription(environmentId, threadId);
+    const callback = readCallback();
+    if (callback === null) {
+      throw new Error("subscribeThread callback was not captured");
+    }
+
+    const applySpy = vi.spyOn(useStore.getState(), "applyReasoningStreamItem");
+
+    for (const text of ["a", "b", "c"]) {
+      callback({
+        kind: "reasoning-delta",
+        payload: { kind: "delta", threadId, messageId, turnId: null, text },
+      });
+    }
+
+    // Buffered until the frame flush — no per-token store update.
+    expect(applySpy).not.toHaveBeenCalled();
+
+    const flushFrame = readRaf();
+    if (flushFrame === null) {
+      throw new Error("requestAnimationFrame was not scheduled");
+    }
+    flushFrame(0);
+
+    // Three deltas coalesced into a single store update with concatenated text.
+    expect(applySpy).toHaveBeenCalledTimes(1);
+    expect(applySpy.mock.calls[0]?.[0]).toMatchObject({ kind: "delta", messageId, text: "abc" });
+
+    applySpy.mockRestore();
+    release();
+    stop();
+    await resetEnvironmentServiceForTests();
+  });
+
   it("does not start the primary connection until the known environment has an id", async () => {
     mockGetPrimaryKnownEnvironment.mockReturnValue({
       id: "env-1",
@@ -662,5 +732,50 @@ describe("retainThreadDetailSubscription", () => {
     expect(mockThreadUnsubscribe).toHaveBeenCalledTimes(1);
 
     stop();
+  });
+});
+
+describe("coalesceReasoningStreamItems", () => {
+  it("merges consecutive same-message deltas and breaks runs on complete or message change", async () => {
+    const { coalesceReasoningStreamItems } = await import("./service");
+    const threadId = ThreadId.make("thread-1");
+    const messageA = MessageId.make("assistant:a");
+    const messageB = MessageId.make("assistant:b");
+
+    const result = coalesceReasoningStreamItems([
+      { kind: "delta", threadId, messageId: messageA, turnId: null, text: "Th" },
+      { kind: "delta", threadId, messageId: messageA, turnId: null, text: "ink" },
+      {
+        kind: "complete",
+        threadId,
+        messageId: messageA,
+        reasoningCompletedAt: "2026-04-01T00:00:00.000Z",
+      },
+      { kind: "delta", threadId, messageId: messageB, turnId: null, text: "x" },
+      { kind: "delta", threadId, messageId: messageB, turnId: null, text: "y" },
+    ]);
+
+    expect(result).toEqual([
+      { kind: "delta", threadId, messageId: messageA, turnId: null, text: "Think" },
+      {
+        kind: "complete",
+        threadId,
+        messageId: messageA,
+        reasoningCompletedAt: "2026-04-01T00:00:00.000Z",
+      },
+      { kind: "delta", threadId, messageId: messageB, turnId: null, text: "xy" },
+    ]);
+  });
+
+  it("does not merge deltas from different threads that share a message id", async () => {
+    const { coalesceReasoningStreamItems } = await import("./service");
+    const messageId = MessageId.make("assistant:shared");
+
+    const result = coalesceReasoningStreamItems([
+      { kind: "delta", threadId: ThreadId.make("thread-1"), messageId, turnId: null, text: "a" },
+      { kind: "delta", threadId: ThreadId.make("thread-2"), messageId, turnId: null, text: "b" },
+    ]);
+
+    expect(result).toHaveLength(2);
   });
 });

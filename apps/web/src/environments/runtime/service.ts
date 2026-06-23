@@ -4,6 +4,7 @@ import {
   type DesktopSshEnvironmentTarget,
   type EnvironmentId,
   type OrchestrationEvent,
+  type ReasoningStreamItem,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type ServerConfig,
@@ -408,6 +409,16 @@ function attachThreadDetailSubscription(entry: ThreadDetailSubscriptionEntry): b
     (item) => {
       if (item.kind === "snapshot") {
         useStore.getState().syncServerThreadDetail(item.snapshot.thread, entry.environmentId);
+        return;
+      }
+      if (item.kind === "reasoning-delta") {
+        // Transient ephemeral reasoning chunk — live display only, never
+        // persisted. Buffer + coalesce per frame so a high-volume thinking
+        // stream produces ~one store update per frame instead of one per token
+        // (a React render per chunk would defeat the perf goal). Durable
+        // finalization flows the normal `event` path; the store drops any
+        // late-flushed deltas for an already-finalized message.
+        enqueueReasoningStreamItem(entry.environmentId, item.payload);
         return;
       }
       applyEnvironmentThreadDetailEvent(item.event, entry.environmentId);
@@ -907,6 +918,76 @@ function setRuntimeError(environmentId: EnvironmentId, error: unknown) {
   });
 }
 
+/**
+ * Coalesce consecutive transient reasoning chunks for the same
+ * (thread, message) into a single `delta` (text concatenated), preserving
+ * order. `complete` items pass through and break the run so delta-before-
+ * complete ordering is kept. Pure + exported for testing.
+ */
+export function coalesceReasoningStreamItems(
+  items: ReadonlyArray<ReasoningStreamItem>,
+): ReasoningStreamItem[] {
+  const coalesced: ReasoningStreamItem[] = [];
+  for (const item of items) {
+    const previous = coalesced.at(-1);
+    if (
+      item.kind === "delta" &&
+      previous?.kind === "delta" &&
+      previous.threadId === item.threadId &&
+      previous.messageId === item.messageId
+    ) {
+      coalesced[coalesced.length - 1] = { ...item, text: previous.text + item.text };
+      continue;
+    }
+    coalesced.push(item);
+  }
+  return coalesced;
+}
+
+// Per-frame buffer of transient reasoning items, keyed by environment. Flushed
+// on the next animation frame (or a short timeout where rAF is unavailable),
+// coalescing per (thread, message) so a long thinking trace re-renders at frame
+// cadence rather than per token.
+const pendingReasoningItemsByEnvironment = new Map<EnvironmentId, ReasoningStreamItem[]>();
+let reasoningFlushScheduled = false;
+
+function flushPendingReasoningStreamItems(): void {
+  reasoningFlushScheduled = false;
+  if (pendingReasoningItemsByEnvironment.size === 0) {
+    return;
+  }
+  const batches = [...pendingReasoningItemsByEnvironment];
+  pendingReasoningItemsByEnvironment.clear();
+  const store = useStore.getState();
+  for (const [environmentId, items] of batches) {
+    for (const item of coalesceReasoningStreamItems(items)) {
+      store.applyReasoningStreamItem(item, environmentId);
+    }
+  }
+}
+
+function scheduleReasoningFlush(): void {
+  if (reasoningFlushScheduled) {
+    return;
+  }
+  reasoningFlushScheduled = true;
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => flushPendingReasoningStreamItems());
+  } else {
+    setTimeout(() => flushPendingReasoningStreamItems(), 16);
+  }
+}
+
+function enqueueReasoningStreamItem(environmentId: EnvironmentId, item: ReasoningStreamItem): void {
+  const existing = pendingReasoningItemsByEnvironment.get(environmentId);
+  if (existing) {
+    existing.push(item);
+  } else {
+    pendingReasoningItemsByEnvironment.set(environmentId, [item]);
+  }
+  scheduleReasoningFlush();
+}
+
 function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,
 ): OrchestrationEvent[] {
@@ -938,25 +1019,10 @@ function coalesceOrchestrationUiEvents(
       continue;
     }
 
-    // Mirror the assistant-text coalescing for streaming reasoning deltas so a
-    // long thinking trace produces one store update per batch instead of one
-    // per chunk (performance parity with the answer stream).
-    if (
-      previous?.type === "thread.message-reasoning" &&
-      event.type === "thread.message-reasoning" &&
-      previous.payload.threadId === event.payload.threadId &&
-      previous.payload.messageId === event.payload.messageId
-    ) {
-      coalesced[coalesced.length - 1] = {
-        ...event,
-        payload: {
-          ...event.payload,
-          createdAt: previous.payload.createdAt,
-          reasoningDelta: previous.payload.reasoningDelta + event.payload.reasoningDelta,
-        },
-      };
-      continue;
-    }
+    // v2: `thread.message-reasoning` is no longer a streaming per-delta event —
+    // it is a single durable REPLACE event per segment, so there is nothing to
+    // coalesce. Live reasoning chunks travel the transient reasoning-delta
+    // channel instead (see applyReasoningStreamItem).
 
     coalesced.push(event);
   }
@@ -2072,6 +2138,8 @@ export async function resetEnvironmentServiceForTests(): Promise<void> {
   lastBrowserHiddenAt = null;
   lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
   lastAppliedProjectionVersionByEnvironment.clear();
+  pendingReasoningItemsByEnvironment.clear();
+  reasoningFlushScheduled = false;
   pendingSavedEnvironmentConnections.clear();
   savedEnvironmentConnectionAttempts.clear();
   for (const key of Array.from(threadDetailSubscriptions.keys())) {

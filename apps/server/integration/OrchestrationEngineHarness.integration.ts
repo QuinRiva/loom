@@ -52,6 +52,7 @@ import { OrchestrationEngineLive } from "../src/orchestration/Layers/Orchestrati
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBusTest } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
+import { ReasoningStreamBusLive } from "../src/orchestration/Layers/ReasoningStreamBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
@@ -307,6 +308,7 @@ export const makeOrchestrationIntegrationHarness = (
       checkpointStoreLayer,
       providerLayer,
       RuntimeReceiptBusTest,
+      ReasoningStreamBusLive,
     );
     const serverSettingsLayer = ServerSettingsService.layerTest();
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(

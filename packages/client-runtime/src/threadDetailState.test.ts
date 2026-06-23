@@ -181,6 +181,149 @@ describe("createThreadDetailManager", () => {
     release();
   });
 
+  it("routes transient reasoning-delta items and drops them once durably finalized", () => {
+    const { client, emit } = createMockClient();
+    const manager = createThreadDetailManager({
+      getRegistry: () => atomRegistry,
+      getClient: () => null,
+    });
+    const release = manager.watch(TARGET, client);
+    const messageId = MessageId.make("assistant:item-r");
+
+    emit({ kind: "snapshot", snapshot: { snapshotSequence: 1, thread: BASE_THREAD } });
+    emit({
+      kind: "reasoning-delta",
+      payload: {
+        kind: "delta",
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        turnId: TurnId.make("turn-r"),
+        text: "Think",
+      },
+    });
+
+    const afterDelta = manager.getSnapshot(TARGET).data?.messages.find((m) => m.id === messageId);
+    expect(afterDelta?.reasoningText).toBe("Think");
+    expect(afterDelta?.reasoningStreaming).toBe(true);
+
+    // Durable REPLACE event marks the message finalized.
+    emit({
+      kind: "event",
+      event: {
+        ...baseEventFields,
+        sequence: 4,
+        occurredAt: "2026-04-01T01:20:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-reasoning",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId,
+          turnId: TurnId.make("turn-r"),
+          reasoningText: "Thinking done",
+          reasoningStreaming: false,
+          createdAt: "2026-04-01T01:20:00.000Z",
+          updatedAt: "2026-04-01T01:20:00.000Z",
+        },
+      } as any,
+    });
+
+    // A late, out-of-order transient delta must be dropped (no duplication).
+    emit({
+      kind: "reasoning-delta",
+      payload: {
+        kind: "delta",
+        threadId: ThreadId.make("thread-1"),
+        messageId,
+        turnId: TurnId.make("turn-r"),
+        text: "-stale",
+      },
+    });
+
+    const finalized = manager.getSnapshot(TARGET).data?.messages.find((m) => m.id === messageId);
+    expect(finalized?.reasoningText).toBe("Thinking done");
+    expect(finalized?.reasoningStreaming).toBe(false);
+
+    release();
+  });
+
+  it("scopes reasoning finalization per thread so one thread cannot drop another's live reasoning", () => {
+    // Message ids are not globally unique across threads. A manager-wide
+    // finalized set would let thread-1's durable REPLACE drop thread-2's live
+    // reasoning that happens to share the same message id. This guards that.
+    const clientA = createMockClient();
+    const clientB = createMockClient();
+    const manager = createThreadDetailManager({
+      getRegistry: () => atomRegistry,
+      getClient: () => null,
+    });
+    const targetB = {
+      environmentId: EnvironmentId.make("env-local"),
+      threadId: ThreadId.make("thread-2"),
+    } as const;
+    const releaseA = manager.watch(TARGET, clientA.client);
+    const releaseB = manager.watch(targetB, clientB.client);
+    const sharedMessageId = MessageId.make("assistant:item-shared");
+
+    clientA.emit({ kind: "snapshot", snapshot: { snapshotSequence: 1, thread: BASE_THREAD } });
+    clientB.emit({
+      kind: "snapshot",
+      snapshot: {
+        snapshotSequence: 1,
+        thread: { ...BASE_THREAD, id: ThreadId.make("thread-2") },
+      },
+    });
+
+    // Thread-1 durably finalizes the shared message id.
+    clientA.emit({
+      kind: "event",
+      event: {
+        ...baseEventFields,
+        sequence: 3,
+        occurredAt: "2026-04-01T01:20:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.message-reasoning",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          messageId: sharedMessageId,
+          turnId: TurnId.make("turn-a"),
+          reasoningText: "A done",
+          reasoningStreaming: false,
+          createdAt: "2026-04-01T01:20:00.000Z",
+          updatedAt: "2026-04-01T01:20:00.000Z",
+        },
+      } as any,
+    });
+
+    // Thread-2's live delta for the same message id must NOT be dropped.
+    clientB.emit({
+      kind: "reasoning-delta",
+      payload: {
+        kind: "delta",
+        threadId: ThreadId.make("thread-2"),
+        messageId: sharedMessageId,
+        turnId: TurnId.make("turn-b"),
+        text: "B think",
+      },
+    });
+
+    const bMessage = manager
+      .getSnapshot(targetB)
+      .data?.messages.find((m) => m.id === sharedMessageId);
+    expect(bMessage?.reasoningText).toBe("B think");
+    expect(bMessage?.reasoningStreaming).toBe(true);
+
+    const aMessage = manager
+      .getSnapshot(TARGET)
+      .data?.messages.find((m) => m.id === sharedMessageId);
+    expect(aMessage?.reasoningText).toBe("A done");
+    expect(aMessage?.reasoningStreaming).toBe(false);
+
+    releaseA();
+    releaseB();
+  });
+
   it("marks threads as deleted when the stream deletes them", () => {
     const { client, emit } = createMockClient();
     const manager = createThreadDetailManager({

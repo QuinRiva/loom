@@ -457,13 +457,15 @@ export function projectEvent(
           return nextBase;
         }
 
+        // v2 REPLACE semantics: the durable event carries the full accumulated
+        // reasoning text, so set it directly (never append).
         const existingMessage = thread.messages.find((entry) => entry.id === payload.messageId);
         const messages = existingMessage
           ? thread.messages.map((entry) =>
               entry.id === payload.messageId
                 ? {
                     ...entry,
-                    reasoningText: `${entry.reasoningText ?? ""}${payload.reasoningDelta}`,
+                    reasoningText: payload.reasoningText,
                     reasoningStreaming: payload.reasoningStreaming,
                     updatedAt: payload.updatedAt,
                   }
@@ -479,7 +481,7 @@ export function projectEvent(
                   text: "",
                   turnId: payload.turnId,
                   streaming: true,
-                  reasoningText: payload.reasoningDelta,
+                  reasoningText: payload.reasoningText,
                   reasoningStreaming: payload.reasoningStreaming,
                   createdAt: payload.createdAt,
                   updatedAt: payload.updatedAt,

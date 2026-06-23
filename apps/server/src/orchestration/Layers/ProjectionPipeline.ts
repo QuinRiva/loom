@@ -715,8 +715,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        // NOTE: `thread.message-reasoning` is deliberately NOT in this group.
+        // refreshThreadShellSummary recomputes counts/latest-user-message that a
+        // reasoning event cannot change; under v2 reasoning fires once per
+        // segment, but even so it has no business triggering the full shell
+        // re-read. Its row write is handled by applyThreadMessagesProjection.
         case "thread.message-sent":
-        case "thread.message-reasoning":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
         case "thread.approval-response-requested":
@@ -867,7 +871,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { attachments: [...previousMessage.attachments] }
               : {}),
             isStreaming: previousMessage?.isStreaming ?? true,
-            reasoningText: `${previousMessage?.reasoningText ?? ""}${event.payload.reasoningDelta}`,
+            // v2 REPLACE: the event carries the full accumulated text.
+            reasoningText: event.payload.reasoningText,
             reasoningStreaming: event.payload.reasoningStreaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,

@@ -82,6 +82,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine.ts";
+import { ReasoningStreamBusLive } from "./orchestration/Layers/ReasoningStreamBus.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import {
   ProjectionSnapshotQuery,
@@ -695,47 +696,50 @@ const buildAppUnderTest = (options?: {
         ),
       ),
       Layer.provide(
-        Layer.mock(OrchestrationEngineService)({
-          readEvents: () => Stream.empty,
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          streamDomainEvents: Stream.empty,
-          ...options?.layers?.orchestrationEngine,
-        }),
+        Layer.mergeAll(
+          Layer.mock(OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            dispatch: () => Effect.succeed({ sequence: 0 }),
+            streamDomainEvents: Stream.empty,
+            ...options?.layers?.orchestrationEngine,
+          }),
+          ReasoningStreamBusLive,
+        ),
       ),
       Layer.provide(
         Layer.mergeAll(
-        Layer.mock(GoalsService)({
-          list: () => Effect.succeed([]),
-          rescan: () => Effect.succeed([]),
-          ...options?.layers?.goalsService,
-        }),
-        Layer.mock(ProjectionSnapshotQuery)({
-          getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
-          getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
-          getShellSnapshot: () =>
-            Effect.succeed({
-              snapshotSequence: 0,
-              projects: [],
-              threads: [],
-              updatedAt: "1970-01-01T00:00:00.000Z",
-            }),
-          getArchivedShellSnapshot: () =>
-            Effect.succeed({
-              snapshotSequence: 0,
-              projects: [],
-              threads: [],
-              updatedAt: "1970-01-01T00:00:00.000Z",
-            }),
-          getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
-          getProjectShellById: () => Effect.succeed(Option.none()),
-          getThreadShellById: () => Effect.succeed(Option.none()),
-          getThreadDetailById: () => Effect.succeed(Option.none()),
-          getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-          getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
-          getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-          ...options?.layers?.projectionSnapshotQuery,
-        }),
+          Layer.mock(GoalsService)({
+            list: () => Effect.succeed([]),
+            rescan: () => Effect.succeed([]),
+            ...options?.layers?.goalsService,
+          }),
+          Layer.mock(ProjectionSnapshotQuery)({
+            getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+            getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [],
+                threads: [],
+                updatedAt: "1970-01-01T00:00:00.000Z",
+              }),
+            getArchivedShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: [],
+                threads: [],
+                updatedAt: "1970-01-01T00:00:00.000Z",
+              }),
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
+            getProjectShellById: () => Effect.succeed(Option.none()),
+            getThreadShellById: () => Effect.succeed(Option.none()),
+            getThreadDetailById: () => Effect.succeed(Option.none()),
+            getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
+            getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
+            getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+            getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+            ...options?.layers?.projectionSnapshotQuery,
+          }),
         ),
       ),
       Layer.provide(

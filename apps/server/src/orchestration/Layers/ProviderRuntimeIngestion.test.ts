@@ -40,6 +40,7 @@ import {
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
 import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
+import { ReasoningStreamBusLive } from "./ReasoningStreamBus.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -241,6 +242,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(ReasoningStreamBusLive),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -717,6 +719,67 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("hello world");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("streams reasoning chunks transiently and persists exactly one reasoning event at finalization", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    const reasoningEvents = async () => {
+      const events = await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0)));
+      return Array.from(events).filter((event) => event.type === "thread.message-reasoning");
+    };
+
+    for (const [index, delta] of ["Think", "ing", " hard"].entries()) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-reasoning-${index}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-r"),
+        itemId: asItemId("item-r"),
+        payload: {
+          streamKind: "reasoning_text",
+          delta,
+        },
+      });
+    }
+    await harness.drain();
+
+    // Reasoning chunks are transient (ReasoningStreamBus) — no durable event yet.
+    expect((await reasoningEvents()).length).toBe(0);
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-reasoning-turn-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-r"),
+      payload: {
+        state: "completed",
+      },
+    });
+    await harness.drain();
+
+    const events = await reasoningEvents();
+    expect(events.length).toBe(1);
+    expect(events[0]?.payload).toMatchObject({
+      reasoningText: "Thinking hard",
+      reasoningStreaming: false,
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) => (message.reasoningText ?? "").length > 0,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => (entry.reasoningText ?? "").length > 0,
+    );
+    expect(message?.reasoningText).toBe("Thinking hard");
+    expect(message?.reasoningStreaming).toBe(false);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {

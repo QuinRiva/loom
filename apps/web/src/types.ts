@@ -60,6 +60,11 @@ export interface ChatMessage {
   reasoningText?: string | undefined;
   reasoningStreaming?: boolean | undefined;
   reasoningCompletedAt?: string | undefined;
+  // Client-only: set once the durable `thread.message-reasoning` event has
+  // REPLACED the reasoning with its authoritative full text. Transient deltas
+  // that arrive afterward (out-of-order on the merged WS stream) are dropped to
+  // avoid duplicating already-finalized text.
+  reasoningFinalized?: boolean | undefined;
 }
 
 export interface ProposedPlan {
