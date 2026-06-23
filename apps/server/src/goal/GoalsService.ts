@@ -53,6 +53,22 @@ class GoalDiscoveryError extends Data.TaggedError("GoalDiscoveryError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * HACK (worktree slug collision): keep the first entry seen per
+ * (projectId, slug). See the call site in `rescan` for the full rationale.
+ */
+const dedupeBySlug = (
+  entries: ReadonlyArray<GoalIndexEntry>,
+): ReadonlyArray<GoalIndexEntry> => {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = `${entry.projectId}\u0000${entry.slug}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const makeGoalsService = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const cache = yield* Ref.make<ReadonlyArray<GoalIndexEntry>>([]);
@@ -88,6 +104,17 @@ const makeGoalsService = Effect.gen(function* () {
     projectionSnapshotQuery.getShellSnapshot().pipe(
       Effect.flatMap((snapshot) => Effect.forEach(snapshot.projects, scanProject)),
       Effect.map(Array.flatten),
+      // HACK (worktree slug collision): `discoverGoals` scans EVERY worktree of
+      // a project, but a goal package (`goals/<slug>/goal.md`) is checked out in
+      // each worktree of the same branch. So adding a second worktree for a
+      // project surfaces every slug N times with the same projectId, which
+      // produces duplicate React keys (`goal:<slug>`) in the sidebar and spins
+      // the renderer at ~100% CPU. Until goal discovery is made worktree-aware
+      // (proper fix: key goals by worktree, or scan only the primary worktree),
+      // collapse to the first occurrence per (projectId, slug). `git worktree
+      // list` always emits the primary worktree first, so this keeps the
+      // canonical checkout.
+      Effect.map(dedupeBySlug),
       Effect.tap((entries) => Ref.set(cache, entries)),
       Effect.tapError((cause) => Effect.logWarning("goal index rescan failed", { cause })),
       Effect.orElseSucceed(() => [] as ReadonlyArray<GoalIndexEntry>),
