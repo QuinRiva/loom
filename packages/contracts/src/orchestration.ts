@@ -611,6 +611,10 @@ const ThreadCreateCommand = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Intrinsic run-condition carried at node creation: the dispatcher defers the
+  // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
+  // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
+  blockedBy: Schema.optional(Schema.Array(ThreadId)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

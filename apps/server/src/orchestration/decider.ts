@@ -458,6 +458,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.role !== undefined ? { role: command.role } : {}),
           ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
+          // Seed the node's run-condition; drop self-references so a thread can
+          // never block on itself (cycles/dangling ids tolerated permissively,
+          // matching thread.dependencies.set).
+          ...(command.blockedBy !== undefined
+            ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
+            : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
