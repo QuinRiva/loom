@@ -117,6 +117,7 @@ export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         data-thread-selection-safe
+        nativeButton={false}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
