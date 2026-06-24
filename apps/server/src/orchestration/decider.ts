@@ -31,7 +31,7 @@ import {
 } from "./commandInvariants.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
-import { areDependenciesSatisfied } from "./workstreamDependencies.ts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 

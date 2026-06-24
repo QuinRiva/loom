@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workstream sidebar indicator — design mockup</title>
+    <style>
+      /* ---- palette mirrored from the app (dark mode tokens) ----
+     Leading own-status pills:  Working=sky+pulse, Pending Approval=amber,
+       Awaiting Input=indigo, Plan Ready=violet, Completed=emerald.
+     Workstream board states:    planned=slate, running=sky, blocked=amber,
+       review=violet, done=emerald.  LiveDots = triple sky pulse.
+     Deadlock is a NEW state (no existing token) → rose, the danger colour. */
+      :root {
+        --bg-app: #0b0f14;
+        --bg-panel-top: #0d1117;
+        --bg-panel-bot: #090d13;
+        --bg-card: #12171f;
+        --bg-card-hover: #161c26;
+        --row-active: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.1);
+        --border-strong: rgba(255, 255, 255, 0.18);
+        --fg: rgba(255, 255, 255, 0.92);
+        --fg-muted: rgba(255, 255, 255, 0.55);
+        --fg-dim: rgba(255, 255, 255, 0.38);
+        --fg-faint: rgba(255, 255, 255, 0.25);
+
+        --sky: #7dd3fc; /* sky-300  : running / active */
+        --sky-strong: #38bdf8;
+        --amber: #fcd34d; /* amber-300: pending / needs-you */
+        --amber-strong: #f59e0b;
+        --indigo: #a5b4fc; /* indigo-300: awaiting input */
+        --violet: #c4b5fd; /* violet-300: plan ready / review */
+        --emerald: #6ee7b7; /* emerald-300: completed / done */
+        --slate: #cbd5e1; /* slate-300 : planned / idle */
+        --slate-strong: #94a3b8;
+        --rose: #fda4af; /* rose-300  : DEADLOCK (new) */
+        --rose-strong: #f43f5e;
+        --teal: #5eead4; /* teal-300  : terminal running */
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        color: var(--fg);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 40px 28px 80px;
+      }
+      h1 {
+        font-size: 22px;
+        font-weight: 650;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      .subtitle {
+        color: var(--fg-muted);
+        margin: 0 0 28px;
+        font-size: 13.5px;
+      }
+
+      h2 {
+        font-size: 12px;
+        font-weight: 650;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--fg-dim);
+        margin: 40px 0 14px;
+      }
+
+      /* ---------- rationale block ---------- */
+      .rationale {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: linear-gradient(180deg, var(--bg-panel-top), var(--bg-panel-bot));
+        padding: 20px 22px;
+      }
+      .rationale p {
+        margin: 0 0 12px;
+        color: var(--fg-muted);
+        font-size: 13px;
+      }
+      .rationale p:last-child {
+        margin-bottom: 0;
+      }
+      .rationale strong {
+        color: var(--fg);
+        font-weight: 600;
+      }
+
+      .legend {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 10px 22px;
+        margin: 16px 0 4px;
+      }
+      .legend-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        font-size: 12.5px;
+      }
+      .legend-item .swatch {
+        margin-top: 3px;
+      }
+      .legend-item .lt {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .legend-item .ld {
+        color: var(--fg-dim);
+      }
+
+      .swatch {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        flex: none;
+        display: inline-block;
+      }
+
+      /* ---------- layout: sidebar + notes side by side ---------- */
+      .split {
+        display: flex;
+        gap: 26px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      /* ---------- mock sidebar ---------- */
+      .sidebar {
+        width: 320px;
+        flex: none;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: linear-gradient(180deg, var(--bg-panel-top), var(--bg-panel-bot));
+        padding: 10px 8px;
+      }
+      .sidebar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 8px 10px;
+        color: var(--fg-dim);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-weight: 600;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: 7px;
+        cursor: pointer;
+        user-select: none;
+        color: var(--fg-muted);
+      }
+      .row:hover {
+        background: var(--row-active);
+        color: var(--fg);
+      }
+      .row.selected {
+        background: rgba(99, 102, 241, 0.2);
+        color: var(--fg);
+        font-weight: 500;
+      }
+
+      /* leading own-status pill (dot + optional label) */
+      .lead {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        flex: none;
+      }
+      .lead .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+      }
+      .lead .dot.pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      .row .title {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 13px;
+      }
+
+      /* trailing cluster: existing icons + the NEW activity indicator */
+      .trail {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        flex: none;
+      }
+      .trail svg {
+        width: 13px;
+        height: 13px;
+        display: block;
+      }
+      .icon-teal {
+        color: var(--teal);
+      }
+      .icon-cloud {
+        color: rgba(255, 255, 255, 0.45);
+      }
+
+      /* ===== the activity indicator (option C: trailing badge) ===== */
+      .ws {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 18px;
+        padding: 0 7px 0 6px;
+        border-radius: 999px;
+        border: 1px solid var(--ws-border);
+        background: var(--ws-bg);
+        color: var(--ws-fg);
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+        position: relative;
+      }
+      .ws .glyph {
+        display: inline-flex;
+      }
+      .ws .glyph svg {
+        width: 11px;
+        height: 11px;
+        display: block;
+      }
+      .ws .count {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
+
+      /* live triple-dot (mirrors WorkstreamPanel LiveDots) for the running state */
+      .livedots {
+        display: inline-flex;
+        gap: 2px;
+      }
+      .livedots i {
+        width: 4px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--sky);
+        display: inline-block;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      .livedots i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .livedots i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+
+      /* per-state theming of the activity indicator */
+      .ws.active {
+        --ws-fg: var(--sky);
+        --ws-bg: rgba(56, 189, 248, 0.12);
+        --ws-border: rgba(56, 189, 248, 0.4);
+      }
+      .ws.needs {
+        --ws-fg: var(--amber);
+        --ws-bg: rgba(245, 158, 11, 0.12);
+        --ws-border: rgba(245, 158, 11, 0.42);
+      }
+      .ws.dead {
+        --ws-fg: var(--rose);
+        --ws-bg: rgba(244, 63, 94, 0.14);
+        --ws-border: rgba(244, 63, 94, 0.48);
+      }
+      .ws.done {
+        --ws-fg: var(--emerald);
+        --ws-bg: rgba(52, 211, 153, 0.1);
+        --ws-border: rgba(52, 211, 153, 0.38);
+      }
+      .ws.idle {
+        --ws-fg: var(--slate);
+        --ws-bg: rgba(148, 163, 184, 0.08);
+        --ws-border: rgba(148, 163, 184, 0.3);
+      }
+
+      /* deadlock gets a soft danger pulse on its border to draw the eye */
+      .ws.dead {
+        animation: deadpulse 1.8s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @keyframes deadpulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+        }
+        50% {
+          box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.16);
+        }
+      }
+
+      /* ---------- tooltip sketch ---------- */
+      .tip-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+      .tooltip {
+        border: 1px solid var(--border);
+        background: #0a0e13;
+        border-radius: 9px;
+        padding: 9px 11px;
+        font-size: 11.5px;
+        color: var(--fg-muted);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        width: max-content;
+        max-width: 250px;
+      }
+      .tooltip .tt-title {
+        color: var(--fg);
+        font-weight: 600;
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+      .tooltip .tt-line {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 1.5px 0;
+      }
+      .tooltip .tt-line .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex: none;
+      }
+      .tooltip .tt-line .lab {
+        flex: 1;
+      }
+      .tooltip .tt-line .n {
+        font-variant-numeric: tabular-nums;
+        color: var(--fg);
+      }
+      .tooltip .tt-foot {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid var(--border);
+        color: var(--fg-dim);
+        font-size: 10.5px;
+      }
+
+      /* caret pointing up at the row */
+      .tooltip-anchored {
+        position: relative;
+        margin-top: 8px;
+      }
+      .tooltip-anchored::before {
+        content: "";
+        position: absolute;
+        top: -5px;
+        left: 28px;
+        width: 9px;
+        height: 9px;
+        background: #0a0e13;
+        border-left: 1px solid var(--border);
+        border-top: 1px solid var(--border);
+        transform: rotate(45deg);
+      }
+
+      .notes {
+        flex: 1 1 320px;
+        min-width: 280px;
+      }
+      .note-card {
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        background: var(--bg-card);
+        padding: 14px 16px;
+        margin-bottom: 12px;
+      }
+      .note-card h3 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .note-card p {
+        margin: 0;
+        color: var(--fg-muted);
+        font-size: 12.5px;
+      }
+      .note-card .demo {
+        margin-top: 9px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      /* ---------- alternatives comparison ---------- */
+      .alts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 14px;
+      }
+      .alt {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--bg-card);
+        padding: 16px 18px;
+      }
+      .alt.recommended {
+        border-color: rgba(56, 189, 248, 0.45);
+        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.12) inset;
+      }
+      .alt h3 {
+        margin: 0 0 3px;
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+      .alt .tag {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--sky);
+        margin-left: 8px;
+      }
+      .alt .alt-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px dashed var(--border);
+        border-radius: 7px;
+        padding: 8px 10px;
+        margin: 12px 0 11px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .alt .alt-row .title {
+        flex: 1;
+        font-size: 12.5px;
+        color: var(--fg-muted);
+      }
+      .alt .tradeoff {
+        margin: 0;
+        font-size: 12px;
+        color: var(--fg-dim);
+      }
+      .alt .tradeoff b {
+        color: var(--fg-muted);
+        font-weight: 600;
+      }
+
+      /* leading-pill-with-count variant */
+      .lead-count {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--sky);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .lead-count .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--sky);
+      }
+      .lead-count .dot.pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      /* combined glyph variant: count baked into a ring */
+      .ring-count {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        border: 2px solid var(--sky);
+        color: var(--sky);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9.5px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .footer-note {
+        color: var(--fg-faint);
+        font-size: 11px;
+        margin-top: 36px;
+      }
+      code {
+        background: rgba(255, 255, 255, 0.06);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Workstream activity on the sidebar row</h1>
+      <p class="subtitle">
+        How an orchestrator row tells you, at a glance, the rolled-up state of its sub-thread graph
+        <em>and</em> how many workers are live right now — without opening the workstream panel.
+      </p>
+
+      <!-- ============ RATIONALE ============ -->
+      <h2>Rationale</h2>
+      <div class="rationale">
+        <p>
+          Today a row carries one <strong>leading own-status pill</strong> (Working / Pending
+          Approval / Awaiting Input / Plan Ready / Completed). That pill describes the
+          <em>orchestrator turn itself</em>. The footgun: an orchestrator can be idle while its
+          sub-threads grind away — the row looks finished when 37 workers are still running.
+        </p>
+        <p>
+          The fix is a separate <strong>trailing activity indicator</strong> that summarises the
+          whole DAG, so the leading pill keeps meaning "this thread's turn" and the new glyph means
+          "everything below it". One trailing pill carries both signals:
+          <strong>colour/icon = rolled-up graph state</strong>,
+          <strong>number = live worker count</strong>. A big count renders as a badge ("37"), never
+          37 dots.
+        </p>
+        <div class="legend">
+          <div class="legend-item">
+            <span class="swatch" style="background: var(--sky)"></span
+            ><span
+              ><span class="lt">Active / progressing</span><br /><span class="ld"
+                >work running somewhere in the graph</span
+              ></span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="swatch" style="background: var(--amber)"></span
+            ><span
+              ><span class="lt">Needs you</span><br /><span class="ld"
+                >stalled on a human gate — approval or input</span
+              ></span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="swatch" style="background: var(--rose)"></span
+            ><span
+              ><span class="lt">Deadlocked</span><br /><span class="ld"
+                >nothing running, no human gate — the footgun</span
+              ></span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="swatch" style="background: var(--emerald)"></span
+            ><span
+              ><span class="lt">All done</span><br /><span class="ld"
+                >every node complete</span
+              ></span
+            >
+          </div>
+          <div class="legend-item">
+            <span class="swatch" style="background: var(--slate)"></span
+            ><span
+              ><span class="lt">Idle / incomplete</span><br /><span class="ld"
+                >nodes left, none active, no gate</span
+              ></span
+            >
+          </div>
+        </div>
+        <p style="margin-top: 14px; font-size: 12px; color: var(--fg-dim)">
+          Colours reuse the existing board palette (running=sky, blocked/needs=amber, done=emerald,
+          planned=slate). <strong>Deadlock is the one new colour</strong> — rose — because it is a
+          danger state with no equivalent today and it deserves to stand out.
+        </p>
+      </div>
+
+      <!-- ============ MOCK SIDEBAR ============ -->
+      <h2>Mock sidebar — six rows, different graph states</h2>
+      <div class="split">
+        <div class="sidebar">
+          <div class="sidebar-head"><span>fathom-platform</span><span>threads</span></div>
+
+          <!-- 1: orchestrator, idle own-turn, 1 worker active -->
+          <div class="row selected">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Refactor auth module</span>
+            <span class="trail">
+              <span class="ws active" title="Workstream: 1 worker running">
+                <span class="glyph"
+                  ><span class="livedots"><i></i><i></i><i></i></span
+                ></span>
+                <span class="count">1</span>
+              </span>
+            </span>
+          </div>
+
+          <!-- 2: orchestrator, 37 workers active (big count) -->
+          <div class="row">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Migrate to Effect schema</span>
+            <span class="trail">
+              <!-- existing trailing icons still coexist -->
+              <svg
+                class="icon-teal"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+              <span class="ws active" title="Workstream: 37 workers running">
+                <span class="glyph"
+                  ><span class="livedots"><i></i><i></i><i></i></span
+                ></span>
+                <span class="count">37</span>
+              </span>
+            </span>
+          </div>
+
+          <!-- 3: needs you -->
+          <div class="row">
+            <span class="lead"><span class="dot" style="background: var(--amber)"></span></span>
+            <span class="title">Ship release pipeline</span>
+            <span class="trail">
+              <span class="ws needs" title="Workstream: stalled — 2 awaiting approval">
+                <span class="glyph">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M12 9v4" />
+                    <path d="M12 17h.01" />
+                    <path
+                      d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"
+                    />
+                  </svg>
+                </span>
+                <span class="count">2</span>
+              </span>
+            </span>
+          </div>
+
+          <!-- 4: deadlocked -->
+          <div class="row">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Build analytics dashboard</span>
+            <span class="trail">
+              <span class="ws dead" title="Workstream: DEADLOCKED — nothing running, no human gate">
+                <span class="glyph">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="6.3" y1="6.3" x2="17.7" y2="17.7" />
+                  </svg>
+                </span>
+                <span class="count">0</span>
+              </span>
+            </span>
+          </div>
+
+          <!-- 5: all done -->
+          <div class="row">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Write onboarding docs</span>
+            <span class="trail">
+              <svg
+                class="icon-cloud"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.8A3.5 3.5 0 0 0 6.5 19z" />
+              </svg>
+              <span class="ws done" title="Workstream: all 8 sub-threads done">
+                <span class="glyph">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.6"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              </span>
+            </span>
+          </div>
+
+          <!-- 6: plain leaf, no workstream -> indicator absent -->
+          <div class="row">
+            <span class="lead"><span class="dot pulse" style="background: var(--sky)"></span></span>
+            <span class="title">Quick fix: typo in README</span>
+            <span class="trail"><!-- no workstream: nothing here --></span>
+          </div>
+        </div>
+
+        <!-- annotations -->
+        <div class="notes">
+          <div class="note-card">
+            <h3>
+              <span class="ws active" style="height: 16px"
+                ><span class="glyph"
+                  ><span class="livedots"><i></i><i></i><i></i></span></span
+                ><span class="count">1</span></span
+              >
+              &nbsp;1 active
+            </h3>
+            <p>
+              Single worker running. The triple-pulse glyph (the board's <code>LiveDots</code>)
+              reads as "live" even at one; the <code>1</code> confirms scale.
+            </p>
+          </div>
+          <div class="note-card">
+            <h3>
+              <span class="ws active" style="height: 16px"
+                ><span class="glyph"
+                  ><span class="livedots"><i></i><i></i><i></i></span></span
+                ><span class="count">37</span></span
+              >
+              &nbsp;37 active
+            </h3>
+            <p>
+              Same glyph, the count just grows. Caps at <code>99+</code> so the row never reflows.
+              Coexists with the legacy terminal/cloud trailing icons.
+            </p>
+          </div>
+          <div class="note-card">
+            <h3 style="color: var(--amber)">Needs you</h3>
+            <p>
+              Nothing running; the graph is parked on a human gate. Amber + alert triangle; count is
+              <em>how many</em> nodes await you (2 approvals here).
+            </p>
+          </div>
+          <div class="note-card">
+            <h3 style="color: var(--rose)">Deadlocked</h3>
+            <p>
+              Zero running, zero human gates, work still incomplete — a stuck DAG. Rose with a soft
+              pulsing halo so it pulls your eye on an otherwise calm sidebar.
+            </p>
+          </div>
+          <div class="note-card">
+            <h3 style="color: var(--emerald)">All done</h3>
+            <p>
+              Every node complete. Just a check, no number — the count would only ever be 0. Calm,
+              recedes.
+            </p>
+          </div>
+          <div class="note-card">
+            <h3 style="color: var(--fg-muted)">Leaf thread</h3>
+            <p>
+              No sub-threads → no indicator at all. Absence is the signal; we never show a "0" badge
+              on a thread that has no workstream.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ TOOLTIPS ============ -->
+      <h2>Hover — the breakdown behind the single count</h2>
+      <p class="subtitle" style="margin-bottom: 18px">
+        The badge is a summary; hover (same <code>Tooltip</code> pattern as the existing trailing
+        icons) expands the rolled-up number into its per-state parts.
+      </p>
+      <div class="split" style="gap: 32px">
+        <div class="tip-wrap" style="flex-direction: column; align-items: flex-start">
+          <span class="ws active" style="margin-left: 18px"
+            ><span class="glyph"
+              ><span class="livedots"><i></i><i></i><i></i></span></span
+            ><span class="count">37</span></span
+          >
+          <div class="tooltip tooltip-anchored">
+            <div class="tt-title">Workstream · 37 running</div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--sky)"></span
+              ><span class="lab">running</span><span class="n">37</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--amber)"></span
+              ><span class="lab">awaiting approval</span><span class="n">3</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--violet)"></span
+              ><span class="lab">in review</span><span class="n">2</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--slate)"></span
+              ><span class="lab">planned</span><span class="n">9</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--emerald)"></span
+              ><span class="lab">done</span><span class="n">22</span>
+            </div>
+            <div class="tt-foot">73 sub-threads · click row → Workstream panel</div>
+          </div>
+        </div>
+
+        <div class="tip-wrap" style="flex-direction: column; align-items: flex-start">
+          <span class="ws needs" style="margin-left: 18px"
+            ><span class="glyph"
+              ><svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+                <path
+                  d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"
+                /></svg></span
+            ><span class="count">2</span></span
+          >
+          <div class="tooltip tooltip-anchored">
+            <div class="tt-title" style="color: var(--amber)">Needs you · nothing running</div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--amber)"></span
+              ><span class="lab">awaiting approval</span><span class="n">2</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--slate)"></span
+              ><span class="lab">planned (blocked behind)</span><span class="n">5</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--emerald)"></span
+              ><span class="lab">done</span><span class="n">4</span>
+            </div>
+            <div class="tt-foot">Graph will not progress until you act.</div>
+          </div>
+        </div>
+
+        <div class="tip-wrap" style="flex-direction: column; align-items: flex-start">
+          <span class="ws dead" style="margin-left: 18px"
+            ><span class="glyph"
+              ><svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <line x1="6.3" y1="6.3" x2="17.7" y2="17.7" /></svg></span
+            ><span class="count">0</span></span
+          >
+          <div class="tooltip tooltip-anchored">
+            <div class="tt-title" style="color: var(--rose)">Deadlocked · no path forward</div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--sky)"></span
+              ><span class="lab">running</span><span class="n">0</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--amber)"></span
+              ><span class="lab">human gates</span><span class="n">0</span>
+            </div>
+            <div class="tt-line">
+              <span class="dot" style="background: var(--slate)"></span
+              ><span class="lab">planned but blocked</span><span class="n">6</span>
+            </div>
+            <div class="tt-foot">Cyclic / unsatisfiable deps — needs you to re-plan.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ ALTERNATIVES ============ -->
+      <h2>Alternative treatments — where the count lives</h2>
+      <div class="alts">
+        <div class="alt recommended">
+          <h3>C · Dedicated trailing badge <span class="tag">leaning</span></h3>
+          <div class="alt-row">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Migrate to Effect schema</span>
+            <span class="ws active" style="height: 18px"
+              ><span class="glyph"
+                ><span class="livedots"><i></i><i></i><i></i></span></span
+              ><span class="count">37</span></span
+            >
+          </div>
+          <p class="tradeoff">
+            <b>Two independent signals stay legible:</b> leading pill = this turn, trailing badge =
+            the graph. Costs a little horizontal room; long titles truncate sooner.
+          </p>
+        </div>
+
+        <div class="alt">
+          <h3>A · Leading pill carries the count</h3>
+          <div class="alt-row">
+            <span class="lead-count"><span class="dot pulse"></span> 37</span>
+            <span class="title">Migrate to Effect schema</span>
+          </div>
+          <p class="tradeoff">
+            <b>Most compact, zero new trailing slot</b> — but it overloads one pill with "my turn" +
+            "the graph", and they can disagree (idle turn, busy graph). Ambiguous exactly when it
+            matters most.
+          </p>
+        </div>
+
+        <div class="alt">
+          <h3>B · Combined ring glyph</h3>
+          <div class="alt-row">
+            <span class="lead"><span class="dot" style="background: var(--emerald)"></span></span>
+            <span class="title">Migrate to Effect schema</span>
+            <span class="ring-count">37</span>
+          </div>
+          <p class="tradeoff">
+            <b>One tidy token, count baked into a coloured ring.</b> Reads cleanly at small counts
+            but loses the "alive" motion cue, and three digits crowd the ring —
+            <code>99+</code> barely fits.
+          </p>
+        </div>
+      </div>
+
+      <p class="footer-note">
+        Throwaway design artifact ·
+        <code>docs/design/workstream-sidebar-indicator-mockup.html</code> · colours mirror
+        Sidebar.logic.ts + WorkstreamPanel.tsx; deadlock-rose is the only new token. State set is
+        illustrative — the canonical roll-up states are being defined in a parallel thread.
+      </p>
+    </div>
+  </body>
+</html>

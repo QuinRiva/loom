@@ -13,12 +13,16 @@ import { useShallow } from "zustand/react/shallow";
 
 import { readEnvironmentApi } from "../environmentApi";
 import { newCommandId, newThreadId } from "../lib/utils";
+import {
+  hasRunningSignal,
+  resolveBaseColumn,
+  type WorkstreamColumnId,
+} from "../lib/workstreamGraph";
 import { type AppState, useStore } from "../store";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
 
 type WorkstreamView = "board" | "graph";
-type WorkstreamColumnId = ThreadStatus;
 
 type ChildIndex = ReadonlyMap<ThreadId, SidebarThreadSummary>;
 
@@ -131,24 +135,6 @@ function selectWorkstreamChildren(
   return Object.values(environmentState.sidebarThreadSummaryById)
     .filter((thread) => thread.parentThreadId === parentThreadId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-function hasRunningSignal(thread: SidebarThreadSummary): boolean {
-  return thread.session?.status === "running" || thread.latestTurn?.state === "running";
-}
-
-/**
- * Dependency-free resolution of a thread's column from its explicit status and
- * live session/turn signals — i.e. the D1 precedence with the `blockedBy` step
- * removed. Used both for a thread's own base column and to decide whether a
- * dependency counts as satisfied ("done"), which keeps the effective-status
- * computation non-recursive and safe against dependency cycles.
- */
-function resolveBaseColumn(thread: SidebarThreadSummary): WorkstreamColumnId {
-  if (thread.status === "review" || thread.status === "done") return thread.status;
-  if (thread.status === "blocked") return "blocked";
-  if (thread.status === "running" || hasRunningSignal(thread)) return "running";
-  return "planned";
 }
 
 /**

@@ -2075,6 +2075,42 @@ export function selectSidebarThreadSummaryByRef(
     : undefined;
 }
 
+/**
+ * All transitive descendant sidebar summaries of `rootThreadId` within one
+ * environment, ordered by `createdAt`. Walks `parentThreadId` downward via a
+ * one-pass children index, guarded by a `visited` set and a depth cap (mirrors
+ * `buildThreadLineage`). Powers the orchestrator row's rolled-up graph indicator.
+ */
+export function selectDescendantSidebarThreads(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  rootThreadId: ThreadId,
+  { maxDepth = 16 }: { maxDepth?: number } = {},
+): SidebarThreadSummary[] {
+  const summaries = selectEnvironmentState(state, environmentId).sidebarThreadSummaryById;
+  const childrenByParent = new Map<ThreadId, SidebarThreadSummary[]>();
+  for (const summary of Object.values(summaries)) {
+    if (summary.parentThreadId === null) continue;
+    const siblings = childrenByParent.get(summary.parentThreadId);
+    if (siblings) siblings.push(summary);
+    else childrenByParent.set(summary.parentThreadId, [summary]);
+  }
+  const descendants: SidebarThreadSummary[] = [];
+  const visited = new Set<ThreadId>([rootThreadId]);
+  let frontier = childrenByParent.get(rootThreadId) ?? [];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const next: SidebarThreadSummary[] = [];
+    for (const child of frontier) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      descendants.push(child);
+      next.push(...(childrenByParent.get(child.id) ?? []));
+    }
+    frontier = next;
+  }
+  return descendants.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
 export function selectThreadIdsByProjectRef(
   state: AppState,
   ref: ScopedProjectRef | null | undefined,
