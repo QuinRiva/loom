@@ -1,3 +1,10 @@
+---
+manager_sessions:
+  - id: 019ef74b-b3a6-77f9-8b29-670da89aa154
+    role: plan
+    authored_at: 2026-06-24T05:01:56.718Z
+---
+
 # Phase D: dispatcher — enforce dependencies + liveness + (optional) completion judge
 
 **Status:** plan for a FUTURE thread (to be picked up after the workstream feature
