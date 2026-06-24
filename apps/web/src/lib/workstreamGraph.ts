@@ -1,4 +1,4 @@
-import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, ThreadStatus } from "@t3tools/contracts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 
 import type { SidebarThreadSummary } from "../types";
@@ -19,6 +19,19 @@ export interface GraphBreakdown {
   readonly done: number;
 }
 
+/**
+ * A descendant the user can act on directly from the badge popover. Carries
+ * enough to navigate straight to the sub-thread. `reason` is the human gate for
+ * `attention` nodes and `null` for `deadlocked` cycle members (which are stuck,
+ * not gated). Populated only for the act-states (`attention`, `deadlocked`).
+ */
+export interface GraphActionNode {
+  readonly id: ThreadId;
+  readonly environmentId: EnvironmentId;
+  readonly title: string;
+  readonly reason: AttentionReason | null;
+}
+
 export interface GraphRollup {
   readonly graphState: GraphState;
   readonly activeWorkerCount: number;
@@ -28,6 +41,13 @@ export interface GraphRollup {
   /** Non-archived descendant count (tooltip footer). */
   readonly total: number;
   readonly breakdown: GraphBreakdown;
+  /**
+   * The specific sub-threads the popover lists for click-through navigation,
+   * highest-priority first. Non-empty only for `attention` (gated nodes) and
+   * `deadlocked` (stuck cycle members); empty in watching/settled states where
+   * the popover shows the aggregate breakdown instead.
+   */
+  readonly actionNodes: ReadonlyArray<GraphActionNode>;
 }
 
 const ATTENTION_PRIORITY: Record<AttentionReason, number> = {
@@ -109,17 +129,28 @@ export function rollupGraphState(
     done: nodes.filter((t) => resolveBaseColumn(t) === "done").length,
   };
 
-  const attentionReasons = nodes
-    .map(attentionReasonOf)
-    .filter((r): r is AttentionReason => r !== null);
-  const highestAttentionReason =
-    attentionReasons.sort((a, b) => ATTENTION_PRIORITY[b] - ATTENTION_PRIORITY[a])[0] ?? null;
+  const gatedNodes = nodes
+    .map((t) => ({ thread: t, reason: attentionReasonOf(t) }))
+    .filter(
+      (x): x is { thread: SidebarThreadSummary; reason: AttentionReason } => x.reason !== null,
+    )
+    .sort((a, b) => ATTENTION_PRIORITY[b.reason] - ATTENTION_PRIORITY[a.reason]);
+  const highestAttentionReason = gatedNodes[0]?.reason ?? null;
+  const attentionActionNodes: ReadonlyArray<GraphActionNode> = gatedNodes.map(
+    ({ thread, reason }) => ({
+      id: thread.id,
+      environmentId: thread.environmentId,
+      title: thread.title,
+      reason,
+    }),
+  );
 
   const base = {
     activeWorkerCount,
-    attentionCount: attentionReasons.length,
+    attentionCount: gatedNodes.length,
     total: nodes.length,
     breakdown,
+    actionNodes: [] as ReadonlyArray<GraphActionNode>,
   };
 
   if (nodes.length === 0) return { graphState: "empty", highestAttentionReason: null, ...base };
@@ -127,9 +158,15 @@ export function rollupGraphState(
   // 1. Liveness dominates — the blocked-on-running rule.
   if (nodes.some(isLive)) return { graphState: "active", highestAttentionReason, ...base };
 
-  // 2. Nothing live → any human gate makes the graph "needs you".
+  // 2. Nothing live → any human gate makes the graph "needs you". Surface the
+  //    gated sub-threads so the popover can navigate straight to each.
   if (highestAttentionReason !== null)
-    return { graphState: "attention", highestAttentionReason, ...base };
+    return {
+      graphState: "attention",
+      highestAttentionReason,
+      ...base,
+      actionNodes: attentionActionNodes,
+    };
 
   // 3. Settled? (base column — deps are irrelevant once done.)
   const incomplete = nodes.filter((t) => resolveBaseColumn(t) !== "done");
@@ -147,9 +184,20 @@ export function rollupGraphState(
   const hasRunnableSource = incomplete.some(
     (t) => resolveBaseColumn(t) === "planned" && areDependenciesSatisfied(t, byId),
   );
+  const graphState = allPlanned && !hasRunnableSource ? "deadlocked" : "idle";
   return {
-    graphState: allPlanned && !hasRunnableSource ? "deadlocked" : "idle",
+    graphState,
     highestAttentionReason: null,
     ...base,
+    // Deadlock → the stuck cycle members are the act-targets (re-plan them).
+    actionNodes:
+      graphState === "deadlocked"
+        ? incomplete.map((t) => ({
+            id: t.id,
+            environmentId: t.environmentId,
+            title: t.title,
+            reason: null,
+          }))
+        : [],
   };
 }

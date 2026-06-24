@@ -24,6 +24,8 @@ type NodeSpec = {
 const node = (spec: NodeSpec): SidebarThreadSummary =>
   ({
     id: spec.id as ThreadId,
+    environmentId: "env" as SidebarThreadSummary["environmentId"],
+    title: `thread ${spec.id}`,
     parentThreadId: (spec.parent === undefined ? ROOT : spec.parent) as ThreadId | null,
     status: spec.status ?? "planned",
     blockedBy: (spec.blockedBy ?? []).map((id) => id as ThreadId),
@@ -74,6 +76,9 @@ describe("rollupGraphState", () => {
       node({ id: "b", status: "planned", blockedBy: ["a"] }),
     ]);
     expect(r).toMatchObject({ graphState: "deadlocked", activeWorkerCount: 0 });
+    // The stuck cycle members are surfaced as act-targets (reason null).
+    expect(r.actionNodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
+    expect(r.actionNodes.every((n) => n.reason === null)).toBe(true);
   });
 
   it("all-blocked with no runnable source → deadlocked", () => {
@@ -96,6 +101,29 @@ describe("rollupGraphState", () => {
   it("runnable planned node, nothing running → idle", () => {
     const r = rollup([node({ id: "a", status: "planned" })]);
     expect(r).toMatchObject({ graphState: "idle", activeWorkerCount: 0 });
+  });
+
+  it("attention surfaces gated sub-threads as actionNodes, highest-priority first", () => {
+    const r = rollup([
+      node({ id: "a", status: "planned", input: true }),
+      node({ id: "b", status: "planned", approvals: true }),
+      node({ id: "c", status: "done" }),
+    ]);
+    expect(r.graphState).toBe("attention");
+    // approval (priority 5) before input (4); the settled node is not surfaced.
+    expect(r.actionNodes.map((n) => ({ id: n.id, reason: n.reason }))).toEqual([
+      { id: "b", reason: "approval" },
+      { id: "a", reason: "input" },
+    ]);
+  });
+
+  it("active state surfaces no actionNodes (watching, not acting)", () => {
+    const r = rollup([
+      node({ id: "a", turnState: "running" }),
+      node({ id: "b", status: "planned", approvals: true }),
+    ]);
+    expect(r.graphState).toBe("active");
+    expect(r.actionNodes).toEqual([]);
   });
 
   it("mixed running + pending approval → active, count = running, reason = approval", () => {

@@ -1,14 +1,17 @@
 import { scopeProjectRef, scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
 import type { VcsStatusResult } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import {
   CheckIcon,
+  ChevronRightIcon,
   CircleSlashIcon,
   CloudIcon,
   GitPullRequestIcon,
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { buildThreadRouteParams } from "../threadRoutes";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import {
   useSavedEnvironmentRegistryStore,
@@ -22,6 +25,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
 import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
 import type { SidebarThreadSummary } from "../types";
+import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export interface PrStatusIndicator {
@@ -200,25 +204,57 @@ const BREAKDOWN_LINES: ReadonlyArray<{
   { key: "done", label: "done", dotClass: "bg-emerald-400" },
 ];
 
+/** Dot colour for a gated sub-thread row in the popover, by its human gate. */
+const ACTION_REASON_DOT: Record<AttentionReason, string> = {
+  approval: "bg-amber-400",
+  input: "bg-amber-400",
+  review: "bg-violet-400",
+  blocked: "bg-amber-400",
+  plan: "bg-violet-400",
+};
+
 /**
  * Trailing badge summarising an orchestrator's whole sub-thread DAG: colour +
  * glyph = rolled-up state, number = state-contextual count. Coexists with the
- * leading own-turn pill and the other trailing icons. Hover expands the count
- * into the per-state breakdown.
+ * leading own-turn pill and the other trailing icons.
+ *
+ * Click opens a popover. In the act-states (attention / deadlocked) it lists the
+ * specific sub-threads as buttons that navigate straight to each — the badge is
+ * the glance signal, the popover is how you act on it. In watching / settled
+ * states it shows the aggregate per-state breakdown instead. The trigger stops
+ * click propagation so opening it never also activates the orchestrator row.
  */
 export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const badge = resolveWorkstreamGraphBadge(rollup);
   if (!badge) return null;
   const countLabel = badge.count === null ? null : badge.count > 99 ? "99+" : String(badge.count);
   const lines = BREAKDOWN_LINES.filter(({ key }) => rollup.breakdown[key] > 0);
+  const { actionNodes } = rollup;
+  const openThread = (node: (typeof actionNodes)[number]) => {
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(node.environmentId, node.id)),
+    });
+    setOpen(false);
+  };
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        data-thread-selection-safe
+        onClick={(event) => {
+          // The badge lives inside the orchestrator row's role=button; without
+          // this, opening the popover would also fire handleRowClick and
+          // navigate to the parent.
+          event.preventDefault();
+          event.stopPropagation();
+        }}
         render={
           <span
-            role="img"
+            role="button"
             aria-label={badge.title}
-            className={`inline-flex h-[18px] shrink-0 items-center gap-[5px] rounded-full border px-1.5 text-[11px] font-semibold leading-none tabular-nums ${
+            className={`inline-flex h-[18px] shrink-0 cursor-pointer items-center gap-[5px] rounded-full border px-1.5 text-[11px] font-semibold leading-none tabular-nums ${
               badge.className
             } ${badge.pulse ? "animate-pulse" : ""}`}
           />
@@ -226,21 +262,60 @@ export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
       >
         <GraphBadgeGlyph tone={badge.tone} />
         {countLabel === null ? null : <span>{countLabel}</span>}
-      </TooltipTrigger>
-      <TooltipPopup side="top" className="min-w-44">
-        <div className="mb-1 text-xs font-semibold text-foreground">{badge.title}</div>
-        {lines.map(({ key, label, dotClass }) => (
-          <div className="flex items-center gap-2 py-px text-[11px]" key={key}>
-            <span className={`size-[7px] shrink-0 rounded-full ${dotClass}`} />
-            <span className="flex-1">{label}</span>
-            <span className="tabular-nums text-foreground">{rollup.breakdown[key]}</span>
-          </div>
-        ))}
-        <div className="mt-1.5 border-t border-border/60 pt-1 text-[10.5px] text-muted-foreground">
-          {rollup.total} sub-thread{rollup.total === 1 ? "" : "s"} · open row → Workstream panel
+      </PopoverTrigger>
+      <PopoverPopup side="top" align="end" className="w-60" viewportClassName="px-0 py-0">
+        <div className="px-3 pt-2.5 pb-1.5 text-xs font-semibold text-foreground">
+          {badge.title}
         </div>
-      </TooltipPopup>
-    </Tooltip>
+        {actionNodes.length > 0 ? (
+          <ul className="max-h-64 overflow-y-auto px-1 pb-1">
+            {actionNodes.map((node) => (
+              <li key={node.id}>
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openThread(node);
+                  }}
+                >
+                  <span
+                    className={`size-[7px] shrink-0 rounded-full ${
+                      node.reason ? ACTION_REASON_DOT[node.reason] : "bg-rose-400"
+                    }`}
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[11px] text-foreground">
+                      {node.title || "Untitled sub-thread"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {node.reason ? ATTENTION_REASON_LABEL[node.reason] : "stuck in deadlock"}
+                    </span>
+                  </span>
+                  <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="px-3 pb-1">
+            {lines.map(({ key, label, dotClass }) => (
+              <div className="flex items-center gap-2 py-px text-[11px]" key={key}>
+                <span className={`size-[7px] shrink-0 rounded-full ${dotClass}`} />
+                <span className="flex-1">{label}</span>
+                <span className="tabular-nums text-foreground">{rollup.breakdown[key]}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="border-t border-border/60 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+          {actionNodes.length > 0
+            ? "Click a sub-thread to open it"
+            : `${rollup.total} sub-thread${rollup.total === 1 ? "" : "s"} · open row → Workstream panel`}
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }
 
