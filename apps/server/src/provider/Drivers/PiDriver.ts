@@ -24,6 +24,7 @@ import {
   type ProviderTurnStartResult,
   type ServerProvider,
   type ServerProviderModel,
+  type ThreadTokenUsageSnapshot,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -173,6 +174,7 @@ interface PiAvailableModel {
   readonly id: string;
   readonly name: string;
   readonly provider: string;
+  readonly contextWindow: number;
 }
 
 function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
@@ -224,6 +226,9 @@ function enrichPiSnapshot(input: {
   readonly serverConfig: ServerConfigShape;
   readonly snapshot: ServerProvider;
   readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
+  // Shared slug -> context-window map filled from the live catalogue so the
+  // adapter can resolve `maxTokens` synchronously without its own RPC.
+  readonly modelContextWindows: Map<string, number>;
 }): Effect.Effect<void> {
   if (!input.settings.enabled) return Effect.void;
   return Effect.gen(function* () {
@@ -245,9 +250,19 @@ function enrichPiSnapshot(input: {
         ),
       (proc) => Effect.promise(() => proc.stop()),
     );
+    const models = response.data?.models ?? [];
+    // Only replace the window map on a non-empty catalogue: a successful-but-empty
+    // refresh must not wipe known windows (which would blank the meter % until the
+    // next good refresh, up to one refresh interval later).
+    if (models.length > 0) {
+      input.modelContextWindows.clear();
+      for (const model of models) {
+        input.modelContextWindows.set(`${model.provider}/${model.id}`, model.contextWindow);
+      }
+    }
     yield* input.publishSnapshot({
       ...input.snapshot,
-      models: piCatalogModels(response.data?.models ?? [], input.settings),
+      models: piCatalogModels(models, input.settings),
     });
   }).pipe(
     Effect.catchCause((cause) =>
@@ -336,6 +351,40 @@ function resolvePiModel(model: string): { provider: string; modelId: string } | 
     : undefined;
 }
 
+/**
+ * Translate pi's per-message `Usage` into the generic context-window snapshot
+ * the orchestration layer ingests. `usedTokens` mirrors pi's own
+ * `calculateContextTokens` (prefer `totalTokens`, else sum all buckets) so the
+ * ring matches pi's native percentage and its auto-compaction trigger.
+ * `inputTokens` is the prompt side only (`input + cacheRead + cacheWrite`);
+ * `output` is the newly generated text. pi has no thread-cumulative figure, so
+ * `totalProcessedTokens` is left unset.
+ */
+function normalizePiTokenUsage(
+  usage: unknown,
+  maxTokens: number | undefined,
+): ThreadTokenUsageSnapshot | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const record = usage as Record<string, unknown>;
+  const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const cacheRead = num(record.cacheRead);
+  const output = num(record.output);
+  const promptTokens = num(record.input) + cacheRead + num(record.cacheWrite);
+  const usedTokens = num(record.totalTokens) || promptTokens + output;
+  if (usedTokens <= 0) return undefined;
+  return {
+    usedTokens,
+    inputTokens: promptTokens,
+    cachedInputTokens: cacheRead,
+    outputTokens: output,
+    lastUsedTokens: usedTokens,
+    lastInputTokens: promptTokens,
+    lastCachedInputTokens: cacheRead,
+    lastOutputTokens: output,
+    ...(maxTokens ? { maxTokens } : {}),
+  };
+}
+
 function imageAttachments(
   attachmentsDir: string,
   attachments: ReadonlyArray<ChatAttachment> | undefined,
@@ -359,6 +408,9 @@ function makePiAdapter(input: {
   readonly settings: PiSettings;
   readonly serverConfig: ServerConfigShape;
   readonly events: Queue.Queue<ProviderRuntimeEvent>;
+  // Shared slug -> context-window map populated by `enrichPiSnapshot` from pi's
+  // live catalogue; read synchronously here to set token-usage `maxTokens`.
+  readonly modelContextWindows: Map<string, number>;
 }): ProviderAdapterShape<
   | ProviderAdapterProcessError
   | ProviderAdapterRequestError
@@ -450,10 +502,15 @@ function makePiAdapter(input: {
         }
         return Effect.void;
       }
-      case "message_end":
+      case "message_end": {
         if (message.message.role !== "assistant") return Effect.void;
+        const itemId = session.currentAssistantMessageId ?? `assistant-${randomUUID()}`;
+        const usage = normalizePiTokenUsage(
+          message.message.usage,
+          session.session.model ? input.modelContextWindows.get(session.session.model) : undefined,
+        );
         return emit({
-          ...base({ itemId: session.currentAssistantMessageId ?? `assistant-${randomUUID()}` }),
+          ...base({ itemId }),
           type: "item.completed",
           payload: {
             itemType: "assistant_message",
@@ -462,8 +519,14 @@ function makePiAdapter(input: {
             data: message.message,
           },
         }).pipe(
+          Effect.andThen(
+            usage
+              ? emit({ ...base(), type: "thread.token-usage.updated", payload: { usage } })
+              : Effect.void,
+          ),
           Effect.tap(() => Effect.sync(() => (session.currentAssistantMessageId = undefined))),
         );
+      }
       case "tool_execution_start":
       case "tool_execution_update":
       case "tool_execution_end": {
@@ -830,11 +893,17 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         continuationGroupKey: continuationIdentity.continuationKey,
       });
       const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      // Slug -> context-window (tokens), populated by `enrichPiSnapshot` from pi's
+      // live catalogue (fetched once at provider boot) and read synchronously by
+      // the adapter so token-usage snapshots carry `maxTokens` with no per-session
+      // RPC and no first-message race.
+      const modelContextWindows = new Map<string, number>();
       const adapter = makePiAdapter({
         instanceId,
         settings: effectiveConfig,
         serverConfig,
         events,
+        modelContextWindows,
       });
       yield* Effect.addFinalizer(() =>
         adapter.stopAll().pipe(Effect.ignore, Effect.andThen(Queue.shutdown(events))),
@@ -867,6 +936,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             serverConfig,
             snapshot: currentSnapshot,
             publishSnapshot,
+            modelContextWindows,
           }),
         refreshInterval: SNAPSHOT_REFRESH_INTERVAL,
       }).pipe(
