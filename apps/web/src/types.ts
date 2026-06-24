@@ -196,6 +196,8 @@ export interface SidebarThreadSummary {
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   hasActionableProposedPlan: boolean;
+  /** One-line preview of the child's latest assistant narration; null when none yet. */
+  lastActivityPreview: string | null;
 }
 
 export interface ThreadSession {

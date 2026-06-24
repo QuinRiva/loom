@@ -42,6 +42,13 @@ export type MessagesTimelineRow =
       groupedEntries: WorkLogEntry[];
     }
   | {
+      kind: "spawn";
+      id: string;
+      createdAt: string;
+      turnId: TurnId | null;
+      entries: WorkLogEntry[];
+    }
+  | {
       kind: "turn-fold";
       id: string;
       createdAt: string;
@@ -95,6 +102,11 @@ export function computeMessageDurationStart(
 
 export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
+}
+
+/** `workstream_spawn` results carry a spawned-child payload; they render as a grouped spawn card. */
+function isSpawnWorkEntry(entry: WorkLogEntry): boolean {
+  return entry.spawnedChild !== undefined;
 }
 
 export function resolveAssistantMessageCopyState({
@@ -342,6 +354,8 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
+      const isSpawn = isSpawnWorkEntry(timelineEntry.entry);
+      const groupTurnId = timelineEntry.entry.turnId ?? null;
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -354,15 +368,34 @@ export function deriveMessagesTimelineRows(input: {
         ) {
           break;
         }
+        // Spawn cards never merge with ordinary tool rows, and they group
+        // strictly by turnId (the causality signal) rather than the loose
+        // consecutive-work boundary used for everything else.
+        if (isSpawnWorkEntry(nextEntry.entry) !== isSpawn) {
+          break;
+        }
+        if (isSpawn && (nextEntry.entry.turnId ?? null) !== groupTurnId) {
+          break;
+        }
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
-      nextRows.push({
-        kind: "work",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        groupedEntries,
-      });
+      nextRows.push(
+        isSpawn
+          ? {
+              kind: "spawn",
+              id: timelineEntry.id,
+              createdAt: timelineEntry.createdAt,
+              turnId: groupTurnId,
+              entries: groupedEntries,
+            }
+          : {
+              kind: "work",
+              id: timelineEntry.id,
+              createdAt: timelineEntry.createdAt,
+              groupedEntries,
+            },
+      );
       index = cursor - 1;
       continue;
     }
@@ -462,6 +495,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "work":
       return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);
+
+    case "spawn": {
+      const bs = b as typeof a;
+      return a.turnId === bs.turnId && Equal.equals(a.entries, bs.entries);
+    }
 
     case "message": {
       const bm = b as typeof a;

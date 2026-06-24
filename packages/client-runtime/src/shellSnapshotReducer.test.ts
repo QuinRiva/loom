@@ -47,6 +47,7 @@ const stubThread = {
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
+  lastActivityPreview: null,
   session: null,
 } as const;
 
