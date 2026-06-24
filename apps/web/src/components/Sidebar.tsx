@@ -17,6 +17,7 @@ import {
   resolveThreadPr,
   terminalStatusFromRunningIds,
   ThreadStatusLabel,
+  WorkstreamGraphIndicator,
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -68,7 +69,9 @@ import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newGoalId } from "../lib/utils";
+import { rollupGraphState } from "../lib/workstreamGraph";
 import {
+  selectDescendantSidebarThreads,
   selectGoalsAcrossEnvironments,
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
@@ -368,6 +371,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     environmentId: thread.environmentId,
     threadId: thread.id,
   });
+  const descendantThreads = useStore(
+    useShallow(
+      useMemo(
+        () => (state: import("../store").AppState) =>
+          selectDescendantSidebarThreads(state, thread.environmentId, thread.id),
+        [thread.environmentId, thread.id],
+      ),
+    ),
+  );
+  const graphRollup = useMemo(
+    () => rollupGraphState(descendantThreads, new Map(descendantThreads.map((t) => [t.id, t]))),
+    [descendantThreads],
+  );
   const discoveredPorts = useThreadDiscoveredPorts({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -679,6 +695,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
             </Tooltip>
           )}
+          <WorkstreamGraphIndicator rollup={graphRollup} />
           <div
             className={`flex min-w-12 justify-end ${
               isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"
