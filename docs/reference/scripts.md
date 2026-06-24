@@ -56,7 +56,7 @@ rather than a bare `node --watch`. The reason is subtle but important:
   global store**, so the same physical inode is referenced by every checkout
   (main + all worktrees).
 - `node --watch` uses inotify, and **inotify watches are bound to the inode, not
-  the path**. When `pnpm install` runs in *any* worktree, its linking phase
+  the path**. When `pnpm install` runs in _any_ worktree, its linking phase
   creates/removes hardlinks to those shared store inodes — an `IN_ATTRIB`
   (link-count) change — which the running server's watcher receives even though
   the write happened through a path it has never heard of. The server restarts,
