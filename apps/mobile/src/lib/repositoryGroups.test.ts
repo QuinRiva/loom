@@ -50,6 +50,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    lastActivityPreview: null,
     ...input,
   };
 }

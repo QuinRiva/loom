@@ -1291,6 +1291,25 @@ export default function ChatView(props: ChatViewProps) {
       [activeThreadEnvironmentId],
     ),
   );
+  // Number of children (sub-threads) of the active thread, watched so we can
+  // auto-open the Workstream panel on the first agent-driven spawn.
+  const activeThreadChildCount = useStore(
+    useMemo(
+      () => (state: AppState) => {
+        if (!activeThreadEnvironmentId || !activeThreadId) return 0;
+        const summaries = selectEnvironmentState(
+          state,
+          activeThreadEnvironmentId,
+        ).sidebarThreadSummaryById;
+        let count = 0;
+        for (const summary of Object.values(summaries)) {
+          if (summary.parentThreadId === activeThreadId) count += 1;
+        }
+        return count;
+      },
+      [activeThreadEnvironmentId, activeThreadId],
+    ),
+  );
   const threadLineage = useMemo(
     () =>
       activeThread?.parentThreadId != null
@@ -1371,6 +1390,22 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !diffOpen) return;
     useRightPanelStore.getState().open(activeThreadRef, "diff");
   }, [activeThreadRef, diffOpen]);
+  // Auto-open the Workstream panel on the first agent-driven spawn: the rising
+  // edge from 0 -> >=1 children for a parent we were already observing. The
+  // remembered count is seeded from the first observed value (per scoped thread
+  // key) so children delivered on bootstrap/reconnect don't fire a false open,
+  // and we never hijack a deliberately-opened or URL-forced (diff) surface.
+  const autoOpenedChildCountByThreadKey = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!activeThreadRef || !activeThreadKey) return;
+    const seen = autoOpenedChildCountByThreadKey.current;
+    const previous = seen.get(activeThreadKey);
+    seen.set(activeThreadKey, activeThreadChildCount);
+    if (previous === undefined) return;
+    if (previous !== 0 || activeThreadChildCount < 1) return;
+    if (activeRightPanelKind !== null && activeRightPanelKind !== "workstream") return;
+    useRightPanelStore.getState().open(activeThreadRef, "workstream");
+  }, [activeThreadRef, activeThreadKey, activeThreadChildCount, activeRightPanelKind]);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const threadPlanCatalog = useThreadPlanCatalog(
     useMemo(() => {

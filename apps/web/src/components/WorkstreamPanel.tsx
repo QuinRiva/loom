@@ -591,6 +591,14 @@ function WorkstreamCard({
           </span>
           <span className="text-white/65">{getPurpose(thread)}</span>
         </div>
+        {thread.lastActivityPreview ? (
+          <div className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-white/45">
+            <span aria-hidden className="mt-px shrink-0 text-white/30">
+              ›
+            </span>
+            <span className="line-clamp-1 italic">{thread.lastActivityPreview}</span>
+          </div>
+        ) : null}
         <div className="mt-2 flex items-center gap-2 text-xs text-white/50">
           {isRunning ? <LiveDots /> : null}
           {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}

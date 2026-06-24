@@ -508,6 +508,15 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  /**
+   * Short human-readable description of the most recent activity for this
+   * thread — the latest assistant-narration text, truncated to roughly one
+   * line. Null when the thread has no assistant narration yet. Additive,
+   * nullable projection field (decode-default null) so older snapshots load.
+   */
+  lastActivityPreview: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
