@@ -29,18 +29,44 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread, assign it a role and purpose, and immediately start it working autonomously.",
-    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, purpose, and optional title.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role and purpose. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
+    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, purpose, optional title, optional blockedBy (waits-on thread ids), and optional modelSelection.",
     promptGuidelines: [
       "Use workstream_spawn when you need a separate coder, reviewer, researcher, or other durable child thread to work independently.",
-      "Make the purpose self-contained; the child starts fresh and does not inherit this transcript."
+      "Make the purpose self-contained; the child starts fresh and does not inherit this transcript.",
+      "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
+      "Pass modelSelection only to run a child on a different model/thinking level than this thread; omit it to inherit this thread's model."
     ],
     parameters: {
       type: "object",
       properties: {
         role: { type: "string", description: "Role label for the child agent, e.g. coder, reviewer, researcher." },
         purpose: { type: "string", description: "Self-contained purpose/prompt for the child agent's first turn." },
-        title: { type: "string", description: "Optional child thread title. Defaults to the purpose." }
+        title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
+        blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
+        modelSelection: {
+          type: "object",
+          description: "Optional model override for the child. Omit to inherit this thread's model.",
+          properties: {
+            instanceId: { type: "string", description: "Configured provider instance id to route to." },
+            model: { type: "string", description: "Model slug for that instance." },
+            options: {
+              type: "array",
+              description: "Optional per-model options, e.g. thinking level.",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  value: { type: ["string", "boolean"] }
+                },
+                required: ["id", "value"],
+                additionalProperties: false
+              }
+            }
+          },
+          required: ["instanceId", "model"],
+          additionalProperties: false
+        }
       },
       required: ["role", "purpose"],
       additionalProperties: false
@@ -90,10 +116,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_set_dependencies",
     label: "Set Workstream Dependencies",
-    description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned).",
-    promptSnippet: "workstream_set_dependencies: declare the threads a Workstream thread is blocked by (replace-set).",
+    description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but a thread that has already started running is never un-run — the edge is recorded for display only. To gate a child's execution from the start, pass blockedBy at spawn time instead.",
+    promptSnippet: "workstream_set_dependencies: declare the threads a Workstream thread is blocked by (replace-set, re-planning only).",
     promptGuidelines: [
       "Use workstream_set_dependencies to declare 'waits-on' edges; blockedBy replaces the whole set each call.",
+      "To actually defer a child's start until its dependencies finish, set blockedBy when you spawn it; setting dependencies after a thread is already running does not stop it.",
       "Omit threadId to declare your own dependencies; you may only set dependencies on your own thread or threads you directly parent."
     ],
     parameters: {

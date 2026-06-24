@@ -1,6 +1,6 @@
 import {
   CommandId,
-  MessageId,
+  ModelSelection,
   ThreadId,
   ThreadStatus,
   type OrchestrationCommand,
@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -20,6 +21,8 @@ interface WorkstreamSpawnRequest {
   readonly role?: unknown;
   readonly purpose?: unknown;
   readonly title?: unknown;
+  readonly blockedBy?: unknown;
+  readonly modelSelection?: unknown;
 }
 
 interface WorkstreamStatusRequest {
@@ -75,16 +78,7 @@ const authorizationError = Effect.fn("WorkstreamHttp.authorize")(function* (
       );
 });
 
-const childPrompt = (input: { readonly role: string; readonly purpose: string }) =>
-  [
-    `You are a ${input.role} sub-thread spawned by a parent orchestrator in T3 Code.`,
-    "",
-    "Purpose:",
-    input.purpose,
-    "",
-    "Work autonomously on this goal. Keep the work focused and report progress clearly.",
-    "Report your own status with `workstream_set_status` (no threadId needed — it defaults to you): set `done` when finished, `review` if your output must be reviewed by another sub-thread before it is complete, or `blocked` if you cannot proceed.",
-  ].join("\n");
+const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 
 const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
   mcpEndpoint.endsWith("/mcp")
@@ -116,65 +110,64 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   if (!role) return jsonError(400, "role is required.");
   if (!purpose) return jsonError(400, "purpose is required.");
   if (!title) return jsonError(400, "title is required.");
+  if (
+    body.blockedBy !== undefined &&
+    (!Array.isArray(body.blockedBy) || !body.blockedBy.every((id) => trimString(id)))
+  ) {
+    return jsonError(400, "blockedBy must be an array of non-empty thread id strings.");
+  }
 
   const projection = yield* ProjectionSnapshotQuery;
   const parent = yield* projection.getThreadDetailById(scope.threadId);
   if (Option.isNone(parent)) {
     return jsonError(404, "Current provider thread was not found.");
   }
+  const current = parent.value;
+
+  // Model + thinking are intrinsic node config: honour an explicit selection,
+  // otherwise inherit the parent's. Invalid selections fail visibly as 400.
+  const modelSelection =
+    body.modelSelection === undefined
+      ? Option.some(current.modelSelection)
+      : yield* decodeModelSelection(body.modelSelection).pipe(
+          Effect.map(Option.some),
+          Effect.orElseSucceed(() => Option.none<ModelSelection>()),
+        );
+  if (Option.isNone(modelSelection)) {
+    return jsonError(400, "modelSelection is invalid.");
+  }
+
+  // Trim before branding: ThreadId.make("") throws a defect that escapes the
+  // typed Effect.catch, and untrimmed ids silently become dangling deps.
+  const blockedBy = Array.isArray(body.blockedBy)
+    ? body.blockedBy.map((id) => ThreadId.make((id as string).trim()))
+    : undefined;
 
   const crypto = yield* Crypto.Crypto;
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-  const uuid = () => crypto.randomUUIDv4;
-  const childThreadId = ThreadId.make(yield* uuid());
-  const messageId = MessageId.make(yield* uuid());
-  const commandId = (tag: string) =>
-    uuid().pipe(Effect.map((id) => CommandId.make(`server:workstream-spawn:${tag}:${id}`)));
+  const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
 
-  const current = parent.value;
+  // Create-only: the WorkstreamDispatcher is the sole start authority and fires
+  // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
   const engine = yield* OrchestrationEngineService;
   yield* engine.dispatch({
     type: "thread.create",
-    commandId: yield* commandId("create-thread"),
+    commandId: CommandId.make(
+      `server:workstream-spawn:create-thread:${yield* crypto.randomUUIDv4}`,
+    ),
     threadId: childThreadId,
     projectId: current.projectId,
     goalId: current.goalId ?? null,
     parentThreadId: scope.threadId,
     role,
     purpose,
+    ...(blockedBy !== undefined ? { blockedBy } : {}),
     title,
-    modelSelection: current.modelSelection,
+    modelSelection: modelSelection.value,
     runtimeMode: current.runtimeMode,
     interactionMode: current.interactionMode,
     branch: current.branch,
     worktreePath: current.worktreePath,
-    createdAt: now,
-  } satisfies OrchestrationCommand);
-
-  yield* engine.dispatch({
-    type: "thread.turn.start",
-    commandId: yield* commandId("start-turn"),
-    threadId: childThreadId,
-    message: {
-      messageId,
-      role: "user",
-      text: childPrompt({ role, purpose }),
-      attachments: [],
-    },
-    titleSeed: title,
-    runtimeMode: current.runtimeMode,
-    interactionMode: current.interactionMode,
-    createdAt: now,
-  } satisfies OrchestrationCommand);
-
-  // A spawned thread is immediately running, not merely planned. Safe to set
-  // unconditionally here: the thread was just created, so it has no terminal
-  // status to override.
-  yield* engine.dispatch({
-    type: "thread.status.set",
-    commandId: yield* commandId("set-running"),
-    threadId: childThreadId,
-    status: "running",
     createdAt: now,
   } satisfies OrchestrationCommand);
 
