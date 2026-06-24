@@ -200,15 +200,52 @@ export const buildParentWakeMessage = (
 };
 
 // Deterministic per-(parent, generation) command ids. Both the wake and the
-// park dispatch a command under these ids, so their receipts are the durable,
+// park dispatch commands under these ids, so their receipts are the durable,
 // recomputable markers of "this generation was already handled" (decision 4):
 // wake delivery is idempotent across restarts, and — critically — a parked
-// generation leaves a durable marker too, so startup reconciliation does not
+// generation leaves durable markers too, so startup reconciliation does not
 // re-deliver a previously-suppressed generation as a normal wake.
+//
+// Park writes TWO durable receipts: the status.set (`parkBlockCommandId`,
+// written FIRST) and the activity marker (`parkCommandId`, written second). The
+// handled-check keys off the FIRST write (`parkBlockCommandId`), so a crash
+// between the two writes can never resurface a parked generation as a normal
+// wake (Fix B); the missing activity marker is reconciled on the next pass.
 const wakeCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:wake:${parentId}:${generation}`;
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;
+// The FIRST durable park write (the `blocked` status.set). The handled-check
+// keys off this receipt, not the activity marker, to close the crash window.
+const parkBlockCommandId = (parentId: ThreadId, generation: string): string =>
+  `${parkCommandId(parentId, generation)}:block`;
+
+export type GenerationDeliveryDecision =
+  | { readonly kind: "already-woken" }
+  | { readonly kind: "parked"; readonly reconcileMarker: boolean }
+  | { readonly kind: "deliverable" };
+
+/**
+ * Pure receipt-driven decision for one (parent, generation) (Fix B): given which
+ * of its durable receipts exist, decide whether the wake was already delivered,
+ * the generation was parked (and whether its activity marker still needs
+ * reconciling after a crash between the two park writes), or it is still
+ * deliverable.
+ *
+ * Keying "parked" off the FIRST park write (`parkBlocked`) — not the activity
+ * marker — is the fix: a crash between the status.set and the marker leaves the
+ * generation parked, never redelivered as a normal wake.
+ */
+export const classifyGenerationByReceipts = (receipts: {
+  readonly wakeDelivered: boolean;
+  readonly parkBlocked: boolean;
+  readonly parkMarkerPresent: boolean;
+}): GenerationDeliveryDecision =>
+  receipts.wakeDelivered
+    ? { kind: "already-woken" }
+    : receipts.parkBlocked
+      ? { kind: "parked", reconcileMarker: !receipts.parkMarkerPresent }
+      : { kind: "deliverable" };
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -225,25 +262,13 @@ const make = Effect.gen(function* () {
   const handledGenerations = new Set<string>();
   const wakeTimestamps = new Map<string, number[]>();
 
-  // A (parent, generation) is durably handled iff its wake OR its park command
-  // has an accepted receipt. Consulted before delivering so a restart between
-  // "terminal" and "injected/parked", or after either, never re-fires.
-  const isGenerationHandled = Effect.fn("isGenerationHandled")(function* (
-    parentId: ThreadId,
-    generation: string,
-  ) {
-    const key = `${parentId}::${generation}`;
-    if (handledGenerations.has(key)) return true;
-    const hasAccepted = (commandId: string) =>
-      commandReceiptRepository
-        .getByCommandId({ commandId: CommandId.make(commandId) })
-        .pipe(Effect.map((receipt) => Option.isSome(receipt)));
-    const handled =
-      (yield* hasAccepted(wakeCommandId(parentId, generation))) ||
-      (yield* hasAccepted(parkCommandId(parentId, generation)));
-    if (handled) handledGenerations.add(key);
-    return handled;
-  });
+  // Does a command id have an accepted receipt? Backs the durable handled-check,
+  // so a fresh process (empty cache) still recomputes the true handled set from
+  // the receipt store rather than re-firing a wake/park.
+  const hasAcceptedReceipt = (commandId: string) =>
+    commandReceiptRepository
+      .getByCommandId({ commandId: CommandId.make(commandId) })
+      .pipe(Effect.map(Option.isSome));
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -330,28 +355,17 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
-  // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
-  // not deliver — append an activity, set the parent `blocked` with a reason, and
-  // surface it to the human (this is the stub for the future investigator agent).
-  // Both commands carry deterministic per-(parent, generation) ids: the park
-  // decision is durable, so startup reconciliation sees the park marker and does
-  // not re-deliver the suppressed generation as a normal wake (decision 4). The
-  // status-set is dispatched first; the park-marker activity last, so the
-  // marker's presence implies both landed.
-  const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
+  const PARK_SUMMARY =
+    "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
+
+  // The activity marker — the SECOND durable park write (under `parkCommandId`).
+  // Dispatched both as the tail of a fresh park and, on its own, to reconcile a
+  // crash that landed the `blocked` status.set but not this marker (Fix B).
+  const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
     parent: OrchestrationThreadShell,
     generation: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    const summary =
-      "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
-    yield* orchestrationEngine.dispatch({
-      type: "thread.status.set",
-      commandId: CommandId.make(`${parkCommandId(parent.id, generation)}:block`),
-      threadId: parent.id,
-      status: "blocked",
-      createdAt: now,
-    } satisfies OrchestrationCommand);
     yield* orchestrationEngine.dispatch({
       type: "thread.activity.append",
       commandId: CommandId.make(parkCommandId(parent.id, generation)),
@@ -360,13 +374,35 @@ const make = Effect.gen(function* () {
         id: EventId.make(yield* crypto.randomUUIDv4),
         tone: "error",
         kind: "workstream.runaway-guard.tripped",
-        summary,
+        summary: PARK_SUMMARY,
         payload: { reason: "wake-rate-guard", generation },
         turnId: null,
         createdAt: now,
       },
       createdAt: now,
     } satisfies OrchestrationCommand);
+  });
+
+  // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
+  // not deliver — set the parent `blocked` with a reason and surface it to the
+  // human (the stub for the future investigator agent). The `blocked` status.set
+  // (`parkBlockCommandId`) is dispatched FIRST and is the durable marker the
+  // handled-check keys off; the activity marker follows. A crash between the two
+  // leaves the generation parked (block receipt present) and is reconciled into
+  // the marker on the next pass — never redelivered as a normal wake (Fix B).
+  const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
+    parent: OrchestrationThreadShell,
+    generation: string,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.status.set",
+      commandId: CommandId.make(parkBlockCommandId(parent.id, generation)),
+      threadId: parent.id,
+      status: "blocked",
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+    yield* dispatchParkMarker(parent, generation);
   });
 
   const wakeEligibleParents = Effect.fn("wakeEligibleParents")(function* () {
@@ -378,13 +414,44 @@ const make = Effect.gen(function* () {
 
     for (const generation of joined) {
       const key = `${generation.parentId}::${generation.generation}`;
-      // Durable idempotency (decision 4): consult the receipt-backed wake/park
-      // markers, not just the in-memory cache, so a fresh process never
-      // re-delivers a generation that was already woken or parked.
-      if (yield* isGenerationHandled(generation.parentId, generation.generation)) continue;
+      if (handledGenerations.has(key)) continue;
       const parent = threadsById.get(generation.parentId);
       // Parent absent (archived/deleted) → nothing to wake.
       if (parent === undefined) continue;
+
+      // Durable idempotency (decision 4 + Fix B): classify from the receipt
+      // store, not just the in-memory cache, so a fresh process never
+      // re-delivers a generation that was already woken or parked. "Parked" keys
+      // off the FIRST park write (the `blocked` status.set), so a crash between
+      // the two park writes can never resurface a parked generation as a wake.
+      const wakeDelivered = yield* hasAcceptedReceipt(
+        wakeCommandId(generation.parentId, generation.generation),
+      );
+      const parkBlocked =
+        !wakeDelivered &&
+        (yield* hasAcceptedReceipt(parkBlockCommandId(generation.parentId, generation.generation)));
+      const parkMarkerPresent =
+        !parkBlocked ||
+        (yield* hasAcceptedReceipt(parkCommandId(generation.parentId, generation.generation)));
+      const decision = classifyGenerationByReceipts({
+        wakeDelivered,
+        parkBlocked,
+        parkMarkerPresent,
+      });
+      if (decision.kind === "already-woken") {
+        handledGenerations.add(key);
+        continue;
+      }
+      if (decision.kind === "parked") {
+        // Reconcile a crash between the two park writes: the `blocked` status.set
+        // landed but the activity marker did not. Append it rather than waking.
+        if (decision.reconcileMarker) {
+          yield* dispatchParkMarker(parent, generation.generation);
+        }
+        handledGenerations.add(key);
+        continue;
+      }
+
       // Busy parent → defer; a later thread.session-set (parent going idle)
       // re-triggers this pass. (The engine re-checks idleness atomically too.)
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;

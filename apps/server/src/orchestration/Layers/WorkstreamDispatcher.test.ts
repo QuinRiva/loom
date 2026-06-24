@@ -10,6 +10,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildParentWakeMessage,
+  classifyGenerationByReceipts,
   DEFAULT_WAKE_RATE_GUARD,
   isTerminalStatus,
   selectJoinedGenerations,
@@ -285,5 +286,83 @@ describe("buildParentWakeMessage", () => {
     expect(text).toContain("excerpt truncated");
     expect(text).not.toContain(tail);
     expect(text).not.toContain(report);
+  });
+});
+
+// Fix B regression: the park handled-check keys off the FIRST durable park
+// write (the `blocked` status.set), so a crash/restart between the two park
+// writes leaves the generation PARKED — never redelivered as a normal wake —
+// and reconciles the missing activity marker instead. This is the pure decision
+// seam the dispatcher uses per generation; the receipt round-trip through the
+// engine is exercised here via the booleans it derives from the receipt store.
+describe("classifyGenerationByReceipts", () => {
+  it("delivers a fresh generation with no receipts", () => {
+    expect(
+      classifyGenerationByReceipts({
+        wakeDelivered: false,
+        parkBlocked: false,
+        parkMarkerPresent: false,
+      }),
+    ).toEqual({ kind: "deliverable" });
+  });
+
+  it("never re-delivers a generation whose wake receipt exists", () => {
+    expect(
+      classifyGenerationByReceipts({
+        wakeDelivered: true,
+        parkBlocked: false,
+        parkMarkerPresent: false,
+      }),
+    ).toEqual({ kind: "already-woken" });
+  });
+
+  it("treats a generation with only the block receipt as parked (crash between park writes / restart) and flags the marker for reconciliation — NOT a wake", () => {
+    const decision = classifyGenerationByReceipts({
+      wakeDelivered: false,
+      parkBlocked: true,
+      parkMarkerPresent: false,
+    });
+    expect(decision).toEqual({ kind: "parked", reconcileMarker: true });
+    // The crucial property: a block-only generation is never "deliverable".
+    expect(decision.kind).not.toBe("deliverable");
+  });
+
+  it("treats a fully parked generation (both writes landed) as parked with no reconciliation", () => {
+    expect(
+      classifyGenerationByReceipts({
+        wakeDelivered: false,
+        parkBlocked: true,
+        parkMarkerPresent: true,
+      }),
+    ).toEqual({ kind: "parked", reconcileMarker: false });
+  });
+});
+
+// Fix C (deferred-until-idle): a joined generation whose parent is BUSY is gated
+// by `isThreadIdle` so no wake is delivered (and, with `requireIdle`, no receipt
+// is written) until the parent goes idle, at which point the same generation
+// becomes eligible and redelivers exactly once. The full engine deferral
+// round-trip is not runnable here (see note below); this covers the pure
+// decision the dispatcher composes: join × idle-gate.
+describe("deferred wake gates on parent idleness", () => {
+  const generation = [
+    shell({ id: "child-a", spawnGeneration: "gen-1", status: "done", latestUserMessageAt: now }),
+    shell({ id: "child-b", spawnGeneration: "gen-1", status: "review", latestUserMessageAt: now }),
+  ];
+
+  it("joins the generation regardless of whether the parent is busy", () => {
+    expect(genIds(selectJoinedGenerations(generation))).toEqual(["parent-1::gen-1"]);
+  });
+
+  it("withholds the wake while the parent is busy and releases it once idle", () => {
+    const busyParent = shell({ id: "parent-1", session: runningSession() });
+    // Busy → not idle → dispatcher skips delivery (writes no receipt).
+    expect(isThreadIdle(busyParent, new Set())).toBe(false);
+    // Same parent, turn ended (session ready, no active turn) → idle → eligible.
+    const idleParent = shell({
+      id: "parent-1",
+      session: runningSession({ status: "ready", activeTurnId: null }),
+    });
+    expect(isThreadIdle(idleParent, new Set())).toBe(true);
   });
 });

@@ -1249,6 +1249,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.turn-start-failed": {
+          // Fix A: the turn-start failed before `turn.started`, so the
+          // running+activeTurnId `thread.session-set` that normally clears the
+          // pending turn-start row will never arrive. Clear it here so the idle
+          // gate (`isThreadIdle` / `getPendingTurnStartThreadIds`) stops
+          // treating the parent as busy — otherwise a deferred dispatcher wake
+          // is stranded forever.
+          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+        }
+
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;
           if (turnId === null || event.payload.session.status !== "running") {

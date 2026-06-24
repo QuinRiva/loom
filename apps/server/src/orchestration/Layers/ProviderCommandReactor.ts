@@ -338,6 +338,30 @@ const make = Effect.gen(function* () {
     });
   });
 
+  // Fix A: durably clear the pending turn-start projection row when a turn-start
+  // fails before `turn.started`. Dispatched on EVERY turn-start failure — both
+  // when a session exists (reset to ready above) and when none does (no
+  // session-set is emitted at all) — because in both cases no
+  // `thread.session-set running` will ever arrive to clear the row, and a
+  // lingering pending turn-start keeps the parent permanently non-idle, which
+  // strands a deferred dispatcher wake.
+  const clearPendingTurnStartForFailedTurn = (input: {
+    readonly threadId: ThreadId;
+    readonly detail: string;
+    readonly createdAt: string;
+  }) =>
+    serverCommandId("turn-start-fail").pipe(
+      Effect.flatMap((commandId) =>
+        orchestrationEngine.dispatch({
+          type: "thread.turn-start.fail",
+          commandId,
+          threadId: input.threadId,
+          detail: input.detail,
+          createdAt: input.createdAt,
+        }),
+      ),
+    );
+
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     return yield* projectionSnapshotQuery
       .getProjectShellById(projectId)
@@ -858,11 +882,18 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
-      return setThreadSessionErrorOnTurnStartFailure({
+      return clearPendingTurnStartForFailedTurn({
         threadId: event.payload.threadId,
         detail,
         createdAt: event.payload.createdAt,
       }).pipe(
+        Effect.flatMap(() =>
+          setThreadSessionErrorOnTurnStartFailure({
+            threadId: event.payload.threadId,
+            detail,
+            createdAt: event.payload.createdAt,
+          }),
+        ),
         Effect.flatMap(() =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,

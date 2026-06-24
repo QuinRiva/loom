@@ -1046,6 +1046,19 @@ const ThreadReportSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// D-notify Fix A: a provider turn-start failed before `turn.started` ever
+// landed, so no `thread.session-set running` will arrive to clear the pending
+// turn-start row. This command durably clears that row, so the idle gate stops
+// treating the parent as permanently busy (which would otherwise strand a
+// deferred dispatcher wake forever).
+const ThreadTurnStartFailCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn-start.fail"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  detail: Schema.String,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1056,6 +1069,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
   ThreadReportSetCommand,
+  ThreadTurnStartFailCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1089,6 +1103,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.message-sent",
   "thread.message-reasoning",
   "thread.turn-start-requested",
+  "thread.turn-start-failed",
   "thread.turn-interrupt-requested",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
@@ -1307,6 +1322,12 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadTurnStartFailedPayload = Schema.Struct({
+  threadId: ThreadId,
+  detail: Schema.String,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
@@ -1511,6 +1532,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-start-requested"),
     payload: ThreadTurnStartRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.turn-start-failed"),
+    payload: ThreadTurnStartFailedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
