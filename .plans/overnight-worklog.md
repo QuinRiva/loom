@@ -141,3 +141,17 @@ false alarm). Reviewer 6e8af804 running.
   main's goalId has no decode-default (main's pre-existing choice, untouched).
 - STILL unverified (needs Carl's browser + model creds): live model->tool->spawn loop and
   GUI render. Suggested merge: `git checkout main && git merge --ff-only workstreams-on-main`.
+
+## Status self-reporting fix (#1+#2) — COMPLETE
+- Commit 0f3488e: threadId optional (defaults to caller's own thread) on status/deps
+  endpoints+tools; childPrompt instructs child to set done/review/blocked; spawn sets
+  child 'running' after turn.start. Verified by me: typecheck 0, vp check 0 errors,
+  server suite 167/167. Reviewed (2ffa1c3f): NO blockers (default-to-self safe, no
+  defect, #2 no race, scope clean). Residual (Phase D): 'running' is optimistic.
+- Phase D plan signed+committed (1a4ca3b): .plans/phase-d-dispatcher.md.
+
+## READY TO MERGE
+Branch `workstreams-on-main` = full workstream feature on main's goal model + status
+fixes, all reviewed, gates+tests green, fresh-DB boot verified. main + workstreams-ui
+intact. Merge: `git checkout main && git merge --ff-only workstreams-on-main`.
+Remaining manual validation (Carl's machine): live model->tool->spawn loop + GUI render.
