@@ -24,6 +24,7 @@ import {
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
+  GoalId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -516,6 +517,28 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
               Effect.orElseSucceed(() => Option.none()),
             );
           default:
+            if (event.aggregateKind === "goal") {
+              const goalId = GoalId.make(event.aggregateId);
+              return projectionSnapshotQuery.getGoalShellById(goalId).pipe(
+                Effect.map((goal) =>
+                  Option.match(goal, {
+                    onNone: () =>
+                      Option.some({
+                        kind: "goal-removed" as const,
+                        sequence: event.sequence,
+                        goalId,
+                      }),
+                    onSome: (nextGoal) =>
+                      Option.some({
+                        kind: "goal-upserted" as const,
+                        sequence: event.sequence,
+                        goal: nextGoal,
+                      }),
+                  }),
+                ),
+                Effect.orElseSucceed(() => Option.none()),
+              );
+            }
             if (event.aggregateKind !== "thread") {
               return Effect.succeed(Option.none());
             }
@@ -682,7 +705,7 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
                 threadId: command.threadId,
                 projectId: bootstrap.createThread.projectId,
-                goalSlug: bootstrap.createThread.goalSlug ?? null,
+                goalId: bootstrap.createThread.goalId ?? null,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,

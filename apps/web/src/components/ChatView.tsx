@@ -3186,10 +3186,10 @@ export default function ChatView(props: ChatViewProps) {
   // not on every render; the user can still close it within the session.
   useEffect(() => {
     if (!activeThreadRef) return;
-    if (!activeThread?.goalSlug) return;
+    if (!activeThread?.goalId) return;
     useRightPanelStore.getState().open(activeThreadRef, "tasks");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
-  }, [activeThread?.id, activeThread?.goalSlug]);
+  }, [activeThread?.id, activeThread?.goalId]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -3789,7 +3789,7 @@ export default function ChatView(props: ChatViewProps) {
                 ? {
                     createThread: {
                       projectId: activeProject.id,
-                      goalSlug: activeThread.goalSlug ?? null,
+                      goalId: activeThread.goalId ?? null,
                       title,
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
@@ -4535,7 +4535,7 @@ export default function ChatView(props: ChatViewProps) {
             terminalOpen={Boolean(terminalUiState.terminalOpen)}
             rightPanelAvailable={Boolean(activeProject)}
             rightPanelOpen={rightPanelOpen}
-            goalSlug={activeThread.goalSlug ?? null}
+            goalId={activeThread.goalId ?? null}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
@@ -4762,7 +4762,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddTasks={addTasksSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
-          tasksAvailable={Boolean(activeThread.goalSlug)}
+          tasksAvailable={Boolean(activeThread.goalId)}
         >
           {activeRightPanelSurface?.kind === "preview" ? (
             <Suspense fallback={null}>
@@ -4812,7 +4812,7 @@ export default function ChatView(props: ChatViewProps) {
               onClose={closePlanSidebar}
             />
           ) : activeRightPanelSurface?.kind === "tasks" ? (
-            <GoalTasksPanel goalSlug={activeThread.goalSlug ?? null} />
+            <GoalTasksPanel goalId={activeThread.goalId ?? null} />
           ) : null}
         </RightPanelTabs>
       ) : null}
@@ -4833,7 +4833,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddTasks={addTasksSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
-            tasksAvailable={Boolean(activeThread.goalSlug)}
+            tasksAvailable={Boolean(activeThread.goalId)}
           >
             {activeRightPanelSurface?.kind === "preview" ? (
               <Suspense fallback={null}>
@@ -4883,7 +4883,7 @@ export default function ChatView(props: ChatViewProps) {
                 onClose={closePlanSidebar}
               />
             ) : activeRightPanelSurface?.kind === "tasks" ? (
-              <GoalTasksPanel goalSlug={activeThread.goalSlug ?? null} />
+              <GoalTasksPanel goalId={activeThread.goalId ?? null} />
             ) : null}
           </RightPanelTabs>
         </RightPanelSheet>

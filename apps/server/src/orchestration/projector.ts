@@ -1,4 +1,9 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationGoal,
+  OrchestrationReadModel,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -27,7 +32,21 @@ import {
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
+  GoalCreatedPayload,
+  GoalMetaUpdatedPayload,
+  GoalArchivedPayload,
+  GoalUnarchivedPayload,
+  GoalDeletedPayload,
+  GoalTaskCreatedPayload,
+  GoalTaskUpdatedPayload,
+  GoalTaskDeletedPayload,
 } from "./Schemas.ts";
+import {
+  buildGoalTaskTree,
+  collectSubtreeIds,
+  flattenGoalTasks,
+  type FlatGoalTask,
+} from "./goalTaskTree.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
@@ -183,8 +202,21 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
     projects: [],
+    goals: [],
     threads: [],
     updatedAt: nowIso,
+  };
+}
+
+function updateGoalTasks(
+  goal: OrchestrationGoal,
+  occurredAt: string,
+  mutate: (flat: FlatGoalTask[]) => FlatGoalTask[],
+): OrchestrationGoal {
+  return {
+    ...goal,
+    tasks: buildGoalTaskTree(mutate(flattenGoalTasks(goal.tasks))),
+    updatedAt: occurredAt,
   };
 }
 
@@ -264,6 +296,150 @@ export function projectEvent(
         })),
       );
 
+    case "goal.created":
+      return decodeForEvent(GoalCreatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const existing = nextBase.goals.find((entry) => entry.id === payload.goalId);
+          const goal: OrchestrationGoal = {
+            id: payload.goalId,
+            projectId: payload.projectId,
+            slug: payload.slug,
+            title: payload.title,
+            description: payload.description,
+            tasks: [],
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            archivedAt: null,
+            deletedAt: null,
+          };
+          return {
+            ...nextBase,
+            goals: existing
+              ? nextBase.goals.map((entry) => (entry.id === goal.id ? goal : entry))
+              : [...nextBase.goals, goal],
+          };
+        }),
+      );
+
+    case "goal.meta-updated":
+      return decodeForEvent(GoalMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? {
+                  ...goal,
+                  ...(payload.slug !== undefined ? { slug: payload.slug } : {}),
+                  ...(payload.title !== undefined ? { title: payload.title } : {}),
+                  ...(payload.description !== undefined
+                    ? { description: payload.description }
+                    : {}),
+                  updatedAt: payload.updatedAt,
+                }
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.archived":
+      return decodeForEvent(GoalArchivedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? { ...goal, archivedAt: payload.archivedAt, updatedAt: payload.updatedAt }
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.unarchived":
+      return decodeForEvent(GoalUnarchivedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? { ...goal, archivedAt: null, updatedAt: payload.updatedAt }
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.deleted":
+      return decodeForEvent(GoalDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? { ...goal, deletedAt: payload.deletedAt, updatedAt: payload.deletedAt }
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.task-created":
+      return decodeForEvent(GoalTaskCreatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? updateGoalTasks(goal, payload.updatedAt, (flat) => [
+                  ...flat,
+                  {
+                    id: payload.taskId,
+                    goalId: payload.goalId,
+                    parentTaskId: payload.parentTaskId,
+                    text: payload.text,
+                    done: false,
+                    position: payload.position,
+                    createdAt: payload.createdAt,
+                    updatedAt: payload.updatedAt,
+                  },
+                ])
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.task-updated":
+      return decodeForEvent(GoalTaskUpdatedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? updateGoalTasks(goal, payload.updatedAt, (flat) =>
+                  flat.map((task) =>
+                    task.id === payload.taskId
+                      ? {
+                          ...task,
+                          ...(payload.text !== undefined ? { text: payload.text } : {}),
+                          ...(payload.done !== undefined ? { done: payload.done } : {}),
+                          ...(payload.position !== undefined ? { position: payload.position } : {}),
+                          updatedAt: payload.updatedAt,
+                        }
+                      : task,
+                  ),
+                )
+              : goal,
+          ),
+        })),
+      );
+
+    case "goal.task-deleted":
+      return decodeForEvent(GoalTaskDeletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) => {
+            if (goal.id !== payload.goalId) return goal;
+            const flat = flattenGoalTasks(goal.tasks);
+            const removed = collectSubtreeIds(flat, payload.taskId);
+            return updateGoalTasks(goal, payload.deletedAt, (current) =>
+              current.filter((task) => !removed.has(task.id)),
+            );
+          }),
+        })),
+      );
+
     case "thread.created":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -277,7 +453,7 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
-            goalSlug: payload.goalSlug ?? null,
+            goalId: payload.goalId ?? null,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -350,7 +526,7 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
-            ...(payload.goalSlug !== undefined ? { goalSlug: payload.goalSlug } : {}),
+            ...(payload.goalId !== undefined ? { goalId: payload.goalId } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),

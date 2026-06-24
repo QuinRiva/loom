@@ -408,6 +408,7 @@ function createSnapshotForTargetUser(options: {
 
   return {
     snapshotSequence: 1,
+    goals: [],
     projects: [
       {
         id: PROJECT_ID,
@@ -427,7 +428,7 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
-        goalSlug: null,
+        goalId: null,
         title: THREAD_TITLE,
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -494,7 +495,7 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
-        goalSlug: null,
+        goalId: null,
         title: "New thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -752,7 +753,7 @@ function setDraftThreadWithoutWorktree(): void {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
-        goalSlug: null,
+        goalId: null,
         envMode: "local",
       },
     },
@@ -834,7 +835,7 @@ function createSnapshotWithSecondaryProject(options?: {
         {
           id: "thread-secondary-project" as ThreadId,
           projectId: SECOND_PROJECT_ID,
-          goalSlug: null,
+          goalId: null,
           title: "Release checklist",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",
@@ -867,7 +868,7 @@ function createSnapshotWithSecondaryProject(options?: {
         {
           id: ARCHIVED_SECONDARY_THREAD_ID,
           projectId: SECOND_PROJECT_ID,
-          goalSlug: null,
+          goalId: null,
           title: "Archived Docs Notes",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",
@@ -2497,7 +2498,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "local",
         },
       },
@@ -2577,7 +2578,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "feature/draft",
           worktreePath: "/repo/worktrees/feature-draft",
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
       },
@@ -2644,7 +2645,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "local",
         },
       },
@@ -2773,7 +2774,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "main",
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
       },
@@ -3278,7 +3279,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "main",
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
       },
@@ -3574,7 +3575,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "main",
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
         [activeDraftId]: {
@@ -3587,7 +3588,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "main",
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
       },
@@ -3714,7 +3715,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interactionMode: "default",
           branch: "feature/selected",
           worktreePath: null,
-          goalSlug: null,
+          goalId: null,
           envMode: "worktree",
         },
       },
@@ -4536,7 +4537,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newDraftId = draftIdFromPath(newThreadPath);
 
       expect(useComposerDraftStore.getState().getDraftSession(newDraftId)).toMatchObject({
-        goalSlug: null,
+        goalId: null,
         envMode: "worktree",
         worktreePath: null,
       });

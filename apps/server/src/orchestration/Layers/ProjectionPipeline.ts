@@ -34,6 +34,8 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionGoalRepository } from "../../persistence/Services/ProjectionGoals.ts";
+import { ProjectionGoalRepositoryLive } from "../../persistence/Layers/ProjectionGoals.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -57,6 +59,7 @@ import {
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
+  goals: "projection.goals",
   threads: "projection.threads",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
@@ -473,6 +476,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const eventStore = yield* OrchestrationEventStore;
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
+    const projectionGoalRepository = yield* ProjectionGoalRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
@@ -544,6 +548,143 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyGoalsProjection: ProjectorDefinition["apply"] = Effect.fn("applyGoalsProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "goal.created":
+            yield* projectionGoalRepository.upsertGoal({
+              goalId: event.payload.goalId,
+              projectId: event.payload.projectId,
+              slug: event.payload.slug,
+              title: event.payload.title,
+              description: event.payload.description,
+              createdAt: event.payload.createdAt,
+              updatedAt: event.payload.updatedAt,
+              archivedAt: null,
+              deletedAt: null,
+            });
+            return;
+
+          case "goal.meta-updated": {
+            const existing = yield* projectionGoalRepository.getGoalById({
+              goalId: event.payload.goalId,
+            });
+            if (Option.isNone(existing)) return;
+            yield* projectionGoalRepository.upsertGoal({
+              ...existing.value,
+              ...(event.payload.slug !== undefined ? { slug: event.payload.slug } : {}),
+              ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+              ...(event.payload.description !== undefined
+                ? { description: event.payload.description }
+                : {}),
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "goal.archived": {
+            const existing = yield* projectionGoalRepository.getGoalById({
+              goalId: event.payload.goalId,
+            });
+            if (Option.isNone(existing)) return;
+            yield* projectionGoalRepository.upsertGoal({
+              ...existing.value,
+              archivedAt: event.payload.archivedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "goal.unarchived": {
+            const existing = yield* projectionGoalRepository.getGoalById({
+              goalId: event.payload.goalId,
+            });
+            if (Option.isNone(existing)) return;
+            yield* projectionGoalRepository.upsertGoal({
+              ...existing.value,
+              archivedAt: null,
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "goal.deleted": {
+            const existing = yield* projectionGoalRepository.getGoalById({
+              goalId: event.payload.goalId,
+            });
+            if (Option.isNone(existing)) return;
+            yield* projectionGoalRepository.upsertGoal({
+              ...existing.value,
+              deletedAt: event.payload.deletedAt,
+              updatedAt: event.payload.deletedAt,
+            });
+            return;
+          }
+
+          case "goal.task-created":
+            yield* projectionGoalRepository.upsertTask({
+              taskId: event.payload.taskId,
+              goalId: event.payload.goalId,
+              parentTaskId: event.payload.parentTaskId,
+              position: event.payload.position,
+              text: event.payload.text,
+              done: 0,
+              createdAt: event.payload.createdAt,
+              updatedAt: event.payload.updatedAt,
+              deletedAt: null,
+            });
+            return;
+
+          case "goal.task-updated": {
+            const tasks = yield* projectionGoalRepository.listTasksByGoalId({
+              goalId: event.payload.goalId,
+            });
+            const existing = tasks.find((task) => task.taskId === event.payload.taskId);
+            if (existing === undefined) return;
+            yield* projectionGoalRepository.upsertTask({
+              ...existing,
+              ...(event.payload.text !== undefined ? { text: event.payload.text } : {}),
+              ...(event.payload.done !== undefined ? { done: event.payload.done ? 1 : 0 } : {}),
+              ...(event.payload.position !== undefined ? { position: event.payload.position } : {}),
+              updatedAt: event.payload.updatedAt,
+            });
+            return;
+          }
+
+          case "goal.task-deleted": {
+            const tasks = yield* projectionGoalRepository.listTasksByGoalId({
+              goalId: event.payload.goalId,
+            });
+            const childIds = new Map<string, string[]>();
+            for (const task of tasks) {
+              const key = task.parentTaskId ?? "";
+              (childIds.get(key) ?? childIds.set(key, []).get(key)!).push(task.taskId);
+            }
+            const removed = new Set<string>();
+            const visit = (id: string) => {
+              if (removed.has(id)) return;
+              removed.add(id);
+              for (const childId of childIds.get(id) ?? []) visit(childId);
+            };
+            visit(event.payload.taskId);
+            for (const task of tasks) {
+              if (removed.has(task.taskId)) {
+                yield* projectionGoalRepository.upsertTask({
+                  ...task,
+                  deletedAt: event.payload.deletedAt,
+                  updatedAt: event.payload.deletedAt,
+                });
+              }
+            }
+            return;
+          }
+
+          default:
+            return;
+        }
+      },
+    );
+
     const refreshThreadShellSummary = Effect.fn("refreshThreadShellSummary")(function* (
       threadId: ThreadId,
     ) {
@@ -597,7 +738,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
-            goalSlug: event.payload.goalSlug ?? null,
+            goalId: event.payload.goalId ?? null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -663,7 +804,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
               : {}),
-            ...(event.payload.goalSlug !== undefined ? { goalSlug: event.payload.goalSlug } : {}),
+            ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -1497,6 +1638,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.goals,
+        apply: applyGoalsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1623,6 +1768,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline(),
 ).pipe(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionGoalRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

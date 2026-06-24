@@ -9,12 +9,14 @@
 import type {
   CheckpointRef,
   OrchestrationCheckpointSummary,
+  OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadShell,
+  GoalId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -120,6 +122,13 @@ export interface ProjectionSnapshotQueryShape {
   readonly getProjectShellById: (
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active (non-archived, non-deleted) goal shell row by id.
+   */
+  readonly getGoalShellById: (
+    goalId: GoalId,
+  ) => Effect.Effect<Option.Option<OrchestrationGoalShell>, ProjectionRepositoryError>;
 
   /**
    * Read the earliest active thread for a project.

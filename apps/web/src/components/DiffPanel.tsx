@@ -152,7 +152,7 @@ interface DiffPanelProps {
 }
 
 async function fetchHeadDiff(input: { cwd: string; ignoreWhitespace: boolean }): Promise<string> {
-  const url = resolvePrimaryEnvironmentHttpUrl("/api/goals/diff", {
+  const url = resolvePrimaryEnvironmentHttpUrl("/api/vcs/diff", {
     cwd: input.cwd,
     ...(input.ignoreWhitespace ? { ignoreWhitespace: "1" } : {}),
   });
@@ -292,7 +292,9 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   });
   const selectedTurnCheckpointDiff = selectedTurn ? activeCheckpointDiff.data?.diff : undefined;
   const headDiff = selectedTurn ? undefined : headDiffQuery.data;
-  const isLoadingCheckpointDiff = selectedTurn ? activeCheckpointDiff.isPending : headDiffQuery.isPending;
+  const isLoadingCheckpointDiff = selectedTurn
+    ? activeCheckpointDiff.isPending
+    : headDiffQuery.isPending;
   const checkpointDiffError = selectedTurn ? activeCheckpointDiff.error : headDiffQuery.error;
 
   const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : headDiff;

@@ -206,13 +206,14 @@ function makeThreadShellSnapshot(params: {
 
   return {
     snapshotSequence: 1,
+    goals: [],
     projects: [],
     updatedAt: "2026-04-13T00:00:00.000Z",
     threads: [
       {
         id: params.threadId,
         projectId,
-        goalSlug: null,
+        goalId: null,
         title: "Thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

@@ -7,6 +7,7 @@
  * @module ProjectionThreadRepository
  */
 import {
+  GoalId,
   IsoDateTime,
   ModelSelection,
   NonNegativeInt,
@@ -26,7 +27,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
-  goalSlug: Schema.NullOr(Schema.String),
+  goalId: Schema.NullOr(GoalId),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

@@ -1,5 +1,6 @@
 import type {
   EnvironmentId,
+  GoalId,
   MessageId,
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
@@ -26,6 +27,7 @@ import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import {
   type ChatMessage,
+  type GoalShell,
   type Project,
   type ProposedPlan,
   type SidebarThreadSummary,
@@ -42,6 +44,12 @@ const isProviderDriverKindValue = Schema.is(ProviderDriverKind);
 export interface EnvironmentState {
   projectIds: ProjectId[];
   projectById: Record<ProjectId, Project>;
+
+  // Goals — DB-authoritative, written by the shell stream (snapshot +
+  // goal-upserted / goal-removed). Tasks are nested on each goal.
+  goalIds: GoalId[];
+  goalById: Record<GoalId, GoalShell>;
+  goalIdsByProjectId: Record<ProjectId, GoalId[]>;
 
   // TODO(CLIENT-RUNTIME MIGRATION - DO NOT EXPAND THIS WEB-ONLY COPY):
   // Web still stores shell snapshots and thread details in this denormalized
@@ -104,6 +112,9 @@ export interface AppState {
 const initialEnvironmentState: EnvironmentState = {
   projectIds: [],
   projectById: {},
+  goalIds: [],
+  goalById: {},
+  goalIdsByProjectId: {},
   threadIds: [],
   threadIdsByProjectId: {},
   threadShellById: {},
@@ -247,7 +258,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     environmentId,
     codexThreadId: null,
     projectId: thread.projectId,
-    goalSlug: thread.goalSlug ?? null,
+    goalId: thread.goalId ?? null,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -282,7 +293,7 @@ function mapThreadShell(
     environmentId,
     codexThreadId: null,
     projectId: thread.projectId,
-    goalSlug: thread.goalSlug ?? null,
+    goalId: thread.goalId ?? null,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -303,7 +314,7 @@ function mapThreadShell(
     id: thread.id,
     environmentId,
     projectId: thread.projectId,
-    goalSlug: thread.goalSlug ?? null,
+    goalId: thread.goalId ?? null,
     title: thread.title,
     interactionMode: thread.interactionMode,
     session,
@@ -332,7 +343,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     environmentId: thread.environmentId,
     codexThreadId: thread.codexThreadId,
     projectId: thread.projectId,
-    goalSlug: thread.goalSlug ?? null,
+    goalId: thread.goalId ?? null,
     title: thread.title,
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
@@ -1078,6 +1089,45 @@ function buildProjectState(
   };
 }
 
+function buildGoalState(
+  goals: ReadonlyArray<GoalShell>,
+): Pick<EnvironmentState, "goalIds" | "goalById" | "goalIdsByProjectId"> {
+  const goalIdsByProjectId: Record<ProjectId, GoalId[]> = {};
+  for (const goal of goals) {
+    (goalIdsByProjectId[goal.projectId] ??= []).push(goal.id);
+  }
+  return {
+    goalIds: goals.map((goal) => goal.id),
+    goalById: Object.fromEntries(goals.map((goal) => [goal.id, goal] as const)) as Record<
+      GoalId,
+      GoalShell
+    >,
+    goalIdsByProjectId,
+  };
+}
+
+function buildGoalStateOnto(
+  state: EnvironmentState,
+  goals: ReadonlyArray<GoalShell>,
+): EnvironmentState {
+  return { ...state, ...buildGoalState(goals) };
+}
+
+function upsertGoalIntoState(state: EnvironmentState, goal: GoalShell): EnvironmentState {
+  return buildGoalStateOnto(state, [
+    ...state.goalIds.filter((id) => id !== goal.id).map((id) => state.goalById[id]!),
+    goal,
+  ]);
+}
+
+function removeGoalFromState(state: EnvironmentState, goalId: GoalId): EnvironmentState {
+  if (!(goalId in state.goalById)) return state;
+  return buildGoalStateOnto(
+    state,
+    state.goalIds.filter((id) => id !== goalId).map((id) => state.goalById[id]!),
+  );
+}
+
 function getStoredEnvironmentState(
   state: AppState,
   environmentId: EnvironmentId,
@@ -1119,6 +1169,7 @@ function syncEnvironmentShellSnapshot(
   let nextState: EnvironmentState = {
     ...state,
     ...buildProjectState(nextProjects),
+    ...buildGoalState(snapshot.goals),
     threadIds: [],
     threadIdsByProjectId: {},
     threadShellById: {},
@@ -1293,7 +1344,7 @@ function applyEnvironmentOrchestrationEvent(
         {
           id: event.payload.threadId,
           projectId: event.payload.projectId,
-          goalSlug: event.payload.goalSlug ?? null,
+          goalId: event.payload.goalId ?? null,
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -1344,7 +1395,7 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
-        ...(event.payload.goalSlug !== undefined ? { goalSlug: event.payload.goalSlug } : {}),
+        ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
         updatedAt: event.payload.updatedAt,
       }));
 
@@ -1806,6 +1857,10 @@ function applyEnvironmentShellEvent(
         projectIds: removeId(state.projectIds, event.projectId),
       };
     }
+    case "goal-upserted":
+      return upsertGoalIntoState(state, event.goal);
+    case "goal-removed":
+      return removeGoalFromState(state, event.goalId);
     case "thread-upserted":
       return writeThreadShellState(state, mapThreadShell(event.thread, environmentId));
     case "thread-removed":
@@ -1867,6 +1922,15 @@ export function selectProjectsAcrossEnvironments(state: AppState): Project[] {
 export function selectThreadsAcrossEnvironments(state: AppState): Thread[] {
   return getEnvironmentEntries(state).flatMap(([, environmentState]) =>
     getThreads(environmentState),
+  );
+}
+
+export function selectGoalsAcrossEnvironments(state: AppState): GoalShell[] {
+  return getEnvironmentEntries(state).flatMap(([, environmentState]) =>
+    environmentState.goalIds.flatMap((goalId) => {
+      const goal = environmentState.goalById[goalId];
+      return goal ? [goal] : [];
+    }),
   );
 }
 

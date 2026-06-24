@@ -10,7 +10,7 @@ import { memo, useState } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { ChevronDownIcon, PanelBottomIcon, PanelRightIcon, TargetIcon } from "lucide-react";
-import { useGoalIndex } from "../../goals/goalIndex";
+import { countGoalTasks, useGoalById } from "../../goals/goalState";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -35,7 +35,7 @@ interface ChatHeaderProps {
   terminalOpen: boolean;
   rightPanelAvailable: boolean;
   rightPanelOpen: boolean;
-  goalSlug: string | null;
+  goalId: string | null;
   gitCwd: string | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
@@ -57,17 +57,18 @@ export function shouldShowOpenInPicker(input: {
   );
 }
 
-function GoalHeaderSection({ goalSlug }: { goalSlug: string }) {
+function GoalHeaderSection({ goalId }: { goalId: string }) {
   const [expanded, setExpanded] = useState(false);
-  const goal = useGoalIndex().data?.find((entry) => entry.slug === goalSlug);
+  const goal = useGoalById(goalId);
 
   if (!goal) {
     return (
       <span className="shrink-0 truncate rounded-md border border-dashed border-border/70 px-2 py-0.5 text-xs text-muted-foreground/70">
-        Missing goal package: {goalSlug}
+        Missing goal: {goalId}
       </span>
     );
   }
+  const progress = countGoalTasks(goal.tasks);
 
   return (
     <button
@@ -83,14 +84,14 @@ function GoalHeaderSection({ goalSlug }: { goalSlug: string }) {
       <TargetIcon className="size-3.5 shrink-0" />
       {expanded ? (
         <span className="min-w-0 whitespace-pre-wrap text-left leading-relaxed">
-          {goal.goalParagraph || goal.title || goal.slug}
+          {goal.description || goal.title || goal.slug}
         </span>
       ) : (
         <>
           <span className="min-w-0 truncate font-medium">{goal.title || goal.slug}</span>
-          {goal.progress.total > 0 ? (
+          {progress.total > 0 ? (
             <span className="shrink-0 tabular-nums text-muted-foreground/60">
-              {goal.progress.done}/{goal.progress.total}
+              {progress.done}/{progress.total}
             </span>
           ) : null}
         </>
@@ -120,7 +121,7 @@ export const ChatHeader = memo(function ChatHeader({
   terminalOpen,
   rightPanelAvailable,
   rightPanelOpen,
-  goalSlug,
+  goalId,
   gitCwd,
   onRunProjectScript,
   onAddProjectScript,
@@ -155,7 +156,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
           <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
         </Tooltip>
-        {goalSlug ? <GoalHeaderSection goalSlug={goalSlug} /> : null}
+        {goalId ? <GoalHeaderSection goalId={goalId} /> : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:shrink-0 sm:justify-end @3xl/header-actions:gap-3">
         {activeProjectScripts && (

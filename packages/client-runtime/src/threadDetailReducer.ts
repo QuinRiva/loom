@@ -141,7 +141,7 @@ export function applyThreadDetailEvent(
         thread: {
           id: event.payload.threadId,
           projectId: event.payload.projectId,
-          goalSlug: event.payload.goalSlug ?? null,
+          goalId: event.payload.goalId ?? null,
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -194,6 +194,7 @@ export function applyThreadDetailEvent(
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }
             : {}),
+          ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
           updatedAt: event.payload.updatedAt,
         },
       };

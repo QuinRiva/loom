@@ -38,6 +38,18 @@ export function applyShellStreamEvent(
         threads: Arr.filter(snapshot.threads, (t) => t.id !== event.threadId),
         snapshotSequence: event.sequence,
       };
+    case "goal-upserted": {
+      const goals = snapshot.goals.some((g) => g.id === event.goal.id)
+        ? Arr.map(snapshot.goals, (g) => (g.id === event.goal.id ? event.goal : g))
+        : Arr.append(snapshot.goals, event.goal);
+      return { ...snapshot, goals, snapshotSequence: event.sequence };
+    }
+    case "goal-removed":
+      return {
+        ...snapshot,
+        goals: Arr.filter(snapshot.goals, (g) => g.id !== event.goalId),
+        snapshotSequence: event.sequence,
+      };
     default:
       return snapshot;
   }

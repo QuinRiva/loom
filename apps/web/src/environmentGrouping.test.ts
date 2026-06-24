@@ -81,6 +81,9 @@ function makeEmptyEnvironmentState(): EnvironmentState {
   return {
     projectIds: [],
     projectById: {},
+    goalIds: [],
+    goalById: {},
+    goalIdsByProjectId: {},
     threadIds: [],
     threadIdsByProjectId: {},
     threadShellById: {},

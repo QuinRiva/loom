@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
 import { useSavedEnvironmentRegistryStore } from "../environments/runtime";
-import { TaskTree, useGoalIndex } from "../goals/goalIndex";
+import { TaskTree, countGoalTasks, useGoals } from "../goals/goalState";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 
@@ -15,8 +15,7 @@ function ChatIndexRouteView() {
   const savedEnvironmentCount = useSavedEnvironmentRegistryStore(
     (state) => Object.keys(state.byId).length,
   );
-  const goalsQuery = useGoalIndex();
-  const goals = goalsQuery.data ?? [];
+  const goals = useGoals().filter((goal) => goal.archivedAt === null);
 
   if (authGateState.status === "hosted-static" && savedEnvironmentCount === 0) {
     return <HostedStaticOnboardingState />;
@@ -37,33 +36,39 @@ function ChatIndexRouteView() {
         </header>
         <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
           <div className="mx-auto grid w-full max-w-5xl gap-4">
-            {goals.map((goal) => (
-              <section key={goal.slug} className="rounded-2xl border border-border/70 bg-card/55 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold text-foreground">
-                      {goal.title || goal.slug}
-                    </h2>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                      {goal.goalParagraph || "No ## Goal paragraph yet."}
-                    </p>
+            {goals.map((goal) => {
+              const progress = countGoalTasks(goal.tasks);
+              return (
+                <section
+                  key={goal.id}
+                  className="rounded-2xl border border-border/70 bg-card/55 p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold text-foreground">
+                        {goal.title || goal.slug}
+                      </h2>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                        {goal.description || "No goal description yet."}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border/70 px-2 py-1 text-xs tabular-nums text-muted-foreground">
+                      {progress.done}/{progress.total}
+                    </span>
                   </div>
-                  <span className="shrink-0 rounded-full border border-border/70 px-2 py-1 text-xs tabular-nums text-muted-foreground">
-                    {goal.progress.done}/{goal.progress.total}
-                  </span>
-                </div>
-                <div className="mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
-                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
-                    Tasks
-                  </h3>
-                  {goal.tasks.length > 0 ? (
-                    <TaskTree tasks={goal.tasks} />
-                  ) : (
-                    <p className="text-sm text-muted-foreground/70">No ## Tasks items yet.</p>
-                  )}
-                </div>
-              </section>
-            ))}
+                  <div className="mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
+                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+                      Tasks
+                    </h3>
+                    {goal.tasks.length > 0 ? (
+                      <TaskTree tasks={goal.tasks} />
+                    ) : (
+                      <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         </main>
       </div>

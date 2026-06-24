@@ -4,6 +4,7 @@ import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
   ModelSelection,
+  GoalId,
   ProjectId,
   ProviderInstanceId,
   ProviderInteractionMode,
@@ -210,7 +211,7 @@ const PersistedDraftThreadState = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
-  goalSlug: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  goalId: Schema.optionalKey(Schema.NullOr(GoalId)),
   envMode: DraftThreadEnvModeSchema,
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
@@ -288,7 +289,7 @@ export interface DraftSessionState {
   interactionMode: ProviderInteractionMode;
   branch: string | null;
   worktreePath: string | null;
-  goalSlug: string | null;
+  goalId: GoalId | null;
   envMode: DraftThreadEnvMode;
   promotedTo?: ScopedThreadRef | null;
 }
@@ -349,7 +350,7 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
-      goalSlug?: string | null;
+      goalId?: GoalId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
@@ -364,7 +365,7 @@ interface ComposerDraftStoreState {
       threadId?: ThreadId;
       branch?: string | null;
       worktreePath?: string | null;
-      goalSlug?: string | null;
+      goalId?: GoalId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
@@ -377,7 +378,7 @@ interface ComposerDraftStoreState {
     options: {
       branch?: string | null;
       worktreePath?: string | null;
-      goalSlug?: string | null;
+      goalId?: GoalId | null;
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -1301,7 +1302,7 @@ function createDraftThreadState(
     threadId?: ThreadId;
     branch?: string | null;
     worktreePath?: string | null;
-    goalSlug?: string | null;
+    goalId?: GoalId | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     runtimeMode?: RuntimeMode;
@@ -1335,12 +1336,12 @@ function createDraftThreadState(
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     branch: nextBranch,
     worktreePath: nextWorktreePath,
-    goalSlug:
-      options?.goalSlug === undefined
+    goalId:
+      options?.goalId === undefined
         ? projectChanged
           ? null
-          : (existingThread?.goalSlug ?? null)
-        : (options.goalSlug ?? null),
+          : (existingThread?.goalId ?? null)
+        : (options.goalId ?? null),
     envMode:
       options?.envMode ??
       (nextWorktreePath
@@ -1378,7 +1379,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.interactionMode === right.interactionMode &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
-    left.goalSlug === right.goalSlug &&
+    left.goalId === right.goalId &&
     left.envMode === right.envMode &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
@@ -2123,7 +2124,7 @@ function toHydratedDraftThreadState(
     interactionMode: persistedDraftThread.interactionMode,
     branch: persistedDraftThread.branch,
     worktreePath: persistedDraftThread.worktreePath,
-    goalSlug: persistedDraftThread.goalSlug ?? null,
+    goalId: persistedDraftThread.goalId ?? null,
     envMode: persistedDraftThread.envMode,
     promotedTo: persistedDraftThread.promotedTo
       ? scopeThreadRef(
@@ -2311,11 +2312,11 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   : existing.branch
                 : (options.branch ?? null);
             const nextGoalSlug =
-              options.goalSlug === undefined
+              options.goalId === undefined
                 ? projectChanged
                   ? null
-                  : existing.goalSlug
-                : (options.goalSlug ?? null);
+                  : existing.goalId
+                : (options.goalId ?? null);
             const nextDraftThread: DraftThreadState = {
               threadId: existing.threadId,
               environmentId: nextProjectRef.environmentId,
@@ -2329,7 +2330,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               interactionMode: options.interactionMode ?? existing.interactionMode,
               branch: nextBranch,
               worktreePath: nextWorktreePath,
-              goalSlug: nextGoalSlug,
+              goalId: nextGoalSlug,
               envMode:
                 options.envMode ??
                 (nextWorktreePath
@@ -2348,7 +2349,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.interactionMode === existing.interactionMode &&
               nextDraftThread.branch === existing.branch &&
               nextDraftThread.worktreePath === existing.worktreePath &&
-              nextDraftThread.goalSlug === existing.goalSlug &&
+              nextDraftThread.goalId === existing.goalId &&
               nextDraftThread.envMode === existing.envMode &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {

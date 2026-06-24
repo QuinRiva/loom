@@ -40,6 +40,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   type DesktopUpdateState,
+  GoalId,
   ProjectId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
@@ -53,7 +54,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
@@ -62,13 +63,13 @@ import {
   type SidebarThreadPreviewCount,
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
-import { resolvePrimaryEnvironmentHttpUrl, usePrimaryEnvironmentId } from "../environments/primary";
-import { fetchGoalIndex, type GoalIndexEntry } from "../goals/goalIndex";
+import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform, newCommandId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newGoalId } from "../lib/utils";
 import {
+  selectGoalsAcrossEnvironments,
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
   selectSidebarThreadsForProjectRefs,
@@ -194,7 +195,20 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import type { SidebarThreadSummary } from "../types";
+import type { GoalShell, GoalTask, SidebarThreadSummary } from "../types";
+
+function countGoalTasks(tasks: ReadonlyArray<GoalTask>): { done: number; total: number } {
+  return tasks.reduce(
+    (acc, task) => {
+      const child = countGoalTasks(task.children);
+      return {
+        done: acc.done + (task.done ? 1 : 0) + child.done,
+        total: acc.total + 1 + child.total,
+      };
+    },
+    { done: 0, total: 0 },
+  );
+}
 import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectSnapshots,
@@ -781,7 +795,7 @@ interface SidebarProjectThreadListProps {
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
-  projectGoals: readonly GoalIndexEntry[];
+  projectGoals: readonly GoalShell[];
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -820,7 +834,7 @@ interface SidebarProjectThreadListProps {
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
-  onNewGoalSession: (goalSlug: string, goalProjectId: ProjectId) => void;
+  onNewGoalSession: (goalId: GoalId, goalProjectId: ProjectId) => void;
 }
 
 const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
@@ -865,50 +879,55 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
-  const goalBySlug = useMemo(
-    () => new Map(projectGoals.map((goal) => [goal.slug, goal])),
+  const goalById = useMemo(
+    () => new Map(projectGoals.map((goal) => [goal.id, goal])),
     [projectGoals],
   );
-  const threadsByGoalSlug = useMemo(() => {
+  const threadsByGoalId = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of renderedThreads) {
-      if (!thread.goalSlug) continue;
-      const existing = next.get(thread.goalSlug);
+      if (!thread.goalId) continue;
+      const existing = next.get(thread.goalId);
       if (existing) existing.push(thread);
-      else next.set(thread.goalSlug, [thread]);
+      else next.set(thread.goalId, [thread]);
     }
     return next;
   }, [renderedThreads]);
   const looseThreads = useMemo(
-    () => renderedThreads.filter((thread) => !thread.goalSlug),
+    () => renderedThreads.filter((thread) => !thread.goalId),
     [renderedThreads],
   );
   const goalRows = useMemo(() => {
-    const rows = [...projectGoals].toSorted((left, right) =>
-      (left.title || left.slug).localeCompare(right.title || right.slug),
-    );
-    for (const slug of threadsByGoalSlug.keys()) {
-      if (!goalBySlug.has(slug)) {
+    const rows = [...projectGoals]
+      .toSorted((left, right) => (left.title || left.slug).localeCompare(right.title || right.slug))
+      .map((goal) => ({
+        id: goal.id,
+        projectId: goal.projectId,
+        title: goal.title || goal.slug,
+        progress: countGoalTasks(goal.tasks),
+        known: true,
+      }));
+    // Defensive fallback only: with DB invariants a thread's goalId always
+    // resolves to a goal, so orphan rows should never appear in normal UX.
+    for (const goalId of threadsByGoalId.keys()) {
+      if (!goalById.has(goalId as GoalShell["id"])) {
         rows.push({
+          id: goalId as GoalShell["id"],
           projectId: projectGoals[0]?.projectId ?? ("" as ProjectId),
-          slug,
-          title: `Missing goal package: ${slug}`,
-          goalParagraph: "",
-          tasks: [],
+          title: `Missing goal: ${goalId}`,
           progress: { done: 0, total: 0 },
+          known: false,
         });
       }
     }
     return rows;
-  }, [goalBySlug, projectGoals, threadsByGoalSlug]);
-  const [collapsedGoalSlugs, setCollapsedGoalSlugs] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const toggleGoal = useCallback((slug: string) => {
-    setCollapsedGoalSlugs((current) => {
+  }, [goalById, projectGoals, threadsByGoalId]);
+  const [collapsedGoalIds, setCollapsedGoalIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGoal = useCallback((goalId: string) => {
+    setCollapsedGoalIds((current) => {
       const next = new Set(current);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
+      if (next.has(goalId)) next.delete(goalId);
+      else next.add(goalId);
       return next;
     });
   }, []);
@@ -930,11 +949,11 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       ) : null}
       {projectExpanded &&
         goalRows.map((goal) => {
-          const goalThreads = threadsByGoalSlug.get(goal.slug) ?? [];
-          const goalExpanded = !collapsedGoalSlugs.has(goal.slug);
+          const goalThreads = threadsByGoalId.get(goal.id) ?? [];
+          const goalExpanded = !collapsedGoalIds.has(goal.id);
           return (
             <SidebarMenuSubItem
-              key={`goal:${goal.slug}`}
+              key={`goal:${goal.id}`}
               className="w-full"
               data-thread-selection-safe
             >
@@ -943,35 +962,33 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                   type="button"
                   data-thread-selection-safe
                   className="flex h-6 w-full translate-x-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
-                  title={goal.title || goal.slug}
+                  title={goal.title}
                   aria-expanded={goalExpanded}
-                  onClick={() => toggleGoal(goal.slug)}
+                  onClick={() => toggleGoal(goal.id)}
                 >
                   <ChevronRightIcon
                     className={`size-3 text-muted-foreground/60 transition-transform ${
                       goalExpanded ? "rotate-90" : ""
                     }`}
                   />
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {goal.title || goal.slug}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{goal.title}</span>
                   {goal.progress.total > 0 ? (
                     <span className="shrink-0 tabular-nums text-muted-foreground/55">
                       {goal.progress.done}/{goal.progress.total}
                     </span>
                   ) : null}
                 </button>
-                {goalBySlug.has(goal.slug) ? (
+                {goal.known ? (
                   <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/goal-header:pointer-events-auto group-hover/goal-header:opacity-100 group-focus-within/goal-header:pointer-events-auto group-focus-within/goal-header:opacity-100">
                     <button
                       type="button"
-                      aria-label={`New session under ${goal.title || goal.slug}`}
+                      aria-label={`New session under ${goal.title}`}
                       title="New session under this goal"
                       className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        onNewGoalSession(goal.slug, goal.projectId);
+                        onNewGoalSession(goal.id, goal.projectId);
                       }}
                     >
                       <SquarePenIcon className="size-3.5" />
@@ -1091,7 +1108,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
 
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
-  goals: readonly GoalIndexEntry[];
+  goals: readonly GoalShell[];
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -1860,7 +1877,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   const createThreadForProjectMember = useCallback(
-    (member: SidebarProjectGroupMember, threadOptions?: { goalSlug?: string }) => {
+    (member: SidebarProjectGroupMember, threadOptions?: { goalId?: GoalId }) => {
       const currentRouteParams =
         router.state.matches[router.state.matches.length - 1]?.params ?? {};
       const currentRouteTarget = resolveThreadRouteTarget(currentRouteParams);
@@ -1906,7 +1923,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ...(seedContext.worktreePath !== undefined
           ? { worktreePath: seedContext.worktreePath }
           : {}),
-        ...(threadOptions?.goalSlug ? { goalSlug: threadOptions.goalSlug } : {}),
+        ...(threadOptions?.goalId ? { goalId: threadOptions.goalId } : {}),
         envMode: seedContext.envMode,
       });
     },
@@ -1914,11 +1931,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   const createGoalSession = useCallback(
-    (goalSlug: string, goalProjectId: ProjectId) => {
+    (goalId: GoalId, goalProjectId: ProjectId) => {
       const member =
         project.memberProjects.find((candidate) => candidate.id === goalProjectId) ??
         project.memberProjects[0];
-      if (member) createThreadForProjectMember(member, { goalSlug });
+      if (member) createThreadForProjectMember(member, { goalId });
     },
     [createThreadForProjectMember, project.memberProjects],
   );
@@ -2133,10 +2150,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
       const threadWorkspacePath = thread.worktreePath ?? threadProject?.cwd ?? project.cwd ?? null;
       const assignGoalItems: ContextMenuItem<string>[] = projectGoals.map((goal) => ({
-        id: `assign-goal:${goal.slug}`,
+        id: `assign-goal:${goal.id}`,
         label: goal.title || goal.slug,
       }));
-      if (thread.goalSlug) {
+      if (thread.goalId) {
         assignGoalItems.push({ id: "assign-goal:", label: "Clear goal" });
       }
       const clicked = await api.contextMenu.show(
@@ -2178,41 +2195,37 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           )
           ?.trim();
         if (!slug) return;
-        const goalParagraph = window.prompt("Goal paragraph", title)?.trim() || title;
-        const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/goals"), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            projectId: thread.projectId,
-            threadId: thread.id,
-            slug,
-            title,
-            goalParagraph,
-          }),
-        });
-        if (!response.ok) {
-          toastManager.add({ type: "error", title: await response.text() });
-          return;
-        }
+        const description = window.prompt("Goal paragraph", title)?.trim() || title;
         const environmentApi = readEnvironmentApi(thread.environmentId);
         if (!environmentApi) return;
+        const goalId = newGoalId();
+        await environmentApi.orchestration.dispatchCommand({
+          type: "goal.create",
+          commandId: newCommandId(),
+          goalId,
+          projectId: thread.projectId,
+          slug,
+          title,
+          description,
+          createdAt: new Date().toISOString(),
+        });
         await environmentApi.orchestration.dispatchCommand({
           type: "thread.meta.update",
           commandId: newCommandId(),
           threadId: thread.id,
-          goalSlug: slug,
+          goalId,
         });
-        await queryClient.invalidateQueries({ queryKey: ["goals"] });
         return;
       }
       if (clicked?.startsWith("assign-goal:")) {
         const environmentApi = readEnvironmentApi(thread.environmentId);
         if (!environmentApi) return;
+        const rawGoalId = clicked.slice("assign-goal:".length);
         await environmentApi.orchestration.dispatchCommand({
           type: "thread.meta.update",
           commandId: newCommandId(),
           threadId: thread.id,
-          goalSlug: clicked.slice("assign-goal:".length) || null,
+          goalId: rawGoalId ? GoalId.make(rawGoalId) : null,
         });
         return;
       }
@@ -2828,7 +2841,7 @@ interface SidebarProjectsContentProps {
   handleProjectDragEnd: (event: DragEndEvent) => void;
   handleProjectDragCancel: (event: DragCancelEvent) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>["handleNewThread"];
-  goals: readonly GoalIndexEntry[];
+  goals: readonly GoalShell[];
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   sortedProjects: readonly SidebarProjectSnapshot[];
@@ -3122,11 +3135,7 @@ export default function Sidebar() {
   const shortcutModifiers = useShortcutModifierState();
   const modelPickerOpen = useModelPickerOpen();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const goalsQuery = useQuery({
-    queryKey: ["goals"],
-    queryFn: fetchGoalIndex,
-    refetchInterval: 5_000,
-  });
+  const goals = useStore(useShallow(selectGoalsAcrossEnvironments));
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((s) => s.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
   const orderedProjects = useMemo(() => {
@@ -3729,7 +3738,7 @@ export default function Sidebar() {
             handleProjectDragEnd={handleProjectDragEnd}
             handleProjectDragCancel={handleProjectDragCancel}
             handleNewThread={handleNewThread}
-            goals={goalsQuery.data ?? []}
+            goals={goals}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
             sortedProjects={sortedProjects}

@@ -391,6 +391,9 @@ function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) 
   const projectId = ProjectId.make("project-1");
   const environmentState: EnvironmentState = {
     projectIds: [projectId],
+    goalIds: [],
+    goalById: {},
+    goalIdsByProjectId: {},
     projectById: {
       [projectId]: {
         id: projectId,

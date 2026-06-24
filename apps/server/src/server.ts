@@ -88,8 +88,7 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
 import { orchestrationHttpApiLayer } from "./orchestration/http.ts";
-import { GoalsServiceLive } from "./goal/GoalsService.ts";
-import { goalsRouteLayer } from "./goal/http.ts";
+import { vcsRouteLayer } from "./vcs/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
@@ -287,7 +286,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   ),
 );
 
-const ProviderRuntimeLayerLive = Layer.mergeAll(ProviderSessionReaperLive, GoalsServiceLive).pipe(
+const ProviderRuntimeLayerLive = Layer.mergeAll(ProviderSessionReaperLive).pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
 );
@@ -361,7 +360,7 @@ export const makeRoutesLayer = Layer.mergeAll(
       Layer.provide(environmentAuthenticatedAuthLayer),
     ),
     otlpTracesProxyRouteLayer,
-    goalsRouteLayer,
+    vcsRouteLayer,
     assetRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,

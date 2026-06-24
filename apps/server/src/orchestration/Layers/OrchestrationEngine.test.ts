@@ -114,6 +114,7 @@ describe("OrchestrationEngine", () => {
     const projectionSnapshot = {
       snapshotSequence: 7,
       updatedAt: "2026-03-03T00:00:04.000Z",
+      goals: [],
       projects: [
         {
           id: asProjectId("project-bootstrap"),
@@ -133,7 +134,7 @@ describe("OrchestrationEngine", () => {
         {
           id: ThreadId.make("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
-          goalSlug: null,
+          goalId: null,
           title: "Bootstrap Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -181,6 +182,7 @@ describe("OrchestrationEngine", () => {
             Effect.succeed({
               snapshotSequence: projectionSnapshot.snapshotSequence,
               projects: [],
+              goals: [],
               threads: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
@@ -188,6 +190,7 @@ describe("OrchestrationEngine", () => {
             Effect.succeed({
               snapshotSequence: projectionSnapshot.snapshotSequence,
               projects: [],
+              goals: [],
               threads: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
@@ -196,6 +199,7 @@ describe("OrchestrationEngine", () => {
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getProjectShellById: () => Effect.succeed(Option.none()),
+          getGoalShellById: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),

@@ -1,333 +1,53 @@
-# pi-frontend progress
-
-> Updated 2026-06-22 (FIXED, committed `fc9723c`): the "one UI thread, many
-> amnesiac pi sessions" bug is resolved — PiDriver now resumes via a
-> deterministic per-thread `--session-id`. Diagnosis + actual fix below. The
-> second open item (dispatch thread-launched subagents `async`) is still open.
->
-> Updated 2026-06-17 (diagnosis): root-caused the "one UI thread, many amnesiac
-> pi sessions" behavior. **PiDriver has no session resume.**
-
-## PiDriver session-resume gap — FIXED (2026-06-22, diagnosed 2026-06-17)
-
-### Symptom
-
-A single UI thread (`79d2a9fb…`) showed "Working" counting past 30 min while no
-pi process was alive. Forensics: that one thread is backed by **4 distinct pi
-session files today**, and the live one (`019ed3a3`) has `parentSession=NONE` —
-it has no memory of the earlier conversation. The UI looks continuous only
-because the server persists thread events (event-sourced projection) and
-replays them; the live pi process is amnesiac.
-
-### Root cause
-
-Unlike `CodexSessionRuntime` (which persists a resume cursor / rollout path and
-calls `thread/resume`), `PiDriver` never resumes:
-
-- `ProjectionThreadSession` persists **no** pi session file (only providerName,
-  providerInstanceId, activeTurnId, lastError).
-- `PiDriver.startSession` calls `createPiRpcProcess` **without** `sessionFile`,
-  so every (re)start spawns a cold pi session.
-- The only thread→process binding is the in-memory `sessions:
-Map<ThreadId, ActivePiSession>`; `process.child.once("exit")` deletes the
-  entry. The map is wiped on any server restart or pi-child exit.
-- The pi RPC layer **already supports** resume — PiDriver just never asked for
-  it.
-
-### Trigger (this incident)
-
-Server runs under `node --watch src/bin.ts`. The agents edited `apps/server/*`
-(plus the uncommitted `contracts/src/server.ts`) → `--watch` restarted the
-server → in-memory `sessions` map wiped → the **foreground** `gpt55-worker`'s
-parent pi process was killed mid-launch (empty `…/bdf46c68/` run dir), and every
-subsequent reconnect spun up a fresh, parentless pi session. Re-running
-`pnpm dev` resets state but does NOT fix the defect.
-
-### Fix (implemented 2026-06-22, commit `fc9723c`)
-
-Deviated from the original persist-the-cursor plan below — pi's `--session-id`
-gives create-or-resume for free, making any stored cursor/path redundant.
-
-- `PiDriver.startSession` derives a deterministic session id from the thread id
-  (`threadId.replace(/[^a-zA-Z0-9_-]/g, "-")`; thread ids are UUIDs so this is a
-  no-op in practice → no collisions) and passes it as `sessionId`.
-- `RpcProcess.ts` now emits `--session-id <id>` (create-or-resume) instead of the
-  old unused `--session <file>` option; the `sessionFile` option was dropped.
-- **No persisted state.** We store nothing about the session file — the
-  thread→session link is recomputed every spawn. pi owns the transcript in its
-  default (cwd-keyed) session dir as `<timestamp>_<session-id>.jsonl`. This is
-  the deliberate divergence from Codex's `resumeCursor` persistence.
-- Verified: (a) isolated CLI resume test — a fresh process recalled a token
-  planted by a prior exited process sharing the `--session-id`, with a negative
-  control (different id → no memory); (b) live dogfood — the running session is
-  itself a resumed agent (single thread-keyed file reused across restarts);
-  (c) `vp check` + `typecheck` green.
-
-Still open: dispatch subagents launched from a pi-backed thread `async` so a
-worker never blocks/freezes the UI turn.
-
-### Original fix path (superseded — kept for context)
-
-1. Capture pi's session-file path at start (or control `--session <path>`
-   ourselves at spawn).
-2. Persist it per thread (new `ProjectionThreadSession` column, or reuse
-   `ProviderSessionRuntime.resumeCursor`).
-3. In `startSession`, if a persisted file exists for the thread, pass
-   `sessionFile` so pi resumes via `--session` instead of starting cold.
-
-> Updated 2026-06-16 by the goal-UI-redesign worker: implemented the approved
-> `ui-redesign-spec.md` (header goal section, Tasks right-panel surface,
-> new-session-under-a-goal, and the goal-index/TaskTree refactor).
-> `pnpm typecheck` + `pnpm build` GREEN; touched unit tests pass.
-
-## Goal UI redesign — DONE HEADLESS (2026-06-16)
-
-### Refactor (shared goal client + hoisted TaskTree)
-
-- New `apps/web/src/goals/goalIndex.tsx`: single definition of `GoalTaskNode` /
-  `GoalIndexEntry` (carries `projectId`), `fetchGoalIndex`, a `useGoalIndex()`
-  polling hook (5s), and the shared `TaskTree` renderer. The triplicated copies
-  in `_chat.index.tsx` and `Sidebar.tsx` now import from it.
-
-### 1. Header goal section (`chat/ChatHeader.tsx`)
-
-- `GoalHeaderSection` renders next to the session title only when the active
-  thread has a `goalSlug`. Collapsed = title + `done/total`; expanded (click) =
-  the `## Goal` paragraph. Live via `useGoalIndex`; missing package → compact
-  "Missing goal package: <slug>" pill. `goalSlug` prop threaded from ChatView.
-
-### 2. Tasks right-panel surface
-
-- `rightPanelStore.ts`: `"tasks"` added to `RIGHT_PANEL_KINDS`, the
-  `RightPanelSurface` union (`{ id: "tasks"; kind: "tasks" }`), and the
-  `singletonSurface` factory.
-- `RightPanelTabs.tsx`: `ListTodo` icon + "Tasks" title in `SurfaceIcon` /
-  `surfaceTitle`, plus an add-menu item (`onAddTasks` / `tasksAvailable`).
-- `ChatView.tsx`: new `GoalTasksPanel` (read-only, `useGoalIndex`) rendered in
-  BOTH the inline (wide) and sheet (narrow) content switches. **Fixed the
-  pre-existing asymmetry** where the `plan` surface rendered `null` in the inline
-  branch (plan now renders in both). `addTasksSurface` callback + auto-open
-  effect for goal-bound sessions (mirrors `autoOpenPlanSidebar`, keyed on thread
-  id + goalSlug). Plan/Diff/Terminal/Preview untouched.
-
-### 3. New session under a goal
-
-- `Sidebar.tsx`: hover-revealed new-session button on each real goal node (skips
-  synthetic "missing package" rows) → `createGoalSession(slug, projectId)` →
-  `createThreadForProjectMember(member, { goalSlug })`. Project new-thread and
-  the retroactive assign/create menus are unchanged.
-- `goalSlug` threaded at creation: `useHandleNewThread` options →
-  `composerDraftStore` (`DraftSessionState` + persisted schema + hydrate +
-  `createDraftThreadState` + `setDraftThreadContext` + `draftThreadsEqual`) →
-  `buildLocalDraftThread` → ChatView `bootstrap.createThread` →
-  `ThreadTurnStartBootstrapCreateThread` contract (added `goalSlug`) → `ws.ts`
-  `thread.create` dispatch. Decider/projector already persist `goalSlug`, so the
-  session nests under the goal immediately.
-
-### Verification
-
-- `pnpm typecheck` GREEN; `pnpm build` GREEN. Unit tests for the touched areas
-  pass (composerDraftStore 68, rightPanelStore/ChatView.logic 50, Sidebar.logic
-  - chatThreadActions + contracts 88). Interactive behavior (expand/collapse,
-    auto-open, nesting, both layouts) is for the user to verify in-browser.
-
-> Updated 2026-06-16 by the goal-context fix worker: replaced the per-turn goal-context prefix with a once-per-session standing instruction injected via pi `--append-system-prompt` at session spawn; `pnpm typecheck` and `pnpm build` are green.
-
-## Agent participation layer — REWORKED: once-per-session (2026-06-16)
-
-- **Removed** the per-turn prepend in `buildSendTurnRequestForThread` (it polluted every user message and wasted tokens). Turn input is now the raw normalized message again.
-- Goal context is delivered **once per session** by appending it to the pi system prompt at spawn: `ProviderSessionStartInput.appendSystemPrompt` (new optional field) → `ProviderService.startSession` → `PiDriver.startSession` → `createPiRpcProcess` → `pi --mode rpc --append-system-prompt <text>`.
-- `ProviderCommandReactor.ensureSessionForThread` builds the instruction lazily inside `startProviderSession` (so the `GoalsService.rescan()` only runs when a session actually starts/restarts, not on every turn). Threads with `goalSlug` resolve `goals/<slug>/goal.md` via `GoalsService.rescan()`; missing packages fall back to the conventional path. Goalless threads get the lighter "create a goal" nudge — also once per session.
-- Non-pi drivers ignore `appendSystemPrompt` (only PiDriver reads it). The `GoalsService` test/integration mock layers added in `e1e3adf` are retained because the reactor still depends on `GoalsService`.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Real-pi behavior (whether the appended system prompt lands and pi updates `goal.md`) remains for the user to verify against a running instance.
-
-> Updated 2026-06-16 by the defect-fix worker: fixed goal/project sidebar collapse behavior and the dots-only goal slug guard; `pnpm typecheck` and `pnpm build` are green.
-
-## Phase 3 defect fixes — DONE HEADLESS (2026-06-16)
-
-- Goal rows in `Sidebar.tsx` now have per-goal collapse state keyed by goal slug; clicking the goal caret expands/collapses that goal's sessions.
-- Collapsed project rows now hide the Phase 3 goal subtree and loose sessions instead of leaving goal rows visible.
-- `POST /api/goals` now rejects cleaned slugs that are empty or dots-only, preventing `..` from escaping `goals/`.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser behavior remains for the user to verify in-browser.
-
-> Updated 2026-06-16 by the Phase 3 worker: sub-part 1 sidebar mixed tree is implemented and headless-verified (`pnpm typecheck`, `pnpm build`).
-
-## Phase 3 (goal UI) — DONE HEADLESS (2026-06-16)
-
-### Sub-part 4 — Diff vs HEAD using @pierre/diffs — DONE
-
-- `GET /api/goals/diff?cwd=...` returns `git diff --no-ext-diff --no-color` for the session worktree, with the existing whitespace toggle mapped to `--ignore-all-space`.
-- `DiffPanel.tsx` now uses the existing `@pierre/diffs` renderer for the default `HEAD diff` view, with checkpoint/turn diffs still available when a specific turn is selected.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
-
-### Sub-part 3 — Goal overview + file-backed goal/task rendering — DONE
-
-- The chat index now becomes a goal overview when file-backed goals exist.
-- Each goal card renders the H1 title, the `## Goal` paragraph, progress, and the nested `## Tasks` checklist from `/api/goals`.
-- The view polls `/api/goals`, so edits to `goal.md` are picked up by the existing file-centric rescan path.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
-
-### Sub-part 2 — Create goal from session / assign session to goal — DONE
-
-- `thread.meta.update` now accepts/emits `goalSlug` so a thread can be assigned/reassigned/cleared after creation; decider, projector, projection pipeline, and web store all apply it.
-- `POST /api/goals` scaffolds `goals/<slug>/goal.md` in the active thread worktree (or project root fallback) and rescans the file-centric goal index.
-- Thread context menu now has `Create goal from thread` and `Assign to goal` actions; create writes the file then sets the thread's `goalSlug`.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
-
-### Sub-part 1 — Sidebar mixed Project → Goal → Session tree — DONE
-
-- `Sidebar.tsx` now polls `GET /api/goals` and joins goal metadata to thread `goalSlug`.
-- Project rows render goal package nodes (H1 `title`, falling back to `slug`, with progress) with grouped sessions nested beneath them, while goalless sessions stay directly under the project.
-- Orphaned `goalSlug` references render as `Missing goal package: <slug>` instead of crashing.
-- Existing project grouping, project expand/collapse, thread sorting, thread preview/show-more, keyboard prewarm/jump, and thread row behavior are reused rather than rewritten.
-- `apps/web/src/store.ts` / `types.ts` now carry `goalSlug` into the web thread/sidebar summaries.
-- Verification: `pnpm typecheck` GREEN; `pnpm build` GREEN. Browser verification remains for the user.
-
----
-
-> Updated 2026-06-16 by the Phase 2 worker: executed the **v3 FILE-CENTRIC
-> pivot** — removed the event-sourced Goal aggregate entirely and stood up the
-> file-centric backend (`goalSlug` on the thread + an in-memory goals index +
-> `GET /api/goals`). See "Phase 2 (v3 file-centric)" below. Phase 3 (UI) is
-> intentionally NOT done (browser-verified separately).
-
-## Phase 2 (v3 file-centric) — DONE & headless-verified (2026-06-16)
-
-### Removed (clean deletion, no compat) — the whole Goal aggregate
-
-- Contracts (`packages/contracts/src/orchestration.ts` + `baseSchemas.ts`):
-  `OrchestrationGoal` / `OrchestrationGoalShell`, the `"goal"` aggregate kind,
-  `goal.create/meta.update/delete` commands, `goal.created/meta-updated/deleted`
-  events + payloads, `goal-upserted/removed` shell-stream events, the `GoalId`
-  brand (now unused), the `goals` field on read-model/shell-snapshot, and the
-  `GoalId` member of the event-store `aggregateId` union.
-- Server: goal cases in `decider.ts` (incl. `requireGoal`/`requireGoalAbsent`,
-  `findGoalById`, `listThreadsByGoalId` in `commandInvariants.ts`), goal
-  handlers in `projector.ts`, `applyGoalsProjection` + `goals` projector wiring
-  in `ProjectionPipeline.ts`, all goal reads/builders in
-  `ProjectionSnapshotQuery.ts`, goal cases in `OrchestrationEngine.ts`
-  `commandToAggregateRef`, `GoalId` from the event-store + command-receipt
-  id-unions, and `ProjectionGoals` repo Service+Layer (files deleted).
-- Persistence: migration `033_ProjectionGoals.ts` deleted + de-registered;
-  replaced by `033_ProjectionThreadsGoalSlug.ts` (adds the nullable
-  `goal_slug` column; no `projection_goals` table). Local DB is reset (fresh
-  migrations re-run); no data migration.
-- Web/client: removed dead `goal.*` / `goal-*` cases in `apps/web/src/store.ts`.
-
-### Added (file-centric backend)
-
-- `goalSlug: string | null` on the thread aggregate (replaces the removed
-  `goalId` FK): contracts (`OrchestrationThread`/`Shell`, `thread.create`
-  command, `thread.created` payload), `projection_threads.goal_slug` column,
-  `ProjectionThreads` repo read/write, projector + all snapshot-query thread
-  builders. No DB FK, no `requireGoal` invariant (§1.3).
-- `apps/server/src/goal/GoalsService.ts` — in-memory goal index built via
-  `GoalPackage.discoverGoals` across each registered project's worktrees
-  (startup warm-scan + re-scan on demand; never authoritative — files win).
-- `apps/server/src/goal/http.ts` — `GET /api/goals` (modeled on the raw route
-  layers in `http.ts`); re-scans then returns index entries + per-goal task
-  progress. Wired into `server.ts` (`GoalsServiceLive` folded into
-  `ProviderRuntimeLayerLive` so it gets `ProjectionSnapshotQuery`;
-  `goalsRouteLayer` added to `makeRoutesLayer`).
-- KEPT untouched: `GoalPackage.ts` (the scanner/parser), PiDriver/transport,
-  model picker.
-
-### Verification (headless — all green)
-
-- `pnpm typecheck` GREEN; `pnpm build` GREEN.
-- Booted built server against a fresh temp `--base-dir` (non-destructive to the
-  user's `~/.t3`): migrations ran cleanly through `33_ProjectionThreadsGoalSlug`,
-  no goal-aggregate migration, no errors, HTTP listening.
-- `GET /api/goals` returned the dogfood goal (`goals/pi-frontend/goal.md`) with
-  parsed title / `## Goal` paragraph / nested `## Tasks` tree / progress 6/11.
-- Appending a task to `goal.md` → next `GET /api/goals` showed 7/12 with the new
-  node (re-scan trigger works). File restored afterward.
-- Tests: `projector.test.ts` updated for `goalSlug` (10/10 pass); all client/
-  server fixtures threading `OrchestrationThread(Shell)` updated to carry
-  `goalSlug`. Pre-existing failures NOT caused by this work and confirmed
-  identical on baseline `ee0c9ef`: `addProject.test.ts` (1, stale codex/gpt-5.4
-  default), `ProviderRegistry.test.ts` (3) + `serverRuntimeStartup.test.ts` (1)
-  (stale Codex-default assertions from the pi-only/model-picker checkpoint).
-
-### Deferred (Phase 3, browser-verified separately)
-
-- Sidebar Project→Goal→Session tier (group threads by `goalSlug`, join
-  `/api/goals`), goal deep-view (`## Goal` + `## Tasks` rendering), goal
-  overview, diff panel (`@pierre/diffs`).
-
----
-
-## (Historical) Pre-pivot notes
-
-> The notes below predate the v3 file-centric pivot and describe the now-removed
-> event-sourced Goal aggregate. Kept for context only; the aggregate is gone.
-> Rewritten 2026-06-15 by the continuation worker after reconciling the on-disk
-> state against `goals/pi-frontend/architecture-plan.md`.
-
-## Canonical commands (Phase 0 — established & verified)
-
-- Boot/dev: `pnpm dev` (server+web) or `pnpm dev:server` + `pnpm dev:web`.
-- Server start (built): `node apps/server/dist/bin.mjs start --host 127.0.0.1 --port <p> --no-browser <cwd>`.
-- Typecheck: `pnpm typecheck` (`vp run -r typecheck`). **Currently GREEN (exit 0).**
-- Build: `pnpm build`. Lint/format: `pnpm exec vp check`.
-- Node engine wants `^24.13.1`; runtime here is v22.22.1 (pnpm warns, builds/runs fine).
-- pi: `pi` 0.75.5 on PATH, authenticated (real `get_state` + `prompt` → `PONG` confirmed).
-
-## Ground-truth phase status (verified by reading on-disk code + real pi)
-
-### Phase 0 — Fork & bootstrap — DONE (functional), de-clouding NOT done
-
-- Fork builds/typechecks/boots; git repo on `throwaway-pi-frontend`, **0 commits** (all changes uncommitted/untracked).
-- pi-only registration DONE: `BUILT_IN_DRIVERS = [PiDriver]`; `PiSettings`/`PI_DEFAULT_MODEL` added; deterministic git titles/branches (no codex text-gen). (§1.6)
-- **De-clouding NOT done**: `infra/relay`, `apps/server/src/cloud/` (Clerk) still present. App still boots pi-only; de-clouding is cleanup, deferred (see Deviations).
-- `packages/tailscale` + `--host` flag retained (correct per §1.7).
-
-### Phase 1 — pi over RPC — DONE & VERIFIED end-to-end against real pi
-
-- `PiDriver.ts` + `Layers/Pi/{RpcProcess,Cli}.ts` written, compile, map pi events → `ProviderRuntimeEvent`. Borrowed bigbud transport + upcomputer shell shape per §1.5.
-- Verified against real pi RPC protocol (`rpc-types.d.ts`, `rpc-mode.js`):
-  - `prompt` response = fast preflight ack (NOT turn-end), so the 30s `request` timeout is correct.
-  - Event shapes (agent*start/turn_start/message_update{text_delta,thinking_delta}/tool_execution*\*/turn_end/agent_end) match the driver mapping.
-- **BUG FOUND + FIXED**: driver mapped ALL `extension_ui_request` → `user-input.requested`. Only `select`/`confirm`/`input`/`editor` need responses; `notify`/`setStatus`/`setWidget`/`setTitle`/`set_editor_text` are display-only and pi emits several on startup — they would have spammed the UI with bogus prompts. Now filtered.
-- **VERIFIED (real pi 0.75.5)**: `apps/server/src/pi-e2e-check.ts` drives the real `PiDriver` adapter against a real `pi --mode rpc` in a real git worktree. Result PASS: `session.started`/`thread.started` → assistant tool call (`write`) → `file_change` item.started/completed → real on-disk edit (`pi-e2e.txt`, shows in `git status`) → streamed `assistant_text` deltas ("DONE") → 2-turn lifecycle + `agent_end`. Exercises PiDriver + RPC transport + full event mapping. Re-run: `node apps/server/src/pi-e2e-check.ts <git-dir>`.
-- **Server boot smoke**: `node apps/server/src/bin.ts start --host 127.0.0.1 --port <p> --no-browser <cwd>` → HTTP 200, pi registered, no provider/default/codex errors (only harmless "T3 Connect config missing" cloud standby).
-- Layer not exercised by me: React rendering + the ws RPC protocol wrapper (no browser tool). The adapter-level e2e covers decider-independent provider correctness.
-
-### Phase 2 — Goal aggregate + 3-tier nav — aggregate ~DONE, worktree-reloc + sidebar NOT done
-
-- Goal aggregate touchpoints (§1.1) DONE & compiling: `OrchestrationGoal` + `"goal"` kind + goal events/commands/payloads + `goalId` on thread types (contracts); `GoalId` brand (baseSchemas); decider goal create/meta/delete + invariants (`requireGoal`/`requireGoalAbsent`); projector goal handlers + thread `goalId`; event-store aggregate-id union includes `GoalId`; migration `033_ProjectionGoals.ts` registered; `ProjectionGoals` repo/layer/service; `ProjectionPipeline` + `ProjectionSnapshotQuery` goal wiring.
-- **§1.4 worktree relocation NOT done**: `OrchestrationThread`/create-command/created-payload still carry `worktreePath`/`branch`; `ws.ts` bootstrap still resolves the thread's own worktree; goal-as-worktree-owner not wired. `thread.create` only validates `goalId` when present (goalId still OPTIONAL — not yet a hard `requireGoal`).
-- **§1.6 Sidebar goal tier NOT done**: `Sidebar.tsx` has zero goal references.
-
-### Phase 3 — Goal package files + spine — discovery/parser DONE & VERIFIED; rendering/diff NOT done
-
-- **DONE & VERIFIED (real files)**: `apps/server/src/goal/GoalPackage.ts` — the sole reader of the `goals/<slug>/goal.md` convention (§1.2). Pure `parseGoalMarkdown` (anchors `# title` / `## Goal` paragraph / `## Tasks` nested checklist tree), `taskProgress`, plus `listWorktrees` (`git worktree list --porcelain`) and `discoverGoals(workspaceRoot)` (scan each worktree for goal packages). Verified: nested-tree parse correct; real `git worktree list` discovery found the dogfood goal `goals/pi-frontend/goal.md` (6/11 tasks, title/paragraph/branch/packagePath extracted). Typecheck-clean.
-- **Dogfood artifact**: `goals/pi-frontend/goal.md` created (this project's own goal package; the real discovery target).
-- **NOT done**: wiring discovery → `goal.created`/`meta-updated`/`deleted` (a reactor calling `discoverGoals` and emitting goal commands per §1.1 sync rules); `## Goal` + `## Tasks` deep-view rendering; goal overview UI; diff-panel (`DiffPanel.tsx` / `@pierre/diffs`) wiring to the goal workflow (`git diff` vs HEAD).
-
-## Recommended next-worker sequencing (UI phases need browser verification)
-
-1. **Wire goal discovery → aggregate** (server-only, verifiable): a reactor that runs `discoverGoals(project.workspaceRoot)` and emits `goal.created`/`meta-updated`/`deleted` per §1.1. `GoalPackage.ts` is ready to consume.
-2. **§1.4 worktree relocation** — BLAST RADIUS: `worktreePath`/`prepareWorktree` read in ~22 server files + ~12 web files + client-runtime + contracts (`grep -rl worktreePath apps packages`). Key nodes: `ws.ts` turn-start bootstrap, `ProjectionSnapshotQuery.ts`, `decider.ts`/`projector.ts`, `GitManager`/`GitVcsDriverCore`/terminal/setup-script/checkpoint readers. ALSO requires a goal-creation lifecycle/UI that does not exist yet (web has only a `goalId` read selector in `store.ts`). Do NOT half-migrate — it breaks the build. Sequence: build goal-create (UI + command that owns the worktree) → flip thread bootstrap to inherit the goal worktree → delete thread worktree fields → fix all readers.
-3. **§1.6 Sidebar goal tier** — copy the per-project grouping/expand machinery in `Sidebar.tsx` (no goal refs today).
-4. **Phase 3 rendering + diff** — deep-view `## Goal`/`## Tasks` from the live file, overview list, reuse `DiffPanel.tsx`.
-
-## Verification approach (no browser tool)
-
-The plan's canonical verify = "run the forked app against a real pi session" through the web UI. **No browser-automation tool is available in this environment**, so:
-
-- Phase 1 verified by driving the real `PiDriver` adapter against real `pi --mode rpc` (full provider/transport/mapping path) + a server-boot HTTP smoke. The throwaway verification script was deleted after passing (it tripped the strict effect-diagnostics lint that gates `pnpm typecheck`); PASS result recorded above.
-- Phase 3 discovery/parser verified against real files via a now-deleted throwaway script (PASS recorded).
-- React rendering + the ws RPC protocol wrapper remain un-exercised by automated means here — UI phases need a session with browser verification. Documented tooling constraint, NOT a synthetic substitute.
-
-## Assumptions
-
-- Internal prototype, no backwards-compat shims.
-- Default transport = local `pi` binary (`pi --mode rpc`); bundled package resolution best-effort.
-
-## Deviations / deferred
-
-- De-clouding (strip `infra/relay` + `apps/server/src/cloud`/Clerk) deferred: app boots pi-only without it; lower value than the goal-centric workflow. Revisit before declaring Phase 0 fully complete.
-- `vp` not on PATH; use `pnpm exec vp` / `pnpm typecheck`.
-  </content>
-  </invoke>
+# Progress — DB-authoritative goals & tasks migration
+
+Status: COMPLETE — all phases done; typecheck + lint:mobile pass; goal CLI round-trip validated. vp check has only pre-existing lint debt (untouched ProviderRuntimeIngestion.test.ts).
+
+## Plan phases
+
+- [x] Phase 1: Contracts + decider + invariants + in-memory projector + goalTaskTree helper.
+- [x] Phase 2: SQL migration 035, ProjectionGoals repo, ProjectionPipeline goals projector, ProjectionSnapshotQuery goal assembly.
+- [x] Phase 3: vcs/http.ts (/api/vcs/diff relocated), removed GoalsService/GoalPackage/goal http, server wiring updated.
+- [x] Phase 5 (server side): goal CLI (cli/goal.ts + shared orchestrationMutation.ts), buildGoalSystemPrompt rewritten to DB+CLI.
+- Server package `tsgo --noEmit` PASSES (incl tests).
+- [ ] Phase 2: SQL projections + snapshot query
+- [ ] Phase 3: Server API/WS/store integration + relocate /api/goals/diff
+- [x] Phase 4: Web cutover — store goals slice + selectors, types goalId, Sidebar/ChatHeader/GoalTasksPanel/\_chat.index use store goals, goalIndex.tsx removed, DiffPanel -> /api/vcs/diff, client-runtime reducer + mobile fixtures.
+- [x] Phase 5: goal CLI + DB-state system prompt.
+- [x] Phase 6: deleted GoalsService/GoalPackage/goal http; marked goal-index-ws-push.md superseded + goal.md non-authoritative.
+- [x] Phase 7: vp run typecheck PASS (15 pkgs); vp run lint:mobile PASS; focused unit tests PASS (38); goal CLI real-DB round trip PASS; vp check fmt applied (only pre-existing lint error remains).
+
+## Notes / findings
+
+## Notes / findings
+
+- Consulted author session `/home/Carl/.pi/agent/sessions/--home-Carl-pi-frontend--/2026-06-23T12-55-13-430Z_019ef48c-9116-7f8f-b240-e6d7727121f2.jsonl` about `036_CanonicalizeReasoningEvents.ts` after reviewer flagged it as unrelated. Confidence: medium. Guidance: keep migration 036 in this branch as an explicitly documented enabling runtime-data fix because it restored dogfood startup after a reasoning-event decode failure; escalate only if strict feature isolation is required.
+
+## Review fixes (gpt55-review.md)
+
+All must-fix issues addressed (see
+`plans/db-goals-and-tasks-migration.fix-implementation.md`):
+
+- [x] 1. Shell stream emits goal-upserted/goal-removed for goal/task events
+     (ws.ts `toShellStreamEvent` goal branch + new `getGoalShellById`).
+- [x] 2. client-runtime `shellSnapshotReducer` handles goal-upserted/goal-removed;
+     `threadDetailReducer` applies `goalId` on thread.meta-updated. (web store
+     already handled both.)
+- [x] 3. Project-scoped goal assignment: thread.create/meta.update use
+     `requireActiveGoalInProject` (active + same project); clearing goalId still ok.
+- [x] 4. Slug uniqueness matches DB constraint: deleted goals still reserve
+     slugs (`requireUniqueGoalSlug` no longer filters deletedAt).
+- [x] 5. `projection.goals` added to REQUIRED_SNAPSHOT_PROJECTORS.
+- [x] 6. Archive coherence: `toGoalShells` excludes archived; task mutations and
+     goal assignment require active goal (`requireGoalActive`).
+- [x] 7. Task reparent disallowed for MVP: `parentTaskId` removed from
+     goal.task.update command/payload + decider/projector/projection; create still
+     sets parentTaskId.
+- [x] 8. Migration 036 documented in-file as an enabling dogfood runtime-data fix.
+
+Validation: `vp run typecheck` PASS (15/15); focused tests PASS (server
+orchestration 36, ProjectionRepositories 2, client-runtime 188/189 — the 1
+failure is pre-existing default-model drift in addProject.test, unrelated; web
+store 17). `vp lint` clean except the pre-existing
+ProviderRuntimeIngestion.test error.
+
+## Open decisions / escalations

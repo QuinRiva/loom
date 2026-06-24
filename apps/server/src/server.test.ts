@@ -88,7 +88,6 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import { GoalsService, type GoalsServiceShape } from "./goal/GoalsService.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import {
@@ -167,6 +166,7 @@ const makeDefaultOrchestrationReadModel = () => {
   return {
     snapshotSequence: 0,
     updatedAt: now,
+    goals: [],
     projects: [
       {
         id: defaultProjectId,
@@ -183,7 +183,7 @@ const makeDefaultOrchestrationReadModel = () => {
       {
         id: defaultThreadId,
         projectId: defaultProjectId,
-        goalSlug: null,
+        goalId: null,
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -212,7 +212,7 @@ const makeDefaultOrchestrationThreadShell = (
   return {
     id: defaultThreadId,
     projectId: defaultProjectId,
-    goalSlug: null,
+    goalId: null,
     title: "Default Thread",
     modelSelection: defaultModelSelection,
     runtimeMode: "full-access",
@@ -361,7 +361,6 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
-    goalsService?: Partial<GoalsServiceShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
@@ -708,11 +707,6 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(
         Layer.mergeAll(
-          Layer.mock(GoalsService)({
-            list: () => Effect.succeed([]),
-            rescan: () => Effect.succeed([]),
-            ...options?.layers?.goalsService,
-          }),
           Layer.mock(ProjectionSnapshotQuery)({
             getCommandReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
             getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
@@ -720,6 +714,7 @@ const buildAppUnderTest = (options?: {
               Effect.succeed({
                 snapshotSequence: 0,
                 projects: [],
+                goals: [],
                 threads: [],
                 updatedAt: "1970-01-01T00:00:00.000Z",
               }),
@@ -727,11 +722,13 @@ const buildAppUnderTest = (options?: {
               Effect.succeed({
                 snapshotSequence: 0,
                 projects: [],
+                goals: [],
                 threads: [],
                 updatedAt: "1970-01-01T00:00:00.000Z",
               }),
             getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
             getProjectShellById: () => Effect.succeed(Option.none()),
+            getGoalShellById: () => Effect.succeed(Option.none()),
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
@@ -5270,6 +5267,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const snapshot = {
         snapshotSequence: 1,
         updatedAt: now,
+        goals: [],
         projects: [
           {
             id: ProjectId.make("project-a"),
@@ -5286,7 +5284,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ThreadId.make("thread-1"),
             projectId: ProjectId.make("project-a"),
-            goalSlug: null,
+            goalId: null,
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,

@@ -110,6 +110,9 @@ function makeState(thread: Thread): AppState {
     projectById: {
       [projectId]: project,
     },
+    goalIds: [],
+    goalById: {},
+    goalIdsByProjectId: {},
     threadIds: [thread.id],
     threadIdsByProjectId,
     threadShellById: {
@@ -185,6 +188,9 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
   const environmentState: EnvironmentState = {
     projectIds: [],
     projectById: {},
+    goalIds: [],
+    goalById: {},
+    goalIdsByProjectId: {},
     threadIds: [],
     threadIdsByProjectId: {},
     threadShellById: {},

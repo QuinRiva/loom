@@ -1,6 +1,10 @@
 import type {
   EnvironmentId,
+  GoalId,
   ModelSelection,
+  OrchestrationGoal,
+  OrchestrationGoalShell,
+  OrchestrationGoalTask,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   RepositoryIdentity,
@@ -111,7 +115,7 @@ export interface Thread {
   environmentId: EnvironmentId;
   codexThreadId: string | null;
   projectId: ProjectId;
-  goalSlug?: string | null;
+  goalId?: GoalId | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -136,7 +140,7 @@ export interface ThreadShell {
   environmentId: EnvironmentId;
   codexThreadId: string | null;
   projectId: ProjectId;
-  goalSlug?: string | null;
+  goalId?: GoalId | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -149,6 +153,10 @@ export interface ThreadShell {
   worktreePath: string | null;
 }
 
+export type Goal = OrchestrationGoal;
+export type GoalShell = OrchestrationGoalShell;
+export type GoalTask = OrchestrationGoalTask;
+
 export interface ThreadTurnState {
   latestTurn: OrchestrationLatestTurn | null;
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
@@ -158,7 +166,7 @@ export interface SidebarThreadSummary {
   id: ThreadId;
   environmentId: EnvironmentId;
   projectId: ProjectId;
-  goalSlug?: string | null;
+  goalId?: GoalId | null;
   title: string;
   interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;

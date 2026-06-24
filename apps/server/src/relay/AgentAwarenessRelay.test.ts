@@ -262,7 +262,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
 
     const baseThread = {
       projectId,
-      goalSlug: null,
+      goalId: null,
       title: "Run remote agent",
       modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
       runtimeMode: "full-access",
@@ -402,7 +402,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         const thread = {
           id: threadId,
           projectId,
-          goalSlug: null,
+          goalId: null,
           title: "Run remote agent",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
           runtimeMode: "full-access",
@@ -445,6 +445,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           getShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 1,
+              goals: [],
               projects: [project],
               threads: [thread],
               updatedAt: now,
@@ -544,7 +545,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         const thread = {
           id: threadId,
           projectId,
-          goalSlug: null,
+          goalId: null,
           title: "Run remote agent",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
           runtimeMode: "full-access",
@@ -616,6 +617,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             getShellSnapshot: () =>
               Effect.succeed({
                 snapshotSequence: 1,
+                goals: [],
                 projects: [project],
                 threads: [thread],
                 updatedAt: now,

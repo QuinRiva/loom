@@ -4,6 +4,8 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationGoal,
+  type OrchestrationGoalTask,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -41,7 +43,6 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
-import { GoalsService } from "../../goal/GoalsService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -88,10 +89,37 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
-const GOALLESS_CONTEXT_INSTRUCTION = "No active goal is set. If this becomes substantial multi-step work, create one at `goals/<slug>/goal.md` using: `# <title>` / `## Goal <one-paragraph objective>` / `## Tasks` (nested `- [ ]` checklist).";
+const GOALLESS_CONTEXT_INSTRUCTION =
+  "No active goal is set. If this becomes substantial multi-step work, create one with `t3 goal create --project <cwd> --slug <slug> --title <title> [--description <text>]` and attach this thread to it.";
 
-const activeGoalContextInstruction = (goalFilePath: string) =>
-  `Active goal: \`${goalFilePath}\`. Read it before substantive work. Keep its \`## Tasks\` checklist updated as you complete items (check off \`- [x]\`, add new subtasks as they emerge). The \`## Goal\` paragraph is the north star — if the work diverges from it, update the paragraph or flag the divergence.`;
+const renderGoalTasksForPrompt = (
+  tasks: ReadonlyArray<OrchestrationGoalTask>,
+  depth: number,
+): string =>
+  tasks
+    .map(
+      (task) =>
+        `${"  ".repeat(depth)}- [${task.done ? "x" : " "}] ${task.text} (${task.id})\n` +
+        renderGoalTasksForPrompt(task.children, depth + 1),
+    )
+    .join("");
+
+const activeGoalContextInstruction = (goal: OrchestrationGoal) => {
+  const tasks =
+    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTasksForPrompt(goal.tasks, 0).trimEnd();
+  return [
+    `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
+    goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
+    `\n\nCurrent tasks:\n${tasks}`,
+    `\n\nKeep the task list current as you work — do NOT edit goal files. Use the CLI:`,
+    `\n  t3 goal task add ${goal.id} "<text>" [--parent <task-id>]`,
+    `\n  t3 goal task done ${goal.id} <task-id>`,
+    `\n  t3 goal task open ${goal.id} <task-id>`,
+    `\n  t3 goal task rename ${goal.id} <task-id> "<text>"`,
+    `\n  t3 goal task delete ${goal.id} <task-id>`,
+    `\n  t3 goal update ${goal.id} [--title <title>] [--description <text>]`,
+  ].join("");
+};
 
 export function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -201,7 +229,6 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
-  const goalsService = yield* GoalsService;
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
   const serverEventId = () => crypto.randomUUIDv4.pipe(Effect.map(EventId.make));
@@ -359,15 +386,15 @@ const make = Effect.gen(function* () {
   // to the pi system prompt at session spawn (never prepended per turn).
   const buildGoalSystemPrompt = Effect.fn("buildGoalSystemPrompt")(function* (thread: {
     readonly projectId: ProjectId;
-    readonly goalSlug: string | null;
+    readonly goalId: string | null;
   }) {
-    if (!thread.goalSlug) return GOALLESS_CONTEXT_INSTRUCTION;
-    const goals = yield* goalsService.rescan();
-    const goalFilePath =
-      goals
-        .find((goal) => goal.projectId === thread.projectId && goal.slug === thread.goalSlug)
-        ?.packagePath.replaceAll("\\", "/") ?? `goals/${thread.goalSlug}`;
-    return activeGoalContextInstruction(`${goalFilePath}/goal.md`);
+    if (!thread.goalId) return GOALLESS_CONTEXT_INSTRUCTION;
+    const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
+    const goal = readModel.goals.find(
+      (entry) => entry.id === thread.goalId && entry.deletedAt === null,
+    );
+    if (!goal) return GOALLESS_CONTEXT_INSTRUCTION;
+    return activeGoalContextInstruction(goal);
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (

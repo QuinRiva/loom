@@ -1,5 +1,5 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
-import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, type GoalId, type ScopedProjectRef } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -36,7 +36,7 @@ function useNewThreadState() {
       options?: {
         branch?: string | null;
         worktreePath?: string | null;
-        goalSlug?: string | null;
+        goalId?: GoalId | null;
         envMode?: DraftThreadEnvMode;
       },
     ): Promise<void> => {
@@ -59,7 +59,7 @@ function useNewThreadState() {
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
-      const hasGoalSlugOption = options?.goalSlug !== undefined;
+      const hasGoalSlugOption = options?.goalId !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const latestActiveDraftThread: DraftThreadState | null = currentRouteTarget
@@ -69,16 +69,11 @@ function useNewThreadState() {
         : null;
       if (storedDraftThread) {
         return (async () => {
-          if (
-            hasBranchOption ||
-            hasWorktreePathOption ||
-            hasGoalSlugOption ||
-            hasEnvModeOption
-          ) {
+          if (hasBranchOption || hasWorktreePathOption || hasGoalSlugOption || hasEnvModeOption) {
             setDraftThreadContext(storedDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-              ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
+              ...(hasGoalSlugOption ? { goalId: options?.goalId ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             });
           }
@@ -104,16 +99,11 @@ function useNewThreadState() {
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null
       ) {
-        if (
-          hasBranchOption ||
-          hasWorktreePathOption ||
-          hasGoalSlugOption ||
-          hasEnvModeOption
-        ) {
+        if (hasBranchOption || hasWorktreePathOption || hasGoalSlugOption || hasEnvModeOption) {
           setDraftThreadContext(currentRouteTarget.draftId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-            ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
+            ...(hasGoalSlugOption ? { goalId: options?.goalId ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           });
         }
@@ -124,7 +114,7 @@ function useNewThreadState() {
           interactionMode: latestActiveDraftThread.interactionMode,
           ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
           ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-          ...(hasGoalSlugOption ? { goalSlug: options?.goalSlug ?? null } : {}),
+          ...(hasGoalSlugOption ? { goalId: options?.goalId ?? null } : {}),
           ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
         });
         return Promise.resolve();
@@ -139,7 +129,7 @@ function useNewThreadState() {
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
-          goalSlug: options?.goalSlug ?? null,
+          goalId: options?.goalId ?? null,
           envMode: options?.envMode ?? "local",
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });

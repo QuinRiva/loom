@@ -5,13 +5,20 @@ manager_sessions:
     authored_at: 2026-06-17T03:04:11.868Z
 ---
 
+> **SUPERSEDED (2026-06-23):** This plan addressed freshness of the
+> file-centric `goals/<slug>/goal.md` index. Goals are now DB-authoritative
+> and event-sourced (see `db-goals-and-tasks-migration.md`); goal/task state
+> reaches clients live via the orchestration shell stream, so the file-watch →
+> WS-push approach below is obsolete. Retained for historical context only.
+
 # Plan — Goal-index freshness via server file-watch → WS push
 
 ## Why
+
 Goal-index freshness in the UI is currently **HTTP polling** (`useQuery({ refetchInterval: 5_000 })`)
 with a **duplicated polling owner** (`Sidebar.tsx` declares its own inline `useQuery(["goals"])`
-instead of using the shared hook). Diagnosis (see session) concluded this was *path of least
-resistance*, not a deliberate design: there is no constraint forcing polling, and this same server
+instead of using the shared hook). Diagnosis (see session) concluded this was _path of least
+resistance_, not a deliberate design: there is no constraint forcing polling, and this same server
 already runs a mature `fs.watch → debounce → PubSub → streamChanges → WS subscribe` pipeline for
 three other config surfaces (`serverSettings`, `keybindings`, provider statuses) that goals can ride.
 
@@ -20,6 +27,7 @@ eliminating the HTTP poll and the duplicate query owner. Aligns with the project
 priority.
 
 ## Reference patterns to mirror (do not invent new machinery)
+
 - **Watcher → PubSub → streamChanges**: `apps/server/src/serverSettings.ts:480-575`
   (`startWatcher` = `fs.watch(dir).pipe(Stream.filter, Stream.debounce(100ms))`,
   `Stream.runForEach(... ).pipe(Effect.forkIn(watcherScope))`, and the `streamChanges` getter
@@ -35,6 +43,7 @@ priority.
   wiring the subscription).
 
 ## Wire contract (PIN THIS — get it exactly right)
+
 The watcher republishes the **whole** goal index on every change, so one event shape covers both the
 initial snapshot and live updates. Add to `packages/contracts/src/server.ts`:
 
@@ -42,18 +51,20 @@ initial snapshot and live updates. Add to `packages/contracts/src/server.ts`:
 - `GoalTaskNode` — recursive: `{ text: string, done: boolean, children: ReadonlyArray<self> }`
   (use `Schema.suspend` for the recursion, mirroring any existing recursive schema in the repo).
 - `GoalIndexEntry` — `{ projectId: ProjectId, slug, title, goalParagraph, worktreePath, branch,
-  packagePath, tasks: Array<GoalTaskNode>, progress: GoalTaskProgress }`. Must match the TS interface
+packagePath, tasks: Array<GoalTaskNode>, progress: GoalTaskProgress }`. Must match the TS interface
   in `apps/server/src/goal/GoalsService.ts:34-43`.
 - `GoalIndexStreamEvent` — single struct (not a union): `{ version: Schema.Literal(1),
-  type: Schema.Literal("goals"), goals: Schema.Array(GoalIndexEntry) }`.
+type: Schema.Literal("goals"), goals: Schema.Array(GoalIndexEntry) }`.
 
 Add to `packages/contracts/src/rpc.ts`:
+
 - `WS_METHODS.subscribeGoals: "subscribeGoals"` (near `:222-224`).
 - `WsSubscribeGoalsRpc = Rpc.make(WS_METHODS.subscribeGoals, { payload: Schema.Struct({}),
-  success: GoalIndexStreamEvent, error: <reuse EnvironmentAuthorizationError>, stream: true })`.
+success: GoalIndexStreamEvent, error: <reuse EnvironmentAuthorizationError>, stream: true })`.
 - Register `WsSubscribeGoalsRpc` in `WsRpcGroup`.
 
 ## Server changes
+
 1. **`apps/server/src/goal/GoalsService.ts`** — extend `GoalsServiceShape`:
    - Add `start: Effect.Effect<void, ...>` and `streamChanges: Stream.Stream<ReadonlyArray<GoalIndexEntry>>`.
    - Add a `changesPubSub` (PubSub of `ReadonlyArray<GoalIndexEntry>`) and a `watcherScope`.
@@ -63,7 +74,7 @@ Add to `packages/contracts/src/rpc.ts`:
      `<worktree>/goals/<slug>/goal.md`, and worktrees are dynamic. Recommended: on `start`, enumerate
      every worktree across all projects (reuse the same `git worktree list` mechanism
      `discoverGoals`/`GoalPackage.ts` already uses), and for each ensure-then-watch its `goals/`
-     subtree (recursive over that *small* subtree only — never the whole repo / never `node_modules`).
+     subtree (recursive over that _small_ subtree only — never the whole repo / never `node_modules`).
      Debounce 100ms → `rescan()` → publish. Handle a missing `goals/` dir gracefully (skip or watch
      lazily; do not crash). After `POST /api/goals` creates a new goal, refresh the watch set.
      **Document as a known limitation:** worktrees created entirely outside this server mid-run won't
@@ -78,13 +89,14 @@ Add to `packages/contracts/src/rpc.ts`:
 4. **`apps/server/src/ws.ts`** — add `[WS_METHODS.subscribeGoals]` handler modeled on
    `subscribeServerLifecycle` (`:1547`): emit `{ version:1, type:"goals", goals: <rescan or list> }`
    as the snapshot, then concat `goalsService.streamChanges.pipe(Stream.map(goals => ({version:1,
-   type:"goals", goals})))`. Add the scope-map entry near `:202` using the existing read scope used by
+type:"goals", goals})))`. Add the scope-map entry near `:202` using the existing read scope used by
    `subscribeServerConfig` (`AuthOrchestrationReadScope`).
 5. **`apps/server/src/goal/http.ts:42-46`** — `GET /api/goals` now reads from the warm cache
    (`goalsService.list()`) instead of `rescan()` on every request, since the watcher keeps the cache
    fresh. Keep `POST /api/goals` rescanning after a write (`:97`).
 
 ## Client changes
+
 6. **`packages/client-runtime/src/wsRpcClient.ts`** — add `subscribeGoals` stream method mirroring
    `subscribeLifecycle` (`:162-163` type decl, `:362-372` impl).
 7. **`apps/web/src/rpc/serverState.ts`** — in `startServerStateSync` (`:175`), add a
@@ -101,6 +113,7 @@ Add to `packages/contracts/src/rpc.ts`:
    unchanged — they share the `["goals"]` key so they get WS-fed data for free.
 
 ## Out of scope / explicit non-goals
+
 - No multi-process / serverless / remote-fs handling — single Node server, local worktrees only.
 - No diffing on the server: the watcher republishes the full (cheap, synchronous) index; clients
   replace wholesale. Do not build incremental goal-level patches.
@@ -108,6 +121,7 @@ Add to `packages/contracts/src/rpc.ts`:
   do not keep both mechanisms running.
 
 ## Verification (required before "done")
+
 - `vp check` passes.
 - `vp run typecheck` passes.
 - Manual/dogfood: edit a `goals/<slug>/goal.md` task checkbox on disk and confirm the UI updates

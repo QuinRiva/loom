@@ -2,6 +2,14 @@ import {
   ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
   ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
+  GoalCreatedPayload as ContractsGoalCreatedPayloadSchema,
+  GoalMetaUpdatedPayload as ContractsGoalMetaUpdatedPayloadSchema,
+  GoalArchivedPayload as ContractsGoalArchivedPayloadSchema,
+  GoalUnarchivedPayload as ContractsGoalUnarchivedPayloadSchema,
+  GoalDeletedPayload as ContractsGoalDeletedPayloadSchema,
+  GoalTaskCreatedPayload as ContractsGoalTaskCreatedPayloadSchema,
+  GoalTaskUpdatedPayload as ContractsGoalTaskUpdatedPayloadSchema,
+  GoalTaskDeletedPayload as ContractsGoalTaskDeletedPayloadSchema,
   ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
   ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
   ThreadMetaUpdatedPayload as ContractsThreadMetaUpdatedPayloadSchema,
@@ -27,6 +35,15 @@ import {
 export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;
 export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchema;
 export const ProjectDeletedPayload = ContractsProjectDeletedPayloadSchema;
+
+export const GoalCreatedPayload = ContractsGoalCreatedPayloadSchema;
+export const GoalMetaUpdatedPayload = ContractsGoalMetaUpdatedPayloadSchema;
+export const GoalArchivedPayload = ContractsGoalArchivedPayloadSchema;
+export const GoalUnarchivedPayload = ContractsGoalUnarchivedPayloadSchema;
+export const GoalDeletedPayload = ContractsGoalDeletedPayloadSchema;
+export const GoalTaskCreatedPayload = ContractsGoalTaskCreatedPayloadSchema;
+export const GoalTaskUpdatedPayload = ContractsGoalTaskUpdatedPayloadSchema;
+export const GoalTaskDeletedPayload = ContractsGoalTaskDeletedPayloadSchema;
 
 export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
 export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;

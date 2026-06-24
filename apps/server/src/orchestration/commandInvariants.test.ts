@@ -24,6 +24,7 @@ const now = "2026-01-01T00:00:00.000Z";
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
   updatedAt: now,
+  goals: [],
   projects: [
     {
       id: ProjectId.make("project-a"),
@@ -56,7 +57,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.make("thread-1"),
       projectId: ProjectId.make("project-a"),
-      goalSlug: null,
+      goalId: null,
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -80,7 +81,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.make("thread-2"),
       projectId: ProjectId.make("project-b"),
-      goalSlug: null,
+      goalId: null,
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

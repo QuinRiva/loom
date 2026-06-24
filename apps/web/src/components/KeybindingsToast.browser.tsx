@@ -176,6 +176,7 @@ function createBaseServerConfig(): ServerConfig {
 function createMinimalSnapshot(): OrchestrationReadModel {
   return {
     snapshotSequence: 1,
+    goals: [],
     projects: [
       {
         id: PROJECT_ID,
@@ -195,7 +196,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
-        goalSlug: null,
+        goalId: null,
         title: "Test thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
