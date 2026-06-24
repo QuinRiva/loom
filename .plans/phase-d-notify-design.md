@@ -128,16 +128,23 @@ loops. The only remaining loop is the **open-ended spawn-loop** (a parent that
 re-spawns on every wake and never terminates) — an unbounded *sequential spend*
 loop that join/idempotency do NOT bound.
 
-A hard count cap is the wrong instrument: a legitimate long-running ("overnight")
-job racks up many *real* wake-generations and would trip it. The signal that
-distinguishes real work from a spin-loop is **cadence, not count** — real work
-has slow generations (minutes of child work each); a spin-loop fires many wakes
-in a short window. So the interim guard is **rate-based**:
+The signal that best distinguishes real work from a spin-loop is **cadence, not
+count** — real work has slow generations (minutes of child work each); a
+spin-loop fires many wakes in a short window. So the interim guard is primarily
+**rate-based**, with a count-based backstop:
 
 - Park-and-escalate when wake-generations for a parent exceed a threshold within
-  a **short rolling window** (tight looping), with a deliberately **high absolute
-  backstop** as a secondary catch. Defaults set **generously** and documented as
-  tunable — a slow-cadence overnight job must never trip them.
+  a **short rolling window** (the primary, cadence-based catch for tight
+  looping), **and** when total wake-generations for a parent exceed a
+  deliberately **high absolute backstop** (the secondary catch). The rate window
+  is tuned generously so a slow-cadence overnight job never trips it. The
+  absolute backstop is an **accepted interim ceiling**: it trips after a fixed
+  total number of wakes (default 500) **regardless of cadence**, so even a
+  legitimate long-running job is eventually parked once it has generated that
+  many wake-generations. 500 is set high enough that hitting it is a non-issue in
+  practice; D-liveness's heartbeat/investigator agent will replace this stub with
+  a real-work-vs-stuck-loop judgement that does not need a blunt count ceiling.
+  Both thresholds are tunable.
 - On trip: do not kill. Append an activity, set the parent `blocked` with a
   reason, and **escalate to the human** (this is a stub for the future
   investigator agent — same trigger point, escalates to a human instead of to a
@@ -237,6 +244,7 @@ Stage 1 is independently shippable and is the acceptance-defining behavior.
   a restart after injection does not duplicate it (durable idempotent marker).
 - Generation scoping: a parent with an unrelated long-running child still gets
   woken when a *later* spawn generation completes.
-- The rate-based park-and-escalate trips on a tight spin-loop but NOT on a
-  slow-cadence long-running job.
+- The park-and-escalate's rate window trips on a tight spin-loop but NOT on a
+  slow-cadence long-running job (the separate absolute backstop is an accepted
+  interim ceiling that trips on total count regardless of cadence).
 - `vp check` + `vp run typecheck` + server suite green.

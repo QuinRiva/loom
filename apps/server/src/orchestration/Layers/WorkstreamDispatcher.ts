@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -26,6 +27,7 @@ import {
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamReport } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "../workstreamDependencies.ts";
+import { isThreadIdle } from "../threadIdle.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -103,24 +105,6 @@ export const selectJoinedGenerations = (
   );
 };
 
-/**
- * Idle gate (decision 3): a turn injected into a busy thread is forwarded
- * immediately and clobbers the in-flight turn, so the wake must wait for the
- * parent to be idle.
- *
- * **parent idle ≝ no pending turn-start AND session not `running` AND no active
- * turn.** The pending-turn-start signal closes the window between a turn being
- * requested and the runtime reporting `turn.started` (where `activeTurnId` is
- * still null).
- */
-export const isParentIdle = (
-  parent: OrchestrationThreadShell,
-  pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
-): boolean =>
-  !pendingTurnStartThreadIds.has(parent.id) &&
-  parent.session?.status !== "running" &&
-  (parent.session === null || parent.session.activeTurnId === null);
-
 export interface WakeRateGuardConfig {
   readonly windowMs: number;
   readonly maxInWindow: number;
@@ -129,9 +113,18 @@ export interface WakeRateGuardConfig {
 
 /**
  * Runaway guard (decision 5): generously-defaulted, rate-based park-and-escalate.
- * Real work has slow generations (minutes of child work each); a spin-loop fires
- * many wakes in a short window. A high absolute backstop is the secondary catch.
- * Tunable; defaults must never trip a slow-cadence overnight job.
+ *
+ * Two independent catches:
+ * - **Rate window** — the primary, cadence-based signal. Real work has slow
+ *   generations (minutes of child work each); a spin-loop fires many wakes in a
+ *   short window. The window is tuned so a slow-cadence overnight job never
+ *   trips it.
+ * - **Absolute backstop** — a deliberately high interim ceiling that trips after
+ *   `absoluteBackstop` total wakes for a parent **regardless of cadence**. This
+ *   is an accepted interim limit, not a cadence signal: even a legitimate
+ *   long-running job is parked once it has generated this many wake-generations.
+ *   500 is set high enough that hitting it is a non-issue in practice; the
+ *   stronger heartbeat/investigator solution (D-liveness) will replace it.
  */
 export const DEFAULT_WAKE_RATE_GUARD: WakeRateGuardConfig = {
   windowMs: 60_000,
@@ -142,7 +135,8 @@ export const DEFAULT_WAKE_RATE_GUARD: WakeRateGuardConfig = {
 /**
  * Pure guard predicate: would delivering one more wake for this parent (whose
  * prior wake timestamps are `timestamps`) breach the rolling-window rate or the
- * absolute backstop?
+ * absolute backstop? The backstop trips on total count alone, independent of
+ * cadence.
  */
 export const wakeRateGuardTrips = (
   timestamps: ReadonlyArray<number>,
@@ -157,27 +151,44 @@ export const wakeRateGuardTrips = (
 };
 
 /**
+ * Maximum number of report characters embedded inline in a wake message. The
+ * wake carries a *bounded* excerpt plus the on-disk reference, never the full
+ * report text (the signed contract: "compact bounded summary + reference"); the
+ * parent pulls the full report on demand via its `reportPath`.
+ */
+export const WAKE_REPORT_EXCERPT_LIMIT = 600;
+
+/**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
- * which children completed (role + id + terminal status), each one's report (or
- * a one-line note that none was filed), and the instruction to review, decide
- * what needs human escalation vs. what it can act on / accept on the human's
- * behalf, and continue orchestrating (including accepting `review` children).
+ * which children completed (role + id + terminal status), for each a reference
+ * to its on-disk report plus a BOUNDED excerpt (never the full report), and the
+ * instruction to review, decide what needs human escalation vs. what it can act
+ * on / accept on the human's behalf, and continue orchestrating (including
+ * accepting `review` children).
  */
 export const buildParentWakeMessage = (
   children: ReadonlyArray<{
     readonly id: ThreadId;
     readonly role: string | null;
     readonly status: ThreadStatus;
+    readonly reportPath: string | null;
     readonly report: string | null;
   }>,
 ): string => {
   const sections = children.map((child) => {
     const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.status}`;
-    const body =
-      child.report !== null && child.report.trim().length > 0
-        ? child.report.trim()
+    const reference =
+      child.reportPath !== null
+        ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
         : "_No report was filed; status is the trigger, the report is best-effort context._";
-    return `${header}\n\n${body}`;
+    const trimmed = child.report?.trim() ?? "";
+    const excerpt =
+      trimmed.length === 0
+        ? ""
+        : trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
+          ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
+          : `\n\n${trimmed}`;
+    return `${header}\n\n${reference}${excerpt}`;
   });
   return [
     "A spawn generation of your Workstream sub-thread(s) has finished. Results:",
@@ -188,17 +199,51 @@ export const buildParentWakeMessage = (
   ].join("\n");
 };
 
+// Deterministic per-(parent, generation) command ids. Both the wake and the
+// park dispatch a command under these ids, so their receipts are the durable,
+// recomputable markers of "this generation was already handled" (decision 4):
+// wake delivery is idempotent across restarts, and — critically — a parked
+// generation leaves a durable marker too, so startup reconciliation does not
+// re-deliver a previously-suppressed generation as a normal wake.
+const wakeCommandId = (parentId: ThreadId, generation: string): string =>
+  `server:workstream-notify:wake:${parentId}:${generation}`;
+const parkCommandId = (parentId: ThreadId, generation: string): string =>
+  `server:workstream-notify:park:${parentId}:${generation}`;
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
 
   // In-memory caches of the recomputable durable state (decision 4): the
-  // delivered-wake set is a cache of the receipt-backed idempotency marker, and
-  // the wake-timestamp history backs the interim rate guard. Both are safe as
-  // plain mutable state because the drainable worker processes serially.
-  const deliveredWakes = new Set<string>();
+  // handled-generation set caches the receipt-backed wake/park markers, and the
+  // wake-timestamp history backs the interim rate guard. Both are safe as plain
+  // mutable state because the drainable worker processes serially. The cache is
+  // only ever a cache: a miss falls through to the durable receipt store, so a
+  // fresh process (empty cache) still recomputes the true handled set.
+  const handledGenerations = new Set<string>();
   const wakeTimestamps = new Map<string, number[]>();
+
+  // A (parent, generation) is durably handled iff its wake OR its park command
+  // has an accepted receipt. Consulted before delivering so a restart between
+  // "terminal" and "injected/parked", or after either, never re-fires.
+  const isGenerationHandled = Effect.fn("isGenerationHandled")(function* (
+    parentId: ThreadId,
+    generation: string,
+  ) {
+    const key = `${parentId}::${generation}`;
+    if (handledGenerations.has(key)) return true;
+    const hasAccepted = (commandId: string) =>
+      commandReceiptRepository
+        .getByCommandId({ commandId: CommandId.make(commandId) })
+        .pipe(Effect.map((receipt) => Option.isSome(receipt)));
+    const handled =
+      (yield* hasAccepted(wakeCommandId(parentId, generation))) ||
+      (yield* hasAccepted(parkCommandId(parentId, generation)));
+    if (handled) handledGenerations.add(key);
+    return handled;
+  });
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -247,7 +292,10 @@ const make = Effect.gen(function* () {
   // Deliver a single (parent, generation) wake. The command id is deterministic
   // (parent + generation), so the receipt store dedups delivery across restarts
   // and re-evaluations (decision 4): re-dispatch after a wake was already
-  // injected is a no-op that never injects a second turn.
+  // injected is a no-op that never injects a second turn. `requireIdle` makes
+  // the engine re-check parent idleness atomically at the serialized command
+  // boundary; a busy parent defers (fails without a receipt) and is retried on
+  // the next idle drain.
   const deliverWake = Effect.fn("deliverWake")(function* (
     parent: OrchestrationThreadShell,
     generation: JoinedGeneration,
@@ -258,6 +306,7 @@ const make = Effect.gen(function* () {
           id: child.id,
           role: child.role,
           status: child.status,
+          reportPath: child.reportPath,
           report: Option.getOrNull(report),
         })),
       ),
@@ -265,9 +314,7 @@ const make = Effect.gen(function* () {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
-      commandId: CommandId.make(
-        `server:workstream-notify:wake:${parent.id}:${generation.generation}`,
-      ),
+      commandId: CommandId.make(wakeCommandId(parent.id, generation.generation)),
       threadId: parent.id,
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
@@ -278,6 +325,7 @@ const make = Effect.gen(function* () {
       titleSeed: parent.title,
       runtimeMode: parent.runtimeMode,
       interactionMode: parent.interactionMode,
+      requireIdle: true,
       createdAt: now,
     } satisfies OrchestrationCommand);
   });
@@ -285,32 +333,38 @@ const make = Effect.gen(function* () {
   // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
   // not deliver — append an activity, set the parent `blocked` with a reason, and
   // surface it to the human (this is the stub for the future investigator agent).
+  // Both commands carry deterministic per-(parent, generation) ids: the park
+  // decision is durable, so startup reconciliation sees the park marker and does
+  // not re-deliver the suppressed generation as a normal wake (decision 4). The
+  // status-set is dispatched first; the park-marker activity last, so the
+  // marker's presence implies both landed.
   const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
     parent: OrchestrationThreadShell,
+    generation: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     const summary =
       "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
     yield* orchestrationEngine.dispatch({
+      type: "thread.status.set",
+      commandId: CommandId.make(`${parkCommandId(parent.id, generation)}:block`),
+      threadId: parent.id,
+      status: "blocked",
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+    yield* orchestrationEngine.dispatch({
       type: "thread.activity.append",
-      commandId: yield* serverCommandId("guard-activity"),
+      commandId: CommandId.make(parkCommandId(parent.id, generation)),
       threadId: parent.id,
       activity: {
         id: EventId.make(yield* crypto.randomUUIDv4),
         tone: "error",
         kind: "workstream.runaway-guard.tripped",
         summary,
-        payload: { reason: "wake-rate-guard" },
+        payload: { reason: "wake-rate-guard", generation },
         turnId: null,
         createdAt: now,
       },
-      createdAt: now,
-    } satisfies OrchestrationCommand);
-    yield* orchestrationEngine.dispatch({
-      type: "thread.status.set",
-      commandId: yield* serverCommandId("guard-block"),
-      threadId: parent.id,
-      status: "blocked",
       createdAt: now,
     } satisfies OrchestrationCommand);
   });
@@ -324,24 +378,35 @@ const make = Effect.gen(function* () {
 
     for (const generation of joined) {
       const key = `${generation.parentId}::${generation.generation}`;
-      if (deliveredWakes.has(key)) continue;
+      // Durable idempotency (decision 4): consult the receipt-backed wake/park
+      // markers, not just the in-memory cache, so a fresh process never
+      // re-delivers a generation that was already woken or parked.
+      if (yield* isGenerationHandled(generation.parentId, generation.generation)) continue;
       const parent = threadsById.get(generation.parentId);
       // Parent absent (archived/deleted) → nothing to wake.
       if (parent === undefined) continue;
       // Busy parent → defer; a later thread.session-set (parent going idle)
-      // re-triggers this pass.
-      if (!isParentIdle(parent, pendingTurnStartThreadIds)) continue;
+      // re-triggers this pass. (The engine re-checks idleness atomically too.)
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
       const now = yield* Clock.currentTimeMillis;
       const history = wakeTimestamps.get(generation.parentId) ?? [];
       if (wakeRateGuardTrips(history, now)) {
-        yield* parkAndEscalate(parent);
-        deliveredWakes.add(key);
+        yield* parkAndEscalate(parent, generation.generation);
+        handledGenerations.add(key);
         continue;
       }
-      yield* deliverWake(parent, generation);
-      wakeTimestamps.set(generation.parentId, [...history, now]);
-      deliveredWakes.add(key);
+      // requireIdle makes the engine defer (no receipt) if the parent became
+      // busy in the race window; treat that as not-yet-delivered so the next
+      // idle drain retries. Only mark handled + count the wake on real delivery.
+      const delivered = yield* deliverWake(parent, generation).pipe(
+        Effect.as(true),
+        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      );
+      if (delivered) {
+        wakeTimestamps.set(generation.parentId, [...history, now]);
+        handledGenerations.add(key);
+      }
     }
   });
 

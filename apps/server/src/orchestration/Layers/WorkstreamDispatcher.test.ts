@@ -11,12 +11,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildParentWakeMessage,
   DEFAULT_WAKE_RATE_GUARD,
-  isParentIdle,
   isTerminalStatus,
   selectJoinedGenerations,
   selectThreadsToDispatch,
+  WAKE_REPORT_EXCERPT_LIMIT,
   wakeRateGuardTrips,
 } from "./WorkstreamDispatcher.ts";
+import { isThreadIdle } from "../threadIdle.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
 
@@ -188,13 +189,13 @@ describe("selectJoinedGenerations", () => {
   });
 });
 
-describe("isParentIdle", () => {
+describe("isThreadIdle", () => {
   it("is idle with no session, no pending turn-start, and no active turn", () => {
-    expect(isParentIdle(shell({ id: "parent-1", session: null }), new Set())).toBe(true);
+    expect(isThreadIdle(shell({ id: "parent-1", session: null }), new Set())).toBe(true);
   });
 
   it("is busy while the session is running", () => {
-    expect(isParentIdle(shell({ id: "parent-1", session: runningSession() }), new Set())).toBe(
+    expect(isThreadIdle(shell({ id: "parent-1", session: runningSession() }), new Set())).toBe(
       false,
     );
   });
@@ -204,7 +205,7 @@ describe("isParentIdle", () => {
       id: "parent-1",
       session: runningSession({ status: "idle", activeTurnId: null }),
     });
-    expect(isParentIdle(parent, new Set(["parent-1" as ThreadId]))).toBe(false);
+    expect(isThreadIdle(parent, new Set(["parent-1" as ThreadId]))).toBe(false);
   });
 
   it("is busy while an active turn is set", () => {
@@ -212,7 +213,7 @@ describe("isParentIdle", () => {
       id: "parent-1",
       session: runningSession({ status: "ready", activeTurnId: "turn-9" as TurnId }),
     });
-    expect(isParentIdle(parent, new Set())).toBe(false);
+    expect(isThreadIdle(parent, new Set())).toBe(false);
   });
 });
 
@@ -240,21 +241,49 @@ describe("wakeRateGuardTrips", () => {
 });
 
 describe("buildParentWakeMessage", () => {
-  it("includes each child's role, id, status, and report, plus the review instruction", () => {
+  it("carries each child's role, id, status, report reference, and a short report inline", () => {
     const text = buildParentWakeMessage([
       {
         id: "child-1" as ThreadId,
         role: "researcher",
         status: "done",
+        reportPath: "child-1.md",
         report: "# Findings\nAll good.",
       },
-      { id: "child-2" as ThreadId, role: "reviewer", status: "review", report: null },
+      {
+        id: "child-2" as ThreadId,
+        role: "reviewer",
+        status: "review",
+        reportPath: null,
+        report: null,
+      },
     ]);
     expect(text).toContain("researcher");
     expect(text).toContain("child-1");
     expect(text).toContain("done");
+    // Short reports fit inline under the bound.
     expect(text).toContain("All good.");
+    // The on-disk pointer is referenced, never the raw content alone.
+    expect(text).toContain("child-1.md");
     expect(text).toContain("No report was filed");
     expect(text).toContain("workstream_set_status");
+  });
+
+  it("bounds an oversized report to an excerpt + reference, never the full text", () => {
+    const tail = "TAIL_MARKER_SHOULD_NOT_APPEAR";
+    const report = `${"x".repeat(WAKE_REPORT_EXCERPT_LIMIT + 50)}${tail}`;
+    const text = buildParentWakeMessage([
+      {
+        id: "child-1" as ThreadId,
+        role: "researcher",
+        status: "done",
+        reportPath: "child-1.md",
+        report,
+      },
+    ]);
+    expect(text).toContain("child-1.md");
+    expect(text).toContain("excerpt truncated");
+    expect(text).not.toContain(tail);
+    expect(text).not.toContain(report);
   });
 });

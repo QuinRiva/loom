@@ -757,6 +757,13 @@ export const ThreadTurnStartCommand = Schema.Struct({
   ),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  // D-notify: server-only flag set by the WorkstreamDispatcher on parent wakes.
+  // When true the turn-start is an atomic idle-gated injection: the serialized
+  // command boundary skips it (without recording a rejection) unless the target
+  // thread is idle (no pending turn-start, session not running, no active turn).
+  // Never set by clients — normal user/agent turn-starts must remain unguarded
+  // so steering and human send-while-running keep working.
+  requireIdle: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 

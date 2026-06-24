@@ -156,11 +156,12 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
 
-  // Generation = the parent's turn at spawn time, so siblings spawned in the
-  // same parent turn join into one wake. Fall back to the child id (a singleton
-  // generation) when the parent is not mid-turn.
-  const spawnGeneration =
-    current.session?.activeTurnId ?? current.latestTurn?.turnId ?? childThreadId;
+  // Generation = the parent's ACTIVE turn at spawn time, so siblings spawned in
+  // the same parent turn join into one wake. When the parent is not mid-turn
+  // (no active turn) the spawn is out-of-turn and gets its own singleton
+  // generation (the child id) — never the parent's last *completed* turn, which
+  // would merge an out-of-turn spawn into a stale, already-joined generation.
+  const spawnGeneration = current.session?.activeTurnId ?? childThreadId;
 
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
