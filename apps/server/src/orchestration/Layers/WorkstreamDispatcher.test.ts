@@ -93,6 +93,19 @@ describe("selectThreadsToDispatch", () => {
     expect(ids(selectThreadsToDispatch(threads))).toEqual(["child-reviewer"]);
   });
 
+  it("does not gate on a non-sibling dependency (different parentThreadId)", () => {
+    const threads = [
+      shell({
+        id: "cousin-coder",
+        parentThreadId: "other-parent" as ThreadId,
+        status: "running",
+        latestUserMessageAt: now,
+      }),
+      shell({ id: "child-reviewer", blockedBy: ["cousin-coder" as ThreadId] }),
+    ];
+    expect(ids(selectThreadsToDispatch(threads))).toEqual(["child-reviewer"]);
+  });
+
   it("treats self-refs and dangling dependency ids as non-gating", () => {
     const threads = [
       shell({

@@ -15,7 +15,6 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { workstreamChildPrompt } from "../orchestration/workstreamChildPrompt.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
 interface WorkstreamSpawnRequest {

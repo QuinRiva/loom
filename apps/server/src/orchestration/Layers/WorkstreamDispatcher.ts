@@ -2,7 +2,6 @@ import {
   CommandId,
   MessageId,
   type OrchestrationCommand,
-  type OrchestrationEvent,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -20,6 +19,7 @@ import {
   type WorkstreamDispatcherShape,
 } from "../Services/WorkstreamDispatcher.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
+import { areDependenciesSatisfied } from "../workstreamDependencies.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -27,10 +27,10 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
  *
  * - Sub-thread: has a `parentThreadId` (root threads start via the normal flow).
  * - Un-started: no provider session **and** no started turn (no user message).
- * - Deps satisfied: every known dependency is `done`. A dependency is satisfied
- *   iff the dependency thread's status is `done` (`review` does not release),
- *   mirroring the client `getEffectiveColumn` rule. Self-refs and dangling ids
- *   (unknown threads) never gate.
+ * - Deps satisfied: per the shared `areDependenciesSatisfied` predicate — every
+ *   `blockedBy` entry that names a known sibling must be `done` (`review` does
+ *   not release); self-refs, dangling ids, and non-siblings never gate. Sharing
+ *   the predicate keeps execution gating and the client board in agreement.
  *
  * Returns only threads that carry both `role` and `purpose`, which are required
  * to build the deferred kick-off prompt (spawn always sets them).
@@ -38,7 +38,7 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 export const selectThreadsToDispatch = (
   threads: ReadonlyArray<OrchestrationThreadShell>,
 ): ReadonlyArray<OrchestrationThreadShell> => {
-  const statusById = new Map(threads.map((thread) => [thread.id, thread.status] as const));
+  const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
   return threads.filter(
     (thread) =>
       thread.parentThreadId !== null &&
@@ -46,11 +46,7 @@ export const selectThreadsToDispatch = (
       thread.purpose !== null &&
       thread.session === null &&
       thread.latestUserMessageAt === null &&
-      thread.blockedBy.every((depId) => {
-        if (depId === thread.id) return true;
-        const depStatus = statusById.get(depId);
-        return depStatus === undefined || depStatus === "done";
-      }),
+      areDependenciesSatisfied(thread, threadsById),
   );
 };
 
@@ -114,9 +110,7 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const worker = yield* makeDrainableWorker(
-    (_event: OrchestrationEvent) => promoteReadyThreadsSafely,
-  );
+  const worker = yield* makeDrainableWorker((_trigger: void) => promoteReadyThreadsSafely);
 
   const start: WorkstreamDispatcherShape["start"] = Effect.fn("start")(function* () {
     yield* Effect.forkScoped(
@@ -124,10 +118,14 @@ const make = Effect.gen(function* () {
         event.type === "thread.created" ||
         event.type === "thread.status-set" ||
         event.type === "thread.dependencies-set"
-          ? worker.enqueue(event)
+          ? worker.enqueue()
           : Effect.void,
       ),
     );
+    // Startup promote-ready pass: streamDomainEvents has no replay, so a
+    // thread.created that committed before this reactor subscribed (e.g. a
+    // restart mid-flight) would otherwise strand a now-ready sub-thread.
+    yield* worker.enqueue();
   });
 
   return {

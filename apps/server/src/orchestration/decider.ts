@@ -31,6 +31,7 @@ import {
 } from "./commandInvariants.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
+import { areDependenciesSatisfied } from "./workstreamDependencies.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -682,6 +683,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Dependency gate at the command boundary: the FIRST turn of a dep-blocked
+      // sub-thread may only start once its dependencies are satisfied. This
+      // closes the UI bypass (opening a `blocked`/`planned` child and sending a
+      // message starts it before its deps are `done`). The dispatcher passes
+      // naturally (it only fires when deps are satisfied); root threads and
+      // every subsequent turn are unaffected. Keying purely off current
+      // dep-satisfaction preserves the override path: clearing a child's deps
+      // lets the dispatcher auto-promote it.
+      if (
+        targetThread.parentThreadId !== null &&
+        !targetThread.messages.some((message) => message.role === "user") &&
+        !areDependenciesSatisfied(
+          targetThread,
+          new Map(readModel.threads.map((thread) => [thread.id, thread] as const)),
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Sub-thread '${command.threadId}' cannot start its first turn until every dependency is done.`,
+        });
+      }
       const sourceProposedPlan = command.sourceProposedPlan;
       const sourceThread = sourceProposedPlan
         ? yield* requireThread({
