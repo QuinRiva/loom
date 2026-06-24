@@ -219,6 +219,8 @@ function makeThreadShellSnapshot(params: {
         purpose: null,
         status: "planned" as const,
         blockedBy: [],
+        spawnGeneration: null,
+        reportPath: null,
         title: "Thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

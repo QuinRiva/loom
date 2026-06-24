@@ -30,6 +30,7 @@ import {
   ThreadRuntimeModeSetPayload,
   ThreadStatusSetPayload,
   ThreadDependenciesSetPayload,
+  ThreadReportSetPayload,
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -461,6 +462,8 @@ export function projectEvent(
             purpose: payload.purpose ?? null,
             status: payload.status ?? "planned",
             blockedBy: payload.blockedBy ?? [],
+            spawnGeneration: payload.spawnGeneration ?? null,
+            reportPath: null,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -590,6 +593,17 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             blockedBy: payload.blockedBy,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.report-set":
+      return decodeForEvent(ThreadReportSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            reportPath: payload.reportPath,
             updatedAt: payload.updatedAt,
           }),
         })),

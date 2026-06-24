@@ -418,6 +418,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           purpose,
           status,
           blocked_by AS "blockedBy",
+          spawn_generation AS "spawnGeneration",
+          report_path AS "reportPath",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -452,6 +454,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           purpose,
           status,
           blocked_by AS "blockedBy",
+          spawn_generation AS "spawnGeneration",
+          report_path AS "reportPath",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -488,6 +492,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           purpose,
           status,
           blocked_by AS "blockedBy",
+          spawn_generation AS "spawnGeneration",
+          report_path AS "reportPath",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -858,6 +864,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           purpose,
           status,
           blocked_by AS "blockedBy",
+          spawn_generation AS "spawnGeneration",
+          report_path AS "reportPath",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1046,6 +1054,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         LIMIT 1
       `,
   });
+
+  const listPendingTurnStartRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: () =>
+      sql`
+        SELECT DISTINCT thread_id AS "threadId"
+        FROM projection_turns
+        WHERE turn_id IS NULL
+      `,
+  });
+
+  const getPendingTurnStartThreadIds: ProjectionSnapshotQueryShape["getPendingTurnStartThreadIds"] =
+    () =>
+      listPendingTurnStartRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getPendingTurnStartThreadIds:query",
+            "ProjectionSnapshotQuery.getPendingTurnStartThreadIds:decodeRows",
+          ),
+        ),
+        Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
+      );
 
   const getSnapshot: ProjectionSnapshotQueryShape["getSnapshot"] = () =>
     sql
@@ -1318,6 +1349,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 purpose: row.purpose,
                 status: row.status,
                 blockedBy: row.blockedBy,
+                spawnGeneration: row.spawnGeneration,
+                reportPath: row.reportPath,
                 title: row.title,
                 modelSelection: row.modelSelection,
                 runtimeMode: row.runtimeMode,
@@ -1548,6 +1581,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   purpose: row.purpose,
                   status: row.status,
                   blockedBy: row.blockedBy,
+                  spawnGeneration: row.spawnGeneration,
+                  reportPath: row.reportPath,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -1701,6 +1736,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                       purpose: row.purpose,
                       status: row.status,
                       blockedBy: row.blockedBy,
+                      spawnGeneration: row.spawnGeneration,
+                      reportPath: row.reportPath,
                       title: row.title,
                       modelSelection: row.modelSelection,
                       runtimeMode: row.runtimeMode,
@@ -1842,6 +1879,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   purpose: row.purpose,
                   status: row.status,
                   blockedBy: row.blockedBy,
+                  spawnGeneration: row.spawnGeneration,
+                  reportPath: row.reportPath,
                   title: row.title,
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
@@ -2112,6 +2151,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         purpose: threadRow.value.purpose,
         status: threadRow.value.status,
         blockedBy: threadRow.value.blockedBy,
+        spawnGeneration: threadRow.value.spawnGeneration,
+        reportPath: threadRow.value.reportPath,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
@@ -2212,6 +2253,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         purpose: threadRow.value.purpose,
         status: threadRow.value.status,
         blockedBy: threadRow.value.blockedBy,
+        spawnGeneration: threadRow.value.spawnGeneration,
+        reportPath: threadRow.value.reportPath,
         title: threadRow.value.title,
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
@@ -2294,6 +2337,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getFullThreadDiffContext,
     getThreadShellById,
     getThreadDetailById,
+    getPendingTurnStartThreadIds,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

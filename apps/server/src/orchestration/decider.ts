@@ -465,6 +465,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.blockedBy !== undefined
             ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
             : {}),
+          ...(command.spawnGeneration !== undefined
+            ? { spawnGeneration: command.spawnGeneration }
+            : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -1060,6 +1063,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           turnCount: command.turnCount,
+        },
+      };
+    }
+
+    case "thread.report.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.report-set",
+        payload: {
+          threadId: command.threadId,
+          reportPath: command.reportPath,
+          updatedAt: occurredAt,
         },
       };
     }

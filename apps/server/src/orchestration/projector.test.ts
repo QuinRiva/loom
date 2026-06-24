@@ -82,6 +82,8 @@ describe("orchestration projector", () => {
         purpose: null,
         status: "planned",
         blockedBy: [],
+        spawnGeneration: null,
+        reportPath: null,
         title: "demo",
         modelSelection: {
           instanceId: "codex",

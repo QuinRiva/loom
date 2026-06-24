@@ -37,6 +37,8 @@ function makeThread(
     purpose: null,
     status: "planned" as const,
     blockedBy: [],
+    spawnGeneration: null,
+    reportPath: null,
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,

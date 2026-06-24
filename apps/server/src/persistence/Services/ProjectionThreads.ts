@@ -34,6 +34,8 @@ export const ProjectionThread = Schema.Struct({
   purpose: Schema.NullOr(Schema.String),
   status: ThreadStatus,
   blockedBy: Schema.Array(ThreadId),
+  spawnGeneration: Schema.NullOr(Schema.String),
+  reportPath: Schema.NullOr(Schema.String),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

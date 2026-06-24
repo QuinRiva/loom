@@ -140,6 +140,8 @@ describe("OrchestrationEngine", () => {
           purpose: null,
           status: "planned" as const,
           blockedBy: [],
+          spawnGeneration: null,
+          reportPath: null,
           title: "Bootstrap Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -210,6 +212,7 @@ describe("OrchestrationEngine", () => {
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
+          getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         }),
       ),
       Layer.provide(

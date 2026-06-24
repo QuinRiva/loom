@@ -41,6 +41,7 @@ import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   workstreamDependenciesUrlFromMcpEndpoint,
+  workstreamReportUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
   workstreamStatusUrlFromMcpEndpoint,
 } from "../../mcp/WorkstreamSpawnHttp.ts";
@@ -643,6 +644,9 @@ function makePiAdapter(input: {
                       mcpSession.endpoint,
                     ),
                     T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_REPORT_URL: workstreamReportUrlFromMcpEndpoint(
                       mcpSession.endpoint,
                     ),
                     T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,

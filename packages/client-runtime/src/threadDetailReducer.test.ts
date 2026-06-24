@@ -30,6 +30,8 @@ const baseThread: OrchestrationThread = {
   purpose: null,
   status: "planned" as const,
   blockedBy: [],
+  spawnGeneration: null,
+  reportPath: null,
   title: "Test Thread",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",

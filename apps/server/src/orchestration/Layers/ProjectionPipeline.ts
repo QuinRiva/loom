@@ -744,6 +744,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             purpose: event.payload.purpose ?? null,
             status: event.payload.status ?? "planned",
             blockedBy: event.payload.blockedBy ?? [],
+            spawnGeneration: event.payload.spawnGeneration ?? null,
+            reportPath: null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -872,6 +874,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             blockedBy: event.payload.blockedBy,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.report-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reportPath: event.payload.reportPath,
             updatedAt: event.payload.updatedAt,
           });
           return;

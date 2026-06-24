@@ -362,6 +362,18 @@ export const OrchestrationThread = Schema.Struct({
   ),
   status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  // D-notify: the spawn batch this sub-thread belongs to (the parent's turn id
+  // at spawn time). Children sharing a (parentThreadId, spawnGeneration) form a
+  // join barrier; the parent is woken once every member is terminal. Durable so
+  // the join is recomputable from the read model after a restart.
+  spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // D-notify: pointer to this thread's completion report markdown file (content
+  // lives on disk, never in the event store). Null until the child reports.
+  reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -491,6 +503,12 @@ export const OrchestrationThreadShell = Schema.Struct({
   ),
   status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -615,6 +633,9 @@ const ThreadCreateCommand = Schema.Struct({
   // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
   // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
+  // D-notify: spawn-batch stamp (the parent's turn id at spawn). Set by the
+  // spawn path so siblings of the same parent turn join into one wake.
+  spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1008,6 +1029,16 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// D-notify: records the on-disk pointer to a sub-thread's completion report.
+// The markdown content lives on disk; only the pointer is event-sourced.
+const ThreadReportSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.report.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  reportPath: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1017,6 +1048,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  ThreadReportSetCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1060,6 +1092,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.report-set",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1161,6 +1194,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   status: Schema.optional(ThreadStatus),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
+  spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1326,6 +1360,12 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
 export const ThreadActivityAppendedPayload = Schema.Struct({
   threadId: ThreadId,
   activity: OrchestrationThreadActivity,
+});
+
+export const ThreadReportSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  reportPath: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
 });
 
 export const OrchestrationEventMetadata = Schema.Struct({
@@ -1514,6 +1554,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.report-set"),
+    payload: ThreadReportSetPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
