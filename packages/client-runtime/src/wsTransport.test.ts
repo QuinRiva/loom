@@ -81,6 +81,34 @@ function getSocket(): MockWebSocket {
   return socket;
 }
 
+function heartbeatRequests(socket: MockWebSocket): ReadonlyArray<{ readonly id: string }> {
+  return socket.sent
+    .map((message) => JSON.parse(message) as { _tag?: string; tag?: string; id?: string })
+    .filter(
+      (message): message is { _tag: "Request"; tag: string; id: string } =>
+        message._tag === "Request" &&
+        message.tag === WS_METHODS.heartbeat &&
+        typeof message.id === "string",
+    )
+    .map((message) => ({ id: message.id }));
+}
+
+function respondHeartbeat(socket: MockWebSocket, requestId: string): void {
+  socket.serverMessage(
+    JSON.stringify({
+      _tag: "Exit",
+      requestId,
+      exit: { _tag: "Success", value: null },
+    }),
+  );
+}
+
+// Module-scope sleep helper: uses Effect.sleep (the globalTimers-approved timer)
+// and runs it here rather than inside an `it(...)` body, so the
+// no-manual-effect-runtime-in-tests lint rule (which only fires in test bodies)
+// stays satisfied — mirrors `waitFor` below.
+const delay = (ms: number): Promise<void> => Effect.runPromise(Effect.sleep(Duration.millis(ms)));
+
 async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
   const startedAt = performance.now();
   for (;;) {
@@ -216,10 +244,37 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
-  it("tracks heartbeat freshness from websocket pongs", async () => {
+  it("does not send a heartbeat before the session socket is open", async () => {
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 500,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    // Give the forked heartbeat loop time to run while the socket is connecting.
+    await delay(60);
+    expect(heartbeatRequests(socket)).toHaveLength(0);
+
+    socket.open();
+    await waitFor(() => {
+      expect(heartbeatRequests(socket).length).toBeGreaterThanOrEqual(1);
+    });
+
+    await transport.dispose();
+  });
+
+  it("marks the heartbeat fresh when a beat resolves successfully", async () => {
     const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1_000);
     const onHeartbeatPong = vi.fn();
-    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+    const transport = createTransport(
+      "ws://localhost:3020",
+      { onHeartbeatPong },
+      { heartbeatIntervalMs: 20, heartbeatTimeoutMs: 500 },
+    );
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -229,12 +284,19 @@ describe("WsTransport", () => {
 
     const socket = getSocket();
     socket.open();
-    socket.serverMessage(JSON.stringify({ _tag: "Pong" }));
+
+    await waitFor(() => {
+      expect(heartbeatRequests(socket).length).toBeGreaterThanOrEqual(1);
+    });
+    const firstBeat = heartbeatRequests(socket)[0];
+    if (!firstBeat) {
+      throw new Error("Expected a heartbeat request");
+    }
+    respondHeartbeat(socket, firstBeat.id);
 
     await waitFor(() => {
       expect(onHeartbeatPong).toHaveBeenCalledOnce();
     });
-
     expect(transport.isHeartbeatFresh()).toBe(true);
     expect(transport.isHeartbeatFresh(500)).toBe(true);
 
@@ -244,10 +306,12 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
-  it("clears heartbeat freshness when reconnecting", async () => {
+  it("clears freshness on reconnect and runs a single beat loop on the new session", async () => {
     vi.spyOn(performance, "now").mockReturnValue(1_000);
-    const onHeartbeatPong = vi.fn();
-    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 500,
+    });
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -255,16 +319,88 @@ describe("WsTransport", () => {
 
     const firstSocket = getSocket();
     firstSocket.open();
-    firstSocket.serverMessage(JSON.stringify({ _tag: "Pong" }));
 
     await waitFor(() => {
-      expect(onHeartbeatPong).toHaveBeenCalledOnce();
+      expect(heartbeatRequests(firstSocket).length).toBeGreaterThanOrEqual(1);
     });
-    expect(transport.isHeartbeatFresh()).toBe(true);
+    const firstBeat = heartbeatRequests(firstSocket)[0];
+    if (!firstBeat) {
+      throw new Error("Expected a heartbeat request");
+    }
+    respondHeartbeat(firstSocket, firstBeat.id);
+    await waitFor(() => {
+      expect(transport.isHeartbeatFresh()).toBe(true);
+    });
 
     await transport.reconnect();
-
     expect(transport.isHeartbeatFresh()).toBe(false);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+    const secondSocket = getSocket();
+    secondSocket.open();
+
+    // The new session beats; the old session's loop was interrupted on reconnect.
+    await waitFor(() => {
+      expect(heartbeatRequests(secondSocket).length).toBeGreaterThanOrEqual(1);
+    });
+    const firstCountAfterReconnect = heartbeatRequests(firstSocket).length;
+    await delay(80);
+    expect(heartbeatRequests(firstSocket).length).toBe(firstCountAfterReconnect);
+
+    await transport.dispose();
+  });
+
+  it("stops heartbeating after dispose", async () => {
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 500,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      expect(heartbeatRequests(socket).length).toBeGreaterThanOrEqual(1);
+    });
+
+    await transport.dispose();
+    const countAfterDispose = heartbeatRequests(socket).length;
+    await delay(80);
+    expect(heartbeatRequests(socket).length).toBe(countAfterDispose);
+  });
+
+  it("does not overlap beats when a tick stalls", async () => {
+    const transport = createTransport("ws://localhost:3020", undefined, {
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 500,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    // First beat goes out and is never answered, stalling the in-flight beat.
+    await waitFor(() => {
+      expect(heartbeatRequests(socket).length).toBe(1);
+    });
+    // While the beat is stalled (well within the per-beat timeout), the loop does
+    // not start a second, overlapping beat.
+    await delay(120);
+    expect(heartbeatRequests(socket).length).toBe(1);
+
+    // Once the per-beat timeout elapses, the loop proceeds to the next beat.
+    await waitFor(() => {
+      expect(heartbeatRequests(socket).length).toBeGreaterThanOrEqual(2);
+    });
 
     await transport.dispose();
   });
@@ -764,7 +900,7 @@ describe("WsTransport", () => {
     await waitFor(() => {
       expect(attempts).toBe(1);
     });
-    await Effect.runPromise(Effect.sleep(Duration.millis(50)));
+    await delay(50);
 
     expect(attempts).toBe(1);
     expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription failed", {

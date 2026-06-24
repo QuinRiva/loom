@@ -22,7 +22,11 @@ interface PendingRpcAckRequest {
 }
 
 const pendingRpcAckRequests = new Map<string, PendingRpcAckRequest>();
-const untrackedRpcAckTags = new Set<string>([WS_METHODS.previewAutomationConnect]);
+const untrackedRpcAckTags = new Set<string>([
+  WS_METHODS.previewAutomationConnect,
+  // Keepalive heartbeats fire ~6x/min/client and must not show up as user requests.
+  WS_METHODS.heartbeat,
+]);
 
 const slowRpcAckRequestsAtom = Atom.make<ReadonlyArray<SlowRpcAckRequest>>([]).pipe(
   Atom.keepAlive,
