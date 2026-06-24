@@ -126,3 +126,18 @@ false alarm). Reviewer 6e8af804 running.
   13-commit rebase for tractability/reviewability; main + workstreams-ui left
   intact). DoD: typecheck+check green, server persistence/orchestration tests
   pass, lineage test passes. Then a reviewing agent reviews (owner-required).
+
+## Rebase COMPLETE — ready to merge to main
+- Branch `workstreams-on-main` = e60625a (single squash commit) on top of main 49f7eb5.
+  main + workstreams-ui left intact. HEAD~1 == main.
+- Reconciliation review (a4fa3497): NO blockers / no should-fixes. Verified: 0 goalSlug
+  survivors, goal->purpose complete + tool-arg/endpoint field names agree, spawn inherits
+  parent goalId, migrations 037/038 (no dup goal_id, no number clash), unions keep both
+  sides, goal-module port clean, no dropped feature logic, replay-safe.
+- My independent verification: typecheck 0, vp check 0 errors (11 pre-existing warnings),
+  server persistence+orchestration 167/167, lineage 6/6, AND fresh-DB boot smoke (full
+  migration chain incl 037/038 applies; workstream endpoints mount + 401-gate).
+- Non-blocking notes: status transitions intentionally permissive (no hard state machine);
+  main's goalId has no decode-default (main's pre-existing choice, untouched).
+- STILL unverified (needs Carl's browser + model creds): live model->tool->spawn loop and
+  GUI render. Suggested merge: `git checkout main && git merge --ff-only workstreams-on-main`.
