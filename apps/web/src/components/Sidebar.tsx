@@ -13,12 +13,14 @@ import {
 } from "lucide-react";
 import {
   ChangeRequestStatusIcon,
-  prStatusIndicator,
-  resolveThreadPr,
-  terminalStatusFromRunningIds,
   ThreadStatusLabel,
   WorkstreamGraphIndicator,
 } from "./ThreadStatusIndicators";
+import {
+  prStatusIndicator,
+  resolveThreadPr,
+  terminalStatusFromRunningIds,
+} from "./ThreadStatusIndicators.logic";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
