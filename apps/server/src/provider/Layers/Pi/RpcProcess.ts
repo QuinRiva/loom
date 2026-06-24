@@ -147,6 +147,7 @@ export interface PiRpcProcessOptions {
   // Stable per-thread id; pi create-or-resumes the same session file for it.
   readonly sessionId?: string | undefined;
   readonly appendSystemPrompt?: string | undefined;
+  readonly extensions?: ReadonlyArray<string> | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
 }
 
@@ -216,6 +217,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
     ...invocation.args,
     ...(options.sessionId ? ["--session-id", options.sessionId] : []),
     ...(options.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),
+    ...(options.extensions ?? []).flatMap((extension) => ["--extension", extension]),
   ];
   const useWindowsShell = shouldUseWindowsPiShell(invocation.command, options.platform);
   const command = useWindowsShell

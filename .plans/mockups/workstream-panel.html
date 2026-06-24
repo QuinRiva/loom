@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>T3 Code — Workstream Panel (mockup)</title>
+<style>
+  /* ---- Offline note: no webfonts / CDN by contract; use the platform stack. ---- */
+  :root{
+    --bg:#0a0d12;
+    --bg-2:#0d1117;
+    --surface:#12171f;
+    --surface-2:#161c26;
+    --surface-3:#1b222d;
+    --border:rgba(255,255,255,.08);
+    --border-2:rgba(255,255,255,.13);
+    --text:#e7edf4;
+    --text-dim:#8a94a3;
+    --text-faint:#5b6573;
+    --accent:#4493f8;
+
+    /* state palette (shared by board + graph) */
+    --planned:#8a94a3;     --planned-bg:rgba(138,148,163,.13);
+    --running:#4493f8;     --running-bg:rgba(68,147,248,.14);
+    --blocked:#e3933a;     --blocked-bg:rgba(227,147,58,.15);
+    --review:#a878f0;      --review-bg:rgba(168,120,240,.15);
+    --done:#3fb86b;        --done-bg:rgba(63,184,107,.14);
+
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    --radius:9px;
+    --dock-w:28rem;
+  }
+  @media (prefers-color-scheme:light){
+    /* The prototype is dark-first by design intent; keep it dark in both. */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:var(--sans);
+    background:
+      radial-gradient(1100px 600px at 78% -8%, rgba(68,147,248,.07), transparent 60%),
+      radial-gradient(900px 500px at 12% 110%, rgba(168,120,240,.05), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    font-size:14px;
+    overflow:hidden;
+  }
+
+  /* ============ APP SHELL (faint, just for context) ============ */
+  .app{
+    display:grid;
+    grid-template-columns:218px 1fr var(--dock-w);
+    height:100vh;
+  }
+  .shell-faint{
+    opacity:.34;
+    filter:saturate(.55);
+    pointer-events:none;
+    user-select:none;
+  }
+
+  /* left sidebar */
+  .sidebar{
+    background:var(--bg-2);
+    border-right:1px solid var(--border);
+    padding:14px 12px;
+    display:flex;flex-direction:column;gap:18px;
+    min-width:0;
+  }
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.2px}
+  .brand .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--accent),#7cc0ff);display:grid;place-items:center;font-size:12px;color:#04101f;font-weight:800}
+  .nav-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-faint);margin:0 0 7px 4px}
+  .nav-item{padding:6px 8px;border-radius:6px;color:var(--text-dim);font-size:13px;display:flex;gap:8px;align-items:center}
+  .nav-item.active{background:var(--surface-2);color:var(--text)}
+  .nav-item .ico{width:14px;text-align:center;opacity:.8}
+  .thread-row{padding:5px 8px;border-radius:6px;font-size:12.5px;color:var(--text-dim);display:flex;gap:7px;align-items:center}
+  .dot-mini{width:7px;height:7px;border-radius:50%;flex:none}
+
+  /* center transcript */
+  .center{
+    background:var(--bg);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;min-width:0;
+  }
+  .center .topbar{height:42px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;font-size:13px;color:var(--text-dim)}
+  .transcript{padding:18px;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+  .msg{max-width:80%}
+  .msg .who{font-size:11px;color:var(--text-faint);margin-bottom:5px}
+  .bubble{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;line-height:1.5;font-size:13px}
+  .msg.me{align-self:flex-end}
+  .msg.me .bubble{background:var(--surface-2)}
+  .spawn-card{align-self:stretch;border:1px dashed var(--border-2);border-radius:10px;padding:10px 12px;background:var(--surface);font-size:12.5px;color:var(--text-dim)}
+  .composer{margin-top:auto;border-top:1px solid var(--border);padding:12px 16px}
+  .composer .box{border:1px solid var(--border-2);border-radius:9px;background:var(--surface);padding:10px 12px;color:var(--text-faint);font-size:13px}
+
+  /* ============ RIGHT DOCK (the focus) ============ */
+  .dock{
+    background:linear-gradient(180deg,#0e131b,#0b0f16);
+    border-left:1px solid var(--border-2);
+    display:flex;flex-direction:column;
+    min-width:0;position:relative;overflow:hidden;
+    box-shadow:-24px 0 60px -30px rgba(0,0,0,.9);
+  }
+  .dock-tabs{
+    display:flex;align-items:stretch;gap:2px;
+    padding:8px 8px 0;border-bottom:1px solid var(--border);
+    background:var(--bg-2);
+    overflow-x:auto;scrollbar-width:none;
+  }
+  .dock-tabs::-webkit-scrollbar{display:none}
+  .tab{
+    font-size:12.5px;color:var(--text-faint);
+    padding:8px 11px 9px;border-radius:7px 7px 0 0;white-space:nowrap;
+    border:1px solid transparent;border-bottom:none;cursor:default;
+  }
+  .tab.active{
+    color:var(--text);background:var(--surface);
+    border-color:var(--border);
+    box-shadow:inset 0 2px 0 var(--accent);
+  }
+
+  .ws{display:flex;flex-direction:column;min-height:0;flex:1}
+  .ws-head{padding:12px 14px 10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:11px}
+  .ws-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ws-title{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+  .ws-title small{color:var(--text-faint);font-weight:400;font-size:11.5px}
+  .total-pill{font-size:11px;color:var(--text-dim);background:var(--surface-2);border:1px solid var(--border);padding:2px 8px;border-radius:999px;font-variant-numeric:tabular-nums}
+
+  /* segmented control */
+  .seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:3px;gap:3px;align-self:flex-start}
+  .seg button{
+    font:inherit;font-size:12.5px;color:var(--text-dim);background:transparent;border:0;
+    padding:5px 16px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  }
+  .seg button.active{background:var(--surface-3);color:var(--text);box-shadow:0 1px 0 rgba(0,0,0,.4)}
+  .seg svg{width:13px;height:13px}
+
+  .ws-body{flex:1;min-height:0;overflow:auto;position:relative}
+  .ws-body::-webkit-scrollbar{width:9px}
+  .ws-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:9px}
+
+  /* ---- BOARD VIEW ---- */
+  .board{display:flex;flex-direction:column;gap:14px;padding:13px 12px 16px}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .col-head{display:flex;align-items:center;gap:8px;padding:0 2px}
+  .col-dot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
+  .col-name{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);font-weight:600}
+  .col-count{margin-left:auto;font-size:11px;color:var(--text-faint);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;min-width:22px;text-align:center;font-variant-numeric:tabular-nums}
+  .col-empty{font-size:11.5px;color:var(--text-faint);padding:8px 10px;border:1px dashed var(--border);border-radius:8px}
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-left:3px solid var(--st);
+    border-radius:var(--radius);
+    padding:10px 11px;cursor:pointer;
+    transition:border-color .15s,transform .12s,background .15s;
+    position:relative;
+  }
+  .card:hover{background:var(--surface-2);border-color:var(--border-2);border-left-color:var(--st);transform:translateY(-1px)}
+  .card.selected{outline:1.5px solid var(--st);outline-offset:1px}
+  .card-top{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .badge{
+    font-size:10.5px;font-family:var(--mono);
+    display:inline-flex;align-items:center;gap:4px;
+    padding:2px 7px;border-radius:6px;
+    background:var(--st-bg);color:var(--st);border:1px solid color-mix(in srgb,var(--st) 35%,transparent);
+    white-space:nowrap;
+  }
+  .badge .gly{font-size:11px;line-height:1}
+  .card-meta{margin-left:auto;display:flex;gap:8px;font-size:10.5px;color:var(--text-faint);font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .card-title{font-size:13px;font-weight:560;line-height:1.35;margin:1px 0 5px}
+  .card-goal{font-size:11.5px;color:var(--text-dim);line-height:1.4;margin-bottom:6px;padding-left:8px;border-left:2px solid color-mix(in srgb,var(--st) 45%,transparent)}
+  .card-goal b{color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.08em;font-size:9.5px;margin-right:4px}
+  .card-activity{font-size:11.5px;color:var(--text-dim);line-height:1.4;display:flex;align-items:center;gap:7px}
+  .markers{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .mk{font-size:10px;font-family:var(--mono);padding:1.5px 7px;border-radius:5px;border:1px solid var(--border-2);color:var(--text-dim);background:var(--surface-2)}
+  .mk.warn{color:var(--blocked);border-color:color-mix(in srgb,var(--blocked) 40%,transparent);background:var(--blocked-bg)}
+  .mk.bounce{color:var(--review);border-color:color-mix(in srgb,var(--review) 40%,transparent);background:var(--review-bg)}
+  .mk.emergent{color:var(--planned);border-color:var(--border-2)}
+  .reason{margin-top:7px;font-size:11.5px;color:var(--blocked);background:var(--blocked-bg);border:1px solid color-mix(in srgb,var(--blocked) 32%,transparent);border-radius:7px;padding:6px 8px;display:flex;gap:7px;align-items:flex-start;line-height:1.4}
+
+  /* running motion */
+  .live-dots{display:inline-flex;gap:3px}
+  .live-dots i{width:5px;height:5px;border-radius:50%;background:var(--running);display:inline-block;animation:pulse 1.25s infinite ease-in-out}
+  .live-dots i:nth-child(2){animation-delay:.18s}
+  .live-dots i:nth-child(3){animation-delay:.36s}
+  @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+  .stale-pip{width:7px;height:7px;border-radius:50%;background:var(--blocked);box-shadow:0 0 0 0 var(--blocked);animation:stale 1.6s infinite}
+  @keyframes stale{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--blocked) 55%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+  /* ---- GRAPH VIEW ---- */
+  .graph-wrap{padding:10px 8px 16px;display:flex;flex-direction:column;align-items:center}
+  .graph-hint{font-size:11px;color:var(--text-faint);margin:2px 0 8px;text-align:center}
+  svg.graph{width:100%;height:auto;display:block}
+  .gnode{cursor:pointer}
+  .gnode rect{transition:filter .15s}
+  .gnode:hover rect.box{filter:brightness(1.18)}
+  .gnode.selected rect.box{stroke-width:2.4}
+  .gnode.selected .halo{opacity:1}
+  .halo{opacity:0;transition:opacity .15s}
+  .gnode text{pointer-events:none}
+  .gicon{font-size:12px}
+  .gtitle{font-size:10.5px;font-weight:600;fill:var(--text)}
+  .gsub{font-size:8.5px;fill:var(--text-faint);font-family:var(--mono)}
+  .edge{stroke:var(--text-faint);stroke-width:1.5;fill:none;opacity:.6}
+  .edge.dash{stroke-dasharray:4 4}
+  .edge.bounce{stroke:var(--review);opacity:.85}
+  .edge.emergent{stroke:var(--planned);opacity:.75}
+  .elabel{font-size:8px;font-family:var(--mono);fill:var(--text-dim)}
+  .elabel.bounce{fill:var(--review)}
+  .elabel.emergent{fill:var(--planned)}
+
+  /* ---- LEGEND ---- */
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 14px;border-top:1px solid var(--border);background:var(--bg-2)}
+  .legend .li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim)}
+  .legend .sw{width:9px;height:9px;border-radius:50%}
+
+  /* ============ DRILL-IN DRAWER ============ */
+  .scrim{position:absolute;inset:0;background:rgba(2,5,10,.55);backdrop-filter:blur(1.5px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+  .scrim.open{opacity:1;pointer-events:auto}
+  .drawer{
+    position:absolute;top:0;right:0;bottom:0;width:94%;
+    background:var(--surface);border-left:1px solid var(--border-2);
+    box-shadow:-30px 0 70px -30px rgba(0,0,0,.95);
+    transform:translateX(102%);transition:transform .24s cubic-bezier(.4,.1,.2,1);
+    z-index:21;display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0)}
+  .dr-head{padding:13px 14px;border-bottom:1px solid var(--border);border-top:3px solid var(--st)}
+  .dr-top{display:flex;align-items:center;gap:8px}
+  .dr-close{margin-left:auto;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);border-radius:7px;width:26px;height:26px;cursor:pointer;font-size:15px;line-height:1}
+  .dr-close:hover{color:var(--text);border-color:var(--border-2)}
+  .dr-title{font-size:15px;font-weight:600;margin:10px 0 8px;line-height:1.3}
+  .dr-goal{font-size:12.5px;line-height:1.45;color:var(--text);background:var(--st-bg);border:1px solid color-mix(in srgb,var(--st) 32%,transparent);border-radius:8px;padding:8px 10px;margin:0 0 9px}
+  .dr-goal b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.11em;color:var(--st);margin-bottom:3px}
+  .dr-stat{display:flex;flex-wrap:wrap;gap:7px 14px;font-size:11.5px;color:var(--text-dim);font-family:var(--mono)}
+  .dr-stat b{color:var(--text);font-weight:600}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:var(--mono);padding:3px 9px;border-radius:999px;background:var(--st-bg);color:var(--st);border:1px solid color-mix(in srgb,var(--st) 38%,transparent)}
+
+  .dr-body{flex:1;overflow:auto;padding:13px 14px;display:flex;flex-direction:column;gap:11px}
+  .dr-sec{font-size:10.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--text-faint);margin:2px 0 -2px}
+  .turn{border:1px solid var(--border);border-radius:9px;padding:9px 11px;background:var(--bg-2);font-size:12.5px;line-height:1.5}
+  .turn .who{font-size:10.5px;color:var(--text-faint);font-family:var(--mono);margin-bottom:5px;display:flex;gap:6px;align-items:center}
+  .turn.assistant{background:var(--surface-2)}
+  .turn code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px}
+  .dr-foot{padding:11px 14px;border-top:1px solid var(--border);display:flex;gap:9px}
+  .btn{flex:1;font:inherit;font-size:13px;font-weight:560;border-radius:8px;padding:9px 12px;cursor:pointer;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text)}
+  .btn.primary{background:linear-gradient(180deg,#4a98fa,#2f7ce8);border-color:#2f7ce8;color:#fff;box-shadow:0 1px 0 rgba(0,0,0,.3)}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn:hover{border-color:var(--accent)}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- LEFT SIDEBAR (faint context) -->
+  <aside class="sidebar shell-faint">
+    <div class="brand"><span class="logo">T3</span> T3 Code</div>
+    <div>
+      <p class="nav-label">Goals</p>
+      <div class="nav-item active"><span class="ico">◆</span> branch &amp; env picker</div>
+      <div class="nav-item"><span class="ico">◇</span> server auth model</div>
+      <div class="nav-item"><span class="ico">◇</span> remote endpoints</div>
+    </div>
+    <div>
+      <p class="nav-label">Threads</p>
+      <div class="thread-row"><span class="dot-mini" style="background:var(--running)"></span> orchestrator · planning</div>
+      <div class="thread-row"><span class="dot-mini" style="background:var(--text-faint)"></span> scratch: schema notes</div>
+      <div class="thread-row" style="opacity:.6;font-style:italic"><span class="dot-mini" style="background:transparent"></span> sub-threads → in dock ▸</div>
+    </div>
+  </aside>
+
+  <!-- CENTER TRANSCRIPT (faint context) -->
+  <main class="center shell-faint">
+    <div class="topbar">orchestrator · <span style="color:var(--text-faint)">feat/branch-picker</span></div>
+    <div class="transcript">
+      <div class="msg me"><div class="who">you</div><div class="bubble">Plan looks good. Spawn a coder for the picker UI and one for the worktree migration, then a reviewer.</div></div>
+      <div class="msg"><div class="who">orchestrator</div><div class="bubble">Spawned 3 sub-threads. I'll keep them off the goal tree and surface status in the Workstream panel →</div></div>
+      <div class="spawn-card">▸ <b>spawn card</b> · 3 sub-threads running · last activity 12s ago — open the Workstream dock to drill in</div>
+    </div>
+    <div class="composer"><div class="box">Message orchestrator…</div></div>
+  </main>
+
+  <!-- RIGHT DOCK (FOCUS) -->
+  <section class="dock">
+    <div class="dock-tabs">
+      <div class="tab">Plan</div>
+      <div class="tab">Tasks</div>
+      <div class="tab">Diff</div>
+      <div class="tab active">Workstream</div>
+      <div class="tab">Preview</div>
+      <div class="tab">Terminal</div>
+    </div>
+
+    <div class="ws">
+      <div class="ws-head">
+        <div class="ws-title-row">
+          <div class="ws-title">Workstream <small>· orchestrator</small></div>
+          <span class="total-pill" id="totalPill">8 sub-threads</span>
+        </div>
+        <div class="seg" role="tablist">
+          <button id="segBoard" class="active" onclick="setView('board')" aria-label="Board view">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="2" width="3.5" height="12" rx="1"/><rect x="6.25" y="2" width="3.5" height="8" rx="1"/><rect x="11" y="2" width="3.5" height="10" rx="1"/></svg>
+            Board
+          </button>
+          <button id="segGraph" onclick="setView('graph')" aria-label="Graph view">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="2.6" r="1.8"/><circle cx="3" cy="9" r="1.8"/><circle cx="13" cy="9" r="1.8"/><circle cx="8" cy="13.6" r="1.8"/><path d="M7 4 4 7.5M9 4l3 3.5M4 10.4l3 2M12 10.4l-3 2"/></svg>
+            Graph
+          </button>
+        </div>
+      </div>
+
+      <div class="ws-body" id="wsBody"><!-- board / graph injected here --></div>
+
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <!-- Drill-in drawer (shared by board cards + graph nodes) -->
+    <div class="scrim" id="scrim" onclick="closeDetail()"></div>
+    <div class="drawer" id="drawer" aria-hidden="true"></div>
+  </section>
+</div>
+
+<script>
+/* =========================================================================
+   SAMPLE DATA — one entry per sub-thread.  state keys map to the shared
+   palette used by both the board columns and the graph nodes.
+   Designed to stress-test 4 situations:
+     1) parallel work       -> two RUNNING coders (branch-picker + db-migration)
+     2) blocked + stale      -> scaffold(needs approval) + grok(no heartbeat)
+     3) emergent task        -> migration-backfill appears in PLANNED mid-flight
+     4) review bounce/cycle   -> branch-picker carries "bounced 1×" (review→running)
+   ========================================================================= */
+const STATES = {
+  planned:{label:"Planned",        col:"PLANNED"},
+  running:{label:"Running",        col:"RUNNING"},
+  blocked:{label:"Blocked / Needs you", col:"BLOCKED / NEEDS YOU"},
+  review: {label:"In review",      col:"IN REVIEW"},
+  done:   {label:"Done",           col:"DONE"},
+};
+const COLS = ["planned","running","blocked","review","done"];
+
+const THREADS = [
+  {
+    id:"plan", state:"done", role:"plan", icon:"▣", roleLabel:"plan",
+    title:"Plan: branch & environment picker",
+    goal:"Coordinate the picker rollout by splitting UI, data, and review work into safe parallel lanes.",
+    activity:"plan approved · 3 sub-threads spawned",
+    age:"22m08s", tok:"12k tok",
+    markers:[{cls:"",txt:"root"}],
+    chat:[
+      {who:"you", role:"user", text:"Design the branch + environment picker for the ChatView composer."},
+      {who:"orchestrator", role:"assistant", text:"Proposed plan: (1) picker UI, (2) worktree DB migration, (3) review. Spawning coder + reviewer sub-threads on <code>feat/branch-picker</code>."},
+    ],
+  },
+  {
+    id:"contracts", state:"done", role:"coder", icon:"⚙", roleLabel:"coder",
+    title:"Add parentThreadId to contracts",
+    goal:"Teach shared schemas how spawned threads relate back to their orchestrator.",
+    activity:"merged → feat/branch-picker",
+    age:"14m51s", tok:"7k tok",
+    markers:[{cls:"",txt:"+96 −4"}],
+    chat:[
+      {who:"coder", role:"user", text:"Added nullable <code>parentThreadId</code> + <code>role</code> to ThreadCreated schema."},
+      {who:"coder", role:"assistant", text:"<code>vp check</code> + <code>vp run typecheck</code> green. Squash-merged."},
+    ],
+  },
+  {
+    id:"branch-picker", state:"running", role:"coder", icon:"⚙", roleLabel:"coder",
+    title:"Branch & env picker UI",
+    goal:"Give users a predictable composer affordance for choosing the target branch and environment.",
+    activity:"editing apps/web/ChatView.tsx",
+    age:"4m12s", tok:"18k tok", live:true,
+    markers:[{cls:"bounce",txt:"⟲ bounced 1×"},{cls:"",txt:"feat/branch-picker"}],
+    chat:[
+      {who:"coder", role:"user", text:"Reviewer asked for keyboard nav + empty-worktree state. Re-opening the picker component."},
+      {who:"coder", role:"assistant", text:"Added arrow-key nav and a 'no worktrees yet' affordance to <code>BranchPicker.tsx</code>. Re-running <code>vp check</code> before handing back to review."},
+    ],
+  },
+  {
+    id:"db-migration", state:"running", role:"migration", icon:"⚙", roleLabel:"migration",
+    title:"Worktree DB migration 0007",
+    goal:"Persist the worktree each thread belongs to so UI state survives reloads and projections.",
+    activity:"writing migration + projector update",
+    age:"3m48s", tok:"24k tok", live:true,
+    markers:[{cls:"",txt:"feat/wt-migration"}],
+    chat:[
+      {who:"coder", role:"user", text:"Adding <code>worktree_path</code> column + backfill projector for existing threads."},
+      {who:"coder", role:"assistant", text:"Drafted migration <code>0007_worktree_path.sql</code>. Will need approval before it runs against the dev DB."},
+    ],
+  },
+  {
+    id:"scaffold", state:"blocked", role:"scaffold", icon:"⚙", roleLabel:"scaffold",
+    title:"Scaffold sub-thread aggregate",
+    goal:"Build the server-side rollup that lets the panel summarize spawned-agent status reliably.",
+    activity:"paused — awaiting your decision",
+    age:"6m02s", tok:"9k tok",
+    reason:"needs approval: run migration 0007 on dev DB?",
+    markers:[{cls:"warn",txt:"⚠ needs you"}],
+    chat:[
+      {who:"scaffold coder", role:"user", text:"Aggregate + decider wired. The next step destructively rewrites the dev DB schema."},
+      {who:"scaffold coder", role:"assistant", text:"⏸ Holding for approval — do you want me to run <code>0007_worktree_path.sql</code> against dev? Reply approve / skip."},
+    ],
+  },
+  {
+    id:"grok", state:"blocked", role:"coder", icon:"⚙", roleLabel:"coder",
+    title:"Port picker to mobile (Grok)",
+    goal:"Keep the mobile composer aligned with the web picker before the interaction model diverges.",
+    activity:"no output since 40s",
+    age:"8m30s", tok:"15k tok", stale:true,
+    reason:"⚠ 40s no heartbeat — sub-thread may be stuck",
+    markers:[{cls:"warn",txt:"⚠ stale"}],
+    chat:[
+      {who:"coder (grok)", role:"user", text:"Mirroring picker into the mobile client-runtime…"},
+      {who:"system", role:"assistant", text:"Last heartbeat 40s ago. No tool calls in flight. Likely blocked on a permission prompt — open the thread to unstick, or reap it."},
+    ],
+  },
+  {
+    id:"reviewer", state:"review", role:"reviewer", icon:"🔍", roleLabel:"reviewer",
+    title:"Review branch-picker diff",
+    goal:"Gate the branch-picker changes against project heuristics before they merge.",
+    activity:"reading diff +412 −88",
+    age:"1m30s", tok:"11k tok",
+    markers:[{cls:"",txt:"read-only @ feat/branch-picker"}],
+    chat:[
+      {who:"reviewer", role:"user", text:"Reviewing the coder's diff against the review heuristics (no compat shims, minimal surface area)."},
+      {who:"reviewer", role:"assistant", text:"1 prior bounce resolved. Remaining: confirm <code>vp run lint:mobile</code> passes for the mobile path. Otherwise looks mergeable."},
+    ],
+  },
+  {
+    id:"migration-backfill", state:"planned", role:"migration", icon:"⚙", roleLabel:"migration",
+    title:"Backfill worktree paths",
+    goal:"Fill historical thread records so the new worktree-aware UI has complete data.",
+    activity:"queued — not started",
+    age:"0m22s", tok:"0 tok",
+    note:"discovered mid-flight: existing threads predate worktreePath — needs a one-off backfill",
+    markers:[{cls:"emergent",txt:"✦ emergent"}],
+    chat:[
+      {who:"orchestrator", role:"user", text:"The db-migration coder surfaced that old threads have no <code>worktreePath</code>. Queuing a backfill sub-thread."},
+      {who:"orchestrator", role:"assistant", text:"Added to PLANNED. Will spawn once migration 0007 is approved and live."},
+    ],
+  },
+];
+
+const BY_ID = Object.fromEntries(THREADS.map(t=>[t.id,t]));
+const cssVar = (s)=>`var(--${s})`;
+
+/* ---------- LEGEND ---------- */
+document.getElementById("legend").innerHTML = COLS.map(s=>
+  `<span class="li"><span class="sw" style="background:${cssVar(s)}"></span>${STATES[s].label}</span>`
+).join("");
+
+/* ---------- BOARD RENDER ---------- */
+function cardHTML(t){
+  const meta = `<span>${t.age}</span><span>${t.tok}</span>`;
+  let activity;
+  if(t.live){
+    activity = `<span class="live-dots"><i></i><i></i><i></i></span>${t.activity}`;
+  }else if(t.stale){
+    activity = `<span class="stale-pip"></span>${t.activity}`;
+  }else{
+    activity = t.activity;
+  }
+  const markers = (t.markers||[]).map(m=>`<span class="mk ${m.cls}">${m.txt}</span>`).join("");
+  const reason = t.reason ? `<div class="reason"><span>⚠</span><span>${t.reason}</span></div>` : "";
+  const note   = t.note ? `<div class="reason" style="color:var(--planned);background:var(--planned-bg);border-color:var(--border-2)"><span>✦</span><span>${t.note}</span></div>` : "";
+  return `<div class="card" data-id="${t.id}"
+            style="--st:${cssVar(t.state)};--st-bg:${cssVar(t.state+'-bg')}"
+            title="Goal: ${t.goal}"
+            onclick="openDetail('${t.id}')">
+    <div class="card-top">
+      <span class="badge"><span class="gly">${t.icon}</span>${t.roleLabel}</span>
+      <span class="card-meta">${meta}</span>
+    </div>
+    <div class="card-title">${t.title}</div>
+    <div class="card-goal"><b>Goal</b>${t.goal}</div>
+    <div class="card-activity">${activity}</div>
+    ${markers?`<div class="markers">${markers}</div>`:""}
+    ${reason}${note}
+  </div>`;
+}
+
+function renderBoard(){
+  const groups = Object.fromEntries(COLS.map(s=>[s,THREADS.filter(t=>t.state===s)]));
+  const cols = COLS.map(s=>{
+    const items = groups[s];
+    const body = items.length
+      ? items.map(cardHTML).join("")
+      : `<div class="col-empty">— empty —</div>`;
+    return `<div class="col">
+      <div class="col-head">
+        <span class="col-dot" style="background:${cssVar(s)}"></span>
+        <span class="col-name">${STATES[s].col}</span>
+        <span class="col-count">${items.length}</span>
+      </div>
+      ${body}
+    </div>`;
+  }).join("");
+  return `<div class="board">${cols}</div>`;
+}
+
+/* ---------- GRAPH RENDER (hand-drawn inline SVG, offline) ---------- */
+const W=420, H=620;
+const NODE_W=132, NODE_H=46;
+const POS = {
+  "plan":              {x:210, y:46},
+  "migration-backfill":{x:340, y:138},
+  "branch-picker":     {x:96,  y:230},
+  "db-migration":      {x:240, y:230},
+  "scaffold":          {x:360, y:300},
+  "grok":              {x:78,  y:340},
+  "reviewer":          {x:196, y:430},
+  "contracts":         {x:360, y:430},
+  "plan-done":         null, // n/a
+  "done-merge":        {x:210, y:560},
+};
+// virtual "done" terminal node distinct from cards: reuse 'plan' done?  Use a synthetic done node.
+const DONE_NODE = {id:"done-merge", state:"done", icon:"✓", roleLabel:"merge", title:"Merged → main", _virtual:true,
+  goal:"Represent the point where approved sub-thread work folds back into the main branch.",
+  chat:[{who:"orchestrator",role:"user",text:"Reviewer approved. Folding the coder diffs back."},
+        {who:"orchestrator",role:"assistant",text:"Sub-threads complete. Branch <code>feat/branch-picker</code> merged; sub-threads archived off the goal tree."}],
+  age:"—", tok:"61k tok total"};
+BY_ID["done-merge"]=DONE_NODE;
+
+const EDGES = [
+  ["plan","branch-picker"],
+  ["plan","db-migration"],
+  ["plan","scaffold"],
+  ["plan","migration-backfill",{kind:"emergent",label:"emergent"}],
+  ["branch-picker","grok"],
+  ["branch-picker","reviewer"],
+  ["db-migration","reviewer"],
+  ["reviewer","done-merge"],
+  ["reviewer","contracts",{kind:"hidden"}], // contracts already merged; show as input to done instead
+  ["reviewer","branch-picker",{kind:"bounce",label:"bounced 1×"}],
+];
+
+function shortTitle(t){
+  const map={
+    "plan":"Plan", "branch-picker":"Picker UI", "db-migration":"DB migration",
+    "scaffold":"Scaffold", "grok":"Mobile port", "reviewer":"Review",
+    "migration-backfill":"Backfill", "contracts":"Contracts", "done-merge":"Merged"
+  };
+  return map[t.id]||t.title;
+}
+
+function edgePath(a,b,kind){
+  // connect node a (bottom-ish) to node b (top-ish) with a gentle curve
+  const ax=a.x, ay=a.y, bx=b.x, by=b.y;
+  if(kind==="bounce"){
+    // curve out to the left and back up (review -> running)
+    const mx=Math.min(ax,bx)-58;
+    return `M ${ax-NODE_W/2+8} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx-NODE_W/2+8} ${by}`;
+  }
+  const midY=(ay+by)/2;
+  return `M ${ax} ${ay+NODE_H/2} C ${ax} ${midY}, ${bx} ${midY}, ${bx} ${by-NODE_H/2}`;
+}
+
+function renderGraph(){
+  // edges first (under nodes)
+  let edges = "";
+  EDGES.forEach(([from,to,opt])=>{
+    if(opt && opt.kind==="hidden") return;
+    const a=POS[from], b=POS[to];
+    if(!a||!b) return;
+    const kind = opt?opt.kind:null;
+    const cls = kind==="bounce"?"edge bounce":kind==="emergent"?"edge dash emergent":(kind?"edge dash":"edge");
+    const d = edgePath(a,b,kind);
+    edges += `<path class="${cls}" d="${d}" marker-end="url(#arrow${kind==='bounce'?'-b':kind==='emergent'?'-e':''})"/>`;
+    if(opt && opt.label){
+      const lx=(a.x+b.x)/2 + (kind==="bounce"?-66:8);
+      const ly=(a.y+b.y)/2;
+      edges += `<text class="elabel ${kind}" x="${lx}" y="${ly}" text-anchor="middle">${opt.label}</text>`;
+    }
+  });
+
+  // nodes
+  let nodes = "";
+  Object.entries(POS).forEach(([id,p])=>{
+    if(!p) return;
+    const t = BY_ID[id]; if(!t) return;
+    const x=p.x-NODE_W/2, y=p.y-NODE_H/2;
+    nodes += `<g class="gnode" data-id="${id}" onclick="openDetail('${id}')"
+        aria-label="${shortTitle(t)} goal: ${t.goal}"
+        style="--st:${cssVar(t.state)};--st-bg:${cssVar(t.state+'-bg')}">
+      <title>Goal: ${t.goal}</title>
+      <rect class="halo" x="${x-4}" y="${y-4}" width="${NODE_W+8}" height="${NODE_H+8}" rx="11"
+            fill="none" stroke="${cssVar(t.state)}" stroke-width="1.5" opacity="0"></rect>
+      <rect class="box" x="${x}" y="${y}" width="${NODE_W}" height="${NODE_H}" rx="9"
+            fill="${cssVar(t.state+'-bg')}" stroke="${cssVar(t.state)}" stroke-width="1.4"></rect>
+      <circle cx="${x+13}" cy="${y+15}" r="4" fill="${cssVar(t.state)}"></circle>
+      <text class="gicon" x="${x+24}" y="${y+19}" fill="${cssVar(t.state)}">${t.icon}</text>
+      <text class="gtitle" x="${x+38}" y="${y+19}">${shortTitle(t)}</text>
+      <text class="gsub" x="${x+13}" y="${y+35}">${t.roleLabel} · ${STATES[t.state].label.split(' /')[0]}</text>
+    </g>`;
+  });
+
+  return `<div class="graph-wrap">
+    <div class="graph-hint">lineage &amp; dependencies — colour = state · hover a node for its goal · click to drill in</div>
+    <svg class="graph" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sub-thread dependency graph">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--text-faint)"/></marker>
+        <marker id="arrow-b" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--review)"/></marker>
+        <marker id="arrow-e" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="var(--planned)"/></marker>
+      </defs>
+      ${edges}
+      ${nodes}
+    </svg>
+  </div>`;
+}
+
+/* ---------- VIEW SWITCH ---------- */
+let view="board", selectedId=null;
+function setView(v){
+  view=v;
+  document.getElementById("segBoard").classList.toggle("active",v==="board");
+  document.getElementById("segGraph").classList.toggle("active",v==="graph");
+  document.getElementById("wsBody").innerHTML = v==="board"?renderBoard():renderGraph();
+  if(selectedId) markSelected(selectedId);
+}
+
+/* ---------- DRILL-IN DRAWER ---------- */
+function markSelected(id){
+  document.querySelectorAll(".card.selected,.gnode.selected").forEach(e=>e.classList.remove("selected"));
+  document.querySelectorAll(`[data-id="${id}"]`).forEach(e=>e.classList.add("selected"));
+}
+
+function openDetail(id){
+  const t=BY_ID[id]; if(!t) return;
+  selectedId=id; markSelected(id);
+  const turns = (t.chat||[]).map(c=>
+    `<div class="turn ${c.role}"><div class="who">${c.who}</div>${c.text}</div>`
+  ).join("");
+  const reason = t.reason
+    ? `<div class="reason"><span>⚠</span><span>${t.reason}</span></div>`
+    : t.note
+      ? `<div class="reason" style="color:var(--planned);background:var(--planned-bg);border-color:var(--border-2)"><span>✦</span><span>${t.note}</span></div>`
+      : "";
+  const stCol = STATES[t.state].label;
+  const drawer=document.getElementById("drawer");
+  drawer.style.setProperty("--st",cssVar(t.state));
+  drawer.style.setProperty("--st-bg",cssVar(t.state+"-bg"));
+  drawer.innerHTML = `
+    <div class="dr-head">
+      <div class="dr-top">
+        <span class="badge" style="--st:${cssVar(t.state)};--st-bg:${cssVar(t.state+'-bg')}"><span class="gly">${t.icon}</span>${t.roleLabel}</span>
+        <span class="status-pill" style="--st:${cssVar(t.state)};--st-bg:${cssVar(t.state+'-bg')}">${t.live?'<span class="live-dots"><i></i><i></i><i></i></span>':''}${stCol}</span>
+        <button class="dr-close" onclick="closeDetail()" aria-label="Close">×</button>
+      </div>
+      <div class="dr-title">${t.title}</div>
+      <div class="dr-goal"><b>Goal</b>${t.goal}</div>
+      <div class="dr-stat"><span>age <b>${t.age}</b></span><span>cost <b>${t.tok}</b></span><span>id <b>${t.id}</b></span></div>
+    </div>
+    <div class="dr-body">
+      ${reason}
+      <div class="dr-sec">Sub-thread transcript</div>
+      ${turns}
+      <div class="turn assistant" style="opacity:.7;font-style:italic">… live stream continues in the full thread</div>
+    </div>
+    <div class="dr-foot">
+      <button class="btn" onclick="closeDetail()">Dismiss</button>
+      <button class="btn primary" onclick="alert('(mock) would route to the sub-thread — same composer/transcript as any T3 thread, breadcrumb back to orchestrator')">Open thread →</button>
+    </div>`;
+  drawer.classList.add("open"); drawer.setAttribute("aria-hidden","false");
+  document.getElementById("scrim").classList.add("open");
+}
+function closeDetail(){
+  document.getElementById("drawer").classList.remove("open");
+  document.getElementById("drawer").setAttribute("aria-hidden","true");
+  document.getElementById("scrim").classList.remove("open");
+}
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail();});
+
+/* ---------- INIT ---------- */
+document.getElementById("totalPill").textContent = `${THREADS.length} sub-threads`;
+setView("board");
+</script>
+</body>
+</html>

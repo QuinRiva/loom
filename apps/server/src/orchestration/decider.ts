@@ -453,6 +453,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           projectId: command.projectId,
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
+          ...(command.parentThreadId !== undefined
+            ? { parentThreadId: command.parentThreadId }
+            : {}),
+          ...(command.role !== undefined ? { role: command.role } : {}),
+          ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -564,6 +569,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
+          ...(command.role !== undefined ? { role: command.role } : {}),
+          ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -610,6 +617,54 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           interactionMode: command.interactionMode,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.status.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.status-set",
+        payload: {
+          threadId: command.threadId,
+          status: command.status,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.dependencies.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.dependencies-set",
+        payload: {
+          threadId: command.threadId,
+          // Replace-set semantics; drop self-references so a thread can never
+          // block on itself. Cycles/dangling ids are tolerated (permissive).
+          blockedBy: command.blockedBy.filter((id) => id !== command.threadId),
           updatedAt: occurredAt,
         },
       };

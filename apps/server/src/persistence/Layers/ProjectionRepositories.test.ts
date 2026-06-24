@@ -79,6 +79,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         threadId: ThreadId.make("thread-null-options"),
         projectId: ProjectId.make("project-null-options"),
         goalId: null,
+        parentThreadId: null,
+        role: null,
+        purpose: null,
+        status: "planned" as const,
+        blockedBy: [],
         title: "Null options thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),

@@ -214,6 +214,11 @@ function makeThreadShellSnapshot(params: {
         id: params.threadId,
         projectId,
         goalId: null,
+        parentThreadId: null,
+        role: null,
+        purpose: null,
+        status: "planned" as const,
+        blockedBy: [],
         title: "Thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

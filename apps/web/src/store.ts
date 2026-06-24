@@ -259,6 +259,11 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     codexThreadId: null,
     projectId: thread.projectId,
     goalId: thread.goalId ?? null,
+    parentThreadId: thread.parentThreadId ?? null,
+    role: thread.role ?? null,
+    purpose: thread.purpose ?? null,
+    status: thread.status,
+    blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -294,6 +299,11 @@ function mapThreadShell(
     codexThreadId: null,
     projectId: thread.projectId,
     goalId: thread.goalId ?? null,
+    parentThreadId: thread.parentThreadId ?? null,
+    role: thread.role ?? null,
+    purpose: thread.purpose ?? null,
+    status: thread.status,
+    blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -315,6 +325,11 @@ function mapThreadShell(
     environmentId,
     projectId: thread.projectId,
     goalId: thread.goalId ?? null,
+    parentThreadId: thread.parentThreadId ?? null,
+    role: thread.role ?? null,
+    purpose: thread.purpose ?? null,
+    status: thread.status,
+    blockedBy: thread.blockedBy,
     title: thread.title,
     interactionMode: thread.interactionMode,
     session,
@@ -344,6 +359,11 @@ function toThreadShell(thread: Thread): ThreadShell {
     codexThreadId: thread.codexThreadId,
     projectId: thread.projectId,
     goalId: thread.goalId ?? null,
+    parentThreadId: thread.parentThreadId ?? null,
+    role: thread.role ?? null,
+    purpose: thread.purpose ?? null,
+    status: thread.status,
+    blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
@@ -409,6 +429,10 @@ function threadSessionsEqual(
   );
 }
 
+function blockedByEqual(left: ReadonlyArray<ThreadId>, right: ReadonlyArray<ThreadId>): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
 function sidebarThreadSummariesEqual(
   left: SidebarThreadSummary | undefined,
   right: SidebarThreadSummary,
@@ -417,6 +441,11 @@ function sidebarThreadSummariesEqual(
     left !== undefined &&
     left.id === right.id &&
     left.projectId === right.projectId &&
+    left.parentThreadId === right.parentThreadId &&
+    left.role === right.role &&
+    left.purpose === right.purpose &&
+    left.status === right.status &&
+    blockedByEqual(left.blockedBy, right.blockedBy) &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
     threadSessionsEqual(left.session, right.session) &&
@@ -440,6 +469,11 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.environmentId === right.environmentId &&
     left.codexThreadId === right.codexThreadId &&
     left.projectId === right.projectId &&
+    left.parentThreadId === right.parentThreadId &&
+    left.role === right.role &&
+    left.purpose === right.purpose &&
+    left.status === right.status &&
+    blockedByEqual(left.blockedBy, right.blockedBy) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
     left.runtimeMode === right.runtimeMode &&
@@ -1345,6 +1379,11 @@ function applyEnvironmentOrchestrationEvent(
           id: event.payload.threadId,
           projectId: event.payload.projectId,
           goalId: event.payload.goalId ?? null,
+          parentThreadId: event.payload.parentThreadId ?? null,
+          role: event.payload.role ?? null,
+          purpose: event.payload.purpose ?? null,
+          status: event.payload.status ?? "planned",
+          blockedBy: event.payload.blockedBy ?? [],
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -1396,6 +1435,8 @@ function applyEnvironmentOrchestrationEvent(
           ? { worktreePath: event.payload.worktreePath }
           : {}),
         ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
+        ...(event.payload.role !== undefined ? { role: event.payload.role } : {}),
+        ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
         updatedAt: event.payload.updatedAt,
       }));
 
@@ -1410,6 +1451,20 @@ function applyEnvironmentOrchestrationEvent(
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         interactionMode: event.payload.interactionMode,
+        updatedAt: event.payload.updatedAt,
+      }));
+
+    case "thread.status-set":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        status: event.payload.status,
+        updatedAt: event.payload.updatedAt,
+      }));
+
+    case "thread.dependencies-set":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        blockedBy: event.payload.blockedBy,
         updatedAt: event.payload.updatedAt,
       }));
 
@@ -1948,7 +2003,9 @@ export function selectSidebarThreadsAcrossEnvironments(state: AppState): Sidebar
   return getEnvironmentEntries(state).flatMap(([environmentId, environmentState]) =>
     environmentState.threadIds.flatMap((threadId) => {
       const thread = environmentState.sidebarThreadSummaryById[threadId];
-      return thread && thread.environmentId === environmentId ? [thread] : [];
+      return thread && thread.environmentId === environmentId && thread.parentThreadId === null
+        ? [thread]
+        : [];
     }),
   );
 }
@@ -1965,7 +2022,7 @@ export function selectSidebarThreadsForProjectRef(
   const threadIds = environmentState.threadIdsByProjectId[ref.projectId] ?? EMPTY_THREAD_IDS;
   return threadIds.flatMap((threadId) => {
     const thread = environmentState.sidebarThreadSummaryById[threadId];
-    return thread ? [thread] : [];
+    return thread && thread.parentThreadId === null ? [thread] : [];
   });
 }
 

@@ -32,6 +32,11 @@ function makeThread(
 ): EnvironmentScopedThreadShell {
   return {
     goalId: null,
+    parentThreadId: null,
+    role: null,
+    purpose: null,
+    status: "planned" as const,
+    blockedBy: [],
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,

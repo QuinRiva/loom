@@ -67,8 +67,14 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { selectProjectsAcrossEnvironments, useStore } from "../store";
+import {
+  selectEnvironmentState,
+  selectProjectsAcrossEnvironments,
+  useStore,
+  type AppState,
+} from "../store";
 import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
+import { buildThreadLineage, EMPTY_LINEAGE } from "../threadRouteLineage";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -115,6 +121,7 @@ import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import { GoalTasksPanel } from "./GoalTasksPanel";
+import { WorkstreamPanel } from "./WorkstreamPanel";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { RightPanelTabs } from "./RightPanelTabs";
@@ -142,7 +149,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -1276,6 +1283,31 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
+  const threadShellById = useStore(
+    useMemo(
+      () => (state: AppState) =>
+        selectEnvironmentState(state, activeThreadEnvironmentId).threadShellById,
+      [activeThreadEnvironmentId],
+    ),
+  );
+  const threadLineage = useMemo(
+    () =>
+      activeThread?.parentThreadId != null
+        ? buildThreadLineage(threadShellById, activeThread.id)
+        : EMPTY_LINEAGE,
+    [activeThread?.parentThreadId, activeThread?.id, threadShellById],
+  );
+  const navigateToThread = useCallback(
+    (targetThreadId: ThreadId) => {
+      if (!activeThreadEnvironmentId) return;
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(activeThreadEnvironmentId, targetThreadId)),
+      });
+    },
+    [activeThreadEnvironmentId, navigate],
+  );
   const activeRightPanelKind = useRightPanelStore((store) =>
     selectActiveRightPanelKindWithUrl(store.byThreadKey, activeThreadRef, diffOpen),
   );
@@ -2262,6 +2294,10 @@ export default function ChatView(props: ChatViewProps) {
   const addTasksSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "tasks");
+  }, [activeThreadRef]);
+  const addWorkstreamSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "workstream");
   }, [activeThreadRef]);
   // Right-panel arbitration:
   //   - The diff panel's openness is mirrored by the `?diff=1` URL search
@@ -4536,6 +4572,9 @@ export default function ChatView(props: ChatViewProps) {
             rightPanelAvailable={Boolean(activeProject)}
             rightPanelOpen={rightPanelOpen}
             goalId={activeThread.goalId ?? null}
+            threadLineage={threadLineage}
+            threadRole={activeThread.role}
+            onNavigateToThread={navigateToThread}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
@@ -4760,9 +4799,11 @@ export default function ChatView(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddTasks={addTasksSurface}
+          onAddWorkstream={addWorkstreamSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           tasksAvailable={Boolean(activeThread.goalId)}
+          workstreamAvailable={isServerThread}
         >
           {activeRightPanelSurface?.kind === "preview" ? (
             <Suspense fallback={null}>
@@ -4813,6 +4854,8 @@ export default function ChatView(props: ChatViewProps) {
             />
           ) : activeRightPanelSurface?.kind === "tasks" ? (
             <GoalTasksPanel goalId={activeThread.goalId ?? null} />
+          ) : activeRightPanelSurface?.kind === "workstream" ? (
+            <WorkstreamPanel activeThread={activeThread} activeProjectId={activeProject?.id} />
           ) : null}
         </RightPanelTabs>
       ) : null}
@@ -4831,9 +4874,11 @@ export default function ChatView(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddTasks={addTasksSurface}
+            onAddWorkstream={addWorkstreamSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             tasksAvailable={Boolean(activeThread.goalId)}
+            workstreamAvailable={isServerThread}
           >
             {activeRightPanelSurface?.kind === "preview" ? (
               <Suspense fallback={null}>
@@ -4884,6 +4929,8 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : activeRightPanelSurface?.kind === "tasks" ? (
               <GoalTasksPanel goalId={activeThread.goalId ?? null} />
+            ) : activeRightPanelSurface?.kind === "workstream" ? (
+              <WorkstreamPanel activeThread={activeThread} activeProjectId={activeProject?.id} />
             ) : null}
           </RightPanelTabs>
         </RightPanelSheet>

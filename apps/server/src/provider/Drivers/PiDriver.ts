@@ -37,6 +37,12 @@ import * as Stream from "effect/Stream";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import {
+  workstreamDependenciesUrlFromMcpEndpoint,
+  workstreamSpawnUrlFromMcpEndpoint,
+  workstreamStatusUrlFromMcpEndpoint,
+} from "../../mcp/WorkstreamSpawnHttp.ts";
 import type {
   BranchNameGenerationInput,
   ThreadTitleGenerationInput,
@@ -62,6 +68,7 @@ import {
   type PiRpcProcess,
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
+import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -70,6 +77,9 @@ const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilitie
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
 });
+const PI_WORKSTREAM_SYSTEM_PROMPT =
+  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide only a self-contained role, purpose, and optional title. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done, and `workstream_set_dependencies` to declare the threads it waits on. You may only set status or dependencies on your own thread or threads you directly spawned.";
+
 const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [
     {
@@ -119,6 +129,11 @@ function branchFromText(text: string): string {
     .slice(0, 48)
     .replace(/-+$/g, "");
   return slug || "pi-session";
+}
+
+function appendSystemPrompts(...prompts: ReadonlyArray<string | undefined>): string | undefined {
+  const combined = prompts.filter((prompt) => prompt && prompt.trim().length > 0).join("\n\n");
+  return combined.length > 0 ? combined : undefined;
 }
 
 function withInstanceIdentity(input: {
@@ -539,8 +554,13 @@ function makePiAdapter(input: {
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;
         return yield* Effect.tryPromise({
-          try: () =>
-            createPiRpcProcess({
+          try: () => {
+            const mcpSession = McpProviderSession.readMcpProviderSession(startInput.threadId);
+            const appendSystemPrompt = appendSystemPrompts(
+              startInput.appendSystemPrompt,
+              mcpSession ? PI_WORKSTREAM_SYSTEM_PROMPT : undefined,
+            );
+            return createPiRpcProcess({
               binaryPath: input.settings.binaryPath,
               platform,
               cwd: startInput.cwd ?? input.serverConfig.cwd,
@@ -548,11 +568,25 @@ function makePiAdapter(input: {
               // SAME session file across server restarts / reconnects, instead
               // of silently spawning a fresh, amnesiac session each time.
               sessionId: startInput.threadId.replace(/[^a-zA-Z0-9_-]/g, "-"),
-              ...(startInput.appendSystemPrompt
-                ? { appendSystemPrompt: startInput.appendSystemPrompt }
+              ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
+              ...(mcpSession
+                ? { extensions: [ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir)] }
                 : {}),
-              env: process.env,
-            }),
+              env: mcpSession
+                ? {
+                    ...process.env,
+                    T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
+                  }
+                : process.env,
+            });
+          },
           catch: (cause) =>
             new ProviderAdapterProcessError({
               provider: DRIVER_KIND,

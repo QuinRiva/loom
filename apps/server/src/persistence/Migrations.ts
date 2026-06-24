@@ -49,6 +49,8 @@ import Migration0033 from "./Migrations/033_ProjectionThreadsGoalSlug.ts";
 import Migration0034 from "./Migrations/034_ProjectionThreadMessageReasoning.ts";
 import Migration0035 from "./Migrations/035_GoalsAndTasks.ts";
 import Migration0036 from "./Migrations/036_CanonicalizeReasoningEvents.ts";
+import Migration0037 from "./Migrations/037_ProjectionThreadWorkstreamFields.ts";
+import Migration0038 from "./Migrations/038_ProjectionThreadStatusAndDependencies.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -97,6 +99,8 @@ export const migrationEntries = [
   [34, "ProjectionThreadMessageReasoning", Migration0034],
   [35, "GoalsAndTasks", Migration0035],
   [36, "CanonicalizeReasoningEvents", Migration0036],
+  [37, "ProjectionThreadWorkstreamFields", Migration0037],
+  [38, "ProjectionThreadStatusAndDependencies", Migration0038],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

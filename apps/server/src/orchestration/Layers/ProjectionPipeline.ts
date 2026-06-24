@@ -739,6 +739,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
             goalId: event.payload.goalId ?? null,
+            parentThreadId: event.payload.parentThreadId ?? null,
+            role: event.payload.role ?? null,
+            purpose: event.payload.purpose ?? null,
+            status: event.payload.status ?? "planned",
+            blockedBy: event.payload.blockedBy ?? [],
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -805,6 +810,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { worktreePath: event.payload.worktreePath }
               : {}),
             ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
+            ...(event.payload.role !== undefined ? { role: event.payload.role } : {}),
+            ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -835,6 +842,36 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             interactionMode: event.payload.interactionMode,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.status-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            status: event.payload.status,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.dependencies-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            blockedBy: event.payload.blockedBy,
             updatedAt: event.payload.updatedAt,
           });
           return;

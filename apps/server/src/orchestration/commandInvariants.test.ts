@@ -58,6 +58,11 @@ const readModel: OrchestrationReadModel = {
       id: ThreadId.make("thread-1"),
       projectId: ProjectId.make("project-a"),
       goalId: null,
+      parentThreadId: null,
+      role: null,
+      purpose: null,
+      status: "planned" as const,
+      blockedBy: [],
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -82,6 +87,11 @@ const readModel: OrchestrationReadModel = {
       id: ThreadId.make("thread-2"),
       projectId: ProjectId.make("project-b"),
       goalId: null,
+      parentThreadId: null,
+      role: null,
+      purpose: null,
+      status: "planned" as const,
+      blockedBy: [],
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

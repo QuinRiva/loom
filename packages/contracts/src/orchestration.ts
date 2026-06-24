@@ -126,6 +126,9 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
+export const ThreadStatus = Schema.Literals(["planned", "running", "blocked", "review", "done"]);
+export type ThreadStatus = typeof ThreadStatus.Type;
+export const DEFAULT_THREAD_STATUS: ThreadStatus = "planned";
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
@@ -352,6 +355,13 @@ export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   goalId: Schema.NullOr(GoalId),
+  parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
+  blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -474,6 +484,13 @@ export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
   goalId: Schema.NullOr(GoalId),
+  parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
+  blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -591,6 +608,9 @@ const ThreadCreateCommand = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -629,6 +649,8 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -647,9 +669,28 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadStatusSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.status.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  status: ThreadStatus,
+  createdAt: IsoDateTime,
+});
+
+const ThreadDependenciesSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.dependencies.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  blockedBy: Schema.Array(ThreadId),
+  createdAt: IsoDateTime,
+});
+
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   projectId: ProjectId,
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -841,6 +882,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
+  ThreadStatusSetCommand,
+  ThreadDependenciesSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -870,6 +913,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
+  ThreadStatusSetCommand,
+  ThreadDependenciesSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
@@ -996,6 +1041,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
+  "thread.status-set",
+  "thread.dependencies-set",
   "thread.message-sent",
   "thread.message-reasoning",
   "thread.turn-start-requested",
@@ -1105,6 +1152,11 @@ export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  status: Schema.optional(ThreadStatus),
+  blockedBy: Schema.optional(Schema.Array(ThreadId)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1140,6 +1192,8 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   goalId: Schema.optional(Schema.NullOr(GoalId)),
+  role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   updatedAt: IsoDateTime,
 });
 
@@ -1154,6 +1208,18 @@ export const ThreadInteractionModeSetPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadStatusSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  status: ThreadStatus,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadDependenciesSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  blockedBy: Schema.Array(ThreadId),
   updatedAt: IsoDateTime,
 });
 
@@ -1369,6 +1435,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.interaction-mode-set"),
     payload: ThreadInteractionModeSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.status-set"),
+    payload: ThreadStatusSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.dependencies-set"),
+    payload: ThreadDependenciesSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -197,6 +197,11 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         id: THREAD_ID,
         projectId: PROJECT_ID,
         goalId: null,
+        parentThreadId: null,
+        role: null,
+        purpose: null,
+        status: "planned" as const,
+        blockedBy: [],
         title: "Test thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
@@ -256,6 +261,10 @@ function toShellSnapshot(snapshot: OrchestrationReadModel) {
     threads: snapshot.threads.map((thread) => ({
       id: thread.id,
       projectId: thread.projectId,
+      goalId: thread.goalId ?? null,
+      parentThreadId: thread.parentThreadId,
+      role: thread.role,
+      purpose: thread.purpose,
       title: thread.title,
       modelSelection: thread.modelSelection,
       runtimeMode: thread.runtimeMode,

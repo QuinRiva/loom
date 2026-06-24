@@ -103,7 +103,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         threadId: ThreadId.make(request.threadId),
         providerSessionId,
         providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-        capabilities: new Set(["preview"]),
+        capabilities: new Set(["preview", "workstream"]),
         issuedAt,
         expiresAt,
       };
@@ -194,6 +194,13 @@ export const issueActiveMcpCredential = (
         .revokeThread(request.threadId)
         .pipe(Effect.andThen(activeMcpSessionRegistry.issue(request)))
     : Effect.sync((): McpIssuedCredential | undefined => undefined);
+
+export const resolveActiveMcpCredential = (
+  rawToken: string,
+): Effect.Effect<McpInvocationContext.McpInvocationScope | undefined> =>
+  activeMcpSessionRegistry
+    ? activeMcpSessionRegistry.resolve(rawToken)
+    : Effect.sync((): McpInvocationContext.McpInvocationScope | undefined => undefined);
 
 export const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeThread(threadId) : Effect.void;

@@ -12,6 +12,7 @@ import type {
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
+  ThreadStatus,
   ProjectId,
   TurnId,
   MessageId,
@@ -116,6 +117,11 @@ export interface Thread {
   codexThreadId: string | null;
   projectId: ProjectId;
   goalId?: GoalId | null;
+  parentThreadId: ThreadId | null;
+  role: string | null;
+  purpose: string | null;
+  status: ThreadStatus;
+  blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -141,6 +147,11 @@ export interface ThreadShell {
   codexThreadId: string | null;
   projectId: ProjectId;
   goalId?: GoalId | null;
+  parentThreadId: ThreadId | null;
+  role: string | null;
+  purpose: string | null;
+  status: ThreadStatus;
+  blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -167,6 +178,11 @@ export interface SidebarThreadSummary {
   environmentId: EnvironmentId;
   projectId: ProjectId;
   goalId?: GoalId | null;
+  parentThreadId: ThreadId | null;
+  role: string | null;
+  purpose: string | null;
+  status: ThreadStatus;
+  blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;

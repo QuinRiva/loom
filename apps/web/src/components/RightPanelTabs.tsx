@@ -1,6 +1,15 @@
 import type { PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { ClipboardList, FileDiff, Globe2, ListTodo, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  ClipboardList,
+  FileDiff,
+  GitBranchIcon,
+  Globe2,
+  ListTodo,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { isElectron } from "~/env";
@@ -24,9 +33,11 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddTasks: () => void;
+  onAddWorkstream: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   tasksAvailable: boolean;
+  workstreamAvailable: boolean;
   children: ReactNode;
 }
 
@@ -112,6 +123,8 @@ function surfaceTitle(
       return "Plan";
     case "tasks":
       return "Tasks";
+    case "workstream":
+      return "Workstream";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -162,6 +175,8 @@ function SurfaceIcon({
       return <ClipboardList className="size-3.5 shrink-0" />;
     case "tasks":
       return <ListTodo className="size-3.5 shrink-0" />;
+    case "workstream":
+      return <GitBranchIcon className="size-3.5 shrink-0" />;
   }
 }
 
@@ -242,6 +257,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             <MenuItem onClick={props.onAddTasks} disabled={!props.tasksAvailable}>
               <ListTodo />
               Tasks
+            </MenuItem>
+            <MenuItem onClick={props.onAddWorkstream} disabled={!props.workstreamAvailable}>
+              <GitBranchIcon />
+              Workstream
             </MenuItem>
           </MenuPopup>
         </Menu>

@@ -286,6 +286,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           goalId: null,
+          parentThreadId: null,
+          role: null,
+          purpose: null,
+          status: "planned" as const,
+          blockedBy: [],
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -397,6 +402,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           goalId: null,
+          parentThreadId: null,
+          role: null,
+          purpose: null,
+          status: "planned" as const,
+          blockedBy: [],
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

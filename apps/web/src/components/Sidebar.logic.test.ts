@@ -722,6 +722,11 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     environmentId: localEnvironmentId,
     codexThreadId: null,
     projectId: ProjectId.make("project-1"),
+    parentThreadId: null,
+    role: null,
+    purpose: null,
+    status: "planned" as const,
+    blockedBy: [],
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),

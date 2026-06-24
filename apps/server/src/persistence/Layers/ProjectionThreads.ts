@@ -14,11 +14,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@t3tools/contracts";
+import { ModelSelection, ThreadId } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -34,6 +35,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id,
           project_id,
           goal_id,
+          parent_thread_id,
+          role,
+          purpose,
+          status,
+          blocked_by,
           title,
           model_selection_json,
           runtime_mode,
@@ -54,6 +60,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.projectId},
           ${row.goalId ?? null},
+          ${row.parentThreadId ?? null},
+          ${row.role},
+          ${row.purpose},
+          ${row.status},
+          ${JSON.stringify(row.blockedBy)},
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -74,6 +85,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         DO UPDATE SET
           project_id = excluded.project_id,
           goal_id = excluded.goal_id,
+          parent_thread_id = excluded.parent_thread_id,
+          role = excluded.role,
+          purpose = excluded.purpose,
+          status = excluded.status,
+          blocked_by = excluded.blocked_by,
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -101,6 +117,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           goal_id AS "goalId",
+          parent_thread_id AS "parentThreadId",
+          role,
+          purpose,
+          status,
+          blocked_by AS "blockedBy",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -130,6 +151,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           project_id AS "projectId",
           goal_id AS "goalId",
+          parent_thread_id AS "parentThreadId",
+          role,
+          purpose,
+          status,
+          blocked_by AS "blockedBy",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",

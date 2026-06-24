@@ -36,6 +36,7 @@ import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/Provide
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
+import * as WorkstreamSpawnHttp from "./mcp/WorkstreamSpawnHttp.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
@@ -365,7 +366,9 @@ export const makeRoutesLayer = Layer.mergeAll(
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
-  McpHttpServer.layer.pipe(Layer.provide(McpSessionRegistry.layer)),
+  Layer.mergeAll(McpHttpServer.layer, WorkstreamSpawnHttp.layer).pipe(
+    Layer.provide(McpSessionRegistry.layer),
+  ),
 ).pipe(Layer.provide(browserApiCorsLayer));
 
 export const makeServerLayer = Layer.unwrap(

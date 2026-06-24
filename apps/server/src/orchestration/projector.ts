@@ -28,6 +28,8 @@ import {
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
+  ThreadStatusSetPayload,
+  ThreadDependenciesSetPayload,
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -454,6 +456,11 @@ export function projectEvent(
             id: payload.threadId,
             projectId: payload.projectId,
             goalId: payload.goalId ?? null,
+            parentThreadId: payload.parentThreadId ?? null,
+            role: payload.role ?? null,
+            purpose: payload.purpose ?? null,
+            status: payload.status ?? "planned",
+            blockedBy: payload.blockedBy ?? [],
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -527,6 +534,8 @@ export function projectEvent(
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
             ...(payload.goalId !== undefined ? { goalId: payload.goalId } : {}),
+            ...(payload.role !== undefined ? { role: payload.role } : {}),
+            ...(payload.purpose !== undefined ? { purpose: payload.purpose } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -554,6 +563,33 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             interactionMode: payload.interactionMode,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.status-set":
+      return decodeForEvent(ThreadStatusSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            status: payload.status,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.dependencies-set":
+      return decodeForEvent(
+        ThreadDependenciesSetPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            blockedBy: payload.blockedBy,
             updatedAt: payload.updatedAt,
           }),
         })),

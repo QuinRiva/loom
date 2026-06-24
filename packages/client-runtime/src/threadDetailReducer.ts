@@ -142,6 +142,11 @@ export function applyThreadDetailEvent(
           id: event.payload.threadId,
           projectId: event.payload.projectId,
           goalId: event.payload.goalId ?? null,
+          parentThreadId: event.payload.parentThreadId ?? null,
+          role: event.payload.role ?? null,
+          purpose: event.payload.purpose ?? null,
+          status: event.payload.status ?? "planned",
+          blockedBy: event.payload.blockedBy ?? [],
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,
@@ -195,6 +200,8 @@ export function applyThreadDetailEvent(
             ? { worktreePath: event.payload.worktreePath }
             : {}),
           ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
+          ...(event.payload.role !== undefined ? { role: event.payload.role } : {}),
+          ...(event.payload.purpose !== undefined ? { purpose: event.payload.purpose } : {}),
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -215,6 +222,26 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           interactionMode: event.payload.interactionMode,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.status-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          status: event.payload.status,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.dependencies-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          blockedBy: event.payload.blockedBy,
           updatedAt: event.payload.updatedAt,
         },
       };
