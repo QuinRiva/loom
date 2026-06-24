@@ -65,22 +65,23 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     promptSnippet: "workstream_set_status: move a Workstream thread between planned, running, blocked, review, and done.",
     promptGuidelines: [
       "Use workstream_set_status to reflect real progress on your own thread or a child you spawned.",
-      "You may only set status on your own thread or threads you directly parent; other threads are rejected."
+      "Omit threadId to report your own status; you may only set status on your own thread or threads you directly parent."
     ],
     parameters: {
       type: "object",
       properties: {
-        threadId: { type: "string", description: "Id of the thread to update (this thread or a thread you directly spawned)." },
+        threadId: { type: "string", description: "Id of the thread to update; defaults to the calling thread when omitted." },
         status: { type: "string", enum: ["planned", "running", "blocked", "review", "done"], description: "New workflow status." }
       },
-      required: ["threadId", "status"],
+      required: ["status"],
       additionalProperties: false
     },
     async execute(_id, params, signal) {
       const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_STATUS_URL, params, signal);
       if (!outcome.ok) return outcome.error;
+      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
       return {
-        content: [{ type: "text", text: "Set Workstream thread " + params.threadId + " status to " + params.status + "." }],
+        content: [{ type: "text", text: "Set Workstream thread " + threadId + " status to " + params.status + "." }],
         details: { ok: true, ...outcome.result }
       };
     }
@@ -93,23 +94,24 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     promptSnippet: "workstream_set_dependencies: declare the threads a Workstream thread is blocked by (replace-set).",
     promptGuidelines: [
       "Use workstream_set_dependencies to declare 'waits-on' edges; blockedBy replaces the whole set each call.",
-      "You may only set dependencies on your own thread or threads you directly parent; other threads are rejected."
+      "Omit threadId to declare your own dependencies; you may only set dependencies on your own thread or threads you directly parent."
     ],
     parameters: {
       type: "object",
       properties: {
-        threadId: { type: "string", description: "Id of the thread to update (this thread or a thread you directly spawned)." },
+        threadId: { type: "string", description: "Id of the thread to update; defaults to the calling thread when omitted." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Full set of thread ids this thread waits on. Replaces any existing dependencies." }
       },
-      required: ["threadId", "blockedBy"],
+      required: ["blockedBy"],
       additionalProperties: false
     },
     async execute(_id, params, signal) {
       const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_DEPENDENCIES_URL, params, signal);
       if (!outcome.ok) return outcome.error;
       const count = Array.isArray(params.blockedBy) ? params.blockedBy.length : 0;
+      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
       return {
-        content: [{ type: "text", text: "Set Workstream thread " + params.threadId + " dependencies (" + count + " waits-on)." }],
+        content: [{ type: "text", text: "Set Workstream thread " + threadId + " dependencies (" + count + " waits-on)." }],
         details: { ok: true, ...outcome.result }
       };
     }

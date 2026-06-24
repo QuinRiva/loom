@@ -78,7 +78,7 @@ const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilitie
   packageName: "@earendil-works/pi-coding-agent",
 });
 const PI_WORKSTREAM_SYSTEM_PROMPT =
-  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide only a self-contained role, purpose, and optional title. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done, and `workstream_set_dependencies` to declare the threads it waits on. You may only set status or dependencies on your own thread or threads you directly spawned.";
+  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide only a self-contained role, purpose, and optional title. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status), and `workstream_set_dependencies` to declare the threads it waits on. You may only set status or dependencies on your own thread or threads you directly spawned.";
 
 const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [

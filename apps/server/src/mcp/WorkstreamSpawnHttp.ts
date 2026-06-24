@@ -82,7 +82,8 @@ const childPrompt = (input: { readonly role: string; readonly purpose: string })
     "Purpose:",
     input.purpose,
     "",
-    "Work autonomously on this goal. Keep the work focused, report progress clearly, and ask for help only if blocked.",
+    "Work autonomously on this goal. Keep the work focused and report progress clearly.",
+    "Report your own status with `workstream_set_status` (no threadId needed — it defaults to you): set `done` when finished, `review` if your output must be reviewed by another sub-thread before it is complete, or `blocked` if you cannot proceed.",
   ].join("\n");
 
 const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
@@ -166,6 +167,17 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
+  // A spawned thread is immediately running, not merely planned. Safe to set
+  // unconditionally here: the thread was just created, so it has no terminal
+  // status to override.
+  yield* engine.dispatch({
+    type: "thread.status.set",
+    commandId: yield* commandId("set-running"),
+    threadId: childThreadId,
+    status: "running",
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
   return HttpServerResponse.jsonUnsafe({ childThreadId, parentThreadId: scope.threadId, title });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -190,12 +202,12 @@ const handleWorkstreamSetStatus = Effect.gen(function* () {
   )) as WorkstreamStatusRequest;
   const threadId = trimString(body.threadId);
   const status = trimString(body.status);
-  if (!threadId) return jsonError(400, "threadId is required.");
   if (!status || !VALID_STATUSES.has(status as ThreadStatus)) {
     return jsonError(400, `status must be one of: ${ThreadStatus.literals.join(", ")}.`);
   }
 
-  const targetThreadId = ThreadId.make(threadId);
+  // Missing threadId defaults to the caller's own thread (always authorised).
+  const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
   const denied = yield* authorizationError(scope.threadId, targetThreadId);
   if (denied) return denied;
 
@@ -230,12 +242,12 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
     Effect.orElseSucceed((): WorkstreamDependenciesRequest => ({})),
   )) as WorkstreamDependenciesRequest;
   const threadId = trimString(body.threadId);
-  if (!threadId) return jsonError(400, "threadId is required.");
   if (!Array.isArray(body.blockedBy) || !body.blockedBy.every((id) => trimString(id))) {
     return jsonError(400, "blockedBy must be an array of non-empty thread id strings.");
   }
 
-  const targetThreadId = ThreadId.make(threadId);
+  // Missing threadId defaults to the caller's own thread (always authorised).
+  const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
   const denied = yield* authorizationError(scope.threadId, targetThreadId);
   if (denied) return denied;
 
