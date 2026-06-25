@@ -72,7 +72,11 @@ const ASK_QUESTION_MAX_CHARS = 8_000;
 const READ_ACTIVITY_LIMIT = 3;
 const READ_MESSAGE_EXCERPT_LIMIT = 800;
 
-const VALID_STATUSES = new Set<ThreadStatus>(ThreadStatus.literals);
+// `error` is server-only (D-liveness): adding it to `ThreadStatus.literals`
+// auto-joins it here, so exclude it explicitly. Validating "against the literal
+// set" would silently let a credential set `error` on its child.
+const SETTABLE_STATUSES = ThreadStatus.literals.filter((status) => status !== "error");
+const VALID_STATUSES = new Set<ThreadStatus>(SETTABLE_STATUSES);
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
@@ -322,7 +326,7 @@ const handleWorkstreamSetStatus = Effect.gen(function* () {
   const threadId = trimString(body.threadId);
   const status = trimString(body.status);
   if (!status || !VALID_STATUSES.has(status as ThreadStatus)) {
-    return jsonError(400, `status must be one of: ${ThreadStatus.literals.join(", ")}.`);
+    return jsonError(400, `status must be one of: ${SETTABLE_STATUSES.join(", ")}.`);
   }
 
   // Missing threadId defaults to the caller's own thread (always authorised).

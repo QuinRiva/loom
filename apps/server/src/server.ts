@@ -24,6 +24,7 @@ import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRe
 import { ProviderEventLoggersLive } from "./provider/Layers/ProviderEventLoggers.ts";
 import { ProviderServiceLive } from "./provider/Layers/ProviderService.ts";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper.ts";
+import { WorkstreamLivenessSweepLive } from "./orchestration/Layers/WorkstreamLivenessSweep.ts";
 import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
@@ -289,10 +290,10 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
   ),
 );
 
-const ProviderRuntimeLayerLive = Layer.mergeAll(ProviderSessionReaperLive).pipe(
-  Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
-);
+const ProviderRuntimeLayerLive = Layer.mergeAll(
+  ProviderSessionReaperLive,
+  WorkstreamLivenessSweepLive,
+).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services

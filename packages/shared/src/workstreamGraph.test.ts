@@ -104,8 +104,8 @@ describe("isInSameTree", () => {
 });
 
 describe("isTerminalStatus", () => {
-  it("treats done, blocked, and review as terminal wake triggers", () => {
-    expect((["done", "blocked", "review"] as const).every(isTerminalStatus)).toBe(true);
+  it("treats done, blocked, review, and error as terminal for the join barrier", () => {
+    expect((["done", "blocked", "review", "error"] as const).every(isTerminalStatus)).toBe(true);
     expect((["planned", "running"] as const).some(isTerminalStatus)).toBe(false);
   });
 });
@@ -127,6 +127,12 @@ describe("selectJoinedGenerations", () => {
     ).toEqual([]);
     expect(
       genIds(selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "review")])),
+    ).toEqual(["parent-1::gen-1"]);
+  });
+
+  it("lets a generation containing an error child still join (barrier-unblock) once the rest are terminal", () => {
+    expect(
+      genIds(selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "error")])),
     ).toEqual(["parent-1::gen-1"]);
   });
 

@@ -10,6 +10,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildParentWakeMessage,
+  childWakeCommandId,
+  classifyChildWake,
   classifyGenerationByReceipts,
   DEFAULT_WAKE_RATE_GUARD,
   selectThreadsToDispatch,
@@ -345,5 +347,69 @@ describe("kick-off prompt brief/purpose resolution", () => {
   it("falls back to the purpose when the brief is absent", () => {
     const prompt = resolve("short summary", null);
     expect(prompt).toContain("short summary");
+  });
+});
+
+describe("classifyChildWake (per-child wake rail, §1e)", () => {
+  it("classifies an error child as an error wake", () => {
+    const child = shell({ id: "child-1", status: "error", session: null });
+    expect(classifyChildWake(child, new Set())).toBe("error");
+  });
+
+  it("classifies a ran-then-idle non-terminal child as a forgot-to-finish idle wake", () => {
+    const child = shell({
+      id: "child-1",
+      status: "running",
+      session: runningSession({ status: "ready", activeTurnId: null }),
+    });
+    expect(classifyChildWake(child, new Set())).toBe("idle");
+  });
+
+  it("does NOT wake a never-started planned child (no session → waiting on deps)", () => {
+    const child = shell({ id: "child-1", status: "planned", session: null });
+    expect(classifyChildWake(child, new Set())).toBeNull();
+  });
+
+  it("does NOT wake a child still mid-turn", () => {
+    const child = shell({
+      id: "child-1",
+      status: "running",
+      session: runningSession({ status: "running", activeTurnId: "turn-1" as TurnId }),
+    });
+    expect(classifyChildWake(child, new Set())).toBeNull();
+  });
+
+  it("does NOT wake a child whose turn-start is still pending (kickoff race)", () => {
+    const child = shell({
+      id: "child-1",
+      status: "running",
+      session: runningSession({ status: "ready", activeTurnId: null }),
+    });
+    expect(classifyChildWake(child, new Set(["child-1" as ThreadId]))).toBeNull();
+  });
+
+  it("does NOT wake terminal done/blocked/review children", () => {
+    for (const status of ["done", "blocked", "review"] as const) {
+      const child = shell({
+        id: "child-1",
+        status,
+        session: runningSession({ status: "ready", activeTurnId: null }),
+      });
+      expect(classifyChildWake(child, new Set())).toBeNull();
+    }
+  });
+
+  it("does NOT wake a top-level thread (no agent parent)", () => {
+    const child = shell({ id: "root-1", parentThreadId: null, status: "error", session: null });
+    expect(classifyChildWake(child, new Set())).toBeNull();
+  });
+
+  it("keys idle episodes on the activity sequence so a quiet child is not re-nagged but re-arms on new work", () => {
+    const a = childWakeCommandId("child-1" as ThreadId, "idle:7");
+    const b = childWakeCommandId("child-1" as ThreadId, "idle:7");
+    const c = childWakeCommandId("child-1" as ThreadId, "idle:12");
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a.startsWith("server:")).toBe(true);
   });
 });

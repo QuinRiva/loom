@@ -43,14 +43,22 @@ const COLUMN_ORDER: ReadonlyArray<WorkstreamColumnId> = [
   "running",
   "blocked",
   "review",
+  "error",
   "done",
 ];
+
+// Statuses a human may set from the card dropdown. `error` is server-only
+// (D-liveness): it is a board lane but never an option the user assigns.
+const SETTABLE_STATUSES: ReadonlyArray<WorkstreamColumnId> = COLUMN_ORDER.filter(
+  (column) => column !== "error",
+);
 
 const COLUMN_LABELS = {
   planned: "Planned / Ready",
   running: "Running",
   blocked: "Blocked / Needs you",
   review: "In review",
+  error: "Error / Stalled",
   done: "Done",
 } satisfies Record<WorkstreamColumnId, string>;
 
@@ -60,6 +68,7 @@ const STATUS_LABELS = {
   running: "Running",
   blocked: "Blocked",
   review: "Review",
+  error: "Error",
   done: "Done",
 } satisfies Record<WorkstreamColumnId, string>;
 
@@ -99,6 +108,15 @@ const STATUS_STYLES = {
     leftBorderClass: "border-l-violet-400",
     graphStroke: "#a78bfa",
     graphFill: "rgba(167, 139, 250, 0.16)",
+  },
+  error: {
+    textClass: "text-rose-300",
+    borderClass: "border-rose-500/45",
+    bgClass: "bg-rose-500/10",
+    dotClass: "bg-rose-500",
+    leftBorderClass: "border-l-rose-500",
+    graphStroke: "#f43f5e",
+    graphFill: "rgba(244, 63, 94, 0.16)",
   },
   done: {
     textClass: "text-emerald-300",
@@ -150,6 +168,9 @@ function getEffectiveColumn(
   thread: SidebarThreadSummary,
   childById: ChildIndex,
 ): WorkstreamColumnId {
+  // `error` (server-set liveness failure) wins over everything so a dead/stalled
+  // child surfaces in its own lane instead of falling through to running/blocked.
+  if (thread.status === "error") return "error";
   if (thread.status === "review" || thread.status === "done") return thread.status;
   const blockedByUnmetDep = thread.blockedBy.some((depId) => {
     if (depId === thread.id) return false;
@@ -226,6 +247,7 @@ function groupChildrenByColumn(
     running: [],
     blocked: [],
     review: [],
+    error: [],
     done: [],
   };
   for (const thread of children) groups[getEffectiveColumn(thread, childById)].push(thread);
@@ -613,11 +635,18 @@ function WorkstreamCard({
             value={thread.status}
             onChange={(event) => onSetStatus(thread.id, event.target.value as ThreadStatus)}
           >
-            {COLUMN_ORDER.map((column) => (
+            {SETTABLE_STATUSES.map((column) => (
               <option key={column} value={column}>
                 {STATUS_LABELS[column]}
               </option>
             ))}
+            {thread.status === "error" ? (
+              // Server-set liveness failure: shown (so the select has a matching
+              // value) but not user-assignable. Pick another status to recover.
+              <option disabled value="error">
+                {STATUS_LABELS.error}
+              </option>
+            ) : null}
           </select>
         </label>
       </div>

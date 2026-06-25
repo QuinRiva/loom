@@ -31,6 +31,31 @@ export interface ProjectionSnapshotCounts {
   readonly threadCount: number;
 }
 
+/**
+ * Freshness of a thread's activity timeline (D-liveness). `maxCreatedAt` is the
+ * mid-turn-stall heartbeat (newest tool/task/token row's `createdAt`);
+ * `maxSequence` is the idle-wake episode key (the per-child wake dedups on
+ * `(child.id, maxSequence-at-idle-onset)` because `activeTurnId` is null when
+ * idle, so a turn-id key is unusable). Both null when the thread has no rows.
+ */
+export interface ProjectionActivityFreshness {
+  readonly maxCreatedAt: string | null;
+  readonly maxSequence: number | null;
+}
+
+/**
+ * A normalized tool-activity signal for the D-liveness loop detector. The raw
+ * row stores a generic `kind/summary/payload` shape (not a `(tool, args)`
+ * tuple), so the comparable signature is derived from `kind` + `summary` (the
+ * tool title, which usually carries the target) + `itemType` + `detail`.
+ */
+export interface ProjectionToolActivitySignal {
+  readonly kind: string;
+  readonly summary: string;
+  readonly itemType: string | null;
+  readonly detail: string | null;
+}
+
 export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
@@ -178,6 +203,25 @@ export interface ProjectionSnapshotQueryShape {
     ReadonlySet<ThreadId>,
     ProjectionRepositoryError
   >;
+
+  /**
+   * Read the activity-timeline freshness for a thread (D-liveness): the newest
+   * activity-row `createdAt` (mid-turn-stall heartbeat) and the max activity
+   * `sequence` (idle-wake episode key). Single aggregate row; both fields are
+   * null when the thread has no activity rows.
+   */
+  readonly getActivityFreshnessByThreadId: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProjectionActivityFreshness, ProjectionRepositoryError>;
+
+  /**
+   * Read the most-recent tool-activity rows for a thread (newest first, capped
+   * at `limit`), normalized for the D-liveness loop detector.
+   */
+  readonly getRecentToolActivityByThreadId: (
+    threadId: ThreadId,
+    limit: number,
+  ) => Effect.Effect<ReadonlyArray<ProjectionToolActivitySignal>, ProjectionRepositoryError>;
 }
 
 /**

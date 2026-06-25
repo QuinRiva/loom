@@ -639,6 +639,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // D-liveness server-only `error` guard (load-bearing chokepoint). The
+      // decider is the only path every status write passes through. `error` is
+      // a failure state the liveness sweep sets; clients/MCP must not forge it.
+      // Server writers build a `server:`-prefixed commandId (the web/WS board
+      // dispatches a bare UUID and cannot forge that prefix), so reject `error`
+      // unless the command carries it. (The MCP boundary also filters `error`
+      // out of its settable set as defence-in-depth.)
+      if (command.status === "error" && !command.commandId.startsWith("server:")) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Status 'error' is server-only and cannot be set by clients.",
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
