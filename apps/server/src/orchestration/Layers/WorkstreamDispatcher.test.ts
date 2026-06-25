@@ -145,6 +145,7 @@ const runningSession = (overrides: Partial<OrchestrationSession> = {}): Orchestr
   runtimeMode: "full-access",
   activeTurnId: "turn-1" as TurnId,
   lastError: null,
+  queuedMessages: { steering: [], followUp: [] },
   updatedAt: now,
   ...overrides,
 });
