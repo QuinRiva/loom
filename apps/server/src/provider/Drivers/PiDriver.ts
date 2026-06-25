@@ -380,6 +380,11 @@ function normalizePiTokenUsage(
   const promptTokens = num(record.input) + cacheRead + num(record.cacheWrite);
   const usedTokens = num(record.totalTokens) || promptTokens + output;
   if (usedTokens <= 0) return undefined;
+  // pi attaches its own authoritative dollar figure as `usage.cost.total` (a
+  // per-message delta). Surface it verbatim — we never price tokens ourselves.
+  const cost = record.cost;
+  const costTotal =
+    cost && typeof cost === "object" ? num((cost as Record<string, unknown>).total) : 0;
   return {
     usedTokens,
     inputTokens: promptTokens,
@@ -389,6 +394,7 @@ function normalizePiTokenUsage(
     lastInputTokens: promptTokens,
     lastCachedInputTokens: cacheRead,
     lastOutputTokens: output,
+    ...(costTotal > 0 ? { costUsd: costTotal } : {}),
     ...(maxTokens ? { maxTokens } : {}),
   };
 }

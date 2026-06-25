@@ -9,6 +9,7 @@ import {
   isInSameTree,
   isTerminalStatus,
   selectJoinedGenerations,
+  subtreeCostOf,
   subtreeOf,
 } from "./workstreamGraph.ts";
 
@@ -68,6 +69,40 @@ describe("structural queries", () => {
 
   it("tolerates a missing root node (singleton subtree)", () => {
     expect(subtreeOf(tid("ghost"), tree)).toEqual([]);
+  });
+});
+
+describe("subtreeCostOf", () => {
+  const costNode = (
+    id: string,
+    parentThreadId: string | null,
+    cumulativeCostUsd: number | null,
+  ) => ({
+    id: tid(id),
+    parentThreadId: parentThreadId === null ? null : tid(parentThreadId),
+    cumulativeCostUsd,
+  });
+  // root-a($1) → child-1($2), child-2($4) → grandchild($8); root-b($16)
+  const costTree = [
+    costNode("root-a", null, 1),
+    costNode("child-1", "root-a", 2),
+    costNode("child-2", "root-a", 4),
+    costNode("grandchild", "child-2", 8),
+    costNode("root-b", null, 16),
+  ];
+
+  it("sums the node plus all descendants", () => {
+    expect(subtreeCostOf(tid("root-a"), costTree)).toBe(15);
+    expect(subtreeCostOf(tid("child-2"), costTree)).toBe(12);
+  });
+
+  it("a leaf is just its own cost", () => {
+    expect(subtreeCostOf(tid("grandchild"), costTree)).toBe(8);
+  });
+
+  it("treats null/absent cost as 0 and a missing node as 0", () => {
+    expect(subtreeCostOf(tid("ghost"), costTree)).toBe(0);
+    expect(subtreeCostOf(tid("a"), [costNode("a", null, null), costNode("b", "a", 3)])).toBe(3);
   });
 });
 

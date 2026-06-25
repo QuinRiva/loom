@@ -54,6 +54,7 @@ const BASE_SNAPSHOT: OrchestrationShellSnapshot = {
       branch: null,
       worktreePath: null,
       latestTurn: null,
+      cumulativeCostUsd: 0,
       createdAt: "2026-04-01T00:00:00.000Z",
       updatedAt: "2026-04-01T00:00:00.000Z",
       archivedAt: null,

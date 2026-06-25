@@ -347,6 +347,7 @@ function mapThreadShell(
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
+    cumulativeCostUsd: thread.cumulativeCostUsd ?? 0,
     lastActivityPreview: thread.lastActivityPreview ?? null,
   };
   return {
@@ -470,6 +471,7 @@ function sidebarThreadSummariesEqual(
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
+    left.cumulativeCostUsd === right.cumulativeCostUsd &&
     left.lastActivityPreview === right.lastActivityPreview
   );
 }
@@ -1405,6 +1407,7 @@ function applyEnvironmentOrchestrationEvent(
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
           latestTurn: null,
+          cumulativeCostUsd: 0,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,

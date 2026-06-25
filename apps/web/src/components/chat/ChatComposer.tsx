@@ -107,16 +107,23 @@ import {
 } from "../../providerInstances";
 import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelSelection";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
-import type { SessionPhase, Thread } from "../../types";
+import type { SessionPhase, SidebarThreadSummary, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import {
+  type ContextCostSummary,
+  deriveContextCostSummary,
   deriveLatestContextWindowSnapshot,
   formatProviderDisplayName,
 } from "../../lib/contextWindow";
+import { selectEnvironmentState, useStore } from "../../store";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+
+// Stable empty reference so the cost selector doesn't churn renders when the
+// active thread has no resolvable environment yet.
+const EMPTY_SIDEBAR_THREAD_SUMMARY_BY_ID: Record<ThreadId, SidebarThreadSummary> = {};
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -322,6 +329,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
+  activeContextCost: ContextCostSummary | null;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -348,6 +356,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
+          cost={props.activeContextCost}
           providerDisplayName={props.activeThreadProviderDisplayName}
         />
       ) : null}
@@ -543,7 +552,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     routeThreadRef,
     draftId,
     activeThreadId,
-    activeThreadEnvironmentId: _activeThreadEnvironmentId,
+    activeThreadEnvironmentId,
     activeThread,
     isServerThread: _isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
@@ -837,6 +846,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
     [activeThreadActivities],
+  );
+  // Cost rollup over the workstream graph the client already holds: own spend
+  // plus the whole subtree (so the root orchestrator sees its workstream total).
+  const sidebarThreadSummaryById = useStore((state) =>
+    activeThreadEnvironmentId
+      ? selectEnvironmentState(state, activeThreadEnvironmentId).sidebarThreadSummaryById
+      : EMPTY_SIDEBAR_THREAD_SUMMARY_BY_ID,
+  );
+  const activeContextCost = useMemo(
+    () => deriveContextCostSummary(activeThreadId, Object.values(sidebarThreadSummaryById)),
+    [activeThreadId, sidebarThreadSummaryById],
   );
   const activeThreadProviderDisplayName = useMemo(() => {
     if (!activeThreadModelSelection) return null;
@@ -2525,6 +2545,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
+                  activeContextCost={activeContextCost}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}
                   isRunning={phase === "running"}

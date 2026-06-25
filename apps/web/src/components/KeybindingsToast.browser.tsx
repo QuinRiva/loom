@@ -214,6 +214,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         branch: "main",
         worktreePath: null,
         latestTurn: null,
+        cumulativeCostUsd: 0,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         archivedAt: null,

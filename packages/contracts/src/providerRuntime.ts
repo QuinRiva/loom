@@ -4,6 +4,7 @@ import {
   EventId,
   IsoDateTime,
   NonNegativeInt,
+  NonNegativeNumber,
   ProviderItemId,
   PositiveInt,
   RuntimeItemId,
@@ -325,6 +326,17 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   toolUses: Schema.optional(NonNegativeInt),
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
+  // Dollar cost of this single assistant message, taken verbatim from the
+  // provider's own authoritative figure (pi's `usage.cost.total`). A per-message
+  // delta — summing across token-usage events reconstructs cumulative spend, so
+  // it is replay-safe. Only pi carries a cost today; other adapters leave it
+  // unset and no cost is shown for them.
+  costUsd: Schema.optional(NonNegativeNumber),
+  // Whether the provider billed this message via an OAuth/subscription plan
+  // rather than metered API pricing. Pi derives this from its model registry
+  // (`isUsingOAuth`), which is NOT exposed per-message over RPC, so this is left
+  // unset today; reserved for when a clean signal becomes available.
+  usesSubscriptionPricing: Schema.optional(Schema.Boolean),
 });
 export type ThreadTokenUsageSnapshot = typeof ThreadTokenUsageSnapshot.Type;
 

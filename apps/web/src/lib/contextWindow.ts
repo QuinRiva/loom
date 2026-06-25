@@ -1,4 +1,14 @@
-import type { OrchestrationThreadActivity, ThreadTokenUsageSnapshot } from "@t3tools/contracts";
+import type {
+  OrchestrationThreadActivity,
+  ThreadId,
+  ThreadTokenUsageSnapshot,
+} from "@t3tools/contracts";
+import {
+  childrenOf,
+  descendantsOf,
+  subtreeCostOf,
+  type CostGraphNode,
+} from "@t3tools/shared/workstreamGraph";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -93,6 +103,71 @@ export function deriveLatestContextWindowSnapshot(
   }
 
   return null;
+}
+
+/** One branch's contribution to the subtree cost (its own subtree total). */
+export interface ContextCostChild {
+  readonly id: ThreadId;
+  readonly title: string;
+  readonly costUsd: number;
+}
+
+/** The cost figures the meter shows: this thread's own spend, its whole subtree, and the branch breakdown. */
+export interface ContextCostSummary {
+  readonly ownCostUsd: number;
+  readonly subtreeCostUsd: number;
+  readonly hasDescendants: boolean;
+  readonly descendantCount: number;
+  /** Per-direct-child subtree totals (>0 only), most expensive first. */
+  readonly children: ReadonlyArray<ContextCostChild>;
+}
+
+/**
+ * Roll up the active thread's cost from the workstream graph the client already
+ * holds: own spend plus the subtree total (so the root orchestrator shows the
+ * whole workstream's spend), with a per-branch breakdown for the popover. Pure;
+ * delegates the lineage walk + summation to the shared `subtreeCostOf`.
+ */
+export function deriveContextCostSummary<T extends CostGraphNode & { readonly title: string }>(
+  activeThreadId: ThreadId | null,
+  threads: ReadonlyArray<T>,
+): ContextCostSummary | null {
+  if (activeThreadId === null) {
+    return null;
+  }
+  const descendants = descendantsOf(activeThreadId, threads);
+  const ownCostUsd = threads.find((thread) => thread.id === activeThreadId)?.cumulativeCostUsd ?? 0;
+  const children = childrenOf(activeThreadId, threads)
+    .map((child) => ({
+      id: child.id,
+      title: child.title,
+      costUsd: subtreeCostOf(child.id, threads),
+    }))
+    .filter((child) => child.costUsd > 0)
+    .sort((left, right) => right.costUsd - left.costUsd);
+  return {
+    ownCostUsd,
+    subtreeCostUsd: subtreeCostOf(activeThreadId, threads),
+    hasDescendants: descendants.length > 0,
+    descendantCount: descendants.length,
+    children,
+  };
+}
+
+/**
+ * Format a dollar cost for the meter: `$1.20`, `$0.42`, `<$0.01` for tiny
+ * non-zero spend, and `null` (render nothing) when there is no known cost
+ * (null/unknown or 0 — e.g. providers that report no cost). The figure is the
+ * provider's own authoritative number; we never price tokens ourselves.
+ */
+export function formatCostUsd(value: number | null | undefined): string | null {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  if (value < 0.01) {
+    return "<$0.01";
+  }
+  return `$${value.toFixed(2)}`;
 }
 
 export function formatContextWindowTokens(value: number | null): string {
