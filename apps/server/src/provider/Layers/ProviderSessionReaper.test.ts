@@ -100,6 +100,8 @@ function makeReadModel(
       brief: null,
       status: "planned" as const,
       blockedBy: [],
+      spawnGeneration: null,
+      reportPath: null,
       title: `Thread ${thread.id}`,
       modelSelection: defaultModelSelection,
       interactionMode: "default" as const,
@@ -221,6 +223,7 @@ describe("ProviderSessionReaper", () => {
             );
           },
           getThreadDetailById: () => Effect.die("unused"),
+          getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),

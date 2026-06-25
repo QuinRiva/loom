@@ -147,6 +147,8 @@ export function applyThreadDetailEvent(
           purpose: event.payload.purpose ?? null,
           status: event.payload.status ?? "planned",
           blockedBy: event.payload.blockedBy ?? [],
+          spawnGeneration: event.payload.spawnGeneration ?? null,
+          reportPath: null,
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,

@@ -33,12 +33,14 @@ import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import {
+  OrchestrationCommandDeferredError,
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
   type OrchestrationDispatchError,
   type OrchestrationProjectorDecodeError,
 } from "../Errors.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
+import { isThreadIdle } from "../threadIdle.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -161,6 +163,34 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             commandId: envelope.command.commandId,
             detail: existingReceipt.value.error ?? "Previously rejected.",
           });
+        }
+
+        // Atomic idle gate (D-notify decision 3): a dispatcher-injected wake
+        // (`requireIdle`) must only land on an idle parent. The dispatcher's
+        // pre-filter checks idleness at snapshot-read time, but a real prompt
+        // can be committed in the serialized queue between that read and this
+        // command. Re-check here against the just-committed state (read-model
+        // session/active-turn + the durable pending-turn-start projection) so
+        // the wake cannot clobber an in-flight or just-requested parent turn.
+        // A busy parent is *deferred*, not rejected: we fail without writing a
+        // receipt, so the deterministic wake command id stays redeliverable
+        // when the parent next goes idle (drained on `thread.session-set`).
+        if (
+          envelope.command.type === "thread.turn.start" &&
+          envelope.command.requireIdle === true
+        ) {
+          const idleCommand = envelope.command;
+          const pendingTurnStartThreadIds =
+            yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+          const target = commandReadModel.threads.find(
+            (thread) => thread.id === idleCommand.threadId,
+          );
+          if (target === undefined || !isThreadIdle(target, pendingTurnStartThreadIds)) {
+            return yield* new OrchestrationCommandDeferredError({
+              commandType: idleCommand.type,
+              detail: `Idle-gated turn-start for thread '${idleCommand.threadId}' deferred: target is not idle.`,
+            });
+          }
         }
 
         const eventBase = yield* decideOrchestrationCommand({

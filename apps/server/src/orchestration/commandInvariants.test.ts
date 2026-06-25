@@ -63,6 +63,8 @@ const readModel: OrchestrationReadModel = {
       purpose: null,
       status: "planned" as const,
       blockedBy: [],
+      spawnGeneration: null,
+      reportPath: null,
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -92,6 +94,8 @@ const readModel: OrchestrationReadModel = {
       purpose: null,
       status: "planned" as const,
       blockedBy: [],
+      spawnGeneration: null,
+      reportPath: null,
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

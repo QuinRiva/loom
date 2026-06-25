@@ -466,6 +466,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.blockedBy !== undefined
             ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
             : {}),
+          ...(command.spawnGeneration !== undefined
+            ? { spawnGeneration: command.spawnGeneration }
+            : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -771,7 +774,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
-      return [userMessageEvent, turnStartRequestedEvent];
+      if (command.setRunning !== true) {
+        return [userMessageEvent, turnStartRequestedEvent];
+      }
+      // Atomic kickoff (D-core child promotion): emit the `running` status-set in
+      // the SAME command as the turn-start so both land in one engine
+      // transaction. A crash can no longer leave the child with a started turn
+      // but a status stuck at `planned`. Only the dispatcher sets `setRunning`;
+      // normal/user/agent turn-starts and the requireIdle wake path never do.
+      const statusSetEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        causationEventId: turnStartRequestedEvent.eventId,
+        type: "thread.status-set",
+        payload: {
+          threadId: command.threadId,
+          status: "running",
+          updatedAt: command.createdAt,
+        },
+      };
+      return [userMessageEvent, turnStartRequestedEvent, statusSetEvent];
     }
 
     case "thread.turn.interrupt": {
@@ -1065,6 +1091,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.report.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.report-set",
+        payload: {
+          threadId: command.threadId,
+          reportPath: command.reportPath,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "thread.activity.append": {
       yield* requireThread({
         readModel,
@@ -1091,6 +1140,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "thread.turn-start.fail": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.turn-start-failed",
+        payload: {
+          threadId: command.threadId,
+          detail: command.detail,
+          createdAt: command.createdAt,
         },
       };
     }

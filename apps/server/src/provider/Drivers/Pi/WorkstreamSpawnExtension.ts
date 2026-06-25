@@ -116,6 +116,34 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   });
 
   pi.registerTool({
+    name: "workstream_report",
+    label: "Report Workstream Result",
+    description: "Record a deliberate markdown handoff of what this T3 Code Workstream sub-thread wants to communicate back to its parent orchestrator (not your whole transcript). The report is stored and shown to the parent when it is woken on your completion. Call this just before marking yourself 'done', 'review', or 'blocked'.",
+    promptSnippet: "workstream_report: hand a concise markdown result back to your parent orchestrator before you finish.",
+    promptGuidelines: [
+      "Write a self-contained markdown summary: what you did, key results/decisions, and anything the parent must act on.",
+      "Call workstream_report before workstream_set_status so the parent sees your report when it is woken.",
+      "Keep it a deliberate handoff, not a transcript dump."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        markdown: { type: "string", description: "The markdown report to hand back to the parent orchestrator." }
+      },
+      required: ["markdown"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_REPORT_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      return {
+        content: [{ type: "text", text: "Recorded Workstream report for the parent orchestrator." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
     name: "workstream_set_dependencies",
     label: "Set Workstream Dependencies",
     description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but a thread that has already started running is never un-run — the edge is recorded for display only. To gate a child's execution from the start, pass blockedBy at spawn time instead.",

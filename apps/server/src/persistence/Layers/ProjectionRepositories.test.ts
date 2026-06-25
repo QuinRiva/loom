@@ -85,6 +85,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         brief: null,
         status: "planned" as const,
         blockedBy: [],
+        spawnGeneration: null,
+        reportPath: null,
         title: "Null options thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),

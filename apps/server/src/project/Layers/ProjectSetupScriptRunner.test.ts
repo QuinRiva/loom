@@ -40,6 +40,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getFullThreadDiffContext: () => Effect.die("unused"),
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
+    getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
   });
 
 describe("ProjectSetupScriptRunner", () => {

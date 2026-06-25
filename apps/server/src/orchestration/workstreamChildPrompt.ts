@@ -19,5 +19,6 @@ export const workstreamChildPrompt = (input: {
     input.brief,
     "",
     "Work autonomously on this goal. Keep the work focused and report progress clearly.",
-    "Report your own status with `workstream_set_status` (no threadId needed — it defaults to you): set `done` when finished, `review` if your output must be reviewed by another sub-thread before it is complete, or `blocked` if you cannot proceed.",
+    "When you finish, call `workstream_report` with a concise markdown handoff of your results for your parent orchestrator (not your whole transcript), THEN report your status.",
+    "Report your own status with `workstream_set_status` (no threadId needed — it defaults to you): set `done` when finished, `review` if your output must be reviewed before it is complete, or `blocked` if you cannot proceed. Your parent is automatically woken with your report once you reach a terminal status.",
   ].join("\n");

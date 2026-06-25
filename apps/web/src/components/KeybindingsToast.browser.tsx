@@ -202,6 +202,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         purpose: null,
         status: "planned" as const,
         blockedBy: [],
+        spawnGeneration: null,
+        reportPath: null,
         title: "Test thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),

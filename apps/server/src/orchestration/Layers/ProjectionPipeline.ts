@@ -745,6 +745,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             brief: event.payload.brief ?? null,
             status: event.payload.status ?? "planned",
             blockedBy: event.payload.blockedBy ?? [],
+            spawnGeneration: event.payload.spawnGeneration ?? null,
+            reportPath: null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -873,6 +875,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             blockedBy: event.payload.blockedBy,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.report-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reportPath: event.payload.reportPath,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -1229,6 +1246,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             sourceProposedPlanThreadId: event.payload.sourceProposedPlan?.threadId ?? null,
             sourceProposedPlanId: event.payload.sourceProposedPlan?.planId ?? null,
             requestedAt: event.payload.createdAt,
+          });
+          return;
+        }
+
+        case "thread.turn-start-failed": {
+          // Fix A: the turn-start failed before `turn.started`, so the
+          // running+activeTurnId `thread.session-set` that normally clears the
+          // pending turn-start row will never arrive. Clear it here so the idle
+          // gate (`isThreadIdle` / `getPendingTurnStartThreadIds`) stops
+          // treating the parent as busy — otherwise a deferred dispatcher wake
+          // is stranded forever.
+          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+            threadId: event.payload.threadId,
           });
           return;
         }

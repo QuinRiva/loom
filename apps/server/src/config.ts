@@ -33,6 +33,9 @@ export interface ServerDerivedPaths {
   readonly providerStatusCacheDir: string;
   readonly worktreesDir: string;
   readonly attachmentsDir: string;
+  // Stable per-thread Workstream completion reports (markdown). Lives under the
+  // durable state dir, NOT the ephemeral worktree which gets reclaimed.
+  readonly workstreamReportsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
   readonly serverTracePath: string;
@@ -83,6 +86,7 @@ export const deriveServerPaths = Effect.fn(function* (
   const stateDir = join(baseDir, devUrl !== undefined ? "dev" : "userdata");
   const dbPath = join(stateDir, "state.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
+  const workstreamReportsDir = join(stateDir, "workstream-reports");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
   const providerStatusCacheDir = join(baseDir, "caches");
@@ -94,6 +98,7 @@ export const deriveServerPaths = Effect.fn(function* (
     providerStatusCacheDir,
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
+    workstreamReportsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
     serverTracePath: join(logsDir, "server.trace.ndjson"),
@@ -118,6 +123,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.providerLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.workstreamReportsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),

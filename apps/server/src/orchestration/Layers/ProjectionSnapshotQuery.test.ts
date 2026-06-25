@@ -291,6 +291,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           purpose: null,
           status: "planned" as const,
           blockedBy: [],
+          spawnGeneration: null,
+          reportPath: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -409,6 +411,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           brief: null,
           status: "planned" as const,
           blockedBy: [],
+          spawnGeneration: null,
+          reportPath: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

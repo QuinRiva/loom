@@ -23,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -337,6 +338,36 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
   });
+
+  // Fix A: durably clear the pending turn-start projection row when a turn-start
+  // fails before `turn.started`. Dispatched on EVERY turn-start failure — both
+  // when a session exists (reset to ready above) and when none does (no
+  // session-set is emitted at all) — because in both cases no
+  // `thread.session-set running` will ever arrive to clear the row, and a
+  // lingering pending turn-start keeps the parent permanently non-idle, which
+  // strands a deferred dispatcher wake.
+  //
+  // The command id is DETERMINISTIC, derived from the failing turn-start's
+  // identity (`turnStartKey` — the same key that dedups the turn-start itself).
+  // This makes the clear idempotent and safely retryable: a transient dispatch
+  // failure is retried, and because the id is fixed every attempt re-drives the
+  // same command without a duplicate effect, so the pending row is never left
+  // orphaned by a single failed (random-id) dispatch.
+  const clearPendingTurnStartForFailedTurn = (input: {
+    readonly threadId: ThreadId;
+    readonly turnStartKey: string;
+    readonly detail: string;
+    readonly createdAt: string;
+  }) =>
+    orchestrationEngine
+      .dispatch({
+        type: "thread.turn-start.fail",
+        commandId: CommandId.make(`server:turn-start-fail:${input.turnStartKey}`),
+        threadId: input.threadId,
+        detail: input.detail,
+        createdAt: input.createdAt,
+      })
+      .pipe(Effect.retry(Schedule.exponential(Duration.millis(100)).pipe(Schedule.take(3))));
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     return yield* projectionSnapshotQuery
@@ -859,11 +890,19 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
-      return setThreadSessionErrorOnTurnStartFailure({
+      return clearPendingTurnStartForFailedTurn({
         threadId: event.payload.threadId,
+        turnStartKey: key,
         detail,
         createdAt: event.payload.createdAt,
       }).pipe(
+        Effect.flatMap(() =>
+          setThreadSessionErrorOnTurnStartFailure({
+            threadId: event.payload.threadId,
+            detail,
+            createdAt: event.payload.createdAt,
+          }),
+        ),
         Effect.flatMap(() =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,

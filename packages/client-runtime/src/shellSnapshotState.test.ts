@@ -45,6 +45,8 @@ const BASE_SNAPSHOT: OrchestrationShellSnapshot = {
       brief: null,
       status: "planned" as const,
       blockedBy: [],
+      spawnGeneration: null,
+      reportPath: null,
       title: "Thread",
       modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
       runtimeMode: "full-access",

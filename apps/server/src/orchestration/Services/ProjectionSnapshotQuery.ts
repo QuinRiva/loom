@@ -166,6 +166,18 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read the set of thread ids that currently have a pending turn-start (a
+   * turn requested but not yet started by the runtime). This is the
+   * pending-turn-start projection used by the D-notify idle gate: a parent is
+   * not idle while it has a pending turn-start, even though `activeTurnId` is
+   * still null in that window.
+   */
+  readonly getPendingTurnStartThreadIds: () => Effect.Effect<
+    ReadonlySet<ThreadId>,
+    ProjectionRepositoryError
+  >;
 }
 
 /**

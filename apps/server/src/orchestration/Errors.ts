@@ -53,6 +53,18 @@ export class OrchestrationCommandPreviouslyRejectedError extends Schema.TaggedEr
   }
 }
 
+export class OrchestrationCommandDeferredError extends Schema.TaggedErrorClass<OrchestrationCommandDeferredError>()(
+  "OrchestrationCommandDeferredError",
+  {
+    commandType: Schema.String,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Orchestration command deferred (${this.commandType}): ${this.detail}`;
+  }
+}
+
 export class OrchestrationProjectorDecodeError extends Schema.TaggedErrorClass<OrchestrationProjectorDecodeError>()(
   "OrchestrationProjectorDecodeError",
   {
@@ -83,6 +95,7 @@ export type OrchestrationDispatchError =
   | ProjectionRepositoryError
   | OrchestrationCommandInvariantError
   | OrchestrationCommandPreviouslyRejectedError
+  | OrchestrationCommandDeferredError
   | OrchestrationProjectorDecodeError
   | OrchestrationListenerCallbackError;
 

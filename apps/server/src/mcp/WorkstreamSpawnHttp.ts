@@ -15,6 +15,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
 interface WorkstreamSpawnRequest {
@@ -36,9 +37,14 @@ interface WorkstreamDependenciesRequest {
   readonly blockedBy?: unknown;
 }
 
+interface WorkstreamReportRequest {
+  readonly markdown?: unknown;
+}
+
 const SPAWN_PATH = "/provider-tools/workstream/spawn";
 const STATUS_PATH = "/provider-tools/workstream/status";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
+const REPORT_PATH = "/provider-tools/workstream/report";
 
 const VALID_STATUSES = new Set<ThreadStatus>(ThreadStatus.literals);
 
@@ -95,6 +101,9 @@ export const workstreamStatusUrlFromMcpEndpoint = (mcpEndpoint: string): string 
 export const workstreamDependenciesUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, DEPENDENCIES_PATH);
 
+export const workstreamReportUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, REPORT_PATH);
+
 const handleWorkstreamSpawn = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const scope = yield* resolveWorkstreamScope();
@@ -149,6 +158,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
 
+  // Generation = the parent's ACTIVE turn at spawn time, so siblings spawned in
+  // the same parent turn join into one wake. When the parent is not mid-turn
+  // (no active turn) the spawn is out-of-turn and gets its own singleton
+  // generation (the child id) — never the parent's last *completed* turn, which
+  // would merge an out-of-turn spawn into a stale, already-joined generation.
+  const spawnGeneration = current.session?.activeTurnId ?? childThreadId;
+
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
   const engine = yield* OrchestrationEngineService;
@@ -165,6 +181,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     purpose,
     ...(brief !== undefined ? { brief } : {}),
     ...(blockedBy !== undefined ? { blockedBy } : {}),
+    spawnGeneration,
     title,
     modelSelection: modelSelection.value,
     runtimeMode: current.runtimeMode,
@@ -273,6 +290,48 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
   ),
 );
 
+const handleWorkstreamReport = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamReportRequest => ({})),
+  )) as WorkstreamReportRequest;
+  const markdown = typeof body.markdown === "string" ? body.markdown : undefined;
+  if (markdown === undefined || markdown.trim().length === 0) {
+    return jsonError(400, "markdown is required.");
+  }
+
+  // A child may upsert only its OWN report; the report is always keyed to the
+  // calling thread (no threadId override).
+  const reportPath = yield* writeWorkstreamReport(scope.threadId, markdown);
+
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.report.set",
+    commandId: CommandId.make(`server:workstream-report:${yield* crypto.randomUUIDv4}`),
+    threadId: scope.threadId,
+    reportPath,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({ threadId: scope.threadId, reportPath });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(
+        500,
+        error instanceof Error ? error.message : "Failed to record Workstream report.",
+      ),
+    ),
+  ),
+);
+
 export const workstreamSpawnRouteLayer = HttpRouter.add("POST", SPAWN_PATH, handleWorkstreamSpawn);
 export const workstreamStatusRouteLayer = HttpRouter.add(
   "POST",
@@ -284,9 +343,15 @@ export const workstreamDependenciesRouteLayer = HttpRouter.add(
   DEPENDENCIES_PATH,
   handleWorkstreamSetDependencies,
 );
+export const workstreamReportRouteLayer = HttpRouter.add(
+  "POST",
+  REPORT_PATH,
+  handleWorkstreamReport,
+);
 
 export const layer = Layer.mergeAll(
   workstreamSpawnRouteLayer,
   workstreamStatusRouteLayer,
   workstreamDependenciesRouteLayer,
+  workstreamReportRouteLayer,
 );
