@@ -161,6 +161,32 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("replaces workstreamModelPresets wholesale when the patch key is present", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      workstreamModelPresets: {
+        reviewer: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4"),
+        coder: createModelSelection(ProviderInstanceId.make("pi"), "old-model"),
+      },
+    };
+
+    // Absent key leaves the map untouched.
+    expect(applyServerSettingsPatch(current, {}).workstreamModelPresets).toEqual(
+      current.workstreamModelPresets,
+    );
+
+    // Present key replaces the whole map (the dropped `coder` preset is gone).
+    expect(
+      applyServerSettingsPatch(current, {
+        workstreamModelPresets: {
+          reviewer: createModelSelection(ProviderInstanceId.make("opencode"), "openai/gpt-5"),
+        },
+      }).workstreamModelPresets,
+    ).toEqual({
+      reviewer: { instanceId: "opencode", model: "openai/gpt-5" },
+    });
+  });
+
   it("replaces providerInstances maps so omitted instance fields are cleared", () => {
     const codexId = ProviderInstanceId.make("codex");
     const current = {
