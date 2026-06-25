@@ -137,6 +137,9 @@ import {
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
+  // Connection keepalive (authenticated-session-only, carries no data)
+  heartbeat: "heartbeat",
+
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -223,6 +226,16 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
 } as const;
+
+/**
+ * Lightweight application-level keepalive. The client transport calls this on
+ * an interval so the WebSocket keeps carrying bytes and survives idle-timeout
+ * proxies/tunnels. Empty payload, void success — the RPC's own resolution is
+ * the freshness signal. Authenticated-session-only on the server (no scope).
+ */
+export const WsHeartbeatRpc = Rpc.make(WS_METHODS.heartbeat, {
+  payload: Schema.Struct({}),
+});
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
@@ -659,6 +672,7 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
 });
 
 export const WsRpcGroup = RpcGroup.make(
+  WsHeartbeatRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,

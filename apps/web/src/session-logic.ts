@@ -78,6 +78,12 @@ export interface WorkLogEntry {
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   /** Originating orchestration activity kind (e.g. `user-input.requested`) for row chrome. */
   sourceActivityKind?: OrchestrationThreadActivity["kind"];
+  /**
+   * Present only for `workstream_spawn` tool results: the child thread spawned
+   * by this entry. Surfaced from the dynamic tool result `details` so the
+   * timeline can render a grouped, clickable spawn card.
+   */
+  spawnedChild?: { childThreadId: ThreadId; title: string | null };
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -740,6 +746,19 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     if (data?.item !== undefined) {
       entry.toolData = data.item;
     }
+  }
+  // `workstream_spawn` is classified as a dynamic tool call (no `mcp` prefix), so
+  // its result `data` is otherwise dropped. Surface the spawned child id + title
+  // from `details` so the timeline can render a clickable spawn card. The
+  // `childThreadId` field uniquely discriminates spawn results from the sibling
+  // workstream tools (status/dependencies return `threadId`).
+  const spawnDetails = asRecord(asRecord(payload?.data)?.details);
+  const spawnedChildThreadId = asTrimmedString(spawnDetails?.childThreadId);
+  if (spawnedChildThreadId) {
+    entry.spawnedChild = {
+      childThreadId: spawnedChildThreadId as ThreadId,
+      title: asTrimmedString(spawnDetails?.title),
+    };
   }
   if (itemType) {
     entry.itemType = itemType;

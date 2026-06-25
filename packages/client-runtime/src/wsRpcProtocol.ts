@@ -19,9 +19,12 @@ export interface WsProtocolLifecycleHandlers {
   readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
-  readonly onHeartbeatPing?: () => void;
+  /**
+   * Invoked when a keepalive heartbeat RPC resolves successfully. Produced by
+   * the transport's heartbeat loop (see {@link WsTransport}), not by the
+   * protocol layer — it drives `isHeartbeatFresh`.
+   */
   readonly onHeartbeatPong?: () => void;
-  readonly onHeartbeatTimeout?: () => void;
   readonly onRequestStart?: (info: {
     readonly id: string;
     readonly tag: string;
@@ -96,9 +99,6 @@ type ResolvedLifecycleHandlers = Required<
     | "isActive"
     | "onAttempt"
     | "onOpen"
-    | "onHeartbeatPing"
-    | "onHeartbeatPong"
-    | "onHeartbeatTimeout"
     | "onError"
     | "onClose"
   >
@@ -108,9 +108,6 @@ function defaultLifecycleHandlers(): ResolvedLifecycleHandlers {
   return {
     onAttempt: () => undefined,
     onOpen: () => undefined,
-    onHeartbeatPing: () => undefined,
-    onHeartbeatPong: () => undefined,
-    onHeartbeatTimeout: () => undefined,
     onError: () => undefined,
     onClose: () => undefined,
     getConnectionLabel: () => null,
@@ -153,27 +150,6 @@ function resolveLifecycleHandlers(
       }
       telemetryLifecycle?.onOpen?.();
       handlers?.onOpen?.();
-    },
-    onHeartbeatPing: () => {
-      if (!isActive()) {
-        return;
-      }
-      telemetryLifecycle?.onHeartbeatPing?.();
-      handlers?.onHeartbeatPing?.();
-    },
-    onHeartbeatPong: () => {
-      if (!isActive()) {
-        return;
-      }
-      telemetryLifecycle?.onHeartbeatPong?.();
-      handlers?.onHeartbeatPong?.();
-    },
-    onHeartbeatTimeout: () => {
-      if (!isActive()) {
-        return;
-      }
-      telemetryLifecycle?.onHeartbeatTimeout?.();
-      handlers?.onHeartbeatTimeout?.();
     },
     onError: (message) => {
       if (!isActive()) {
@@ -233,16 +209,6 @@ export function createWsRpcProtocolLayer(
         },
         { once: true },
       );
-      socket.addEventListener("message", (event) => {
-        try {
-          const message = JSON.parse(String(event.data)) as { readonly _tag?: string };
-          if (message._tag === "Pong") {
-            lifecycle.onHeartbeatPong();
-          }
-        } catch {
-          // Ignore malformed messages here; the Effect RPC parser still owns protocol errors.
-        }
-      });
       socket.addEventListener(
         "close",
         (event) => {

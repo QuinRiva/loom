@@ -192,6 +192,14 @@ export function createDevRunnerEnv({
       output.T3CODE_HOST = host;
     }
 
+    // Bind the web dev server (Vite reads process.env.HOST) to IPv4 loopback by
+    // default. Vite resolves "localhost" to ::1 only, which VS Code Remote SSH
+    // port-forwarding (IPv4 127.0.0.1) cannot reach. The server uses T3CODE_HOST
+    // instead, so this does not change its bind. An explicit HOST still wins.
+    if (!isDesktopMode && output.HOST === undefined) {
+      output.HOST = DESKTOP_DEV_LOOPBACK_HOST;
+    }
+
     if (!isDesktopMode && noBrowser !== undefined) {
       output.T3CODE_NO_BROWSER = noBrowser ? "1" : "0";
     } else if (!isDesktopMode) {

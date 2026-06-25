@@ -23,6 +23,7 @@ import {
   SpawnExecutableResolution,
   WindowsShellEnvironment,
   type WindowsShellEnvironmentReader,
+  withLocalNodeModulesBin,
 } from "./shell.ts";
 
 const withWindowsEnvironmentMocks = <A, E, R>(
@@ -573,4 +574,41 @@ effectIt.layer(NodeServices.layer)("resolveWindowsEnvironment", (it) => {
       expect(commandAvailable).toHaveBeenCalledTimes(1);
     }),
   );
+});
+
+describe("withLocalNodeModulesBin", () => {
+  it("prepends <cwd>/node_modules/.bin ahead of the inherited PATH (posix)", () => {
+    const result = withLocalNodeModulesBin({ PATH: "/usr/bin:/bin" }, "/home/me/worktree", "linux");
+    expect(result.PATH).toBe("/home/me/worktree/node_modules/.bin:/usr/bin:/bin");
+  });
+
+  it("uses the win32 separator and delimiter on win32", () => {
+    const result = withLocalNodeModulesBin(
+      { PATH: String.raw`C:\Windows\System32` },
+      String.raw`C:\work\tree`,
+      "win32",
+    );
+    expect(result.PATH).toBe(String.raw`C:\work\tree\node_modules\.bin;C:\Windows\System32`);
+  });
+
+  it("dedupes when the local bin is already present, keeping it at the front", () => {
+    const result = withLocalNodeModulesBin(
+      { PATH: "/a:/home/me/wt/node_modules/.bin:/b" },
+      "/home/me/wt",
+      "linux",
+    );
+    expect(result.PATH).toBe("/home/me/wt/node_modules/.bin:/a:/b");
+  });
+
+  it("sets PATH to just the local bin when no PATH is inherited", () => {
+    expect(withLocalNodeModulesBin({}, "/w", "linux").PATH).toBe("/w/node_modules/.bin");
+  });
+
+  it("returns a fresh object and preserves other env entries without mutating input", () => {
+    const input = { PATH: "/bin", FOO: "bar" };
+    const result = withLocalNodeModulesBin(input, "/w", "linux");
+    expect(result).not.toBe(input);
+    expect(result.FOO).toBe("bar");
+    expect(input.PATH).toBe("/bin");
+  });
 });

@@ -7,6 +7,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { RpcClient } from "effect/unstable/rpc";
+import { WS_METHODS } from "@t3tools/contracts";
 
 import { isTransportConnectionErrorMessage } from "./transportError.ts";
 import {
@@ -36,7 +37,20 @@ export interface WsTransportOptions {
    * Invoked at the start of {@link WsTransport.reconnect} before the session is replaced.
    */
   readonly onBeforeReconnect?: () => void;
+  /**
+   * Cadence of the keepalive heartbeat RPC. Must stay comfortably below the
+   * idle-reap threshold (~30s) and below the {@link WsTransport.isHeartbeatFresh}
+   * window so freshness holds between beats. Defaults to 8s: even a slow-but-alive
+   * beat that nears the per-beat timeout keeps the inter-success gap (8s + ~5s)
+   * under the 15s freshness window, avoiding spurious resume-reconnects.
+   */
+  readonly heartbeatIntervalMs?: number;
+  /** Per-beat timeout so a stalled beat cannot overlap the next one. Defaults to 5s. */
+  readonly heartbeatTimeoutMs?: number;
 }
+
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 8_000;
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 5_000;
 
 interface SubscribeOptions {
   readonly retryDelay?: Duration.Input;
@@ -283,10 +297,6 @@ export class WsTransport {
         this.disposed ||
         this.intentionalCloseDepth > 0 ||
         lifecycleHandlers?.isCloseIntentional?.() === true,
-      onHeartbeatPong: () => {
-        this.lastHeartbeatPongAt = performance.now();
-        lifecycleHandlers?.onHeartbeatPong?.();
-      },
       onRequestStart: (info) => {
         lifecycleHandlers?.onRequestStart?.(info);
         if (!info.stream) {
@@ -302,11 +312,55 @@ export class WsTransport {
       : protocolLayer;
     const runtime = ManagedRuntime.make(rootLayer);
     const clientScope = runtime.runSync(Scope.make());
-    return {
-      runtime,
-      clientScope,
-      clientPromise: runtime.runPromise(Scope.provide(clientScope)(makeWsRpcProtocolClient)),
+    const clientPromise = runtime.runPromise(Scope.provide(clientScope)(makeWsRpcProtocolClient));
+    this.startHeartbeat({ runtime, clientScope, clientPromise, sessionId });
+    return { runtime, clientScope, clientPromise };
+  }
+
+  /**
+   * Self-rescheduling keepalive loop scoped to the session's client scope. Each
+   * iteration sleeps the interval, then awaits one heartbeat RPC (with a per-beat
+   * timeout) before looping, so beats never overlap. On success it refreshes
+   * {@link lastHeartbeatPongAt}.
+   * Failures/timeouts are swallowed — a genuinely dead socket is handled by the
+   * existing reconnect path, not by throwing into app code. The loop is forked
+   * into `clientScope`, so `closeSession` (reconnect/dispose) interrupts it
+   * cleanly with no leaked fibers across the reconnect chain.
+   */
+  private startHeartbeat(session: {
+    readonly runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never>;
+    readonly clientScope: Scope.Closeable;
+    readonly clientPromise: Promise<WsRpcProtocolClient>;
+    readonly sessionId: number;
+  }) {
+    const intervalMs = this.options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+    const timeoutMs = this.options?.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
+    const lifecycleHandlers = this.lifecycleHandlers;
+    const recordHeartbeat = () => {
+      if (this.disposed || this.activeSessionId !== session.sessionId) {
+        return;
+      }
+      this.lastHeartbeatPongAt = performance.now();
+      try {
+        lifecycleHandlers?.onHeartbeatPong?.();
+      } catch {
+        // Ignore consumer hook failures so the heartbeat loop stays alive.
+      }
     };
+    const heartbeatLoop = Effect.flatMap(
+      Effect.promise(() => session.clientPromise),
+      (client) =>
+        Effect.forever(
+          Effect.flatMap(Effect.sleep(Duration.millis(intervalMs)), () =>
+            client[WS_METHODS.heartbeat]({}).pipe(
+              Effect.timeout(Duration.millis(timeoutMs)),
+              Effect.flatMap(() => Effect.sync(recordHeartbeat)),
+              Effect.ignore,
+            ),
+          ),
+        ),
+    );
+    session.runtime.runFork(Scope.provide(session.clientScope)(Effect.forkScoped(heartbeatLoop)));
   }
 
   private logWarning(message: string, metadata: { readonly error: string }) {

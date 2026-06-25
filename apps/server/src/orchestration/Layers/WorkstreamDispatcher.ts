@@ -19,7 +19,7 @@ import {
   type WorkstreamDispatcherShape,
 } from "../Services/WorkstreamDispatcher.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
-import { areDependenciesSatisfied } from "../workstreamDependencies.ts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`

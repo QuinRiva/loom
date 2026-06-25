@@ -10,6 +10,8 @@
     "dev:marketing": "vp run --filter @t3tools/marketing dev",
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
     "start": "vp run --filter t3 start",
+    "cockpit": "T3CODE_HOME=\"${T3CODE_HOME:-$HOME/.t3/cockpit}\" T3CODE_PORT=\"${T3CODE_PORT:-13900}\" node apps/server/dist/bin.mjs",
+    "cockpit:build": "pnpm build && pnpm cockpit",
     "start:desktop": "vp run --filter @t3tools/desktop start",
     "start:marketing": "vp run --filter @t3tools/marketing preview",
     "start:mock-update-server": "node scripts/mock-update-server.ts",
