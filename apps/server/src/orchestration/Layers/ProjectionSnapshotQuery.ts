@@ -285,6 +285,9 @@ function mapSessionRow(
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,
+    // The queue is ephemeral live state and is never persisted, so a
+    // DB-hydrated session always starts with an empty queue.
+    queuedMessages: { steering: [], followUp: [] },
     updatedAt: row.updatedAt,
   };
 }
@@ -1352,6 +1355,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   runtimeMode: row.runtimeMode,
                   activeTurnId: row.activeTurnId,
                   lastError: row.lastError,
+                  queuedMessages: { steering: [], followUp: [] },
                   updatedAt: row.updatedAt,
                 });
               }

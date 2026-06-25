@@ -485,6 +485,7 @@ describe("resolveThreadStatusPill", () => {
       status: "running" as const,
       createdAt: "2026-03-09T10:00:00.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
+      queuedMessages: { steering: [], followUp: [] },
       orchestrationStatus: "running" as const,
     },
   };

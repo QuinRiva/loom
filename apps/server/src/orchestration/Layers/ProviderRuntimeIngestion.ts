@@ -1508,11 +1508,44 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
+              // The queue is live state of the running turn; carry it forward
+              // while still running and drain it to empty once the turn ends.
+              queuedMessages:
+                status === "running"
+                  ? (thread.session?.queuedMessages ?? { steering: [], followUp: [] })
+                  : { steering: [], followUp: [] },
               updatedAt: now,
             },
             createdAt: now,
           });
         }
+      }
+
+      if (event.type === "thread.queue.updated" && thread.session) {
+        // Pure queue refresh: preserve the live session state and only swap in
+        // the new pending-message queue from the provider.
+        yield* orchestrationEngine.dispatch({
+          type: "thread.session.set",
+          commandId: yield* providerCommandId(event, "thread-session-queue"),
+          threadId: thread.id,
+          session: {
+            threadId: thread.id,
+            status: thread.session.status,
+            providerName: thread.session.providerName,
+            ...(thread.session.providerInstanceId !== undefined
+              ? { providerInstanceId: thread.session.providerInstanceId }
+              : {}),
+            runtimeMode: thread.session.runtimeMode,
+            activeTurnId: thread.session.activeTurnId,
+            lastError: thread.session.lastError,
+            queuedMessages: {
+              steering: [...event.payload.steering],
+              followUp: [...event.payload.followUp],
+            },
+            updatedAt: now,
+          },
+          createdAt: now,
+        });
       }
 
       const assistantDelta =
@@ -1817,6 +1850,7 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
+              queuedMessages: { steering: [], followUp: [] },
               updatedAt: now,
             },
             createdAt: now,

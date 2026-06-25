@@ -250,6 +250,7 @@ function makeThreadShellSnapshot(params: {
               runtimeMode: "full-access",
               activeTurnId: params.sessionStatus === "running" ? turnId : null,
               lastError: null,
+              queuedMessages: { steering: [], followUp: [] },
               updatedAt: "2026-04-13T00:00:00.000Z",
             }
           : null,

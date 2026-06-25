@@ -6,6 +6,29 @@
   - If changing native mobile code, `vp run lint:mobile` must also pass.
 - Use `vp test` for the built-in Vite+ test command and `vp run test` when you specifically need the `test` package script.
 
+## Shipping changes (commit, PR, merge)
+
+Work happens on a feature branch (worktrees already start on one). Once the task
+is complete and the checks above pass, ship it via a PR rather than committing
+straight to `main`:
+
+```sh
+git add -A && git commit -m "<concise summary>"   # commit the work
+git push -u origin HEAD                            # push the branch + set upstream
+gh pr create --base main --fill                    # PR into main (--fill uses the commit msg; or pass --title/--body)
+gh pr merge --merge --delete-branch                # merge and clean up the remote branch
+```
+
+Notes:
+
+- `git push -u origin HEAD` pushes the current branch under its own name without
+  having to type it — never push directly to `main`.
+- Use `--fill` to derive the PR title/body from commits; reach for
+  `--title`/`--body` only when the commits don't tell the whole story.
+- `--delete-branch` removes the remote branch after merge. Delete the local
+  branch/worktree separately if you no longer need it.
+- Do not run any of this until the user has approved shipping the change.
+
 ## Project Snapshot
 
 T3 Code is a minimal web GUI for using coding agents like Codex and Claude.
