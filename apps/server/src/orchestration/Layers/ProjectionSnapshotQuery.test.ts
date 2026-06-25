@@ -405,6 +405,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           parentThreadId: null,
           role: null,
           purpose: null,
+          brief: null,
           status: "planned" as const,
           blockedBy: [],
           title: "Thread 1",

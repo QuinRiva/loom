@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { selectThreadsToDispatch } from "./WorkstreamDispatcher.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
@@ -118,5 +119,24 @@ describe("selectThreadsToDispatch", () => {
 
   it("skips sub-threads missing the role/purpose needed for a kick-off", () => {
     expect(selectThreadsToDispatch([shell({ id: "child-1", purpose: null })])).toEqual([]);
+  });
+});
+
+describe("kick-off prompt brief/purpose resolution", () => {
+  // The dispatcher's promoteThread feeds `brief ?? purpose` into
+  // workstreamChildPrompt, so the full brief drives the child's first turn when
+  // present and the short purpose is the fallback when it is absent.
+  const resolve = (purpose: string, brief: string | null) =>
+    workstreamChildPrompt({ role: "coder", brief: brief ?? purpose });
+
+  it("uses the brief as the prompt body when a brief is present", () => {
+    const prompt = resolve("short summary", "the full self-contained kickoff brief");
+    expect(prompt).toContain("the full self-contained kickoff brief");
+    expect(prompt).not.toContain("short summary");
+  });
+
+  it("falls back to the purpose when the brief is absent", () => {
+    const prompt = resolve("short summary", null);
+    expect(prompt).toContain("short summary");
   });
 });

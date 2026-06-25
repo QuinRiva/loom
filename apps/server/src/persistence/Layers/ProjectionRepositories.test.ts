@@ -82,6 +82,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         parentThreadId: null,
         role: null,
         purpose: null,
+        brief: null,
         status: "planned" as const,
         blockedBy: [],
         title: "Null options thread",

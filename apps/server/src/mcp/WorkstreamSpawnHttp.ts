@@ -20,6 +20,7 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 interface WorkstreamSpawnRequest {
   readonly role?: unknown;
   readonly purpose?: unknown;
+  readonly brief?: unknown;
   readonly title?: unknown;
   readonly blockedBy?: unknown;
   readonly modelSelection?: unknown;
@@ -106,6 +107,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   )) as WorkstreamSpawnRequest;
   const role = trimString(body.role);
   const purpose = trimString(body.purpose);
+  const brief = trimString(body.brief);
   const title = trimString(body.title) ?? purpose;
   if (!role) return jsonError(400, "role is required.");
   if (!purpose) return jsonError(400, "purpose is required.");
@@ -161,6 +163,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     parentThreadId: scope.threadId,
     role,
     purpose,
+    ...(brief !== undefined ? { brief } : {}),
     ...(blockedBy !== undefined ? { blockedBy } : {}),
     title,
     modelSelection: modelSelection.value,
