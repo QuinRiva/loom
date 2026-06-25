@@ -116,17 +116,26 @@ Two framing principles that should govern the design:
 4. **Completion authority is a separate cold-context judge** gated by a
    deterministic artifact check; it **preserves output** and distinguishes
    finished-quiet from stuck-quiet.
-5. **Failure propagation: surface, don't cascade.** On `error`, the parent wakes via
-   the existing terminal-status wake (`error` now in the terminal set); dependents
-   are left visibly gated, never auto-cascade-blocked.
-6. **"Forgot-to-finish" is a DISTINCT per-child wake trigger (user-approved), not the
-   generation barrier and not a status mutation** (consult 2026-06-25, §1e). The
-   generation-join wake (`selectJoinedGenerations`) fires only when *every* sibling
-   in a `(parent, generation)` group is terminal — it cannot signal one quiet child
-   while siblings still run, and forcing the child terminal to trip it would be a
-   lie. The idle-wake reuses the proven delivery rail (deterministic `commandId` +
-   receipt dedup + `requireIdle`) and `workstreamGraph` parent resolution, but with
-   its own fire-condition and **without touching the child's status**.
+5. **Failure propagation: surface, don't cascade — via the SAME per-child rail as
+   forgot-to-finish** (2nd review B1). The existing parent-wake
+   (`selectJoinedGenerations`) is a whole-generation **barrier** that fires only when
+   *every* sibling is terminal — so an `error` child among still-running siblings
+   would NOT promptly wake the parent. `error` must therefore wake the parent through
+   the **per-child trigger (§1e)**, identical to forgot-to-finish. Adding `error` to
+   `TERMINAL_STATUSES` is **only** to unblock the barrier (a stalled/errored child no
+   longer strands its siblings' results forever — the original dark-stall), NOT the
+   wake mechanism. Dependents stay visibly gated; never auto-cascade-blocked.
+6. **Both `error` and forgot-to-finish converge on ONE per-child wake trigger
+   (user-approved), not the generation barrier and not a status mutation** (consult
+   2026-06-25, §1e). The trigger reuses the proven delivery rail (deterministic
+   `commandId` + receipt dedup + `requireIdle`) and `workstreamGraph` parent
+   resolution, but with its own per-child fire-condition. **Host it inside
+   `WorkstreamDispatcher`** (C1): the dispatcher already owns the wake rate guard,
+   `wakeTimestamps`, `parkAndEscalate`, receipt dedup, and `isThreadIdle` — a
+   separate sweep service cannot see that in-memory rate state and would double-count
+   wakes. The liveness sweep only *derives idleness / writes `error`*; the dispatcher
+   owns all `thread.turn.start` delivery. (forgot-to-finish leaves the child's status
+   untouched; `error`-wake delivers after the sweep has set `error`.)
 7. **D-notify Stage 2 inspection tools are MERGED** (`workstream_list` /
    `workstream_read_thread` / `workstream_ask_thread`,
    `apps/server/src/provider/Drivers/Pi/WorkstreamSpawnExtension.ts`; shared
@@ -142,14 +151,29 @@ server sweep over the read model, modelled on `ProviderSessionReaper`.
 ### 1a. `error` status (contract + projection + board)
 - Add `error` to `ThreadStatus` (`packages/contracts/src/orchestration.ts`).
 - Add `error` to `workstreamGraph`'s `TERMINAL_STATUSES` (`packages/shared/src/
-  workstreamGraph.ts` ~133) + its tests, so the generation join and parent-wake
-  treat it as terminal. Do **NOT** add it to `workstreamDependencies`
-  (`areDependenciesSatisfied`, done-only) — `error` wakes but does not release.
-- **Server-only writer.** `thread.status.set` is a dispatchable client/MCP command
-  whose status is `ThreadStatus`; once `error` is a literal, the surface must
-  **reject `error` from non-server callers** — guard `workstream_set_status`
-  (`apps/server/src/mcp/WorkstreamSpawnHttp.ts` ~324) and the decider so only the
-  liveness sweep can set it.
+  workstreamGraph.ts` ~133) + its tests. **Purpose: barrier-unblock ONLY** — it lets
+  a generation containing an errored child still *join* once the rest are terminal,
+  so an errored child no longer strands its siblings' results forever. It is **NOT**
+  the wake mechanism (an errored child among still-running siblings won't fire the
+  barrier — the wake goes through the per-child rail, §1e / decision 5). Do **NOT**
+  add `error` to `workstreamDependencies` (`areDependenciesSatisfied`, done-only) —
+  `error` wakes but does not release. (Side-effects checked: the only consumers of
+  `isTerminalStatus`/`selectJoinedGenerations` are the dispatcher join + tests —
+  adding `error` is contained.)
+- **Server-only writer (precise placement — 2nd review B2).** Two real client paths
+  can set status, and both must be closed because adding `error` to
+  `ThreadStatus.literals` makes it **auto-join** `VALID_STATUSES`
+  (`WorkstreamSpawnHttp.ts:75`):
+  - **MCP boundary:** exclude `error` explicitly (e.g.
+    `ThreadStatus.literals.filter((s) => s !== "error")`) in `workstream_set_status`
+    validation — "validate against the literal set" is insufficient.
+  - **Web/WS path:** the board dispatches `thread.status.set` directly over the
+    WebSocket with a client `commandId` (`WorkstreamPanel.tsx` ~279-289), bypassing
+    `WorkstreamSpawnHttp` entirely. The **decider** (`decider.ts` ~636-659) is the
+    only universal chokepoint but today does no status/author validation. Reject
+    `error` there unless the command carries a `server:` `commandId` prefix (server
+    writers build that id server-side; MCP/web cannot forge it). This is the
+    load-bearing guard; the MCP filter is defence-in-depth.
 - **Reason via activity-append, not the status event.** Keep `ThreadStatusSetPayload`
   lean (no `reason` field); emit the human-readable detail as a deterministic
   `thread.activity.append` (tone `error`), mirroring the dispatcher's park marker.
@@ -157,7 +181,7 @@ server sweep over the read model, modelled on `ProviderSessionReaper`.
   WorkstreamPanel.tsx`) → its **own red `error` lane** (badge-only risks hiding a
   liveness failure under `blocked`).
 - **Gating interaction:** `error` does NOT release dependents (only `done` does). It
-  DOES wake the parent (terminal-status wake, see 1d).
+  DOES wake the parent — via the per-child rail (§1e), not the generation barrier.
 
 ### 1b. The liveness sweep (new reactor/service)
 A periodic sweep (model on `ProviderSessionReaper`; consider sharing a sweep
@@ -206,26 +230,33 @@ index) may win; decide with the perf budget in mind.
   stop retrying (sustained failure isn't transient).
 - **Every sub-thread ends in exactly one terminal state** (`done`/`blocked`/`error`)
   — no silent limbo.
-- **Surface, don't cascade:** on `error`, **wake the parent** (reuse the D-notify
-  wake — it already wakes on terminal states incl. `blocked`; add `error`) with the
-  reason, and leave dependents un-started (visibly gated), not silently pending. The
-  parent/human decides retry/reassign/abort. Do NOT auto-cascade-block.
-- **Terminal-for-wake vs final-liveness-state.** "Every sub-thread ends in a
-  terminal state" means terminal **for parent-wake** = `{done, blocked, review,
-  error}` (the `workstreamGraph` set). `done` additionally releases dependents;
-  `blocked`/`review` are awaiting-human; `error` is the new failure state. No silent
-  `planned`/`running` limbo.
+- **Surface, don't cascade:** on `error`, **wake the parent via the per-child rail
+  (§1e)** — NOT the generation barrier, which only fires when the whole generation
+  is terminal (2nd review B1). Deliver the reason, leave dependents un-started
+  (visibly gated), not silently pending. The parent/human decides
+  retry/reassign/abort. Do NOT auto-cascade-block.
+- **Terminal-for-barrier vs final-liveness-state.** "Every sub-thread ends in a
+  terminal state" means terminal **for the generation barrier** = `{done, blocked,
+  review, error}` (the `workstreamGraph` set — this only governs *generation join*,
+  not who gets woken). `done` additionally releases dependents; `blocked`/`review`
+  are awaiting-human; `error` is the new failure state, woken via the per-child rail
+  (§1e). No silent `planned`/`running` limbo.
 
-### 1e. The idle-wake trigger ("forgot to finish") — distinct trigger, shared rail
-The "forgot-to-finish" notification (decision 6) is a **second trigger feeding the
-existing wake delivery rail**, NOT the generation barrier and NOT a status change.
+### 1e. The per-child wake trigger (forgot-to-finish AND error) — one rail, in the dispatcher
+Both the forgot-to-finish notification and the `error`-wake (decisions 5 + 6) are a
+**single per-child trigger feeding the existing wake delivery rail**, NOT the
+generation barrier and NOT a status change. **It is hosted inside
+`WorkstreamDispatcher`** (2nd review C1) so it shares the dispatcher's rate guard,
+`wakeTimestamps`, `parkAndEscalate`, receipt dedup, and `isThreadIdle`; the liveness
+sweep only derives idleness / writes `error`.
 
 **Why not the barrier.** `selectJoinedGenerations` (`workstreamGraph.ts` ~170)
 returns a `(parent, generation)` group only when **every** member is terminal — a
-whole-generation, fire-once "all my children finished" signal. A single quiet child
-while its siblings still run is never selected; and marking it terminal to trip the
-barrier would (a) be semantically false and (b) not even fire unless the *whole*
-generation is terminal.
+whole-generation, fire-once "all my children finished" signal. A single quiet OR
+errored child while its siblings still run is never selected; and marking a quiet
+child terminal to trip the barrier would (a) be semantically false and (b) not even
+fire unless the *whole* generation is terminal. This is why `error`-wake also uses
+this rail, not the barrier (B1).
 
 **Detection (in the sweep).** For each thread with `status ∈ {planned, running}`
 whose session is idle (`activeTurnId === null` && `session.status ∈ {ready,
@@ -233,6 +264,13 @@ stopped}`), classify as idle-unreported. This is derivable from session state al
 (`ProviderSessionDirectory` + shell snapshot) — no activity-freshness query needed
 (that's the mid-turn-stall signal). The only `workstreamGraph` primitive used is
 **parent resolution** (`buildIndex` / `parentThreadId`), never `selectJoinedGenerations`.
+
+**`stopped` vs dead.** A `stopped` session (reaped by `ProviderSessionReaper` after
+idle) with a non-terminal thread is treated as forgot-to-finish (wake parent to
+investigate), NOT `error`: reaping is a routine resource decision, not a crash, and
+the child's output/report persists on disk — the parent (or the Stage-2 completion
+judge) decides done-vs-stuck. Only a `session.status === "error"` / absent-from-
+directory case is the dead-session → `error` path (§1b).
 
 **Delivery (mirror `deliverWake`, `WorkstreamDispatcher.ts` ~274).** Dispatch to the
 child's parent:
@@ -251,14 +289,22 @@ or re-dispatch.
 
 **Dedup / re-arm (the one genuinely new bit).** `wakeCommandId` is keyed
 `(parent, generation)` and fires once forever; idle-wake instead keys the
-`commandId` by **`(child.id, latestActivitySequence | current turnId)`** so each
-distinct quiet *episode* notifies exactly once and a child that resumes then goes
-quiet again re-arms — while an unacted-on idle child is not re-nagged every sweep.
+`commandId` by **`(child.id, maxActivitySequence-at-idle-onset)`** so each distinct
+quiet *episode* notifies exactly once and a child that resumes then goes quiet again
+re-arms — while an unacted-on idle child is not re-nagged every sweep. (Use the
+activity sequence, NOT `turnId`: when the child is idle `activeTurnId === null`, so a
+turn-id key is unusable — 2nd review C3.)
 
-**Reused for free:** receipt-store idempotency (`hasAcceptedReceipt`), the
-`requireIdle` busy-parent deferral, and the wake **rate guard**
-(`wakeRateGuardTrips` → `parkAndEscalate`) which protects a parent flooded by many
-quiet children at once.
+**Must catch deferral (C2).** Like `deliverWake` (`WorkstreamDispatcher.ts` ~430),
+the per-child delivery must catch `OrchestrationCommandDeferredError` (parent busy
+in the race window) and treat it as not-yet-delivered — retried next pass — rather
+than letting it fault the pass.
+
+**Shared (because it lives in the dispatcher, C1):** receipt-store idempotency
+(`hasAcceptedReceipt`), the `requireIdle` busy-parent deferral, and the wake **rate
+guard** (`wakeRateGuardTrips` → `parkAndEscalate`). Hosting here means error + idle +
+generation-join wakes share ONE rate budget per parent (no −2× double-counting that a
+separate sweep service would cause).
 
 **Top-level threads (`parentThreadId === null`)** have no agent parent to wake →
 surface via the board (`error` lane / activity append) as escalate-to-human, not a
@@ -277,8 +323,11 @@ detection path.
   and its parent is woken — output preserved, never reaped-as-failed-empty.
 - A child stuck in an identical-tool-call loop is detected and escalated.
 - Repeated-failure child trips the cap → `error`, no infinite retry.
-- `error` shows distinctly on the board; does not release dependents; the D-notify
-  wake fires on `error`.
+- `error` shows distinctly on the board (dedicated surface, not a fall-through);
+  does not release dependents; the parent is woken on `error` via the per-child rail
+  (§1e) even while sibling threads are still running.
+- An `error`/idle child among still-running siblings wakes its parent **promptly**
+  (per-child rail), not only once the whole generation is terminal.
 - `vp check` + `vp run typecheck` + server suite green.
 
 ---
@@ -344,7 +393,11 @@ detection path.
 - **All thresholds** (stale window, loop counts, failure cap, retry budget, soft-cap
   %, startup grace) — research numbers are general-purpose; **start generous, tune
   from real runs, document chosen values as assumptions.**
-- **`error` board treatment** — own lane vs distinct badge.
+- **`error` board treatment** — a distinct surface is **mandatory, not optional**:
+  without it `getEffectiveColumn` (`WorkstreamPanel.tsx` ~153) falls `error` through
+  to planned/running/blocked and hides the liveness failure. Also update
+  `COLUMN_ORDER`/`COLUMN_LABELS`/`STATUS_LABELS`/`groups` (`WorkstreamPanel.tsx`
+  ~41-66, ~227). Only lane-vs-badge cosmetics are open; recommend an own red lane.
 - **Sweep substrate** — share one periodic read-model sweep with provider-intent
   startup reconciliation, or keep separate.
 - **Investigator spawn mechanism** (sub-thread vs subagent vs inline LLM) — reading
@@ -362,6 +415,17 @@ detection path.
     the existing two-predicate split (terminal-for-wake in `workstreamGraph`
     `{done,blocked,review}` vs done-only release in `workstreamDependencies`). Add
     `error` to the `workstreamGraph` terminal set; leave dependency-release untouched.
+  - **2nd review (GPT 5.5 thread `334e7d8a`, 2026-06-25):** caught that `error`-wake
+    had the *same* single-child problem as forgot-to-finish — the generation barrier
+    won't wake a parent for an errored child while siblings run (B1). Resolved:
+    `error` AND forgot-to-finish both use the per-child rail; `error` in
+    `TERMINAL_STATUSES` is barrier-unblock only. Also: the `error` write-guard must
+    exclude `error` from `VALID_STATUSES` at MCP **and** block the web/WS
+    `thread.status.set` path via the decider `server:`-prefix check (B2); host the
+    per-child wake **inside `WorkstreamDispatcher`** to share its rate guard (C1);
+    episode key = max activity sequence at idle onset, not turnId (C3); catch
+    `OrchestrationCommandDeferredError` (C2); the board change is mandatory. All
+    folded into decisions 5–6, §1a, §1d, §1e, and the open-decisions list.
   - **Corrected (now reflected in §1b + §1e):** do **NOT** route
     "forgot-to-finish" through a terminal status. Marking a still-working child
     terminal is semantically false, misleads the board, and — because
