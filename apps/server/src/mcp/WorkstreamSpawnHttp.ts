@@ -31,6 +31,7 @@ interface WorkstreamSpawnRequest {
   readonly title?: unknown;
   readonly blockedBy?: unknown;
   readonly modelSelection?: unknown;
+  readonly modelPreset?: unknown;
 }
 
 interface WorkstreamStatusRequest {
@@ -112,6 +113,49 @@ const authorizationError = Effect.fn("WorkstreamHttp.authorize")(function* (
 
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 
+/**
+ * Resolution of a child's model selection when no explicit `modelSelection` was
+ * supplied (steps 2–4 of the spawn precedence). An explicit, decoded selection
+ * always wins and is handled in the caller before this runs.
+ */
+export type PresetResolution =
+  | { readonly kind: "selection"; readonly selection: ModelSelection }
+  | {
+      readonly kind: "unknown-preset";
+      readonly modelPreset: string;
+      readonly available: ReadonlyArray<string>;
+    };
+
+/**
+ * Named-preset / role-default resolution against a single keyed map:
+ *   2. `modelPreset` present → the named preset, or an unknown-preset error.
+ *   3. else a preset keyed by `role` → use it.
+ *   4. else inherit the parent's selection.
+ */
+export const resolvePresetSelection = (input: {
+  readonly presets: Record<string, ModelSelection>;
+  readonly modelPreset: string | undefined;
+  readonly role: string;
+  readonly parentSelection: ModelSelection;
+}): PresetResolution => {
+  if (input.modelPreset !== undefined) {
+    const preset = input.presets[input.modelPreset];
+    return preset === undefined
+      ? {
+          kind: "unknown-preset",
+          modelPreset: input.modelPreset,
+          available: Object.keys(input.presets),
+        }
+      : { kind: "selection", selection: preset };
+  }
+  return { kind: "selection", selection: input.presets[input.role] ?? input.parentSelection };
+};
+
+const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
+  `Unknown modelPreset "${name}". Available presets: ${
+    available.length > 0 ? available.join(", ") : "none configured"
+  }.`;
+
 const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
   mcpEndpoint.endsWith("/mcp")
     ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
@@ -183,17 +227,31 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   }
   const current = parent.value;
 
-  // Model + thinking are intrinsic node config: honour an explicit selection,
-  // otherwise inherit the parent's. Invalid selections fail visibly as 400.
-  const modelSelection =
-    body.modelSelection === undefined
-      ? Option.some(current.modelSelection)
-      : yield* decodeModelSelection(body.modelSelection).pipe(
-          Effect.map(Option.some),
-          Effect.orElseSucceed(() => Option.none<ModelSelection>()),
-        );
-  if (Option.isNone(modelSelection)) {
-    return jsonError(400, "modelSelection is invalid.");
+  // Model + thinking are intrinsic node config. Precedence:
+  //   1. explicit `modelSelection` (decoded; invalid → 400),
+  //   2. named `modelPreset` (unknown → 400),
+  //   3. a preset keyed by the child's `role`,
+  //   4. inherit the parent's selection.
+  let modelSelection: ModelSelection;
+  if (body.modelSelection !== undefined) {
+    const decoded = yield* decodeModelSelection(body.modelSelection).pipe(
+      Effect.map(Option.some),
+      Effect.orElseSucceed(() => Option.none<ModelSelection>()),
+    );
+    if (Option.isNone(decoded)) return jsonError(400, "modelSelection is invalid.");
+    modelSelection = decoded.value;
+  } else {
+    const settings = yield* (yield* ServerSettingsService).getSettings;
+    const resolved = resolvePresetSelection({
+      presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
+      modelPreset: trimString(body.modelPreset),
+      role,
+      parentSelection: current.modelSelection,
+    });
+    if (resolved.kind === "unknown-preset") {
+      return jsonError(400, unknownPresetMessage(resolved.modelPreset, resolved.available));
+    }
+    modelSelection = resolved.selection;
   }
 
   // Trim before branding: ThreadId.make("") throws a defect that escapes the
@@ -231,7 +289,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     ...(blockedBy !== undefined ? { blockedBy } : {}),
     spawnGeneration,
     title,
-    modelSelection: modelSelection.value,
+    modelSelection,
     runtimeMode: current.runtimeMode,
     interactionMode: current.interactionMode,
     branch: current.branch,

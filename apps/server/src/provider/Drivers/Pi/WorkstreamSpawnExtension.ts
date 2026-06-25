@@ -29,14 +29,14 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentence summary shown in the sidebar) and, for non-trivial work, a full self-contained brief that becomes the child's first-turn prompt. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
-    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, a short purpose, an optional full brief (the child's kickoff prompt; defaults to purpose), optional title, optional blockedBy (waits-on thread ids), and optional modelSelection.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentence summary shown in the sidebar) and, for non-trivial work, a full self-contained brief that becomes the child's first-turn prompt. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId]. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
+    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, a short purpose, an optional full brief (the child's kickoff prompt; defaults to purpose), optional title, optional blockedBy (waits-on thread ids), and an optional model override (modelSelection or a named modelPreset; with neither, a preset named after the role is used when configured, else the parent's model is inherited).",
     promptGuidelines: [
       "Use workstream_spawn when you need a separate coder, reviewer, researcher, or other durable child thread to work independently.",
       "Keep purpose short — a 1-3 sentence human-readable summary of why the sub-thread exists; it is what the sidebar card shows and seeds the title.",
       "For anything beyond a trivial task, pass a full self-contained brief: it becomes the child's first-turn prompt verbatim, and the child starts fresh without inheriting this transcript. Omit brief only when the short purpose is already a sufficient prompt.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
-      "Pass modelSelection only to run a child on a different model/thinking level than this thread; omit it to inherit this thread's model."
+      "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model."
     ],
     parameters: {
       type: "object",
@@ -46,9 +46,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
         title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
+        modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
         modelSelection: {
           type: "object",
-          description: "Optional model override for the child. Omit to inherit this thread's model.",
+          description: "Optional explicit model override for the child. Takes precedence over modelPreset and the role default. Omit to fall back to modelPreset, the role preset, or this thread's model.",
           properties: {
             instanceId: { type: "string", description: "Configured provider instance id to route to." },
             model: { type: "string", description: "Model slug for that instance." },
