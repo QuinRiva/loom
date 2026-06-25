@@ -173,6 +173,10 @@ function mapSession(session: OrchestrationSession): ThreadSession {
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,
+    queuedMessages: {
+      steering: [...session.queuedMessages.steering],
+      followUp: [...session.queuedMessages.followUp],
+    },
     ...(session.lastError ? { lastError: session.lastError } : {}),
   };
 }
@@ -425,8 +429,14 @@ function threadSessionsEqual(
     left.activeTurnId === right.activeTurnId &&
     left.createdAt === right.createdAt &&
     left.updatedAt === right.updatedAt &&
-    left.lastError === right.lastError
+    left.lastError === right.lastError &&
+    stringListsEqual(left.queuedMessages.steering, right.queuedMessages.steering) &&
+    stringListsEqual(left.queuedMessages.followUp, right.queuedMessages.followUp)
   );
+}
+
+function stringListsEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function blockedByEqual(left: ReadonlyArray<ThreadId>, right: ReadonlyArray<ThreadId>): boolean {

@@ -455,6 +455,7 @@ describe("createThreadDetailManager", () => {
             runtimeMode: "full-access",
             activeTurnId: TurnId.make("turn-1"),
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: "2026-04-01T00:10:00.000Z",
           },
         },

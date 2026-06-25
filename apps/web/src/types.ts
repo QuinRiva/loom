@@ -206,5 +206,6 @@ export interface ThreadSession {
   createdAt: string;
   updatedAt: string;
   lastError?: string;
+  queuedMessages: { steering: string[]; followUp: string[] };
   orchestrationStatus: OrchestrationSessionStatus;
 }

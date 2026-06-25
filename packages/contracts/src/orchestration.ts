@@ -278,6 +278,12 @@ export const OrchestrationSessionStatus = Schema.Literals([
 ]);
 export type OrchestrationSessionStatus = typeof OrchestrationSessionStatus.Type;
 
+export const QueuedMessages = Schema.Struct({
+  steering: Schema.Array(Schema.String),
+  followUp: Schema.Array(Schema.String),
+});
+export type QueuedMessages = typeof QueuedMessages.Type;
+
 export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
@@ -286,6 +292,12 @@ export const OrchestrationSession = Schema.Struct({
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
+  // Ephemeral live queue of pending messages (steer folds into the running
+  // turn, followUp runs after). Optional with an empty default so DB-hydrated
+  // sessions, which never persist it, decode cleanly and start with no queue.
+  queuedMessages: QueuedMessages.pipe(
+    Schema.withDecodingDefault(Effect.succeed({ steering: [], followUp: [] })),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationSession = typeof OrchestrationSession.Type;

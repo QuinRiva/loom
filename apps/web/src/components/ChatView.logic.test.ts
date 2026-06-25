@@ -615,6 +615,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     status: "ready" as const,
     createdAt: "2026-03-29T00:00:00.000Z",
     updatedAt: "2026-03-29T00:00:10.000Z",
+    queuedMessages: { steering: [], followUp: [] },
     orchestrationStatus: "idle" as const,
   };
 

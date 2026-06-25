@@ -181,6 +181,7 @@ import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./Branch
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import {
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -4648,6 +4649,12 @@ export default function ChatView(props: ChatViewProps) {
               )}
             >
               <div className="relative isolate">
+                {activeThread?.session ? (
+                  <ComposerQueuedMessages
+                    steering={activeThread.session.queuedMessages.steering}
+                    followUp={activeThread.session.queuedMessages.followUp}
+                  />
+                ) : null}
                 <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                 <div className="relative z-10">
                   <ChatComposer

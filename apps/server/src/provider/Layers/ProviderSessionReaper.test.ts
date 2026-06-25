@@ -114,7 +114,9 @@ function makeReadModel(
       hasActionableProposedPlan: false,
       latestTurn: null,
       messages: [],
-      session: thread.session,
+      session: thread.session
+        ? { ...thread.session, queuedMessages: { steering: [], followUp: [] } }
+        : null,
       activities: [],
       proposedPlans: [],
       checkpoints: [],

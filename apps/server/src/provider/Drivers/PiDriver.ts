@@ -589,6 +589,12 @@ function makePiAdapter(input: {
           },
         });
       }
+      case "queue_update":
+        return emit({
+          ...base(),
+          type: "thread.queue.updated",
+          payload: { steering: message.steering ?? [], followUp: message.followUp ?? [] },
+        });
       case "turn_end":
         if (!session.activeTurnId) return Effect.void;
         updateSession(session, { status: "ready", activeTurnId: undefined });
@@ -778,16 +784,26 @@ function makePiAdapter(input: {
                 });
               updateSession(session, { model: turnInput.modelSelection.model });
             }
-            const turnId = TurnId.make(`pi-turn-${randomUUID()}`);
-            session.activeTurnId = turnId;
-            session.turns.push({ id: turnId, items: [] });
-            updateSession(session, { status: "running", activeTurnId: turnId });
+            // A send while a turn is already running is a steer: pi folds the
+            // message into the live agent loop and continues the SAME turn, so
+            // we keep the existing turn id and don't re-emit lifecycle state
+            // (mirrors ClaudeAdapter). Pi requires an explicit streamingBehavior
+            // mid-turn or it rejects the prompt. Future: let the user choose
+            // steer vs followUp per message (design doc Decision 3).
+            const activeTurnId = session.activeTurnId;
+            const turnId = activeTurnId ?? TurnId.make(`pi-turn-${randomUUID()}`);
+            if (activeTurnId === undefined) {
+              session.activeTurnId = turnId;
+              session.turns.push({ id: turnId, items: [] });
+              updateSession(session, { status: "running", activeTurnId: turnId });
+            }
             yield* Effect.tryPromise({
               try: () =>
                 session.process.request({
                   type: "prompt",
                   message: text,
                   ...(images.length > 0 ? { images } : {}),
+                  ...(activeTurnId !== undefined ? { streamingBehavior: "steer" as const } : {}),
                 }),
               catch: (cause) =>
                 new ProviderAdapterRequestError({
