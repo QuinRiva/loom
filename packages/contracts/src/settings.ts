@@ -439,6 +439,14 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  // Named model presets for Workstream spawns. Keyed by a plain slug; the
+  // value is a full `ModelSelection`. `workstream_spawn` resolves a preset by
+  // explicit `modelPreset` name, or — when neither model field is given — by
+  // the child's `role` (a preset named after the role). Default empty so
+  // existing spawns inherit the parent's selection exactly as before.
+  workstreamModelPresets: Schema.Record(TrimmedNonEmptyString, ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
@@ -545,6 +553,9 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Whole-map replacement, mirroring `providerInstances`: presets are set as
+  // complete entries, so a partial per-preset merge has no coherent meaning.
+  workstreamModelPresets: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, ModelSelection)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
