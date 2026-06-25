@@ -342,6 +342,13 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       const args = ["serve", `--hostname=${hostname}`, `--port=${port}`];
       const spawnCommand = yield* resolveCommand(input.binaryPath, args, input.environment);
 
+      // NOTE: the worktree-local node_modules/.bin prepend (withLocalNodeModulesBin)
+      // applied at the other provider spawn seams is intentionally NOT applied
+      // here. The OpenCode server is a long-lived process shared across multiple
+      // directories (sessions pass their cwd as the SDK `directory` per request,
+      // not via the server's own cwd), so there is no single correct worktree
+      // cwd to prepend. Prepending one session's bin to the shared server would
+      // be wrong for every other session it serves.
       const child = yield* spawner
         .spawn(
           ChildProcess.make(spawnCommand.command, spawnCommand.args, {

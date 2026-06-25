@@ -28,6 +28,7 @@ import {
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -239,7 +240,9 @@ function enrichPiSnapshot(input: {
           binaryPath: input.settings.binaryPath,
           platform,
           cwd: input.serverConfig.cwd,
-          env: process.env,
+          // Prepend the worktree's node_modules/.bin so pi resolves that
+          // worktree's workspace binaries before the server's inherited PATH.
+          env: withLocalNodeModulesBin(process.env, input.serverConfig.cwd, platform),
         }),
       ),
       (proc) =>
@@ -623,10 +626,11 @@ function makePiAdapter(input: {
               startInput.appendSystemPrompt,
               mcpSession ? PI_WORKSTREAM_SYSTEM_PROMPT : undefined,
             );
+            const piCwd = startInput.cwd ?? input.serverConfig.cwd;
             return createPiRpcProcess({
               binaryPath: input.settings.binaryPath,
               platform,
-              cwd: startInput.cwd ?? input.serverConfig.cwd,
+              cwd: piCwd,
               // Deterministic per-thread session id so pi create-or-resumes the
               // SAME session file across server restarts / reconnects, instead
               // of silently spawning a fresh, amnesiac session each time.
@@ -635,19 +639,28 @@ function makePiAdapter(input: {
               ...(mcpSession
                 ? { extensions: [ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir)] }
                 : {}),
-              env: mcpSession
-                ? {
-                    ...process.env,
-                    T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
-                  }
-                : process.env,
+              // Prepend the session worktree's node_modules/.bin so pi resolves
+              // that worktree's workspace binaries before the server's inherited
+              // PATH, while preserving the T3_WORKSTREAM_* additions.
+              env: withLocalNodeModulesBin(
+                mcpSession
+                  ? {
+                      ...process.env,
+                      T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
+                    }
+                  : process.env,
+                piCwd,
+                platform,
+              ),
             });
           },
           catch: (cause) =>

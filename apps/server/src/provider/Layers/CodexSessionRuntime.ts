@@ -16,7 +16,8 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { resolveSpawnCommand, withLocalNodeModulesBin } from "@t3tools/shared/shell";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -720,11 +721,21 @@ export const makeCodexSessionRuntime = (
     // `child_process.spawn`; `expandHomePath` lets a configured
     // `CODEX_HOME=~/.codex_work` reach codex as an absolute path.
     const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
-    const env = {
+    const baseEnv = {
       ...options.environment,
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     };
     const extendEnv = options.environment === undefined;
+    // Prepend the session worktree's node_modules/.bin so the codex app-server
+    // resolves that worktree's workspace binaries before anything inherited from
+    // the server's PATH. Only when a full env is supplied (extendEnv === false);
+    // otherwise the child inherits the server env unchanged.
+    // INVARIANT: real worktree sessions always pass `options.environment` (a full
+    // merged env), so they take the prepend branch. The inherit branch is the
+    // env-less probe path only; a future worktree caller that omits environment
+    // would silently reintroduce the PATH leak.
+    const platform = yield* HostProcessPlatform;
+    const env = extendEnv ? baseEnv : withLocalNodeModulesBin(baseEnv, options.cwd, platform);
     const spawnCommand = yield* resolveSpawnCommand(
       options.binaryPath,
       ["app-server", ...(options.appServerArgs ?? [])],
