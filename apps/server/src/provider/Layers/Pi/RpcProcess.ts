@@ -146,8 +146,16 @@ export interface PiRpcProcessOptions {
   readonly cwd?: string | undefined;
   // Stable per-thread id; pi create-or-resumes the same session file for it.
   readonly sessionId?: string | undefined;
+  // Fork the named source session (id or path) into a fresh session. Combined
+  // with `sessionId`, pi creates a throwaway fork with that fresh id and never
+  // mutates the source (the `ask_thread` frozen-oracle mechanism). pi errors if
+  // `sessionId` already exists, so the fresh id must be unique.
+  readonly forkFrom?: string | undefined;
   readonly appendSystemPrompt?: string | undefined;
   readonly extensions?: ReadonlyArray<string> | undefined;
+  // Allowlist of tool names (`--tools`). Used to launch a fork read-only
+  // (`read,grep,find,ls`) so it physically cannot edit/run commands.
+  readonly tools?: ReadonlyArray<string> | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
 }
 
@@ -211,14 +219,26 @@ function describePiExit(input: {
   );
 }
 
-export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcProcess> {
+/**
+ * Pure assembly of the `pi --mode rpc` argv from the process options. Exposed so
+ * the fork's read-only invariants (carries `--fork`/`--tools read,...` and NO
+ * `--extension`) are unit-testable without spawning pi.
+ */
+export function buildPiRpcArgs(options: PiRpcProcessOptions): ReadonlyArray<string> {
   const invocation = buildPiRpcInvocation(options.binaryPath);
-  const args = [
+  return [
     ...invocation.args,
+    ...(options.forkFrom ? ["--fork", options.forkFrom] : []),
     ...(options.sessionId ? ["--session-id", options.sessionId] : []),
+    ...(options.tools && options.tools.length > 0 ? ["--tools", options.tools.join(",")] : []),
     ...(options.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),
     ...(options.extensions ?? []).flatMap((extension) => ["--extension", extension]),
   ];
+}
+
+export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcProcess> {
+  const invocation = buildPiRpcInvocation(options.binaryPath);
+  const args = buildPiRpcArgs(options);
   const useWindowsShell = shouldUseWindowsPiShell(invocation.command, options.platform);
   const command = useWindowsShell
     ? quoteWindowsPiShellCommand(invocation.command, options.platform)
