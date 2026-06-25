@@ -113,6 +113,20 @@ export const wakeRateGuardTrips = (
 export const WAKE_REPORT_EXCERPT_LIMIT = 600;
 
 /**
+ * Bounded inline report excerpt shared by both wake-message builders: empty when
+ * there is no report, the trimmed report when it fits, else a truncated prefix
+ * plus a pointer to the on-disk reference. Leads with a blank line so callers
+ * append it directly after the reference.
+ */
+const formatReportExcerpt = (report: string | null): string => {
+  const trimmed = report?.trim() ?? "";
+  if (trimmed.length === 0) return "";
+  return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
+    ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
+    : `\n\n${trimmed}`;
+};
+
+/**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
  * which children completed (role + id + terminal status), for each a reference
  * to its on-disk report plus a BOUNDED excerpt (never the full report), and the
@@ -135,14 +149,7 @@ export const buildParentWakeMessage = (
       child.reportPath !== null
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
         : "_No report was filed; status is the trigger, the report is best-effort context._";
-    const trimmed = child.report?.trim() ?? "";
-    const excerpt =
-      trimmed.length === 0
-        ? ""
-        : trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
-          ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
-          : `\n\n${trimmed}`;
-    return `${header}\n\n${reference}${excerpt}`;
+    return `${header}\n\n${reference}${formatReportExcerpt(child.report)}`;
   });
   return [
     "A spawn generation of your Workstream sub-thread(s) has finished. Results:",
@@ -238,17 +245,10 @@ export const buildChildWakeMessage = (
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
       : "_No report was filed._";
-  const trimmed = report?.trim() ?? "";
-  const excerpt =
-    trimmed.length === 0
-      ? ""
-      : trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
-        ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
-        : `\n\n${trimmed}`;
   return [
     lead,
     "",
-    reference + excerpt,
+    reference + formatReportExcerpt(report),
     "",
     "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either set its status (`workstream_set_status` done/error) or re-dispatch it. Its dependents stay gated until you resolve this; nothing was auto-cascaded.",
   ].join("\n");
