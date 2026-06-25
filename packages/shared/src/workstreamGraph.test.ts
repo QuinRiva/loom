@@ -1,0 +1,206 @@
+import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import {
+  childrenOf,
+  descendantsOf,
+  graphViewFor,
+  type GraphViewThread,
+  isInSameTree,
+  isTerminalStatus,
+  selectJoinedGenerations,
+  subtreeOf,
+} from "./workstreamGraph.ts";
+
+const tid = (id: string) => id as ThreadId;
+
+const node = (
+  overrides: Omit<Partial<GraphViewThread>, "id"> & { readonly id: string },
+): GraphViewThread => ({
+  parentThreadId: null,
+  spawnGeneration: null,
+  status: "planned" as ThreadStatus,
+  role: null,
+  title: null,
+  reportPath: null,
+  blockedBy: [],
+  ...overrides,
+  id: tid(overrides.id),
+});
+
+// A small two-tree fixture:
+//   root-a → (child-1, child-2 → grandchild)
+//   root-b → other
+const tree = [
+  node({ id: "root-a" }),
+  node({ id: "child-1", parentThreadId: tid("root-a") }),
+  node({ id: "child-2", parentThreadId: tid("root-a") }),
+  node({ id: "grandchild", parentThreadId: tid("child-2") }),
+  node({ id: "root-b" }),
+  node({ id: "other", parentThreadId: tid("root-b") }),
+];
+
+describe("structural queries", () => {
+  it("childrenOf returns only direct children", () => {
+    expect(
+      childrenOf(tid("root-a"), tree)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual(["child-1", "child-2"]);
+    expect(childrenOf(tid("grandchild"), tree)).toEqual([]);
+  });
+
+  it("descendantsOf returns all transitive descendants (excluding self)", () => {
+    expect(
+      descendantsOf(tid("root-a"), tree)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual(["child-1", "child-2", "grandchild"]);
+  });
+
+  it("subtreeOf includes the node and its descendants", () => {
+    expect(
+      subtreeOf(tid("child-2"), tree)
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual(["child-2", "grandchild"]);
+  });
+
+  it("tolerates a missing root node (singleton subtree)", () => {
+    expect(subtreeOf(tid("ghost"), tree)).toEqual([]);
+  });
+});
+
+describe("isInSameTree", () => {
+  it("is true for a thread and itself", () => {
+    expect(isInSameTree(tid("child-1"), tid("child-1"), tree)).toBe(true);
+  });
+
+  it("is true for siblings (the reviewer→coder case)", () => {
+    expect(isInSameTree(tid("child-1"), tid("child-2"), tree)).toBe(true);
+  });
+
+  it("is true across ancestor/descendant and cousin within one tree", () => {
+    expect(isInSameTree(tid("child-1"), tid("grandchild"), tree)).toBe(true);
+    expect(isInSameTree(tid("grandchild"), tid("root-a"), tree)).toBe(true);
+  });
+
+  it("is false across separate orchestration trees", () => {
+    expect(isInSameTree(tid("child-1"), tid("other"), tree)).toBe(false);
+    expect(isInSameTree(tid("root-a"), tid("root-b"), tree)).toBe(false);
+  });
+
+  it("is false for a target absent from the snapshot", () => {
+    expect(isInSameTree(tid("child-1"), tid("ghost"), tree)).toBe(false);
+  });
+
+  it("terminates (no infinite loop) on a parent cycle", () => {
+    const cyclic = [
+      node({ id: "x", parentThreadId: tid("y") }),
+      node({ id: "y", parentThreadId: tid("x") }),
+    ];
+    expect(typeof isInSameTree(tid("x"), tid("y"), cyclic)).toBe("boolean");
+  });
+});
+
+describe("isTerminalStatus", () => {
+  it("treats done, blocked, and review as terminal wake triggers", () => {
+    expect((["done", "blocked", "review"] as const).every(isTerminalStatus)).toBe(true);
+    expect((["planned", "running"] as const).some(isTerminalStatus)).toBe(false);
+  });
+});
+
+const genIds = (groups: ReadonlyArray<{ parentId: ThreadId; generation: string }>) =>
+  groups.map((g) => `${g.parentId}::${g.generation}`).sort();
+
+describe("selectJoinedGenerations", () => {
+  const gen = (
+    id: string,
+    spawnGeneration: string | null,
+    status: ThreadStatus,
+    parentThreadId: ThreadId | null = tid("parent-1"),
+  ) => node({ id, parentThreadId, spawnGeneration, status });
+
+  it("joins a generation only once every member is terminal", () => {
+    expect(
+      selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "running")]),
+    ).toEqual([]);
+    expect(
+      genIds(selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "review")])),
+    ).toEqual(["parent-1::gen-1"]);
+  });
+
+  it("scopes the join per (parent, generation) so a later generation wakes independently", () => {
+    expect(
+      genIds(
+        selectJoinedGenerations([gen("old", "gen-1", "running"), gen("new", "gen-2", "done")]),
+      ),
+    ).toEqual(["parent-1::gen-2"]);
+  });
+
+  it("ignores children without a spawn generation or parent", () => {
+    expect(
+      selectJoinedGenerations([gen("root", "gen-1", "done", null), gen("ungen", null, "done")]),
+    ).toEqual([]);
+  });
+
+  it("preserves the concrete node type in the joined children", () => {
+    const [group] = selectJoinedGenerations([
+      node({
+        id: "a",
+        parentThreadId: tid("p"),
+        spawnGeneration: "g",
+        status: "done",
+        role: "coder",
+      }),
+    ]);
+    expect(group?.children[0]?.role).toBe("coder");
+  });
+});
+
+describe("graphViewFor", () => {
+  it("returns the caller's whole tree from any member, with lineage + report flags", () => {
+    const withReport = [
+      node({ id: "root-a", role: "orchestrator", title: "Root" }),
+      node({
+        id: "child-1",
+        parentThreadId: tid("root-a"),
+        role: "coder",
+        reportPath: "child-1.md",
+      }),
+      node({ id: "child-2", parentThreadId: tid("root-a"), role: "reviewer" }),
+      node({ id: "grandchild", parentThreadId: tid("child-2") }),
+      node({ id: "root-b" }),
+      node({ id: "other", parentThreadId: tid("root-b") }),
+    ];
+    // Called from a child, it still returns the full tree (discovery for siblings).
+    const view = graphViewFor(tid("child-1"), withReport);
+    expect(view.rootId).toBe("root-a");
+    expect(view.nodes.map((n) => n.id).sort()).toEqual([
+      "child-1",
+      "child-2",
+      "grandchild",
+      "root-a",
+    ]);
+    // Out-of-tree threads are excluded.
+    expect(view.nodes.some((n) => n.id === "other")).toBe(false);
+    expect(view.nodes.find((n) => n.id === "child-1")?.hasReport).toBe(true);
+    expect(view.nodes.find((n) => n.id === "child-2")?.hasReport).toBe(false);
+    expect(view.lineageEdges).toContainEqual({ from: tid("root-a"), to: tid("child-1") });
+    expect(view.lineageEdges).toContainEqual({ from: tid("child-2"), to: tid("grandchild") });
+  });
+
+  it("emits waits-on edges only for in-tree dependencies", () => {
+    const withDeps = [
+      node({ id: "root-a" }),
+      node({ id: "coder", parentThreadId: tid("root-a") }),
+      node({
+        id: "reviewer",
+        parentThreadId: tid("root-a"),
+        blockedBy: [tid("coder"), tid("ghost")],
+      }),
+    ];
+    const view = graphViewFor(tid("reviewer"), withDeps);
+    expect(view.waitsOnEdges).toEqual([{ from: tid("reviewer"), to: tid("coder") }]);
+  });
+});

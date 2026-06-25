@@ -12,12 +12,11 @@ import {
   buildParentWakeMessage,
   classifyGenerationByReceipts,
   DEFAULT_WAKE_RATE_GUARD,
-  isTerminalStatus,
-  selectJoinedGenerations,
   selectThreadsToDispatch,
   WAKE_REPORT_EXCERPT_LIMIT,
   wakeRateGuardTrips,
 } from "./WorkstreamDispatcher.ts";
+import { selectJoinedGenerations } from "@t3tools/shared/workstreamGraph";
 import { isThreadIdle } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 
@@ -145,52 +144,13 @@ const runningSession = (overrides: Partial<OrchestrationSession> = {}): Orchestr
   runtimeMode: "full-access",
   activeTurnId: "turn-1" as TurnId,
   lastError: null,
+  queuedMessages: { steering: [], followUp: [] },
   updatedAt: now,
   ...overrides,
 });
 
 const genIds = (groups: ReadonlyArray<{ parentId: ThreadId; generation: string }>) =>
   groups.map((g) => `${g.parentId}::${g.generation}`).sort();
-
-describe("isTerminalStatus", () => {
-  it("treats done, blocked, and review as terminal wake triggers", () => {
-    expect((["done", "blocked", "review"] as const).every(isTerminalStatus)).toBe(true);
-    expect((["planned", "running"] as const).some(isTerminalStatus)).toBe(false);
-  });
-});
-
-describe("selectJoinedGenerations", () => {
-  it("joins a generation only once every member is terminal", () => {
-    const partial = [
-      shell({ id: "a", spawnGeneration: "gen-1", status: "done", latestUserMessageAt: now }),
-      shell({ id: "b", spawnGeneration: "gen-1", status: "running", latestUserMessageAt: now }),
-    ];
-    expect(selectJoinedGenerations(partial)).toEqual([]);
-
-    const complete = [
-      shell({ id: "a", spawnGeneration: "gen-1", status: "done", latestUserMessageAt: now }),
-      shell({ id: "b", spawnGeneration: "gen-1", status: "review", latestUserMessageAt: now }),
-    ];
-    expect(genIds(selectJoinedGenerations(complete))).toEqual(["parent-1::gen-1"]);
-  });
-
-  it("scopes the join per (parent, generation) so a later generation wakes independently", () => {
-    const threads = [
-      // earlier long-running generation, still active → must not block gen-2
-      shell({ id: "old", spawnGeneration: "gen-1", status: "running", latestUserMessageAt: now }),
-      shell({ id: "new", spawnGeneration: "gen-2", status: "done", latestUserMessageAt: now }),
-    ];
-    expect(genIds(selectJoinedGenerations(threads))).toEqual(["parent-1::gen-2"]);
-  });
-
-  it("ignores children without a spawn generation or parent", () => {
-    const threads = [
-      shell({ id: "root", parentThreadId: null, spawnGeneration: "gen-1", status: "done" }),
-      shell({ id: "ungen", spawnGeneration: null, status: "done", latestUserMessageAt: now }),
-    ];
-    expect(selectJoinedGenerations(threads)).toEqual([]);
-  });
-});
 
 describe("isThreadIdle", () => {
   it("is idle with no session, no pending turn-start, and no active turn", () => {
