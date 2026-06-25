@@ -217,6 +217,7 @@ function makeThreadShellSnapshot(params: {
         parentThreadId: null,
         role: null,
         purpose: null,
+        brief: null,
         status: "planned" as const,
         blockedBy: [],
         title: "Thread",

@@ -501,6 +501,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  brief: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   title: TrimmedNonEmptyString,
@@ -632,6 +635,7 @@ const ThreadCreateCommand = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Intrinsic run-condition carried at node creation: the dispatcher defers the
   // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
   // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
@@ -716,6 +720,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1180,6 +1185,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   status: Schema.optional(ThreadStatus),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
   title: TrimmedNonEmptyString,

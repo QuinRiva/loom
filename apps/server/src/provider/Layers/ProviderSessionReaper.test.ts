@@ -97,6 +97,7 @@ function makeReadModel(
       parentThreadId: null,
       role: null,
       purpose: null,
+      brief: null,
       status: "planned" as const,
       blockedBy: [],
       title: `Thread ${thread.id}`,

@@ -221,6 +221,7 @@ const makeDefaultOrchestrationThreadShell = (
     parentThreadId: null,
     role: null,
     purpose: null,
+    brief: null,
     status: "planned" as const,
     blockedBy: [],
     title: "Default Thread",

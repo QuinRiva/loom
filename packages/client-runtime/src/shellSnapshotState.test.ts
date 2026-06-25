@@ -42,6 +42,7 @@ const BASE_SNAPSHOT: OrchestrationShellSnapshot = {
       parentThreadId: null,
       role: null,
       purpose: null,
+      brief: null,
       status: "planned" as const,
       blockedBy: [],
       title: "Thread",

@@ -575,7 +575,7 @@ function WorkstreamCard({
           <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">
             Goal
           </span>
-          <span className="text-white/65">{getPurpose(thread)}</span>
+          <span className="line-clamp-3 text-white/65">{getPurpose(thread)}</span>
         </div>
         {thread.lastActivityPreview ? (
           <div className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-white/45">
