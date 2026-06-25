@@ -35,6 +35,7 @@ function makeThread(
     parentThreadId: null,
     role: null,
     purpose: null,
+    brief: null,
     status: "planned" as const,
     blockedBy: [],
     spawnGeneration: null,
@@ -52,6 +53,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    lastActivityPreview: null,
     ...input,
   };
 }

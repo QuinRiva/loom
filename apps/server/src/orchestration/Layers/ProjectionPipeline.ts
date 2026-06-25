@@ -742,6 +742,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             parentThreadId: event.payload.parentThreadId ?? null,
             role: event.payload.role ?? null,
             purpose: event.payload.purpose ?? null,
+            brief: event.payload.brief ?? null,
             status: event.payload.status ?? "planned",
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,

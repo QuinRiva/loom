@@ -31,7 +31,7 @@ import {
 } from "./commandInvariants.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
-import { areDependenciesSatisfied } from "./workstreamDependencies.ts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -459,6 +459,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.role !== undefined ? { role: command.role } : {}),
           ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
+          ...(command.brief !== undefined ? { brief: command.brief } : {}),
           // Seed the node's run-condition; drop self-references so a thread can
           // never block on itself (cycles/dangling ids tolerated permissively,
           // matching thread.dependencies.set).

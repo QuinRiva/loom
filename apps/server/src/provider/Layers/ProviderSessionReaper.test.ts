@@ -97,6 +97,7 @@ function makeReadModel(
       parentThreadId: null,
       role: null,
       purpose: null,
+      brief: null,
       status: "planned" as const,
       blockedBy: [],
       spawnGeneration: null,
@@ -116,7 +117,9 @@ function makeReadModel(
       hasActionableProposedPlan: false,
       latestTurn: null,
       messages: [],
-      session: thread.session,
+      session: thread.session
+        ? { ...thread.session, queuedMessages: { steering: [], followUp: [] } }
+        : null,
       activities: [],
       proposedPlans: [],
       checkpoints: [],
@@ -213,12 +216,12 @@ describe("ProviderSessionReaper", () => {
           getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
           getThreadCheckpointContext: () => Effect.die("unused"),
           getFullThreadDiffContext: () => Effect.die("unused"),
-          getThreadShellById: (threadId) =>
-            Effect.succeed(
-              input.readModel.threads.find((thread) => thread.id === threadId)
-                ? Option.some(input.readModel.threads.find((thread) => thread.id === threadId)!)
-                : Option.none(),
-            ),
+          getThreadShellById: (threadId) => {
+            const found = input.readModel.threads.find((thread) => thread.id === threadId);
+            return Effect.succeed(
+              found ? Option.some({ ...found, lastActivityPreview: null }) : Option.none(),
+            );
+          },
           getThreadDetailById: () => Effect.die("unused"),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         }),

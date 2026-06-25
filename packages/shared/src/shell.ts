@@ -444,6 +444,30 @@ function readEnvPath(env: NodeJS.ProcessEnv): string | undefined {
   return env.PATH ?? env.Path ?? env.path;
 }
 
+/**
+ * Prepend `<cwd>/node_modules/.bin` to PATH so a child process spawned in a
+ * worktree resolves that worktree's workspace binaries (e.g. `vp`) before
+ * anything inherited from the server's environment. Without this, a server
+ * launched from the primary checkout leaks that checkout's `node_modules/.bin`
+ * into every worktree session, so a bare `vp` resolves to the wrong install.
+ *
+ * Prepend-wins (never strips inherited entries), dedupes, and returns a fresh
+ * env object — the input is never mutated.
+ */
+export function withLocalNodeModulesBin(
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  const localBin = (platform === "win32" ? NodePath.win32 : NodePath.posix).join(
+    cwd,
+    "node_modules",
+    ".bin",
+  );
+  const merged = mergePathValues(localBin, readEnvPath(env), platform);
+  return { ...env, ...(merged ? { PATH: merged } : {}) };
+}
+
 function resolvePathEnvironmentVariable(env: NodeJS.ProcessEnv): string {
   return readEnvPath(env) ?? "";
 }

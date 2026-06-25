@@ -266,6 +266,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       parentThreadId: null,
       role: null,
       purpose: null,
+      brief: null,
       status: "planned" as const,
       blockedBy: [],
       spawnGeneration: null,
@@ -285,6 +286,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       hasPendingApprovals: false,
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
+      lastActivityPreview: null,
     } satisfies Omit<OrchestrationThreadShell, "id">;
 
     expect(
@@ -413,6 +415,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           parentThreadId: null,
           role: null,
           purpose: null,
+          brief: null,
           status: "planned" as const,
           blockedBy: [],
           spawnGeneration: null,
@@ -441,12 +444,14 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             runtimeMode: "full-access",
             activeTurnId: "turn-1" as TurnId,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: now,
           },
           latestUserMessageAt: now,
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          lastActivityPreview: null,
         } satisfies OrchestrationThreadShell;
 
         const orchestrationEngine = {
@@ -563,6 +568,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           parentThreadId: null,
           role: null,
           purpose: null,
+          brief: null,
           status: "planned" as const,
           blockedBy: [],
           spawnGeneration: null,
@@ -591,12 +597,14 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             runtimeMode: "full-access",
             activeTurnId: "turn-1" as TurnId,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: now,
           },
           latestUserMessageAt: now,
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          lastActivityPreview: null,
         } satisfies OrchestrationThreadShell;
 
         const descriptor = {

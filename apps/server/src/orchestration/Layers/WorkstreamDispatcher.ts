@@ -26,7 +26,7 @@ import {
 } from "../Services/WorkstreamDispatcher.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamReport } from "../workstreamReport.ts";
-import { areDependenciesSatisfied } from "../workstreamDependencies.ts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
 
 /**
@@ -276,7 +276,7 @@ const make = Effect.gen(function* () {
     );
 
   const promoteThread = Effect.fn("promoteThread")(function* (thread: OrchestrationThreadShell) {
-    const { role, purpose } = thread;
+    const { role, purpose, brief } = thread;
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null) return;
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -292,7 +292,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
-        text: workstreamChildPrompt({ role, purpose }),
+        text: workstreamChildPrompt({ role, brief: brief ?? purpose }),
         attachments: [],
       },
       titleSeed: thread.title,

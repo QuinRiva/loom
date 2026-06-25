@@ -31,6 +31,7 @@ const stubThread = {
   parentThreadId: null,
   role: null,
   purpose: null,
+  brief: null,
   status: "planned" as const,
   blockedBy: [],
   spawnGeneration: null,
@@ -49,6 +50,7 @@ const stubThread = {
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
+  lastActivityPreview: null,
   session: null,
 } as const;
 

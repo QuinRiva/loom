@@ -29,11 +29,12 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role and purpose. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
-    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, purpose, optional title, optional blockedBy (waits-on thread ids), and optional modelSelection.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentence summary shown in the sidebar) and, for non-trivial work, a full self-contained brief that becomes the child's first-turn prompt. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
+    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, a short purpose, an optional full brief (the child's kickoff prompt; defaults to purpose), optional title, optional blockedBy (waits-on thread ids), and optional modelSelection.",
     promptGuidelines: [
       "Use workstream_spawn when you need a separate coder, reviewer, researcher, or other durable child thread to work independently.",
-      "Make the purpose self-contained; the child starts fresh and does not inherit this transcript.",
+      "Keep purpose short — a 1-3 sentence human-readable summary of why the sub-thread exists; it is what the sidebar card shows and seeds the title.",
+      "For anything beyond a trivial task, pass a full self-contained brief: it becomes the child's first-turn prompt verbatim, and the child starts fresh without inheriting this transcript. Omit brief only when the short purpose is already a sufficient prompt.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "Pass modelSelection only to run a child on a different model/thinking level than this thread; omit it to inherit this thread's model."
     ],
@@ -41,7 +42,8 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       type: "object",
       properties: {
         role: { type: "string", description: "Role label for the child agent, e.g. coder, reviewer, researcher." },
-        purpose: { type: "string", description: "Self-contained purpose/prompt for the child agent's first turn." },
+        purpose: { type: "string", description: "Short (1-3 sentence) human-readable summary of why the sub-thread exists, shown in the sidebar. Required." },
+        brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
         title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
         modelSelection: {

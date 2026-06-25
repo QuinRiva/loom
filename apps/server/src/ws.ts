@@ -139,6 +139,10 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
+// NOTE: `WS_METHODS.heartbeat` is intentionally absent. It is an
+// authenticated-session-only keepalive (least privilege; carries no data): any
+// session that authenticated at the WS upgrade may beat, regardless of scope.
+// Its handler therefore bypasses the scope-checked `observeRpcEffect` wrapper.
 const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
@@ -709,6 +713,7 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
                 parentThreadId: bootstrap.createThread.parentThreadId ?? null,
                 role: bootstrap.createThread.role ?? null,
                 purpose: bootstrap.createThread.purpose ?? null,
+                brief: bootstrap.createThread.brief ?? null,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,
@@ -813,6 +818,10 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        // Authenticated-session-only keepalive: the WS upgrade already
+        // authenticated this session, so the handler just acknowledges. No
+        // scope check, no instrumentation (kept out of request telemetry).
+        [WS_METHODS.heartbeat]: (_input) => Effect.void,
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,

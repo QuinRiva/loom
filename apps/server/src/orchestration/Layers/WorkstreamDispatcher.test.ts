@@ -19,6 +19,7 @@ import {
   wakeRateGuardTrips,
 } from "./WorkstreamDispatcher.ts";
 import { isThreadIdle } from "../threadIdle.ts";
+import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
 
@@ -84,6 +85,7 @@ describe("selectThreadsToDispatch", () => {
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: now,
           },
         }),
@@ -364,5 +366,24 @@ describe("deferred wake gates on parent idleness", () => {
       session: runningSession({ status: "ready", activeTurnId: null }),
     });
     expect(isThreadIdle(idleParent, new Set())).toBe(true);
+  });
+});
+
+describe("kick-off prompt brief/purpose resolution", () => {
+  // The dispatcher's promoteThread feeds `brief ?? purpose` into
+  // workstreamChildPrompt, so the full brief drives the child's first turn when
+  // present and the short purpose is the fallback when it is absent.
+  const resolve = (purpose: string, brief: string | null) =>
+    workstreamChildPrompt({ role: "coder", brief: brief ?? purpose });
+
+  it("uses the brief as the prompt body when a brief is present", () => {
+    const prompt = resolve("short summary", "the full self-contained kickoff brief");
+    expect(prompt).toContain("the full self-contained kickoff brief");
+    expect(prompt).not.toContain("short summary");
+  });
+
+  it("falls back to the purpose when the brief is absent", () => {
+    const prompt = resolve("short summary", null);
+    expect(prompt).toContain("short summary");
   });
 });

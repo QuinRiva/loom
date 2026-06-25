@@ -28,6 +28,7 @@ import {
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -80,7 +81,7 @@ const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilitie
   packageName: "@earendil-works/pi-coding-agent",
 });
 const PI_WORKSTREAM_SYSTEM_PROMPT =
-  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide a self-contained role, purpose, and optional title. A child with no dependencies starts immediately; a child spawned with `blockedBy` (an array of sibling thread ids) is created but does not start until every listed thread reaches `done`, then starts automatically. To gate execution, spawn the dependency first to get its id, then spawn the dependent with `blockedBy: [thatId]`. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status). `workstream_set_dependencies` is re-planning only: it re-gates a not-yet-started thread, but cannot un-run a thread that has already started — for that thread the edge is recorded for display only. You may only set status or dependencies on your own thread or threads you directly spawned.";
+  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide a role, a short `purpose` (a 1-3 sentence summary shown in the sidebar), and — for non-trivial work — a full self-contained `brief` that becomes the child's first-turn prompt (it defaults to `purpose` when omitted, since the child starts fresh and inherits no transcript). Pass an optional title too. A child with no dependencies starts immediately; a child spawned with `blockedBy` (an array of sibling thread ids) is created but does not start until every listed thread reaches `done`, then starts automatically. To gate execution, spawn the dependency first to get its id, then spawn the dependent with `blockedBy: [thatId]`. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status). `workstream_set_dependencies` is re-planning only: it re-gates a not-yet-started thread, but cannot un-run a thread that has already started — for that thread the edge is recorded for display only. You may only set status or dependencies on your own thread or threads you directly spawned.";
 
 const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [
@@ -240,7 +241,9 @@ function enrichPiSnapshot(input: {
           binaryPath: input.settings.binaryPath,
           platform,
           cwd: input.serverConfig.cwd,
-          env: process.env,
+          // Prepend the worktree's node_modules/.bin so pi resolves that
+          // worktree's workspace binaries before the server's inherited PATH.
+          env: withLocalNodeModulesBin(process.env, input.serverConfig.cwd, platform),
         }),
       ),
       (proc) =>
@@ -590,6 +593,12 @@ function makePiAdapter(input: {
           },
         });
       }
+      case "queue_update":
+        return emit({
+          ...base(),
+          type: "thread.queue.updated",
+          payload: { steering: message.steering ?? [], followUp: message.followUp ?? [] },
+        });
       case "turn_end":
         if (!session.activeTurnId) return Effect.void;
         updateSession(session, { status: "ready", activeTurnId: undefined });
@@ -624,10 +633,11 @@ function makePiAdapter(input: {
               startInput.appendSystemPrompt,
               mcpSession ? PI_WORKSTREAM_SYSTEM_PROMPT : undefined,
             );
+            const piCwd = startInput.cwd ?? input.serverConfig.cwd;
             return createPiRpcProcess({
               binaryPath: input.settings.binaryPath,
               platform,
-              cwd: startInput.cwd ?? input.serverConfig.cwd,
+              cwd: piCwd,
               // Deterministic per-thread session id so pi create-or-resumes the
               // SAME session file across server restarts / reconnects, instead
               // of silently spawning a fresh, amnesiac session each time.
@@ -636,22 +646,31 @@ function makePiAdapter(input: {
               ...(mcpSession
                 ? { extensions: [ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir)] }
                 : {}),
-              env: mcpSession
-                ? {
-                    ...process.env,
-                    T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_REPORT_URL: workstreamReportUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
-                  }
-                : process.env,
+              // Prepend the session worktree's node_modules/.bin so pi resolves
+              // that worktree's workspace binaries before the server's inherited
+              // PATH, while preserving the T3_WORKSTREAM_* additions.
+              env: withLocalNodeModulesBin(
+                mcpSession
+                  ? {
+                      ...process.env,
+                      T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_REPORT_URL: workstreamReportUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
+                    }
+                  : process.env,
+                piCwd,
+                platform,
+              ),
             });
           },
           catch: (cause) =>
@@ -782,16 +801,26 @@ function makePiAdapter(input: {
                 });
               updateSession(session, { model: turnInput.modelSelection.model });
             }
-            const turnId = TurnId.make(`pi-turn-${randomUUID()}`);
-            session.activeTurnId = turnId;
-            session.turns.push({ id: turnId, items: [] });
-            updateSession(session, { status: "running", activeTurnId: turnId });
+            // A send while a turn is already running is a steer: pi folds the
+            // message into the live agent loop and continues the SAME turn, so
+            // we keep the existing turn id and don't re-emit lifecycle state
+            // (mirrors ClaudeAdapter). Pi requires an explicit streamingBehavior
+            // mid-turn or it rejects the prompt. Future: let the user choose
+            // steer vs followUp per message (design doc Decision 3).
+            const activeTurnId = session.activeTurnId;
+            const turnId = activeTurnId ?? TurnId.make(`pi-turn-${randomUUID()}`);
+            if (activeTurnId === undefined) {
+              session.activeTurnId = turnId;
+              session.turns.push({ id: turnId, items: [] });
+              updateSession(session, { status: "running", activeTurnId: turnId });
+            }
             yield* Effect.tryPromise({
               try: () =>
                 session.process.request({
                   type: "prompt",
                   message: text,
                   ...(images.length > 0 ? { images } : {}),
+                  ...(activeTurnId !== undefined ? { streamingBehavior: "steer" as const } : {}),
                 }),
               catch: (cause) =>
                 new ProviderAdapterRequestError({

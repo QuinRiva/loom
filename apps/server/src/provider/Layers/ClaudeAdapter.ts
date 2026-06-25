@@ -21,6 +21,8 @@ import {
   type ModelUsage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import {
   ApprovalRequestId,
   type CanonicalItemType,
@@ -1370,6 +1372,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
     Effect.provideService(Path.Path, path),
   );
+  const hostPlatform = yield* HostProcessPlatform;
   const nativeEventLogger =
     options?.nativeEventLogger ??
     (options?.nativeEventLogPath !== undefined
@@ -3469,7 +3472,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: claudeEnvironment,
+        // Prepend the session worktree's node_modules/.bin so the Claude query
+        // child resolves that worktree's workspace binaries before anything
+        // inherited from the server's PATH. claudeEnvironment is the full env.
+        env: input.cwd
+          ? withLocalNodeModulesBin(claudeEnvironment, input.cwd, hostPlatform)
+          : claudeEnvironment,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession

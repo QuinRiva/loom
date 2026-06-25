@@ -173,6 +173,10 @@ function mapSession(session: OrchestrationSession): ThreadSession {
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,
+    queuedMessages: {
+      steering: [...session.queuedMessages.steering],
+      followUp: [...session.queuedMessages.followUp],
+    },
     ...(session.lastError ? { lastError: session.lastError } : {}),
   };
 }
@@ -343,6 +347,7 @@ function mapThreadShell(
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
+    lastActivityPreview: thread.lastActivityPreview ?? null,
   };
   return {
     shell,
@@ -425,8 +430,14 @@ function threadSessionsEqual(
     left.activeTurnId === right.activeTurnId &&
     left.createdAt === right.createdAt &&
     left.updatedAt === right.updatedAt &&
-    left.lastError === right.lastError
+    left.lastError === right.lastError &&
+    stringListsEqual(left.queuedMessages.steering, right.queuedMessages.steering) &&
+    stringListsEqual(left.queuedMessages.followUp, right.queuedMessages.followUp)
   );
+}
+
+function stringListsEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function blockedByEqual(left: ReadonlyArray<ThreadId>, right: ReadonlyArray<ThreadId>): boolean {
@@ -458,7 +469,8 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.hasActionableProposedPlan === right.hasActionableProposedPlan
+    left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
+    left.lastActivityPreview === right.lastActivityPreview
   );
 }
 
@@ -2075,6 +2087,42 @@ export function selectSidebarThreadSummaryByRef(
   return ref
     ? selectEnvironmentState(state, ref.environmentId).sidebarThreadSummaryById[ref.threadId]
     : undefined;
+}
+
+/**
+ * All transitive descendant sidebar summaries of `rootThreadId` within one
+ * environment, ordered by `createdAt`. Walks `parentThreadId` downward via a
+ * one-pass children index, guarded by a `visited` set and a depth cap (mirrors
+ * `buildThreadLineage`). Powers the orchestrator row's rolled-up graph indicator.
+ */
+export function selectDescendantSidebarThreads(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  rootThreadId: ThreadId,
+  { maxDepth = 16 }: { maxDepth?: number } = {},
+): SidebarThreadSummary[] {
+  const summaries = selectEnvironmentState(state, environmentId).sidebarThreadSummaryById;
+  const childrenByParent = new Map<ThreadId, SidebarThreadSummary[]>();
+  for (const summary of Object.values(summaries)) {
+    if (summary.parentThreadId === null) continue;
+    const siblings = childrenByParent.get(summary.parentThreadId);
+    if (siblings) siblings.push(summary);
+    else childrenByParent.set(summary.parentThreadId, [summary]);
+  }
+  const descendants: SidebarThreadSummary[] = [];
+  const visited = new Set<ThreadId>([rootThreadId]);
+  let frontier = childrenByParent.get(rootThreadId) ?? [];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const next: SidebarThreadSummary[] = [];
+    for (const child of frontier) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      descendants.push(child);
+      next.push(...(childrenByParent.get(child.id) ?? []));
+    }
+    frontier = next;
+  }
+  return descendants.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 export function selectThreadIdsByProjectRef(

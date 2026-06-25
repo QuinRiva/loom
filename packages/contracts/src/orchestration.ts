@@ -278,6 +278,12 @@ export const OrchestrationSessionStatus = Schema.Literals([
 ]);
 export type OrchestrationSessionStatus = typeof OrchestrationSessionStatus.Type;
 
+export const QueuedMessages = Schema.Struct({
+  steering: Schema.Array(Schema.String),
+  followUp: Schema.Array(Schema.String),
+});
+export type QueuedMessages = typeof QueuedMessages.Type;
+
 export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
@@ -286,6 +292,12 @@ export const OrchestrationSession = Schema.Struct({
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
+  // Ephemeral live queue of pending messages (steer folds into the running
+  // turn, followUp runs after). Optional with an empty default so DB-hydrated
+  // sessions, which never persist it, decode cleanly and start with no queue.
+  queuedMessages: QueuedMessages.pipe(
+    Schema.withDecodingDefault(Effect.succeed({ steering: [], followUp: [] })),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationSession = typeof OrchestrationSession.Type;
@@ -501,6 +513,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  brief: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -526,6 +541,15 @@ export const OrchestrationThreadShell = Schema.Struct({
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
   hasActionableProposedPlan: Schema.Boolean,
+  /**
+   * Short human-readable description of the most recent activity for this
+   * thread — the latest assistant-narration text, truncated to roughly one
+   * line. Null when the thread has no assistant narration yet. Additive,
+   * nullable projection field (decode-default null) so older snapshots load.
+   */
+  lastActivityPreview: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
@@ -629,6 +653,7 @@ const ThreadCreateCommand = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Intrinsic run-condition carried at node creation: the dispatcher defers the
   // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
   // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
@@ -716,6 +741,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1221,6 +1247,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   status: Schema.optional(ThreadStatus),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

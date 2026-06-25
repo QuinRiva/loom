@@ -217,6 +217,7 @@ function makeThreadShellSnapshot(params: {
         parentThreadId: null,
         role: null,
         purpose: null,
+        brief: null,
         status: "planned" as const,
         blockedBy: [],
         spawnGeneration: null,
@@ -252,6 +253,7 @@ function makeThreadShellSnapshot(params: {
               runtimeMode: "full-access",
               activeTurnId: params.sessionStatus === "running" ? turnId : null,
               lastError: null,
+              queuedMessages: { steering: [], followUp: [] },
               updatedAt: "2026-04-13T00:00:00.000Z",
             }
           : null,
@@ -259,6 +261,7 @@ function makeThreadShellSnapshot(params: {
         hasPendingApprovals: params.hasPendingApprovals ?? false,
         hasPendingUserInput: params.hasPendingUserInput ?? false,
         hasActionableProposedPlan: params.hasActionableProposedPlan ?? false,
+        lastActivityPreview: null,
       },
     ],
   };

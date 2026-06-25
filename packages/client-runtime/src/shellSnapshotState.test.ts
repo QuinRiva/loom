@@ -42,6 +42,7 @@ const BASE_SNAPSHOT: OrchestrationShellSnapshot = {
       parentThreadId: null,
       role: null,
       purpose: null,
+      brief: null,
       status: "planned" as const,
       blockedBy: [],
       spawnGeneration: null,
@@ -61,6 +62,7 @@ const BASE_SNAPSHOT: OrchestrationShellSnapshot = {
       hasPendingApprovals: false,
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
+      lastActivityPreview: null,
     },
   ],
 };

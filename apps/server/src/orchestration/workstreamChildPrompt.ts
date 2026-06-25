@@ -10,13 +10,13 @@
 
 export const workstreamChildPrompt = (input: {
   readonly role: string;
-  readonly purpose: string;
+  readonly brief: string;
 }): string =>
   [
     `You are a ${input.role} sub-thread spawned by a parent orchestrator in T3 Code.`,
     "",
     "Purpose:",
-    input.purpose,
+    input.brief,
     "",
     "Work autonomously on this goal. Keep the work focused and report progress clearly.",
     "When you finish, call `workstream_report` with a concise markdown handoff of your results for your parent orchestrator (not your whole transcript), THEN report your status.",
