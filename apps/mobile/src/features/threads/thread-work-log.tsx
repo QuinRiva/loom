@@ -1,10 +1,12 @@
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { LayoutAnimation, Pressable, ScrollView, useColorScheme, View } from "react-native";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { LayoutAnimation, Pressable, useColorScheme, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import type { ThreadFeedActivity } from "../../lib/threadActivity";
+import { ThreadActivityInspector } from "./ThreadActivityInspector";
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
 const WORK_LOG_LAYOUT_ANIMATION = {
@@ -72,18 +74,18 @@ function workRowSymbolName(icon: ThreadFeedActivity["icon"]): SFSymbol {
 export function ThreadWorkLog(props: {
   readonly activities: ReadonlyArray<ThreadFeedActivity>;
   readonly copiedRowId: string | null;
+  readonly environmentId: EnvironmentId;
   readonly expanded: boolean;
   readonly expandedRows: Readonly<Record<string, boolean>>;
   readonly iconSubtleColor: import("react-native").ColorValue;
   readonly onCopyRow: (rowId: string, value: string) => void;
   readonly onToggleGroup: () => void;
   readonly onToggleRow: (rowId: string) => void;
+  readonly workspaceRoot?: string | null;
 }) {
   const colorScheme = useColorScheme();
   const pressedBackground = colorScheme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.035)";
-  const rows = props.activities
-    .filter((activity) => !(activity.toolLike && activity.status === "neutral"))
-    .map((activity) => ({ ...activity, detail: compactActivityDetail(activity.detail) }));
+  const rows = props.activities;
 
   if (rows.length === 0) {
     return null;
@@ -107,7 +109,8 @@ export function ThreadWorkLog(props: {
         {visibleRows.map((row) => {
           const expanded = props.expandedRows[row.id] ?? false;
           const canExpand = row.fullDetail !== null;
-          const displayText = row.detail ? `${row.summary} ${row.detail}` : row.summary;
+          const detail = compactActivityDetail(row.detail);
+          const displayText = detail ? `${row.summary} ${detail}` : row.summary;
           const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
 
           return (
@@ -157,8 +160,8 @@ export function ThreadWorkLog(props: {
                     >
                       {row.summary}
                     </Text>
-                    {row.detail ? (
-                      <Text className="text-foreground-muted opacity-60"> {row.detail}</Text>
+                    {detail ? (
+                      <Text className="text-foreground-muted opacity-60"> {detail}</Text>
                     ) : null}
                   </Text>
 
@@ -200,21 +203,12 @@ export function ThreadWorkLog(props: {
 
               {expanded && row.fullDetail ? (
                 <View className="ml-7 border-l border-neutral-300/60 pb-1.5 pl-3 pt-0.5 dark:border-white/[0.12]">
-                  <ScrollView
-                    nestedScrollEnabled
-                    directionalLockEnabled
-                    showsVerticalScrollIndicator
-                    style={{ maxHeight: 240 }}
-                    contentContainerStyle={{ paddingRight: 8 }}
-                  >
-                    <Text
-                      selectable
-                      className="text-2xs leading-[17px] text-foreground-muted"
-                      style={{ fontFamily: "ui-monospace" }}
-                    >
-                      {row.fullDetail}
-                    </Text>
-                  </ScrollView>
+                  <ThreadActivityInspector
+                    activity={row}
+                    environmentId={props.environmentId}
+                    iconColor={props.iconSubtleColor}
+                    workspaceRoot={props.workspaceRoot}
+                  />
                 </View>
               ) : null}
             </View>
