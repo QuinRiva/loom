@@ -196,6 +196,8 @@ export interface SidebarThreadSummary {
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   hasActionableProposedPlan: boolean;
+  /** This thread's own cumulative dollar spend (provider-authoritative; 0 when none). */
+  cumulativeCostUsd: number;
   /** One-line preview of the child's latest assistant narration; null when none yet. */
   lastActivityPreview: string | null;
 }

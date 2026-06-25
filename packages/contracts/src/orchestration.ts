@@ -16,6 +16,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  NonNegativeNumber,
   ProjectId,
   ProviderItemId,
   ThreadId,
@@ -395,6 +396,11 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  // Cumulative dollar spend for THIS thread alone (sum of every assistant
+  // message's `usage.cost.total`, folded from the durable activity log so it is
+  // replay-safe). Additive/optional on the wire — absent (treated as 0) when the
+  // provider reports no cost (e.g. non-pi adapters).
+  cumulativeCostUsd: Schema.optional(NonNegativeNumber),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -533,6 +539,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  // Cumulative dollar spend for THIS thread alone. See OrchestrationThread.
+  cumulativeCostUsd: Schema.optional(NonNegativeNumber),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),

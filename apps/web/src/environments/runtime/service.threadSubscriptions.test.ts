@@ -242,6 +242,7 @@ function makeThreadShellSnapshot(params: {
                 assistantMessageId: null,
               }
             : null,
+        cumulativeCostUsd: 0,
         createdAt: "2026-04-13T00:00:00.000Z",
         updatedAt: "2026-04-13T00:00:00.000Z",
         archivedAt: null,

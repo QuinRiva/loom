@@ -1,5 +1,10 @@
 import { cn } from "~/lib/utils";
-import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
+import {
+  type ContextCostSummary,
+  type ContextWindowSnapshot,
+  formatContextWindowTokens,
+  formatCostUsd,
+} from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
 function formatPercentage(value: number | null): string | null {
@@ -14,9 +19,22 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
+  cost?: ContextCostSummary | null;
   providerDisplayName?: string | null;
 }) {
-  const { usage, providerDisplayName } = props;
+  const { usage, cost, providerDisplayName } = props;
+  // Headline = the whole subtree's spend when this thread has descendants (so the
+  // root orchestrator shows the entire workstream), else this thread's own spend.
+  const headlineCostValue = cost
+    ? cost.hasDescendants
+      ? cost.subtreeCostUsd
+      : cost.ownCostUsd
+    : 0;
+  const headlineCost = formatCostUsd(headlineCostValue);
+  const ownCost = formatCostUsd(cost?.ownCostUsd ?? 0);
+  const subtreeCost = formatCostUsd(cost?.subtreeCostUsd ?? 0);
+  const showCostBreakdown =
+    cost !== null && cost !== undefined && (headlineCost !== null || ownCost !== null);
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -123,6 +141,47 @@ export function ContextWindowMeter(props: {
           {usage.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-[11px] font-medium text-muted-foreground/70">
               {providerDisplayName ?? "It"} automatically compacts its context when needed.
+            </div>
+          ) : null}
+          {showCostBreakdown && cost ? (
+            <div className="mt-1 flex flex-col gap-1 border-border/60 border-t pt-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium text-muted-foreground text-xs">Spend</div>
+                <div className="text-[11px] tabular-nums text-muted-foreground/70">
+                  {headlineCost ?? "—"}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+                <span className="text-muted-foreground/60">This thread</span>
+                <span className="font-medium tabular-nums text-muted-foreground/80">
+                  {ownCost ?? "$0.00"}
+                </span>
+              </div>
+              {cost.hasDescendants ? (
+                <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
+                  <span className="text-muted-foreground/60">
+                    Subtree ({cost.descendantCount} descendant
+                    {cost.descendantCount === 1 ? "" : "s"})
+                  </span>
+                  <span className="font-medium tabular-nums text-muted-foreground/80">
+                    {subtreeCost ?? "$0.00"}
+                  </span>
+                </div>
+              ) : null}
+              {cost.children.map((child) => (
+                <div
+                  key={child.id}
+                  className="flex items-center justify-between gap-3 text-[11px] leading-4"
+                >
+                  <span className="truncate text-muted-foreground/50">{child.title}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground/70">
+                    {formatCostUsd(child.costUsd) ?? "<$0.01"}
+                  </span>
+                </div>
+              ))}
+              <div className="mt-0.5 text-pretty text-[11px] text-muted-foreground/50">
+                Metered-equivalent; may not reflect subscription plans.
+              </div>
             </div>
           ) : null}
         </div>

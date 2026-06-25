@@ -20,22 +20,30 @@ import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
  * edge needed for structure + membership; generation grouping reads
  * `spawnGeneration`/`status`.
  */
-export interface GraphThread {
-  readonly id: ThreadId;
-  readonly parentThreadId: ThreadId | null;
+export interface GraphThread extends GraphLineageNode {
   readonly spawnGeneration: string | null;
   readonly status: ThreadStatus;
   readonly role: string | null;
   readonly title: string | null;
 }
 
-interface GraphIndex<T extends GraphThread> {
+/**
+ * The minimal lineage shape the structural walkers (root/descendants/subtree)
+ * actually read: an id and its parent edge. Both the full `GraphThread` and the
+ * leaner cost-rollup node satisfy it, so the same index/walk serves both.
+ */
+export interface GraphLineageNode {
+  readonly id: ThreadId;
+  readonly parentThreadId: ThreadId | null;
+}
+
+interface GraphIndex<T extends GraphLineageNode> {
   readonly byId: ReadonlyMap<ThreadId, T>;
   readonly childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<T>>;
 }
 
 /** Build the adjacency index once (id lookup + parent→children) from a node set. */
-const buildIndex = <T extends GraphThread>(threads: ReadonlyArray<T>): GraphIndex<T> => {
+const buildIndex = <T extends GraphLineageNode>(threads: ReadonlyArray<T>): GraphIndex<T> => {
   const byId = new Map<ThreadId, T>();
   const childrenByParent = new Map<ThreadId, T[]>();
   for (const thread of threads) {
@@ -55,7 +63,7 @@ const buildIndex = <T extends GraphThread>(threads: ReadonlyArray<T>): GraphInde
  * unknown (dangling/out-of-snapshot) is its own subtree root; a cycle is broken
  * by a visited guard, returning the id where the walk re-enters itself.
  */
-const rootOf = <T extends GraphThread>(id: ThreadId, index: GraphIndex<T>): ThreadId => {
+const rootOf = <T extends GraphLineageNode>(id: ThreadId, index: GraphIndex<T>): ThreadId => {
   const seen = new Set<ThreadId>();
   let current = id;
   for (;;) {
@@ -68,12 +76,12 @@ const rootOf = <T extends GraphThread>(id: ThreadId, index: GraphIndex<T>): Thre
 };
 
 /** Direct children of a node (empty when it has none / is unknown). */
-export const childrenOf = <T extends GraphThread>(
+export const childrenOf = <T extends GraphLineageNode>(
   id: ThreadId,
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T> => buildIndex(threads).childrenByParent.get(id) ?? [];
 
-const collectDescendants = <T extends GraphThread>(
+const collectDescendants = <T extends GraphLineageNode>(
   id: ThreadId,
   index: GraphIndex<T>,
   out: T[],
@@ -88,7 +96,7 @@ const collectDescendants = <T extends GraphThread>(
 };
 
 /** All transitive descendants of a node (excludes the node itself). */
-export const descendantsOf = <T extends GraphThread>(
+export const descendantsOf = <T extends GraphLineageNode>(
   id: ThreadId,
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T> => {
@@ -98,7 +106,7 @@ export const descendantsOf = <T extends GraphThread>(
 };
 
 /** The node plus all its transitive descendants (the whole subtree rooted at it). */
-export const subtreeOf = <T extends GraphThread>(
+export const subtreeOf = <T extends GraphLineageNode>(
   id: ThreadId,
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T> => {
@@ -110,6 +118,26 @@ export const subtreeOf = <T extends GraphThread>(
 };
 
 /**
+ * A lineage node that also carries its own cumulative dollar cost — the input to
+ * the context cost meter's subtree rollup. `cumulativeCostUsd` is each thread's
+ * OWN spend; null/absent counts as 0 (e.g. providers that report no cost).
+ */
+export interface CostGraphNode extends GraphLineageNode {
+  readonly cumulativeCostUsd: number | null;
+}
+
+/**
+ * Total cost of the whole subtree rooted at `id` (the node plus all transitive
+ * descendants), summing each node's own `cumulativeCostUsd`. Pure; reuses the
+ * same lineage walk as `subtreeOf`, so a thread sitting at the orchestrator root
+ * sees its entire workstream's spend.
+ */
+export const subtreeCostOf = <T extends CostGraphNode>(
+  id: ThreadId,
+  threads: ReadonlyArray<T>,
+): number => subtreeOf(id, threads).reduce((sum, node) => sum + (node.cumulativeCostUsd ?? 0), 0);
+
+/**
  * Membership predicate that powers same-tree authorization: two threads are in
  * the same workstream iff they share the same root orchestrator. This is the
  * single boundary used by both discovery (`graphViewFor`) and the read/ask tools
@@ -119,7 +147,7 @@ export const subtreeOf = <T extends GraphThread>(
  * A target absent from the snapshot is never "in tree" (callers distinguish a
  * missing target → 404 from an out-of-tree one → 403 by an existence check).
  */
-export const isInSameTree = <T extends GraphThread>(
+export const isInSameTree = <T extends GraphLineageNode>(
   callerId: ThreadId,
   targetId: ThreadId,
   threads: ReadonlyArray<T>,

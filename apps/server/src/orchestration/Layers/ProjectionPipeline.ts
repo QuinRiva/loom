@@ -179,6 +179,28 @@ function derivePendingUserInputCountFromActivities(
   return openRequestIds.size;
 }
 
+// Context cost meter: cumulative dollar spend for a thread = sum of every
+// `context-window.updated` activity's `costUsd`. Derived from the durable
+// activity log (not in-memory adapter state), so it is exact on replay and after
+// a mid-session restart. Non-pi providers never emit `costUsd`, so they sum to 0.
+function deriveCumulativeCostUsd(activities: ReadonlyArray<ProjectionThreadActivity>): number {
+  let total = 0;
+  for (const activity of activities) {
+    if (activity.kind !== "context-window.updated") {
+      continue;
+    }
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const costUsd = payload?.costUsd;
+    if (typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd > 0) {
+      total += costUsd;
+    }
+  }
+  return total;
+}
+
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -720,6 +742,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         latestTurnId: existingRow.value.latestTurnId,
         proposedPlans,
       });
+      const cumulativeCostUsd = deriveCumulativeCostUsd(activities);
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
@@ -727,6 +750,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         pendingApprovalCount,
         pendingUserInputCount,
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
+        cumulativeCostUsd,
       });
     });
 
@@ -761,6 +785,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
+            cumulativeCostUsd: 0,
             deletedAt: null,
           });
           return;
