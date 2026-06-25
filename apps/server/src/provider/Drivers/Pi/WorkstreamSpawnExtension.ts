@@ -29,11 +29,12 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentence summary shown in the sidebar) and, for non-trivial work, a full self-contained brief that becomes the child's first-turn prompt. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces — NOT the role or the mechanical steps, and put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId].",
     promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, a short purpose, an optional full brief (the child's kickoff prompt; defaults to purpose), optional title, optional blockedBy (waits-on thread ids), and optional modelSelection.",
     promptGuidelines: [
       "Use workstream_spawn when you need a separate coder, reviewer, researcher, or other durable child thread to work independently.",
-      "Keep purpose short — a 1-3 sentence human-readable summary of why the sub-thread exists; it is what the sidebar card shows and seeds the title.",
+      "Write purpose as the VALUE the work delivers, not the actions it takes. The sidebar card already shows the role (coder, reviewer, researcher…), so 'Implement X' or 'Review Y' is redundant — lead with the user-facing capability gained, the problem solved, or the question answered, so a reader scanning the sidebar can tell why the work matters and how to judge it, without reading the brief.",
+      "Keep purpose to 1-3 sentences and free of step-by-step mechanics; the detailed how goes in brief, not purpose.",
       "For anything beyond a trivial task, pass a full self-contained brief: it becomes the child's first-turn prompt verbatim, and the child starts fresh without inheriting this transcript. Omit brief only when the short purpose is already a sufficient prompt.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "Pass modelSelection only to run a child on a different model/thinking level than this thread; omit it to inherit this thread's model."
@@ -42,7 +43,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       type: "object",
       properties: {
         role: { type: "string", description: "Role label for the child agent, e.g. coder, reviewer, researcher." },
-        purpose: { type: "string", description: "Short (1-3 sentence) human-readable summary of why the sub-thread exists, shown in the sidebar. Required." },
+        purpose: { type: "string", description: "Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value/outcome the work delivers — why it matters and how to judge it — not the mechanical actions. The role badge already conveys that (e.g.) code is being written, so do not restate the role or lead with 'Implement…'/'Review…'; lead with the capability, fix, or decision the work produces. Put the detailed instructions in brief. Required." },
         brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
         title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
