@@ -174,6 +174,87 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       };
     }
   });
+
+  pi.registerTool({
+    name: "workstream_list",
+    label: "List Workstream",
+    description: "List your workstream: the whole graph of threads in your orchestration tree (every thread's id, role, title, status, spawn generation, parent, whether it has filed a report) plus lineage and waits-on edges. This is how you discover the ids of sibling/other threads you were not handed directly, so you can then read_thread or ask_thread them.",
+    promptSnippet: "workstream_list: see your whole workstream graph (thread ids, roles, statuses, edges) to discover threads you can read or ask.",
+    promptGuidelines: [
+      "Call workstream_list first when you need to coordinate with another thread but only know it exists, not its id.",
+      "The returned tree is exactly the scope you can read_thread / ask_thread — you can only inspect threads in your own workstream."
+    ],
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LIST_URL, params ?? {}, signal);
+      if (!outcome.ok) return outcome.error;
+      const nodes = Array.isArray(outcome.result?.nodes) ? outcome.result.nodes : [];
+      return {
+        content: [{ type: "text", text: "Your workstream has " + nodes.length + " thread(s). See details for the graph." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_read_thread",
+    label: "Read Workstream Thread",
+    description: "Read another thread in your workstream: its filed report (markdown), role/title/status, whether it has a report, and a compact recent-activity summary (last assistant message + recent activity rows). No model call — this is a passive pull. Works on siblings and on finished/archived threads (archived targets return report + metadata without the activity summary). Use workstream_list first to find the threadId.",
+    promptSnippet: "workstream_read_thread: pull another workstream thread's report + metadata (no model call).",
+    promptGuidelines: [
+      "Use read_thread to get a thread's filed report and recent state without re-running it.",
+      "If the thread filed no report you still get its metadata and last output — it never errors empty."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Id of the workstream thread to read (from workstream_list)." }
+      },
+      required: ["threadId"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_READ_THREAD_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const result = outcome.result ?? {};
+      const parts = [];
+      if (result.report) parts.push(result.report);
+      else parts.push("(" + (result.role ?? "thread") + " " + (result.threadId ?? params.threadId) + " — " + (result.status ?? "unknown") + "; no report filed)");
+      return {
+        content: [{ type: "text", text: parts.join("\n\n") }],
+        details: { ok: true, ...result }
+      };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_ask_thread",
+    label: "Ask Workstream Thread",
+    description: "Ask another thread in your workstream a question, answered from a READ-ONLY frozen fork of that thread's session. It never resumes or mutates the target — the fork is a throwaway with no write/command tools and no workstream access, so it cannot change anything. Use this to get clarifying answers from a sibling/child that has the relevant context. If that thread's context does not resolve your question, the answer says so rather than guessing. Use workstream_list first to find the threadId.",
+    promptSnippet: "workstream_ask_thread: ask another workstream thread a read-only question, answered from a frozen fork of its session.",
+    promptGuidelines: [
+      "Use ask_thread when you need a thread's reasoning/knowledge, not just its report — it consults a read-only fork of its session.",
+      "It cannot mutate the target; treat the answer as advisory and expect an honest 'not resolved' when the session lacks the context."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Id of the workstream thread to ask (from workstream_list)." },
+        question: { type: "string", description: "The question to answer from the target thread's frozen session context." }
+      },
+      required: ["threadId", "question"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_ASK_THREAD_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const answer = outcome.result?.answer ?? "(no answer)";
+      return {
+        content: [{ type: "text", text: answer }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
 }
 `;
 

@@ -7,6 +7,7 @@ import {
   type ThreadId,
   type ThreadStatus,
 } from "@t3tools/contracts";
+import { selectJoinedGenerations, type JoinedGeneration } from "@t3tools/shared/workstreamGraph";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -55,53 +56,6 @@ export const selectThreadsToDispatch = (
       thread.session === null &&
       thread.latestUserMessageAt === null &&
       areDependenciesSatisfied(thread, threadsById),
-  );
-};
-
-/**
- * A child is "terminal" for the join barrier when it has reached `done`,
- * `blocked`, or `review` — the three wake triggers (decision 2). `planned` and
- * `running` are non-terminal.
- */
-const TERMINAL_STATUSES: ReadonlySet<ThreadStatus> = new Set(["done", "blocked", "review"]);
-export const isTerminalStatus = (status: ThreadStatus): boolean => TERMINAL_STATUSES.has(status);
-
-export interface JoinedGeneration {
-  readonly parentId: ThreadId;
-  readonly generation: string;
-  readonly children: ReadonlyArray<OrchestrationThreadShell>;
-}
-
-/**
- * Pure generation-join selection (decision 1): group every non-archived,
- * non-deleted sub-thread by (parentThreadId, spawnGeneration) and return the
- * groups in which **every** member is terminal. The shell snapshot already
- * excludes archived/deleted threads, so membership is the active set.
- *
- * Eligibility is a pure function of durable thread state, so it is fully
- * recomputable from the read model after a restart (decision 4).
- */
-export const selectJoinedGenerations = (
-  threads: ReadonlyArray<OrchestrationThreadShell>,
-): ReadonlyArray<JoinedGeneration> => {
-  const groups = new Map<
-    string,
-    { parentId: ThreadId; generation: string; children: OrchestrationThreadShell[] }
-  >();
-  for (const thread of threads) {
-    if (thread.parentThreadId === null || thread.spawnGeneration === null) continue;
-    const key = `${thread.parentThreadId}::${thread.spawnGeneration}`;
-    const group = groups.get(key);
-    if (group) group.children.push(thread);
-    else
-      groups.set(key, {
-        parentId: thread.parentThreadId,
-        generation: thread.spawnGeneration,
-        children: [thread],
-      });
-  }
-  return [...groups.values()].filter((group) =>
-    group.children.every((child) => isTerminalStatus(child.status)),
   );
 };
 
@@ -319,7 +273,7 @@ const make = Effect.gen(function* () {
   // the next idle drain.
   const deliverWake = Effect.fn("deliverWake")(function* (
     parent: OrchestrationThreadShell,
-    generation: JoinedGeneration,
+    generation: JoinedGeneration<OrchestrationThreadShell>,
   ) {
     const children = yield* Effect.forEach(generation.children, (child) =>
       readWorkstreamReport(child.id).pipe(
