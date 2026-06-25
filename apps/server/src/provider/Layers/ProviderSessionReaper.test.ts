@@ -224,6 +224,9 @@ describe("ProviderSessionReaper", () => {
           },
           getThreadDetailById: () => Effect.die("unused"),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),

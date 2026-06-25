@@ -110,6 +110,9 @@ describe("CheckpointDiffQueryLive", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
     );
@@ -204,6 +207,9 @@ describe("CheckpointDiffQueryLive", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
     );
@@ -288,6 +294,9 @@ describe("CheckpointDiffQueryLive", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
     );
@@ -357,6 +366,9 @@ describe("CheckpointDiffQueryLive", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
     );
@@ -411,6 +423,9 @@ describe("CheckpointDiffQueryLive", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),
     );

@@ -71,6 +71,9 @@ export function hasRunningSignal(thread: SidebarThreadSummary): boolean {
  * non-recursive and safe against dependency cycles.
  */
 export function resolveBaseColumn(thread: SidebarThreadSummary): WorkstreamColumnId {
+  // `error` (server-set liveness failure) is terminal-distinct and wins over
+  // every live/explicit signal so a dead/stalled child never hides as running.
+  if (thread.status === "error") return "error";
   if (thread.status === "review" || thread.status === "done") return thread.status;
   if (thread.status === "blocked") return "blocked";
   if (thread.status === "running" || hasRunningSignal(thread)) return "running";

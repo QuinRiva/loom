@@ -132,9 +132,23 @@ export const isInSameTree = <T extends GraphThread>(
 
 /**
  * A child is "terminal" for the join barrier when it has reached `done`,
- * `blocked`, or `review` — the three wake triggers. `planned`/`running` are not.
+ * `blocked`, `review`, or `error`. `planned`/`running` are not.
+ *
+ * `error` is included for ONE reason only (D-liveness decision 5): barrier
+ * unblock — a generation containing an errored child can still *join* once the
+ * rest are terminal, so an errored child no longer strands its siblings'
+ * results forever. It is NOT the wake mechanism: an errored child among
+ * still-running siblings won't fire this barrier, so the parent is woken
+ * promptly through the per-child rail in `WorkstreamDispatcher` instead.
+ * `error` also does NOT release dependents (that stays done-only in
+ * `workstreamDependencies`).
  */
-const TERMINAL_STATUSES: ReadonlySet<ThreadStatus> = new Set(["done", "blocked", "review"]);
+const TERMINAL_STATUSES: ReadonlySet<ThreadStatus> = new Set([
+  "done",
+  "blocked",
+  "review",
+  "error",
+]);
 export const isTerminalStatus = (status: ThreadStatus): boolean => TERMINAL_STATUSES.has(status);
 
 /** The fields the generation join reads — a subset of `GraphThread`. */

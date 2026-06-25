@@ -113,6 +113,20 @@ export const wakeRateGuardTrips = (
 export const WAKE_REPORT_EXCERPT_LIMIT = 600;
 
 /**
+ * Bounded inline report excerpt shared by both wake-message builders: empty when
+ * there is no report, the trimmed report when it fits, else a truncated prefix
+ * plus a pointer to the on-disk reference. Leads with a blank line so callers
+ * append it directly after the reference.
+ */
+const formatReportExcerpt = (report: string | null): string => {
+  const trimmed = report?.trim() ?? "";
+  if (trimmed.length === 0) return "";
+  return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
+    ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
+    : `\n\n${trimmed}`;
+};
+
+/**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
  * which children completed (role + id + terminal status), for each a reference
  * to its on-disk report plus a BOUNDED excerpt (never the full report), and the
@@ -135,14 +149,7 @@ export const buildParentWakeMessage = (
       child.reportPath !== null
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
         : "_No report was filed; status is the trigger, the report is best-effort context._";
-    const trimmed = child.report?.trim() ?? "";
-    const excerpt =
-      trimmed.length === 0
-        ? ""
-        : trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
-          ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
-          : `\n\n${trimmed}`;
-    return `${header}\n\n${reference}${excerpt}`;
+    return `${header}\n\n${reference}${formatReportExcerpt(child.report)}`;
   });
   return [
     "A spawn generation of your Workstream sub-thread(s) has finished. Results:",
@@ -167,6 +174,85 @@ export const buildParentWakeMessage = (
 // wake (Fix B); the missing activity marker is reconciled on the next pass.
 export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:wake:${parentId}:${generation}`;
+
+/**
+ * Per-child wake (D-liveness §1e). Both forgot-to-finish (idle + non-terminal)
+ * and `error` children wake their parent through THIS rail, not the generation
+ * barrier (`selectJoinedGenerations` only fires when an *entire* generation is
+ * terminal, so a single quiet/errored child among running siblings would never
+ * wake the parent). The command id is keyed by `(childId, episode)` so each
+ * distinct quiet episode notifies exactly once; for idle the episode is the
+ * child's max activity *sequence* at idle onset (NOT `turnId`, which is null
+ * while idle), so a child that resumes then goes quiet again re-arms while an
+ * unacted-on idle child is not re-nagged every pass.
+ */
+export const childWakeCommandId = (childId: ThreadId, episode: string): string =>
+  `server:workstream-liveness:child-wake:${childId}:${episode}`;
+
+export type ChildWakeKind = "error" | "idle";
+
+/**
+ * Pure per-child wake classification (§1e). Returns the wake kind for a child
+ * that should wake its parent, or `null`:
+ * - `error` — the liveness sweep set the child `error` (crash/stall/loop/cap).
+ * - `idle`  — "forgot to finish": the child ran (has a session now `ready`/
+ *   `stopped`) and went idle, but its status is still `planned`/`running`
+ *   (terminal `done`/`blocked`/`review` are awaiting-human / done, not stuck).
+ *
+ * Idleness reuses the shared `isThreadIdle` predicate (no pending turn-start,
+ * session not `running`, no active turn) so a freshly-promoted child mid-kickoff
+ * is never mistaken for forgot-to-finish. A never-started `planned` child has no
+ * session and is excluded (it is waiting on deps, not stuck).
+ */
+export const classifyChildWake = (
+  child: OrchestrationThreadShell,
+  pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
+): ChildWakeKind | null => {
+  if (child.parentThreadId === null) return null;
+  if (child.status === "error") return "error";
+  if (
+    (child.status === "planned" || child.status === "running") &&
+    child.session !== null &&
+    (child.session.status === "ready" || child.session.status === "stopped") &&
+    isThreadIdle(child, pendingTurnStartThreadIds)
+  ) {
+    return "idle";
+  }
+  return null;
+};
+
+/**
+ * Pure per-child wake-message builder. Tells the parent which child went
+ * `error` / quiet, points at its on-disk report (with a bounded excerpt), and
+ * instructs it to investigate via `workstream_read_thread`/`workstream_ask_thread`
+ * then set the child's status (`done`/`error`) or re-dispatch.
+ */
+export const buildChildWakeMessage = (
+  child: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+  },
+  kind: ChildWakeKind,
+  report: string | null,
+): string => {
+  const who = `${child.role ?? "sub-thread"} \`${child.id}\``;
+  const lead =
+    kind === "error"
+      ? `Your Workstream sub-thread ${who} hit an \`error\` state (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
+      : `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its status is still running (it never called \`workstream_set_status\`).`;
+  const reference =
+    child.reportPath !== null
+      ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
+      : "_No report was filed._";
+  return [
+    lead,
+    "",
+    reference + formatReportExcerpt(report),
+    "",
+    "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either set its status (`workstream_set_status` done/error) or re-dispatch it. Its dependents stay gated until you resolve this; nothing was auto-cascaded.",
+  ].join("\n");
+};
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;
 // The FIRST durable park write (the `blocked` status.set). The handled-check
@@ -215,6 +301,10 @@ const make = Effect.gen(function* () {
   // fresh process (empty cache) still recomputes the true handled set.
   const handledGenerations = new Set<string>();
   const wakeTimestamps = new Map<string, number[]>();
+  // Per-child wake dedup (§1e), keyed by the deterministic child-wake command
+  // id `(childId, episode)`. A cache only: a miss falls through to the durable
+  // receipt store, so a fresh process recomputes the true delivered set.
+  const handledChildWakes = new Set<string>();
 
   // Does a command id have an accepted receipt? Backs the durable handled-check,
   // so a fresh process (empty cache) still recomputes the true handled set from
@@ -427,7 +517,96 @@ const make = Effect.gen(function* () {
     }
   });
 
-  const runPassSafely = Effect.andThen(promoteReadyThreads(), wakeEligibleParents()).pipe(
+  // Deliver one per-child wake (§1e). Mirrors `deliverWake`: a deterministic
+  // command id (receipt-dedup across restarts), `requireIdle` so a busy parent
+  // defers atomically at the command boundary, and the child's status is left
+  // untouched (the parent decides done/error/re-dispatch).
+  const deliverChildWake = Effect.fn("deliverChildWake")(function* (
+    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadShell,
+    kind: ChildWakeKind,
+    commandId: string,
+  ) {
+    const report = yield* readWorkstreamReport(child.id).pipe(Effect.map(Option.getOrNull));
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make(commandId),
+      threadId: parent.id,
+      message: {
+        messageId: MessageId.make(yield* crypto.randomUUIDv4),
+        role: "user",
+        text: buildChildWakeMessage(child, kind, report),
+        attachments: [],
+      },
+      titleSeed: parent.title,
+      runtimeMode: parent.runtimeMode,
+      interactionMode: parent.interactionMode,
+      requireIdle: true,
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  });
+
+  // Per-child wake pass (§1e): wake the parent of every `error` or
+  // forgot-to-finish child through the shared rail, so a single failed/quiet
+  // child is surfaced promptly (B1) even while its siblings still run — the
+  // generation barrier (`wakeEligibleParents`) only fires once a WHOLE
+  // generation is terminal. Shares `wakeTimestamps` + `parkAndEscalate` so
+  // error/idle/generation-join wakes draw on ONE rate budget per parent (C1).
+  const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* () {
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+
+    for (const child of snapshot.threads) {
+      const kind = classifyChildWake(child, pendingTurnStartThreadIds);
+      if (kind === null || child.parentThreadId === null) continue;
+      // Top-level threads have no agent parent to wake; the board surfaces them
+      // (error lane / activity) as escalate-to-human.
+      const parent = threadsById.get(child.parentThreadId);
+      if (parent === undefined) continue;
+
+      // Episode key (C3): `error` fires once; idle keys on the child's max
+      // activity sequence at idle onset (stable while idle → no re-nag; a
+      // resumed-then-quiet child advances the sequence → re-arms).
+      const episode =
+        kind === "error"
+          ? "error"
+          : `idle:${(yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id)).maxSequence ?? "none"}`;
+      const commandId = childWakeCommandId(child.id, episode);
+      if (handledChildWakes.has(commandId)) continue;
+      if (yield* hasAcceptedReceipt(commandId)) {
+        handledChildWakes.add(commandId);
+        continue;
+      }
+
+      // Busy parent → defer; a later thread.session-set re-triggers this pass.
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+
+      const now = yield* Clock.currentTimeMillis;
+      const history = wakeTimestamps.get(parent.id) ?? [];
+      if (wakeRateGuardTrips(history, now)) {
+        yield* parkAndEscalate(parent, `child-wake:${child.id}`);
+        handledChildWakes.add(commandId);
+        continue;
+      }
+      // Catch the busy-parent race (C2) exactly like `deliverWake`: a deferred
+      // command writes no receipt, so it is retried on the next idle drain.
+      const delivered = yield* deliverChildWake(parent, child, kind, commandId).pipe(
+        Effect.as(true),
+        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      );
+      if (delivered) {
+        wakeTimestamps.set(parent.id, [...history, now]);
+        handledChildWakes.add(commandId);
+      }
+    }
+  });
+
+  const runPassSafely = Effect.andThen(
+    Effect.andThen(promoteReadyThreads(), wakeEligibleParents()),
+    wakeIdleAndErroredChildren(),
+  ).pipe(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) {
         return Effect.failCause(cause);

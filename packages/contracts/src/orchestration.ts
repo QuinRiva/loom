@@ -126,7 +126,20 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
-export const ThreadStatus = Schema.Literals(["planned", "running", "blocked", "review", "done"]);
+export const ThreadStatus = Schema.Literals([
+  "planned",
+  "running",
+  "blocked",
+  "review",
+  "done",
+  // D-liveness: server-only failure state set by the liveness sweep when a
+  // sub-thread is dead/stalled/looping/repeatedly-failing. Distinct from
+  // `blocked` (awaiting-human/deps): `error` is a crash/stall that wakes the
+  // parent via the per-child rail. Clients/MCP must NOT set it — the MCP
+  // boundary filters it out of the settable set and the decider rejects any
+  // `thread.status.set error` whose commandId lacks the `server:` prefix.
+  "error",
+]);
 export type ThreadStatus = typeof ThreadStatus.Type;
 export const DEFAULT_THREAD_STATUS: ThreadStatus = "planned";
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);

@@ -168,6 +168,19 @@ const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
 });
+const ActivityFreshnessRowSchema = Schema.Struct({
+  maxCreatedAt: Schema.NullOr(IsoDateTime),
+  maxSequence: Schema.NullOr(NonNegativeInt),
+});
+const RecentToolActivityInput = Schema.Struct({
+  threadId: ThreadId,
+  limit: NonNegativeInt,
+});
+const RecentToolActivityRowSchema = Schema.Struct({
+  kind: Schema.String,
+  summary: Schema.String,
+  payload: Schema.fromJsonString(Schema.Unknown),
+});
 const ProjectionLatestAssistantMessageRowSchema = Schema.Struct({
   threadId: ThreadId,
   text: Schema.String,
@@ -1147,6 +1160,77 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ),
         ),
         Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
+      );
+
+  const getActivityFreshnessRow = SqlSchema.findOne({
+    Request: ThreadIdLookupInput,
+    Result: ActivityFreshnessRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          MAX(created_at) AS "maxCreatedAt",
+          MAX(sequence) AS "maxSequence"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+      `,
+  });
+
+  const getActivityFreshnessByThreadId: ProjectionSnapshotQueryShape["getActivityFreshnessByThreadId"] =
+    (threadId) =>
+      getActivityFreshnessRow({ threadId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getActivityFreshnessByThreadId:query",
+            "ProjectionSnapshotQuery.getActivityFreshnessByThreadId:decodeRow",
+          ),
+        ),
+        Effect.map((row) => ({ maxCreatedAt: row.maxCreatedAt, maxSequence: row.maxSequence })),
+      );
+
+  const listRecentToolActivityRows = SqlSchema.findAll({
+    Request: RecentToolActivityInput,
+    Result: RecentToolActivityRowSchema,
+    execute: ({ threadId, limit }) =>
+      sql`
+        SELECT
+          kind,
+          summary,
+          payload_json AS "payload"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND tone = 'tool'
+        ORDER BY
+          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
+          sequence DESC,
+          created_at DESC,
+          activity_id DESC
+        LIMIT ${limit}
+      `,
+  });
+
+  const getRecentToolActivityByThreadId: ProjectionSnapshotQueryShape["getRecentToolActivityByThreadId"] =
+    (threadId, limit) =>
+      listRecentToolActivityRows({ threadId, limit: Math.max(0, Math.trunc(limit)) }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getRecentToolActivityByThreadId:query",
+            "ProjectionSnapshotQuery.getRecentToolActivityByThreadId:decodeRows",
+          ),
+        ),
+        Effect.map((rows) =>
+          rows.map((row) => {
+            const payload =
+              typeof row.payload === "object" && row.payload !== null
+                ? (row.payload as Record<string, unknown>)
+                : {};
+            return {
+              kind: row.kind,
+              summary: row.summary,
+              itemType: typeof payload.itemType === "string" ? payload.itemType : null,
+              detail: typeof payload.detail === "string" ? payload.detail : null,
+            };
+          }),
+        ),
       );
 
   const getSnapshot: ProjectionSnapshotQueryShape["getSnapshot"] = () =>
@@ -2453,6 +2537,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadShellById,
     getThreadDetailById,
     getPendingTurnStartThreadIds,
+    getActivityFreshnessByThreadId,
+    getRecentToolActivityByThreadId,
   } satisfies ProjectionSnapshotQueryShape;
 });
 
