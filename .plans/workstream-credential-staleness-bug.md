@@ -118,10 +118,17 @@ in-place refresh removes the respawn-only recovery. (3) alone is insufficient.
 - Confirm a genuinely abandoned/detached thread still expires (idle-timeout's
   security intent preserved).
 
-## Related observation (separate, not in scope here)
-There is also **no agent-facing cancel/delete** for a sub-thread (only
-`set_status`), so a mis-spawned child can't be cleanly retracted by the orchestrator
-— worth a separate follow-up alongside the credential fix.
+## Related control-surface gaps (separate follow-ups, same durability theme)
+1. **No agent-facing cancel/delete** for a sub-thread (only `set_status`), so a
+   mis-spawned or redundant child can't be retracted by the orchestrator.
+2. **`set_status: done` does not halt a *running* child** — it updates status but the
+   live turn continues to completion. Combined with (1), an orchestrator cannot stop
+   a child it no longer wants.
+3. **Manual `done` on a *blocked* (not-yet-started) child does not prevent the
+   dispatcher from later starting it** when its `blockedBy` dependency reaches
+   `done`. Observed live: a stranded gated reviewer was set to `done`, then started
+   anyway the moment its dependency completed — producing a duplicate run. Releasing a
+   generation should skip dependents already in a terminal status.
 
 ## Key references
 - `apps/server/src/provider/Layers/ProviderSessionReaper.ts` — `sweep`,
