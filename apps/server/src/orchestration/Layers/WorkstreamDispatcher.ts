@@ -211,7 +211,7 @@ export const buildParentWakeMessage = (
 // handled-check keys off the FIRST write (`parkBlockCommandId`), so a crash
 // between the two writes can never resurface a parked generation as a normal
 // wake (Fix B); the missing activity marker is reconciled on the next pass.
-const wakeCommandId = (parentId: ThreadId, generation: string): string =>
+export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:wake:${parentId}:${generation}`;
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;
@@ -280,6 +280,11 @@ const make = Effect.gen(function* () {
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null) return;
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    // Atomic kickoff: `setRunning` makes the decider emit the `running`
+    // status-set in the SAME command as the turn-start, so both events are
+    // appended in one engine transaction. A crash can never leave the child with
+    // a started turn but status stuck at `planned`, and the next promote pass
+    // sees a started thread and never double-starts it.
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
       commandId: yield* serverCommandId("start-turn"),
@@ -293,16 +298,7 @@ const make = Effect.gen(function* () {
       titleSeed: thread.title,
       runtimeMode: thread.runtimeMode,
       interactionMode: thread.interactionMode,
-      createdAt: now,
-    } satisfies OrchestrationCommand);
-
-    // Land `running` in the same serialized pass so the next promote pass sees a
-    // started thread and never double-starts it.
-    yield* orchestrationEngine.dispatch({
-      type: "thread.status.set",
-      commandId: yield* serverCommandId("set-running"),
-      threadId: thread.id,
-      status: "running",
+      setRunning: true,
       createdAt: now,
     } satisfies OrchestrationCommand);
   });

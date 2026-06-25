@@ -773,7 +773,30 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
-      return [userMessageEvent, turnStartRequestedEvent];
+      if (command.setRunning !== true) {
+        return [userMessageEvent, turnStartRequestedEvent];
+      }
+      // Atomic kickoff (D-core child promotion): emit the `running` status-set in
+      // the SAME command as the turn-start so both land in one engine
+      // transaction. A crash can no longer leave the child with a started turn
+      // but a status stuck at `planned`. Only the dispatcher sets `setRunning`;
+      // normal/user/agent turn-starts and the requireIdle wake path never do.
+      const statusSetEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        causationEventId: turnStartRequestedEvent.eventId,
+        type: "thread.status-set",
+        payload: {
+          threadId: command.threadId,
+          status: "running",
+          updatedAt: command.createdAt,
+        },
+      };
+      return [userMessageEvent, turnStartRequestedEvent, statusSetEvent];
     }
 
     case "thread.turn.interrupt": {

@@ -764,6 +764,13 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // Never set by clients — normal user/agent turn-starts must remain unguarded
   // so steering and human send-while-running keep working.
   requireIdle: Schema.optional(Schema.Boolean),
+  // D-notify (D-core kickoff): server-only flag set by the WorkstreamDispatcher
+  // when it promotes a sub-thread. When true the decider emits a
+  // `thread.status-set running` event in the SAME command as the turn-start, so
+  // the kickoff (turn-start + running status) is one atomic engine transaction
+  // and can never be half-applied by a crash between two dispatches. Never set
+  // by clients — normal user/agent turn-starts must not flip status to running.
+  setRunning: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
