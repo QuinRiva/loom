@@ -94,6 +94,51 @@ describe("ServerSettingsPatch.providerInstances", () => {
   });
 });
 
+describe("ServerSettings.workstreamModelPresets", () => {
+  it("defaults to an empty record so configs without the key still decode", () => {
+    expect(DEFAULT_SERVER_SETTINGS.workstreamModelPresets).toEqual({});
+    expect(decodeServerSettings({}).workstreamModelPresets).toEqual({});
+  });
+
+  it("round-trips a populated preset map keyed by plain slugs", () => {
+    const decoded = decodeServerSettings({
+      workstreamModelPresets: {
+        reviewer: {
+          instanceId: "codex",
+          model: "gpt-5.4",
+          options: [{ id: "reasoningEffort", value: "high" }],
+        },
+        coder: { instanceId: "pi", model: "some-model" },
+      },
+    });
+    expect(decoded.workstreamModelPresets.reviewer).toEqual({
+      instanceId: "codex",
+      model: "gpt-5.4",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    });
+    expect(decoded.workstreamModelPresets.coder).toEqual({ instanceId: "pi", model: "some-model" });
+    // Legacy `{provider}` shape is absorbed by ModelSelection's pre-decode transform.
+    expect(
+      decodeServerSettings({
+        workstreamModelPresets: { legacy: { provider: "codex", model: "gpt-5.4" } },
+      }).workstreamModelPresets.legacy?.instanceId,
+    ).toBe("codex");
+  });
+});
+
+describe("ServerSettingsPatch.workstreamModelPresets", () => {
+  it("treats workstreamModelPresets as an optional whole-map replacement", () => {
+    expect(decodeServerSettingsPatch({}).workstreamModelPresets).toBeUndefined();
+    const replacement = decodeServerSettingsPatch({
+      workstreamModelPresets: { reviewer: { instanceId: "codex", model: "gpt-5.4" } },
+    });
+    expect(replacement.workstreamModelPresets?.reviewer).toEqual({
+      instanceId: "codex",
+      model: "gpt-5.4",
+    });
+  });
+});
+
 describe("ServerSettingsPatch string normalization", () => {
   it("trims string settings while decoding patches", () => {
     const patch = decodeServerSettingsPatch({

@@ -41,7 +41,10 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
+  workstreamAskThreadUrlFromMcpEndpoint,
   workstreamDependenciesUrlFromMcpEndpoint,
+  workstreamListUrlFromMcpEndpoint,
+  workstreamReadThreadUrlFromMcpEndpoint,
   workstreamReportUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
   workstreamStatusUrlFromMcpEndpoint,
@@ -72,6 +75,7 @@ import {
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
 import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
+import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -81,7 +85,7 @@ const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilitie
   packageName: "@earendil-works/pi-coding-agent",
 });
 const PI_WORKSTREAM_SYSTEM_PROMPT =
-  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide a role, a short `purpose` (a 1-3 sentence summary shown in the sidebar), and — for non-trivial work — a full self-contained `brief` that becomes the child's first-turn prompt (it defaults to `purpose` when omitted, since the child starts fresh and inherits no transcript). Pass an optional title too. A child with no dependencies starts immediately; a child spawned with `blockedBy` (an array of sibling thread ids) is created but does not start until every listed thread reaches `done`, then starts automatically. To gate execution, spawn the dependency first to get its id, then spawn the dependent with `blockedBy: [thatId]`. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status). `workstream_set_dependencies` is re-planning only: it re-gates a not-yet-started thread, but cannot un-run a thread that has already started — for that thread the edge is recorded for display only. You may only set status or dependencies on your own thread or threads you directly spawned.";
+  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide a role, a short `purpose` (a 1-3 sentence summary shown in the sidebar), and — for non-trivial work — a full self-contained `brief` that becomes the child's first-turn prompt (it defaults to `purpose` when omitted, since the child starts fresh and inherits no transcript). Pass an optional title too. A child with no dependencies starts immediately; a child spawned with `blockedBy` (an array of sibling thread ids) is created but does not start until every listed thread reaches `done`, then starts automatically. To gate execution, spawn the dependency first to get its id, then spawn the dependent with `blockedBy: [thatId]`. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status). `workstream_set_dependencies` is re-planning only: it re-gates a not-yet-started thread, but cannot un-run a thread that has already started — for that thread the edge is recorded for display only. You may only set status or dependencies on your own thread or threads you directly spawned. To coordinate across the workstream, use `workstream_list` to see your whole workstream graph (every thread's id, role, status, and waits-on edges) — this is how you discover sibling ids you were not handed. Then `read_thread` pulls another thread's filed report plus recent activity (no model call), and `ask_thread` asks another thread a read-only question answered from a frozen fork of its session (it never resumes or mutates that thread). Read/ask work on any thread in your workstream tree, including siblings and finished/archived threads.";
 
 const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [
@@ -641,7 +645,7 @@ function makePiAdapter(input: {
               // Deterministic per-thread session id so pi create-or-resumes the
               // SAME session file across server restarts / reconnects, instead
               // of silently spawning a fresh, amnesiac session each time.
-              sessionId: startInput.threadId.replace(/[^a-zA-Z0-9_-]/g, "-"),
+              sessionId: piSessionIdForThread(startInput.threadId),
               ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
               ...(mcpSession
                 ? { extensions: [ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir)] }
@@ -663,6 +667,13 @@ function makePiAdapter(input: {
                         mcpSession.endpoint,
                       ),
                       T3_WORKSTREAM_REPORT_URL: workstreamReportUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
+                      T3_WORKSTREAM_READ_THREAD_URL: workstreamReadThreadUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_ASK_THREAD_URL: workstreamAskThreadUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
                       T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,

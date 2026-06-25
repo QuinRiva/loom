@@ -91,6 +91,10 @@
       "types": "./src/workstreamDependencies.ts",
       "import": "./src/workstreamDependencies.ts"
     },
+    "./workstreamGraph": {
+      "types": "./src/workstreamGraph.ts",
+      "import": "./src/workstreamGraph.ts"
+    },
     "./remote": {
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"
