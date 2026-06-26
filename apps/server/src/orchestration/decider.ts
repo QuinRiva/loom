@@ -11,6 +11,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  findGoalById,
   listGoalsByProjectId,
   listThreadsByProjectId,
   requireActiveGoalInProject,
@@ -295,6 +296,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "goal.archive": {
       yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
+      // Archiving a goal cascades DOWN to its active threads. We don't emit
+      // goal.archived here: archiving the last active thread cascades the goal
+      // archive itself (see thread.archive), so we route through that one path.
+      const activeThreads = readModel.threads.filter(
+        (thread) =>
+          thread.goalId === command.goalId &&
+          thread.deletedAt === null &&
+          thread.archivedAt === null,
+      );
+      if (activeThreads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: activeThreads.map(
+            (thread): Extract<OrchestrationCommand, { type: "thread.archive" }> => ({
+              type: "thread.archive",
+              commandId: command.commandId,
+              threadId: thread.id,
+            }),
+          ),
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -310,6 +332,26 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "goal.unarchive": {
       yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
+      // Inverse of goal.archive: unarchive every archived thread, and the first
+      // thread.unarchive cascades the goal unarchive (see thread.unarchive).
+      const archivedThreads = readModel.threads.filter(
+        (thread) =>
+          thread.goalId === command.goalId &&
+          thread.deletedAt === null &&
+          thread.archivedAt !== null,
+      );
+      if (archivedThreads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: archivedThreads.map(
+            (thread): Extract<OrchestrationCommand, { type: "thread.unarchive" }> => ({
+              type: "thread.unarchive",
+              commandId: command.commandId,
+              threadId: thread.id,
+            }),
+          ),
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -325,6 +367,31 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "goal.delete": {
       yield* requireGoal({ readModel, command, goalId: command.goalId });
+      // Deleting a goal cascade-deletes its threads (the goal owns them), then
+      // deletes the goal once empty. thread.delete has no goal cascade, so the
+      // trailing goal.delete re-decides against an empty goal and emits the leaf.
+      const threads = readModel.threads.filter(
+        (thread) => thread.goalId === command.goalId && thread.deletedAt === null,
+      );
+      if (threads.length > 0) {
+        return yield* decideCommandSequence({
+          readModel,
+          commands: [
+            ...threads.map(
+              (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
+                type: "thread.delete",
+                commandId: command.commandId,
+                threadId: thread.id,
+              }),
+            ),
+            {
+              type: "goal.delete",
+              commandId: command.commandId,
+              goalId: command.goalId,
+            },
+          ],
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -504,13 +571,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      return {
+      const archivedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -524,16 +591,51 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      // Cascade UP: archiving the last active thread of a goal archives the
+      // goal too, so the sidebar never strands an empty goal header. (Inverse
+      // of goal.archive, which cascades down to its threads.)
+      const goalId = thread.goalId ?? null;
+      if (goalId !== null) {
+        const goal = findGoalById(readModel, goalId);
+        const goalHasOtherActiveThread = readModel.threads.some(
+          (other) =>
+            other.goalId === goalId &&
+            other.id !== thread.id &&
+            other.deletedAt === null &&
+            other.archivedAt === null,
+        );
+        if (
+          goal &&
+          goal.deletedAt === null &&
+          goal.archivedAt === null &&
+          !goalHasOtherActiveThread
+        ) {
+          return [
+            archivedEvent,
+            {
+              ...(yield* withEventBase({
+                aggregateKind: "goal",
+                aggregateId: goalId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "goal.archived",
+              payload: { goalId, archivedAt: occurredAt, updatedAt: occurredAt },
+            },
+          ];
+        }
+      }
+      return archivedEvent;
     }
 
     case "thread.unarchive": {
-      yield* requireThreadArchived({
+      const thread = yield* requireThreadArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      return {
+      const unarchivedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -546,6 +648,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      // Cascade UP: resurfacing a thread whose goal was archived (e.g. by the
+      // last-thread cascade above) must unarchive the goal too, otherwise the
+      // thread would point at an archived goal and vanish from the sidebar.
+      const goalId = thread.goalId ?? null;
+      if (goalId !== null) {
+        const goal = findGoalById(readModel, goalId);
+        if (goal && goal.deletedAt === null && goal.archivedAt !== null) {
+          return [
+            unarchivedEvent,
+            {
+              ...(yield* withEventBase({
+                aggregateKind: "goal",
+                aggregateId: goalId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "goal.unarchived",
+              payload: { goalId, updatedAt: occurredAt },
+            },
+          ];
+        }
+      }
+      return unarchivedEvent;
     }
 
     case "thread.meta.update": {

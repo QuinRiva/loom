@@ -2098,6 +2098,26 @@ export function selectSidebarThreadSummaryByRef(
  * one-pass children index, guarded by a `visited` set and a depth cap (mirrors
  * `buildThreadLineage`). Powers the orchestrator row's rolled-up graph indicator.
  */
+/**
+ * Counts every non-deleted thread attached to a goal, INCLUDING workstream
+ * child threads (which inherit the goal but have a non-null parent). This is
+ * the set `goal.delete` cascade-deletes, so the delete-confirm dialog must use
+ * this rather than the parent-only sidebar list, or it understates the blast
+ * radius. Deleted threads are already absent from the summary map.
+ */
+export function selectThreadCountForGoal(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  goalId: GoalId,
+): number {
+  const summaries = selectEnvironmentState(state, environmentId).sidebarThreadSummaryById;
+  let count = 0;
+  for (const summary of Object.values(summaries)) {
+    if (summary.goalId === goalId) count += 1;
+  }
+  return count;
+}
+
 export function selectDescendantSidebarThreads(
   state: AppState,
   environmentId: EnvironmentId | null | undefined,
