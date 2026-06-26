@@ -50,6 +50,17 @@ describe("areDependenciesSatisfied", () => {
     expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(false);
   });
 
+  it("keeps a dependent gated on an `error` dependency, then releases once it reaches `done`", () => {
+    // An errored dependency must NOT release dependents (gating is done-only);
+    // when the child recovers to `done` (e.g. after a false-positive liveness
+    // error), the same predicate releases the dependent.
+    const thread = node("child", { blockedBy: ["dep" as ThreadId] });
+    const errored = node("dep", { status: "error" });
+    expect(areDependenciesSatisfied(thread, index([errored, thread]))).toBe(false);
+    const recovered = node("dep", { status: "done" });
+    expect(areDependenciesSatisfied(thread, index([recovered, thread]))).toBe(true);
+  });
+
   it("ignores a self-reference", () => {
     const thread = node("child", { blockedBy: ["child" as ThreadId] });
     expect(areDependenciesSatisfied(thread, index([thread]))).toBe(true);

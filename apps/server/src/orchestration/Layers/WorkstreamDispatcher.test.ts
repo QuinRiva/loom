@@ -20,6 +20,7 @@ import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  buildChildWakeMessage,
   buildParentWakeMessage,
   childWakeCommandId,
   classifyChildWake,
@@ -135,6 +136,22 @@ describe("selectThreadsToDispatch", () => {
       shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
     ];
     expect(ids(selectThreadsToDispatch(threads))).toEqual(["child-reviewer"]);
+  });
+
+  it("keeps the dependent gated on an `error` dependency, then promotes it on `error`→`done`", () => {
+    // Dependent release is done-only, so an errored dependency keeps the
+    // dependent waiting; the same promote pass releases it once the dependency
+    // recovers to `done` (no special-casing of the error→done flip needed).
+    const errored = [
+      shell({ id: "dep-coder", status: "error", latestUserMessageAt: now }),
+      shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
+    ];
+    expect(selectThreadsToDispatch(errored)).toEqual([]);
+    const recovered = [
+      shell({ id: "dep-coder", status: "done", latestUserMessageAt: now }),
+      shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
+    ];
+    expect(ids(selectThreadsToDispatch(recovered))).toEqual(["child-reviewer"]);
   });
 
   it("does not gate on a non-sibling dependency (different parentThreadId)", () => {
@@ -374,6 +391,24 @@ describe("kick-off prompt brief/purpose resolution", () => {
   it("falls back to the purpose when the brief is absent", () => {
     const prompt = resolve("short summary", null);
     expect(prompt).toContain("short summary");
+  });
+});
+
+describe("buildChildWakeMessage (recovered re-notifies the parent of an error→done flip)", () => {
+  it("tells the parent the prior error verdict is superseded and dependents are released", () => {
+    const text = buildChildWakeMessage(
+      { id: "child-1" as ThreadId, role: "reviewer", reportPath: "child-1.md" },
+      "recovered",
+      "# Findings\nAll good.",
+    );
+    expect(text).toContain("recovered");
+    expect(text).toContain("superseded");
+    expect(text).toContain("child-1.md");
+    expect(text).toContain("All good.");
+    // Recovery tail differs from the error/idle tail: deps already released, no
+    // manual resolution to do.
+    expect(text).toContain("already been released");
+    expect(text).not.toContain("stay gated");
   });
 });
 
@@ -634,5 +669,120 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
           }).pipe(Effect.provide(buildLayer(dispatched)));
         }),
       ),
+  );
+});
+
+// Bug 1 (primary): an `error → done` recovery must re-notify the parent, whose
+// view is otherwise frozen on the stale error verdict. The recovery wake fires
+// for a `done` child ONLY when the durable error-wake receipt exists (we
+// actually told the parent it errored), exactly once, and never for a `done`
+// child that never errored. Exercised through the assembled dispatcher layer.
+describe("recovery wake (error→done re-notifies the parent), full dispatcher layer", () => {
+  const PARENT_ID = "parent-rec" as ThreadId;
+  const CHILD_ID = "child-rec" as ThreadId;
+  // Root parent (no parentThreadId → never promoted / never itself a child wake)
+  // that is idle (no session) → an eligible wake target.
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  // Recovered sub-thread: now `done` with a (ready, no active turn) session, so
+  // classifyChildWake returns null and the recovery branch owns it.
+  const child = shell({
+    id: CHILD_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    status: "done",
+    session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
+    reportPath: "child-rec.md",
+  });
+
+  const errorCmd = childWakeCommandId(CHILD_ID, "error");
+
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    opts: { readonly errorReceiptExists: boolean },
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: [parent, child],
+          updatedAt: now,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () => Effect.succeed({ maxCreatedAt: now, maxSequence: 1 }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    // Only the error-wake receipt is present (when opts say so); the recovery
+    // receipt is absent, so cross-pass dedup is carried by the in-memory
+    // handled set — the real machinery under test.
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { readonly commandId: string }) =>
+        Effect.succeed(
+          opts.errorReceiptExists && commandId === errorCmd
+            ? Option.some({} as never)
+            : Option.none(),
+        ),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-recovery-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect(
+    "delivers exactly one recovery wake when the prior error-wake receipt exists, idempotent thereafter",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+            const wake = dispatched[0]!;
+            if (wake.type !== "thread.turn.start") {
+              throw new Error(`expected a thread.turn.start wake, got ${wake.type}`);
+            }
+            expect(wake.threadId).toBe(PARENT_ID);
+            expect(wake.message.text).toContain("recovered");
+            // Further passes must not re-nag: recovery is one-shot per child.
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+          }).pipe(Effect.provide(buildLayer(dispatched, { errorReceiptExists: true })));
+        }),
+      ),
+  );
+
+  effectIt.effect("does NOT wake when the child reached `done` without ever erroring", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          expect(dispatched.length).toBe(0);
+        }).pipe(Effect.provide(buildLayer(dispatched, { errorReceiptExists: false })));
+      }),
+    ),
   );
 });
