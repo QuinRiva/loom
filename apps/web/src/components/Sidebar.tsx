@@ -80,6 +80,7 @@ import {
   selectSidebarThreadsForProjectRefs,
   selectSidebarThreadsAcrossEnvironments,
   selectThreadByRef,
+  selectThreadCountForGoal,
   useStore,
 } from "../store";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -863,6 +864,10 @@ interface SidebarProjectThreadListProps {
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
   onNewGoalSession: (goalId: GoalId, goalProjectId: ProjectId) => void;
+  onGoalContextMenu: (
+    goal: { id: GoalId; projectId: ProjectId; title: string },
+    position: { x: number; y: number },
+  ) => void;
 }
 
 const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
@@ -904,6 +909,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     expandThreadListForProject,
     collapseThreadListForProject,
     onNewGoalSession,
+    onGoalContextMenu,
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
@@ -1045,6 +1051,17 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                   title={goal.title}
                   aria-expanded={goalExpanded}
                   onClick={() => toggleGoal(goal.id)}
+                  onContextMenu={
+                    goal.known
+                      ? (event) => {
+                          event.preventDefault();
+                          onGoalContextMenu(
+                            { id: goal.id, projectId: goal.projectId, title: goal.title },
+                            { x: event.clientX, y: event.clientY },
+                          );
+                        }
+                      : undefined
+                  }
                 >
                   <ChevronRightIcon
                     className={`size-3 text-muted-foreground/60 transition-transform ${
@@ -2020,6 +2037,73 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [createThreadForProjectMember, project.memberProjects],
   );
 
+  const handleGoalContextMenu = useCallback(
+    async (
+      goal: { id: GoalId; projectId: ProjectId; title: string },
+      position: { x: number; y: number },
+    ) => {
+      const api = readLocalApi();
+      if (!api) return;
+      const member =
+        project.memberProjects.find((candidate) => candidate.id === goal.projectId) ??
+        project.memberProjects[0];
+      const environmentApi = member ? readEnvironmentApi(member.environmentId) : null;
+      if (!environmentApi) return;
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "rename", label: "Rename goal" },
+          { id: "archive", label: "Archive goal" },
+          { id: "delete", label: "Delete goal", destructive: true, icon: "trash" },
+        ],
+        position,
+      );
+      if (clicked === "rename") {
+        const title = window.prompt("Goal title", goal.title)?.trim();
+        if (!title || title === goal.title) return;
+        await environmentApi.orchestration.dispatchCommand({
+          type: "goal.meta.update",
+          commandId: newCommandId(),
+          goalId: goal.id,
+          title,
+        });
+        return;
+      }
+      if (clicked === "archive") {
+        await environmentApi.orchestration.dispatchCommand({
+          type: "goal.archive",
+          commandId: newCommandId(),
+          goalId: goal.id,
+        });
+        return;
+      }
+      if (clicked !== "delete") return;
+      // The decider cascade-deletes every non-deleted thread attached to the
+      // goal — including workstream child threads (non-null parent) that the
+      // parent-only sidebar list omits — so count from the full summary map to
+      // avoid understating the blast radius in this destructive confirm.
+      const goalThreadCount = member
+        ? selectThreadCountForGoal(useStore.getState(), member.environmentId, goal.id)
+        : projectThreads.filter((thread) => thread.goalId === goal.id).length;
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Delete goal "${goal.title}"?`,
+          goalThreadCount > 0
+            ? `This permanently deletes the goal and its ${goalThreadCount} thread${
+                goalThreadCount === 1 ? "" : "s"
+              }, clearing their conversation history.`
+            : "This permanently deletes the goal.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      await environmentApi.orchestration.dispatchCommand({
+        type: "goal.delete",
+        commandId: newCommandId(),
+        goalId: goal.id,
+      });
+    },
+    [project.memberProjects, projectThreads],
+  );
+
   const handleCreateThreadClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -2492,6 +2576,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         expandThreadListForProject={expandThreadListForProject}
         collapseThreadListForProject={collapseThreadListForProject}
         onNewGoalSession={createGoalSession}
+        onGoalContextMenu={handleGoalContextMenu}
       />
 
       <Dialog
