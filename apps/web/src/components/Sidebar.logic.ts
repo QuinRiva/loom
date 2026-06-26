@@ -503,6 +503,161 @@ export function getProjectSortTimestamp(
   return toSortableTimestamp(project.updatedAt ?? project.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
+export type SidebarGoalSortInput = {
+  id: string;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+};
+
+export type SidebarThreadOrderInput = Pick<Thread, "id"> &
+  ThreadSortInput & { goalId?: string | null };
+
+export type SidebarOrderedEntry<TThread> =
+  | { kind: "goal"; goalId: string; threads: TThread[] }
+  | { kind: "thread"; thread: TThread };
+
+// Single source of truth for the sidebar's top-to-bottom ordering: goal groups
+// and "loose" (no-goal) threads interleaved into ONE recency sequence. A goal
+// ranks by its most-recently-active thread (falling back to its own
+// updated/created time when it has no threads here), mirroring
+// getProjectSortTimestamp. Both the render and the Ctrl+N jump-number map
+// consume this so visual order and jump order can never drift apart.
+export function buildSidebarGoalOrderedEntries<
+  TThread extends SidebarThreadOrderInput,
+  TGoal extends SidebarGoalSortInput,
+>(input: {
+  threads: readonly TThread[];
+  goals: readonly TGoal[];
+  sortOrder: SidebarThreadSortOrder;
+}): SidebarOrderedEntry<TThread>[] {
+  const { goals, sortOrder, threads } = input;
+
+  const threadsByGoalId = new Map<string, TThread[]>();
+  const looseThreads: TThread[] = [];
+  for (const thread of threads) {
+    if (thread.goalId) {
+      const existing = threadsByGoalId.get(thread.goalId);
+      if (existing) existing.push(thread);
+      else threadsByGoalId.set(thread.goalId, [thread]);
+    } else {
+      looseThreads.push(thread);
+    }
+  }
+
+  const goalById = new Map(goals.map((goal) => [goal.id, goal] as const));
+  const goalRecency = (goalThreads: readonly TThread[], goal: TGoal | undefined): number => {
+    if (goalThreads.length > 0) {
+      return goalThreads.reduce(
+        (latest, thread) => Math.max(latest, getThreadSortTimestamp(thread, sortOrder)),
+        Number.NEGATIVE_INFINITY,
+      );
+    }
+    if (sortOrder === "created_at") {
+      return toSortableTimestamp(goal?.createdAt) ?? Number.NEGATIVE_INFINITY;
+    }
+    return toSortableTimestamp(goal?.updatedAt ?? goal?.createdAt) ?? Number.NEGATIVE_INFINITY;
+  };
+
+  // Every known goal appears (even with zero threads here), plus any orphan
+  // goalId referenced by a thread but missing from `goals` (defensive).
+  const goalIds = [
+    ...goals.map((goal) => goal.id),
+    ...[...threadsByGoalId.keys()].filter((goalId) => !goalById.has(goalId)),
+  ];
+
+  const ranked: { entry: SidebarOrderedEntry<TThread>; timestamp: number; sortKey: string }[] = [
+    ...goalIds.map((goalId) => {
+      const goalThreads = sortThreads(threadsByGoalId.get(goalId) ?? [], sortOrder);
+      return {
+        entry: { kind: "goal" as const, goalId, threads: goalThreads },
+        timestamp: goalRecency(goalThreads, goalById.get(goalId)),
+        sortKey: goalId,
+      };
+    }),
+    ...looseThreads.map((thread) => ({
+      entry: { kind: "thread" as const, thread },
+      timestamp: getThreadSortTimestamp(thread, sortOrder),
+      sortKey: thread.id,
+    })),
+  ];
+
+  return ranked
+    .toSorted((left, right) =>
+      right.timestamp === left.timestamp
+        ? right.sortKey.localeCompare(left.sortKey)
+        : right.timestamp - left.timestamp,
+    )
+    .map((item) => item.entry);
+}
+
+// THE single per-project ordering pipeline. Both the rendered thread list and
+// the Ctrl+N jump-number map run this exact transform — archived filter ->
+// recency sort -> preview slice -> goal/loose interleave — so the visible rows
+// and the jump sequence cannot drift: any change here moves both at once.
+export function buildSidebarProjectThreadOrdering<
+  TThread extends SidebarThreadOrderInput & { archivedAt: string | null },
+  TGoal extends SidebarGoalSortInput,
+>(input: {
+  threads: readonly TThread[];
+  goals: readonly TGoal[];
+  sortOrder: SidebarThreadSortOrder;
+  previewCount: number;
+  isThreadListExpanded: boolean;
+}): {
+  sortedThreads: TThread[];
+  previewThreads: TThread[];
+  hasOverflowingThreads: boolean;
+  orderedEntries: SidebarOrderedEntry<TThread>[];
+} {
+  const sortedThreads = sortThreads(
+    input.threads.filter((thread) => thread.archivedAt === null),
+    input.sortOrder,
+  );
+  const hasOverflowingThreads = sortedThreads.length > input.previewCount;
+  const previewThreads =
+    input.isThreadListExpanded || !hasOverflowingThreads
+      ? sortedThreads
+      : sortedThreads.slice(0, input.previewCount);
+  return {
+    sortedThreads,
+    previewThreads,
+    hasOverflowingThreads,
+    orderedEntries: buildSidebarGoalOrderedEntries({
+      threads: previewThreads,
+      goals: input.goals,
+      sortOrder: input.sortOrder,
+    }),
+  };
+}
+
+// A goal group renders compact (a single plain thread row standing in for the
+// goal, with no collapse chevron) iff it is a KNOWN goal with exactly one
+// thread. That row is never collapsible, so its thread is always on screen.
+// Every other goal group renders a chevron and can hide its threads. Both the
+// render and the jump flatten use this so their compact-vs-collapsible split
+// can never diverge.
+export function isCompactSingleThreadGoal<TThread>(
+  entry: Extract<SidebarOrderedEntry<TThread>, { kind: "goal" }>,
+  knownGoalIds: ReadonlySet<string>,
+): boolean {
+  return knownGoalIds.has(entry.goalId) && entry.threads.length === 1;
+}
+
+// Flatten ordered entries into the thread sequence the Ctrl+N jump map numbers.
+// When `collapse` is supplied, threads inside collapsed COLLAPSIBLE goal groups
+// are excluded so jump numbers match strictly-visible rows; compact
+// single-thread goals always count because they never collapse.
+export function flattenSidebarOrderedThreads<TThread>(
+  entries: readonly SidebarOrderedEntry<TThread>[],
+  collapse?: { collapsedGoalIds: ReadonlySet<string>; knownGoalIds: ReadonlySet<string> },
+): TThread[] {
+  return entries.flatMap((entry) => {
+    if (entry.kind === "thread") return [entry.thread];
+    if (!collapse || isCompactSingleThreadGoal(entry, collapse.knownGoalIds)) return entry.threads;
+    return collapse.collapsedGoalIds.has(entry.goalId) ? [] : entry.threads;
+  });
+}
+
 export function sortProjectsForSidebar<
   TProject extends SidebarProject,
   TThread extends Pick<Thread, "projectId" | "createdAt" | "updatedAt"> & ThreadSortInput,

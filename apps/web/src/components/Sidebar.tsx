@@ -170,6 +170,9 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
+  buildSidebarProjectThreadOrdering,
+  flattenSidebarOrderedThreads,
+  isCompactSingleThreadGoal,
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
@@ -183,8 +186,8 @@ import {
   sortProjectsForSidebar,
   useThreadJumpHintVisibility,
   ThreadStatusPill,
+  type SidebarOrderedEntry,
 } from "./Sidebar.logic";
-import { sortThreads } from "../lib/threadSort";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
@@ -823,8 +826,10 @@ interface SidebarProjectThreadListProps {
   hasOverflowingThreads: boolean;
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
-  renderedThreads: readonly SidebarThreadSummary[];
+  orderedEntries: readonly SidebarOrderedEntry<SidebarThreadSummary>[];
   projectGoals: readonly GoalShell[];
+  collapsedGoalIds: ReadonlySet<string>;
+  onToggleGoalCollapse: (goalId: string) => void;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -879,8 +884,10 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     hasOverflowingThreads,
     hiddenThreadStatus,
     orderedProjectThreadKeys,
-    renderedThreads,
+    orderedEntries,
     projectGoals,
+    collapsedGoalIds,
+    onToggleGoalCollapse,
     showEmptyThreadState,
     shouldShowThreadPanel,
     isThreadListExpanded,
@@ -917,54 +924,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     () => new Map(projectGoals.map((goal) => [goal.id, goal])),
     [projectGoals],
   );
-  const threadsByGoalId = useMemo(() => {
-    const next = new Map<string, SidebarThreadSummary[]>();
-    for (const thread of renderedThreads) {
-      if (!thread.goalId) continue;
-      const existing = next.get(thread.goalId);
-      if (existing) existing.push(thread);
-      else next.set(thread.goalId, [thread]);
-    }
-    return next;
-  }, [renderedThreads]);
-  const looseThreads = useMemo(
-    () => renderedThreads.filter((thread) => !thread.goalId),
-    [renderedThreads],
-  );
-  const goalRows = useMemo(() => {
-    const rows = [...projectGoals]
-      .toSorted((left, right) => (left.title || left.slug).localeCompare(right.title || right.slug))
-      .map((goal) => ({
-        id: goal.id,
-        projectId: goal.projectId,
-        title: goal.title || goal.slug,
-        progress: countGoalTasks(goal.tasks),
-        known: true,
-      }));
-    // Defensive fallback only: with DB invariants a thread's goalId always
-    // resolves to a goal, so orphan rows should never appear in normal UX.
-    for (const goalId of threadsByGoalId.keys()) {
-      if (!goalById.has(goalId as GoalShell["id"])) {
-        rows.push({
-          id: goalId as GoalShell["id"],
-          projectId: projectGoals[0]?.projectId ?? ("" as ProjectId),
-          title: `Missing goal: ${goalId}`,
-          progress: { done: 0, total: 0 },
-          known: false,
-        });
-      }
-    }
-    return rows;
-  }, [goalById, projectGoals, threadsByGoalId]);
-  const [collapsedGoalIds, setCollapsedGoalIds] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleGoal = useCallback((goalId: string) => {
-    setCollapsedGoalIds((current) => {
-      const next = new Set(current);
-      if (next.has(goalId)) next.delete(goalId);
-      else next.add(goalId);
-      return next;
-    });
-  }, []);
+  const knownGoalIds = useMemo(() => new Set(projectGoals.map((goal) => goal.id)), [projectGoals]);
 
   return (
     <SidebarMenuSub
@@ -982,12 +942,52 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
         </SidebarMenuSubItem>
       ) : null}
       {projectExpanded &&
-        goalRows.map((goal) => {
-          const goalThreads = threadsByGoalId.get(goal.id) ?? [];
+        orderedEntries.map((entry) => {
+          if (entry.kind === "thread") {
+            const thread = entry.thread;
+            const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+            return (
+              <SidebarThreadRow
+                key={threadKey}
+                thread={thread}
+                projectCwd={projectCwd}
+                orderedProjectThreadKeys={orderedProjectThreadKeys}
+                isActive={activeRouteThreadKey === threadKey}
+                jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
+                appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+                renamingThreadKey={renamingThreadKey}
+                renamingTitle={renamingTitle}
+                setRenamingTitle={setRenamingTitle}
+                renamingInputRef={renamingInputRef}
+                renamingCommittedRef={renamingCommittedRef}
+                confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+                setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                handleThreadClick={handleThreadClick}
+                navigateToThread={navigateToThread}
+                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                handleThreadContextMenu={handleThreadContextMenu}
+                clearSelection={clearSelection}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                attemptArchiveThread={attemptArchiveThread}
+                openPrLink={openPrLink}
+              />
+            );
+          }
+          const goalMeta = goalById.get(entry.goalId as GoalShell["id"]);
+          const goal = {
+            id: entry.goalId as GoalShell["id"],
+            projectId: goalMeta?.projectId ?? projectGoals[0]?.projectId ?? ("" as ProjectId),
+            title: goalMeta ? goalMeta.title || goalMeta.slug : `Missing goal: ${entry.goalId}`,
+            progress: goalMeta ? countGoalTasks(goalMeta.tasks) : { done: 0, total: 0 },
+            known: goalMeta !== undefined,
+          };
+          const goalThreads = entry.threads;
           // A known goal with exactly one thread renders compact: the thread row
           // stands in for the goal, keeping the "new session under this goal"
           // affordance so spawning a second thread expands it into the grouped view.
-          if (goal.known && goalThreads.length === 1) {
+          if (isCompactSingleThreadGoal(entry, knownGoalIds)) {
             const compactThread = goalThreads[0]!;
             const compactThreadKey = scopedThreadKey(
               scopeThreadRef(compactThread.environmentId, compactThread.id),
@@ -1050,7 +1050,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                   className="flex h-6 w-full translate-x-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
                   title={goal.title}
                   aria-expanded={goalExpanded}
-                  onClick={() => toggleGoal(goal.id)}
+                  onClick={() => onToggleGoalCollapse(goal.id)}
                   onContextMenu={
                     goal.known
                       ? (event) => {
@@ -1133,38 +1133,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             </SidebarMenuSubItem>
           );
         })}
-      {projectExpanded &&
-        looseThreads.map((thread) => {
-          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-          return (
-            <SidebarThreadRow
-              key={threadKey}
-              thread={thread}
-              projectCwd={projectCwd}
-              orderedProjectThreadKeys={orderedProjectThreadKeys}
-              isActive={activeRouteThreadKey === threadKey}
-              jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
-              appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-              renamingThreadKey={renamingThreadKey}
-              renamingTitle={renamingTitle}
-              setRenamingTitle={setRenamingTitle}
-              renamingInputRef={renamingInputRef}
-              renamingCommittedRef={renamingCommittedRef}
-              confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-              setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-              handleThreadClick={handleThreadClick}
-              navigateToThread={navigateToThread}
-              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-              handleThreadContextMenu={handleThreadContextMenu}
-              clearSelection={clearSelection}
-              commitRename={commitRename}
-              cancelRename={cancelRename}
-              attemptArchiveThread={attemptArchiveThread}
-              openPrLink={openPrLink}
-            />
-          );
-        })}
 
       {projectExpanded && hasOverflowingThreads && !isThreadListExpanded && (
         <SidebarMenuSubItem className="w-full">
@@ -1206,6 +1174,8 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
   goals: readonly GoalShell[];
+  collapsedGoalIds: ReadonlySet<string>;
+  onToggleGoalCollapse: (goalId: string) => void;
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -1227,6 +1197,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const {
     project,
     goals,
+    collapsedGoalIds,
+    onToggleGoalCollapse,
     isThreadListExpanded,
     activeRouteThreadKey,
     newThreadShortcutLabel,
@@ -1417,60 +1389,43 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
-  const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
-    );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
-        },
-      });
-    };
-    const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
+  // ONE per-project ordering, shared verbatim with the parent's Ctrl+N jump map
+  // (see buildSidebarProjectThreadOrdering): archived filter -> recency sort ->
+  // preview slice -> goal/loose interleave. `orderedEntries` is exactly what the
+  // list renders; the jump map flattens the same entries, so the two cannot drift.
+  const { sortedThreads, previewThreads, hasOverflowingThreads, orderedEntries } = useMemo(
+    () =>
+      buildSidebarProjectThreadOrdering({
+        threads: projectThreads,
+        goals: projectGoals,
+        sortOrder: threadSortOrder,
+        previewCount: sidebarThreadPreviewCount,
+        isThreadListExpanded,
+      }),
+    [
+      projectThreads,
+      projectGoals,
       threadSortOrder,
-    );
-    const projectStatus = resolveProjectStatusIndicator(
-      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
-    );
-    return {
-      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
+      sidebarThreadPreviewCount,
+      isThreadListExpanded,
+    ],
+  );
+
+  const orderedProjectThreadKeys = useMemo(
+    () =>
+      sortedThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
-      projectStatus,
-      visibleProjectThreads,
-    };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+    [sortedThreads],
+  );
 
-  const pinnedCollapsedThread = useMemo(() => {
-    const activeThreadKey = activeRouteThreadKey ?? undefined;
-    if (!activeThreadKey || projectExpanded) {
-      return null;
-    }
-    return (
-      visibleProjectThreads.find(
-        (thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
-      ) ?? null
-    );
-  }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
+  const showEmptyThreadState =
+    projectExpanded && sortedThreads.length === 0 && projectGoals.length === 0;
+  const shouldShowThreadPanel = projectExpanded;
 
-  const {
-    hasOverflowingThreads,
-    hiddenThreadStatus,
-    renderedThreads,
-    showEmptyThreadState,
-    shouldShowThreadPanel,
-  } = useMemo(() => {
+  // Status pills: the project-header dot summarises all threads; the "Show more"
+  // dot summarises only the threads hidden behind the preview slice.
+  const { projectStatus, hiddenThreadStatus } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
       projectThreads.map((thread, index) => [
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1488,45 +1443,27 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
-    const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
-        ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
-    const visibleThreadKeys = new Set(
-      [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
+    const previewThreadKeys = new Set(
+      previewThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
     );
-    const renderedThreads = pinnedCollapsedThread
-      ? [pinnedCollapsedThread]
-      : visibleProjectThreads.filter((thread) =>
-          visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-        );
-    const hiddenThreads = visibleProjectThreads.filter(
-      (thread) =>
-        !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-    );
     return {
-      hasOverflowingThreads,
-      hiddenThreadStatus: resolveProjectStatusIndicator(
-        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      projectStatus: resolveProjectStatusIndicator(
+        sortedThreads.map((thread) => resolveProjectThreadStatus(thread)),
       ),
-      renderedThreads,
-      showEmptyThreadState:
-        projectExpanded && visibleProjectThreads.length === 0 && projectGoals.length === 0,
-      shouldShowThreadPanel: projectExpanded,
+      hiddenThreadStatus: resolveProjectStatusIndicator(
+        sortedThreads
+          .filter(
+            (thread) =>
+              !previewThreadKeys.has(
+                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+              ),
+          )
+          .map((thread) => resolveProjectThreadStatus(thread)),
+      ),
     };
-  }, [
-    isThreadListExpanded,
-    pinnedCollapsedThread,
-    projectExpanded,
-    projectGoals.length,
-    projectThreads,
-    sidebarThreadPreviewCount,
-    threadLastVisitedAts,
-    visibleProjectThreads,
-  ]);
+  }, [projectThreads, threadLastVisitedAts, sortedThreads, previewThreads]);
 
   const handleProjectButtonClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2546,8 +2483,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         hasOverflowingThreads={hasOverflowingThreads}
         hiddenThreadStatus={hiddenThreadStatus}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
-        renderedThreads={renderedThreads}
+        orderedEntries={orderedEntries}
         projectGoals={projectGoals}
+        collapsedGoalIds={collapsedGoalIds}
+        onToggleGoalCollapse={onToggleGoalCollapse}
         showEmptyThreadState={showEmptyThreadState}
         shouldShowThreadPanel={shouldShowThreadPanel}
         isThreadListExpanded={isThreadListExpanded}
@@ -3007,6 +2946,8 @@ interface SidebarProjectsContentProps {
   handleProjectDragCancel: (event: DragCancelEvent) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>["handleNewThread"];
   goals: readonly GoalShell[];
+  collapsedGoalIds: ReadonlySet<string>;
+  onToggleGoalCollapse: (goalId: string) => void;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   sortedProjects: readonly SidebarProjectSnapshot[];
@@ -3049,6 +2990,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleProjectDragCancel,
     handleNewThread,
     goals,
+    collapsedGoalIds,
+    onToggleGoalCollapse,
     archiveThread,
     deleteThread,
     sortedProjects,
@@ -3196,6 +3139,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                       <SidebarProjectItem
                         project={project}
                         goals={goals}
+                        collapsedGoalIds={collapsedGoalIds}
+                        onToggleGoalCollapse={onToggleGoalCollapse}
                         isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -3229,6 +3174,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 key={project.projectKey}
                 project={project}
                 goals={goals}
+                collapsedGoalIds={collapsedGoalIds}
+                onToggleGoalCollapse={onToggleGoalCollapse}
                 isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -3289,6 +3236,17 @@ export default function Sidebar() {
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  // Goal-collapse lives here (not inside the per-project list) so the render and
+  // the Ctrl+N jump map read ONE source; goal ids are globally unique.
+  const [collapsedGoalIds, setCollapsedGoalIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGoalCollapse = useCallback((goalId: string) => {
+    setCollapsedGoalIds((current) => {
+      const next = new Set(current);
+      if (next.has(goalId)) next.delete(goalId);
+      else next.add(goalId);
+      return next;
+    });
+  }, []);
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
@@ -3549,27 +3507,29 @@ export default function Sidebar() {
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {
-        const projectThreads = sortThreads(
-          (threadsByProjectKey.get(project.projectKey) ?? []).filter(
-            (thread) => thread.archivedAt === null,
-          ),
-          sidebarThreadSortOrder,
-        );
-        const projectExpanded = projectExpandedById[project.projectKey] ?? true;
-        if (!projectExpanded) {
+        if (!(projectExpandedById[project.projectKey] ?? true)) {
           return [];
         }
-        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
-        const previewThreads =
-          isThreadListExpanded || !hasOverflowingThreads
-            ? projectThreads
-            : projectThreads.slice(0, sidebarThreadPreviewCount);
-        return previewThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        );
+        // Number jumps off the SAME per-project ordering the list renders
+        // (buildSidebarProjectThreadOrdering), then flatten away collapsed-goal
+        // rows, so Ctrl+N runs strictly top-to-bottom down the visible rows.
+        const projectIds = new Set(project.memberProjects.map((member) => member.id));
+        const projectGoals = goals.filter((goal) => projectIds.has(goal.projectId));
+        const { orderedEntries } = buildSidebarProjectThreadOrdering({
+          threads: threadsByProjectKey.get(project.projectKey) ?? [],
+          goals: projectGoals,
+          sortOrder: sidebarThreadSortOrder,
+          previewCount: sidebarThreadPreviewCount,
+          isThreadListExpanded: expandedThreadListsByProject.has(project.projectKey),
+        });
+        return flattenSidebarOrderedThreads(orderedEntries, {
+          collapsedGoalIds,
+          knownGoalIds: new Set(projectGoals.map((goal) => goal.id)),
+        }).map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
       }),
     [
+      goals,
+      collapsedGoalIds,
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,
@@ -3904,6 +3864,8 @@ export default function Sidebar() {
             handleProjectDragCancel={handleProjectDragCancel}
             handleNewThread={handleNewThread}
             goals={goals}
+            collapsedGoalIds={collapsedGoalIds}
+            onToggleGoalCollapse={toggleGoalCollapse}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
             sortedProjects={sortedProjects}
