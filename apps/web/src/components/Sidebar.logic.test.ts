@@ -9,6 +9,9 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
+  buildSidebarGoalOrderedEntries,
+  buildSidebarProjectThreadOrdering,
+  flattenSidebarOrderedThreads,
   hasUnseenCompletion,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
@@ -973,5 +976,175 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));
+  });
+});
+
+describe("buildSidebarGoalOrderedEntries", () => {
+  const thread = (id: string, createdAt: string, goalId?: string) => ({
+    id: ThreadId.make(id),
+    createdAt,
+    updatedAt: createdAt,
+    ...(goalId ? { goalId } : {}),
+  });
+  const goal = (id: string, createdAt: string) => ({ id, createdAt, updatedAt: createdAt });
+  const at = (hour: string) => `2026-03-09T${hour}:00:00.000Z`;
+
+  it("interleaves goal groups and loose threads into one recency sequence", () => {
+    const entries = buildSidebarGoalOrderedEntries({
+      threads: [
+        thread("a1", at("05"), "goal-a"),
+        thread("a2", at("02"), "goal-a"),
+        thread("loose", at("04")),
+      ],
+      goals: [goal("goal-a", at("01")), goal("goal-b", at("03"))],
+      sortOrder: "created_at",
+    });
+
+    // goal-a ranks by its most recent thread (05:00), loose at 04:00,
+    // empty goal-b falls back to its own timestamp (03:00).
+    expect(
+      entries.map((entry) => (entry.kind === "goal" ? entry.goalId : entry.thread.id)),
+    ).toEqual(["goal-a", "loose", "goal-b"]);
+    // Within a goal, threads stay recency-ordered (most recent first).
+    const goalA = entries.find((e) => e.kind === "goal" && e.goalId === "goal-a");
+    expect(goalA?.kind === "goal" && goalA.threads.map((t) => t.id)).toEqual(["a1", "a2"]);
+  });
+
+  it("flattens to the exact top-to-bottom visible thread order (jump == render)", () => {
+    const entries = buildSidebarGoalOrderedEntries({
+      threads: [
+        thread("a1", at("05"), "goal-a"),
+        thread("a2", at("02"), "goal-a"),
+        thread("loose", at("04")),
+      ],
+      goals: [goal("goal-a", at("01")), goal("goal-b", at("03"))],
+      sortOrder: "created_at",
+    });
+
+    // Empty goal-b contributes no jump targets; order is goal-a's threads then loose.
+    expect(flattenSidebarOrderedThreads(entries).map((t) => t.id)).toEqual(["a1", "a2", "loose"]);
+  });
+
+  it("flatten-with-collapse equals the visible-row walk (collapsed multi-thread + compact single-thread)", () => {
+    const goals = [goal("multi", at("06")), goal("solo", at("04"))];
+    const threads = [
+      thread("m1", at("06"), "multi"),
+      thread("m2", at("03"), "multi"),
+      thread("loose", at("05")),
+      thread("s1", at("04"), "solo"),
+    ];
+    const entries = buildSidebarGoalOrderedEntries({ threads, goals, sortOrder: "created_at" });
+    const knownGoalIds = new Set(goals.map((g) => g.id));
+
+    // Recency order of entries: multi(06) > loose(05) > solo(04).
+    expect(
+      entries.map((entry) => (entry.kind === "goal" ? entry.goalId : entry.thread.id)),
+    ).toEqual(["multi", "loose", "solo"]);
+
+    // Walk the rows the render would actually paint with "multi" collapsed:
+    // the collapsible multi-thread goal hides m1/m2; the compact single-thread
+    // "solo" goal renders as a plain row that always shows; loose always shows.
+    const collapsedGoalIds = new Set(["multi"]);
+    const visibleRowWalk = entries.flatMap((entry) => {
+      if (entry.kind === "thread") return [entry.thread.id];
+      const compact = knownGoalIds.has(entry.goalId) && entry.threads.length === 1;
+      if (compact) return entry.threads.map((t) => t.id);
+      return collapsedGoalIds.has(entry.goalId) ? [] : entry.threads.map((t) => t.id);
+    });
+
+    expect(
+      flattenSidebarOrderedThreads(entries, { collapsedGoalIds, knownGoalIds }).map((t) => t.id),
+    ).toEqual(visibleRowWalk);
+    expect(visibleRowWalk).toEqual(["loose", "s1"]);
+
+    // Expanding "multi" brings its threads back as jump targets, still in order.
+    expect(
+      flattenSidebarOrderedThreads(entries, {
+        collapsedGoalIds: new Set<string>(),
+        knownGoalIds,
+      }).map((t) => t.id),
+    ).toEqual(["m1", "m2", "loose", "s1"]);
+
+    // A compact single-thread goal still counts even when its id is in the
+    // collapsed set (it has no chevron, so its row is always on screen). This
+    // happens when a collapsed multi-thread goal loses threads down to one.
+    expect(
+      flattenSidebarOrderedThreads(entries, {
+        collapsedGoalIds: new Set(["multi", "solo"]),
+        knownGoalIds,
+      }).map((t) => t.id),
+    ).toEqual(["loose", "s1"]);
+  });
+
+  it("keeps orphan goalIds (missing from goals) as goal groups", () => {
+    const entries = buildSidebarGoalOrderedEntries({
+      threads: [thread("o1", at("06"), "ghost-goal")],
+      goals: [],
+      sortOrder: "created_at",
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.kind === "goal" && entries[0].goalId).toBe("ghost-goal");
+  });
+});
+
+describe("buildSidebarProjectThreadOrdering", () => {
+  const thread = (
+    id: string,
+    createdAt: string,
+    goalId?: string,
+    archivedAt: string | null = null,
+  ) => ({
+    id: ThreadId.make(id),
+    createdAt,
+    updatedAt: createdAt,
+    archivedAt,
+    ...(goalId ? { goalId } : {}),
+  });
+  const goal = (id: string, createdAt: string) => ({ id, createdAt, updatedAt: createdAt });
+  const at = (hour: string) => `2026-03-09T${hour}:00:00.000Z`;
+
+  it("filters archived, recency-sorts, preview-slices, and the entries flatten to the visible rows (jump == render)", () => {
+    const threads = [
+      thread("t1", at("06")),
+      thread("t2", at("05")),
+      thread("t3", at("04")),
+      thread("gone", at("07"), undefined, at("07")),
+    ];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [],
+      sortOrder: "created_at",
+      previewCount: 2,
+      isThreadListExpanded: false,
+    });
+
+    // Archived "gone" excluded; recency order t1>t2>t3; preview keeps the top 2.
+    expect(result.sortedThreads.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
+    expect(result.hasOverflowingThreads).toBe(true);
+    expect(result.previewThreads.map((t) => t.id)).toEqual(["t1", "t2"]);
+    // The jump map flattens exactly these entries, so it equals the rendered preview.
+    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
+      "t1",
+      "t2",
+    ]);
+  });
+
+  it("expanding the thread list drops the preview cap so all rows are ordered", () => {
+    const threads = [thread("t1", at("06")), thread("t2", at("05")), thread("t3", at("04"))];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [goal("g", at("03"))],
+      sortOrder: "created_at",
+      previewCount: 2,
+      isThreadListExpanded: true,
+    });
+
+    expect(result.previewThreads.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
+    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
+      "t1",
+      "t2",
+      "t3",
+    ]);
   });
 });
