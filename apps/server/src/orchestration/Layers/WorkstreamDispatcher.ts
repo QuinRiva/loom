@@ -3,6 +3,7 @@ import {
   EventId,
   MessageId,
   type OrchestrationCommand,
+  type OrchestrationLatestTurn,
   type OrchestrationThreadShell,
   type ThreadId,
   type ThreadStatus,
@@ -13,9 +14,11 @@ import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -220,6 +223,66 @@ export const classifyChildWake = (
   }
   return null;
 };
+
+/**
+ * Idle-wake grace window (ms): the activity-freshness corroboration the idle
+ * ("forgot to finish") rail previously lacked. The mid-turn stall detector is
+ * graced (it only judges while a turn is open and waits out a no-progress
+ * window); the instant `activeTurnId` flips to null, ownership passes to the idle
+ * rail, which used to fire on the very next pass with ZERO corroboration. That
+ * mislabels a multi-turn child that briefly has no open turn between turns (it
+ * just completed turn N and is continuing / about to start turn N+1) as
+ * "forgot to finish".
+ *
+ * Set equal to the liveness sweep's no-progress window (`staleActivityWindowMs`,
+ * 10m) so the active-turn (stall) and idle rails share ONE inactivity threshold
+ * — "no new activity for 10m → wake the parent", whether or not a turn is open.
+ * No dead zone, and a normal between-turns gap (seconds) never trips it.
+ */
+export const DEFAULT_IDLE_WAKE_GRACE_MS = 600_000;
+
+/**
+ * How often to re-run the dispatcher pass independent of domain events. The
+ * passes are otherwise event-driven; a child that goes quiet and emits no
+ * further event would never have its idle wake re-evaluated once the grace above
+ * elapses (the pass that observed it ran while its activity was still fresh and
+ * correctly suppressed the wake). This periodic tick re-evaluates suppressed idle
+ * children so a genuinely-idle one is still woken once its grace passes. Matches
+ * the liveness sweep cadence (`sweepIntervalMs`).
+ */
+export const IDLE_WAKE_REPASS_INTERVAL_MS = 60_000;
+
+const parseIsoMs = (iso: string | null): number | null => {
+  if (iso === null) return null;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+/**
+ * Last-progress timestamp (ms) for an idle child: the newest activity row, else
+ * the latest turn's completion (the moment it went idle), else its start. `null`
+ * only when nothing is known (a session-bearing child with no activity and no
+ * turn — pathological), in which case the caller withholds the wake.
+ */
+export const idleLastProgressMs = (
+  maxActivityCreatedAt: string | null,
+  latestTurn: OrchestrationLatestTurn | null,
+): number | null =>
+  parseIsoMs(maxActivityCreatedAt) ??
+  parseIsoMs(latestTurn?.completedAt ?? latestTurn?.startedAt ?? null);
+
+/**
+ * Activity-freshness grace gate for the idle wake: `true` ⇒ withhold (the child
+ * has shown activity within `graceWindowMs`, or its last-progress time is
+ * unknown). The idle wake fires only once this returns `false`. A grace only
+ * delays *onset*; it does not change the one-wake-per-episode dedup (the episode
+ * key still re-arms on `maxSequence`).
+ */
+export const idleWakeWithinGrace = (
+  lastProgressMs: number | null,
+  now: number,
+  graceWindowMs: number,
+): boolean => lastProgressMs === null || now - lastProgressMs < graceWindowMs;
 
 /**
  * Pure per-child wake-message builder. Tells the parent which child went
@@ -566,13 +629,29 @@ const make = Effect.gen(function* () {
       const parent = threadsById.get(child.parentThreadId);
       if (parent === undefined) continue;
 
+      const now = yield* Clock.currentTimeMillis;
       // Episode key (C3): `error` fires once; idle keys on the child's max
       // activity sequence at idle onset (stable while idle → no re-nag; a
-      // resumed-then-quiet child advances the sequence → re-arms).
-      const episode =
-        kind === "error"
-          ? "error"
-          : `idle:${(yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id)).maxSequence ?? "none"}`;
+      // resumed-then-quiet child advances the sequence → re-arms). The idle rail
+      // also applies an activity-freshness grace (reusing this SAME freshness
+      // fetch) so a child that only briefly has no open turn between turns is not
+      // mislabeled "forgot to finish"; the periodic re-pass re-evaluates it once
+      // the grace elapses.
+      let episode: string;
+      if (kind === "error") {
+        episode = "error";
+      } else {
+        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
+        if (
+          idleWakeWithinGrace(
+            idleLastProgressMs(freshness.maxCreatedAt, child.latestTurn),
+            now,
+            DEFAULT_IDLE_WAKE_GRACE_MS,
+          )
+        )
+          continue;
+        episode = `idle:${freshness.maxSequence ?? "none"}`;
+      }
       const commandId = childWakeCommandId(child.id, episode);
       if (handledChildWakes.has(commandId)) continue;
       if (yield* hasAcceptedReceipt(commandId)) {
@@ -583,7 +662,6 @@ const make = Effect.gen(function* () {
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
-      const now = yield* Clock.currentTimeMillis;
       const history = wakeTimestamps.get(parent.id) ?? [];
       if (wakeRateGuardTrips(history, now)) {
         yield* parkAndEscalate(parent, `child-wake:${child.id}`);
@@ -637,6 +715,20 @@ const make = Effect.gen(function* () {
     // restart mid-flight) would otherwise strand both downstream promotion and
     // the parent wake. Recompute eligibility from the read model and deliver.
     yield* worker.enqueue();
+    // Scheduled re-pass (idle-wake grace): the subscriptions above are
+    // event-driven, but a child that goes quiet and emits no further event would
+    // never have its idle wake re-evaluated once the activity-freshness grace
+    // (DEFAULT_IDLE_WAKE_GRACE_MS) elapses — the pass that observed it ran while
+    // its activity was still fresh and correctly suppressed the wake. This
+    // periodic tick re-runs the pass so a genuinely-idle child is still woken
+    // once its grace passes. Passes are idempotent (receipt + handled-set dedup),
+    // so the extra runs are harmless. Mirrors the liveness sweep's spaced
+    // schedule.
+    yield* Effect.forkScoped(
+      worker
+        .enqueue()
+        .pipe(Effect.repeat(Schedule.spaced(Duration.millis(IDLE_WAKE_REPASS_INTERVAL_MS)))),
+    );
   });
 
   return {
