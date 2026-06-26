@@ -1098,6 +1098,16 @@ export default function GitActionsControl({
       return;
     }
 
+    // The observed git status is strictly cwd-keyed. Mid-bootstrap, the thread's
+    // worktreePath flips to the new checkout before gitCwd (and thus the status
+    // target) catches up, so the status still describes a foreign checkout (e.g.
+    // the project root on main). Syncing then would clobber the thread branch.
+    const threadCheckoutCwd =
+      activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null;
+    if (threadCheckoutCwd !== null && threadCheckoutCwd !== gitCwd) {
+      return;
+    }
+
     const branchUpdate = resolveLiveThreadBranchUpdate({
       threadBranch: activeServerThread?.branch ?? activeDraftThread?.branch ?? null,
       gitStatus: gitStatusForActions,
@@ -1109,7 +1119,10 @@ export default function GitActionsControl({
     persistThreadBranchSync(branchUpdate.branch);
   }, [
     activeServerThread?.branch,
+    activeServerThread?.worktreePath,
     activeDraftThread?.branch,
+    activeDraftThread?.worktreePath,
+    gitCwd,
     gitStatusForActions,
     isGitActionRunning,
     isSelectingWorktreeBase,
