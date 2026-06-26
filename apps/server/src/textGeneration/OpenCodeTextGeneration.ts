@@ -28,6 +28,7 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  type TextGenerationOperation,
 } from "./TextGenerationUtils.ts";
 import {
   OpenCodeRuntime,
@@ -157,11 +158,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
 
   const acquireSharedServer = (input: {
     readonly binaryPath: string;
-    readonly operation:
-      | "generateCommitMessage"
-      | "generatePrContent"
-      | "generateBranchName"
-      | "generateThreadTitle";
+    readonly operation: TextGenerationOperation;
   }) =>
     sharedServerMutex.withPermit(
       Effect.gen(function* () {
@@ -267,11 +264,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
   );
 
   const runOpenCodeJson = Effect.fn("runOpenCodeJson")(function* <S extends Schema.Top>(input: {
-    readonly operation:
-      | "generateCommitMessage"
-      | "generatePrContent"
-      | "generateBranchName"
-      | "generateThreadTitle";
+    readonly operation: TextGenerationOperation;
     readonly cwd: string;
     readonly prompt: string;
     readonly outputSchemaJson: S;
@@ -459,10 +452,20 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
     };
   });
 
+  const generateStructured: TextGenerationShape["generateStructured"] = (input) =>
+    runOpenCodeJson({
+      operation: "generateStructured",
+      cwd: process.cwd(),
+      prompt: input.prompt,
+      outputSchemaJson: input.outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateStructured,
   } satisfies TextGenerationShape;
 });

@@ -6,7 +6,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";
@@ -19,7 +19,9 @@ import {
   TargetIcon,
 } from "lucide-react";
 import { countGoalTasks, useGoalById } from "../../goals/goalState";
-import { cn } from "~/lib/utils";
+import type { GoalShell } from "../../types";
+import { readEnvironmentApi } from "../../environmentApi";
+import { cn, newCommandId } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -68,8 +70,13 @@ export function shouldShowOpenInPicker(input: {
   );
 }
 
-function GoalHeaderSection({ goalId }: { goalId: string }) {
-  const [expanded, setExpanded] = useState(false);
+function GoalHeaderSection({
+  goalId,
+  environmentId,
+}: {
+  goalId: string;
+  environmentId: EnvironmentId;
+}) {
   const goal = useGoalById(goalId);
 
   if (!goal) {
@@ -79,41 +86,110 @@ function GoalHeaderSection({ goalId }: { goalId: string }) {
       </span>
     );
   }
+  return <GoalHeaderBody goal={goal} environmentId={environmentId} />;
+}
+
+// Editable goal surface: the interpreted goal title/description are edit-in-place
+// controlled inputs that commit via `goal.meta.update` (no Approve button — an
+// untouched goal simply keeps its auto-created interpretation).
+function GoalHeaderBody({
+  goal,
+  environmentId,
+}: {
+  goal: GoalShell;
+  environmentId: EnvironmentId;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(goal.title);
+  const [descriptionDraft, setDescriptionDraft] = useState(goal.description);
+  useEffect(() => setTitleDraft(goal.title), [goal.title]);
+  useEffect(() => setDescriptionDraft(goal.description), [goal.description]);
   const progress = countGoalTasks(goal.tasks);
 
+  const dispatchGoalMeta = (fields: { title?: string; description?: string }) => {
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+    void api.orchestration.dispatchCommand({
+      type: "goal.meta.update",
+      commandId: newCommandId(),
+      goalId: goal.id,
+      ...fields,
+    });
+  };
+
+  const commitTitle = () => {
+    const next = titleDraft.trim();
+    if (next.length === 0) {
+      setTitleDraft(goal.title);
+      return;
+    }
+    if (next !== goal.title) dispatchGoalMeta({ title: next });
+  };
+  const commitDescription = () => {
+    if (descriptionDraft !== goal.description) dispatchGoalMeta({ description: descriptionDraft });
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => setExpanded((value) => !value)}
-      aria-expanded={expanded}
-      title={goal.title || goal.slug}
+    <div
       className={cn(
-        "flex min-w-0 items-center gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground",
-        expanded ? "max-w-md" : "max-w-56",
+        "flex min-w-0 gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground",
+        expanded ? "max-w-md flex-col" : "max-w-56 items-center",
       )}
     >
-      <TargetIcon className="size-3.5 shrink-0" />
+      <div className="flex w-full min-w-0 items-center gap-1.5">
+        <TargetIcon className="size-3.5 shrink-0" />
+        <input
+          value={titleDraft}
+          onChange={(event) => setTitleDraft(event.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            } else if (event.key === "Escape") {
+              setTitleDraft(goal.title);
+              event.currentTarget.blur();
+            }
+          }}
+          aria-label="Goal title"
+          title={goal.title || goal.slug}
+          className="min-w-0 flex-1 truncate bg-transparent font-medium text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
+        />
+        {progress.total > 0 ? (
+          <span className="shrink-0 tabular-nums text-muted-foreground/60">
+            {progress.done}/{progress.total}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse goal" : "Expand goal"}
+          className="shrink-0 text-muted-foreground/55 hover:text-foreground"
+        >
+          <ChevronDownIcon
+            className={cn("size-3 transition-transform", expanded ? "rotate-180" : "")}
+          />
+        </button>
+      </div>
       {expanded ? (
-        <span className="min-w-0 whitespace-pre-wrap text-left leading-relaxed">
-          {goal.description || goal.title || goal.slug}
-        </span>
-      ) : (
-        <>
-          <span className="min-w-0 truncate font-medium">{goal.title || goal.slug}</span>
-          {progress.total > 0 ? (
-            <span className="shrink-0 tabular-nums text-muted-foreground/60">
-              {progress.done}/{progress.total}
-            </span>
-          ) : null}
-        </>
-      )}
-      <ChevronDownIcon
-        className={cn(
-          "size-3 shrink-0 text-muted-foreground/55 transition-transform",
-          expanded ? "rotate-180" : "",
-        )}
-      />
-    </button>
+        <textarea
+          value={descriptionDraft}
+          onChange={(event) => setDescriptionDraft(event.target.value)}
+          onBlur={commitDescription}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setDescriptionDraft(goal.description);
+              event.currentTarget.blur();
+            }
+          }}
+          aria-label="Goal description"
+          rows={3}
+          placeholder={"Describe this goal\u2026"}
+          className="w-full resize-none rounded-sm bg-transparent leading-relaxed text-foreground/90 outline-none focus:bg-accent focus:px-1"
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -282,7 +358,9 @@ export const ChatHeader = memo(function ChatHeader({
           role={threadRole}
           onNavigateToThread={onNavigateToThread}
         />
-        {goalId ? <GoalHeaderSection goalId={goalId} /> : null}
+        {goalId ? (
+          <GoalHeaderSection goalId={goalId} environmentId={activeThreadEnvironmentId} />
+        ) : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:shrink-0 sm:justify-end @3xl/header-actions:gap-3">
         {activeProjectScripts && (

@@ -2,6 +2,7 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  GoalId,
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationGoal,
@@ -15,6 +16,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import { slugify } from "@t3tools/shared/String";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -33,6 +35,8 @@ import { increment, orchestrationEventsProcessedTotal } from "../../observabilit
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
+import { buildThreadInterpretationPrompt } from "../../textGeneration/TextGenerationPrompts.ts";
+import { sanitizeThreadTitle } from "../../textGeneration/TextGenerationUtils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -90,8 +94,6 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
-const GOALLESS_CONTEXT_INSTRUCTION =
-  "No active goal is set. If this becomes substantial multi-step work, create one with `t3 goal create --project <cwd> --slug <slug> --title <title> [--description <text>]` and attach this thread to it.";
 
 const renderGoalTasksForPrompt = (
   tasks: ReadonlyArray<OrchestrationGoalTask>,
@@ -247,6 +249,11 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
+  // Per-thread guard so a turn-2 interpretation cannot start (and double-create
+  // a goal) while a turn-1 interpretation fork for the same thread is still
+  // outstanding. `requireUniqueGoalSlug` rejects collisions but offers no
+  // protection against two distinct goal UUIDs minted for one thread.
+  const inFlightInterpretations = new Set<string>();
 
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -415,17 +422,19 @@ const make = Effect.gen(function* () {
 
   // Standing goal-context instruction, delivered once per session by appending
   // to the pi system prompt at session spawn (never prepended per turn).
+  // Auto-goals own goal creation now; a goal-less thread gets no injected
+  // instruction (the old GOALLESS_CONTEXT_INSTRUCTION told the coding agent to
+  // mint its own goal, which conflicts with the side-channel auto-create flow).
   const buildGoalSystemPrompt = Effect.fn("buildGoalSystemPrompt")(function* (thread: {
     readonly projectId: ProjectId;
     readonly goalId: string | null;
   }) {
-    if (!thread.goalId) return GOALLESS_CONTEXT_INSTRUCTION;
+    if (!thread.goalId) return undefined;
     const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
     const goal = readModel.goals.find(
       (entry) => entry.id === thread.goalId && entry.deletedAt === null,
     );
-    if (!goal) return GOALLESS_CONTEXT_INSTRUCTION;
-    return activeGoalContextInstruction(goal);
+    return goal ? activeGoalContextInstruction(goal) : undefined;
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -783,50 +792,119 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const maybeGenerateThreadTitleForFirstTurn = Effect.fn("maybeGenerateThreadTitleForFirstTurn")(
-    function* (input: {
-      readonly threadId: ThreadId;
-      readonly cwd: string;
-      readonly messageText: string;
-      readonly attachments?: ReadonlyArray<ChatAttachment>;
-      readonly titleSeed?: string;
-    }) {
-      const attachments = input.attachments ?? [];
-      yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
-          yield* serverSettingsService.getSettings;
+  // Side-channel interpretation of what the thread is trying to achieve, distilled
+  // into a thread title + emergent goal in one cheap model call. Forked and
+  // failure-logged by callers so a text-gen outage degrades to the seed title and
+  // never blocks a turn. The title is applied once (turn 1); the goal is created
+  // when the model is confident (turn 1) or unconditionally on the best guess
+  // (turn 2). Re-resolves the thread after the (slow) call and bails if a goal
+  // appeared meanwhile, so it is safe to retry across turns.
+  const interpretThreadIntent = Effect.fn("interpretThreadIntent")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageText: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly titleSeed?: string;
+    readonly applyTitle: boolean;
+    readonly forceCreateGoal: boolean;
+    readonly createdAt: string;
+  }) {
+    const attachments = input.attachments ?? [];
+    const { textGenerationModelSelection: modelSelection } =
+      yield* serverSettingsService.getSettings;
+    const { prompt, outputSchema } = buildThreadInterpretationPrompt({
+      message: input.messageText,
+      ...(attachments.length > 0 ? { attachments } : {}),
+    });
+    const interpretation = yield* textGeneration.generateStructured({
+      prompt,
+      outputSchema,
+      modelSelection,
+    });
 
-        const generated = yield* textGeneration.generateThreadTitle({
-          cwd: input.cwd,
-          message: input.messageText,
-          ...(attachments.length > 0 ? { attachments } : {}),
-          modelSelection,
-        });
-        if (!generated) return;
+    const thread = yield* resolveThread(input.threadId);
+    // Bail if the thread vanished or already gained a goal during generation.
+    if (!thread || thread.goalId) return;
 
-        const thread = yield* resolveThread(input.threadId);
-        if (!thread) return;
-        if (!canReplaceThreadTitle(thread.title, input.titleSeed)) {
-          return;
-        }
-
+    if (input.applyTitle) {
+      const title = sanitizeThreadTitle(interpretation.title);
+      if (title.length > 0 && canReplaceThreadTitle(thread.title, input.titleSeed)) {
         yield* orchestrationEngine.dispatch({
           type: "thread.meta.update",
           commandId: yield* serverCommandId("thread-title-rename"),
           threadId: input.threadId,
-          title: generated.title,
+          title,
         });
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("provider command reactor failed to generate or rename thread title", {
-            threadId: input.threadId,
-            cwd: input.cwd,
-            cause: Cause.pretty(cause),
-          }),
-        ),
-      );
-    },
-  );
+      }
+    }
+
+    if (!input.forceCreateGoal && interpretation.confidence !== "high") {
+      return;
+    }
+
+    const goalTitle = interpretation.goal.title.trim();
+    if (goalTitle.length === 0) return;
+    const goalDescription = interpretation.goal.description.trim();
+
+    // Resolve a unique slug before dispatch: the DB `UNIQUE (project_id, slug)`
+    // constraint (and `requireUniqueGoalSlug`) reserves slugs of deleted goals
+    // too, so collide against every goal in the project regardless of state.
+    const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
+    const existingSlugs = new Set(
+      readModel.goals
+        .filter((goal) => goal.projectId === thread.projectId)
+        .map((goal) => goal.slug),
+    );
+    const baseSlug = slugify(goalTitle);
+    let slug = baseSlug;
+    for (let suffix = 2; existingSlugs.has(slug); suffix += 1) {
+      slug = `${baseSlug}-${suffix}`;
+    }
+
+    const goalId = GoalId.make(yield* crypto.randomUUIDv4);
+    yield* orchestrationEngine.dispatch({
+      type: "goal.create",
+      commandId: yield* serverCommandId("goal-auto-create"),
+      goalId,
+      projectId: thread.projectId,
+      slug,
+      title: goalTitle,
+      ...(goalDescription.length > 0 ? { description: goalDescription } : {}),
+      createdAt: input.createdAt,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.meta.update",
+      commandId: yield* serverCommandId("thread-goal-attach"),
+      threadId: input.threadId,
+      goalId,
+    });
+  });
+
+  // Acquire the per-thread interpretation lock, run interpretation forked +
+  // failure-logged, and release the lock when the fork settles. Returns without
+  // doing anything if a fork for this thread is already outstanding.
+  const startThreadInterpretation = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageText: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly titleSeed?: string;
+    readonly applyTitle: boolean;
+    readonly forceCreateGoal: boolean;
+    readonly createdAt: string;
+  }) {
+    const key = String(input.threadId);
+    if (inFlightInterpretations.has(key)) return;
+    inFlightInterpretations.add(key);
+    yield* interpretThreadIntent(input).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to interpret thread intent", {
+          threadId: input.threadId,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+      Effect.ensuring(Effect.sync(() => inFlightInterpretations.delete(key))),
+      Effect.forkScoped,
+    );
+  });
 
   const processTurnStartRequested = Effect.fn("processTurnStartRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
@@ -854,35 +932,40 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const isFirstUserMessageTurn =
-      thread.messages.filter((entry) => entry.role === "user").length === 1;
-    if (isFirstUserMessageTurn) {
-      const project = yield* resolveProject(thread.projectId);
-      const generationCwd =
-        resolveThreadWorkspaceCwd({
-          thread,
-          projects: project ? [project] : [],
-        }) ?? process.cwd();
-      const generationInput = {
-        messageText: message.text,
-        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-        ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
-      };
+    const userMessageCount = thread.messages.filter((entry) => entry.role === "user").length;
+    const isFirstUserMessageTurn = userMessageCount === 1;
+    const generationInput = {
+      messageText: message.text,
+      ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
+    };
 
+    if (isFirstUserMessageTurn) {
       yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
         threadId: event.payload.threadId,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
         ...generationInput,
       }).pipe(Effect.forkScoped);
+    }
 
-      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
-        yield* maybeGenerateThreadTitleForFirstTurn({
-          threadId: event.payload.threadId,
-          cwd: generationCwd,
-          ...generationInput,
-        }).pipe(Effect.forkScoped);
-      }
+    // Emergent goals ("every session has a goal" invariant): interpret intent on
+    // every user turn while the thread is still goal-less. Turn 1 is
+    // confidence-gated (create a goal only when confident); turn 2+ force the
+    // best-guess goal regardless of confidence. The per-thread in-flight lock in
+    // startThreadInterpretation dedups overlapping attempts, so this retries
+    // until a goal exists rather than giving up after a fixed turn (a turn-count
+    // gate here would strand a thread goal-less if the turn-1 interpretation was
+    // still in flight when turn 2 arrived). Threads spawned under an existing
+    // goal already have goalId set and are skipped.
+    if (!thread.goalId) {
+      yield* startThreadInterpretation({
+        threadId: event.payload.threadId,
+        applyTitle: isFirstUserMessageTurn,
+        forceCreateGoal: !isFirstUserMessageTurn,
+        createdAt: event.payload.createdAt,
+        ...generationInput,
+      });
     }
 
     const handleTurnStartFailure = (cause: Cause.Cause<unknown>) => {

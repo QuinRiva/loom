@@ -3,6 +3,14 @@ import * as Schema from "effect/Schema";
 
 const isTextGenerationError = Schema.is(TextGenerationError);
 
+/** Operation labels shared by every text-generation driver runner. */
+export type TextGenerationOperation =
+  | "generateCommitMessage"
+  | "generatePrContent"
+  | "generateBranchName"
+  | "generateThreadTitle"
+  | "generateStructured";
+
 /** Convert an Effect Schema to a flat JSON Schema object, inlining `$defs` when present. */
 export function toJsonSchemaObject(schema: Schema.Top): unknown {
   const document = Schema.toJsonSchemaDocument(schema);

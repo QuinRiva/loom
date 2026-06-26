@@ -338,6 +338,10 @@ interface SidebarThreadRowProps {
   cancelRename: () => void;
   attemptArchiveThread: (threadRef: ScopedThreadRef) => Promise<void>;
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
+  // When a goal collapses to a single thread, the row stands in for the goal and
+  // surfaces this overlay (the "new session under this goal" affordance) on hover
+  // so the goal can still grow a second thread and expand into the grouped view.
+  goalNewSessionAction?: React.ReactNode;
 }
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
@@ -802,6 +806,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </span>
           </div>
         </div>
+        {props.goalNewSessionAction ? (
+          <div className="pointer-events-none absolute top-1/2 right-7 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+            {props.goalNewSessionAction}
+          </div>
+        ) : null}
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
   );
@@ -969,6 +978,58 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       {projectExpanded &&
         goalRows.map((goal) => {
           const goalThreads = threadsByGoalId.get(goal.id) ?? [];
+          // A known goal with exactly one thread renders compact: the thread row
+          // stands in for the goal, keeping the "new session under this goal"
+          // affordance so spawning a second thread expands it into the grouped view.
+          if (goal.known && goalThreads.length === 1) {
+            const compactThread = goalThreads[0]!;
+            const compactThreadKey = scopedThreadKey(
+              scopeThreadRef(compactThread.environmentId, compactThread.id),
+            );
+            return (
+              <SidebarThreadRow
+                key={`goal:${goal.id}`}
+                thread={compactThread}
+                projectCwd={projectCwd}
+                orderedProjectThreadKeys={orderedProjectThreadKeys}
+                isActive={activeRouteThreadKey === compactThreadKey}
+                jumpLabel={threadJumpLabelByKey.get(compactThreadKey) ?? null}
+                appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+                renamingThreadKey={renamingThreadKey}
+                renamingTitle={renamingTitle}
+                setRenamingTitle={setRenamingTitle}
+                renamingInputRef={renamingInputRef}
+                renamingCommittedRef={renamingCommittedRef}
+                confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+                setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                handleThreadClick={handleThreadClick}
+                navigateToThread={navigateToThread}
+                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                handleThreadContextMenu={handleThreadContextMenu}
+                clearSelection={clearSelection}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                attemptArchiveThread={attemptArchiveThread}
+                openPrLink={openPrLink}
+                goalNewSessionAction={
+                  <button
+                    type="button"
+                    aria-label={`New session under ${goal.title}`}
+                    title="New session under this goal"
+                    className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onNewGoalSession(goal.id, goal.projectId);
+                    }}
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                  </button>
+                }
+              />
+            );
+          }
           const goalExpanded = !collapsedGoalIds.has(goal.id);
           return (
             <SidebarMenuSubItem

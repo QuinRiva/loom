@@ -21,6 +21,7 @@ import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
+  type TextGenerationOperation,
 } from "./TextGenerationUtils.ts";
 import {
   applyGrokAcpModelSelection,
@@ -32,11 +33,7 @@ import {
 const GROK_TIMEOUT_MS = 180_000;
 
 function mapGrokAcpError(
-  operation:
-    | "generateCommitMessage"
-    | "generatePrContent"
-    | "generateBranchName"
-    | "generateThreadTitle",
+  operation: TextGenerationOperation,
   detail: string,
   cause: unknown,
 ): TextGenerationError {
@@ -69,11 +66,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
     outputSchemaJson,
     modelSelection,
   }: {
-    operation:
-      | "generateCommitMessage"
-      | "generatePrContent"
-      | "generateBranchName"
-      | "generateThreadTitle";
+    operation: TextGenerationOperation;
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -263,10 +256,20 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
     } satisfies ThreadTitleGenerationResult;
   });
 
+  const generateStructured: TextGenerationShape["generateStructured"] = (input) =>
+    runGrokJson({
+      operation: "generateStructured",
+      cwd: process.cwd(),
+      prompt: input.prompt,
+      outputSchemaJson: input.outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateStructured,
   } satisfies TextGenerationShape;
 });

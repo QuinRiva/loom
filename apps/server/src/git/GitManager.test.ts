@@ -381,6 +381,7 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
             }),
         ),
       ),
+    generateStructured: () => Effect.die("generateStructured is not used by GitManager tests"),
   };
 }
 

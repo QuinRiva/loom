@@ -52,6 +52,7 @@ import {
 import type {
   BranchNameGenerationInput,
   ThreadTitleGenerationInput,
+  TextGenerationShape,
 } from "../../textGeneration/TextGeneration.ts";
 import {
   ProviderAdapterProcessError,
@@ -74,6 +75,7 @@ import {
   type PiRpcProcess,
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
+import { generatePiStructured } from "../Layers/Pi/OneShotCompletion.ts";
 import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
 import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
 
@@ -958,15 +960,30 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       yield* Effect.addFinalizer(() =>
         adapter.stopAll().pipe(Effect.ignore, Effect.andThen(Queue.shutdown(events))),
       );
+      const platform = yield* HostProcessPlatform;
       const deterministicTitle = (message: string) =>
         Effect.succeed({ title: titleFromText(message) });
-      const textGeneration = {
+      // Real one-shot pi completion so the default `pi` text-generation instance
+      // produces genuine structured output (titles/goals). The legacy per-op
+      // stubs stay deterministic; only `generateStructured` is wired for real.
+      const generateStructured: TextGenerationShape["generateStructured"] = (genInput) =>
+        generatePiStructured({
+          binaryPath: effectiveConfig.binaryPath,
+          platform,
+          env: process.env,
+          cwd: serverConfig.cwd,
+          prompt: genInput.prompt,
+          outputSchema: genInput.outputSchema,
+          modelSelection: genInput.modelSelection,
+        });
+      const textGeneration: TextGenerationShape = {
         generateCommitMessage: () => Effect.succeed({ subject: "Update from pi", body: "" }),
         generatePrContent: () => Effect.succeed({ title: "Update from pi", body: "" }),
         generateBranchName: (textInput: BranchNameGenerationInput) =>
           Effect.succeed({ branch: branchFromText(textInput.message) }),
         generateThreadTitle: (textInput: ThreadTitleGenerationInput) =>
           deterministicTitle(textInput.message),
+        generateStructured,
       };
       const snapshot = yield* makeManagedServerProvider<PiSettings>({
         maintenanceCapabilities: PI_MAINTENANCE_CAPABILITIES,

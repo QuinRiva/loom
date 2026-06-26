@@ -196,6 +196,10 @@ export interface ThreadTitlePromptInput {
   policy?: TextGenerationPolicy | undefined;
 }
 
+// NOTE: only consumed by the now call-less `generateThreadTitle` (see
+// TextGeneration.ts). Live first-turn titling uses buildThreadInterpretationPrompt,
+// which yields the title + emergent goal together. Retained to stay close to
+// upstream T3 Code rather than diverge.
 export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
   const prompt = buildPromptFromMessage({
     instruction: "You write concise thread titles for coding conversations.",
@@ -212,6 +216,51 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
   });
   const outputSchema = Schema.Struct({
     title: Schema.String,
+  });
+
+  return { prompt, outputSchema };
+}
+
+// ---------------------------------------------------------------------------
+// Thread interpretation (title + emergent goal)
+// ---------------------------------------------------------------------------
+
+export interface ThreadInterpretationPromptInput {
+  message: string;
+  attachments?: ReadonlyArray<ChatAttachment> | undefined;
+  policy?: TextGenerationPolicy | undefined;
+}
+
+/**
+ * Interpret what a developer is trying to achieve from the transcript-so-far
+ * and distil it into a thread title plus a short emergent goal. The wire field
+ * for the goal objective is `description` so it maps 1:1 onto the existing
+ * `goal.create` / `goal.meta.update` command field.
+ */
+export function buildThreadInterpretationPrompt(input: ThreadInterpretationPromptInput) {
+  const prompt = buildPromptFromMessage({
+    instruction:
+      "You interpret what a developer is trying to achieve in a coding thread and distil it into a thread title and a short goal.",
+    responseShape:
+      "Return a JSON object with keys: title, goal (an object with keys title and description), and confidence.",
+    rules: [
+      "title: 3-5 words summarizing the objective; summarize, do not restate verbatim; no quotes, prefixes, or trailing punctuation.",
+      "goal.title: a short noun phrase naming the objective.",
+      "goal.description: one or two sentences stating the objective the developer is pursuing.",
+      'confidence: "high" only if you are confident this is the thread\'s actual objective, otherwise "low".',
+      "If images are attached, use them as primary context for visual/UI issues.",
+    ],
+    message: input.message,
+    attachments: input.attachments,
+    additionalInstructions: input.policy?.threadTitleInstructions,
+  });
+  const outputSchema = Schema.Struct({
+    title: Schema.String,
+    goal: Schema.Struct({
+      title: Schema.String,
+      description: Schema.String,
+    }),
+    confidence: Schema.Literals(["high", "low"]),
   });
 
   return { prompt, outputSchema };
