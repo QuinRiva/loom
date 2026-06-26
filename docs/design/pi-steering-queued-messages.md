@@ -95,6 +95,36 @@ Pi's `prompt` RPC acks quickly via its `preflightResult` callback (not at turn e
 - **web ChatView**: render pending queued messages (steering queue) near the composer as lightweight
   ephemeral chips/rows; they disappear as the queue drains. Keep it simple and predictable.
 
+## Follow-up bug: steer detection missed multi-turn (tool-using) runs
+
+The first cut keyed steer detection on `session.activeTurnId`, but pi's agent loop
+(`@earendil-works/pi-agent-core/dist/agent-loop.js`) emits **many** `turn_start`/`turn_end`
+pairs per agent run — one per model round / tool-call batch — while `isStreaming` stays true for the
+whole `agent_start → agent_end` span. PiDriver's `turn_end` handler cleared `activeTurnId`, set the
+session to `ready`, and emitted `turn.completed`. So after the first tool call, `activeTurnId` went
+undefined mid-run: a message sent during tool execution / later turns took the no-steer path, sent a
+bare prompt, and pi rejected it ("Agent is already processing"). It only worked if you sent during the
+_first_ turn before any tool call — hence "works sometimes".
+
+**Root cause:** the T3 "turn" was mapped to pi's _internal_ turn, but the correct unit is pi's whole
+agent run. Fix — map the T3 turn lifecycle to `agent_start → agent_end`:
+
+- `activeTurnId` (set by `sendTurn`) persists for the whole agent run; it is cleared only at
+  `agent_end`. Steer detection (`activeTurnId !== undefined`) is then accurate for the entire run.
+- Exactly one `turn.started` per run (at `agent_start`, carrying the active turnId) and exactly one
+  `turn.completed` per run (at `agent_end`, settling status to `ready` and clearing `activeTurnId`).
+  Do not re-emit `turn.started` per sub-turn — that would re-trigger the proposed-plan-acceptance path
+  in `ProviderRuntimeIngestion`.
+- pi's internal `turn_start` becomes a no-op; `turn_end` must NOT end the T3 turn / clear
+  `activeTurnId` / set `ready`. Per-message completion is already handled by `message_end`
+  (`item.completed`) and reasoning display by `pauseReasoningForMessage` (first answer delta), so the
+  durable reasoning/message finalization driven by `turn.completed` at `agent_end` covers every
+  assistant message in the run (they share the turnId). Verify no intermediate reasoning block sticks
+  on "Thinking…"; if a reasoning-only-before-tool-call sub-turn would stick, finalize reasoning at the
+  message boundary without ending the T3 turn.
+- Abort/interrupt: pi emits `turn_end` + `agent_end` on abort; `agent_end` ends the T3 turn as today.
+  Preserve current interrupt semantics.
+
 ## Verification
 
 - `vp check` and `vp run typecheck` must pass.

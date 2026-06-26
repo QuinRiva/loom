@@ -448,20 +448,24 @@ function makePiAdapter(input: {
       });
 
     switch (message.type) {
+      // A pi "agent run" (agent_start -> agent_end) is one T3 turn. pi emits
+      // many internal turn_start/turn_end pairs per run (one per model round /
+      // tool batch) while it stays streaming the whole time, so the T3 turn must
+      // span the entire run: activeTurnId (set by sendTurn) is kept until
+      // agent_end so a mid-run send is detected as a steer (see sendTurn).
       case "agent_start":
         updateSession(session, { status: "running", activeTurnId: session.activeTurnId });
-        return emit({
-          ...base(),
-          type: "session.state.changed",
-          payload: { state: "running", reason: "agent_start" },
-        });
-      case "turn_start":
         if (!session.activeTurnId) return Effect.void;
         return emit({
           ...base(),
           type: "turn.started",
           payload: session.session.model ? { model: session.session.model } : {},
         });
+      // pi-internal sub-turn boundary, not a T3 turn boundary: ignore it so we
+      // don't re-emit turn.started each round (which would re-run plan
+      // acceptance). The T3 turn already started at agent_start.
+      case "turn_start":
+        return Effect.void;
       case "message_start":
         session.currentAssistantMessageId = `assistant-${randomUUID()}`;
         return Effect.void;
@@ -598,22 +602,27 @@ function makePiAdapter(input: {
           type: "thread.queue.updated",
           payload: { steering: message.steering ?? [], followUp: message.followUp ?? [] },
         });
+      // pi-internal sub-turn end: must NOT end the T3 turn or clear
+      // activeTurnId (that would blind mid-run steer detection). Per-message
+      // completion is emitted separately by message_end.
       case "turn_end":
-        if (!session.activeTurnId) return Effect.void;
-        updateSession(session, { status: "ready", activeTurnId: undefined });
-        return emit({
+        return Effect.void;
+      // End of the pi agent run = end of the T3 turn. Emit turn.completed with
+      // the active turn id still set (base() reads it), then clear it.
+      case "agent_end": {
+        if (session.activeTurnId === undefined) {
+          updateSession(session, { status: "ready", activeTurnId: undefined });
+          return Effect.void;
+        }
+        const completed = emit({
           ...base(),
           type: "turn.completed",
-          payload: { state: "completed", usage: message.message?.usage },
+          payload: { state: "completed" },
         });
-      case "agent_end":
         session.activeTurnId = undefined;
         updateSession(session, { status: "ready", activeTurnId: undefined });
-        return emit({
-          ...base(),
-          type: "session.state.changed",
-          payload: { state: "ready", reason: "agent_end" },
-        });
+        return completed;
+      }
       default:
         return Effect.void;
     }
