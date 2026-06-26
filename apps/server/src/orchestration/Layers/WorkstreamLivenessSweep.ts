@@ -70,14 +70,14 @@ export interface LivenessVerdict {
 }
 
 /**
- * Normalize a tool-activity row into a comparable signature for the loop
- * detector. Tool activity is persisted as a generic `itemType/summary/detail`
- * shape (NOT a `(tool, args)` tuple), so the closest comparable identity is the
- * item type + the tool title (which usually carries the target, e.g. a path) +
- * the detail. The required normalization fn before claiming identical-args.
+ * Normalize a tool-activity signal into a comparable signature for the loop
+ * detector. The signal's `summary`+`detail` already carry the discriminating
+ * content (command line, path, search query), recovered upstream by
+ * `deriveToolActivityPresentation` — so two distinct shell commands produce two
+ * distinct signatures and only a genuinely repeated call collapses to one.
  */
 export const normalizeToolSignature = (signal: ProjectionToolActivitySignal): string =>
-  `${signal.itemType ?? ""}\u0000${signal.summary}\u0000${signal.detail ?? ""}`;
+  `${signal.summary}\u0000${signal.detail ?? ""}`;
 
 /**
  * Cheap loop detection over recent tool signatures (most-recent first):
@@ -250,9 +250,7 @@ const makeWorkstreamLivenessSweep = (
             ? (yield* projectionSnapshotQuery.getRecentToolActivityByThreadId(
                 thread.id,
                 thresholds.loopWindow,
-              ))
-                .filter((signal) => signal.kind === "tool.completed")
-                .map(normalizeToolSignature)
+              )).map(normalizeToolSignature)
             : [];
 
         const verdict = classifyLiveness({

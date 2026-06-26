@@ -80,25 +80,10 @@ const base = {
 };
 
 describe("normalizeToolSignature", () => {
-  it("collapses identical tool calls to one signature and separates different targets", () => {
-    const a = normalizeToolSignature({
-      kind: "tool.completed",
-      itemType: "read",
-      summary: "read foo.ts",
-      detail: "1-50",
-    });
-    const b = normalizeToolSignature({
-      kind: "tool.completed",
-      itemType: "read",
-      summary: "read foo.ts",
-      detail: "1-50",
-    });
-    const c = normalizeToolSignature({
-      kind: "tool.completed",
-      itemType: "read",
-      summary: "read bar.ts",
-      detail: "1-50",
-    });
+  it("collapses identical tool calls to one signature and separates distinct commands", () => {
+    const a = normalizeToolSignature({ summary: "Ran command", detail: "ls -la" });
+    const b = normalizeToolSignature({ summary: "Ran command", detail: "ls -la" });
+    const c = normalizeToolSignature({ summary: "Ran command", detail: "git status" });
     expect(a).toBe(b);
     expect(a).not.toBe(c);
   });

@@ -22,10 +22,12 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadActivity,
   type OrchestrationThreadShell,
+  type ToolLifecycleItemType,
   ModelSelection,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
+import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -177,7 +179,6 @@ const RecentToolActivityInput = Schema.Struct({
   limit: NonNegativeInt,
 });
 const RecentToolActivityRowSchema = Schema.Struct({
-  kind: Schema.String,
   summary: Schema.String,
   payload: Schema.fromJsonString(Schema.Unknown),
 });
@@ -1197,12 +1198,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ threadId, limit }) =>
       sql`
         SELECT
-          kind,
           summary,
           payload_json AS "payload"
         FROM projection_thread_activities
         WHERE thread_id = ${threadId}
-          AND tone = 'tool'
+          AND kind = 'tool.completed'
         ORDER BY
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
           sequence DESC,
@@ -1227,12 +1227,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               typeof row.payload === "object" && row.payload !== null
                 ? (row.payload as Record<string, unknown>)
                 : {};
-            return {
-              kind: row.kind,
-              summary: row.summary,
-              itemType: typeof payload.itemType === "string" ? payload.itemType : null,
+            // Recover the discriminating content (command line, path, query)
+            // from the payload via the canonical presentation helper so the
+            // loop signature distinguishes distinct calls of the same tool.
+            // Residual: "other"-class tools (e.g. generic MCP calls) with a
+            // generic title and no distinguishing detail can still collapse
+            // distinct calls to one signature — far narrower than the bash bug
+            // this fixes, and the common tools are well-discriminated.
+            const presentation = deriveToolActivityPresentation({
+              itemType:
+                typeof payload.itemType === "string"
+                  ? (payload.itemType as ToolLifecycleItemType)
+                  : null,
+              title: row.summary,
               detail: typeof payload.detail === "string" ? payload.detail : null,
-            };
+              data: payload.data,
+            });
+            return { summary: presentation.summary, detail: presentation.detail ?? null };
           }),
         ),
       );
