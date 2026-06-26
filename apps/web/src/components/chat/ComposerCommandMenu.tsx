@@ -3,8 +3,9 @@ import {
   type ProviderDriverKind,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ThreadId,
 } from "@t3tools/contracts";
-import { BotIcon } from "lucide-react";
+import { BotIcon, MessagesSquareIcon } from "lucide-react";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
@@ -51,6 +52,13 @@ export type ComposerCommandItem =
       skill: ServerProviderSkill;
       label: string;
       description: string;
+    }
+  | {
+      id: string;
+      type: "thread";
+      threadId: ThreadId;
+      label: string;
+      description: string;
     };
 
 type ComposerCommandGroup = {
@@ -85,6 +93,17 @@ function groupCommandItems(
 ): ComposerCommandGroup[] {
   if (triggerKind === "skill") {
     return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
+  }
+  if (triggerKind === "path") {
+    const fileItems = items.filter((item) => item.type === "path");
+    const threadItems = items.filter((item) => item.type === "thread");
+    if (fileItems.length > 0 && threadItems.length > 0) {
+      return [
+        { id: "files", label: "Files", items: fileItems },
+        { id: "threads", label: "Threads", items: threadItems },
+      ];
+    }
+    return [{ id: "default", label: null, items }];
   }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
     return [{ id: "default", label: null, items }];
@@ -246,6 +265,9 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/80">
           <SkillGlyph className="size-3.5" />
         </span>
+      ) : null}
+      {props.item.type === "thread" ? (
+        <MessagesSquareIcon className="size-4 shrink-0 text-muted-foreground/80" />
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="shrink-0">{props.item.label}</span>

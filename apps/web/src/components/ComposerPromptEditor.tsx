@@ -68,8 +68,10 @@ import { basenameOfPath } from "~/vscode-icons";
 import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
+  COMPOSER_INLINE_CHIP_CLASS_NAME,
   COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME,
   SKILL_CHIP_ICON_SVG,
+  THREAD_CHIP_ICON_SVG,
 } from "./composerInlineChip";
 import { FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
@@ -97,6 +99,17 @@ type SerializedComposerMentionNode = Spread<
   {
     path: string;
     type: "composer-mention";
+    version: 1;
+  },
+  SerializedLexicalNode
+>;
+
+type SerializedComposerThreadNode = Spread<
+  {
+    threadId: string;
+    label: string;
+    source: string;
+    type: "composer-thread";
     version: 1;
   },
   SerializedLexicalNode
@@ -205,6 +218,94 @@ class ComposerMentionNode extends DecoratorNode<React.ReactElement> {
 
 function $createComposerMentionNode(path: string): ComposerMentionNode {
   return $applyNodeReplacement(new ComposerMentionNode(path));
+}
+
+function ComposerThreadDecorator(props: { label: string }) {
+  return (
+    <span
+      className={COMPOSER_INLINE_CHIP_CLASS_NAME}
+      contentEditable={false}
+      spellCheck={false}
+      data-composer-thread-chip="true"
+    >
+      <span
+        aria-hidden="true"
+        className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
+        dangerouslySetInnerHTML={{ __html: THREAD_CHIP_ICON_SVG }}
+      />
+      <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{props.label}</span>
+    </span>
+  );
+}
+
+class ComposerThreadNode extends DecoratorNode<React.ReactElement> {
+  __threadId: string;
+  __label: string;
+  __source: string;
+
+  static override getType(): string {
+    return "composer-thread";
+  }
+
+  static override clone(node: ComposerThreadNode): ComposerThreadNode {
+    return new ComposerThreadNode(node.__threadId, node.__label, node.__source, node.__key);
+  }
+
+  static override importJSON(serializedNode: SerializedComposerThreadNode): ComposerThreadNode {
+    return $createComposerThreadNode(
+      serializedNode.threadId,
+      serializedNode.label,
+      serializedNode.source,
+    ).updateFromJSON(serializedNode);
+  }
+
+  constructor(threadId: string, label: string, source: string, key?: NodeKey) {
+    super(key);
+    this.__threadId = threadId;
+    this.__label = label;
+    this.__source = source;
+  }
+
+  override exportJSON(): SerializedComposerThreadNode {
+    return {
+      ...super.exportJSON(),
+      threadId: this.__threadId,
+      label: this.__label,
+      source: this.__source,
+      type: "composer-thread",
+      version: 1,
+    };
+  }
+
+  override createDOM(): HTMLElement {
+    const dom = document.createElement("span");
+    dom.className = "inline-flex align-middle leading-none";
+    return dom;
+  }
+
+  override updateDOM(): false {
+    return false;
+  }
+
+  override getTextContent(): string {
+    return this.__source;
+  }
+
+  override isInline(): true {
+    return true;
+  }
+
+  override decorate(): React.ReactElement {
+    return <ComposerThreadDecorator label={this.__label} />;
+  }
+}
+
+function $createComposerThreadNode(
+  threadId: string,
+  label: string,
+  source: string,
+): ComposerThreadNode {
+  return $applyNodeReplacement(new ComposerThreadNode(threadId, label, source));
 }
 
 function resolveSkillDescription(
@@ -420,12 +521,14 @@ function $createComposerTerminalContextNode(
 
 type ComposerInlineTokenNode =
   | ComposerMentionNode
+  | ComposerThreadNode
   | ComposerSkillNode
   | ComposerTerminalContextNode;
 
 function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInlineTokenNode {
   return (
     candidate instanceof ComposerMentionNode ||
+    candidate instanceof ComposerThreadNode ||
     candidate instanceof ComposerSkillNode ||
     candidate instanceof ComposerTerminalContextNode
   );
@@ -825,6 +928,12 @@ function $setComposerEditorPrompt(
   for (const segment of segments) {
     if (segment.type === "mention") {
       paragraph.append($createComposerMentionNode(segment.path));
+      continue;
+    }
+    if (segment.type === "thread") {
+      paragraph.append(
+        $createComposerThreadNode(segment.id, segment.label || segment.id, segment.source),
+      );
       continue;
     }
     if (segment.type === "skill") {
@@ -1661,7 +1770,12 @@ export function ComposerPromptEditor({
     () => ({
       namespace: "t3tools-composer-editor",
       editable: true,
-      nodes: [ComposerMentionNode, ComposerSkillNode, ComposerTerminalContextNode],
+      nodes: [
+        ComposerMentionNode,
+        ComposerThreadNode,
+        ComposerSkillNode,
+        ComposerTerminalContextNode,
+      ],
       editorState: () => {
         $setComposerEditorPrompt(
           initialValueRef.current,

@@ -177,6 +177,16 @@ describe("expandCollapsedComposerCursor", () => {
     );
   });
 
+  it("maps a collapsed thread cursor to the expanded source length", () => {
+    const text = "consult [Refactor pass](thread://abc-123) now";
+    const collapsedCursorAfterThread = "consult ".length + 1;
+    const expandedCursorAfterThread = "consult [Refactor pass](thread://abc-123)".length;
+
+    expect(expandCollapsedComposerCursor(text, collapsedCursorAfterThread)).toBe(
+      expandedCursorAfterThread,
+    );
+  });
+
   it("allows path trigger detection to close after selecting a mention", () => {
     const text = "what's in my @AGENTS.md ";
     const collapsedCursorAfterMention = "what's in my ".length + 2;
@@ -238,6 +248,16 @@ describe("collapseExpandedComposerCursor", () => {
 
     expect(collapsedCursor).toBe("open ".length + 1 + " then ".length + 2);
     expect(expandCollapsedComposerCursor(text, collapsedCursor)).toBe(expandedCursor);
+  });
+
+  it("maps an expanded thread cursor back to a single collapsed step", () => {
+    const text = "consult [Refactor pass](thread://abc-123) now";
+    const collapsedCursorAfterThread = "consult ".length + 1;
+    const expandedCursorAfterThread = "consult [Refactor pass](thread://abc-123)".length;
+
+    expect(collapseExpandedComposerCursor(text, expandedCursorAfterThread)).toBe(
+      collapsedCursorAfterThread,
+    );
   });
 
   it("maps expanded skill cursor back to collapsed cursor", () => {
