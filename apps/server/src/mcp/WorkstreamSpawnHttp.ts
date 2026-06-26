@@ -19,6 +19,11 @@ import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { askWorkstreamThread } from "../orchestration/workstreamAsk.ts";
+import {
+  isUnambiguousMatch,
+  rankThreadsByName,
+  resolveSessionFilePath,
+} from "../orchestration/threadResolve.ts";
 import { readWorkstreamReport, writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -57,6 +62,12 @@ interface WorkstreamAskThreadRequest {
   readonly question?: unknown;
 }
 
+interface WorkstreamConsultThreadRequest {
+  readonly threadId?: unknown;
+  readonly name?: unknown;
+  readonly question?: unknown;
+}
+
 const SPAWN_PATH = "/provider-tools/workstream/spawn";
 const STATUS_PATH = "/provider-tools/workstream/status";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
@@ -64,11 +75,15 @@ const REPORT_PATH = "/provider-tools/workstream/report";
 const LIST_PATH = "/provider-tools/workstream/list";
 const READ_THREAD_PATH = "/provider-tools/workstream/read-thread";
 const ASK_THREAD_PATH = "/provider-tools/workstream/ask-thread";
+const CONSULT_THREAD_PATH = "/provider-tools/workstream/consult-thread";
 
 // Server-side guard on a single fork turn (forking handles transcript size, so
 // only the turn duration and the question length need bounding).
 const ASK_TIMEOUT_MS = 120_000;
 const ASK_QUESTION_MAX_CHARS = 8_000;
+// Cap candidates surfaced on an ambiguous name so the agent gets a focused
+// disambiguation set rather than the whole server's thread list.
+const CONSULT_CANDIDATE_LIMIT = 8;
 const READ_ACTIVITY_LIMIT = 3;
 const READ_MESSAGE_EXCERPT_LIMIT = 800;
 
@@ -185,6 +200,9 @@ export const workstreamReadThreadUrlFromMcpEndpoint = (mcpEndpoint: string): str
 
 export const workstreamAskThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, ASK_THREAD_PATH);
+
+export const workstreamConsultThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, CONSULT_THREAD_PATH);
 
 /**
  * The caller's whole workstream graph, active + archived. Both `list` (the
@@ -570,6 +588,101 @@ const handleWorkstreamAskThread = Effect.gen(function* () {
   ),
 );
 
+/**
+ * USER-DIRECTED consult: the human-facing complement to `workstream_ask_thread`.
+ * Unlike that agent-to-agent primitive, this is GLOBAL scope (every thread the
+ * server knows, across worktrees/projects) and identifies the target either by
+ * an exact `threadId` (e.g. injected by an @-mention) or by a fuzzy `name`. A
+ * name with one clear match runs the read-only consult; an ambiguous name
+ * returns ranked candidates for the caller to confirm with the user (consulting
+ * the wrong thread is costly). The target session is resolved to its absolute
+ * `.jsonl` path so the read-only fork locates it even in a different worktree.
+ * The execution core (`askWorkstreamThread`) is reused unchanged.
+ */
+const handleWorkstreamConsultThread = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamConsultThreadRequest => ({})),
+  )) as WorkstreamConsultThreadRequest;
+  const threadId = trimString(body.threadId);
+  const name = trimString(body.name);
+  const question = typeof body.question === "string" ? body.question.trim() : "";
+  if (!threadId && !name) return jsonError(400, "Provide either threadId or name.");
+  if (question.length === 0) return jsonError(400, "question is required.");
+  if (question.length > ASK_QUESTION_MAX_CHARS) {
+    return jsonError(400, `question must be at most ${ASK_QUESTION_MAX_CHARS} characters.`);
+  }
+
+  const config = yield* ServerConfig;
+  const serverSettings = yield* ServerSettingsService;
+  const settings = yield* serverSettings.getSettings;
+  const crypto = yield* Crypto.Crypto;
+  const threads = yield* collectGraphThreads();
+
+  // Resolve the target to its absolute session path (bare id fallback) so the
+  // read-only fork locates it regardless of which worktree/project it lives in.
+  const askShell = (shell: (typeof threads)[number], freshSessionId: string) => {
+    const sessionId = piSessionIdForThread(shell.id);
+    return askWorkstreamThread({
+      binaryPath: settings.providers.pi.binaryPath,
+      targetSessionId: resolveSessionFilePath(sessionId) ?? sessionId,
+      freshSessionId,
+      cwd: shell.worktreePath ?? config.cwd,
+      question,
+      timeoutMs: ASK_TIMEOUT_MS,
+    });
+  };
+
+  if (threadId) {
+    const target = ThreadId.make(threadId);
+    const shell = threads.find((thread) => thread.id === target);
+    if (shell === undefined) return jsonError(404, "Target thread was not found.");
+    const answer = yield* askShell(shell, yield* crypto.randomUUIDv4);
+    return HttpServerResponse.jsonUnsafe({
+      resolved: true,
+      threadId: target,
+      title: shell.title,
+      answer,
+    });
+  }
+
+  const ranked = rankThreadsByName(name!, threads);
+  if (ranked.length === 0) {
+    return jsonError(404, `No thread matches "${name}".`);
+  }
+  if (isUnambiguousMatch(ranked)) {
+    const shell = ranked[0]!.thread;
+    const answer = yield* askShell(shell, yield* crypto.randomUUIDv4);
+    return HttpServerResponse.jsonUnsafe({
+      resolved: true,
+      threadId: shell.id,
+      title: shell.title,
+      answer,
+    });
+  }
+  return HttpServerResponse.jsonUnsafe({
+    resolved: false,
+    candidates: ranked.slice(0, CONSULT_CANDIDATE_LIMIT).map((entry) => ({
+      threadId: entry.thread.id,
+      title: entry.thread.title,
+      role: entry.thread.role,
+      status: entry.thread.status,
+      projectId: entry.thread.projectId,
+      worktreePath: entry.thread.worktreePath,
+    })),
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(502, error instanceof Error ? error.message : "Failed to consult the thread."),
+    ),
+  ),
+);
+
 export const workstreamSpawnRouteLayer = HttpRouter.add("POST", SPAWN_PATH, handleWorkstreamSpawn);
 export const workstreamStatusRouteLayer = HttpRouter.add(
   "POST",
@@ -597,6 +710,11 @@ export const workstreamAskThreadRouteLayer = HttpRouter.add(
   ASK_THREAD_PATH,
   handleWorkstreamAskThread,
 );
+export const workstreamConsultThreadRouteLayer = HttpRouter.add(
+  "POST",
+  CONSULT_THREAD_PATH,
+  handleWorkstreamConsultThread,
+);
 
 export const layer = Layer.mergeAll(
   workstreamSpawnRouteLayer,
@@ -606,4 +724,5 @@ export const layer = Layer.mergeAll(
   workstreamListRouteLayer,
   workstreamReadThreadRouteLayer,
   workstreamAskThreadRouteLayer,
+  workstreamConsultThreadRouteLayer,
 );

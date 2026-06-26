@@ -65,6 +65,58 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
+  it("parses a thread link into a thread segment without touching file mentions", () => {
+    expect(
+      splitPromptIntoComposerSegments("Consult [Refactor pass](thread://abc-123) then continue"),
+    ).toEqual([
+      { type: "text", text: "Consult " },
+      {
+        type: "thread",
+        id: "abc-123",
+        label: "Refactor pass",
+        source: "[Refactor pass](thread://abc-123)",
+      },
+      { type: "text", text: " then continue" },
+    ]);
+  });
+
+  it("does not emit a thread link as a file mention", () => {
+    const segments = splitPromptIntoComposerSegments("see [Foo](thread://t-1) now");
+    expect(segments.some((segment) => segment.type === "mention")).toBe(false);
+    expect(segments).toContainEqual({
+      type: "thread",
+      id: "t-1",
+      label: "Foo",
+      source: "[Foo](thread://t-1)",
+    });
+  });
+
+  it("round-trips an escaped bracket in a thread title", () => {
+    expect(splitPromptIntoComposerSegments("open [Fix \\[urgent\\]](thread://xyz) please")).toEqual(
+      [
+        { type: "text", text: "open " },
+        {
+          type: "thread",
+          id: "xyz",
+          label: "Fix [urgent]",
+          source: "[Fix \\[urgent\\]](thread://xyz)",
+        },
+        { type: "text", text: " please" },
+      ],
+    );
+  });
+
+  it("keeps real file links as mention segments alongside thread links", () => {
+    expect(splitPromptIntoComposerSegments("[a.ts](src/a.ts) and [T](thread://id-9) done")).toEqual(
+      [
+        { type: "mention", path: "src/a.ts", source: "[a.ts](src/a.ts)" },
+        { type: "text", text: " and " },
+        { type: "thread", id: "id-9", label: "T", source: "[T](thread://id-9)" },
+        { type: "text", text: " done" },
+      ],
+    );
+  });
+
   it("does not turn normal web links into file mention segments", () => {
     expect(
       splitPromptIntoComposerSegments("Read [the docs](https://example.com/docs) first"),

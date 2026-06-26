@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { serializeComposerFileLink, serializeComposerMentionPath } from "./composerTrigger.ts";
+import {
+  serializeComposerFileLink,
+  serializeComposerMentionPath,
+  serializeComposerThreadLink,
+} from "./composerTrigger.ts";
 
 describe("serializeComposerMentionPath", () => {
   it("keeps simple mention paths unquoted", () => {
@@ -39,5 +43,29 @@ describe("serializeComposerFileLink", () => {
     expect(serializeComposerFileLink("@scope/package.json")).toBe(
       "[package.json](@scope/package.json)",
     );
+  });
+});
+
+describe("serializeComposerThreadLink", () => {
+  it("emits the title-bearing thread link form", () => {
+    expect(serializeComposerThreadLink("Refactor pass", "abc-123")).toBe(
+      "[Refactor pass](thread://abc-123)",
+    );
+  });
+
+  it("escapes brackets and backslashes in the title", () => {
+    expect(serializeComposerThreadLink("Fix [urgent] \\bug", "t-1")).toBe(
+      "[Fix \\[urgent\\] \\\\bug](thread://t-1)",
+    );
+  });
+
+  it("collapses newlines and surrounding whitespace in the title", () => {
+    expect(serializeComposerThreadLink("  Multi\nline   title  ", "t-2")).toBe(
+      "[Multi line title](thread://t-2)",
+    );
+  });
+
+  it("falls back to a placeholder label when the title is blank", () => {
+    expect(serializeComposerThreadLink("   ", "t-3")).toBe("[thread](thread://t-3)");
   });
 });

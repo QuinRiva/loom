@@ -14,6 +14,12 @@ export type ComposerPromptSegment =
       source: string;
     }
   | {
+      type: "thread";
+      id: string;
+      label: string;
+      source: string;
+    }
+  | {
       type: "skill";
       name: string;
     }
@@ -25,6 +31,7 @@ export type ComposerPromptSegment =
 const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s)/g;
 const MENTION_TOKEN_REGEX = /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g;
 const FILE_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)\)(?=\s)/g;
+const THREAD_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(thread:\/\/([^)\s]+)\)(?=\s)/g;
 const URI_SCHEME_REGEX = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 
@@ -50,6 +57,14 @@ type InlineTokenMatch =
       end: number;
     }
   | {
+      type: "thread";
+      id: string;
+      label: string;
+      source: string;
+      start: number;
+      end: number;
+    }
+  | {
       type: "skill";
       value: string;
       start: number;
@@ -57,6 +72,26 @@ type InlineTokenMatch =
     };
 
 type MentionTokenMatch = Extract<InlineTokenMatch, { type: "mention" }>;
+type ThreadTokenMatch = Extract<InlineTokenMatch, { type: "thread" }>;
+
+// `thread://` links are parsed in their own branch; the file-link branch above
+// deliberately skips them via the external-scheme check, so they never become
+// file mentions.
+function collectThreadTokenMatches(text: string): ThreadTokenMatch[] {
+  const matches: ThreadTokenMatch[] = [];
+  for (const match of text.matchAll(THREAD_LINK_TOKEN_REGEX)) {
+    const fullMatch = match[0];
+    const prefix = match[1] ?? "";
+    const label = (match[2] ?? "").replace(/\\(.)/g, "$1");
+    const id = match[3] ?? "";
+    if (!id) continue;
+    const matchIndex = match.index ?? 0;
+    const start = matchIndex + prefix.length;
+    const end = start + fullMatch.length - prefix.length;
+    matches.push({ type: "thread", id, label, source: text.slice(start, end), start, end });
+  }
+  return matches;
+}
 
 function collectMentionTokenMatches(text: string): MentionTokenMatch[] {
   const matches: MentionTokenMatch[] = [];
@@ -103,7 +138,10 @@ function collectMentionTokenMatches(text: string): MentionTokenMatch[] {
 }
 
 function collectInlineTokenMatches(text: string): InlineTokenMatch[] {
-  const matches: InlineTokenMatch[] = collectMentionTokenMatches(text);
+  const matches: InlineTokenMatch[] = [
+    ...collectMentionTokenMatches(text),
+    ...collectThreadTokenMatches(text),
+  ];
 
   for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
     const fullMatch = match[0];
@@ -186,10 +224,10 @@ function forEachPromptTextSlice(
 
 function forEachMentionMatch(
   prompt: string,
-  visitor: (match: MentionTokenMatch, promptOffset: number) => boolean | void,
+  visitor: (match: { start: number; end: number }, promptOffset: number) => boolean | void,
 ): boolean {
   return forEachPromptTextSlice(prompt, (text, promptOffset) => {
-    for (const match of collectMentionTokenMatches(text)) {
+    for (const match of [...collectMentionTokenMatches(text), ...collectThreadTokenMatches(text)]) {
       if (visitor(match, promptOffset) === true) {
         return true;
       }
@@ -221,6 +259,8 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
         path: match.value,
         source: text.slice(match.start, match.end),
       });
+    } else if (match.type === "thread") {
+      segments.push({ type: "thread", id: match.id, label: match.label, source: match.source });
     } else {
       segments.push({ type: "skill", name: match.value });
     }

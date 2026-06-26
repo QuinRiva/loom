@@ -256,6 +256,49 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       };
     }
   });
+
+  pi.registerTool({
+    name: "consult_thread",
+    label: "Consult Thread (user-directed)",
+    description: "USER-DIRECTED, GLOBAL read-only consult of another thread, answered from a frozen fork of that thread's session. This is the human-facing complement to workstream_ask_thread: it reaches ANY thread the server knows (across worktrees and projects), not just your workstream tree. Use it when the user points you at another thread — by name (\"ask the liveness-detection thread …\") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](thread://<id>) — pass that <id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm with the user, then call again with the chosen threadId. It never resumes or mutates the target.",
+    promptSnippet: "consult_thread: user-directed, global read-only consult of any thread on the server by name or @-mentioned threadId.",
+    promptGuidelines: [
+      "Use consult_thread (not workstream_ask_thread) when the USER directs you to another thread — it is global scope and not limited to your workstream tree.",
+      "Prefer threadId: an @-mentioned thread arrives as [Title](thread://<id>); pass that exact <id>. Otherwise pass name for a fuzzy title match.",
+      "If the result is unresolved with candidates, do not guess — show the candidates to the user and confirm which thread they meant before consulting."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Exact id of the target thread. Preferred when known (e.g. from an @-mention [Title](thread://<id>)). Provide threadId OR name, not both." },
+        name: { type: "string", description: "Fuzzy sidebar title/name of the target thread. Used when you don't have an exact id; an ambiguous name returns ranked candidates to confirm with the user." },
+        question: { type: "string", description: "The question to answer from the target thread's frozen session context." }
+      },
+      required: ["question"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_CONSULT_THREAD_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const result = outcome.result ?? {};
+      if (result.resolved === false) {
+        const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+        const lines = candidates.map((candidate) =>
+          "- " + (candidate.title ?? "(untitled)") + " — " + (candidate.role ?? "thread") + ", " + (candidate.status ?? "unknown") +
+          (candidate.worktreePath ? " [" + candidate.worktreePath + "]" : "") + " (threadId: " + candidate.threadId + ")"
+        );
+        const text = candidates.length > 0
+          ? "Multiple threads match that name. Confirm which one with the user, then call consult_thread again with its threadId:\n" + lines.join("\n")
+          : "No matching thread was found.";
+        return { content: [{ type: "text", text }], details: { ok: true, ...result } };
+      }
+      const answer = result.answer ?? "(no answer)";
+      return {
+        content: [{ type: "text", text: answer }],
+        details: { ok: true, ...result }
+      };
+    }
+  });
 }
 `;
 

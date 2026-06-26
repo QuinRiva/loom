@@ -40,6 +40,17 @@ export function serializeComposerFileLink(path: string): string {
   return `[${label}](${encodeMarkdownLinkDestination(path)})`;
 }
 
+/**
+ * Serialize a thread @-mention into the `[<title>](thread://<id>)` markdown form
+ * the agent resolves via the `consult_thread` tool. Whitespace (including
+ * newlines) in the title is collapsed so the link stays on one line, then `[`,
+ * `]`, and `\` are escaped to round-trip through the file-link label parser.
+ */
+export function serializeComposerThreadLink(title: string, threadId: string): string {
+  const label = escapeMarkdownLinkLabel(title.replace(/\s+/g, " ").trim()) || "thread";
+  return `[${label}](thread://${threadId})`;
+}
+
 function clampCursor(text: string, cursor: number): number {
   if (!Number.isFinite(cursor)) return text.length;
   return Math.max(0, Math.min(text.length, Math.floor(cursor)));
