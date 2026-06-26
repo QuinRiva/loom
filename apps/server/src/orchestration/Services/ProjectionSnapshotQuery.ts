@@ -46,13 +46,15 @@ export interface ProjectionActivityFreshness {
 /**
  * A normalized tool-activity signal for the D-liveness loop detector. The raw
  * row stores a generic `kind/summary/payload` shape (not a `(tool, args)`
- * tuple), so the comparable signature is derived from `kind` + `summary` (the
- * tool title, which usually carries the target) + `itemType` + `detail`.
+ * tuple) whose title (`bash`, `read`, …) is identical across every call of a
+ * tool — so the discriminating content (command line, path, search query) is
+ * recovered by running the shared `deriveToolActivityPresentation` over the
+ * row's payload. The resulting `summary`+`detail` are what the loop signature
+ * compares; without this the detector false-positives on any normal coding
+ * thread because three distinct shell commands collapse to one signature.
  */
 export interface ProjectionToolActivitySignal {
-  readonly kind: string;
   readonly summary: string;
-  readonly itemType: string | null;
   readonly detail: string | null;
 }
 
