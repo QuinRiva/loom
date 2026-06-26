@@ -15,6 +15,8 @@ straight to `main`:
 ```sh
 gh repo set-default QuinRiva/pi-frontend                  # one-time: target origin, not the upstream fork parent
 git add -A && git commit -m "<concise summary>"          # commit the work
+git fetch origin main && git rebase origin/main          # sync onto current main BEFORE pushing (see note)
+# if the rebase replayed any commits, re-run the checks against the new base
 git push -u origin HEAD                                   # push the branch + set upstream
 gh pr create --base main --fill                           # PR into main (--fill uses the commit msg; or pass --title/--body)
 gh pr merge --merge && \                                  # merge, then delete ONLY if the merge succeeded
@@ -25,6 +27,16 @@ Notes:
 
 - `git push -u origin HEAD` pushes the current branch under its own name without
   having to type it — never push directly to `main`.
+- **Rebase onto `origin/main` before pushing.** With ~10 concurrent worktrees
+  sharing this clone, a branch routinely falls several commits behind `main`
+  between "checks passed" and "PR opened". Rebasing first surfaces conflicts
+  locally instead of at merge time, and — critically — lets you re-run
+  `vp check` / `vp run typecheck` against the **actual post-merge state** rather
+  than a stale base. If the rebase replayed commits, re-run the checks before
+  pushing. Doing this after the commit but before the first push means no force
+  push is needed (the branch isn't on the remote yet). `git rebase origin/main`
+  is worktree-safe: it replays onto the remote-tracking ref and never needs
+  `main` checked out here.
 - Use `--fill` to derive the PR title/body from commits; reach for
   `--title`/`--body` only when the commits don't tell the whole story.
 - **Do not use `gh pr merge --delete-branch` here.** These checkouts are git
