@@ -8,140 +8,37 @@ import {
   NetworkIcon,
   PlusIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { readEnvironmentApi } from "../environmentApi";
 import { newCommandId, newThreadId } from "../lib/utils";
 import {
-  hasRunningSignal,
-  resolveBaseColumn,
-  type WorkstreamColumnId,
-} from "../lib/workstreamGraph";
+  type ChildIndex,
+  COLUMN_LABELS,
+  COLUMN_ORDER,
+  formatRelativeAge,
+  getActivity,
+  getLastActivityAt,
+  getPurpose,
+  getRoleIcon,
+  getRoleLabel,
+  getThreadStatus,
+  groupChildrenByColumn,
+  SETTABLE_STATUSES,
+  STATUS_LABELS,
+  STATUS_STYLES,
+  truncateLabel,
+} from "../lib/workstreamPresentation";
 import { type AppState, useStore } from "../store";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
 
 type WorkstreamView = "board" | "graph";
 
-type ChildIndex = ReadonlyMap<ThreadId, SidebarThreadSummary>;
-
-interface WorkstreamStatus {
-  readonly column: WorkstreamColumnId;
-  readonly label: string;
-  readonly textClass: string;
-  readonly borderClass: string;
-  readonly bgClass: string;
-  readonly dotClass: string;
-  readonly leftBorderClass: string;
-  readonly graphStroke: string;
-  readonly graphFill: string;
-}
-
-const COLUMN_ORDER: ReadonlyArray<WorkstreamColumnId> = [
-  "planned",
-  "running",
-  "blocked",
-  "review",
-  "error",
-  "done",
-];
-
-// Statuses a human may set from the card dropdown. `error` is server-only
-// (D-liveness): it is a board lane but never an option the user assigns.
-const SETTABLE_STATUSES: ReadonlyArray<WorkstreamColumnId> = COLUMN_ORDER.filter(
-  (column) => column !== "error",
-);
-
-const COLUMN_LABELS = {
-  planned: "Planned / Ready",
-  running: "Running",
-  blocked: "Blocked / Needs you",
-  review: "In review",
-  error: "Error / Stalled",
-  done: "Done",
-} satisfies Record<WorkstreamColumnId, string>;
-
-// Short labels for per-card badges and the status setter.
-const STATUS_LABELS = {
-  planned: "Planned",
-  running: "Running",
-  blocked: "Blocked",
-  review: "Review",
-  error: "Error",
-  done: "Done",
-} satisfies Record<WorkstreamColumnId, string>;
-
-const STATUS_STYLES = {
-  planned: {
-    textClass: "text-slate-300",
-    borderClass: "border-slate-400/25",
-    bgClass: "bg-slate-400/10",
-    dotClass: "bg-slate-400",
-    leftBorderClass: "border-l-slate-400",
-    graphStroke: "#94a3b8",
-    graphFill: "rgba(148, 163, 184, 0.15)",
-  },
-  running: {
-    textClass: "text-sky-300",
-    borderClass: "border-sky-400/40",
-    bgClass: "bg-sky-400/10",
-    dotClass: "bg-sky-400",
-    leftBorderClass: "border-l-sky-400",
-    graphStroke: "#38bdf8",
-    graphFill: "rgba(56, 189, 248, 0.16)",
-  },
-  blocked: {
-    textClass: "text-amber-300",
-    borderClass: "border-amber-400/40",
-    bgClass: "bg-amber-400/10",
-    dotClass: "bg-amber-400",
-    leftBorderClass: "border-l-amber-400",
-    graphStroke: "#f59e0b",
-    graphFill: "rgba(245, 158, 11, 0.16)",
-  },
-  review: {
-    textClass: "text-violet-300",
-    borderClass: "border-violet-400/40",
-    bgClass: "bg-violet-400/10",
-    dotClass: "bg-violet-400",
-    leftBorderClass: "border-l-violet-400",
-    graphStroke: "#a78bfa",
-    graphFill: "rgba(167, 139, 250, 0.16)",
-  },
-  error: {
-    textClass: "text-rose-300",
-    borderClass: "border-rose-500/45",
-    bgClass: "bg-rose-500/10",
-    dotClass: "bg-rose-500",
-    leftBorderClass: "border-l-rose-500",
-    graphStroke: "#f43f5e",
-    graphFill: "rgba(244, 63, 94, 0.16)",
-  },
-  done: {
-    textClass: "text-emerald-300",
-    borderClass: "border-emerald-400/40",
-    bgClass: "bg-emerald-400/10",
-    dotClass: "bg-emerald-400",
-    leftBorderClass: "border-l-emerald-400",
-    graphStroke: "#34d399",
-    graphFill: "rgba(52, 211, 153, 0.16)",
-  },
-} satisfies Record<WorkstreamColumnId, Omit<WorkstreamStatus, "column" | "label">>;
-
-const WAITS_ON_STROKE = "#f59e0b";
-
-const ROLE_ICONS: Record<string, string> = {
-  reviewer: "◎",
-  review: "◎",
-  researcher: "◇",
-  implementer: "⚙",
-  implementation: "⚙",
-  coder: "⚙",
-  migration: "↯",
-  planner: "▣",
-  plan: "▣",
-};
+// d3-dag (the graph's layout engine) is heavy; lazy-load the whole graph subtree
+// so it lands in its own chunk and never bloats the initial/board render path.
+const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
 
 function selectWorkstreamChildren(
   state: AppState,
@@ -153,105 +50,6 @@ function selectWorkstreamChildren(
   return Object.values(environmentState.sidebarThreadSummaryById)
     .filter((thread) => thread.parentThreadId === parentThreadId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-/**
- * D1 effective-status precedence:
- *  1. explicit review/done win (human/agent intent)
- *  2. else any unmet `blockedBy` dependency ⇒ blocked
- *  3. else explicit blocked ⇒ blocked
- *  4. else explicit running or a live running session/turn ⇒ running
- *  5. else planned
- * Self-deps are ignored and dangling dep ids (unknown threads) don't gate.
- */
-function getEffectiveColumn(
-  thread: SidebarThreadSummary,
-  childById: ChildIndex,
-): WorkstreamColumnId {
-  // `error` (server-set liveness failure) wins over everything so a dead/stalled
-  // child surfaces in its own lane instead of falling through to running/blocked.
-  if (thread.status === "error") return "error";
-  if (thread.status === "review" || thread.status === "done") return thread.status;
-  const blockedByUnmetDep = thread.blockedBy.some((depId) => {
-    if (depId === thread.id) return false;
-    const dep = childById.get(depId);
-    return dep ? resolveBaseColumn(dep) !== "done" : false;
-  });
-  if (blockedByUnmetDep) return "blocked";
-  return resolveBaseColumn(thread);
-}
-
-function getThreadStatus(thread: SidebarThreadSummary, childById: ChildIndex): WorkstreamStatus {
-  const column = getEffectiveColumn(thread, childById);
-  return { column, label: STATUS_LABELS[column], ...STATUS_STYLES[column] };
-}
-
-function getRoleLabel(thread: SidebarThreadSummary): string {
-  return thread.role?.trim() || "sub-thread";
-}
-
-function getRoleIcon(thread: SidebarThreadSummary): string {
-  const normalized = getRoleLabel(thread).toLowerCase();
-  return ROLE_ICONS[normalized] ?? "✦";
-}
-
-function getPurpose(thread: SidebarThreadSummary): string {
-  return thread.purpose?.trim() || "No purpose captured yet.";
-}
-
-function getActivity(thread: SidebarThreadSummary, column: WorkstreamColumnId): string {
-  if (column === "blocked" && thread.blockedBy.length > 0) return "waiting on dependencies";
-  if (thread.hasPendingUserInput) return "paused — waiting for your input";
-  if (thread.hasPendingApprovals) return "approval required";
-  if (thread.hasActionableProposedPlan) return "proposed plan ready";
-  if (thread.latestTurn?.state === "error" || thread.session?.status === "error")
-    return "last turn failed";
-  if (hasRunningSignal(thread)) return "live turn in progress";
-  if (thread.latestTurn?.state === "completed") return "latest turn completed";
-  if (thread.archivedAt) return "archived";
-  return `${STATUS_LABELS[column].toLowerCase()}`;
-}
-
-function getLastActivityAt(thread: SidebarThreadSummary): string {
-  return (
-    thread.latestTurn?.completedAt ??
-    thread.latestTurn?.startedAt ??
-    thread.latestUserMessageAt ??
-    thread.updatedAt ??
-    thread.createdAt
-  );
-}
-
-function formatRelativeAge(iso: string): string {
-  const timestamp = Date.parse(iso);
-  if (Number.isNaN(timestamp)) return "—";
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-function truncateLabel(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-}
-
-function groupChildrenByColumn(
-  children: ReadonlyArray<SidebarThreadSummary>,
-  childById: ChildIndex,
-) {
-  const groups: Record<WorkstreamColumnId, SidebarThreadSummary[]> = {
-    planned: [],
-    running: [],
-    blocked: [],
-    review: [],
-    error: [],
-    done: [],
-  };
-  for (const thread of children) groups[getEffectiveColumn(thread, childById)].push(thread);
-  return groups;
 }
 
 interface WorkstreamPanelProps {
@@ -276,7 +74,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(children.map((thread) => [thread.id, thread])),
     [children],
   );
-  const [view, setView] = useState<WorkstreamView>("board");
+  const [view, setView] = useState<WorkstreamView>("graph");
   const [role, setRole] = useState("");
   const [purpose, setPurpose] = useState("");
   const [isSpawning, setIsSpawning] = useState(false);
@@ -427,12 +225,20 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             onSetDependencies={setDependencies}
           />
         ) : (
-          <WorkstreamGraph
-            activeThread={activeThread}
-            threads={children}
-            childById={childById}
-            onOpenThread={openThread}
-          />
+          <Suspense
+            fallback={
+              <div className="flex h-40 items-center justify-center text-xs text-white/40">
+                <Loader2Icon className="size-4 animate-spin" />
+              </div>
+            }
+          >
+            <WorkstreamGraph
+              activeThread={activeThread}
+              threads={children}
+              childById={childById}
+              onOpenThread={openThread}
+            />
+          </Suspense>
         )}
       </div>
 
@@ -723,247 +529,4 @@ function LiveDots() {
       <span className="size-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:300ms]" />
     </span>
   );
-}
-
-function WorkstreamGraph({
-  activeThread,
-  threads,
-  childById,
-  onOpenThread,
-}: {
-  readonly activeThread: Thread;
-  readonly threads: ReadonlyArray<SidebarThreadSummary>;
-  readonly childById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-}) {
-  const positions = getGraphPositions(threads, childById);
-  const positionById = new Map(positions.map((position) => [position.threadId, position]));
-  const root = { x: 342, y: 38 };
-  const height = Math.max(260, 128 + Math.max(0, ...positions.map((position) => position.y)));
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
-        Lineage edges run orchestrator → sub-thread; dashed amber edges are &ldquo;waits-on&rdquo;
-        dependencies. Colour matches board state; click any node to open the thread.
-      </p>
-      <svg
-        className="min-h-[240px] w-full rounded-xl border border-white/10 bg-black/20"
-        viewBox={`0 0 684 ${height}`}
-        role="img"
-        aria-label="Workstream lineage graph"
-      >
-        <defs>
-          <marker
-            id="workstream-arrow"
-            markerHeight="8"
-            markerWidth="8"
-            orient="auto"
-            refX="6"
-            refY="3"
-          >
-            <path d="M0 0 L6 3 L0 6 z" fill="rgba(255,255,255,0.35)" />
-          </marker>
-          <marker
-            id="workstream-waits-arrow"
-            markerHeight="8"
-            markerWidth="8"
-            orient="auto"
-            refX="6"
-            refY="3"
-          >
-            <path d="M0 0 L6 3 L0 6 z" fill={WAITS_ON_STROKE} />
-          </marker>
-        </defs>
-        <RootNode x={root.x} y={root.y} title={activeThread.title} />
-        {positions.map((position) => {
-          const thread = childById.get(position.threadId);
-          if (!thread) return null;
-          const parent = getParentPosition(thread, positions, root);
-          return (
-            <path
-              d={`M ${parent.x} ${parent.y + 24} C ${parent.x} ${(parent.y + position.y) / 2}, ${
-                position.x
-              } ${(parent.y + position.y) / 2}, ${position.x} ${position.y - 25}`}
-              fill="none"
-              key={`edge-${thread.id}`}
-              markerEnd="url(#workstream-arrow)"
-              stroke="rgba(255,255,255,0.28)"
-              strokeWidth="1.4"
-            />
-          );
-        })}
-        {positions.flatMap((position) => {
-          const thread = childById.get(position.threadId);
-          if (!thread) return [];
-          return thread.blockedBy.flatMap((depId) => {
-            if (depId === thread.id) return [];
-            const depPosition = positionById.get(depId);
-            if (!depPosition) return [];
-            return [
-              <line
-                key={`waits-${thread.id}-${depId}`}
-                markerEnd="url(#workstream-waits-arrow)"
-                stroke={WAITS_ON_STROKE}
-                strokeDasharray="4 3"
-                strokeWidth="1.3"
-                x1={depPosition.x}
-                x2={position.x}
-                y1={depPosition.y}
-                y2={position.y}
-              />,
-            ];
-          });
-        })}
-        {positions.map((position) => {
-          const thread = childById.get(position.threadId);
-          return thread ? (
-            <GraphNode
-              key={thread.id}
-              thread={thread}
-              childById={childById}
-              x={position.x}
-              y={position.y}
-              onOpenThread={onOpenThread}
-            />
-          ) : null;
-        })}
-        {threads.length === 0 ? (
-          <text fill="rgba(255,255,255,0.38)" fontSize="13" textAnchor="middle" x="342" y="150">
-            No sub-threads yet.
-          </text>
-        ) : null}
-      </svg>
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
-        {COLUMN_ORDER.map((column) => (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45" key={column}>
-            <span className={`size-2 rounded-full ${STATUS_STYLES[column].dotClass}`} />
-            {COLUMN_LABELS[column]}
-          </span>
-        ))}
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
-          <span
-            className="inline-block h-0 w-4 border-t border-dashed"
-            style={{ borderColor: WAITS_ON_STROKE }}
-          />
-          waits-on
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function RootNode({
-  x,
-  y,
-  title,
-}: {
-  readonly x: number;
-  readonly y: number;
-  readonly title: string;
-}) {
-  return (
-    <g>
-      <rect
-        fill="rgba(255,255,255,0.07)"
-        height="48"
-        rx="11"
-        stroke="rgba(255,255,255,0.18)"
-        width="160"
-        x={x - 80}
-        y={y - 24}
-      />
-      <text
-        fill="rgba(255,255,255,0.82)"
-        fontSize="12"
-        fontWeight="600"
-        textAnchor="middle"
-        x={x}
-        y={y - 2}
-      >
-        Orchestrator
-      </text>
-      <text fill="rgba(255,255,255,0.38)" fontSize="9.5" textAnchor="middle" x={x} y={y + 14}>
-        {truncateLabel(title, 24)}
-      </text>
-    </g>
-  );
-}
-
-function GraphNode({
-  thread,
-  childById,
-  x,
-  y,
-  onOpenThread,
-}: {
-  readonly thread: SidebarThreadSummary;
-  readonly childById: ChildIndex;
-  readonly x: number;
-  readonly y: number;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-}) {
-  const status = getThreadStatus(thread, childById);
-  const open = () => onOpenThread(thread);
-  return (
-    <g
-      className="cursor-pointer outline-none"
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-    >
-      <title>{`Goal: ${getPurpose(thread)}`}</title>
-      <rect
-        fill={status.graphFill}
-        height="54"
-        rx="10"
-        stroke={status.graphStroke}
-        strokeWidth="1.4"
-        width="126"
-        x={x - 63}
-        y={y - 27}
-      />
-      <circle cx={x - 48} cy={y - 10} fill={status.graphStroke} r="4" />
-      <text fill={status.graphStroke} fontSize="12" x={x - 38} y={y - 6}>
-        {getRoleIcon(thread)}
-      </text>
-      <text fill="rgba(255,255,255,0.9)" fontSize="11" fontWeight="600" x={x - 20} y={y - 6}>
-        {truncateLabel(thread.title, 16)}
-      </text>
-      <text
-        fill="rgba(255,255,255,0.45)"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontSize="8.5"
-        x={x - 49}
-        y={y + 11}
-      >
-        {truncateLabel(getRoleLabel(thread), 12)} · {status.label}
-      </text>
-    </g>
-  );
-}
-
-function getGraphPositions(children: ReadonlyArray<SidebarThreadSummary>, childById: ChildIndex) {
-  const groups = groupChildrenByColumn(children, childById);
-  return COLUMN_ORDER.flatMap((column, columnIndex) =>
-    groups[column].map((thread, rowIndex) => ({
-      threadId: thread.id,
-      x: 78 + columnIndex * 132,
-      y: 125 + rowIndex * 84,
-    })),
-  );
-}
-
-function getParentPosition(
-  thread: SidebarThreadSummary,
-  positions: ReadonlyArray<{ readonly threadId: ThreadId; readonly x: number; readonly y: number }>,
-  root: { readonly x: number; readonly y: number },
-) {
-  return positions.find((position) => position.threadId === thread.parentThreadId) ?? root;
 }
