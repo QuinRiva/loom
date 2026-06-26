@@ -675,6 +675,12 @@ function makePiAdapter(input: {
       // End of the pi agent run = end of the T3 turn. Emit turn.completed with
       // the active turn id still set (base() reads it), then clear it.
       case "agent_end": {
+        // Turn boundary: drop any tool-arg stashes whose `tool_execution_end`
+        // never arrived (aborted/interrupted/never-completing tool). All of a
+        // turn's tool calls resolve within the run and toolCallIds are unique,
+        // so clearing the whole map here can never mis-merge a later call — pure
+        // memory hygiene. Cleared on BOTH return paths (abort can take either).
+        session.toolArgs.clear();
         if (session.activeTurnId === undefined) {
           updateSession(session, { status: "ready", activeTurnId: undefined });
           return Effect.void;

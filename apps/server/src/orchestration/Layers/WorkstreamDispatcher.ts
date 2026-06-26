@@ -192,7 +192,13 @@ export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
 export const childWakeCommandId = (childId: ThreadId, episode: string): string =>
   `server:workstream-liveness:child-wake:${childId}:${episode}`;
 
-export type ChildWakeKind = "error" | "idle";
+/**
+ * The three per-child wake kinds. `error`/`idle` are classified purely from
+ * thread state by `classifyChildWake`; `recovered` (a child the parent was told
+ * had `error`ed that later reached `done`) is decided in the dispatcher loop
+ * because it needs a durable receipt lookup, not just current state.
+ */
+export type ChildWakeKind = "error" | "idle" | "recovered";
 
 /**
  * Pure per-child wake classification (§1e). Returns the wake kind for a child
@@ -303,18 +309,18 @@ export const buildChildWakeMessage = (
   const lead =
     kind === "error"
       ? `Your Workstream sub-thread ${who} hit an \`error\` state (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
-      : `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its status is still running (it never called \`workstream_set_status\`).`;
+      : kind === "idle"
+        ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its status is still running (it never called \`workstream_set_status\`).`
+        : `Your Workstream sub-thread ${who} recovered: you were told it hit \`error\` (often a false-positive liveness verdict), but it has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
   const reference =
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
       : "_No report was filed._";
-  return [
-    lead,
-    "",
-    reference + formatReportExcerpt(report),
-    "",
-    "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either set its status (`workstream_set_status` done/error) or re-dispatch it. Its dependents stay gated until you resolve this; nothing was auto-cascaded.",
-  ].join("\n");
+  const tail =
+    kind === "recovered"
+      ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report via `workstream_read_thread`, fold its result into your orchestration, and continue."
+      : "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either set its status (`workstream_set_status` done/error) or re-dispatch it. Its dependents stay gated until you resolve this; nothing was auto-cascaded.";
+  return [lead, "", reference + formatReportExcerpt(report), "", tail].join("\n");
 };
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;
@@ -610,22 +616,23 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
-  // Per-child wake pass (§1e): wake the parent of every `error` or
-  // forgot-to-finish child through the shared rail, so a single failed/quiet
-  // child is surfaced promptly (B1) even while its siblings still run — the
-  // generation barrier (`wakeEligibleParents`) only fires once a WHOLE
-  // generation is terminal. Shares `wakeTimestamps` + `parkAndEscalate` so
-  // error/idle/generation-join wakes draw on ONE rate budget per parent (C1).
+  // Per-child wake pass (§1e): wake the parent of every `error`, forgot-to-finish,
+  // or recovered (`error`→`done`) child through the shared rail, so a single
+  // failed/quiet/recovered child is surfaced promptly (B1) even while its siblings
+  // still run — the generation barrier (`wakeEligibleParents`) only fires once a
+  // WHOLE generation is terminal, and is one-shot per generation so it never
+  // re-notifies on an `error`→`done` flip. Shares `wakeTimestamps` +
+  // `parkAndEscalate` so error/idle/recovery/generation-join wakes draw on ONE
+  // rate budget per parent (C1).
   const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
 
     for (const child of snapshot.threads) {
-      const kind = classifyChildWake(child, pendingTurnStartThreadIds);
-      if (kind === null || child.parentThreadId === null) continue;
       // Top-level threads have no agent parent to wake; the board surfaces them
       // (error lane / activity) as escalate-to-human.
+      if (child.parentThreadId === null) continue;
       const parent = threadsById.get(child.parentThreadId);
       if (parent === undefined) continue;
 
@@ -636,11 +643,16 @@ const make = Effect.gen(function* () {
       // also applies an activity-freshness grace (reusing this SAME freshness
       // fetch) so a child that only briefly has no open turn between turns is not
       // mislabeled "forgot to finish"; the periodic re-pass re-evaluates it once
-      // the grace elapses.
+      // the grace elapses. `recovered` re-notifies the parent that a child it was
+      // told had `error`ed has since reached `done` (its frozen error verdict is
+      // superseded); it fires once per child, keyed off the DURABLE error-wake
+      // receipt — NOT `handledChildWakes`, which the park path poisons by adding
+      // the command id without writing a receipt.
+      let kind = classifyChildWake(child, pendingTurnStartThreadIds);
       let episode: string;
       if (kind === "error") {
         episode = "error";
-      } else {
+      } else if (kind === "idle") {
         const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
         if (
           idleWakeWithinGrace(
@@ -651,6 +663,20 @@ const make = Effect.gen(function* () {
         )
           continue;
         episode = `idle:${freshness.maxSequence ?? "none"}`;
+      } else if (child.status === "done") {
+        const recoveryId = childWakeCommandId(child.id, "recovered");
+        if (handledChildWakes.has(recoveryId)) continue;
+        // Only a child the parent was DURABLY told had errored can "recover". A
+        // done child with no error-wake receipt never errored (error precedes
+        // done) → record it handled so the receipt is not re-read every pass.
+        if (!(yield* hasAcceptedReceipt(childWakeCommandId(child.id, "error")))) {
+          handledChildWakes.add(recoveryId);
+          continue;
+        }
+        kind = "recovered";
+        episode = "recovered";
+      } else {
+        continue;
       }
       const commandId = childWakeCommandId(child.id, episode);
       if (handledChildWakes.has(commandId)) continue;
@@ -664,7 +690,10 @@ const make = Effect.gen(function* () {
 
       const history = wakeTimestamps.get(parent.id) ?? [];
       if (wakeRateGuardTrips(history, now)) {
-        yield* parkAndEscalate(parent, `child-wake:${child.id}`);
+        yield* parkAndEscalate(
+          parent,
+          kind === "recovered" ? `child-recovery:${child.id}` : `child-wake:${child.id}`,
+        );
         handledChildWakes.add(commandId);
         continue;
       }
