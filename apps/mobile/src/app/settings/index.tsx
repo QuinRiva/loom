@@ -1,5 +1,4 @@
 import { useAuth, useUser } from "@clerk/expo";
-import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { Link, Stack, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
@@ -17,6 +16,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { AppText as Text } from "../../components/AppText";
+import { supportsAgentAwarenessPush } from "../../features/agent-awareness/capabilities";
 import { setLiveActivityUpdatesEnabled } from "../../features/agent-awareness/liveActivityPreferences";
 import { requestAgentNotificationPermission } from "../../features/agent-awareness/notificationPermissions";
 import { refreshAgentAwarenessRegistration } from "../../features/agent-awareness/remoteRegistration";
@@ -75,7 +75,7 @@ function LocalSettingsRouteScreen() {
 }
 
 function ConfiguredSettingsRouteScreen() {
-  const isIosPersonalTeamBuild = Constants.expoConfig?.extra?.iosPersonalTeamBuild === true;
+  const agentAwarenessPushAvailable = supportsAgentAwarenessPush();
   const insets = useSafeAreaInsets();
   const { push } = useRouter();
   const { expand: expandClerkSheet } = useClerkSettingsSheetDetent();
@@ -364,16 +364,16 @@ function ConfiguredSettingsRouteScreen() {
             icon="bell.badge"
             label="Device Notifications"
             disabled={
-              isIosPersonalTeamBuild ||
+              !agentAwarenessPushAvailable ||
               notificationStatus === "checking" ||
               notificationStatus === "unsupported"
             }
-            value={!isIosPersonalTeamBuild && notificationStatus === "enabled"}
+            value={agentAwarenessPushAvailable && notificationStatus === "enabled"}
             onValueChange={handleDeviceNotificationsChange}
           />
           <SettingsSwitchRow
             disabled={
-              isIosPersonalTeamBuild ||
+              !agentAwarenessPushAvailable ||
               !isLoaded ||
               liveActivityStatus === "checking" ||
               liveActivityStatus === "linking"
@@ -381,7 +381,7 @@ function ConfiguredSettingsRouteScreen() {
             icon="bolt.circle"
             label="Live Activity Updates"
             value={
-              !isIosPersonalTeamBuild &&
+              agentAwarenessPushAvailable &&
               (liveActivityStatus === "enabled" || liveActivityStatus === "linking")
             }
             onValueChange={handleLiveActivitiesChange}
