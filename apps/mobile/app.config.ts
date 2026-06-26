@@ -63,7 +63,10 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
-const iosBundleIdentifier = personalTeamBundleIdentifier ?? variant.iosBundleIdentifier;
+const iosBundleIdentifier =
+  isIosPersonalTeamBuild && personalTeamBundleIdentifier
+    ? personalTeamBundleIdentifier
+    : variant.iosBundleIdentifier;
 
 const widgetsPlugin = [
   "expo-widgets",
