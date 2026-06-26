@@ -1,5 +1,6 @@
 import * as Arr from "effect/Array";
 import * as Cache from "effect/Cache";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -75,6 +76,11 @@ const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitStatusDetail
   behindCount: 0,
   aheadOfDefaultCount: 0,
 });
+
+export const statusUpstreamRefreshCacheTimeToLive = <A, E>(exit: Exit.Exit<A, E>) => {
+  if (Exit.isSuccess(exit)) return STATUS_UPSTREAM_REFRESH_INTERVAL;
+  return Cause.hasInterrupts(exit.cause) ? Duration.zero : STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN;
+};
 const NON_REPOSITORY_REMOTE_STATUS_DETAILS = Object.freeze<GitVcsDriver.GitRemoteStatusDetails>({
   isRepo: false,
   isDefaultBranch: false,
@@ -1046,10 +1052,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const statusRemoteRefreshCache = yield* Cache.makeWith(refreshStatusRemoteCacheEntry, {
     capacity: STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY,
     // Keep successful refreshes warm and briefly back off failed refreshes to avoid retry storms.
-    timeToLive: (exit) =>
-      Exit.isSuccess(exit)
-        ? STATUS_UPSTREAM_REFRESH_INTERVAL
-        : STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN,
+    timeToLive: statusUpstreamRefreshCacheTimeToLive,
   });
 
   const refreshStatusUpstreamIfStale = Effect.fn("refreshStatusUpstreamIfStale")(function* (
