@@ -22,6 +22,7 @@ import { countGoalTasks, useGoalById } from "../../goals/goalState";
 import type { GoalShell } from "../../types";
 import { readEnvironmentApi } from "../../environmentApi";
 import { cn, newCommandId } from "~/lib/utils";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -130,12 +131,7 @@ function GoalHeaderBody({
   };
 
   return (
-    <div
-      className={cn(
-        "flex min-w-0 gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground",
-        expanded ? "max-w-md flex-col" : "max-w-56 items-center",
-      )}
-    >
+    <div className="flex min-w-0 max-w-56 items-center gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground">
       <div className="flex w-full min-w-0 items-center gap-1.5">
         <TargetIcon className="size-3.5 shrink-0" />
         <input
@@ -160,35 +156,28 @@ function GoalHeaderBody({
             {progress.done}/{progress.total}
           </span>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          aria-expanded={expanded}
-          aria-label={expanded ? "Collapse goal" : "Expand goal"}
-          className="shrink-0 text-muted-foreground/55 hover:text-foreground"
-        >
-          <ChevronDownIcon
-            className={cn("size-3 transition-transform", expanded ? "rotate-180" : "")}
-          />
-        </button>
+        <Popover open={expanded} onOpenChange={setExpanded}>
+          <PopoverTrigger
+            aria-label={expanded ? "Collapse goal" : "Expand goal"}
+            className="shrink-0 text-muted-foreground/55 hover:text-foreground"
+          >
+            <ChevronDownIcon
+              className={cn("size-3 transition-transform", expanded ? "rotate-180" : "")}
+            />
+          </PopoverTrigger>
+          <PopoverPopup side="bottom" align="end" className="w-[28rem] max-w-[80vw]">
+            <textarea
+              value={descriptionDraft}
+              onChange={(event) => setDescriptionDraft(event.target.value)}
+              onBlur={commitDescription}
+              aria-label="Goal description"
+              autoFocus
+              placeholder={"Describe this goal\u2026"}
+              className="max-h-[50vh] min-h-32 w-full resize-none bg-transparent text-xs leading-relaxed text-foreground/90 outline-none field-sizing-content"
+            />
+          </PopoverPopup>
+        </Popover>
       </div>
-      {expanded ? (
-        <textarea
-          value={descriptionDraft}
-          onChange={(event) => setDescriptionDraft(event.target.value)}
-          onBlur={commitDescription}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setDescriptionDraft(goal.description);
-              event.currentTarget.blur();
-            }
-          }}
-          aria-label="Goal description"
-          rows={3}
-          placeholder={"Describe this goal\u2026"}
-          className="w-full resize-none rounded-sm bg-transparent leading-relaxed text-foreground/90 outline-none focus:bg-accent focus:px-1"
-        />
-      ) : null}
     </div>
   );
 }
