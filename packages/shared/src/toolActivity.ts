@@ -165,7 +165,7 @@ function classifyToolAction(input: {
   if (itemType === "command_execution" || kind === "execute" || title === "terminal") {
     return "command";
   }
-  if (kind === "read" || title === "read file") {
+  if (kind === "read" || title === "read file" || title === "read") {
     return "read";
   }
   if (

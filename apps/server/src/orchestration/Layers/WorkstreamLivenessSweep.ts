@@ -79,25 +79,40 @@ export interface LivenessVerdict {
 export const normalizeToolSignature = (signal: ProjectionToolActivitySignal): string =>
   `${signal.summary}\u0000${signal.detail ?? ""}`;
 
+const hasDiscriminatingDetail = (signal: ProjectionToolActivitySignal): boolean =>
+  (signal.detail ?? "").trim().length > 0;
+
 /**
- * Cheap loop detection over recent tool signatures (most-recent first):
- * flags a leading run of `repeat` identical calls, or a two-call A,B,A,B…
- * alternation over the most recent `2*repeat` calls. A failing call retried
- * without an arg change collapses to the identical-run case (same signature).
+ * Cheap loop detection over recent tool signals (most-recent first): flags a
+ * leading run of `repeat` identical calls, or a two-call A,B,A,B… alternation
+ * over the most recent `2*repeat` calls. A failing call retried without an arg
+ * change collapses to the identical-run case (same signature).
+ *
+ * Fail-safe guard: a loop is only declared when the *tripping* signals carry
+ * distinguishing `detail`. A run/alternation of detail-less generic tokens
+ * (e.g. `"Ran command\u0000"`, or a `read`/`edit` alternation a provider failed
+ * to enrich) is unprovable as a loop — it only means the detector can't see the
+ * args — so it must not set the thread `error`. This keeps a missing-detail
+ * provider fail-safe for both detector branches. Accepted blind spot: a
+ * genuinely stuck agent hammering a residual detail-less tool is undetectable.
  */
-export const detectActivityLoop = (signatures: ReadonlyArray<string>, repeat: number): boolean => {
-  if (repeat <= 0 || signatures.length < repeat) return false;
+export const detectActivityLoop = (
+  signals: ReadonlyArray<ProjectionToolActivitySignal>,
+  repeat: number,
+): boolean => {
+  if (repeat <= 0 || signals.length < repeat) return false;
+  const signatures = signals.map(normalizeToolSignature);
   let run = 0;
   for (const signature of signatures) {
     if (signature === signatures[0]) run += 1;
     else break;
   }
-  if (run >= repeat) return true;
+  if (run >= repeat && hasDiscriminatingDetail(signals[0]!)) return true;
   const need = repeat * 2;
   if (signatures.length >= need) {
     const [a, b] = signatures;
     if (a !== b && signatures.slice(0, need).every((s, i) => s === (i % 2 === 0 ? a : b))) {
-      return true;
+      if (hasDiscriminatingDetail(signals[0]!) && hasDiscriminatingDetail(signals[1]!)) return true;
     }
   }
   return false;
@@ -114,7 +129,7 @@ export interface LivenessClassifyInput {
   readonly thread: OrchestrationThreadShell;
   readonly session: OrchestrationSession;
   readonly maxActivityCreatedAtMs: number | null;
-  readonly toolSignatures: ReadonlyArray<string>;
+  readonly toolSignals: ReadonlyArray<ProjectionToolActivitySignal>;
   readonly failureCount: number;
   readonly now: number;
   readonly thresholds: LivenessSweepThresholds;
@@ -126,7 +141,7 @@ export interface LivenessClassifyInput {
  * Caller guarantees the thread is a non-terminal sub-thread with a session.
  */
 export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict | null => {
-  const { session, thread, maxActivityCreatedAtMs, toolSignatures, failureCount, now, thresholds } =
+  const { session, thread, maxActivityCreatedAtMs, toolSignals, failureCount, now, thresholds } =
     input;
 
   // Circuit breaker (§1d): a session sustained in a failed state past the cap.
@@ -143,7 +158,7 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
     const turnAgeMs = startedAtMs === null ? 0 : now - startedAtMs;
     if (turnAgeMs < thresholds.startupGraceMs) return null;
 
-    if (detectActivityLoop(toolSignatures, thresholds.loopRepeat)) {
+    if (detectActivityLoop(toolSignals, thresholds.loopRepeat)) {
       return {
         kind: "loop",
         reason: `Stuck loop: the same tool call repeated ≥${thresholds.loopRepeat}× without progress.`,
@@ -245,12 +260,12 @@ const makeWorkstreamLivenessSweep = (
         else failureCounts.delete(thread.id);
 
         const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(thread.id);
-        const toolSignatures =
+        const toolSignals =
           session.activeTurnId !== null
-            ? (yield* projectionSnapshotQuery.getRecentToolActivityByThreadId(
+            ? yield* projectionSnapshotQuery.getRecentToolActivityByThreadId(
                 thread.id,
                 thresholds.loopWindow,
-              )).map(normalizeToolSignature)
+              )
             : [];
 
         const verdict = classifyLiveness({
@@ -259,7 +274,7 @@ const makeWorkstreamLivenessSweep = (
           maxActivityCreatedAtMs: freshness.maxCreatedAt
             ? Date.parse(freshness.maxCreatedAt)
             : null,
-          toolSignatures,
+          toolSignals,
           failureCount,
           now,
           thresholds,
