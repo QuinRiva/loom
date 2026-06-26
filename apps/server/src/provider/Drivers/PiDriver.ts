@@ -74,6 +74,7 @@ import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import {
   createPiRpcProcess,
   type PiRpcProcess,
+  type PiRpcStdoutEvent,
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
 import { generatePiStructured } from "../Layers/Pi/OneShotCompletion.ts";
@@ -118,6 +119,12 @@ interface ActivePiSession {
   unsubscribe: () => void;
   activeTurnId: TurnId | undefined;
   currentAssistantMessageId: string | undefined;
+  // pi delivers tool input only on `tool_execution_start`/`update.args` and the
+  // bare result on `tool_execution_end` — so we stash the args by toolCallId on
+  // start/update and merge them back into the `item.completed` payload on end.
+  // Without this the loop signature (and timeline) sees only result-less generic
+  // tokens and collapses every same-type call to one (false "stuck loop").
+  toolArgs: Map<string, Record<string, unknown>>;
 }
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -355,6 +362,69 @@ function toolItemType(
   return "dynamic_tool_call";
 }
 
+type PiToolExecutionMessage = Extract<
+  PiRpcStdoutEvent,
+  { readonly type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }
+>;
+
+function asArgsRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Re-attach the tool input to the result under `rawInput` (pi's `item.completed`
+ * carries only the bare result). `deriveToolActivityPresentation` already recovers
+ * the command/path/query from `data.rawInput`, so this single merge makes bash
+ * (command), edit (path) and read/grep/find (path/pattern) each yield a
+ * discriminating loop signature again.
+ */
+function mergeRawInput(result: unknown, args: Record<string, unknown> | undefined): unknown {
+  if (!args) return result;
+  const record = asArgsRecord(result);
+  return record ? { ...record, rawInput: args } : { result, rawInput: args };
+}
+
+/**
+ * Build the `item.{started,updated,completed}` payload for a pi tool lifecycle
+ * message, correlating the start/update args (stashed in `toolArgs` by
+ * toolCallId) into the completion payload. Pure aside from the stash map it
+ * threads through, so it is unit-testable end-to-end.
+ */
+export function piToolItemPayload(
+  message: PiToolExecutionMessage,
+  toolArgs: Map<string, Record<string, unknown>>,
+): {
+  itemType: ReturnType<typeof toolItemType>;
+  status: "inProgress" | "completed" | "failed";
+  title: string;
+  data?: unknown;
+} {
+  const itemType = toolItemType(message.toolName);
+  if (message.type === "tool_execution_end") {
+    const stashed = toolArgs.get(message.toolCallId);
+    toolArgs.delete(message.toolCallId);
+    return {
+      itemType,
+      status: message.isError ? "failed" : "completed",
+      title: message.toolName,
+      data: mergeRawInput(message.result, stashed),
+    };
+  }
+  const args = asArgsRecord(message.args);
+  if (args) toolArgs.set(message.toolCallId, args);
+  return {
+    itemType,
+    status: "inProgress",
+    title: message.toolName,
+    data:
+      message.type === "tool_execution_update"
+        ? (message.partialResult ?? message.args)
+        : message.args,
+  };
+}
+
 function resolvePiModel(model: string): { provider: string; modelId: string } | undefined {
   const slash = model.indexOf("/");
   return slash > 0 && slash < model.length - 1
@@ -551,35 +621,16 @@ function makePiAdapter(input: {
       case "tool_execution_start":
       case "tool_execution_update":
       case "tool_execution_end": {
-        const itemType = toolItemType(message.toolName);
         const eventType =
           message.type === "tool_execution_start"
             ? "item.started"
             : message.type === "tool_execution_end"
               ? "item.completed"
               : "item.updated";
-        const status =
-          message.type === "tool_execution_end"
-            ? message.isError
-              ? "failed"
-              : "completed"
-            : "inProgress";
         return emit({
           ...base({ itemId: message.toolCallId }),
           type: eventType,
-          payload: {
-            itemType,
-            status,
-            title: message.toolName,
-            ...(message.type === "tool_execution_end"
-              ? { data: message.result }
-              : {
-                  data:
-                    message.type === "tool_execution_update"
-                      ? (message.partialResult ?? message.args)
-                      : message.args,
-                }),
-          },
+          payload: piToolItemPayload(message, session.toolArgs),
         });
       }
       case "extension_ui_request": {
@@ -735,6 +786,7 @@ function makePiAdapter(input: {
               unsubscribe: () => undefined,
               activeTurnId: undefined,
               currentAssistantMessageId: undefined,
+              toolArgs: new Map(),
             };
             active.unsubscribe = process.subscribe(
               (message) =>

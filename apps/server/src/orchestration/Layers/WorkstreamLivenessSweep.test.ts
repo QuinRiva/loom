@@ -9,6 +9,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { ProjectionToolActivitySignal } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   classifyLiveness,
   DEFAULT_LIVENESS_THRESHOLDS,
@@ -69,11 +70,16 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     ...overrides,
   }) as OrchestrationThreadShell;
 
+const sig = (summary: string, detail: string | null = null): ProjectionToolActivitySignal => ({
+  summary,
+  detail,
+});
+
 const base = {
   thread: thread(),
   session: session(),
   maxActivityCreatedAtMs: now,
-  toolSignatures: [] as ReadonlyArray<string>,
+  toolSignals: [] as ReadonlyArray<ProjectionToolActivitySignal>,
   failureCount: 0,
   now,
   thresholds: DEFAULT_LIVENESS_THRESHOLDS,
@@ -90,15 +96,57 @@ describe("normalizeToolSignature", () => {
 });
 
 describe("detectActivityLoop", () => {
-  it("flags >=3 consecutive identical calls", () => {
-    expect(detectActivityLoop(["x", "x", "x", "y"], 3)).toBe(true);
+  it("flags >=3 consecutive identical detailed calls", () => {
+    expect(
+      detectActivityLoop(
+        [
+          sig("Ran command", "ls"),
+          sig("Ran command", "ls"),
+          sig("Ran command", "ls"),
+          sig("Read file", "a.ts"),
+        ],
+        3,
+      ),
+    ).toBe(true);
   });
-  it("flags A,B,A,B,A,B two-call alternation", () => {
-    expect(detectActivityLoop(["a", "b", "a", "b", "a", "b"], 3)).toBe(true);
+  it("flags A,B,A,B,A,B two-call detailed alternation", () => {
+    const a = sig("Ran command", "git status");
+    const b = sig("Read file", "a.ts");
+    expect(detectActivityLoop([a, b, a, b, a, b], 3)).toBe(true);
   });
   it("does not flag genuine progress", () => {
-    expect(detectActivityLoop(["a", "b", "c", "d"], 3)).toBe(false);
-    expect(detectActivityLoop(["x", "x"], 3)).toBe(false);
+    expect(
+      detectActivityLoop(
+        [
+          sig("Ran command", "a"),
+          sig("Ran command", "b"),
+          sig("Ran command", "c"),
+          sig("Ran command", "d"),
+        ],
+        3,
+      ),
+    ).toBe(false);
+    expect(detectActivityLoop([sig("Ran command", "a"), sig("Ran command", "a")], 3)).toBe(false);
+  });
+
+  // Fix B — the fail-safe guard, covering BOTH detector branches.
+  it("does NOT flag >=3 identical detail-less signatures (identical-run branch)", () => {
+    expect(
+      detectActivityLoop([sig("Ran command"), sig("Ran command"), sig("Ran command")], 3),
+    ).toBe(false);
+  });
+  it("does NOT flag a detail-less read/edit alternation (alternation branch)", () => {
+    const read = sig("Read file");
+    const edit = sig("Changed files");
+    expect(detectActivityLoop([read, edit, read, edit, read, edit], 3)).toBe(false);
+  });
+  it("still flags >=3 identical DETAILED signatures", () => {
+    expect(
+      detectActivityLoop(
+        [sig("Ran command", "npm t"), sig("Ran command", "npm t"), sig("Ran command", "npm t")],
+        3,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -133,9 +181,18 @@ describe("classifyLiveness", () => {
     const verdict = classifyLiveness({
       ...base,
       maxActivityCreatedAtMs: now,
-      toolSignatures: ["x", "x", "x"],
+      toolSignals: [sig("Ran command", "ls"), sig("Ran command", "ls"), sig("Ran command", "ls")],
     });
     expect(verdict?.kind).toBe("loop");
+  });
+
+  it("does not flag a loop when the repeated signatures carry no detail", () => {
+    const verdict = classifyLiveness({
+      ...base,
+      maxActivityCreatedAtMs: now,
+      toolSignals: [sig("Ran command"), sig("Ran command"), sig("Ran command")],
+    });
+    expect(verdict).toBeNull();
   });
 
   it("does not run active-turn detectors when there is no active turn", () => {
