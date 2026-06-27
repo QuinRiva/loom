@@ -20,7 +20,6 @@ import {
   type CustomRenderers,
   type NodeStyleOverrides,
   type PartialMarkdownTheme,
-  type TokenType,
 } from "react-native-nitro-markdown";
 import {
   ActivityIndicator,
@@ -56,6 +55,7 @@ import {
   parseReviewCommentMessageSegments,
   type ReviewInlineComment,
 } from "../review/reviewCommentSelection";
+import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import { resolveNativeReviewDiffView } from "../diffs/nativeReviewDiffSurface";
 import {
   buildNativeReviewDiffData,
@@ -78,9 +78,9 @@ import {
 } from "../../lib/threadActivity";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { ThreadWorkGroupToggle, ThreadWorkLog } from "./thread-work-log";
+import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
 import { useAssetUrl } from "../../state/assets";
 import { resolveWorkspaceRelativeFilePath } from "../files/filePath";
-import { highlightMarkdownCode } from "../../lib/markdownCodeHighlighter";
 
 const MESSAGE_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -182,29 +182,6 @@ const MARKDOWN_MONO_FONT = Platform.select({
   default: "monospace",
 });
 
-const MARKDOWN_CODE_TOKEN_COLORS: Record<"light" | "dark", Record<TokenType, string>> = {
-  light: {
-    keyword: "#6d28d9",
-    string: "#047857",
-    comment: "#6b7280",
-    number: "#b45309",
-    operator: "#0f766e",
-    punctuation: "#4b5563",
-    type: "#1d4ed8",
-    default: MARKDOWN_COLORS.light.codeText,
-  },
-  dark: {
-    keyword: "#c4b5fd",
-    string: "#6ee7b7",
-    comment: "#94a3b8",
-    number: "#fbbf24",
-    operator: "#67e8f9",
-    punctuation: "#cbd5e1",
-    type: "#93c5fd",
-    default: MARKDOWN_COLORS.dark.codeText,
-  },
-};
-
 interface MarkdownStyleSets {
   readonly user: MarkdownStyleSet;
   readonly assistant: MarkdownStyleSet;
@@ -281,6 +258,127 @@ const MarkdownExternalLink = memo(function MarkdownExternalLink(props: {
   );
 });
 
+function MarkdownCodeBlock(props: {
+  readonly backgroundColor: string;
+  readonly borderColor: string;
+  readonly content: string;
+  readonly headerTextColor: string;
+  readonly highlightCode: boolean;
+  readonly language?: string | null;
+  readonly textColor: string;
+  readonly theme: ReviewDiffTheme;
+}) {
+  const highlighted = useMarkdownCodeHighlight({
+    code: props.content,
+    enabled: props.highlightCode && Boolean(props.language?.trim()),
+    language: props.language,
+    theme: props.theme,
+  });
+  let tokenOffset = 0;
+
+  return (
+    <View
+      style={{
+        alignSelf: "stretch",
+        backgroundColor: props.backgroundColor,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: props.borderColor,
+        marginVertical: 12,
+        maxWidth: "100%",
+        minWidth: 0,
+        overflow: "hidden",
+      }}
+    >
+      {props.language ? (
+        <View
+          style={{
+            borderBottomWidth: 1,
+            borderBottomColor: props.borderColor,
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+          }}
+        >
+          <NativeText
+            style={{
+              color: props.headerTextColor,
+              fontFamily: MARKDOWN_MONO_FONT,
+              fontSize: MOBILE_TYPOGRAPHY.label.fontSize,
+              opacity: 0.7,
+              textTransform: "uppercase",
+              ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
+            }}
+          >
+            {props.language}
+          </NativeText>
+        </View>
+      ) : null}
+      <ScrollView
+        horizontal
+        bounces={false}
+        nestedScrollEnabled={Platform.OS === "android"}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
+      >
+        <NativeText
+          selectable
+          style={{
+            color: props.textColor,
+            fontFamily: MARKDOWN_MONO_FONT,
+            fontSize: MOBILE_TYPOGRAPHY.label.fontSize,
+            lineHeight: 20,
+            ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
+          }}
+        >
+          {highlighted
+            ? highlighted.map((line, lineIndex) => {
+                const lineStartOffset = tokenOffset;
+                const lineText = line.map((token) => token.content).join("");
+                const renderedLine = (
+                  <NativeText key={`line:${lineStartOffset}:${lineText}`}>
+                    {line.map((token) => {
+                      const startOffset = tokenOffset;
+                      tokenOffset += token.content.length;
+                      const fontStyle =
+                        token.fontStyle !== null && (token.fontStyle & 1) === 1
+                          ? ("italic" as const)
+                          : ("normal" as const);
+                      const fontWeight =
+                        token.fontStyle !== null && (token.fontStyle & 2) === 2
+                          ? ("700" as const)
+                          : ("400" as const);
+
+                      return (
+                        <NativeText
+                          key={`${startOffset}:${token.content}:${token.color ?? ""}:${
+                            token.fontStyle ?? ""
+                          }`}
+                          style={{
+                            color: token.color ?? props.textColor,
+                            fontFamily: MARKDOWN_MONO_FONT,
+                            fontStyle,
+                            fontWeight,
+                          }}
+                        >
+                          {token.content}
+                        </NativeText>
+                      );
+                    })}
+                    {lineIndex + 1 < highlighted.length ? "\n" : ""}
+                  </NativeText>
+                );
+                if (lineIndex + 1 < highlighted.length) {
+                  tokenOffset += 1;
+                }
+                return renderedLine;
+              })
+            : props.content}
+        </NativeText>
+      </ScrollView>
+    </View>
+  );
+}
+
 function useReviewCommentColors(): ReviewCommentColors {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -326,7 +424,6 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
     const markdownUserInlineCodeText = colors.userInlineCodeText;
     const markdownUserFenceBg = colors.userFenceBackground;
     const markdownUserFenceText = colors.userFenceText;
-    const markdownCodeTokenColors = MARKDOWN_CODE_TOKEN_COLORS[themeMode];
 
     const baseTheme: PartialMarkdownTheme = {
       colors: {
@@ -525,84 +622,18 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
             soft_break: () => <NativeText>{"\n"}</NativeText>,
           }
         : {}),
-      code_block: ({ content = "", language }) => {
-        const highlightedTokens =
-          highlightCode && language ? highlightMarkdownCode(language, content) : null;
-        let tokenOffset = 0;
-
-        return (
-          <View
-            style={{
-              alignSelf: "stretch",
-              backgroundColor: blockBackgroundColor,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: markdownHrColor,
-              marginVertical: 12,
-              maxWidth: "100%",
-              minWidth: 0,
-              overflow: "hidden",
-            }}
-          >
-            {language ? (
-              <View
-                style={{
-                  borderBottomWidth: 1,
-                  borderBottomColor: markdownHrColor,
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                }}
-              >
-                <NativeText
-                  style={{
-                    color: markdownBodyColor,
-                    fontFamily: MARKDOWN_MONO_FONT,
-                    fontSize: MOBILE_TYPOGRAPHY.label.fontSize,
-                    opacity: 0.7,
-                    textTransform: "uppercase",
-                    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-                  }}
-                >
-                  {language}
-                </NativeText>
-              </View>
-            ) : null}
-            <ScrollView
-              horizontal
-              bounces={false}
-              nestedScrollEnabled={Platform.OS === "android"}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 12 }}
-            >
-              <NativeText
-                selectable
-                style={{
-                  color: blockTextColor,
-                  fontFamily: MARKDOWN_MONO_FONT,
-                  fontSize: MOBILE_TYPOGRAPHY.label.fontSize,
-                  lineHeight: 20,
-                  ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-                }}
-              >
-                {highlightedTokens
-                  ? highlightedTokens.map((token) => {
-                      const startOffset = tokenOffset;
-                      tokenOffset += token.text.length;
-                      return (
-                        <NativeText
-                          key={`${startOffset}:${token.type}`}
-                          style={{ color: markdownCodeTokenColors[token.type] }}
-                        >
-                          {token.text}
-                        </NativeText>
-                      );
-                    })
-                  : content}
-              </NativeText>
-            </ScrollView>
-          </View>
-        );
-      },
+      code_block: ({ content = "", language }) => (
+        <MarkdownCodeBlock
+          backgroundColor={blockBackgroundColor}
+          borderColor={markdownHrColor}
+          content={content}
+          headerTextColor={markdownBodyColor}
+          highlightCode={highlightCode}
+          language={language}
+          textColor={blockTextColor}
+          theme={themeMode}
+        />
+      ),
     });
 
     const userTheme: PartialMarkdownTheme = {
