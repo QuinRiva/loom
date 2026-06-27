@@ -536,8 +536,10 @@ export function ThreadFilesTreeScreen() {
     () => <FilesHeaderTitle projectName={projectName} />,
     [projectName],
   );
+  const inspectorShownRef = useRef(false);
   useEffect(() => {
-    if (fileInspector.supported && cwd !== null) {
+    if (fileInspector.supported && cwd !== null && !inspectorShownRef.current) {
+      inspectorShownRef.current = true;
       showAuxiliaryPane("inspector");
     }
   }, [cwd, fileInspector.supported, showAuxiliaryPane]);
