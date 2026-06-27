@@ -211,11 +211,11 @@ export const TerminalSurface = memo(function TerminalSurface(props: TerminalSurf
 
   if (NativeTerminalSurfaceView) {
     return (
-      <View style={props.style}>
+      <View style={props.style} pointerEvents={props.isRunning ? "auto" : "none"}>
         <NativeTerminalSurfaceView
           appearanceScheme={appearanceScheme}
           backgroundColor={theme.background}
-          focusRequest={props.keyboardFocusRequest ?? 0}
+          focusRequest={props.isRunning ? (props.keyboardFocusRequest ?? 0) : 0}
           foregroundColor={theme.foreground}
           mutedForegroundColor={theme.mutedForeground}
           terminalKey={props.terminalKey}

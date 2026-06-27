@@ -1238,8 +1238,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
 
   useEffect(() => {
-    headerMaterialVisibleRef.current = false;
-    props.onHeaderMaterialVisibilityChange?.(false);
+    // With initialScrollAtEnd, a non-empty feed starts scrolled past the top
+    // threshold, so the glass header material should be visible immediately.
+    const visible = props.feed.length > 0;
+    headerMaterialVisibleRef.current = visible;
+    props.onHeaderMaterialVisibilityChange?.(visible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.onHeaderMaterialVisibilityChange, props.threadId]);
 
   const expandedWorkGroupIds = useMemo(() => {
