@@ -237,6 +237,34 @@ function skillMetadataByName(
   );
 }
 
+function useLazyRef<T>(factory: () => T): { current: T } {
+  const ref = useRef<T | null>(null);
+  if (ref.current === null) {
+    ref.current = factory();
+  }
+  return ref as { current: T };
+}
+
+function useSkillMetadataRef(
+  skills: ReadonlyArray<ServerProviderSkill>,
+): { current: ReadonlyMap<string, ComposerSkillMetadata> } {
+  const ref = useLazyRef(() => skillMetadataByName(skills));
+  useEffect(() => {
+    ref.current = skillMetadataByName(skills);
+  }, [ref, skills]);
+  return ref;
+}
+
+function useLayoutSkillMetadataRef(
+  skills: ReadonlyArray<ServerProviderSkill>,
+): { current: ReadonlyMap<string, ComposerSkillMetadata> } {
+  const ref = useLazyRef(() => skillMetadataByName(skills));
+  useLayoutEffect(() => {
+    ref.current = skillMetadataByName(skills);
+  }, [ref, skills]);
+  return ref;
+}
+
 function ComposerSkillDecorator(props: { skillLabel: string; skillDescription: string | null }) {
   const chip = (
     <span
@@ -1123,7 +1151,7 @@ function ComposerSurroundSelectionPlugin(props: {
 }) {
   const [editor] = useLexicalComposerContext();
   const terminalContextsRef = useRef(props.terminalContexts);
-  const skillMetadataRef = useRef(skillMetadataByName(props.skills));
+  const skillMetadataRef = useSkillMetadataRef(props.skills);
   const pendingSurroundSelectionRef = useRef<{
     value: string;
     expandedStart: number;
@@ -1138,10 +1166,6 @@ function ComposerSurroundSelectionPlugin(props: {
   useEffect(() => {
     terminalContextsRef.current = props.terminalContexts;
   }, [props.terminalContexts]);
-
-  useEffect(() => {
-    skillMetadataRef.current = skillMetadataByName(props.skills);
-  }, [props.skills]);
 
   const applySurroundInsertion = useEffectEvent((inputData: string): boolean => {
     const surroundCloseSymbol = SURROUND_SYMBOLS_MAP.get(inputData);
@@ -1404,7 +1428,7 @@ function ComposerPromptEditorInner({
   const terminalContextsSignatureRef = useRef(terminalContextsSignature);
   const skillsSignature = skillSignature(skills);
   const skillsSignatureRef = useRef(skillsSignature);
-  const skillMetadataRef = useRef(skillMetadataByName(skills));
+  const skillMetadataRef = useLayoutSkillMetadataRef(skills);
   const snapshotRef = useRef({
     value,
     cursor: initialCursor,
@@ -1420,10 +1444,6 @@ function ComposerPromptEditorInner({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
-
-  useLayoutEffect(() => {
-    skillMetadataRef.current = skillMetadataByName(skills);
-  }, [skills]);
 
   useEffect(() => {
     editor.setEditable(!disabled);
@@ -1656,7 +1676,7 @@ export function ComposerPromptEditor({
 }: ComposerPromptEditorProps) {
   const initialValueRef = useRef(value);
   const initialTerminalContextsRef = useRef(terminalContexts);
-  const initialSkillMetadataRef = useRef(skillMetadataByName(skills));
+  const initialSkillMetadataRef = useLazyRef(() => skillMetadataByName(skills));
   const initialConfig = useMemo<InitialConfigType>(
     () => ({
       namespace: "t3tools-composer-editor",
