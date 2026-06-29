@@ -127,22 +127,53 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
-export const ThreadStatus = Schema.Literals([
+// Axis 1 — plan lane (intent; the kanban board). The only "lifecycle" axis,
+// deliberately small. `in_progress` is control-plane-only (set by the
+// dispatcher at kickoff); agents/humans may set the others. `done` is the only
+// lane that releases dependents; `cancelled` is terminal but does not.
+export const ThreadPlanLane = Schema.Literals([
+  "planned",
+  "ready",
+  "in_progress",
+  "done",
+  "cancelled",
+]);
+export type ThreadPlanLane = typeof ThreadPlanLane.Type;
+// Schema decode-default for root/manual thread creation. Spawns choose `ready`
+// explicitly (staging is the opt-in `planned`) — see the spawn endpoint.
+export const DEFAULT_THREAD_PLAN_LANE: ThreadPlanLane = "planned";
+
+// Axis 3 — attention (needs-a-human; the single notification surface). A set of
+// reason-tagged flags that co-exist with any plan lane and bubble up. Only the
+// non-derivable reasons are STORED on a thread (`error`, `awaiting_acceptance`,
+// `needs_guidance`); `awaiting_approval`/`awaiting_input` are projected from
+// open approval/input requests and never stored. `error` is server-only (the
+// liveness sweep sets it); the decider rejects an agent-issued `error` raise
+// and rejects the two projected reasons outright.
+export const AttentionReason = Schema.Literals([
+  "error",
+  "awaiting_approval",
+  "awaiting_input",
+  "awaiting_acceptance",
+  "needs_guidance",
+]);
+export type AttentionReason = typeof AttentionReason.Type;
+export const ThreadAttention = Schema.Array(AttentionReason);
+export type ThreadAttention = typeof ThreadAttention.Type;
+
+// Migration-only (design §9): the pre-three-axis stored status. Retained solely
+// so historical `thread.status-set` events still decode on replay and remap
+// into planLane/attention in the projector. NEVER emitted by any live command
+// path — the live surface is plan-lane.set + attention.raise/clear.
+export const LegacyThreadStatus = Schema.Literals([
   "planned",
   "running",
   "blocked",
   "review",
   "done",
-  // D-liveness: server-only failure state set by the liveness sweep when a
-  // sub-thread is dead/stalled/looping/repeatedly-failing. Distinct from
-  // `blocked` (awaiting-human/deps): `error` is a crash/stall that wakes the
-  // parent via the per-child rail. Clients/MCP must NOT set it — the MCP
-  // boundary filters it out of the settable set and the decider rejects any
-  // `thread.status.set error` whose commandId lacks the `server:` prefix.
   "error",
 ]);
-export type ThreadStatus = typeof ThreadStatus.Type;
-export const DEFAULT_THREAD_STATUS: ThreadStatus = "planned";
+export type LegacyThreadStatus = typeof LegacyThreadStatus.Type;
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
@@ -386,7 +417,10 @@ export const OrchestrationThread = Schema.Struct({
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
+  planLane: ThreadPlanLane.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_PLAN_LANE)),
+  ),
+  attention: ThreadAttention.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   // D-notify: the spawn batch this sub-thread belongs to (the parent's turn id
   // at spawn time). Children sharing a (parentThreadId, spawnGeneration) form a
@@ -535,7 +569,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   brief: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  status: ThreadStatus.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_STATUS))),
+  planLane: ThreadPlanLane.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_PLAN_LANE)),
+  ),
+  attention: ThreadAttention.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   blockedBy: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -679,6 +716,10 @@ const ThreadCreateCommand = Schema.Struct({
   // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
   // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
+  // Initial plan lane. Spawns pass `ready` (runs once deps clear) or `planned`
+  // (staged/held for the review-the-graph flow). Omitted on root/manual
+  // creation — defaults to `planned` via the read-model decode default.
+  planLane: Schema.optional(ThreadPlanLane),
   // D-notify: spawn-batch stamp (the parent's turn id at spawn). Set by the
   // spawn path so siblings of the same parent turn join into one wake.
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -740,11 +781,37 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadStatusSetCommand = Schema.Struct({
-  type: Schema.Literal("thread.status.set"),
+// Axis 1 write (plan lane). Authorisation chokepoint lives in the decider:
+// `in_progress` is control-plane-only (set atomically at kickoff), so an
+// agent/client `in_progress` is rejected unless the commandId is `server:`-
+// prefixed; `planned|ready|done|cancelled` are accepted from client/agent.
+const ThreadPlanLaneSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.plan-lane.set"),
   commandId: CommandId,
   threadId: ThreadId,
-  status: ThreadStatus,
+  planLane: ThreadPlanLane,
+  createdAt: IsoDateTime,
+});
+
+// Axis 3 write (raise attention). `error` is server-only; the two `awaiting_*`
+// request reasons are projected from open requests and rejected outright. Only
+// `awaiting_acceptance`/`needs_guidance` are agent-raisable (decider-enforced).
+const ThreadAttentionRaiseCommand = Schema.Struct({
+  type: Schema.Literal("thread.attention.raise"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  reason: AttentionReason,
+  createdAt: IsoDateTime,
+});
+
+// Axis 3 write (clear attention). An omitted `reason` clears ALL stored
+// attention (the lifecycle clear-all used by turn-start / plan-terminal
+// transitions); a present `reason` clears just that flag (human/parent dismiss).
+const ThreadAttentionClearCommand = Schema.Struct({
+  type: Schema.Literal("thread.attention.clear"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  reason: Schema.optional(AttentionReason),
   createdAt: IsoDateTime,
 });
 
@@ -813,11 +880,14 @@ export const ThreadTurnStartCommand = Schema.Struct({
   requireIdle: Schema.optional(Schema.Boolean),
   // D-notify (D-core kickoff): server-only flag set by the WorkstreamDispatcher
   // when it promotes a sub-thread. When true the decider emits a
-  // `thread.status-set running` event in the SAME command as the turn-start, so
-  // the kickoff (turn-start + running status) is one atomic engine transaction
-  // and can never be half-applied by a crash between two dispatches. Never set
-  // by clients — normal user/agent turn-starts must not flip status to running.
-  setRunning: Schema.optional(Schema.Boolean),
+  // `thread.plan-lane-set in_progress` event (plus an attention-clear-all) in
+  // the SAME command as the turn-start, so the kickoff is one atomic engine
+  // transaction that can never be half-applied by a crash between two
+  // dispatches. Sticky-terminal: a turn-start on an already-`done`/`cancelled`
+  // thread leaves the lane and attention untouched (runtime alone reflects the
+  // re-engagement activity). Never set by clients — normal user/agent
+  // turn-starts must not flip the plan lane.
+  setInProgress: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -968,7 +1038,9 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
-  ThreadStatusSetCommand,
+  ThreadPlanLaneSetCommand,
+  ThreadAttentionRaiseCommand,
+  ThreadAttentionClearCommand,
   ThreadDependenciesSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
@@ -999,7 +1071,9 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
-  ThreadStatusSetCommand,
+  ThreadPlanLaneSetCommand,
+  ThreadAttentionRaiseCommand,
+  ThreadAttentionClearCommand,
   ThreadDependenciesSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
@@ -1152,6 +1226,12 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
+  // Live plan/attention events (three-axis model).
+  "thread.plan-lane-set",
+  "thread.attention-raised",
+  "thread.attention-cleared",
+  // Migration-only (design §9): historical event, still decoded + remapped on
+  // replay, never emitted by a live command path.
   "thread.status-set",
   "thread.dependencies-set",
   "thread.message-sent",
@@ -1269,7 +1349,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  status: Schema.optional(ThreadStatus),
+  planLane: Schema.optional(ThreadPlanLane),
+  attention: Schema.optional(ThreadAttention),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
@@ -1326,9 +1407,31 @@ export const ThreadInteractionModeSetPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const ThreadPlanLaneSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  planLane: ThreadPlanLane,
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadAttentionRaisedPayload = Schema.Struct({
+  threadId: ThreadId,
+  reason: AttentionReason,
+  updatedAt: IsoDateTime,
+});
+
+// An omitted `reason` means clear ALL stored attention (lifecycle clear-all);
+// a present `reason` clears just that flag.
+export const ThreadAttentionClearedPayload = Schema.Struct({
+  threadId: ThreadId,
+  reason: Schema.optional(AttentionReason),
+  updatedAt: IsoDateTime,
+});
+
+// Migration-only (design §9): decoded from the event store on replay and
+// remapped into planLane/attention by the projector. Never emitted live.
 export const ThreadStatusSetPayload = Schema.Struct({
   threadId: ThreadId,
-  status: ThreadStatus,
+  status: LegacyThreadStatus,
   updatedAt: IsoDateTime,
 });
 
@@ -1562,6 +1665,21 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.interaction-mode-set"),
     payload: ThreadInteractionModeSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.plan-lane-set"),
+    payload: ThreadPlanLaneSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.attention-raised"),
+    payload: ThreadAttentionRaisedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.attention-cleared"),
+    payload: ThreadAttentionClearedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -1,9 +1,13 @@
 import type {
+  AttentionReason,
+  LegacyThreadStatus,
   OrchestrationEvent,
   OrchestrationGoal,
   OrchestrationReadModel,
   ThreadId,
+  ThreadPlanLane,
 } from "@t3tools/contracts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -29,6 +33,9 @@ import {
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadStatusSetPayload,
+  ThreadPlanLaneSetPayload,
+  ThreadAttentionRaisedPayload,
+  ThreadAttentionClearedPayload,
   ThreadDependenciesSetPayload,
   ThreadReportSetPayload,
   ThreadUnarchivedPayload,
@@ -52,6 +59,45 @@ import {
 } from "./goalTaskTree.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
+
+/**
+ * Migration-only (design §9): remap a legacy `thread.status-set` into the new
+ * planLane/attention axes. Pure; the deps-unmet branch of `blocked` is decided
+ * by the caller (which has the read model) and passed as `depsSatisfied`.
+ * `error`/`review`/`blocked` are additive on the attention set so a thread that
+ * already carries a flag keeps it.
+ */
+export const remapLegacyStatus = (input: {
+  readonly planLane: ThreadPlanLane;
+  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly status: LegacyThreadStatus;
+  readonly depsSatisfied: boolean;
+}): { readonly planLane: ThreadPlanLane; readonly attention: ReadonlyArray<AttentionReason> } => {
+  const withReason = (reason: AttentionReason): ReadonlyArray<AttentionReason> =>
+    input.attention.includes(reason) ? input.attention : [...input.attention, reason];
+  switch (input.status) {
+    case "planned":
+      return { planLane: "planned", attention: input.attention };
+    case "running":
+      return { planLane: "in_progress", attention: input.attention };
+    case "done":
+      return { planLane: "done", attention: [] };
+    case "error":
+      return { planLane: "in_progress", attention: withReason("error") };
+    case "review":
+      return { planLane: "in_progress", attention: withReason("awaiting_acceptance") };
+    case "blocked":
+      // Lane → `ready` (matches SQL migration 042 so the two migration paths
+      // agree and a rebuilt legacy `blocked` thread is not stranded held at
+      // `planned`): with unmet deps it is board-blocked (derived) and runs once
+      // they clear; with deps satisfied it was paused on a human, so also flag
+      // `needs_guidance` (a cosmetic flag that self-clears on the next
+      // turn-start — the lane is the load-bearing part).
+      return input.depsSatisfied
+        ? { planLane: "ready", attention: withReason("needs_guidance") }
+        : { planLane: "ready", attention: input.attention };
+  }
+};
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
@@ -460,7 +506,8 @@ export function projectEvent(
             parentThreadId: payload.parentThreadId ?? null,
             role: payload.role ?? null,
             purpose: payload.purpose ?? null,
-            status: payload.status ?? "planned",
+            planLane: payload.planLane ?? "planned",
+            attention: payload.attention ?? [],
             blockedBy: payload.blockedBy ?? [],
             spawnGeneration: payload.spawnGeneration ?? null,
             reportPath: null,
@@ -571,15 +618,89 @@ export function projectEvent(
         })),
       );
 
-    case "thread.status-set":
-      return decodeForEvent(ThreadStatusSetPayload, event.payload, event.type, "payload").pipe(
+    case "thread.plan-lane-set":
+      return decodeForEvent(ThreadPlanLaneSetPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
-            status: payload.status,
+            planLane: payload.planLane,
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    case "thread.attention-raised":
+      return decodeForEvent(
+        ThreadAttentionRaisedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              attention: thread.attention.includes(payload.reason)
+                ? thread.attention
+                : [...thread.attention, payload.reason],
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.attention-cleared":
+      return decodeForEvent(
+        ThreadAttentionClearedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          // Omitted reason → clear all stored attention; a present reason clears
+          // just that flag.
+          const attention =
+            payload.reason === undefined
+              ? []
+              : thread.attention.filter((reason) => reason !== payload.reason);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              attention,
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    // Migration-only (design §9): historical event remapped onto the new axes.
+    case "thread.status-set":
+      return decodeForEvent(ThreadStatusSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          const remapped = remapLegacyStatus({
+            planLane: thread.planLane,
+            attention: thread.attention,
+            status: payload.status,
+            depsSatisfied: areDependenciesSatisfied(
+              thread,
+              new Map(nextBase.threads.map((entry) => [entry.id, entry] as const)),
+            ),
+          });
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              planLane: remapped.planLane,
+              attention: remapped.attention,
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.dependencies-set":

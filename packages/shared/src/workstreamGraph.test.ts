@@ -1,4 +1,4 @@
-import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { AttentionReason, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,7 +7,7 @@ import {
   graphViewFor,
   type GraphViewThread,
   isInSameTree,
-  isTerminalStatus,
+  isTerminalForJoin,
   selectJoinedGenerations,
   subtreeCostOf,
   subtreeOf,
@@ -20,7 +20,8 @@ const node = (
 ): GraphViewThread => ({
   parentThreadId: null,
   spawnGeneration: null,
-  status: "planned" as ThreadStatus,
+  planLane: "planned" as ThreadPlanLane,
+  attention: [],
   role: null,
   title: null,
   reportPath: null,
@@ -138,10 +139,51 @@ describe("isInSameTree", () => {
   });
 });
 
-describe("isTerminalStatus", () => {
-  it("treats done, blocked, review, and error as terminal for the join barrier", () => {
-    expect((["done", "blocked", "review", "error"] as const).every(isTerminalStatus)).toBe(true);
-    expect((["planned", "running"] as const).some(isTerminalStatus)).toBe(false);
+// Join nodes carry the runtime-executing projection (session/latestTurn) the
+// terminal-for-join predicate reads, on top of plan lane + attention.
+const joinNode = (overrides: {
+  readonly id?: string;
+  readonly parentThreadId?: ThreadId | null;
+  readonly spawnGeneration?: string | null;
+  readonly planLane?: ThreadPlanLane;
+  readonly attention?: ReadonlyArray<AttentionReason>;
+  readonly executing?: boolean;
+}) => ({
+  id: tid(overrides.id ?? "n"),
+  parentThreadId:
+    overrides.parentThreadId === undefined ? tid("parent-1") : overrides.parentThreadId,
+  spawnGeneration: overrides.spawnGeneration ?? null,
+  planLane: overrides.planLane ?? "planned",
+  attention: overrides.attention ?? [],
+  session: overrides.executing ? { status: "running" } : null,
+  latestTurn: overrides.executing ? { state: "running" } : null,
+});
+
+describe("isTerminalForJoin", () => {
+  it("treats done and cancelled as terminal", () => {
+    expect(isTerminalForJoin(joinNode({ planLane: "done" }))).toBe(true);
+    expect(isTerminalForJoin(joinNode({ planLane: "cancelled" }))).toBe(true);
+  });
+
+  it("treats an attention-flagged, non-executing node as terminal (won't progress without a human)", () => {
+    expect(
+      isTerminalForJoin(joinNode({ planLane: "in_progress", attention: ["needs_guidance"] })),
+    ).toBe(true);
+    expect(isTerminalForJoin(joinNode({ planLane: "ready", attention: ["error"] }))).toBe(true);
+  });
+
+  it("does NOT treat a flagged node that is still executing as terminal", () => {
+    expect(
+      isTerminalForJoin(
+        joinNode({ planLane: "in_progress", attention: ["error"], executing: true }),
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT treat a pre-terminal, unflagged node as terminal", () => {
+    expect(isTerminalForJoin(joinNode({ planLane: "planned" }))).toBe(false);
+    expect(isTerminalForJoin(joinNode({ planLane: "ready" }))).toBe(false);
+    expect(isTerminalForJoin(joinNode({ planLane: "in_progress" }))).toBe(false);
   });
 });
 
@@ -149,51 +191,70 @@ const genIds = (groups: ReadonlyArray<{ parentId: ThreadId; generation: string }
   groups.map((g) => `${g.parentId}::${g.generation}`).sort();
 
 describe("selectJoinedGenerations", () => {
-  const gen = (
-    id: string,
-    spawnGeneration: string | null,
-    status: ThreadStatus,
-    parentThreadId: ThreadId | null = tid("parent-1"),
-  ) => node({ id, parentThreadId, spawnGeneration, status });
-
   it("joins a generation only once every member is terminal", () => {
     expect(
-      selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "running")]),
+      selectJoinedGenerations([
+        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
+        joinNode({ id: "b", spawnGeneration: "gen-1", planLane: "in_progress", executing: true }),
+      ]),
     ).toEqual([]);
     expect(
-      genIds(selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "review")])),
+      genIds(
+        selectJoinedGenerations([
+          joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
+          joinNode({
+            id: "b",
+            spawnGeneration: "gen-1",
+            planLane: "in_progress",
+            attention: ["awaiting_acceptance"],
+          }),
+        ]),
+      ),
     ).toEqual(["parent-1::gen-1"]);
   });
 
   it("lets a generation containing an error child still join (barrier-unblock) once the rest are terminal", () => {
     expect(
-      genIds(selectJoinedGenerations([gen("a", "gen-1", "done"), gen("b", "gen-1", "error")])),
+      genIds(
+        selectJoinedGenerations([
+          joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
+          joinNode({ id: "b", spawnGeneration: "gen-1", attention: ["error"] }),
+        ]),
+      ),
     ).toEqual(["parent-1::gen-1"]);
   });
 
   it("scopes the join per (parent, generation) so a later generation wakes independently", () => {
     expect(
       genIds(
-        selectJoinedGenerations([gen("old", "gen-1", "running"), gen("new", "gen-2", "done")]),
+        selectJoinedGenerations([
+          joinNode({
+            id: "old",
+            spawnGeneration: "gen-1",
+            planLane: "in_progress",
+            executing: true,
+          }),
+          joinNode({ id: "new", spawnGeneration: "gen-2", planLane: "done" }),
+        ]),
       ),
     ).toEqual(["parent-1::gen-2"]);
   });
 
   it("ignores children without a spawn generation or parent", () => {
     expect(
-      selectJoinedGenerations([gen("root", "gen-1", "done", null), gen("ungen", null, "done")]),
+      selectJoinedGenerations([
+        joinNode({ id: "root", spawnGeneration: "gen-1", planLane: "done", parentThreadId: null }),
+        joinNode({ id: "ungen", spawnGeneration: null, planLane: "done" }),
+      ]),
     ).toEqual([]);
   });
 
   it("preserves the concrete node type in the joined children", () => {
     const [group] = selectJoinedGenerations([
-      node({
-        id: "a",
-        parentThreadId: tid("p"),
-        spawnGeneration: "g",
-        status: "done",
+      {
+        ...joinNode({ id: "a", parentThreadId: tid("p"), spawnGeneration: "g", planLane: "done" }),
         role: "coder",
-      }),
+      },
     ]);
     expect(group?.children[0]?.role).toBe("coder");
   });

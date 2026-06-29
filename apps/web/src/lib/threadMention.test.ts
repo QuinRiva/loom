@@ -9,7 +9,7 @@ const thread = (id: string, title: string, extra: Partial<SidebarThreadSummary> 
     id: id as ThreadId,
     title,
     role: "coder",
-    status: "running",
+    planLane: "in_progress",
     branch: "feature/x",
     worktreePath: null,
     ...extra,
@@ -53,6 +53,6 @@ describe("matchThreadMentionItems", () => {
 
   it("carries a disambiguating role · status · location description", () => {
     const [item] = matchThreadMentionItems([thread("a", "x", { branch: "main" })], "x", null);
-    expect(item?.description).toBe("coder · running · main");
+    expect(item?.description).toBe("coder · in_progress · main");
   });
 });

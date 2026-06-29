@@ -15,8 +15,9 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadAttention,
   ThreadId,
-  ThreadStatus,
+  ThreadPlanLane,
   TurnId,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -34,7 +35,8 @@ export const ProjectionThread = Schema.Struct({
   role: Schema.NullOr(Schema.String),
   purpose: Schema.NullOr(Schema.String),
   brief: Schema.NullOr(Schema.String),
-  status: ThreadStatus,
+  planLane: ThreadPlanLane,
+  attention: ThreadAttention,
   blockedBy: Schema.Array(ThreadId),
   spawnGeneration: Schema.NullOr(Schema.String),
   reportPath: Schema.NullOr(Schema.String),

@@ -3,7 +3,7 @@ import {
   type OrchestrationThreadShell,
   ProviderInstanceId,
   type ThreadId,
-  type ThreadStatus,
+  type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -41,7 +41,8 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     parentThreadId: "parent-1" as ThreadId,
     role: "coder",
     purpose: "x",
-    status: "running" as ThreadStatus,
+    planLane: "in_progress" as ThreadPlanLane,
+    attention: [],
     blockedBy: [],
     spawnGeneration: null,
     reportPath: null,

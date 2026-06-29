@@ -1031,11 +1031,18 @@ function spawnChildStatus(summary: SidebarThreadSummary | undefined): {
   dotClass: string;
 } {
   if (!summary) return { label: "spawning", dotClass: "bg-muted-foreground/40" };
-  if (summary.status === "done") return { label: "Done", dotClass: "bg-emerald-400" };
-  if (summary.status === "review") return { label: "Review", dotClass: "bg-violet-400" };
-  if (summary.status === "blocked") return { label: "Blocked", dotClass: "bg-amber-400" };
+  // Attention (needs-a-human) overlays any lane and wins the glance signal.
+  if (summary.attention.includes("error")) return { label: "Error", dotClass: "bg-rose-400" };
+  if (summary.attention.includes("needs_guidance"))
+    return { label: "Needs you", dotClass: "bg-orange-400" };
+  if (summary.attention.includes("awaiting_acceptance"))
+    return { label: "Review", dotClass: "bg-violet-400" };
   const running = summary.session?.status === "running" || summary.latestTurn?.state === "running";
-  if (summary.status === "running" || running) return { label: "Running", dotClass: "bg-sky-400" };
+  if (running) return { label: "Running", dotClass: "bg-sky-400" };
+  if (summary.planLane === "done") return { label: "Done", dotClass: "bg-emerald-400" };
+  if (summary.planLane === "cancelled") return { label: "Cancelled", dotClass: "bg-slate-500" };
+  if (summary.planLane === "in_progress") return { label: "In progress", dotClass: "bg-sky-400" };
+  if (summary.planLane === "ready") return { label: "Ready", dotClass: "bg-cyan-400" };
   return { label: "Planned", dotClass: "bg-slate-400" };
 }
 

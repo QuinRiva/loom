@@ -6,7 +6,7 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadShell,
   type ThreadId,
-  type ThreadStatus,
+  type ThreadPlanLane,
 } from "@t3tools/contracts";
 import { selectJoinedGenerations, type JoinedGeneration } from "@t3tools/shared/workstreamGraph";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -38,14 +38,19 @@ import { isThreadIdle } from "../threadIdle.ts";
  * dependencies are all satisfied.
  *
  * - Sub-thread: has a `parentThreadId` (root threads start via the normal flow).
+ * - Released: plan lane is `ready` (the intentional release gate). A `planned`
+ *   child is a deliberate hold — it sits even with deps clear until released.
  * - Un-started: no provider session **and** no started turn (no user message).
  * - Deps satisfied: per the shared `areDependenciesSatisfied` predicate — every
- *   `blockedBy` entry that names a known sibling must be `done` (`review` does
- *   not release); self-refs, dangling ids, and non-siblings never gate. Sharing
- *   the predicate keeps execution gating and the client board in agreement.
+ *   `blockedBy` entry that names a known sibling must be `done` (`cancelled`
+ *   does not release); self-refs, dangling ids, and non-siblings never gate.
+ *   Sharing the predicate keeps execution gating and the client board in
+ *   agreement.
  *
- * Returns only threads that carry both `role` and `purpose`, which are required
- * to build the deferred kick-off prompt (spawn always sets them).
+ * Both gates (release + dependency) must clear, mirroring the two-gate start
+ * model (design §3). Returns only threads that carry both `role` and `purpose`,
+ * which are required to build the deferred kick-off prompt (spawn always sets
+ * them).
  */
 export const selectThreadsToDispatch = (
   threads: ReadonlyArray<OrchestrationThreadShell>,
@@ -56,6 +61,7 @@ export const selectThreadsToDispatch = (
       thread.parentThreadId !== null &&
       thread.role !== null &&
       thread.purpose !== null &&
+      thread.planLane === "ready" &&
       thread.session === null &&
       thread.latestUserMessageAt === null &&
       areDependenciesSatisfied(thread, threadsById),
@@ -131,23 +137,23 @@ const formatReportExcerpt = (report: string | null): string => {
 
 /**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
- * which children completed (role + id + terminal status), for each a reference
+ * which children completed (role + id + terminal plan lane), for each a reference
  * to its on-disk report plus a BOUNDED excerpt (never the full report), and the
  * instruction to review, decide what needs human escalation vs. what it can act
  * on / accept on the human's behalf, and continue orchestrating (including
- * accepting `review` children).
+ * accepting children that are awaiting acceptance).
  */
 export const buildParentWakeMessage = (
   children: ReadonlyArray<{
     readonly id: ThreadId;
     readonly role: string | null;
-    readonly status: ThreadStatus;
+    readonly planLane: ThreadPlanLane;
     readonly reportPath: string | null;
     readonly report: string | null;
   }>,
 ): string => {
   const sections = children.map((child) => {
-    const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.status}`;
+    const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.planLane}`;
     const reference =
       child.reportPath !== null
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
@@ -159,7 +165,7 @@ export const buildParentWakeMessage = (
     "",
     sections.join("\n\n"),
     "",
-    "Review these results. Decide what (if anything) genuinely warrants human escalation versus what you can act on or accept on the human's behalf. For any child in `review`, you are the first-pass reviewer: either accept it (set it to `done` with `workstream_set_status`, which releases its dependents) or escalate to the human when human review is genuinely warranted. Then continue orchestrating.",
+    "Review these results. Decide what (if anything) genuinely warrants human escalation versus what you can act on or accept on the human's behalf. For any child awaiting acceptance, you are the first-pass reviewer: either accept it (advance its plan to `done` with `workstream_set_lane`, which releases its dependents) or escalate to the human when human review is genuinely warranted. Then continue orchestrating.",
   ].join("\n");
 };
 
@@ -170,8 +176,9 @@ export const buildParentWakeMessage = (
 // generation leaves durable markers too, so startup reconciliation does not
 // re-deliver a previously-suppressed generation as a normal wake.
 //
-// Park writes TWO durable receipts: the status.set (`parkBlockCommandId`,
-// written FIRST) and the activity marker (`parkCommandId`, written second). The
+// Park writes TWO durable receipts: the `needs_guidance` attention.raise
+// (`parkBlockCommandId`, written FIRST) and the activity marker (`parkCommandId`,
+// written second). The
 // handled-check keys off the FIRST write (`parkBlockCommandId`), so a crash
 // between the two writes can never resurface a parked generation as a normal
 // wake (Fix B); the missing activity marker is reconciled on the next pass.
@@ -203,24 +210,27 @@ export type ChildWakeKind = "error" | "idle" | "recovered";
 /**
  * Pure per-child wake classification (§1e). Returns the wake kind for a child
  * that should wake its parent, or `null`:
- * - `error` — the liveness sweep set the child `error` (crash/stall/loop/cap).
+ * - `error` — the liveness sweep raised the child's `error` attention flag
+ *   (crash/stall/loop/cap).
  * - `idle`  — "forgot to finish": the child ran (has a session now `ready`/
- *   `stopped`) and went idle, but its status is still `planned`/`running`
- *   (terminal `done`/`blocked`/`review` are awaiting-human / done, not stuck).
+ *   `stopped`) and went idle, but its plan lane is still pre-terminal
+ *   (`ready`/`in_progress`) AND it carries no attention flag (a flagged child is
+ *   already surfaced as needing a human; a `done`/`cancelled` child is finished).
  *
  * Idleness reuses the shared `isThreadIdle` predicate (no pending turn-start,
  * session not `running`, no active turn) so a freshly-promoted child mid-kickoff
  * is never mistaken for forgot-to-finish. A never-started `planned` child has no
- * session and is excluded (it is waiting on deps, not stuck).
+ * session and is excluded (it is waiting on deps/release, not stuck).
  */
 export const classifyChildWake = (
   child: OrchestrationThreadShell,
   pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
 ): ChildWakeKind | null => {
   if (child.parentThreadId === null) return null;
-  if (child.status === "error") return "error";
+  if (child.attention.includes("error")) return "error";
   if (
-    (child.status === "planned" || child.status === "running") &&
+    child.attention.length === 0 &&
+    (child.planLane === "ready" || child.planLane === "in_progress") &&
     child.session !== null &&
     (child.session.status === "ready" || child.session.status === "stopped") &&
     isThreadIdle(child, pendingTurnStartThreadIds)
@@ -294,7 +304,7 @@ export const idleWakeWithinGrace = (
  * Pure per-child wake-message builder. Tells the parent which child went
  * `error` / quiet, points at its on-disk report (with a bounded excerpt), and
  * instructs it to investigate via `workstream_read_thread`/`workstream_ask_thread`
- * then set the child's status (`done`/`error`) or re-dispatch.
+ * then advance the child's plan lane (`done`/`cancelled`) or re-dispatch.
  */
 export const buildChildWakeMessage = (
   child: {
@@ -308,10 +318,10 @@ export const buildChildWakeMessage = (
   const who = `${child.role ?? "sub-thread"} \`${child.id}\``;
   const lead =
     kind === "error"
-      ? `Your Workstream sub-thread ${who} hit an \`error\` state (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
+      ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : kind === "idle"
-        ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its status is still running (it never called \`workstream_set_status\`).`
-        : `Your Workstream sub-thread ${who} recovered: you were told it hit \`error\` (often a false-positive liveness verdict), but it has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
+        ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
+        : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
   const reference =
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
@@ -319,13 +329,14 @@ export const buildChildWakeMessage = (
   const tail =
     kind === "recovered"
       ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report via `workstream_read_thread`, fold its result into your orchestration, and continue."
-      : "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either set its status (`workstream_set_status` done/error) or re-dispatch it. Its dependents stay gated until you resolve this; nothing was auto-cascaded.";
+      : "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
   return [lead, "", reference + formatReportExcerpt(report), "", tail].join("\n");
 };
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;
-// The FIRST durable park write (the `blocked` status.set). The handled-check
-// keys off this receipt, not the activity marker, to close the crash window.
+// The FIRST durable park write (the `needs_guidance` attention.raise). The
+// handled-check keys off this receipt, not the activity marker, to close the
+// crash window.
 const parkBlockCommandId = (parentId: ThreadId, generation: string): string =>
   `${parkCommandId(parentId, generation)}:block`;
 
@@ -342,7 +353,7 @@ export type GenerationDeliveryDecision =
  * deliverable.
  *
  * Keying "parked" off the FIRST park write (`parkBlocked`) — not the activity
- * marker — is the fix: a crash between the status.set and the marker leaves the
+ * marker — is the fix: a crash between the attention.raise and the marker leaves the
  * generation parked, never redelivered as a normal wake.
  */
 export const classifyGenerationByReceipts = (receipts: {
@@ -393,11 +404,11 @@ const make = Effect.gen(function* () {
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null) return;
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    // Atomic kickoff: `setRunning` makes the decider emit the `running`
-    // status-set in the SAME command as the turn-start, so both events are
+    // Atomic kickoff: `setInProgress` makes the decider emit the `in_progress`
+    // plan-lane-set in the SAME command as the turn-start, so both events are
     // appended in one engine transaction. A crash can never leave the child with
-    // a started turn but status stuck at `planned`, and the next promote pass
-    // sees a started thread and never double-starts it.
+    // a started turn but a lane stuck at `ready`, and the next promote pass sees
+    // a started thread and never double-starts it.
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
       commandId: yield* serverCommandId("start-turn"),
@@ -411,7 +422,7 @@ const make = Effect.gen(function* () {
       titleSeed: thread.title,
       runtimeMode: thread.runtimeMode,
       interactionMode: thread.interactionMode,
-      setRunning: true,
+      setInProgress: true,
       createdAt: now,
     } satisfies OrchestrationCommand);
   });
@@ -439,7 +450,7 @@ const make = Effect.gen(function* () {
         Effect.map((report) => ({
           id: child.id,
           role: child.role,
-          status: child.status,
+          planLane: child.planLane,
           reportPath: child.reportPath,
           report: Option.getOrNull(report),
         })),
@@ -469,7 +480,7 @@ const make = Effect.gen(function* () {
 
   // The activity marker — the SECOND durable park write (under `parkCommandId`).
   // Dispatched both as the tail of a fresh park and, on its own, to reconcile a
-  // crash that landed the `blocked` status.set but not this marker (Fix B).
+  // crash that landed the `needs_guidance` attention.raise but not this marker (Fix B).
   const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
     parent: OrchestrationThreadShell,
     generation: string,
@@ -493,22 +504,23 @@ const make = Effect.gen(function* () {
   });
 
   // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
-  // not deliver — set the parent `blocked` with a reason and surface it to the
-  // human (the stub for the future investigator agent). The `blocked` status.set
-  // (`parkBlockCommandId`) is dispatched FIRST and is the durable marker the
-  // handled-check keys off; the activity marker follows. A crash between the two
-  // leaves the generation parked (block receipt present) and is reconciled into
-  // the marker on the next pass — never redelivered as a normal wake (Fix B).
+  // not deliver — raise the parent's `needs_guidance` attention flag (the single
+  // notification surface) and surface it to the human (the stub for the future
+  // investigator agent). The `needs_guidance` attention.raise (`parkBlockCommandId`)
+  // is dispatched FIRST and is the durable marker the handled-check keys off; the
+  // activity marker follows. A crash between the two leaves the generation parked
+  // (block receipt present) and is reconciled into the marker on the next pass —
+  // never redelivered as a normal wake (Fix B).
   const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
     parent: OrchestrationThreadShell,
     generation: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
-      type: "thread.status.set",
+      type: "thread.attention.raise",
       commandId: CommandId.make(parkBlockCommandId(parent.id, generation)),
       threadId: parent.id,
-      status: "blocked",
+      reason: "needs_guidance",
       createdAt: now,
     } satisfies OrchestrationCommand);
     yield* dispatchParkMarker(parent, generation);
@@ -531,7 +543,7 @@ const make = Effect.gen(function* () {
       // Durable idempotency (decision 4 + Fix B): classify from the receipt
       // store, not just the in-memory cache, so a fresh process never
       // re-delivers a generation that was already woken or parked. "Parked" keys
-      // off the FIRST park write (the `blocked` status.set), so a crash between
+      // off the FIRST park write (the `needs_guidance` attention.raise), so a crash between
       // the two park writes can never resurface a parked generation as a wake.
       const wakeDelivered = yield* hasAcceptedReceipt(
         wakeCommandId(generation.parentId, generation.generation),
@@ -552,8 +564,8 @@ const make = Effect.gen(function* () {
         continue;
       }
       if (decision.kind === "parked") {
-        // Reconcile a crash between the two park writes: the `blocked` status.set
-        // landed but the activity marker did not. Append it rather than waking.
+        // Reconcile a crash between the two park writes: the `needs_guidance`
+        // attention.raise landed but the activity marker did not. Append it rather than waking.
         if (decision.reconcileMarker) {
           yield* dispatchParkMarker(parent, generation.generation);
         }
@@ -588,14 +600,34 @@ const make = Effect.gen(function* () {
 
   // Deliver one per-child wake (§1e). Mirrors `deliverWake`: a deterministic
   // command id (receipt-dedup across restarts), `requireIdle` so a busy parent
-  // defers atomically at the command boundary, and the child's status is left
-  // untouched (the parent decides done/error/re-dispatch).
+  // defers atomically at the command boundary. The child's PLAN is left untouched
+  // (the parent decides done/cancelled/re-dispatch); the only state it writes is
+  // the idle backstop's `needs_guidance` flag (design §4.7) so a forgot-to-finish
+  // child cannot sit silently halted.
   const deliverChildWake = Effect.fn("deliverChildWake")(function* (
     parent: OrchestrationThreadShell,
     child: OrchestrationThreadShell,
     kind: ChildWakeKind,
     commandId: string,
   ) {
+    // No-silent-halt backstop (design §4.7/§6): a forgot-to-finish child is
+    // halted non-terminal with no resumer, so raise its `needs_guidance` flag —
+    // the board must SHOW it carries the flag, not merely generate a wake.
+    // Idempotent (deterministic `server:` id, receipt-deduped) and raised BEFORE
+    // the wake so the flag lands even if the parent wake later defers. Raising it
+    // also makes the child terminal-for-join, so the generation-join rail wakes
+    // the parent even if this per-child wake is lost in a busy-parent race. The
+    // `error` kind already carries its flag and `recovered` reached `done`
+    // (terminal) — neither raises here.
+    if (kind === "idle") {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(`${commandId}:flag`),
+        threadId: child.id,
+        reason: "needs_guidance",
+        createdAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+      } satisfies OrchestrationCommand);
+    }
     const report = yield* readWorkstreamReport(child.id).pipe(Effect.map(Option.getOrNull));
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
@@ -663,7 +695,7 @@ const make = Effect.gen(function* () {
         )
           continue;
         episode = `idle:${freshness.maxSequence ?? "none"}`;
-      } else if (child.status === "done") {
+      } else if (child.planLane === "done") {
         const recoveryId = childWakeCommandId(child.id, "recovered");
         if (handledChildWakes.has(recoveryId)) continue;
         // Only a child the parent was DURABLY told had errored can "recover". A
@@ -730,7 +762,11 @@ const make = Effect.gen(function* () {
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) =>
         event.type === "thread.created" ||
-        event.type === "thread.status-set" ||
+        // A child reaching `done` (plan-lane-set) releases dependents and can
+        // complete a generation; an `error`/`needs_guidance` raise (attention-
+        // raised) surfaces a child needing a human. Both must re-run the pass.
+        event.type === "thread.plan-lane-set" ||
+        event.type === "thread.attention-raised" ||
         event.type === "thread.dependencies-set" ||
         // The parent going idle surfaces as a durable thread.session-set (no
         // turn-completion domain event exists); this drains deferred wakes.

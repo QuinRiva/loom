@@ -25,14 +25,14 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ProjectId, ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
 /** The minimal thread fields name resolution reads (a subset of the shell). */
 export interface ThreadNameCandidate {
   readonly id: ThreadId;
   readonly title: string;
   readonly role: string | null;
-  readonly status: ThreadStatus;
+  readonly planLane: ThreadPlanLane;
   readonly projectId: ProjectId;
   readonly worktreePath: string | null;
   /** ISO timestamp used only as a recency tie-break between equal scores. */

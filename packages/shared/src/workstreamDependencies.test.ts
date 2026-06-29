@@ -1,4 +1,4 @@
-import { type ThreadId, type ThreadStatus } from "@t3tools/contracts";
+import { type ThreadId, type ThreadPlanLane } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { areDependenciesSatisfied, type DependencyGateThread } from "./workstreamDependencies.ts";
@@ -14,13 +14,13 @@ const node = (
   overrides: {
     readonly parentThreadId?: ThreadId | null;
     readonly blockedBy?: ReadonlyArray<ThreadId>;
-    readonly status?: ThreadStatus;
+    readonly planLane?: ThreadPlanLane;
   } = {},
 ): DependencyGateThread => ({
   id: id as ThreadId,
   parentThreadId: overrides.parentThreadId === undefined ? parent : overrides.parentThreadId,
   blockedBy: overrides.blockedBy ?? [],
-  status: overrides.status ?? "planned",
+  planLane: overrides.planLane ?? "planned",
 });
 
 const index = (nodes: ReadonlyArray<DependencyGateThread>) =>
@@ -33,32 +33,21 @@ describe("areDependenciesSatisfied", () => {
   });
 
   it("gates on a known sibling dependency that is not done", () => {
-    const dep = node("dep", { status: "running" });
+    const dep = node("dep", { planLane: "in_progress" });
     const thread = node("child", { blockedBy: [dep.id] });
     expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(false);
   });
 
-  it("releases once the sibling dependency is done", () => {
-    const dep = node("dep", { status: "done" });
+  it("releases once the sibling dependency is done (only `done` releases)", () => {
+    const dep = node("dep", { planLane: "done" });
     const thread = node("child", { blockedBy: [dep.id] });
     expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(true);
   });
 
-  it("does not release on review (only done releases)", () => {
-    const dep = node("dep", { status: "review" });
+  it("does not release on a `cancelled` dependency (an abandoned dep keeps dependents blocked)", () => {
+    const dep = node("dep", { planLane: "cancelled" });
     const thread = node("child", { blockedBy: [dep.id] });
     expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(false);
-  });
-
-  it("keeps a dependent gated on an `error` dependency, then releases once it reaches `done`", () => {
-    // An errored dependency must NOT release dependents (gating is done-only);
-    // when the child recovers to `done` (e.g. after a false-positive liveness
-    // error), the same predicate releases the dependent.
-    const thread = node("child", { blockedBy: ["dep" as ThreadId] });
-    const errored = node("dep", { status: "error" });
-    expect(areDependenciesSatisfied(thread, index([errored, thread]))).toBe(false);
-    const recovered = node("dep", { status: "done" });
-    expect(areDependenciesSatisfied(thread, index([recovered, thread]))).toBe(true);
   });
 
   it("ignores a self-reference", () => {
@@ -74,15 +63,15 @@ describe("areDependenciesSatisfied", () => {
   it("does not gate on a non-sibling dependency (different parent)", () => {
     const cousin = node("cousin", {
       parentThreadId: "other-parent" as ThreadId,
-      status: "running",
+      planLane: "in_progress",
     });
     const thread = node("child", { blockedBy: [cousin.id] });
     expect(areDependenciesSatisfied(thread, index([cousin, thread]))).toBe(true);
   });
 
   it("requires every sibling dependency to be done", () => {
-    const a = node("dep-a", { status: "done" });
-    const b = node("dep-b", { status: "running" });
+    const a = node("dep-a", { planLane: "done" });
+    const b = node("dep-b", { planLane: "in_progress" });
     const thread = node("child", { blockedBy: [a.id, b.id] });
     expect(areDependenciesSatisfied(thread, index([a, b, thread]))).toBe(false);
   });

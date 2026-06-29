@@ -42,13 +42,16 @@ import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   workstreamAskThreadUrlFromMcpEndpoint,
+  workstreamAttentionUrlFromMcpEndpoint,
   workstreamConsultThreadUrlFromMcpEndpoint,
   workstreamDependenciesUrlFromMcpEndpoint,
+  workstreamLaneUrlFromMcpEndpoint,
   workstreamListUrlFromMcpEndpoint,
   workstreamReadThreadUrlFromMcpEndpoint,
+  workstreamReleaseUrlFromMcpEndpoint,
   workstreamReportUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
-  workstreamStatusUrlFromMcpEndpoint,
+  workstreamStopUrlFromMcpEndpoint,
 } from "../../mcp/WorkstreamSpawnHttp.ts";
 import type {
   BranchNameGenerationInput,
@@ -735,9 +738,14 @@ function makePiAdapter(input: {
                       T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
-                      T3_WORKSTREAM_STATUS_URL: workstreamStatusUrlFromMcpEndpoint(
+                      T3_WORKSTREAM_LANE_URL: workstreamLaneUrlFromMcpEndpoint(mcpSession.endpoint),
+                      T3_WORKSTREAM_ATTENTION_URL: workstreamAttentionUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
+                      T3_WORKSTREAM_RELEASE_URL: workstreamReleaseUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_WORKSTREAM_STOP_URL: workstreamStopUrlFromMcpEndpoint(mcpSession.endpoint),
                       T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),

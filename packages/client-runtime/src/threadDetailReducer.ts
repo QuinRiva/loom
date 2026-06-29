@@ -145,7 +145,8 @@ export function applyThreadDetailEvent(
           parentThreadId: event.payload.parentThreadId ?? null,
           role: event.payload.role ?? null,
           purpose: event.payload.purpose ?? null,
-          status: event.payload.status ?? "planned",
+          planLane: event.payload.planLane ?? "planned",
+          attention: event.payload.attention ?? [],
           blockedBy: event.payload.blockedBy ?? [],
           spawnGeneration: event.payload.spawnGeneration ?? null,
           reportPath: null,
@@ -229,12 +230,39 @@ export function applyThreadDetailEvent(
         },
       };
 
-    case "thread.status-set":
+    case "thread.plan-lane-set":
       return {
         kind: "updated",
         thread: {
           ...thread,
-          status: event.payload.status,
+          planLane: event.payload.planLane,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.attention-raised":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          attention: thread.attention.includes(event.payload.reason)
+            ? thread.attention
+            : [...thread.attention, event.payload.reason],
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.attention-cleared":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          // An omitted reason clears all stored attention; a present reason
+          // clears just that flag.
+          attention:
+            event.payload.reason === undefined
+              ? []
+              : thread.attention.filter((reason) => reason !== event.payload.reason),
           updatedAt: event.payload.updatedAt,
         },
       };

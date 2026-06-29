@@ -1,4 +1,4 @@
-import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
 /**
  * Minimal thread shape the dependency gate needs. Both the read-model thread
@@ -10,7 +10,7 @@ export interface DependencyGateThread {
   readonly id: ThreadId;
   readonly parentThreadId: ThreadId | null;
   readonly blockedBy: ReadonlyArray<ThreadId>;
-  readonly status: ThreadStatus;
+  readonly planLane: ThreadPlanLane;
 }
 
 /**
@@ -20,9 +20,9 @@ export interface DependencyGateThread {
  * board display and execution gating never disagree.
  *
  * A `blockedBy` entry gates execution only when it names a **known sibling** (a
- * thread with the same `parentThreadId`) whose status is not yet `done`.
- * `review` does not release. Self-references, dangling/unknown ids, and
- * non-siblings never gate.
+ * thread with the same `parentThreadId`) whose plan lane is not yet `done`.
+ * `cancelled` does **not** release (an abandoned dependency keeps its dependents
+ * blocked). Self-references, dangling/unknown ids, and non-siblings never gate.
  */
 export const areDependenciesSatisfied = <T extends DependencyGateThread>(
   thread: T,
@@ -32,5 +32,5 @@ export const areDependenciesSatisfied = <T extends DependencyGateThread>(
     if (depId === thread.id) return true;
     const dep = threadsById.get(depId);
     if (dep === undefined || dep.parentThreadId !== thread.parentThreadId) return true;
-    return dep.status === "done";
+    return dep.planLane === "done";
   });

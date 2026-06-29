@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, ProjectId, ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   GitBranchIcon,
@@ -14,19 +14,22 @@ import { useShallow } from "zustand/react/shallow";
 import { readEnvironmentApi } from "../environmentApi";
 import { newCommandId, newThreadId } from "../lib/utils";
 import {
+  ATTENTION_STYLES,
   type ChildIndex,
   COLUMN_LABELS,
   COLUMN_ORDER,
+  COLUMN_SHORT_LABELS,
   formatRelativeAge,
   getActivity,
+  getAttentionBadges,
   getLastActivityAt,
   getPurpose,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
   groupChildrenByColumn,
-  SETTABLE_STATUSES,
-  STATUS_LABELS,
+  hasRunningSignal,
+  SETTABLE_LANES,
   STATUS_STYLES,
   truncateLabel,
 } from "../lib/workstreamPresentation";
@@ -96,14 +99,43 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
 
-  const setStatus = (threadId: ThreadId, status: ThreadStatus) => {
+  // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
+  // control plane at kickoff and `blocked` is derived from dependencies, so
+  // neither is offered here.
+  const setLane = (threadId: ThreadId, planLane: ThreadPlanLane) => {
     const api = readEnvironmentApi(environmentId);
     if (!api) return;
     void api.orchestration.dispatchCommand({
-      type: "thread.status.set",
+      type: "thread.plan-lane.set",
       commandId: newCommandId(),
       threadId,
-      status,
+      planLane,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  // Human stop: interrupting the active turn. The decider raises
+  // `needs_guidance` on a human-issued interrupt so the halted thread surfaces
+  // immediately (no-silent-halt).
+  const stopThread = (threadId: ThreadId) => {
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+    void api.orchestration.dispatchCommand({
+      type: "thread.turn.interrupt",
+      commandId: newCommandId(),
+      threadId,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  // Dismiss all stored attention flags on a thread (human/parent acknowledge).
+  const clearAttention = (threadId: ThreadId) => {
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+    void api.orchestration.dispatchCommand({
+      type: "thread.attention.clear",
+      commandId: newCommandId(),
+      threadId,
       createdAt: new Date().toISOString(),
     });
   };
@@ -221,7 +253,9 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             threads={children}
             childById={childById}
             onOpenThread={openThread}
-            onSetStatus={setStatus}
+            onSetLane={setLane}
+            onStop={stopThread}
+            onClearAttention={clearAttention}
             onSetDependencies={setDependencies}
           />
         ) : (
@@ -304,7 +338,9 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
 interface CardControls {
   readonly childById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onSetStatus: (threadId: ThreadId, status: ThreadStatus) => void;
+  readonly onSetLane: (threadId: ThreadId, planLane: ThreadPlanLane) => void;
+  readonly onStop: (threadId: ThreadId) => void;
+  readonly onClearAttention: (threadId: ThreadId) => void;
   readonly onSetDependencies: (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => void;
 }
 
@@ -312,7 +348,9 @@ function WorkstreamBoard({
   threads,
   childById,
   onOpenThread,
-  onSetStatus,
+  onSetLane,
+  onStop,
+  onClearAttention,
   onSetDependencies,
 }: {
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
@@ -346,7 +384,9 @@ function WorkstreamBoard({
                   siblings={threads}
                   childById={childById}
                   onOpenThread={onOpenThread}
-                  onSetStatus={onSetStatus}
+                  onSetLane={onSetLane}
+                  onStop={onStop}
+                  onClearAttention={onClearAttention}
                   onSetDependencies={onSetDependencies}
                 />
               ))
@@ -363,7 +403,9 @@ function WorkstreamCard({
   siblings,
   childById,
   onOpenThread,
-  onSetStatus,
+  onSetLane,
+  onStop,
+  onClearAttention,
   onSetDependencies,
 }: {
   readonly thread: SidebarThreadSummary;
@@ -371,8 +413,9 @@ function WorkstreamCard({
 } & CardControls) {
   const status = getThreadStatus(thread, childById);
   const activity = getActivity(thread, status.column);
-  const isRunning = status.column === "running";
+  const isRunning = hasRunningSignal(thread);
   const isBlocked = status.column === "blocked";
+  const badges = getAttentionBadges(thread);
   const open = () => onOpenThread(thread);
   return (
     <div
@@ -426,6 +469,17 @@ function WorkstreamCard({
         >
           {status.label}
         </span>
+        {badges.map(({ reason, label }) => {
+          const style = ATTENTION_STYLES[reason];
+          return (
+            <span
+              key={reason}
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${style.borderClass} ${style.bgClass} ${style.textClass}`}
+            >
+              {label}
+            </span>
+          );
+        })}
         {thread.branch ? (
           <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] text-white/40">
             {thread.branch}
@@ -435,26 +489,56 @@ function WorkstreamCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
         <label className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/35">
-          Status
+          Lane
           <select
             className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[11px] text-white outline-none focus:border-violet-400/60"
-            value={thread.status}
-            onChange={(event) => onSetStatus(thread.id, event.target.value as ThreadStatus)}
+            value={thread.planLane}
+            onChange={(event) => onSetLane(thread.id, event.target.value as ThreadPlanLane)}
           >
-            {SETTABLE_STATUSES.map((column) => (
-              <option key={column} value={column}>
-                {STATUS_LABELS[column]}
+            {SETTABLE_LANES.map((lane) => (
+              <option key={lane} value={lane}>
+                {COLUMN_SHORT_LABELS[lane]}
               </option>
             ))}
-            {thread.status === "error" ? (
-              // Server-set liveness failure: shown (so the select has a matching
-              // value) but not user-assignable. Pick another status to recover.
-              <option disabled value="error">
-                {STATUS_LABELS.error}
+            {thread.planLane === "in_progress" ? (
+              // Control-plane-set (kickoff): shown so the select has a matching
+              // value, but never user-assignable.
+              <option disabled value="in_progress">
+                {COLUMN_SHORT_LABELS.in_progress}
               </option>
             ) : null}
           </select>
         </label>
+        {thread.planLane === "planned" ? (
+          <button
+            type="button"
+            className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-200 transition hover:bg-cyan-400/20"
+            onClick={() => onSetLane(thread.id, "ready")}
+            title="Release this held sub-thread so it runs once dependencies clear"
+          >
+            Release
+          </button>
+        ) : null}
+        {isRunning ? (
+          <button
+            type="button"
+            className="rounded-md border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200 transition hover:bg-rose-400/20"
+            onClick={() => onStop(thread.id)}
+            title="Stop the active turn (flags it needs_guidance so it doesn't sit silently halted)"
+          >
+            Stop
+          </button>
+        ) : null}
+        {badges.length > 0 ? (
+          <button
+            type="button"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
+            onClick={() => onClearAttention(thread.id)}
+            title="Dismiss the attention flags on this sub-thread"
+          >
+            Clear flags
+          </button>
+        ) : null}
       </div>
 
       <DependencyEditor
