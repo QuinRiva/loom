@@ -96,6 +96,7 @@ function makeEmptyEnvironmentState(): EnvironmentState {
     threadIdsByProjectId: {},
     threadShellById: {},
     threadSessionById: {},
+    threadAppliedSequenceById: {},
     threadTurnStateById: {},
     messageIdsByThreadId: {},
     messageByThreadId: {},

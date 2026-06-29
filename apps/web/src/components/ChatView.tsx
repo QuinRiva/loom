@@ -70,6 +70,7 @@ import {
 import {
   selectEnvironmentState,
   selectProjectsAcrossEnvironments,
+  selectThreadAppliedSequence,
   useStore,
   type AppState,
 } from "../store";
@@ -87,7 +88,6 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
-  type SessionPhase,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
@@ -437,52 +437,59 @@ interface TerminalLaunchContext {
 
 type PersistentTerminalLaunchContext = Pick<TerminalLaunchContext, "cwd" | "worktreePath">;
 
+// Backstop: once a send's dispatch has resolved, if its acknowledging event is
+// ever missed, clear the optimistic lock after this long so the composer
+// degrades to "briefly busy" rather than locking for the rest of the run. Only
+// armed after `awaitedSequence` is set, so it never trips during a slow
+// dispatch (e.g. worktree prep + setup script).
+const LOCAL_DISPATCH_TIMEOUT_MS = 15_000;
+
 function useLocalDispatchState(input: {
-  activeThread: Thread | undefined;
-  activeLatestTurn: Thread["latestTurn"] | null;
-  phase: SessionPhase;
+  appliedSequence: number;
   activePendingApproval: ApprovalRequestId | null;
   activePendingUserInput: ApprovalRequestId | null;
   threadError: string | null | undefined;
 }) {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
 
-  const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
-      const preparingWorktree = Boolean(options?.preparingWorktree);
-      setLocalDispatch((current) => {
-        if (current) {
-          return current.preparingWorktree === preparingWorktree
-            ? current
-            : { ...current, preparingWorktree };
-        }
-        return createLocalDispatchSnapshot(input.activeThread, options);
-      });
-    },
-    [input.activeThread],
-  );
+  const beginLocalDispatch = useCallback((options?: { preparingWorktree?: boolean }) => {
+    const preparingWorktree = Boolean(options?.preparingWorktree);
+    setLocalDispatch((current) => {
+      if (current) {
+        return current.preparingWorktree === preparingWorktree
+          ? current
+          : { ...current, preparingWorktree };
+      }
+      return createLocalDispatchSnapshot(options);
+    });
+  }, []);
 
   const resetLocalDispatch = useCallback(() => {
     setLocalDispatch(null);
+  }, []);
+
+  // Record the dispatch log offset to wait for, once `dispatchCommand` resolves.
+  const setDispatchSequence = useCallback((sequence: number) => {
+    setLocalDispatch((current) =>
+      current && current.awaitedSequence !== sequence
+        ? { ...current, awaitedSequence: sequence }
+        : current,
+    );
   }, []);
 
   const serverAcknowledgedLocalDispatch = useMemo(
     () =>
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
-        phase: input.phase,
-        latestTurn: input.activeLatestTurn,
-        session: input.activeThread?.session ?? null,
+        appliedSequence: input.appliedSequence,
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
         threadError: input.threadError,
       }),
     [
-      input.activeLatestTurn,
+      input.appliedSequence,
       input.activePendingApproval,
       input.activePendingUserInput,
-      input.activeThread?.session,
-      input.phase,
       input.threadError,
       localDispatch,
     ],
@@ -495,9 +502,24 @@ function useLocalDispatchState(input: {
     resetLocalDispatch();
   }, [resetLocalDispatch, serverAcknowledgedLocalDispatch]);
 
+  useEffect(() => {
+    // Only arm the backstop once we actually have a dispatch offset to wait
+    // for. Before `awaitedSequence` is set the send is still in flight (guarded
+    // synchronously by `sendInFlightRef`) and there is no missed acknowledging
+    // event to recover from — so a timer here would falsely clear the lock
+    // during a slow `dispatchCommand`, e.g. a new-worktree turn whose prep +
+    // setup script (package installs) routinely runs well past the timeout.
+    if (localDispatch?.awaitedSequence == null) {
+      return;
+    }
+    const timeout = globalThis.setTimeout(resetLocalDispatch, LOCAL_DISPATCH_TIMEOUT_MS);
+    return () => globalThis.clearTimeout(timeout);
+  }, [localDispatch, resetLocalDispatch]);
+
   return {
     beginLocalDispatch,
     resetLocalDispatch,
+    setDispatchSequence,
     localDispatchStartedAt: localDispatch?.startedAt ?? null,
     isPreparingWorktree: localDispatch?.preparingWorktree ?? false,
     isSendBusy: localDispatch !== null && !serverAcknowledgedLocalDispatch,
@@ -1909,16 +1931,21 @@ export default function ChatView(props: ChatViewProps) {
     latestTurnSettled &&
     hasActionableProposedPlan(activeProposedPlan);
   const activePendingApproval = pendingApprovals[0] ?? null;
+  const activeAppliedSequence = useStore(
+    useMemo(
+      () => (state: AppState) => selectThreadAppliedSequence(state, activeThreadRef),
+      [activeThreadRef],
+    ),
+  );
   const {
     beginLocalDispatch,
     resetLocalDispatch,
+    setDispatchSequence,
     localDispatchStartedAt,
     isPreparingWorktree,
     isSendBusy,
   } = useLocalDispatchState({
-    activeThread,
-    activeLatestTurn,
-    phase,
+    appliedSequence: activeAppliedSequence,
     activePendingApproval: activePendingApproval?.requestId ?? null,
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
@@ -3890,7 +3917,7 @@ export default function ChatView(props: ChatViewProps) {
             }
           : undefined;
       beginLocalDispatch({ preparingWorktree: false });
-      await api.orchestration.dispatchCommand({
+      const turnStartResult = await api.orchestration.dispatchCommand({
         type: "thread.turn.start",
         commandId: newCommandId(),
         threadId: threadIdForSend,
@@ -3907,6 +3934,7 @@ export default function ChatView(props: ChatViewProps) {
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
+      setDispatchSequence(turnStartResult.sequence);
       turnStartSucceeded = true;
     })().catch(async (err: unknown) => {
       if (
@@ -4211,7 +4239,7 @@ export default function ChatView(props: ChatViewProps) {
           nextInteractionMode,
         );
 
-        await api.orchestration.dispatchCommand({
+        const followUpResult = await api.orchestration.dispatchCommand({
           type: "thread.turn.start",
           commandId: newCommandId(),
           threadId: threadIdForSend,
@@ -4235,6 +4263,7 @@ export default function ChatView(props: ChatViewProps) {
             : {}),
           createdAt: messageCreatedAt,
         });
+        setDispatchSequence(followUpResult.sequence);
         // Optimistically open the plan sidebar when implementing (not refining).
         // "default" mode here means the agent is executing the plan, which produces
         // step-tracking activities that the sidebar will display.
@@ -4261,6 +4290,7 @@ export default function ChatView(props: ChatViewProps) {
       activeThread,
       activeProposedPlan,
       beginLocalDispatch,
+      setDispatchSequence,
       isConnecting,
       isSendBusy,
       isServerThread,

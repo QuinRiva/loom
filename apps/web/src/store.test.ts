@@ -149,6 +149,7 @@ function makeState(thread: Thread): AppState {
     threadSessionById: {
       [thread.id]: thread.session,
     },
+    threadAppliedSequenceById: {},
     threadTurnStateById: {
       [thread.id]: {
         latestTurn: thread.latestTurn,
@@ -208,6 +209,7 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
     threadIdsByProjectId: {},
     threadShellById: {},
     threadSessionById: {},
+    threadAppliedSequenceById: {},
     threadTurnStateById: {},
     messageIdsByThreadId: {},
     messageByThreadId: {},

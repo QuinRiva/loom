@@ -408,7 +408,13 @@ function attachThreadDetailSubscription(entry: ThreadDetailSubscriptionEntry): b
     { threadId: entry.threadId },
     (item) => {
       if (item.kind === "snapshot") {
-        useStore.getState().syncServerThreadDetail(item.snapshot.thread, entry.environmentId);
+        useStore
+          .getState()
+          .syncServerThreadDetail(
+            item.snapshot.thread,
+            entry.environmentId,
+            item.snapshot.snapshotSequence,
+          );
         return;
       }
       if (item.kind === "reasoning-delta") {
@@ -1094,6 +1100,23 @@ function applyRecoveredEventBatch(
   }
 
   useStore.getState().applyOrchestrationEvents(uiEvents, environmentId);
+
+  // Advance each thread's applied-sequence high-water mark from the RAW event
+  // sequences (NOT the coalesced `uiEvents`, which drop the offsets the
+  // composer's send acknowledgement keys off). This is the single signal that
+  // clears the optimistic send lock for turn.start / steer / follow-up alike.
+  const maxThreadSequence = new Map<ThreadId, number>();
+  for (const event of events) {
+    if (event.aggregateKind !== "thread") continue;
+    const threadId = event.aggregateId as ThreadId;
+    if (event.sequence > (maxThreadSequence.get(threadId) ?? 0)) {
+      maxThreadSequence.set(threadId, event.sequence);
+    }
+  }
+  for (const [threadId, sequence] of maxThreadSequence) {
+    useStore.getState().markThreadAppliedSequence(environmentId, threadId, sequence);
+  }
+
   if (needsProjectUiSync) {
     const projects = selectProjectsAcrossEnvironments(useStore.getState());
     const clientSettings = getClientSettings();

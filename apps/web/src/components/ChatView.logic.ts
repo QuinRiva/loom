@@ -7,9 +7,8 @@ import {
   type ServerProvider,
   type ScopedThreadRef,
   type ThreadId,
-  type TurnId,
 } from "@t3tools/contracts";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
+import { type ChatMessage, type Thread } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { selectThreadByRef, useStore } from "../store";
@@ -379,40 +378,35 @@ export async function waitForStartedServerThread(
   });
 }
 
+// Sequence-correlated acknowledgement. The event log is the single source of
+// truth: `dispatchCommand` returns the global log offset the command was
+// assigned (`awaitedSequence`), and every thread event carries its own
+// `sequence`. The composer's optimistic lock clears the moment the thread's
+// applied-sequence high-water mark reaches that offset — deterministically, and
+// identically for turn.start, steer, and follow-up (a steer folds into the
+// running turn but still produces an event at sequence ≥ the dispatched offset,
+// which the old turn/timestamp diffing could never observe).
 export interface LocalDispatchSnapshot {
   startedAt: string;
   preparingWorktree: boolean;
-  latestTurnTurnId: TurnId | null;
-  latestTurnRequestedAt: string | null;
-  latestTurnStartedAt: string | null;
-  latestTurnCompletedAt: string | null;
-  sessionOrchestrationStatus: ThreadSession["orchestrationStatus"] | null;
-  sessionUpdatedAt: string | null;
+  // The dispatch log offset to wait for. Null until `dispatchCommand` resolves
+  // — that synchronous window is covered by `sendInFlightRef` in ChatView.
+  awaitedSequence: number | null;
 }
 
-export function createLocalDispatchSnapshot(
-  activeThread: Thread | undefined,
-  options?: { preparingWorktree?: boolean },
-): LocalDispatchSnapshot {
-  const latestTurn = activeThread?.latestTurn ?? null;
-  const session = activeThread?.session ?? null;
+export function createLocalDispatchSnapshot(options?: {
+  preparingWorktree?: boolean;
+}): LocalDispatchSnapshot {
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
-    latestTurnTurnId: latestTurn?.turnId ?? null,
-    latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
-    latestTurnStartedAt: latestTurn?.startedAt ?? null,
-    latestTurnCompletedAt: latestTurn?.completedAt ?? null,
-    sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
-    sessionUpdatedAt: session?.updatedAt ?? null,
+    awaitedSequence: null,
   };
 }
 
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
-  phase: SessionPhase;
-  latestTurn: Thread["latestTurn"] | null;
-  session: Thread["session"] | null;
+  appliedSequence: number;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -423,35 +417,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
-
-  const latestTurn = input.latestTurn ?? null;
-  const session = input.session ?? null;
-  const latestTurnChanged =
-    input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
-    input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
-    input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
-    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null);
-
-  if (input.phase === "running") {
-    if (!latestTurnChanged) {
-      return false;
-    }
-    if (latestTurn?.startedAt === null || latestTurn === null) {
-      return false;
-    }
-    if (
-      session?.activeTurnId !== undefined &&
-      session.activeTurnId !== null &&
-      latestTurn?.turnId !== session.activeTurnId
-    ) {
-      return false;
-    }
-    return true;
+  if (input.localDispatch.awaitedSequence === null) {
+    // The dispatch round-trip has not resolved yet; `sendInFlightRef` guards
+    // this window synchronously so the composer can't double-send.
+    return false;
   }
-
-  return (
-    latestTurnChanged ||
-    input.localDispatch.sessionOrchestrationStatus !== (session?.orchestrationStatus ?? null) ||
-    input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
-  );
+  return input.appliedSequence >= input.localDispatch.awaitedSequence;
 }

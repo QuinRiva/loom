@@ -78,6 +78,13 @@ export interface EnvironmentState {
   threadSessionById: Record<ThreadId, ThreadSession | null>;
   threadTurnStateById: Record<ThreadId, ThreadTurnState>;
 
+  // Per-thread applied-sequence high-water mark (max global event-log offset
+  // applied for this thread). Advanced from RAW thread event sequences and the
+  // detail snapshot's `snapshotSequence`. Powers the composer's deterministic,
+  // sequence-correlated send acknowledgement — deliberately a flat slice so it
+  // never touches the threadCache reassembly/equality machinery.
+  threadAppliedSequenceById: Record<ThreadId, number>;
+
   // ---------------------------------------------------------------------------
   // Thread detail content — written ONLY by the detail stream
   // (writeThreadState / syncServerThreadDetail).  The shell stream never
@@ -120,6 +127,7 @@ const initialEnvironmentState: EnvironmentState = {
   threadShellById: {},
   threadSessionById: {},
   threadTurnStateById: {},
+  threadAppliedSequenceById: {},
   messageIdsByThreadId: {},
   messageByThreadId: {},
   activityIdsByThreadId: {},
@@ -1281,16 +1289,49 @@ export function syncServerThreadDetail(
   state: AppState,
   thread: OrchestrationThread,
   environmentId: EnvironmentId,
+  snapshotSequence?: number,
 ): AppState {
   // TODO(CLIENT-RUNTIME MIGRATION - DO NOT EXPAND THIS WEB-ONLY COPY):
   // Keep web-specific projection here only until the store can consume
   // createThreadDetailManager or a shared adapter over its reducer.
   const environmentState = getStoredEnvironmentState(state, environmentId);
   const previousThread = getThreadFromEnvironmentState(environmentState, thread.id);
+  const nextEnvironmentState = foldThreadAppliedSequence(
+    writeThreadState(environmentState, mapThread(thread, environmentId), previousThread),
+    thread.id,
+    snapshotSequence,
+  );
+  return commitEnvironmentState(state, environmentId, nextEnvironmentState);
+}
+
+// Raise a thread's applied-sequence high-water mark; never decreases it.
+function foldThreadAppliedSequence(
+  state: EnvironmentState,
+  threadId: ThreadId,
+  sequence: number | undefined,
+): EnvironmentState {
+  if (sequence === undefined || sequence <= (state.threadAppliedSequenceById[threadId] ?? 0)) {
+    return state;
+  }
+  return {
+    ...state,
+    threadAppliedSequenceById: {
+      ...state.threadAppliedSequenceById,
+      [threadId]: sequence,
+    },
+  };
+}
+
+export function markThreadAppliedSequence(
+  state: AppState,
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+  sequence: number,
+): AppState {
   return commitEnvironmentState(
     state,
     environmentId,
-    writeThreadState(environmentState, mapThread(thread, environmentId), previousThread),
+    foldThreadAppliedSequence(getStoredEnvironmentState(state, environmentId), threadId, sequence),
   );
 }
 
@@ -2106,6 +2147,16 @@ export function selectThreadByRef(
     : undefined;
 }
 
+export function selectThreadAppliedSequence(
+  state: AppState,
+  ref: ScopedThreadRef | null | undefined,
+): number {
+  return ref
+    ? (selectEnvironmentState(state, ref.environmentId).threadAppliedSequenceById[ref.threadId] ??
+        0)
+    : 0;
+}
+
 export function selectThreadExistsByRef(
   state: AppState,
   ref: ScopedThreadRef | null | undefined,
@@ -2362,7 +2413,16 @@ interface AppStore extends AppState {
     snapshot: OrchestrationShellSnapshot,
     environmentId: EnvironmentId,
   ) => void;
-  syncServerThreadDetail: (thread: OrchestrationThread, environmentId: EnvironmentId) => void;
+  syncServerThreadDetail: (
+    thread: OrchestrationThread,
+    environmentId: EnvironmentId,
+    snapshotSequence?: number,
+  ) => void;
+  markThreadAppliedSequence: (
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+    sequence: number,
+  ) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent, environmentId: EnvironmentId) => void;
   applyOrchestrationEvents: (
     events: ReadonlyArray<OrchestrationEvent>,
@@ -2386,8 +2446,10 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => removeEnvironmentState(state, environmentId)),
   syncServerShellSnapshot: (snapshot, environmentId) =>
     set((state) => syncServerShellSnapshot(state, snapshot, environmentId)),
-  syncServerThreadDetail: (thread, environmentId) =>
-    set((state) => syncServerThreadDetail(state, thread, environmentId)),
+  syncServerThreadDetail: (thread, environmentId, snapshotSequence) =>
+    set((state) => syncServerThreadDetail(state, thread, environmentId, snapshotSequence)),
+  markThreadAppliedSequence: (environmentId, threadId, sequence) =>
+    set((state) => markThreadAppliedSequence(state, environmentId, threadId, sequence)),
   applyOrchestrationEvent: (event, environmentId) =>
     set((state) => applyOrchestrationEvent(state, event, environmentId)),
   applyOrchestrationEvents: (events, environmentId) =>
