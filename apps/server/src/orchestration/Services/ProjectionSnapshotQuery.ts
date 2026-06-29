@@ -33,14 +33,20 @@ export interface ProjectionSnapshotCounts {
 
 /**
  * Freshness of a thread's activity timeline (D-liveness). `maxCreatedAt` is the
- * mid-turn-stall heartbeat (newest tool/task/token row's `createdAt`);
- * `maxSequence` is the idle-wake episode key (the per-child wake dedups on
- * `(child.id, maxSequence-at-idle-onset)` because `activeTurnId` is null when
- * idle, so a turn-id key is unusable). Both null when the thread has no rows.
+ * newest tool/task/token *row's* `createdAt`; `maxSequence` is the idle-wake
+ * episode key (the per-child wake dedups on `(child.id, maxSequence-at-idle-
+ * onset)` because `activeTurnId` is null when idle, so a turn-id key is
+ * unusable). `heartbeatAt` is the persisted runtime heartbeat — the canonical
+ * "last runtime activity at", advanced on ANY runtime event including assistant/
+ * reasoning token deltas that never create a row, so the stall rail no longer
+ * mistakes long silent reasoning for a stall. All null when the thread has no
+ * rows / no heartbeat yet. (The parallel `lastActivityAt` workstream-node
+ * effort should surface `heartbeatAt` rather than introduce a second signal.)
  */
 export interface ProjectionActivityFreshness {
   readonly maxCreatedAt: string | null;
   readonly maxSequence: number | null;
+  readonly heartbeatAt: string | null;
 }
 
 /**

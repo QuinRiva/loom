@@ -215,7 +215,7 @@ describe("OrchestrationEngine", () => {
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
       ),

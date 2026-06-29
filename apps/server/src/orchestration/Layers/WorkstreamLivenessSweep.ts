@@ -16,10 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import {
-  ProjectionSnapshotQuery,
-  type ProjectionToolActivitySignal,
-} from "../Services/ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import {
   WorkstreamLivenessSweep,
@@ -32,12 +29,13 @@ import {
  * - `sweepIntervalMs` 60s — responsive without hammering the read model.
  * - `startupGraceMs` 2m — gates ALL active-turn detectors so a slow first tool
  *   call (clone / large read) can never be mistaken for a stall/loop.
- * - `staleActivityWindowMs` 10m — an open turn with no new tool/task/token row
- *   for this long is a mid-turn stall (also catches a dead-mid-turn process,
- *   which stops emitting activity rows). Conservative when no row exists yet:
- *   measured from the turn start, so it only trips after a full window of
- *   silence (assistant/reasoning deltas don't create rows).
- * - `loopWindow`/`loopRepeat` 10/3 — AG2 LoopDetector defaults.
+ * - `staleActivityWindowMs` 10m — an open turn whose runtime heartbeat has been
+ *   frozen this long is a mid-turn stall (also catches a dead-mid-turn process,
+ *   which stops emitting any runtime event). The heartbeat advances on ANY
+ *   runtime event — including assistant/reasoning token deltas that create no
+ *   activity row — so long silent reasoning no longer reads as a stall. Falls
+ *   back to activity-row freshness / turn start when no heartbeat exists yet
+ *   (e.g. right after a restart).
  * - `failureCap` 3 — consecutive sweeps observed in a failed session state
  *   before declaring `error` (a transient single-turn error is tolerated; a
  *   sustained one is not). No active turn re-dispatch retry in Stage 1 (there
@@ -48,8 +46,6 @@ export interface LivenessSweepThresholds {
   readonly sweepIntervalMs: number;
   readonly startupGraceMs: number;
   readonly staleActivityWindowMs: number;
-  readonly loopWindow: number;
-  readonly loopRepeat: number;
   readonly failureCap: number;
 }
 
@@ -57,66 +53,15 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   sweepIntervalMs: 60_000,
   startupGraceMs: 120_000,
   staleActivityWindowMs: 600_000,
-  loopWindow: 10,
-  loopRepeat: 3,
   failureCap: 3,
 };
 
-export type LivenessVerdictKind = "dead" | "stalled" | "loop";
+export type LivenessVerdictKind = "dead" | "stalled";
 
 export interface LivenessVerdict {
   readonly kind: LivenessVerdictKind;
   readonly reason: string;
 }
-
-/**
- * Normalize a tool-activity signal into a comparable signature for the loop
- * detector. The signal's `summary`+`detail` already carry the discriminating
- * content (command line, path, search query), recovered upstream by
- * `deriveToolActivityPresentation` — so two distinct shell commands produce two
- * distinct signatures and only a genuinely repeated call collapses to one.
- */
-export const normalizeToolSignature = (signal: ProjectionToolActivitySignal): string =>
-  `${signal.summary}\u0000${signal.detail ?? ""}`;
-
-const hasDiscriminatingDetail = (signal: ProjectionToolActivitySignal): boolean =>
-  (signal.detail ?? "").trim().length > 0;
-
-/**
- * Cheap loop detection over recent tool signals (most-recent first): flags a
- * leading run of `repeat` identical calls, or a two-call A,B,A,B… alternation
- * over the most recent `2*repeat` calls. A failing call retried without an arg
- * change collapses to the identical-run case (same signature).
- *
- * Fail-safe guard: a loop is only declared when the *tripping* signals carry
- * distinguishing `detail`. A run/alternation of detail-less generic tokens
- * (e.g. `"Ran command\u0000"`, or a `read`/`edit` alternation a provider failed
- * to enrich) is unprovable as a loop — it only means the detector can't see the
- * args — so it must not set the thread `error`. This keeps a missing-detail
- * provider fail-safe for both detector branches. Accepted blind spot: a
- * genuinely stuck agent hammering a residual detail-less tool is undetectable.
- */
-export const detectActivityLoop = (
-  signals: ReadonlyArray<ProjectionToolActivitySignal>,
-  repeat: number,
-): boolean => {
-  if (repeat <= 0 || signals.length < repeat) return false;
-  const signatures = signals.map(normalizeToolSignature);
-  let run = 0;
-  for (const signature of signatures) {
-    if (signature === signatures[0]) run += 1;
-    else break;
-  }
-  if (run >= repeat && hasDiscriminatingDetail(signals[0]!)) return true;
-  const need = repeat * 2;
-  if (signatures.length >= need) {
-    const [a, b] = signatures;
-    if (a !== b && signatures.slice(0, need).every((s, i) => s === (i % 2 === 0 ? a : b))) {
-      if (hasDiscriminatingDetail(signals[0]!) && hasDiscriminatingDetail(signals[1]!)) return true;
-    }
-  }
-  return false;
-};
 
 const turnStartMs = (latestTurn: OrchestrationLatestTurn | null): number | null => {
   if (latestTurn === null) return null;
@@ -129,7 +74,8 @@ export interface LivenessClassifyInput {
   readonly thread: OrchestrationThreadShell;
   readonly session: OrchestrationSession;
   readonly maxActivityCreatedAtMs: number | null;
-  readonly toolSignals: ReadonlyArray<ProjectionToolActivitySignal>;
+  /** Persisted runtime heartbeat (ms), advanced on ANY runtime event. */
+  readonly heartbeatMs: number | null;
   readonly failureCount: number;
   readonly now: number;
   readonly thresholds: LivenessSweepThresholds;
@@ -137,14 +83,20 @@ export interface LivenessClassifyInput {
 
 /**
  * Pure Stage-1 liveness classification for one active sub-thread. Returns the
- * verdict that should set it `error`, or `null` (healthy / still within grace).
- * Caller guarantees the thread is a non-terminal sub-thread with a session.
+ * verdict that should set it `error`, or `null` (healthy / waiting / within
+ * grace). Caller guarantees the thread is a non-terminal sub-thread with a
+ * session.
  */
 export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict | null => {
-  const { session, thread, maxActivityCreatedAtMs, toolSignals, failureCount, now, thresholds } =
+  const { session, thread, maxActivityCreatedAtMs, heartbeatMs, failureCount, now, thresholds } =
     input;
 
-  // Circuit breaker (§1d): a session sustained in a failed state past the cap.
+  // State B — waiting for input: a child with pending user input / approvals is
+  // intentionally paused, not dead and not stalled. Never flag it a fault.
+  if (thread.hasPendingUserInput || thread.hasPendingApprovals) return null;
+
+  // State A — dead (circuit breaker): a session sustained in a failed state
+  // past the cap (objective fault).
   if (failureCount >= thresholds.failureCap) {
     return {
       kind: "dead",
@@ -152,25 +104,23 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
     };
   }
 
-  // Active-turn detectors (stall / loop) — all gated by the startup grace.
+  // State C — stall: an open turn whose runtime heartbeat has frozen past the
+  // window. Gated by the startup grace so a slow first tool call is not a stall.
   if (session.activeTurnId !== null) {
     const startedAtMs = turnStartMs(thread.latestTurn);
     const turnAgeMs = startedAtMs === null ? 0 : now - startedAtMs;
     if (turnAgeMs < thresholds.startupGraceMs) return null;
 
-    if (detectActivityLoop(toolSignals, thresholds.loopRepeat)) {
-      return {
-        kind: "loop",
-        reason: `Stuck loop: the same tool call repeated ≥${thresholds.loopRepeat}× without progress.`,
-      };
-    }
-
-    const lastActivityMs = maxActivityCreatedAtMs ?? startedAtMs ?? now;
+    // Measure against the real heartbeat (token/reasoning deltas included),
+    // falling back to activity-row freshness / turn start when it is absent
+    // (e.g. right after a restart). Take the newest of the three.
+    const lastActivityMs =
+      Math.max(heartbeatMs ?? 0, maxActivityCreatedAtMs ?? 0, startedAtMs ?? 0) || now;
     const sinceActivityMs = now - lastActivityMs;
     if (sinceActivityMs > thresholds.staleActivityWindowMs) {
       return {
         kind: "stalled",
-        reason: `Mid-turn stall: no activity for ${Math.round(sinceActivityMs / 1000)}s during an open turn.`,
+        reason: `Mid-turn stall: no runtime activity for ${Math.round(sinceActivityMs / 1000)}s during an open turn.`,
       };
     }
   }
@@ -266,13 +216,6 @@ const makeWorkstreamLivenessSweep = (
         else failureCounts.delete(thread.id);
 
         const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(thread.id);
-        const toolSignals =
-          session.activeTurnId !== null
-            ? yield* projectionSnapshotQuery.getRecentToolActivityByThreadId(
-                thread.id,
-                thresholds.loopWindow,
-              )
-            : [];
 
         const verdict = classifyLiveness({
           thread,
@@ -280,7 +223,7 @@ const makeWorkstreamLivenessSweep = (
           maxActivityCreatedAtMs: freshness.maxCreatedAt
             ? Date.parse(freshness.maxCreatedAt)
             : null,
-          toolSignals,
+          heartbeatMs: freshness.heartbeatAt ? Date.parse(freshness.heartbeatAt) : null,
           failureCount,
           now,
           thresholds,

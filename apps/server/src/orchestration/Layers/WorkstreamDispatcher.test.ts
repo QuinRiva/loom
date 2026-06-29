@@ -645,7 +645,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 42 }),
+        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 42, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     // Empty receipt store: cross-pass dedup must therefore be carried by the
@@ -767,7 +767,8 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
-      getActivityFreshnessByThreadId: () => Effect.succeed({ maxCreatedAt: now, maxSequence: 1 }),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     // Only the error-wake receipt is present (when opts say so); the recovery
