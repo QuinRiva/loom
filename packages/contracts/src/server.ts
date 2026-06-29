@@ -19,6 +19,7 @@ import {
 import { EditorId } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { AccountUsageSnapshot } from "./providerRuntime.ts";
 import { ServerSettings } from "./settings.ts";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -490,11 +491,29 @@ export const ServerConfigStreamSettingsUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamSettingsUpdatedEvent =
   typeof ServerConfigStreamSettingsUpdatedEvent.Type;
 
+// Live, account-scoped subscription usage (5-hour + weekly limits). Ephemeral
+// global server state — repopulated from the next provider event after a
+// restart — so it rides the existing config/lifecycle channel rather than the
+// event-sourced orchestration projection. The payload carries the full current
+// per-instance snapshot list (replace-on-emit; no client-side merge needed).
+export const ServerConfigAccountUsagePayload = Schema.Struct({
+  usage: Schema.Array(AccountUsageSnapshot),
+});
+export type ServerConfigAccountUsagePayload = typeof ServerConfigAccountUsagePayload.Type;
+
+export const ServerConfigStreamAccountUsageEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("accountUsage"),
+  payload: ServerConfigAccountUsagePayload,
+});
+export type ServerConfigStreamAccountUsageEvent = typeof ServerConfigStreamAccountUsageEvent.Type;
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
+  ServerConfigStreamAccountUsageEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

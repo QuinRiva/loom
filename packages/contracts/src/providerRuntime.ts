@@ -560,8 +560,40 @@ const AccountUpdatedPayload = Schema.Struct({
 });
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
+// Normalised, provider-neutral subscription-usage shape. Each adapter maps its
+// provider-specific rate-limit form into these windows at the adapter boundary.
+// `primary` ≈ the 5-hour rolling window, `secondary` ≈ the weekly window.
+export const AccountUsageWindowKind = Schema.Literals(["primary", "secondary"]);
+export type AccountUsageWindowKind = typeof AccountUsageWindowKind.Type;
+
+export const AccountUsageWindow = Schema.Struct({
+  kind: AccountUsageWindowKind,
+  usedPercent: Schema.Number,
+  resetsAt: Schema.NullOr(IsoDateTime),
+  windowDurationMins: Schema.NullOr(Schema.Number),
+});
+export type AccountUsageWindow = typeof AccountUsageWindow.Type;
+
+// Account-scoped usage snapshot keyed (downstream) by provider instance. This is
+// the client-facing wire shape; `providerName` is the driver kind (e.g. "codex",
+// "claudeAgent"). Anything a provider cannot supply stays null — never faked.
+export const AccountUsageSnapshot = Schema.Struct({
+  providerName: TrimmedNonEmptyString,
+  providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  windows: Schema.Array(AccountUsageWindow),
+  planType: Schema.NullOr(TrimmedNonEmptyString),
+  observedAt: IsoDateTime,
+});
+export type AccountUsageSnapshot = typeof AccountUsageSnapshot.Type;
+
+// Runtime-event payload: only the usage-specific data the adapter produces. The
+// provider identity (`provider`, `providerInstanceId`) and timestamp
+// (`createdAt`) already ride the runtime-event envelope, so ingestion assembles
+// the full AccountUsageSnapshot from envelope + payload rather than duplicating
+// them here.
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  rateLimits: Schema.Unknown,
+  windows: Schema.Array(AccountUsageWindow),
+  planType: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

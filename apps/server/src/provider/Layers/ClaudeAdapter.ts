@@ -14,6 +14,7 @@ import {
   type PermissionResult,
   type PermissionUpdate,
   type SDKMessage,
+  type SDKRateLimitInfo,
   type SDKControlGetContextUsageResponse,
   type SDKResultMessage,
   type SettingSource,
@@ -25,6 +26,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import {
   ApprovalRequestId,
+  type AccountUsageWindow,
   type CanonicalItemType,
   type CanonicalRequestType,
   type ClaudeSettings,
@@ -230,6 +232,37 @@ function isUuid(value: string): boolean {
 
 function isSyntheticClaudeThreadId(value: string): boolean {
   return value.startsWith("claude-thread-");
+}
+
+// Claude's `rate_limit_event` reports a single window per event. Its
+// `rateLimitType` names which rolling window the event describes; `utilization`
+// is a 0-100 percentage (per the sibling system-message `rate_limits` docs) and
+// `resetsAt` is an epoch number. five_hour → primary, the seven_day variants →
+// secondary; overage / unknown types carry no rolling window. Whatever Claude
+// does not supply (window duration, plan type) stays null rather than faked.
+function claudeRateLimitWindow(info: SDKRateLimitInfo): AccountUsageWindow | null {
+  const kind =
+    info.rateLimitType === "five_hour"
+      ? "primary"
+      : info.rateLimitType === "seven_day" ||
+          info.rateLimitType === "seven_day_opus" ||
+          info.rateLimitType === "seven_day_sonnet"
+        ? "secondary"
+        : null;
+  if (kind === null || info.utilization === undefined) {
+    return null;
+  }
+  return {
+    kind,
+    usedPercent: Math.max(0, Math.min(100, info.utilization)),
+    resetsAt:
+      info.resetsAt === undefined || !Number.isFinite(info.resetsAt)
+        ? null
+        : DateTime.formatIso(
+            DateTime.makeUnsafe(info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000),
+          ),
+    windowDurationMins: null,
+  };
 }
 
 function hasDurableClaudeSessionId(message: SDKMessage): boolean {
@@ -2860,13 +2893,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     if (message.type === "rate_limit_event") {
-      yield* offerRuntimeEvent({
-        ...base,
-        type: "account.rate-limits.updated",
-        payload: {
-          rateLimits: message,
-        },
-      });
+      const window = claudeRateLimitWindow(message.rate_limit_info);
+      if (window) {
+        yield* offerRuntimeEvent({
+          ...base,
+          type: "account.rate-limits.updated",
+          payload: {
+            windows: [window],
+            planType: null,
+          },
+        });
+      }
       return;
     }
   });

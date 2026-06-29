@@ -28,6 +28,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
+import { AccountUsageRegistry } from "../../provider/Services/AccountUsageRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
@@ -636,6 +637,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const accountUsageRegistry = yield* AccountUsageRegistry;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const heartbeatRepository = yield* ProjectionThreadHeartbeatRepository;
   const serverSettingsService = yield* ServerSettingsService;
@@ -1390,6 +1392,21 @@ const make = Effect.gen(function* () {
 
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
+      // Account usage is account-scoped, not thread-scoped: feed it straight
+      // into the shared registry keyed by provider instance. The runtime-event
+      // envelope already carries the provider identity and timestamp, so the
+      // adapter payload only needs the normalised windows + plan type.
+      if (event.type === "account.rate-limits.updated") {
+        yield* accountUsageRegistry.update({
+          providerName: event.provider,
+          providerInstanceId: event.providerInstanceId ?? null,
+          windows: event.payload.windows,
+          planType: event.payload.planType,
+          observedAt: event.createdAt,
+        });
+        return;
+      }
+
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 

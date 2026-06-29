@@ -1,5 +1,6 @@
 import { useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import {
+  type AccountUsageSnapshot,
   DEFAULT_SERVER_SETTINGS,
   type EditorId,
   type ServerConfig,
@@ -70,6 +71,11 @@ export const providersUpdatedAtom = makeStateAtom<ServerProviderUpdatedPayload |
   "server-providers-updated",
   null,
 );
+const EMPTY_ACCOUNT_USAGE: ReadonlyArray<AccountUsageSnapshot> = [];
+export const accountUsageAtom = makeStateAtom<ReadonlyArray<AccountUsageSnapshot>>(
+  "server-account-usage",
+  EMPTY_ACCOUNT_USAGE,
+);
 
 export function getServerConfig(): ServerConfig | null {
   return appAtomRegistry.get(serverConfigAtom);
@@ -115,6 +121,10 @@ export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
     }
     case "settingsUpdated": {
       applySettingsUpdated(event.payload.settings);
+      return;
+    }
+    case "accountUsage": {
+      appAtomRegistry.set(accountUsageAtom, event.payload.usage);
       return;
     }
   }
@@ -274,6 +284,10 @@ export function useServerSettings(): ServerSettings {
 
 export function useServerProviders(): ReadonlyArray<ServerProvider> {
   return useAtomValue(serverConfigAtom, selectProviders);
+}
+
+export function useAccountUsage(): ReadonlyArray<AccountUsageSnapshot> {
+  return useAtomValue(accountUsageAtom);
 }
 
 export function useServerKeybindings(): ServerConfig["keybindings"] {
