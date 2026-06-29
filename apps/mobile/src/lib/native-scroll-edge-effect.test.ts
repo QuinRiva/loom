@@ -7,9 +7,9 @@ describe("nativeTopScrollEdgeEffect", () => {
     expect(nativeTopScrollEdgeEffect("ios", "26.5")).toBe("automatic");
   });
 
-  it("uses the native hard treatment on iOS 27 and later", () => {
-    expect(nativeTopScrollEdgeEffect("ios", "27.0")).toBe("hard");
-    expect(nativeTopScrollEdgeEffect("ios", 28)).toBe("hard");
+  it("uses the native soft treatment on iOS 27 and later", () => {
+    expect(nativeTopScrollEdgeEffect("ios", "27.0")).toBe("soft");
+    expect(nativeTopScrollEdgeEffect("ios", 28)).toBe("soft");
   });
 
   it("does not apply the iOS workaround to other platforms", () => {

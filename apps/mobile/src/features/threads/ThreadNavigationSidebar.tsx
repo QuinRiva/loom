@@ -22,6 +22,7 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
+import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import {
   hasCustomHomeListOptions,
   PROJECT_GROUPING_OPTIONS,
@@ -492,78 +493,18 @@ export function ThreadNavigationSidebar(props: {
   if (usesNativeSidebarChrome) {
     const { Screen, ScreenStack, ScreenStackHeaderConfig } =
       require("react-native-screens") as typeof import("react-native-screens");
+    const sidebarFilterMenu = buildHomeListFilterMenu({
+      environments,
+      selectedEnvironmentId: options.selectedEnvironmentId,
+      projectSortOrder: options.projectSortOrder,
+      threadSortOrder: options.threadSortOrder,
+      projectGroupingMode: options.projectGroupingMode,
+      onEnvironmentChange: setSelectedEnvironmentId,
+      onProjectSortOrderChange: setProjectSortOrder,
+      onThreadSortOrderChange: setThreadSortOrder,
+      onProjectGroupingModeChange: setProjectGroupingMode,
+    });
     const nativeHeaderRightBarButtonItems = [
-      {
-        accessibilityLabel: "Filter and sort threads",
-        icon: { name: filterIcon, type: "sfSymbol" },
-        identifier: "thread-sidebar-filter",
-        menu: {
-          title: "Thread list options",
-          items: [
-            {
-              type: "submenu",
-              title: "Environment",
-              items: [
-                {
-                  onPress: () => setSelectedEnvironmentId(null),
-                  state: options.selectedEnvironmentId === null ? "on" : "off",
-                  subtitle: "Show threads from every environment",
-                  title: "All environments",
-                  type: "action",
-                },
-                ...environments.map((environment) => ({
-                  onPress: () => setSelectedEnvironmentId(environment.environmentId),
-                  state:
-                    options.selectedEnvironmentId === environment.environmentId
-                      ? ("on" as const)
-                      : ("off" as const),
-                  title: environment.label,
-                  type: "action" as const,
-                })),
-              ],
-            },
-            {
-              type: "submenu",
-              title: "Sort projects",
-              items: PROJECT_SORT_OPTIONS.map((option) => ({
-                onPress: () => setProjectSortOrder(option.value),
-                state:
-                  options.projectSortOrder === option.value ? ("on" as const) : ("off" as const),
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-            {
-              type: "submenu",
-              title: "Sort threads",
-              items: THREAD_SORT_OPTIONS.map((option) => ({
-                onPress: () => setThreadSortOrder(option.value),
-                state:
-                  options.threadSortOrder === option.value ? ("on" as const) : ("off" as const),
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-            {
-              type: "submenu",
-              title: "Group projects",
-              items: PROJECT_GROUPING_OPTIONS.map((option) => ({
-                onPress: () => setProjectGroupingMode(option.value),
-                state:
-                  options.projectGroupingMode === option.value ? ("on" as const) : ("off" as const),
-                subtitle: option.subtitle,
-                title: option.label,
-                type: "action" as const,
-              })),
-            },
-          ],
-        },
-        sharesBackground: true,
-        tintColor: nativeHeaderButtonTint,
-        type: "menu",
-        variant: "prominent",
-        width: 58,
-      },
       {
         accessibilityLabel: "Open settings",
         icon: { name: "gearshape", type: "sfSymbol" },
@@ -576,6 +517,23 @@ export function ThreadNavigationSidebar(props: {
         width: 58,
       },
     ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerRightBarButtonItems"];
+    const nativeHeaderToolbarItems = [
+      {
+        composeButtonId: "sidebar-new-task",
+        composeSystemImageName: "square.and.pencil",
+        filterButtonId: "sidebar-filter",
+        filterMenu: sidebarFilterMenu,
+        filterSystemImageName: hasCustomHomeListOptions(options)
+          ? "line.3.horizontal.decrease.circle.fill"
+          : "line.3.horizontal.decrease",
+        onComposePress: props.onStartNewTask,
+        onSearchTextChange: setSearchQuery,
+        placeholder: "Search",
+        searchTextChangeId: "sidebar-search-text",
+        type: "mailSearchToolbar",
+        useFallbackSearchField: true,
+      },
+    ] as ComponentProps<typeof ScreenStackHeaderConfig>["headerToolbarItems"];
 
     return (
       <View
@@ -657,6 +615,7 @@ export function ThreadNavigationSidebar(props: {
               hideBackButton
               hideShadow={false}
               headerRightBarButtonItems={nativeHeaderRightBarButtonItems}
+              headerToolbarItems={nativeHeaderToolbarItems}
               navigationItemStyle="editor"
               title="Threads"
               titleColor={foregroundColor}

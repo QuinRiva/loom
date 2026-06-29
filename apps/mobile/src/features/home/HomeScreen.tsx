@@ -18,6 +18,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import Animated, {
   Easing,
@@ -378,6 +379,7 @@ function ThreadRow(props: {
 export function HomeScreen(props: HomeScreenProps) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
+  const homeScrollGesture = useMemo(() => Gesture.Native(), []);
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const accentColor = useThemeColor("--color-icon-muted");
@@ -527,6 +529,7 @@ export function HomeScreen(props: HomeScreenProps) {
                         onPress={() => props.onSelectThread(thread)}
                         onSwipeableClose={handleSwipeableClose}
                         onSwipeableWillOpen={handleSwipeableWillOpen}
+                        simultaneousSwipeGesture={homeScrollGesture}
                       />
                     </Animated.View>
                   );
@@ -540,32 +543,34 @@ export function HomeScreen(props: HomeScreenProps) {
   );
 
   const scrollView = (
-    <ScrollView
-      contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
-      showsVerticalScrollIndicator={false}
-      keyboardDismissMode="on-drag"
-      keyboardShouldPersistTaps="handled"
-      onScrollBeginDrag={() => openSwipeableRef.current?.close()}
-      scrollEventThrottle={16}
-      className="flex-1 bg-screen"
-      contentContainerStyle={{
-        minHeight: windowHeight + HOME_COMPACT_HEADER_THRESHOLD + insets.top,
-        paddingHorizontal: 0,
-        paddingTop: Platform.OS === "ios" ? 18 : 0,
-        paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 24) + 132 : 24,
-        gap: 0,
-      }}
-      scrollIndicatorInsets={
-        Platform.OS === "ios"
-          ? {
-              bottom: Math.max(insets.bottom, 16) + 92,
-              top: insets.top + 72,
-            }
-          : undefined
-      }
-    >
-      {listContent}
-    </ScrollView>
+    <GestureDetector gesture={homeScrollGesture}>
+      <ScrollView
+        contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
+        showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => openSwipeableRef.current?.close()}
+        scrollEventThrottle={16}
+        className="flex-1 bg-screen"
+        contentContainerStyle={{
+          minHeight: windowHeight + HOME_COMPACT_HEADER_THRESHOLD + insets.top,
+          paddingHorizontal: 0,
+          paddingTop: Platform.OS === "ios" ? 18 : 0,
+          paddingBottom: Platform.OS === "ios" ? Math.max(insets.bottom, 24) + 132 : 24,
+          gap: 0,
+        }}
+        scrollIndicatorInsets={
+          Platform.OS === "ios"
+            ? {
+                bottom: Math.max(insets.bottom, 16) + 92,
+                top: insets.top + 72,
+              }
+            : undefined
+        }
+      >
+        {listContent}
+      </ScrollView>
+    </GestureDetector>
   );
 
   const connectionStatus = shouldShowConnectionStatus ? (
