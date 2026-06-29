@@ -3252,16 +3252,21 @@ export default function ChatView(props: ChatViewProps) {
     sidebarProposedPlan?.turnId,
   ]);
 
-  // Auto-open the Tasks surface once when a goal-bound session becomes active,
-  // so the goal's TODO tree is visible without a manual open (mirrors the plan
-  // sidebar auto-open). Keyed on thread id + goal so it fires per goal session,
-  // not on every render; the user can still close it within the session.
+  // Auto-open the Tasks surface once when a goal-bound session first becomes
+  // active, so the goal's TODO tree is visible without a manual open (mirrors
+  // the plan sidebar auto-open). We track which scoped thread keys we've
+  // already auto-opened in a ref so switching away and back doesn't re-fire
+  // the open and clobber a surface the user since selected (e.g. Workstream);
+  // the user can still freely change or close the surface within the session.
+  const autoOpenedTasksByThreadKey = useRef(new Set<string>());
   useEffect(() => {
-    if (!activeThreadRef) return;
+    if (!activeThreadRef || !activeThreadKey) return;
     if (!activeThread?.goalId) return;
+    if (autoOpenedTasksByThreadKey.current.has(activeThreadKey)) return;
+    autoOpenedTasksByThreadKey.current.add(activeThreadKey);
     useRightPanelStore.getState().open(activeThreadRef, "tasks");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
-  }, [activeThread?.id, activeThread?.goalId]);
+  }, [activeThreadKey, activeThread?.goalId]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
