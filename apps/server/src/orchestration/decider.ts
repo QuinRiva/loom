@@ -780,6 +780,85 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
+      // Cancellation cascades over the whole subtree (design: orchestrator-wide
+      // descendant termination). Cancelling a thread cancels every non-terminal
+      // descendant and interrupts any in-flight turn among them, so killing one
+      // branch kills the runaway self-spawning chain beneath it. A non-cancel
+      // lane write stays single-node.
+      //
+      // No `needs_guidance` is sprayed across the subtree because each interrupt
+      // is emitted as a `thread.turn-interrupt-requested` event DIRECTLY: the
+      // raise-attention-on-interrupt decision lives ONLY in the
+      // `thread.turn.interrupt` COMMAND handler, which this path never invokes.
+      // (Routing the cascade through that command would be unsafe — within one
+      // decide pass the cancels we emit are not applied back to `readModel`, so
+      // each node would still read as `in_progress` and a bare-commandId cancel
+      // WOULD raise `needs_guidance`.) Reaching `cancelled` also clears any
+      // stored attention on each node, so a dead thread never lingers flagged
+      // for a human.
+      if (command.planLane === "cancelled") {
+        const live = readModel.threads.filter((thread) => thread.deletedAt === null);
+        // Transitive closure of live descendants under the target (walk parentThreadId).
+        const subtree = new Set([command.threadId]);
+        const queue = [command.threadId];
+        while (queue.length > 0) {
+          const parentId = queue.shift()!;
+          for (const thread of live) {
+            if (thread.parentThreadId === parentId && !subtree.has(thread.id)) {
+              subtree.add(thread.id);
+              queue.push(thread.id);
+            }
+          }
+        }
+        const threadById = new Map(live.map((thread) => [thread.id, thread] as const));
+        const events: PlannedOrchestrationEvent[] = [];
+        // Cancel the target always; cancel non-terminal descendants but never
+        // clobber a descendant that legitimately reached `done`/`cancelled`. A
+        // cancelled node with stored attention also gets it cleared.
+        for (const threadId of subtree) {
+          const node = threadById.get(threadId);
+          const lane = node?.planLane;
+          if (threadId !== command.threadId && (lane === "done" || lane === "cancelled")) continue;
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: threadId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.plan-lane-set",
+            payload: { threadId, planLane: "cancelled", updatedAt: occurredAt },
+          });
+          if (node && node.attention.length > 0) {
+            events.push({
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: threadId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "thread.attention-cleared",
+              payload: { threadId, updatedAt: occurredAt },
+            });
+          }
+        }
+        // Interrupt any node in the subtree whose turn is live so token burn
+        // actually stops; the matching cancel above precedes it.
+        for (const threadId of subtree) {
+          if (threadById.get(threadId)?.planLane !== "in_progress") continue;
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: threadId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.turn-interrupt-requested",
+            payload: { threadId, createdAt: occurredAt },
+          });
+        }
+        return events;
+      }
       const planLaneSetEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -794,15 +873,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
-      // Design §3 invariant: when the plan advances to a terminal lane
-      // (`done`/`cancelled`), every stored attention flag clears — a finished
-      // thread never sits with a stale ⚠. Symmetric with the turn-start clear
-      // (a resume clears attention too). Emit the omitted-reason clear ("clear
-      // ALL") only when there is something to clear, so no-op events aren't
-      // produced. Derived `awaiting_*` reasons are projected from open requests
-      // and unaffected.
-      const laneTerminal = command.planLane === "done" || command.planLane === "cancelled";
-      if (laneTerminal && laneThread.attention.length > 0) {
+      // Design §3 invariant: when the plan advances to a terminal lane, every
+      // stored attention flag clears — a finished thread never sits with a stale
+      // ⚠. Symmetric with the turn-start clear (a resume clears attention too).
+      // `cancelled` is handled by the cascade above (which clears each cancelled
+      // node's attention), so only `done` reaches here. Emit the omitted-reason
+      // clear ("clear ALL") only when there is something to clear, so no-op
+      // events aren't produced. Derived `awaiting_*` reasons are projected from
+      // open requests and unaffected.
+      if (command.planLane === "done" && laneThread.attention.length > 0) {
         return [
           planLaneSetEvent,
           {
