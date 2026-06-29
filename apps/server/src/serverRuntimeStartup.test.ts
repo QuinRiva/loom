@@ -108,6 +108,8 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
         Effect.provideService(AnalyticsService, {
           record: () => Effect.void,
@@ -175,6 +177,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
+        getThreadProgressSignal: () =>
+          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
       }),
       Effect.provideService(OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -222,6 +226,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
+        getThreadProgressSignal: () =>
+          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
       }),
       Effect.provideService(OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -275,6 +281,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
+        getThreadProgressSignal: () =>
+          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
       }),
       Effect.provideService(OrchestrationEngineService, {
         readEvents: () => Stream.empty,

@@ -26,6 +26,17 @@ import {
 } from "../Services/WorkstreamLivenessSweep.ts";
 
 /**
+ * State D ("possibly spinning") kill switch — the prototype-grade on/off.
+ * State D is the highest false-positive risk, so it is gated by this single
+ * top-of-file boolean: flip it to `false` and the ENTIRE State-D branch
+ * short-circuits with zero other edits. The branch, its per-thread map, its
+ * pure helpers, and its thresholds are all tagged "State D" so it can equally
+ * be commented out / deleted in one pass. No config plumbing — the one-liner is
+ * the point.
+ */
+const ENABLE_STATE_D = true;
+
+/**
  * Stage-1 liveness thresholds. Research numbers are general-purpose; these
  * start GENEROUS and are documented as assumptions to tune from real runs:
  * - `sweepIntervalMs` 60s — responsive without hammering the read model.
@@ -49,6 +60,19 @@ export interface LivenessSweepThresholds {
   readonly startupGraceMs: number;
   readonly staleActivityWindowMs: number;
   readonly failureCap: number;
+  /**
+   * State D: how long a busy thread's work-product fingerprint must stay flat
+   * (while the heartbeat keeps advancing) before raising a possible-spin
+   * advisory. Tunable assumption — starts generous at 10m to avoid firing on
+   * slow-but-real work; tune down from real runs.
+   */
+  readonly noProgressWindowMs: number;
+  /**
+   * State D: how many of the most recent tool calls feed the work-product
+   * content fingerprint. Larger = stricter (more content must stay identical to
+   * read as flat) and strictly safer against false positives.
+   */
+  readonly progressInputSampleSize: number;
 }
 
 export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
@@ -56,6 +80,8 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   startupGraceMs: 120_000,
   staleActivityWindowMs: 600_000,
   failureCap: 3,
+  noProgressWindowMs: 600_000,
+  progressInputSampleSize: 16,
 };
 
 export type LivenessVerdictKind = "dead" | "stalled";
@@ -154,6 +180,79 @@ export const decideStallAction = (input: {
 }): StallAction =>
   input.priorEpisodeMs === input.episodeMs ? "escalate" : input.hasOpenTurn ? "nudge" : "escalate";
 
+// ─── State D — possibly spinning (progress, not repetition) ──────────────────
+// Pure helpers + per-thread state shape for the busy-but-not-progressing
+// advisory. All of this is only reached behind `ENABLE_STATE_D` and is
+// deletable as one labelled unit.
+
+/** cyrb53 — a cheap, deterministic, non-cryptographic string hash. Collapses a
+ * (potentially large) work-product source into a compact comparable fingerprint
+ * stored per-thread across sweeps; collision risk is irrelevant for
+ * change-detection. */
+const hashSource = (source: string): string => {
+  let h1 = 0xdeadbeef ^ source.length;
+  let h2 = 0x41c6ce57 ^ source.length;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+};
+
+/**
+ * The work-product fingerprint for State D. INVERTS §3d's literal ordering
+ * (which named the checkpoint diff as primary): evidence shows checkpoints only
+ * materialise at TURN END, so for a single-turn sub-thread the checkpoint diff
+ * is flat for the whole working turn and cannot distinguish slow real work from
+ * spinning. The within-turn tool-call CONTENT (`rawInput`/diff) is the only
+ * signal that grows with distinct edits, so it is primary; the checkpoint
+ * source is OR-folded in as a cross-turn corroborator. Sanctioned high-
+ * confidence by the architecture author (progress.md). Hashing the actual
+ * content, not the display projection, is load-bearing — the display string
+ * re-collapses distinct calls and is the exact retired-loop-detector bug.
+ */
+export const computeProgressFingerprint = (signal: {
+  readonly recentInputsSource: string | null;
+  readonly checkpointSource: string | null;
+}): string =>
+  hashSource(`${signal.checkpointSource ?? ""}\u0000${signal.recentInputsSource ?? ""}`);
+
+/** Per-thread State-D bookkeeping: the last work-product fingerprint, when it
+ * was first seen at that value (the flat-since clock), and whether this episode
+ * has already been advised (dedup → at most once per episode). */
+export interface ProgressLoopState {
+  readonly fingerprint: string;
+  readonly flatSinceMs: number;
+  readonly advised: boolean;
+}
+
+/**
+ * Pure State-D decision. Re-arm (reset the flat clock, clear `advised`) the
+ * moment the fingerprint changes or on first observation — a growing/oscillating
+ * diff therefore NEVER advises. Advise exactly once, when the fingerprint has
+ * stayed flat for `noProgressWindowMs` and this episode has not been advised
+ * yet. The caller only invokes this for a genuinely busy thread (open turn,
+ * heartbeat advancing), so frozen-heartbeat stalls are State C, never here.
+ */
+export const decideProgressLoop = (input: {
+  readonly prior: ProgressLoopState | null;
+  readonly fingerprint: string;
+  readonly now: number;
+  readonly noProgressWindowMs: number;
+}): { readonly next: ProgressLoopState; readonly advise: boolean } => {
+  const { prior, fingerprint, now, noProgressWindowMs } = input;
+  if (prior === null || prior.fingerprint !== fingerprint) {
+    return { next: { fingerprint, flatSinceMs: now, advised: false }, advise: false };
+  }
+  if (!prior.advised && now - prior.flatSinceMs >= noProgressWindowMs) {
+    return { next: { ...prior, advised: true }, advise: true };
+  }
+  return { next: prior, advise: false };
+};
+
 /** In-band control-plane framing so the child treats the nudge as a system
  * signal, not a directive from the user. */
 const CONTROL_PLANE_MARKER = "[T3 Workstream control plane — automated notice, not from the user]";
@@ -204,6 +303,11 @@ const makeWorkstreamLivenessSweep = (
       string,
       { readonly episodeMs: number; readonly context: StallContext | null }
     >();
+
+    // State D: per-thread work-product fingerprint bookkeeping (serial-safe,
+    // mirroring stallNudges). Cleared whenever the thread is not a busy,
+    // progressing sub-thread so a fresh episode re-arms cleanly.
+    const progressLoop = new Map<string, ProgressLoopState>();
 
     const appendLivenessActivity = (
       thread: OrchestrationThreadShell,
@@ -319,6 +423,53 @@ const makeWorkstreamLivenessSweep = (
       );
     });
 
+    // State D (possibly spinning): a NON-TERMINAL advisory. Wakes the parent via
+    // attention `needs_guidance` (system-raised — sanctioned high-confidence by
+    // the status-model author, see progress.md; `error` would over-escalate a
+    // heuristic to a failure verdict) plus an `info` activity carrying the
+    // evidence. Sets NO plan lane and never kills the thread — it keeps running.
+    // Episode-keyed (`flatSinceMs`) server-prefixed ids keep it idempotent within
+    // an episode and re-armable across episodes.
+    const adviseProgressLoop = Effect.fn("workstreamLiveness.adviseProgressLoop")(function* (
+      thread: OrchestrationThreadShell,
+      busyMinutes: number,
+      episodeMs: number,
+    ) {
+      const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      const summary =
+        `Possibly spinning: busy for ~${busyMinutes} min (heartbeat advancing) but the ` +
+        `work product has not changed — no new edits/tool inputs and no checkpoint ` +
+        `progress over the window. Automated advisory for the parent to judge; not a ` +
+        `fault, and the thread is still running.`;
+      const uuid = yield* crypto.randomUUIDv4;
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make(
+          `server:workstream-liveness:progress-loop:${thread.id}:${episodeMs}`,
+        ),
+        threadId: thread.id,
+        activity: {
+          id: EventId.make(uuid),
+          tone: "info",
+          kind: "workstream.liveness.progress-loop",
+          summary,
+          payload: { kind: "progress-loop", busyMinutes },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(
+          `server:workstream-liveness:progress-loop-attn:${thread.id}:${episodeMs}`,
+        ),
+        threadId: thread.id,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+    });
+
     const sweep = Effect.gen(function* () {
       const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
       const now = yield* Clock.currentTimeMillis;
@@ -339,6 +490,7 @@ const makeWorkstreamLivenessSweep = (
         ) {
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
+          progressLoop.delete(thread.id);
           continue;
         }
         const session = thread.session;
@@ -346,6 +498,7 @@ const makeWorkstreamLivenessSweep = (
         if (session === null) {
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
+          progressLoop.delete(thread.id);
           continue;
         }
 
@@ -376,8 +529,58 @@ const makeWorkstreamLivenessSweep = (
         // child can be nudged afresh if it stalls again later.
         if (verdict === null) {
           stallNudges.delete(thread.id);
+
+          // ── State D — possibly spinning (self-contained; ENABLE_STATE_D) ──
+          // Only a genuinely BUSY thread qualifies: an open turn past the
+          // startup grace whose heartbeat is fresh (guaranteed here — a frozen
+          // heartbeat is State C, which returns a non-null verdict above). When
+          // the cheap work-product fingerprint stays flat across the window
+          // while the agent keeps emitting runtime events, wake the parent ONCE
+          // with evidence. Flip ENABLE_STATE_D=false (top of file) to remove.
+          const startedAtMs = turnStartMs(thread.latestTurn);
+          const busy =
+            ENABLE_STATE_D &&
+            session.activeTurnId !== null &&
+            startedAtMs !== null &&
+            now - startedAtMs >= thresholds.startupGraceMs;
+          if (!busy) {
+            progressLoop.delete(thread.id);
+            continue;
+          }
+          const signal = yield* projectionSnapshotQuery.getThreadProgressSignal(
+            thread.id,
+            thresholds.progressInputSampleSize,
+          );
+          const decision = decideProgressLoop({
+            prior: progressLoop.get(thread.id) ?? null,
+            fingerprint: computeProgressFingerprint(signal),
+            now,
+            noProgressWindowMs: thresholds.noProgressWindowMs,
+          });
+          progressLoop.set(thread.id, decision.next);
+          if (decision.advise) {
+            const busyMinutes = Math.round((now - decision.next.flatSinceMs) / 60_000);
+            yield* adviseProgressLoop(thread, busyMinutes, decision.next.flatSinceMs).pipe(
+              Effect.tap(() =>
+                Effect.logInfo("workstream.liveness.progress-loop", {
+                  threadId: thread.id,
+                  busyMinutes,
+                }),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("workstream.liveness.progress-loop-failed", {
+                  threadId: thread.id,
+                  cause,
+                }),
+              ),
+            );
+            actionedCount += 1;
+          }
           continue;
         }
+        // Stalled / dead below: not a busy-progressing thread → drop any State-D
+        // episode so it re-arms cleanly if the thread resumes work later.
+        progressLoop.delete(thread.id);
 
         const runAction = <E>(label: string, action: Effect.Effect<void, E>) =>
           action.pipe(

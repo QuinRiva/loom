@@ -185,6 +185,10 @@ const RecentToolActivityRowSchema = Schema.Struct({
   summary: Schema.String,
   payload: Schema.fromJsonString(Schema.Unknown),
 });
+const ThreadProgressSignalRowSchema = Schema.Struct({
+  recentInputsSource: Schema.NullOr(Schema.String),
+  checkpointSource: Schema.NullOr(Schema.String),
+});
 const ProjectionLatestAssistantMessageRowSchema = Schema.Struct({
   threadId: ThreadId,
   text: Schema.String,
@@ -1263,6 +1267,63 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           }),
         ),
       );
+
+  // State-D work-product source: the latest `limit` tool calls' ACTUAL content
+  // (rawInput → details.diff → summary) joined, plus the latest checkpoint
+  // turn-count + files JSON. Both opaque change-detection strings hashed by the
+  // caller; pulled in one query from already-persisted rows (no git diff).
+  const getThreadProgressSignalRow = SqlSchema.findOne({
+    Request: RecentToolActivityInput,
+    Result: ThreadProgressSignalRowSchema,
+    execute: ({ threadId, limit }) =>
+      sql`
+        SELECT
+          (
+            SELECT group_concat(content, char(10))
+            FROM (
+              SELECT COALESCE(
+                json_extract(payload_json, '$.data.rawInput'),
+                json_extract(payload_json, '$.data.details.diff'),
+                summary
+              ) AS content
+              FROM projection_thread_activities
+              WHERE thread_id = ${threadId}
+                AND kind = 'tool.completed'
+              ORDER BY
+                CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
+                sequence DESC,
+                created_at DESC,
+                activity_id DESC
+              LIMIT ${limit}
+            )
+          ) AS "recentInputsSource",
+          (
+            SELECT checkpoint_turn_count || '|' || COALESCE(checkpoint_files_json, '')
+            FROM projection_turns
+            WHERE thread_id = ${threadId}
+              AND checkpoint_turn_count IS NOT NULL
+            ORDER BY checkpoint_turn_count DESC
+            LIMIT 1
+          ) AS "checkpointSource"
+      `,
+  });
+
+  const getThreadProgressSignal: ProjectionSnapshotQueryShape["getThreadProgressSignal"] = (
+    threadId,
+    limit,
+  ) =>
+    getThreadProgressSignalRow({ threadId, limit: Math.max(0, Math.trunc(limit)) }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadProgressSignal:query",
+          "ProjectionSnapshotQuery.getThreadProgressSignal:decodeRow",
+        ),
+      ),
+      Effect.map((row) => ({
+        recentInputsSource: row.recentInputsSource,
+        checkpointSource: row.checkpointSource,
+      })),
+    );
 
   const getSnapshot: ProjectionSnapshotQueryShape["getSnapshot"] = () =>
     sql
@@ -2582,6 +2643,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getPendingTurnStartThreadIds,
     getActivityFreshnessByThreadId,
     getRecentToolActivityByThreadId,
+    getThreadProgressSignal,
   } satisfies ProjectionSnapshotQueryShape;
 });
 
