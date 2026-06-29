@@ -14,10 +14,24 @@ same-file-edit point fix. Builds on the diagnosis in
 analysis live there; this doc is the destination and the route to it).
 
 **Scope boundary (important):** this work is **detection + response (wake/
-surface)** only. It does **not** redefine status semantics. A separate framework
-rearchitecture is making `error` a runtime-*derived* lane rather than an
-agent-set one; we produce the signals that model needs and use the parent-wake
-path for recoverable cases, but we do not change what any status *means*.
+surface)** only. It does **not** redefine status semantics.
+
+**UPDATE (post-rebase, PR #26 landed):** the three-axis status model is now in
+`main` (`.plans/workstream-state-model-design.md`, signed). Consequences for this
+work, already inherited by Phase 1 after rebase:
+- The liveness response is now `thread.attention.raise { reason }` (one of
+  `error | awaiting_approval | awaiting_input | awaiting_acceptance |
+  needs_guidance`) — NOT `thread.status.set`. Attention is non-terminal: it does
+  not release dependents (`done` is the sole releaser) and clears when the
+  condition clears. **A false liveness verdict can therefore no longer kill
+  healthy work** — the original harm is structurally gone.
+- State B is first-class: the sweep already skips any thread with
+  `attention.length > 0`, and the classifier also guards on
+  `hasPendingUserInput`/`hasPendingApprovals`.
+- We do not change what any reason *means*; we only choose which to raise. For
+  meaningful auth questions (e.g. may the system auto-drive a recovery turn on a
+  child?), consult the status-model author via
+  `.plans/workstream-state-model-design.md`.
 
 ---
 
@@ -94,11 +108,24 @@ one that auto-acts on its own authority; B/C/D wake the parent.
 ### 3c. State C — the failed-vs-stalled fix
 
 Your canonical example: an agent issues a malformed tool call, it errors, and
-"nothing happens." The process is alive; it just needs a poke. Today C and A both
-collapse to terminal `error`. In the end state C is a **recoverable stall**: wake
-the parent (and/or auto re-prompt once). The actual "stalled vs failed" *status
-lane* is the status-redesign's job; we supply the detection and the recoverable
-response, and do not set terminal status ourselves for C.
+"nothing happens." The process is alive; it just needs a poke. The fix has two
+parts:
+
+1. **Semantic accuracy.** A stall raises attention **`needs_guidance`**
+   (recoverable — a human/poke is needed), NOT `error` (which the status model
+   reserves for genuine failure). Dead (State A) keeps raising `error`.
+2. **Informed auto-recovery (escalation ladder).** On the FIRST stall detection,
+   read the child's **pi session JSONL** (path from pi's `sessionFile`) to
+   extract what actually happened (the last thrown error / last event), then send
+   ONE informed nudge to the child to recover (reuse the existing send-turn path,
+   `ProviderCommandReactor`). Only if the child is STILL frozen on a later sweep
+   (heartbeat unchanged since the nudge) escalate to attention `needs_guidance`,
+   carrying the extracted context so the human sees *why*. A blind re-prompt is
+   not enough — the nudge must be informed by the JSONL, because the error sits
+   in the transcript but the stalled child may be unaware of it.
+
+Dedup like the circuit-breaker counter: nudge at most once per stall episode;
+re-arm when the heartbeat advances. Do not raise `error` for a stall.
 
 ### 3d. State D — progress, not repetition (the subjective one, isolated)
 
@@ -115,11 +142,13 @@ their spinning is surfaced only if/when the parent notices — acceptable.
 most once per episode with the evidence ("active 15 min, diff unchanged, repeating
 `<input>`"). It **MUST NOT** call `thread.status.set`. The thread stays running.
 
-**Disable requirement (explicit):** State D is the highest false-positive risk and
-must be **trivially disableable** — a single flag (e.g.
-`enableProgressLoopDetection` in `DEFAULT_LIVENESS_THRESHOLDS`) that short-circuits
-the entire State-D branch. Flipping one boolean removes it with zero other
-changes. Keep the branch self-contained so it can also be commented out cleanly.
+**Disable requirement (explicit, prototype-grade):** State D is the highest
+false-positive risk. It must be **trivially disableable by one edit** — a single
+top-of-file boolean constant (e.g. `const ENABLE_STATE_D = true`) that
+short-circuits the entire State-D branch when false. Flipping that one boolean
+removes State D with zero other changes, and the branch must be self-contained so
+it can equally be commented out or deleted in one place. No config plumbing or
+feature-flag framework — this is prototype code; the one-liner is the point.
 
 ### 3e. Parent as judge — two investigation paths, by scenario
 
