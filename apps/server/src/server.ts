@@ -55,6 +55,7 @@ import { WorkstreamDispatcherLive } from "./orchestration/Layers/WorkstreamDispa
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
+import { AccountUsageRegistryLive } from "./provider/Services/AccountUsageRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
@@ -305,7 +306,12 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
-  Layer.provideMerge(ProviderRegistryLive),
+  // `AccountUsageRegistryLive` is an ephemeral, account-scoped subscription-usage
+  // store — merged alongside the provider registry as a shared singleton:
+  // `ProviderRuntimeIngestion` writes rate-limit events here and the WS config
+  // stream reads its snapshot + change stream. (Merged together to stay within
+  // `pipe`'s argument limit.)
+  Layer.provideMerge(Layer.mergeAll(ProviderRegistryLive, AccountUsageRegistryLive)),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
   // through this layer. Built-in drivers come from `BUILT_IN_DRIVERS`;

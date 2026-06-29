@@ -8,6 +8,7 @@
  * @module CodexAdapterLive
  */
 import {
+  type AccountUsageWindow,
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
@@ -26,6 +27,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -144,6 +146,15 @@ function readPayload<A>(
 function trimText(value: string | undefined | null): string | undefined {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+// Provider rate-limit timestamps are epoch numbers. Codex uses epoch seconds;
+// guard against millisecond inputs so the conversion is robust either way.
+function epochToIsoDateTime(value: number | null | undefined): string | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return null;
+  }
+  return DateTime.formatIso(DateTime.makeUnsafe(value > 1e12 ? value : value * 1000));
 }
 
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
@@ -1117,7 +1128,29 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+    const decoded = readPayload(
+      EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+      event.payload,
+    );
+    if (!decoded) {
+      return [];
+    }
+    const { primary, secondary, planType } = decoded.rateLimits;
+    const windows: AccountUsageWindow[] = [];
+    for (const [kind, window] of [
+      ["primary", primary],
+      ["secondary", secondary],
+    ] as const) {
+      if (window) {
+        windows.push({
+          kind,
+          usedPercent: window.usedPercent,
+          resetsAt: epochToIsoDateTime(window.resetsAt),
+          windowDurationMins: window.windowDurationMins ?? null,
+        });
+      }
+    }
+    if (windows.length === 0) {
       return [];
     }
     return [
@@ -1125,7 +1158,8 @@ function mapToRuntimeEvents(
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          rateLimits: event.payload ?? {},
+          windows,
+          planType: trimText(planType) ?? null,
         },
       },
     ];

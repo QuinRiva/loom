@@ -69,6 +69,7 @@ import {
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry.ts";
+import { AccountUsageRegistry } from "./provider/Services/AccountUsageRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
@@ -272,6 +273,7 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry;
+      const accountUsageRegistry = yield* AccountUsageRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
@@ -1594,6 +1596,13 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
                   payload: { settings },
                 })),
               );
+              const accountUsageUpdates = accountUsageRegistry.streamChanges.pipe(
+                Stream.map((usage) => ({
+                  version: 1 as const,
+                  type: "accountUsage" as const,
+                  payload: { usage },
+                })),
+              );
 
               yield* providerRegistry
                 .refresh()
@@ -1601,15 +1610,24 @@ const makeWsRpcLayer = (currentSession: AuthenticatedSession) =>
 
               const liveUpdates = Stream.merge(
                 keybindingsUpdates,
-                Stream.merge(providerStatuses, settingsUpdates),
+                Stream.merge(providerStatuses, Stream.merge(settingsUpdates, accountUsageUpdates)),
               );
 
               return Stream.concat(
-                Stream.make({
-                  version: 1 as const,
-                  type: "snapshot" as const,
-                  config: yield* loadServerConfig,
-                }),
+                Stream.concat(
+                  Stream.make({
+                    version: 1 as const,
+                    type: "snapshot" as const,
+                    config: yield* loadServerConfig,
+                  }),
+                  // Initial usage so a fresh subscriber sees the latest known
+                  // limits without waiting for the next provider event.
+                  Stream.make({
+                    version: 1 as const,
+                    type: "accountUsage" as const,
+                    payload: { usage: yield* accountUsageRegistry.snapshot },
+                  }),
+                ),
                 liveUpdates,
               );
             }),
