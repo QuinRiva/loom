@@ -51,3 +51,47 @@ store 17). `vp lint` clean except the pre-existing
 ProviderRuntimeIngestion.test error.
 
 ## Open decisions / escalations
+
+---
+
+# Liveness redesign Phase 3 — recoverable-stall response (State C)
+
+## Decisions / consults
+
+- **Auth gate (system-driven recovery nudge).** Consulted the status-model
+  author `/home/Carl/.pi/agent/sessions/--home-Carl-.t3-cockpit-worktrees-pi-frontend-t3code-df4695a1--/2026-06-29T02-44-14-373Z_587eb0f7-db32-4147-ab5e-d898a81a88b4.jsonl`
+  (resolved by ABSOLUTE PATH — the manifest id `587eb0f7…` lives under the
+  `df4695a1` worktree slug, so a bare-id consult from this `c61cd9a0` worktree
+  hit the id-scoping trap and returned "No session found"; the file was on disk
+  all along). **Confidence: medium.** Ruling: §8's start/stop reservation
+  targets agent/human actors; the control plane already drives `server:`-prefixed
+  turn-starts pervasively. A `server:`-prefixed steer into an ALREADY-OPEN turn
+  that writes neither `in_progress` nor stored attention is, by the model's own
+  definition, **not a "start"** → **Option 1 sanctioned.** Hard guardrail: the
+  nudge may fire ONLY when the turn is genuinely open (`activeTurnId` set); if
+  null, `sendTurn` would start a fresh turn (a real §8 start) — not allowed.
+
+## Implementation (Phase 3 — State C)
+
+- `apps/server/src/orchestration/stallContext.ts` (new): pure `extractStallContext`
+  (last meaningful event from a pi JSONL — errored toolResult or last assistant,
+  whichever is last), `renderStallContext`, and `readThreadStallContext` (resolves
+  the thread's deterministic pi session file via `piSessionIdForThread` +
+  `resolveSessionFilePath`, reads it, never fails the sweep).
+- `WorkstreamLivenessSweep.ts`: split `markError` into `markDead` (State A →
+  attention `error`, unchanged) and the State-C ladder. `stalled` verdict now
+  carries `effectiveActivityMs` (the stall-episode key). New pure
+  `decideStallAction` (nudge first sweep / escalate when still frozen / re-arm on
+  heartbeat advance / escalate if no open turn). `nudgeStall` drives ONE
+  `thread.turn.start` (no `requireIdle`/`setInProgress`) → PiDriver steers it into
+  the open turn; `escalateStall` raises **`needs_guidance`** (NOT `error`) with the
+  extracted context. Serial-safe `stallNudges` Map mirrors `failureCounts`.
+- Transport: existing send-turn path (`thread.turn.start` → ProviderCommandReactor
+  → `providerService.sendTurn` → `streamingBehavior:"steer"` for an open turn). No
+  new transport. `server:`-prefixed, episode-keyed command ids (idempotent within
+  an episode, re-armable across episodes).
+- Gates: `vp run typecheck` PASS; `vp check` PASS (0 errors; 13 pre-existing web
+  warnings). New unit tests PASS (stallContext 9, sweep 12 incl. ladder +
+  nudge-message + effectiveActivityMs). Pre-existing FAILS (NOT mine, confirmed by
+  stashing my changes): `ProviderCommandReactor.test.ts` ×2 (title-match poll
+  timeouts) and the noted `serverRuntimeStartup.test.ts:30` default-model drift.

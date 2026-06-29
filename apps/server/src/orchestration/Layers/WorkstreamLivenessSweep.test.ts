@@ -9,7 +9,12 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { classifyLiveness, DEFAULT_LIVENESS_THRESHOLDS } from "./WorkstreamLivenessSweep.ts";
+import {
+  buildStallNudgeMessage,
+  classifyLiveness,
+  decideStallAction,
+  DEFAULT_LIVENESS_THRESHOLDS,
+} from "./WorkstreamLivenessSweep.ts";
 
 const now = Date.parse("2026-06-24T00:00:00.000Z");
 const minsAgo = (m: number) => DateTime.formatIso(DateTime.makeUnsafe(now - m * 60_000));
@@ -140,5 +145,68 @@ describe("classifyLiveness", () => {
       heartbeatMs: now - 11 * 60_000,
     });
     expect(verdict).toBeNull();
+  });
+
+  it("tags the stalled verdict with the effective-activity episode key", () => {
+    const frozenAt = now - 11 * 60_000;
+    const verdict = classifyLiveness({
+      ...base,
+      maxActivityCreatedAtMs: frozenAt,
+      heartbeatMs: frozenAt,
+    });
+    expect(verdict?.kind).toBe("stalled");
+    expect(verdict?.effectiveActivityMs).toBe(frozenAt);
+  });
+});
+
+describe("decideStallAction (escalation ladder)", () => {
+  it("nudges on the first sweep of a stall episode (open turn)", () => {
+    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: true })).toBe(
+      "nudge",
+    );
+  });
+
+  it("escalates when the same episode is still frozen after the nudge", () => {
+    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 100, hasOpenTurn: true })).toBe(
+      "escalate",
+    );
+  });
+
+  it("re-arms to nudge when the heartbeat advanced (new episode)", () => {
+    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 250, hasOpenTurn: true })).toBe(
+      "nudge",
+    );
+  });
+
+  it("escalates instead of nudging when there is no open turn to steer into", () => {
+    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: false })).toBe(
+      "escalate",
+    );
+  });
+});
+
+describe("buildStallNudgeMessage", () => {
+  const verdict = {
+    kind: "stalled" as const,
+    reason: "Mid-turn stall: ...",
+    effectiveActivityMs: 1,
+  };
+
+  it("carries the control-plane marker and the extracted tool error", () => {
+    const text = buildStallNudgeMessage(verdict, {
+      source: "tool-error",
+      toolName: "edit",
+      detail: "Validation failed for tool edit",
+    });
+    expect(text).toContain("control plane");
+    expect(text).toContain("not from the user");
+    expect(text).toContain("`edit`");
+    expect(text).toContain("Validation failed for tool edit");
+  });
+
+  it("degrades to a generic account when no context was extracted", () => {
+    const text = buildStallNudgeMessage(verdict, null);
+    expect(text).toContain("control plane");
+    expect(text).toContain("no specific error");
   });
 });
