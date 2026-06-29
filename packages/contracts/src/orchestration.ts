@@ -448,6 +448,14 @@ export const OrchestrationThread = Schema.Struct({
   // replay-safe). Additive/optional on the wire — absent (treated as 0) when the
   // provider reports no cost (e.g. non-pi adapters).
   cumulativeCostUsd: Schema.optional(NonNegativeNumber),
+  // Latest context-window snapshot for THIS thread (newest
+  // `context-window.updated` activity's running session totals). Null when
+  // unknown (non-pi providers / no activity yet) — distinct from cost's 0-default
+  // so the UI suppresses the chip rather than showing a misleading 0. Additive +
+  // decode-default so older snapshots still decode.
+  toolUses: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  usedTokens: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  maxTokens: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -591,6 +599,11 @@ export const OrchestrationThreadShell = Schema.Struct({
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   // Cumulative dollar spend for THIS thread alone. See OrchestrationThread.
   cumulativeCostUsd: Schema.optional(NonNegativeNumber),
+  // Latest context-window snapshot for THIS thread. See OrchestrationThread.
+  // Null when unknown so the UI can suppress the chip rather than show 0.
+  toolUses: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  usedTokens: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  maxTokens: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),

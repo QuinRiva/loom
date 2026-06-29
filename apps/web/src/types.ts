@@ -188,6 +188,8 @@ export interface SidebarThreadSummary {
   attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
   title: string;
+  modelSelection: ModelSelection;
+  reportPath: string | null;
   interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;
   createdAt: string;
@@ -202,6 +204,11 @@ export interface SidebarThreadSummary {
   hasActionableProposedPlan: boolean;
   /** This thread's own cumulative dollar spend (provider-authoritative; 0 when none). */
   cumulativeCostUsd: number;
+  /** Effort/health from the latest context-window snapshot; null when unknown
+   * (non-pi provider or before the first activity) so the card can suppress the chip. */
+  toolUses: number | null;
+  usedTokens: number | null;
+  maxTokens: number | null;
   /** One-line preview of the child's latest assistant narration; null when none yet. */
   lastActivityPreview: string | null;
 }

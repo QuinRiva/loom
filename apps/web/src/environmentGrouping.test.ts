@@ -67,6 +67,8 @@ function makeSidebarThreadSummary(
     planLane: "planned" as const,
     attention: [],
     blockedBy: [],
+    modelSelection: { instanceId: ProviderInstanceId.make("pi"), model: "openai/gpt-5.5" },
+    reportPath: null,
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -80,6 +82,9 @@ function makeSidebarThreadSummary(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     cumulativeCostUsd: 0,
+    toolUses: null,
+    usedTokens: null,
+    maxTokens: null,
     lastActivityPreview: null,
     ...overrides,
   };

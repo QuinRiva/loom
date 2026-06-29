@@ -244,6 +244,9 @@ function makeThreadShellSnapshot(params: {
               }
             : null,
         cumulativeCostUsd: 0,
+        toolUses: null,
+        usedTokens: null,
+        maxTokens: null,
         createdAt: "2026-04-13T00:00:00.000Z",
         updatedAt: "2026-04-13T00:00:00.000Z",
         archivedAt: null,

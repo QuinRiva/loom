@@ -346,6 +346,8 @@ function mapThreadShell(
     attention: thread.attention,
     blockedBy: thread.blockedBy,
     title: thread.title,
+    modelSelection: normalizeModelSelection(thread.modelSelection),
+    reportPath: thread.reportPath ?? null,
     interactionMode: thread.interactionMode,
     session,
     createdAt: thread.createdAt,
@@ -359,6 +361,9 @@ function mapThreadShell(
     hasPendingUserInput: thread.hasPendingUserInput,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     cumulativeCostUsd: thread.cumulativeCostUsd ?? 0,
+    toolUses: thread.toolUses ?? null,
+    usedTokens: thread.usedTokens ?? null,
+    maxTokens: thread.maxTokens ?? null,
     lastActivityPreview: thread.lastActivityPreview ?? null,
   };
   return {
@@ -476,6 +481,9 @@ function sidebarThreadSummariesEqual(
     attentionEqual(left.attention, right.attention) &&
     blockedByEqual(left.blockedBy, right.blockedBy) &&
     left.title === right.title &&
+    left.modelSelection.instanceId === right.modelSelection.instanceId &&
+    left.modelSelection.model === right.modelSelection.model &&
+    left.reportPath === right.reportPath &&
     left.interactionMode === right.interactionMode &&
     threadSessionsEqual(left.session, right.session) &&
     left.createdAt === right.createdAt &&
@@ -489,6 +497,9 @@ function sidebarThreadSummariesEqual(
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
     left.cumulativeCostUsd === right.cumulativeCostUsd &&
+    left.toolUses === right.toolUses &&
+    left.usedTokens === right.usedTokens &&
+    left.maxTokens === right.maxTokens &&
     left.lastActivityPreview === right.lastActivityPreview
   );
 }
@@ -1460,6 +1471,9 @@ function applyEnvironmentOrchestrationEvent(
           worktreePath: event.payload.worktreePath,
           latestTurn: null,
           cumulativeCostUsd: 0,
+          toolUses: null,
+          usedTokens: null,
+          maxTokens: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,

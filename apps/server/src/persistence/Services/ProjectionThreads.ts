@@ -55,6 +55,12 @@ export const ProjectionThread = Schema.Struct({
   pendingUserInputCount: NonNegativeInt,
   hasActionableProposedPlan: NonNegativeInt,
   cumulativeCostUsd: NonNegativeNumber,
+  // Latest context-window snapshot (newest `context-window.updated` activity).
+  // Null when unknown (non-pi threads / before first activity) so the UI can
+  // suppress the chip rather than show a misleading 0.
+  toolUses: Schema.NullOr(NonNegativeInt),
+  usedTokens: Schema.NullOr(NonNegativeInt),
+  maxTokens: Schema.NullOr(NonNegativeInt),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;

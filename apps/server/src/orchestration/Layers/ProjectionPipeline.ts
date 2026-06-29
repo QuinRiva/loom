@@ -202,6 +202,37 @@ function deriveCumulativeCostUsd(activities: ReadonlyArray<ProjectionThreadActiv
   return total;
 }
 
+// Effort/health meter: latest context-window snapshot for a thread = the newest
+// `context-window.updated` activity's running session totals. Unlike cost (a SUM
+// over all activities) this is a LATEST-SNAPSHOT — do not accumulate. `toolUses`
+// is the provider's running session total, mirroring the chat-header meter.
+// Returns null per-field when unknown (non-pi providers / no activity yet) so the
+// UI can suppress the chip rather than show a misleading 0.
+function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity>): {
+  readonly toolUses: number | null;
+  readonly usedTokens: number | null;
+  readonly maxTokens: number | null;
+} {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index];
+    if (!activity || activity.kind !== "context-window.updated") {
+      continue;
+    }
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const asInt = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+    const usedTokens = asInt(payload?.usedTokens);
+    if (usedTokens === null) {
+      continue;
+    }
+    return { toolUses: asInt(payload?.toolUses), usedTokens, maxTokens: asInt(payload?.maxTokens) };
+  }
+  return { toolUses: null, usedTokens: null, maxTokens: null };
+}
+
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -744,6 +775,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         proposedPlans,
       });
       const cumulativeCostUsd = deriveCumulativeCostUsd(activities);
+      const contextMetrics = deriveContextMetrics(activities);
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
@@ -752,6 +784,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         pendingUserInputCount,
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
         cumulativeCostUsd,
+        toolUses: contextMetrics.toolUses,
+        usedTokens: contextMetrics.usedTokens,
+        maxTokens: contextMetrics.maxTokens,
       });
     });
 
@@ -788,6 +823,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
             cumulativeCostUsd: 0,
+            toolUses: null,
+            usedTokens: null,
+            maxTokens: null,
             deletedAt: null,
           });
           return;

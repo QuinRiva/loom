@@ -1,4 +1,4 @@
-import type { ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import type { ModelSelection, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
 import type { SidebarThreadSummary } from "../types";
 import {
@@ -222,6 +222,28 @@ export function getAttentionBadges(
   thread: SidebarThreadSummary,
 ): ReadonlyArray<{ reason: AttentionReason; label: string }> {
   return attentionReasonsOf(thread).map((reason) => ({ reason, label: ATTENTION_LABELS[reason] }));
+}
+
+/**
+ * Short model label for a card chip: the segment after the last `/` of the
+ * model slug (e.g. `openai/gpt-5.5` -> `gpt-5.5`,
+ * `google-vertex-claude/claude-opus-4-8` -> `claude-opus-4-8`). Falls back to the
+ * raw slug, then the instance id, so the chip is never empty.
+ */
+export function formatModelLabel(selection: ModelSelection): string {
+  const slug = selection.model?.trim();
+  if (slug) return slug.slice(slug.lastIndexOf("/") + 1) || slug;
+  return selection.instanceId;
+}
+
+/**
+ * Context-window fill as a short percentage string (`38%`, `4.2%`), or null when
+ * the snapshot is unknown. Mirrors the chat-header meter's `formatPercentage`.
+ */
+export function formatContextPercent(used: number | null, max: number | null): string | null {
+  if (used === null || max === null || max <= 0) return null;
+  const pct = Math.min(100, (used / max) * 100);
+  return pct < 10 ? `${pct.toFixed(1).replace(/\.0$/, "")}%` : `${Math.round(pct)}%`;
 }
 
 export function getRoleLabel(thread: SidebarThreadSummary): string {
