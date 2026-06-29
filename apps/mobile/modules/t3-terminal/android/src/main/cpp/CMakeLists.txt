@@ -16,4 +16,8 @@ target_include_directories(
   PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../Vendor/libghostty-vt/include"
 )
 
+target_link_options(
+  t3terminal PRIVATE "-Wl,-z,common-page-size=16384" "-Wl,-z,max-page-size=16384"
+)
+
 target_link_libraries(t3terminal PRIVATE ghostty-vt log)
