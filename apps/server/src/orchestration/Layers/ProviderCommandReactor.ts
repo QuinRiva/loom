@@ -46,6 +46,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { loadRoleOverlay } from "../roleOverlay.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -107,9 +108,22 @@ const renderGoalTasksForPrompt = (
     )
     .join("");
 
-const activeGoalContextInstruction = (goal: OrchestrationGoal) => {
+const activeGoalContextInstruction = (
+  goal: OrchestrationGoal,
+  opts?: { readonly asChildBackground?: boolean },
+) => {
   const tasks =
     goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTasksForPrompt(goal.tasks, 0).trimEnd();
+  if (opts?.asChildBackground) {
+    return [
+      `Background context — your parent orchestrator is working toward this overall goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
+      goal.description.trim().length > 0
+        ? `\nParent's objective (background only, NOT your task): ${goal.description.trim()}`
+        : "",
+      `\n\nYour authoritative task is the spawn brief in your first message. This goal is provided only so your work aligns with the wider effort — do not execute it directly or treat its objective as your own assignment. If the brief and this goal appear to conflict, follow the brief.`,
+      `\n\nParent's current task tree (for orientation only; you do not manage it):\n${tasks}`,
+    ].join("");
+  }
   return [
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
@@ -428,13 +442,16 @@ const make = Effect.gen(function* () {
   const buildGoalSystemPrompt = Effect.fn("buildGoalSystemPrompt")(function* (thread: {
     readonly projectId: ProjectId;
     readonly goalId: string | null;
+    readonly parentThreadId: ThreadId | null;
   }) {
     if (!thread.goalId) return undefined;
     const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
     const goal = readModel.goals.find(
       (entry) => entry.id === thread.goalId && entry.deletedAt === null,
     );
-    return goal ? activeGoalContextInstruction(goal) : undefined;
+    return goal
+      ? activeGoalContextInstruction(goal, { asChildBackground: thread.parentThreadId !== null })
+      : undefined;
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -565,6 +582,18 @@ const make = Effect.gen(function* () {
     }) =>
       Effect.gen(function* () {
         const goalSystemPrompt = yield* buildGoalSystemPrompt(thread);
+        // Compose the role overlay ahead of the goal context. The driver
+        // prepends PI_WORK_MODEL_SYSTEM_PROMPT, so the effective reading order is
+        // work-model → role overlay → goal context. NOTE: if a non-workstream pi
+        // mode is ever added, the `orchestrator` overlay must not ship without
+        // the workstream tools behind it.
+        const roleSystemPrompt = loadRoleOverlay({
+          role: thread.role,
+          projectRoot: effectiveCwd ?? process.cwd(),
+        });
+        const appendSystemPrompt = [roleSystemPrompt, goalSystemPrompt]
+          .filter((part): part is string => !!part && part.trim().length > 0)
+          .join("\n\n");
         return yield* providerService.startSession(threadId, {
           threadId,
           ...(preferredProvider ? { provider: preferredProvider } : {}),
@@ -572,7 +601,7 @@ const make = Effect.gen(function* () {
           ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
           modelSelection: desiredModelSelection,
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-          ...(goalSystemPrompt ? { appendSystemPrompt: goalSystemPrompt } : {}),
+          ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
           runtimeMode: desiredRuntimeMode,
         });
       });

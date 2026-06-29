@@ -3,15 +3,15 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildPiRpcArgs } from "../provider/Layers/Pi/RpcProcess.ts";
 import { envWithoutWorkstream, readonlyForkTools } from "./workstreamAsk.ts";
 
-// The `ask_thread` read-only guarantee is structural: the fork is launched with
+// The consult read-only guarantee is structural: the fork is launched with
 // no workstream extension and no `T3_WORKSTREAM_*` env, and with a read-only tool
 // surface. These cover the two invariants that don't need a live pi process.
-describe("ask_thread read-only invariants", () => {
+describe("consult_thread read-only invariants", () => {
   it("strips every T3_WORKSTREAM_* key from the fork env, keeping the rest", () => {
     const stripped = envWithoutWorkstream({
       PATH: "/usr/bin",
       T3_WORKSTREAM_SPAWN_URL: "http://x/spawn",
-      T3_WORKSTREAM_ASK_THREAD_URL: "http://x/ask",
+      T3_WORKSTREAM_CONSULT_THREAD_URL: "http://x/consult",
       T3_WORKSTREAM_AUTHORIZATION: "Bearer secret",
       HOME: "/home/u",
     });

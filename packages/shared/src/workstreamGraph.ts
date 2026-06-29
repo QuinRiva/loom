@@ -153,27 +153,6 @@ export const subtreeCostOf = <T extends CostGraphNode>(
 ): number => subtreeOf(id, threads).reduce((sum, node) => sum + (node.cumulativeCostUsd ?? 0), 0);
 
 /**
- * Membership predicate that powers same-tree authorization: two threads are in
- * the same workstream iff they share the same root orchestrator. This is the
- * single boundary used by both discovery (`graphViewFor`) and the read/ask tools
- * — least-privilege (one tree, never global) while still including siblings,
- * cousins, ancestors, and descendants within that one orchestration tree.
- *
- * A target absent from the snapshot is never "in tree" (callers distinguish a
- * missing target → 404 from an out-of-tree one → 403 by an existence check).
- */
-export const isInSameTree = <T extends GraphLineageNode>(
-  callerId: ThreadId,
-  targetId: ThreadId,
-  threads: ReadonlyArray<T>,
-): boolean => {
-  if (callerId === targetId) return true;
-  const index = buildIndex(threads);
-  if (!index.byId.has(targetId)) return false;
-  return rootOf(callerId, index) === rootOf(targetId, index);
-};
-
-/**
  * A child is "terminal" for the join barrier (design §6) when its plan lane is
  * `done`/`cancelled`, OR it carries a raised attention flag and is not currently
  * executing ("won't progress without a human"). A node that is merely
@@ -243,6 +222,10 @@ export const selectJoinedGenerations = <T extends JoinGroupThread>(
 export interface GraphViewThread extends GraphThread {
   readonly reportPath: string | null;
   readonly blockedBy: ReadonlyArray<ThreadId>;
+  /** Projection freshness timestamp — a lightweight liveness signal. */
+  readonly lastActivityAt: string | null;
+  /** One-line preview of the most recent activity (full detail lives in the jsonl). */
+  readonly lastActivitySummary: string | null;
 }
 
 export interface GraphViewNode {
@@ -254,6 +237,14 @@ export interface GraphViewNode {
   readonly attention: ReadonlyArray<AttentionReason>;
   readonly spawnGeneration: string | null;
   readonly hasReport: boolean;
+  /** Absolute path to the thread's curated report, or null if none filed. */
+  readonly reportPath: string | null;
+  /** Absolute path to the thread's pi session jsonl (full history), or null if not yet on disk. */
+  readonly sessionPath: string | null;
+  /** Projection freshness timestamp — a lightweight liveness signal. */
+  readonly lastActivityAt: string | null;
+  /** One-line preview of the most recent activity. */
+  readonly lastActivitySummary: string | null;
 }
 
 export interface GraphEdge {
@@ -280,6 +271,7 @@ export interface GraphView {
 export const graphViewFor = <T extends GraphViewThread>(
   callerId: ThreadId,
   threads: ReadonlyArray<T>,
+  sessionPathFor?: (id: ThreadId) => string | null,
 ): GraphView => {
   const index = buildIndex(threads);
   const rootId = rootOf(callerId, index);
@@ -294,6 +286,10 @@ export const graphViewFor = <T extends GraphViewThread>(
     attention: thread.attention,
     spawnGeneration: thread.spawnGeneration,
     hasReport: thread.reportPath !== null,
+    reportPath: thread.reportPath,
+    sessionPath: sessionPathFor ? sessionPathFor(thread.id) : null,
+    lastActivityAt: thread.lastActivityAt,
+    lastActivitySummary: thread.lastActivitySummary,
   }));
   const lineageEdges = members.flatMap((thread) =>
     thread.parentThreadId !== null && memberIds.has(thread.parentThreadId)
