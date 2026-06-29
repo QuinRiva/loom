@@ -751,7 +751,7 @@ const buildAppUnderTest = (options?: {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
             getActivityFreshnessByThreadId: () =>
-              Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+              Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
             getRecentToolActivityByThreadId: () => Effect.succeed([]),
             getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
             getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),

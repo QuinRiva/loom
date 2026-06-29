@@ -9,12 +9,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ProjectionToolActivitySignal } from "../Services/ProjectionSnapshotQuery.ts";
 import {
+  buildStallNudgeMessage,
   classifyLiveness,
+  decideStallAction,
   DEFAULT_LIVENESS_THRESHOLDS,
-  detectActivityLoop,
-  normalizeToolSignature,
 } from "./WorkstreamLivenessSweep.ts";
 
 const now = Date.parse("2026-06-24T00:00:00.000Z");
@@ -71,85 +70,15 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     ...overrides,
   }) as OrchestrationThreadShell;
 
-const sig = (summary: string, detail: string | null = null): ProjectionToolActivitySignal => ({
-  summary,
-  detail,
-});
-
 const base = {
   thread: thread(),
   session: session(),
   maxActivityCreatedAtMs: now,
-  toolSignals: [] as ReadonlyArray<ProjectionToolActivitySignal>,
+  heartbeatMs: now,
   failureCount: 0,
   now,
   thresholds: DEFAULT_LIVENESS_THRESHOLDS,
 };
-
-describe("normalizeToolSignature", () => {
-  it("collapses identical tool calls to one signature and separates distinct commands", () => {
-    const a = normalizeToolSignature({ summary: "Ran command", detail: "ls -la" });
-    const b = normalizeToolSignature({ summary: "Ran command", detail: "ls -la" });
-    const c = normalizeToolSignature({ summary: "Ran command", detail: "git status" });
-    expect(a).toBe(b);
-    expect(a).not.toBe(c);
-  });
-});
-
-describe("detectActivityLoop", () => {
-  it("flags >=3 consecutive identical detailed calls", () => {
-    expect(
-      detectActivityLoop(
-        [
-          sig("Ran command", "ls"),
-          sig("Ran command", "ls"),
-          sig("Ran command", "ls"),
-          sig("Read file", "a.ts"),
-        ],
-        3,
-      ),
-    ).toBe(true);
-  });
-  it("flags A,B,A,B,A,B two-call detailed alternation", () => {
-    const a = sig("Ran command", "git status");
-    const b = sig("Read file", "a.ts");
-    expect(detectActivityLoop([a, b, a, b, a, b], 3)).toBe(true);
-  });
-  it("does not flag genuine progress", () => {
-    expect(
-      detectActivityLoop(
-        [
-          sig("Ran command", "a"),
-          sig("Ran command", "b"),
-          sig("Ran command", "c"),
-          sig("Ran command", "d"),
-        ],
-        3,
-      ),
-    ).toBe(false);
-    expect(detectActivityLoop([sig("Ran command", "a"), sig("Ran command", "a")], 3)).toBe(false);
-  });
-
-  // Fix B — the fail-safe guard, covering BOTH detector branches.
-  it("does NOT flag >=3 identical detail-less signatures (identical-run branch)", () => {
-    expect(
-      detectActivityLoop([sig("Ran command"), sig("Ran command"), sig("Ran command")], 3),
-    ).toBe(false);
-  });
-  it("does NOT flag a detail-less read/edit alternation (alternation branch)", () => {
-    const read = sig("Read file");
-    const edit = sig("Changed files");
-    expect(detectActivityLoop([read, edit, read, edit, read, edit], 3)).toBe(false);
-  });
-  it("still flags >=3 identical DETAILED signatures", () => {
-    expect(
-      detectActivityLoop(
-        [sig("Ran command", "npm t"), sig("Ran command", "npm t"), sig("Ran command", "npm t")],
-        3,
-      ),
-    ).toBe(true);
-  });
-});
 
 describe("classifyLiveness", () => {
   it("returns null for a healthy, recently-active turn", () => {
@@ -161,9 +90,38 @@ describe("classifyLiveness", () => {
     expect(classifyLiveness({ ...base, failureCount: 2 })).toBeNull();
   });
 
-  it("flags a mid-turn stall when no activity row is newer than the stale window", () => {
-    const verdict = classifyLiveness({ ...base, maxActivityCreatedAtMs: now - 11 * 60_000 });
+  it("flags a mid-turn stall when the heartbeat is frozen past the stale window", () => {
+    const verdict = classifyLiveness({
+      ...base,
+      maxActivityCreatedAtMs: now - 11 * 60_000,
+      heartbeatMs: now - 11 * 60_000,
+    });
     expect(verdict?.kind).toBe("stalled");
+  });
+
+  it("does NOT flag a stall when the heartbeat is fresh despite stale activity rows (long reasoning)", () => {
+    // The core Phase-1 fix: a child streaming reasoning for >10 min with no
+    // tool/activity row keeps a fresh heartbeat and must not read as stalled.
+    const verdict = classifyLiveness({
+      ...base,
+      maxActivityCreatedAtMs: now - 11 * 60_000,
+      heartbeatMs: now - 1_000,
+    });
+    expect(verdict).toBeNull();
+  });
+
+  it("never flags a child waiting for input/approvals as stalled or dead (State B)", () => {
+    const stale = { heartbeatMs: now - 11 * 60_000, maxActivityCreatedAtMs: now - 11 * 60_000 };
+    expect(
+      classifyLiveness({ ...base, ...stale, thread: thread({ hasPendingUserInput: true }) }),
+    ).toBeNull();
+    expect(
+      classifyLiveness({
+        ...base,
+        thread: thread({ hasPendingApprovals: true }),
+        failureCount: 3,
+      }),
+    ).toBeNull();
   });
 
   it("respects the startup grace so a slow first tool call is not a stall", () => {
@@ -174,34 +132,81 @@ describe("classifyLiveness", () => {
       ...base,
       thread: young,
       maxActivityCreatedAtMs: now - 11 * 60_000,
+      heartbeatMs: now - 11 * 60_000,
     });
     expect(verdict).toBeNull();
   });
 
-  it("flags a stuck loop independent of activity freshness", () => {
-    const verdict = classifyLiveness({
-      ...base,
-      maxActivityCreatedAtMs: now,
-      toolSignals: [sig("Ran command", "ls"), sig("Ran command", "ls"), sig("Ran command", "ls")],
-    });
-    expect(verdict?.kind).toBe("loop");
-  });
-
-  it("does not flag a loop when the repeated signatures carry no detail", () => {
-    const verdict = classifyLiveness({
-      ...base,
-      maxActivityCreatedAtMs: now,
-      toolSignals: [sig("Ran command"), sig("Ran command"), sig("Ran command")],
-    });
-    expect(verdict).toBeNull();
-  });
-
-  it("does not run active-turn detectors when there is no active turn", () => {
+  it("does not run the stall detector when there is no active turn", () => {
     const verdict = classifyLiveness({
       ...base,
       session: session({ status: "ready", activeTurnId: null }),
       maxActivityCreatedAtMs: now - 11 * 60_000,
+      heartbeatMs: now - 11 * 60_000,
     });
     expect(verdict).toBeNull();
+  });
+
+  it("tags the stalled verdict with the effective-activity episode key", () => {
+    const frozenAt = now - 11 * 60_000;
+    const verdict = classifyLiveness({
+      ...base,
+      maxActivityCreatedAtMs: frozenAt,
+      heartbeatMs: frozenAt,
+    });
+    expect(verdict?.kind).toBe("stalled");
+    expect(verdict?.effectiveActivityMs).toBe(frozenAt);
+  });
+});
+
+describe("decideStallAction (escalation ladder)", () => {
+  it("nudges on the first sweep of a stall episode (open turn)", () => {
+    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: true })).toBe(
+      "nudge",
+    );
+  });
+
+  it("escalates when the same episode is still frozen after the nudge", () => {
+    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 100, hasOpenTurn: true })).toBe(
+      "escalate",
+    );
+  });
+
+  it("re-arms to nudge when the heartbeat advanced (new episode)", () => {
+    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 250, hasOpenTurn: true })).toBe(
+      "nudge",
+    );
+  });
+
+  it("escalates instead of nudging when there is no open turn to steer into", () => {
+    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: false })).toBe(
+      "escalate",
+    );
+  });
+});
+
+describe("buildStallNudgeMessage", () => {
+  const verdict = {
+    kind: "stalled" as const,
+    reason: "Mid-turn stall: ...",
+    effectiveActivityMs: 1,
+  };
+
+  it("carries the control-plane marker and the extracted tool error", () => {
+    const text = buildStallNudgeMessage(verdict, {
+      source: "tool-error",
+      toolName: "edit",
+      detail: "Validation failed for tool edit",
+    });
+    expect(text).toContain("control plane");
+    expect(text).toContain("not from the user");
+    expect(text).toContain("`edit`");
+    expect(text).toContain("Validation failed for tool edit");
+  });
+
+  it("degrades to a generic account when no context was extracted", () => {
+    const text = buildStallNudgeMessage(verdict, null);
+    expect(text).toContain("control plane");
+    expect(text).toContain("no specific error");
   });
 });

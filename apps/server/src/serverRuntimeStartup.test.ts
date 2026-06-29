@@ -106,7 +106,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+            Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
         }),
         Effect.provideService(AnalyticsService, {
@@ -173,7 +173,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadDetailById: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
       }),
       Effect.provideService(OrchestrationEngineService, {
@@ -220,7 +220,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadDetailById: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
       }),
       Effect.provideService(OrchestrationEngineService, {
@@ -273,7 +273,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadDetailById: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
       }),
       Effect.provideService(OrchestrationEngineService, {

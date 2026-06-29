@@ -41,7 +41,8 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
     getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
-    getActivityFreshnessByThreadId: () => Effect.succeed({ maxCreatedAt: null, maxSequence: null }),
+    getActivityFreshnessByThreadId: () =>
+      Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
     getRecentToolActivityByThreadId: () => Effect.succeed([]),
   });
 

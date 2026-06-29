@@ -2,6 +2,7 @@ import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  IsoDateTime,
   MessageId,
   type OrchestrationEvent,
   type OrchestrationMessage,
@@ -30,6 +31,8 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
+import { ProjectionThreadHeartbeatRepository } from "../../persistence/Services/ProjectionThreadHeartbeats.ts";
+import { ProjectionThreadHeartbeatRepositoryLive } from "../../persistence/Layers/ProjectionThreadHeartbeats.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ReasoningStreamBus } from "../Services/ReasoningStreamBus.ts";
@@ -634,7 +637,32 @@ const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
+  const heartbeatRepository = yield* ProjectionThreadHeartbeatRepository;
   const serverSettingsService = yield* ServerSettingsService;
+
+  // Liveness heartbeat: advance a per-thread "last runtime activity at" on ANY
+  // runtime event (token/reasoning deltas, tool lifecycle, turn boundaries) so
+  // the stall rail sees a silently-reasoning child as alive. Debounced per
+  // thread so a token stream does not hammer the DB; the worker is serial so a
+  // plain Map is safe. Out-of-order older events are skipped by the same gate,
+  // keeping the persisted value monotonic.
+  const HEARTBEAT_DEBOUNCE_MS = 3_000;
+  const lastHeartbeatWriteMsByThread = new Map<string, number>();
+  const touchHeartbeat = (threadId: ThreadId, at: IsoDateTime) =>
+    Effect.gen(function* () {
+      const atMs = Date.parse(at);
+      if (Number.isNaN(atMs)) return;
+      if (atMs - (lastHeartbeatWriteMsByThread.get(threadId) ?? 0) < HEARTBEAT_DEBOUNCE_MS) return;
+      lastHeartbeatWriteMsByThread.set(threadId, atMs);
+      yield* heartbeatRepository.touch({ threadId, lastActivityAt: at }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider runtime ingestion failed to touch heartbeat", {
+            threadId,
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
+    });
   const reasoningStreamBus = yield* ReasoningStreamBus;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -1365,6 +1393,8 @@ const make = Effect.gen(function* () {
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 
+      yield* touchHeartbeat(thread.id, event.createdAt);
+
       let loadedThreadDetail: OrchestrationThread | null | undefined;
       const getLoadedThreadDetail = () =>
         Effect.gen(function* () {
@@ -1968,4 +1998,7 @@ const make = Effect.gen(function* () {
 export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make,
-).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+).pipe(
+  Layer.provide(ProjectionTurnRepositoryLive),
+  Layer.provide(ProjectionThreadHeartbeatRepositoryLive),
+);

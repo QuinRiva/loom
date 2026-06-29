@@ -175,6 +175,7 @@ const ProjectionThreadIdLookupRowSchema = Schema.Struct({
 const ActivityFreshnessRowSchema = Schema.Struct({
   maxCreatedAt: Schema.NullOr(IsoDateTime),
   maxSequence: Schema.NullOr(NonNegativeInt),
+  heartbeatAt: Schema.NullOr(IsoDateTime),
 });
 const RecentToolActivityInput = Schema.Struct({
   threadId: ThreadId,
@@ -1180,7 +1181,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           MAX(created_at) AS "maxCreatedAt",
-          MAX(sequence) AS "maxSequence"
+          MAX(sequence) AS "maxSequence",
+          (
+            SELECT last_activity_at
+            FROM projection_thread_heartbeats
+            WHERE thread_id = ${threadId}
+          ) AS "heartbeatAt"
         FROM projection_thread_activities
         WHERE thread_id = ${threadId}
       `,
@@ -1195,7 +1201,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             "ProjectionSnapshotQuery.getActivityFreshnessByThreadId:decodeRow",
           ),
         ),
-        Effect.map((row) => ({ maxCreatedAt: row.maxCreatedAt, maxSequence: row.maxSequence })),
+        Effect.map((row) => ({
+          maxCreatedAt: row.maxCreatedAt,
+          maxSequence: row.maxSequence,
+          heartbeatAt: row.heartbeatAt,
+        })),
       );
 
   const listRecentToolActivityRows = SqlSchema.findAll({
