@@ -113,6 +113,8 @@ describe("CheckpointDiffQueryLive", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
     );
@@ -210,6 +212,8 @@ describe("CheckpointDiffQueryLive", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
     );
@@ -297,6 +301,8 @@ describe("CheckpointDiffQueryLive", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
     );
@@ -369,6 +375,8 @@ describe("CheckpointDiffQueryLive", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
     );
@@ -426,6 +434,8 @@ describe("CheckpointDiffQueryLive", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
     );

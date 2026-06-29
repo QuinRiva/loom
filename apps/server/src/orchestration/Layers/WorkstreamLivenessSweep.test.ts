@@ -12,8 +12,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildStallNudgeMessage,
   classifyLiveness,
+  computeProgressFingerprint,
+  decideProgressLoop,
   decideStallAction,
   DEFAULT_LIVENESS_THRESHOLDS,
+  type ProgressLoopState,
 } from "./WorkstreamLivenessSweep.ts";
 
 const now = Date.parse("2026-06-24T00:00:00.000Z");
@@ -182,6 +185,110 @@ describe("decideStallAction (escalation ladder)", () => {
     expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: false })).toBe(
       "escalate",
     );
+  });
+});
+
+describe("computeProgressFingerprint (State D)", () => {
+  it("changes when the within-turn tool content changes (real progress)", () => {
+    const a = computeProgressFingerprint({ recentInputsSource: "editA", checkpointSource: "1|x" });
+    const b = computeProgressFingerprint({ recentInputsSource: "editB", checkpointSource: "1|x" });
+    expect(a).not.toBe(b);
+  });
+
+  it("is stable when the exact same content is re-emitted (spin)", () => {
+    const sig = { recentInputsSource: "same-call", checkpointSource: "1|x" };
+    expect(computeProgressFingerprint(sig)).toBe(computeProgressFingerprint(sig));
+  });
+
+  it("changes when only the checkpoint advances (cross-turn corroborator)", () => {
+    const a = computeProgressFingerprint({ recentInputsSource: "r", checkpointSource: "1|x" });
+    const b = computeProgressFingerprint({ recentInputsSource: "r", checkpointSource: "2|y" });
+    expect(a).not.toBe(b);
+  });
+
+  it("does not collide null-vs-empty across the two source fields", () => {
+    // Guards the delimiter: "a"+null must differ from null+"a".
+    const a = computeProgressFingerprint({ recentInputsSource: "a", checkpointSource: null });
+    const b = computeProgressFingerprint({ recentInputsSource: null, checkpointSource: "a" });
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("decideProgressLoop (State D)", () => {
+  const window = DEFAULT_LIVENESS_THRESHOLDS.noProgressWindowMs;
+  const armed = (over: Partial<ProgressLoopState> = {}): ProgressLoopState => ({
+    fingerprint: "fp1",
+    flatSinceMs: now - window - 1,
+    advised: false,
+    ...over,
+  });
+
+  it("first observation arms the clock and never advises", () => {
+    const r = decideProgressLoop({
+      prior: null,
+      fingerprint: "fp1",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(r.advise).toBe(false);
+    expect(r.next).toEqual({ fingerprint: "fp1", flatSinceMs: now, advised: false });
+  });
+
+  it("a growing/oscillating diff re-arms and NEVER advises (the false-positive shape)", () => {
+    const r = decideProgressLoop({
+      prior: armed(),
+      fingerprint: "fp2",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(r.advise).toBe(false);
+    expect(r.next).toEqual({ fingerprint: "fp2", flatSinceMs: now, advised: false });
+  });
+
+  it("flat but still within the window does not advise yet", () => {
+    const r = decideProgressLoop({
+      prior: { fingerprint: "fp1", flatSinceMs: now - window + 1000, advised: false },
+      fingerprint: "fp1",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(r.advise).toBe(false);
+  });
+
+  it("flat past the window advises exactly once per episode", () => {
+    const first = decideProgressLoop({
+      prior: armed(),
+      fingerprint: "fp1",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(first.advise).toBe(true);
+    expect(first.next.advised).toBe(true);
+    const second = decideProgressLoop({
+      prior: first.next,
+      fingerprint: "fp1",
+      now: now + 60_000,
+      noProgressWindowMs: window,
+    });
+    expect(second.advise).toBe(false);
+  });
+
+  it("re-arms after progress so a later flat episode can advise again", () => {
+    const advised = armed({ advised: true });
+    const rearmed = decideProgressLoop({
+      prior: advised,
+      fingerprint: "fp9",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(rearmed.next.advised).toBe(false);
+    const later = decideProgressLoop({
+      prior: { ...rearmed.next, flatSinceMs: now - window - 1 },
+      fingerprint: "fp9",
+      now,
+      noProgressWindowMs: window,
+    });
+    expect(later.advise).toBe(true);
   });
 });
 

@@ -64,6 +64,27 @@ export interface ProjectionToolActivitySignal {
   readonly detail: string | null;
 }
 
+/**
+ * Raw work-product progress source for State-D ("possibly spinning") detection.
+ * Both fields are opaque change-detection strings hashed into a per-thread
+ * fingerprint — never parsed:
+ * - `recentInputsSource`: a delimiter-joined concat of the latest tool calls'
+ *   ACTUAL content (`data.rawInput`, falling back to `data.details.diff`, then
+ *   the summary). This is the primary within-turn progress signal: distinct
+ *   edits carry distinct `rawInput`, so it changes as real work happens and
+ *   stays flat only when the same call is re-emitted (genuine spin). It is the
+ *   actual content, NOT the display projection — a display string re-collapses
+ *   distinct calls and is the exact bug State D must not reintroduce.
+ * - `checkpointSource`: the latest checkpoint's turn-count + files JSON. A
+ *   cross-turn corroborator (checkpoints only materialise at turn end, so this
+ *   is flat within a single sub-thread turn); OR-combined so EITHER advancing
+ *   re-arms. Both null when the thread has no tool rows / no checkpoints yet.
+ */
+export interface ProjectionThreadProgressSignal {
+  readonly recentInputsSource: string | null;
+  readonly checkpointSource: string | null;
+}
+
 export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
@@ -230,6 +251,17 @@ export interface ProjectionSnapshotQueryShape {
     threadId: ThreadId,
     limit: number,
   ) => Effect.Effect<ReadonlyArray<ProjectionToolActivitySignal>, ProjectionRepositoryError>;
+
+  /**
+   * Read the cheap work-product progress source for a thread (State-D liveness):
+   * the latest `limit` tool calls' raw content + the latest checkpoint, as
+   * opaque change-detection strings. Read-only persisted rows (no git diff
+   * recompute), called only for genuinely-busy sub-threads.
+   */
+  readonly getThreadProgressSignal: (
+    threadId: ThreadId,
+    limit: number,
+  ) => Effect.Effect<ProjectionThreadProgressSignal, ProjectionRepositoryError>;
 }
 
 /**

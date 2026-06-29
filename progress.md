@@ -95,3 +95,71 @@ ProviderRuntimeIngestion.test error.
   nudge-message + effectiveActivityMs). Pre-existing FAILS (NOT mine, confirmed by
   stashing my changes): `ProviderCommandReactor.test.ts` ×2 (title-match poll
   timeouts) and the noted `serverRuntimeStartup.test.ts:30` default-model drift.
+
+---
+
+# Liveness redesign Phase 2 — State D (possibly spinning)
+
+## Decisions / consults
+
+- **Fingerprint signal inversion (architecture author, `.plans/liveness-detector-redesign.md`, id 2d4d011f).
+  Confidence: HIGH.** §3d literally names the checkpoint diff as the primary
+  progress signal. Recorded evidence (thread `48d7345f`) proves checkpoints
+  materialise only at TURN END — that 4-min / 8-edit run produced exactly ONE
+  `projection_turns` checkpoint row, written at the final timestamp. Sub-threads
+  run a single kickoff turn, so the checkpoint diff is flat for the entire
+  working turn and cannot tell slow real work from spinning. Ruling: **invert** —
+  the within-turn tool-call CONTENT (`data.rawInput`, falling back to
+  `data.details.diff`) is primary; checkpoint source is OR-folded as a cross-turn
+  corroborator (either advancing re-arms). Hard guardrail from the author: digest
+  the ACTUAL content, never the display projection (the display string
+  re-collapses distinct calls — the exact retired-loop-detector bug).
+- **Attention reason for a system advisory (status-model author,
+  `.plans/workstream-state-model-design.md`, id 587eb0f7). Confidence: HIGH.**
+  State D raises attention **`needs_guidance`** (system-raised, non-terminal),
+  NOT `error`. The auth table's "raised by: agent" entry describes the agent tool,
+  not exclusivity — the design already has the system raise `needs_guidance`
+  (dispatcher idle backstop, Phase 3 stall escalation), and the decider only
+  gates `error` as server-only. `error` would over-escalate a heuristic to a
+  failure verdict, reintroducing the false-failure ambiguity the redesign removes.
+  (A dedicated `possibly_stalled` reason would be a new product decision — not
+  taken.)
+
+## Implementation (Phase 2 — State D)
+
+- **Kill switch:** `const ENABLE_STATE_D = true` at the top of
+  `WorkstreamLivenessSweep.ts`. It gates the `busy` predicate in the in-loop
+  branch, so flipping it to `false` short-circuits the entire State-D branch with
+  zero other edits; the branch, its `progressLoop` map, pure helpers, threshold
+  fields, and `adviseProgressLoop` closure are all labelled "State D" for one-pass
+  deletion.
+- **Fingerprint:** new `ProjectionSnapshotQuery.getThreadProgressSignal` pulls,
+  in ONE query over already-persisted rows (no git diff recompute), the latest
+  `progressInputSampleSize` (16) tool calls' raw content joined + the latest
+  checkpoint turn-count/files JSON. Pure `computeProgressFingerprint` cyrb53-hashes
+  the two opaque sources into a compact per-thread fingerprint. **Performance:**
+  read-only indexed rows, run only for genuinely-busy sub-threads (open turn past
+  grace) — never a per-sweep diff for every thread.
+- **Detection:** State D fires only when BOTH (a) the thread is busy — open turn
+  past `startupGraceMs`, heartbeat fresh (a frozen heartbeat is State C, returned
+  as a non-null verdict before this branch) — AND (b) the fingerprint stays flat
+  across `noProgressWindowMs` (10m default, tunable). Pure `decideProgressLoop`
+  re-arms (resets the flat clock, clears `advised`) on any fingerprint change, so
+  a growing/oscillating diff NEVER advises.
+- **Response:** `adviseProgressLoop` appends an `info` activity
+  (`workstream.liveness.progress-loop`, with busy-minutes + evidence) and raises
+  attention `needs_guidance`. Sets NO plan lane, never kills the thread; fires at
+  most once per episode (episode-keyed `server:` ids; the attention flag also
+  makes the next sweep skip the thread until it clears). Re-arms when work
+  resumes (attention clears → fingerprint advanced).
+- **Gates:** `vp run typecheck` PASS (15/15); `vp check` PASS (0 errors, 13
+  pre-existing web warnings). New unit tests PASS (sweep suite 23 incl. 9 State-D
+  cases; ProjectionSnapshotQuery 9). Recorded-evidence validation: simulated the
+  real sweep logic over thread `48d7345f` — State-D advisory NEVER fires (3
+  distinct fingerprints across 3 busy sweeps → real edits re-arm every sweep; and
+  the 3.8-min run never reaches the 10-min window regardless).
+- **Pre-existing FAILS (NOT mine — identical 6 failures with my changes stashed):**
+  `ProviderCommandReactor.test.ts` ×2 (title-match poll timeouts),
+  `serverRuntimeStartup.test.ts:30` (Codex default-model drift),
+  `ProviderRegistry.test.ts` ×3 (provider-name drift: `pi` vs codex/cursor/… —
+  the Pi-fork).

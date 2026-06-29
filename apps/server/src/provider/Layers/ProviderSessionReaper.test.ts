@@ -228,6 +228,8 @@ describe("ProviderSessionReaper", () => {
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
+          getThreadProgressSignal: () =>
+            Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),
