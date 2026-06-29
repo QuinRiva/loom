@@ -60,6 +60,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_user_input_count,
           has_actionable_proposed_plan,
           cumulative_cost_usd,
+          tool_uses,
+          used_tokens,
+          max_tokens,
           deleted_at
         )
         VALUES (
@@ -90,6 +93,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.pendingUserInputCount},
           ${row.hasActionableProposedPlan},
           ${row.cumulativeCostUsd},
+          ${row.toolUses},
+          ${row.usedTokens},
+          ${row.maxTokens},
           ${row.deletedAt}
         )
         ON CONFLICT (thread_id)
@@ -120,6 +126,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_user_input_count = excluded.pending_user_input_count,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
           cumulative_cost_usd = excluded.cumulative_cost_usd,
+          tool_uses = excluded.tool_uses,
+          used_tokens = excluded.used_tokens,
+          max_tokens = excluded.max_tokens,
           deleted_at = excluded.deleted_at
       `,
   });
@@ -157,6 +166,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
+          tool_uses AS "toolUses",
+          used_tokens AS "usedTokens",
+          max_tokens AS "maxTokens",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -196,6 +208,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           pending_user_input_count AS "pendingUserInputCount",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           cumulative_cost_usd AS "cumulativeCostUsd",
+          tool_uses AS "toolUses",
+          used_tokens AS "usedTokens",
+          max_tokens AS "maxTokens",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}

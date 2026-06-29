@@ -13,12 +13,15 @@ import { useShallow } from "zustand/react/shallow";
 
 import { readEnvironmentApi } from "../environmentApi";
 import { newCommandId, newThreadId } from "../lib/utils";
+import { formatCostUsd } from "../lib/contextWindow";
 import {
   ATTENTION_STYLES,
   type ChildIndex,
   COLUMN_LABELS,
   COLUMN_ORDER,
   COLUMN_SHORT_LABELS,
+  formatContextPercent,
+  formatModelLabel,
   formatRelativeAge,
   getActivity,
   getAttentionBadges,
@@ -416,6 +419,16 @@ function WorkstreamCard({
   const isRunning = hasRunningSignal(thread);
   const isBlocked = status.column === "blocked";
   const badges = getAttentionBadges(thread);
+  // Card face shows this thread's OWN spend only; the subtree roll-up lives in
+  // the (labelled) detail popover to avoid an unlabelled parent total reading as
+  // double-counting against its children's own-cost chips elsewhere on the board.
+  const ownCost = formatCostUsd(thread.cumulativeCostUsd);
+  const contextPercent = formatContextPercent(thread.usedTokens, thread.maxTokens);
+  const isContextHot =
+    thread.usedTokens !== null &&
+    thread.maxTokens !== null &&
+    thread.maxTokens > 0 &&
+    thread.usedTokens / thread.maxTokens > 0.9;
   const open = () => onOpenThread(thread);
   return (
     <div
@@ -465,9 +478,10 @@ function WorkstreamCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <span
-          className={`rounded-full border px-2 py-0.5 text-[11px] ${status.borderClass} ${status.bgClass} ${status.textClass}`}
+          className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] text-white/40"
+          title={`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}
         >
-          {status.label}
+          {formatModelLabel(thread.modelSelection)}
         </span>
         {badges.map(({ reason, label }) => {
           const style = ATTENTION_STYLES[reason];
@@ -480,9 +494,32 @@ function WorkstreamCard({
             </span>
           );
         })}
-        {thread.branch ? (
-          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] text-white/40">
-            {thread.branch}
+        {ownCost ? (
+          <span
+            className="rounded-md border border-emerald-400/20 bg-emerald-400/[0.06] px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-emerald-200/70"
+            title="This sub-thread's own spend"
+          >
+            {ownCost}
+          </span>
+        ) : null}
+        {thread.toolUses && thread.toolUses > 0 ? (
+          <span
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-white/40"
+            title="Tool calls this session"
+          >
+            {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
+          </span>
+        ) : null}
+        {contextPercent ? (
+          <span
+            className={`rounded-md border px-2 py-0.5 font-mono text-[10.5px] tabular-nums ${
+              isContextHot
+                ? "border-rose-500/30 bg-rose-500/[0.08] text-rose-200/80"
+                : "border-white/10 bg-white/[0.04] text-white/40"
+            }`}
+            title="Context window used"
+          >
+            {contextPercent}
           </span>
         ) : null}
       </div>
@@ -491,19 +528,19 @@ function WorkstreamCard({
         <label className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/35">
           Lane
           <select
-            className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[11px] text-white outline-none focus:border-violet-400/60"
+            className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-1 text-[11px] text-white outline-none [color-scheme:dark] focus:border-violet-400/60"
             value={thread.planLane}
             onChange={(event) => onSetLane(thread.id, event.target.value as ThreadPlanLane)}
           >
             {SETTABLE_LANES.map((lane) => (
-              <option key={lane} value={lane}>
+              <option key={lane} value={lane} className="bg-[#12171f] text-white">
                 {COLUMN_SHORT_LABELS[lane]}
               </option>
             ))}
             {thread.planLane === "in_progress" ? (
               // Control-plane-set (kickoff): shown so the select has a matching
               // value, but never user-assignable.
-              <option disabled value="in_progress">
+              <option disabled value="in_progress" className="bg-[#12171f] text-white/50">
                 {COLUMN_SHORT_LABELS.in_progress}
               </option>
             ) : null}
@@ -564,6 +601,9 @@ function DependencyEditor({
 }) {
   const options = siblings.filter((sibling) => sibling.id !== thread.id);
   const selected = new Set(thread.blockedBy);
+  const deps = thread.blockedBy
+    .map((id) => childById.get(id))
+    .filter((dep): dep is SidebarThreadSummary => dep !== undefined);
   const toggle = (depId: ThreadId) => {
     const next = new Set(selected);
     if (next.has(depId)) next.delete(depId);
@@ -572,11 +612,28 @@ function DependencyEditor({
   };
   return (
     <details className="mt-2 rounded-md border border-white/10 bg-black/20">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] text-white/55 marker:hidden">
-        <span>Waits on</span>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-[10px] tabular-nums text-white/40">
-          {thread.blockedBy.length}
-        </span>
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-[11px] text-white/55 marker:hidden">
+        <span className="shrink-0">Waits on</span>
+        {deps.length === 0 ? (
+          <span className="ml-auto rounded-full border border-white/10 bg-white/[0.04] px-1.5 text-[10px] tabular-nums text-white/40">
+            0
+          </span>
+        ) : (
+          <span className="flex flex-1 flex-wrap items-center justify-end gap-1">
+            {deps.map((dep) => {
+              const depStatus = getThreadStatus(dep, childById);
+              return (
+                <span
+                  key={dep.id}
+                  className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-white/60"
+                >
+                  <span className={`size-1.5 rounded-full ${depStatus.dotClass}`} />
+                  <span className="max-w-[8rem] truncate">{dep.title}</span>
+                </span>
+              );
+            })}
+          </span>
+        )}
       </summary>
       <div className="flex flex-col gap-1 border-t border-white/10 px-2.5 py-2">
         {options.length === 0 ? (

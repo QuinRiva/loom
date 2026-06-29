@@ -319,6 +319,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           archivedAt: null,
+          toolUses: null,
+          usedTokens: null,
+          maxTokens: null,
           deletedAt: null,
           messages: [
             {
@@ -456,6 +459,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
           lastActivityPreview: "hello from projection",
+          toolUses: null,
+          usedTokens: null,
+          maxTokens: null,
         },
       ]);
 
