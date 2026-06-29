@@ -760,7 +760,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.plan-lane.set": {
-      yield* requireThread({
+      const laneThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -780,7 +780,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
-      return {
+      const planLaneSetEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -794,6 +794,34 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      // Design §3 invariant: when the plan advances to a terminal lane
+      // (`done`/`cancelled`), every stored attention flag clears — a finished
+      // thread never sits with a stale ⚠. Symmetric with the turn-start clear
+      // (a resume clears attention too). Emit the omitted-reason clear ("clear
+      // ALL") only when there is something to clear, so no-op events aren't
+      // produced. Derived `awaiting_*` reasons are projected from open requests
+      // and unaffected.
+      const laneTerminal = command.planLane === "done" || command.planLane === "cancelled";
+      if (laneTerminal && laneThread.attention.length > 0) {
+        return [
+          planLaneSetEvent,
+          {
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: command.threadId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            causationEventId: planLaneSetEvent.eventId,
+            type: "thread.attention-cleared",
+            payload: {
+              threadId: command.threadId,
+              updatedAt: occurredAt,
+            },
+          },
+        ];
+      }
+      return planLaneSetEvent;
     }
 
     case "thread.attention.raise": {

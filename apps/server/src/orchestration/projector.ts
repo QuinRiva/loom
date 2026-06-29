@@ -624,6 +624,17 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             planLane: payload.planLane,
+            // Design §3 state invariant, enforced structurally: a terminal lane
+            // (`done`/`cancelled`) carries no stored attention. The decider emits
+            // an explicit `attention-cleared` on new terminal transitions, but
+            // this guard also backfills threads whose terminal transition predates
+            // that fix (replayed from history) and is robust to any event ordering
+            // (e.g. an `error` raised after `done`). Mirrors `remapLegacyStatus`
+            // (`done → attention: []`). Derived `awaiting_*` reasons are projected
+            // separately and unaffected.
+            ...(payload.planLane === "done" || payload.planLane === "cancelled"
+              ? { attention: [] }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),
