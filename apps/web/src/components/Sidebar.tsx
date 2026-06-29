@@ -1362,6 +1362,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     const projectIds = new Set(project.memberProjects.map((member) => member.id));
     return goals.filter((goal) => projectIds.has(goal.projectId));
   }, [goals, project.memberProjects]);
+  const knownGoalIds = useMemo(() => new Set(projectGoals.map((goal) => goal.id)), [projectGoals]);
 
   const memberProjectByScopedKey = useMemo(
     () =>
@@ -1391,8 +1392,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
   // ONE per-project ordering, shared verbatim with the parent's Ctrl+N jump map
   // (see buildSidebarProjectThreadOrdering): archived filter -> recency sort ->
-  // preview slice -> goal/loose interleave. `orderedEntries` is exactly what the
-  // list renders; the jump map flattens the same entries, so the two cannot drift.
+  // goal/loose interleave -> entry-level preview slice by jump-target count.
+  // `orderedEntries` is exactly what the list renders; the jump map flattens the
+  // same entries, so the two cannot drift.
   const { sortedThreads, previewThreads, hasOverflowingThreads, orderedEntries } = useMemo(
     () =>
       buildSidebarProjectThreadOrdering({
@@ -1401,6 +1403,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         sortOrder: threadSortOrder,
         previewCount: sidebarThreadPreviewCount,
         isThreadListExpanded,
+        collapsedGoalIds,
+        knownGoalIds,
       }),
     [
       projectThreads,
@@ -1408,6 +1412,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       threadSortOrder,
       sidebarThreadPreviewCount,
       isThreadListExpanded,
+      collapsedGoalIds,
+      knownGoalIds,
     ],
   );
 
@@ -3515,16 +3521,19 @@ export default function Sidebar() {
         // rows, so Ctrl+N runs strictly top-to-bottom down the visible rows.
         const projectIds = new Set(project.memberProjects.map((member) => member.id));
         const projectGoals = goals.filter((goal) => projectIds.has(goal.projectId));
+        const knownGoalIds = new Set(projectGoals.map((goal) => goal.id));
         const { orderedEntries } = buildSidebarProjectThreadOrdering({
           threads: threadsByProjectKey.get(project.projectKey) ?? [],
           goals: projectGoals,
           sortOrder: sidebarThreadSortOrder,
           previewCount: sidebarThreadPreviewCount,
           isThreadListExpanded: expandedThreadListsByProject.has(project.projectKey),
+          collapsedGoalIds,
+          knownGoalIds,
         });
         return flattenSidebarOrderedThreads(orderedEntries, {
           collapsedGoalIds,
-          knownGoalIds: new Set(projectGoals.map((goal) => goal.id)),
+          knownGoalIds,
         }).map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
       }),
     [
