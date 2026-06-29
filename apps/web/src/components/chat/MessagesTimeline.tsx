@@ -476,14 +476,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       parentThreadLink === null ? (
         TIMELINE_LIST_HEADER
       ) : (
-        <div className="mx-auto w-full min-w-0 max-w-3xl pt-1 sm:pt-2">
-          <TimelineSystemDivider
-            label="Subagent of"
-            detail={parentThreadLink.title}
-            icon={BotIcon}
-            actionLabel="Open parent thread"
-            onAction={() => onOpenThread(parentThreadLink.threadId)}
-          />
+        <div className="messages-timeline-row-frame">
+          <div className="chat-content-lane pt-1 sm:pt-2">
+            <TimelineSystemDivider
+              label="Subagent of"
+              detail={parentThreadLink.title}
+              icon={BotIcon}
+              actionLabel="Open parent thread"
+              onAction={() => onOpenThread(parentThreadLink.threadId)}
+            />
+          </div>
         </div>
       ),
     [onOpenThread, parentThreadLink],
@@ -493,8 +495,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
-        <TimelineRowContent row={item} />
+      <div className="messages-timeline-row-frame">
+        <div className="chat-content-lane overflow-x-clip" data-timeline-root="true">
+          <TimelineRowContent row={item} />
+        </div>
       </div>
     ),
     [],
@@ -538,7 +542,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             }
             maintainVisibleContentPosition={maintainVisibleContentPosition}
             onScroll={handleScroll}
-            className="messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5"
+            className="messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]"
             ListHeaderComponent={listHeader}
             ListFooterComponent={TIMELINE_LIST_FOOTER}
           />

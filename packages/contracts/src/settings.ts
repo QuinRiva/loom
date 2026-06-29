@@ -255,16 +255,17 @@ export const CursorSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("agent").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the Cursor agent binary.",
-        providerSettingsForm: { placeholder: "agent", clearWhenEmpty: "omit" },
+        description: "Legacy Cursor Agent CLI path.",
+        providerSettingsForm: { hidden: true, placeholder: "agent", clearWhenEmpty: "omit" },
       }),
     ),
     apiEndpoint: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "API endpoint",
-        description: "Override the Cursor API endpoint for this instance.",
+        description: "Legacy Cursor Agent CLI API endpoint override.",
         providerSettingsForm: {
+          hidden: true,
           placeholder: "https://...",
           clearWhenEmpty: "omit",
         },
@@ -276,7 +277,7 @@ export const CursorSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["binaryPath", "apiEndpoint"],
+    order: [],
   },
 );
 export type CursorSettings = typeof CursorSettings.Type;
