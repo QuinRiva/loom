@@ -592,8 +592,20 @@ export function buildSidebarGoalOrderedEntries<
 
 // THE single per-project ordering pipeline. Both the rendered thread list and
 // the Ctrl+N jump-number map run this exact transform — archived filter ->
-// recency sort -> preview slice -> goal/loose interleave — so the visible rows
-// and the jump sequence cannot drift: any change here moves both at once.
+// recency sort -> goal/loose interleave -> entry-level preview slice — so the
+// visible rows and the jump sequence cannot drift: any change here moves both.
+//
+// The preview budget (`previewCount`) counts JUMP TARGETS, not raw threads:
+// goals are containers (like projects) you cannot jump to, so the slice walks
+// whole interleaved entries and tallies how many jumpable rows each exposes —
+// 1 for a loose thread or a compact single-thread goal, N for an expanded goal,
+// 0 for a collapsed one (its threads hide under the chevron, so collapsing a
+// goal frees budget). Entries are atomic: a goal and all its threads cross the
+// fold together, so a single-thread goal can never strand its header above the
+// fold while its session drops into "Show more". The tally is the SAME flatten
+// the jump map consumes, so "budget reached" means "this many jump targets
+// shown". Zero-cost entries (collapsed/empty goals) ride along even once the
+// budget is met, until the next jumpable entry closes the fold.
 export function buildSidebarProjectThreadOrdering<
   TThread extends SidebarThreadOrderInput & { archivedAt: string | null },
   TGoal extends SidebarGoalSortInput,
@@ -603,6 +615,8 @@ export function buildSidebarProjectThreadOrdering<
   sortOrder: SidebarThreadSortOrder;
   previewCount: number;
   isThreadListExpanded: boolean;
+  collapsedGoalIds: ReadonlySet<string>;
+  knownGoalIds: ReadonlySet<string>;
 }): {
   sortedThreads: TThread[];
   previewThreads: TThread[];
@@ -613,20 +627,30 @@ export function buildSidebarProjectThreadOrdering<
     input.threads.filter((thread) => thread.archivedAt === null),
     input.sortOrder,
   );
-  const hasOverflowingThreads = sortedThreads.length > input.previewCount;
-  const previewThreads =
-    input.isThreadListExpanded || !hasOverflowingThreads
-      ? sortedThreads
-      : sortedThreads.slice(0, input.previewCount);
+  const allEntries = buildSidebarGoalOrderedEntries({
+    threads: sortedThreads,
+    goals: input.goals,
+    sortOrder: input.sortOrder,
+  });
+  const collapse = { collapsedGoalIds: input.collapsedGoalIds, knownGoalIds: input.knownGoalIds };
+
+  const previewEntries: SidebarOrderedEntry<TThread>[] = [];
+  let exposed = 0;
+  for (const entry of allEntries) {
+    const jumpTargets = flattenSidebarOrderedThreads([entry], collapse).length;
+    if (exposed >= input.previewCount && jumpTargets > 0) break;
+    previewEntries.push(entry);
+    exposed += jumpTargets;
+  }
+
+  const orderedEntries = input.isThreadListExpanded ? allEntries : previewEntries;
   return {
     sortedThreads,
-    previewThreads,
-    hasOverflowingThreads,
-    orderedEntries: buildSidebarGoalOrderedEntries({
-      threads: previewThreads,
-      goals: input.goals,
-      sortOrder: input.sortOrder,
-    }),
+    previewThreads: orderedEntries.flatMap((entry) =>
+      entry.kind === "thread" ? [entry.thread] : entry.threads,
+    ),
+    hasOverflowingThreads: previewEntries.length < allEntries.length,
+    orderedEntries,
   };
 }
 

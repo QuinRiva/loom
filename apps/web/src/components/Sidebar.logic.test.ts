@@ -1118,6 +1118,8 @@ describe("buildSidebarProjectThreadOrdering", () => {
       sortOrder: "created_at",
       previewCount: 2,
       isThreadListExpanded: false,
+      collapsedGoalIds: new Set(),
+      knownGoalIds: new Set(),
     });
 
     // Archived "gone" excluded; recency order t1>t2>t3; preview keeps the top 2.
@@ -1139,6 +1141,8 @@ describe("buildSidebarProjectThreadOrdering", () => {
       sortOrder: "created_at",
       previewCount: 2,
       isThreadListExpanded: true,
+      collapsedGoalIds: new Set(),
+      knownGoalIds: new Set(["g"]),
     });
 
     expect(result.previewThreads.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
@@ -1147,5 +1151,122 @@ describe("buildSidebarProjectThreadOrdering", () => {
       "t2",
       "t3",
     ]);
+  });
+
+  it("keeps a single-thread goal whole with its thread instead of stranding the header above the fold", () => {
+    // g1 is the freshest entry (its only thread at 07), then loose t1..t3.
+    // previewCount 2 means only g1's compact row + t1 fit; the rest go below.
+    const threads = [
+      thread("g1t", at("07"), "g1"),
+      thread("t1", at("06")),
+      thread("t2", at("05")),
+      thread("t3", at("04")),
+    ];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [goal("g1", at("07"))],
+      sortOrder: "created_at",
+      previewCount: 2,
+      isThreadListExpanded: false,
+      collapsedGoalIds: new Set(),
+      knownGoalIds: new Set(["g1"]),
+    });
+
+    // The compact single-thread goal exposes its thread as 1 jump target; the
+    // budget then admits t1. No empty-goal stub is emitted.
+    expect(
+      result.orderedEntries.map((e) => (e.kind === "goal" ? `goal:${e.goalId}` : e.thread.id)),
+    ).toEqual(["goal:g1", "t1"]);
+    expect(result.orderedEntries.every((e) => e.kind === "thread" || e.threads.length === 1)).toBe(
+      true,
+    );
+    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
+      "g1t",
+      "t1",
+    ]);
+    expect(result.hasOverflowingThreads).toBe(true);
+  });
+
+  it("keeps a multi-thread goal atomic across the fold (counting its threads as jump targets)", () => {
+    // Goal g with 3 threads is the freshest entry; with previewCount 2 the whole
+    // goal still crosses the fold together (atomic), overshooting the budget.
+    const threads = [
+      thread("ga", at("09"), "g"),
+      thread("gb", at("08"), "g"),
+      thread("gc", at("07"), "g"),
+      thread("t1", at("06")),
+    ];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [goal("g", at("09"))],
+      sortOrder: "created_at",
+      previewCount: 2,
+      isThreadListExpanded: false,
+      collapsedGoalIds: new Set(),
+      knownGoalIds: new Set(["g"]),
+    });
+
+    // The expanded goal exposes 3 jump targets, reaching the budget in one entry;
+    // t1 is pushed below the fold.
+    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
+      "ga",
+      "gb",
+      "gc",
+    ]);
+    expect(result.hasOverflowingThreads).toBe(true);
+  });
+
+  it("keeps an orphan goal (referenced by a thread but absent from goals) whole with its thread", () => {
+    // gx is referenced by a thread but not in `goals`/knownGoalIds, so it is not
+    // compact: it renders as a collapsible (default-expanded) header. It must
+    // still travel atomically with its thread rather than strand the header.
+    const threads = [thread("gxt", at("07"), "gx"), thread("t1", at("06")), thread("t2", at("05"))];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [],
+      sortOrder: "created_at",
+      previewCount: 1,
+      isThreadListExpanded: false,
+      collapsedGoalIds: new Set(),
+      knownGoalIds: new Set(),
+    });
+
+    // The expanded orphan goal exposes its 1 thread, reaching the budget; t1/t2
+    // drop below the fold. The header is never emitted without its thread.
+    expect(
+      result.orderedEntries.map((e) => (e.kind === "goal" ? `goal:${e.goalId}` : e.thread.id)),
+    ).toEqual(["goal:gx"]);
+    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual(["gxt"]);
+    expect(result.hasOverflowingThreads).toBe(true);
+  });
+
+  it("a collapsed goal costs no budget, so collapsing it surfaces more rows", () => {
+    // Goal g (collapsed) is freshest; its 3 threads hide under the chevron and
+    // cost 0, so the budget is spent entirely on the loose threads below it.
+    const threads = [
+      thread("ga", at("09"), "g"),
+      thread("gb", at("08"), "g"),
+      thread("gc", at("07"), "g"),
+      thread("t1", at("06")),
+      thread("t2", at("05")),
+      thread("t3", at("04")),
+    ];
+    const result = buildSidebarProjectThreadOrdering({
+      threads,
+      goals: [goal("g", at("09"))],
+      sortOrder: "created_at",
+      previewCount: 2,
+      isThreadListExpanded: false,
+      collapsedGoalIds: new Set(["g"]),
+      knownGoalIds: new Set(["g"]),
+    });
+
+    const collapse = { collapsedGoalIds: new Set(["g"]), knownGoalIds: new Set(["g"]) };
+    // Collapsed goal header rides along for free; t1 and t2 fill the budget.
+    expect(flattenSidebarOrderedThreads(result.orderedEntries, collapse).map((t) => t.id)).toEqual([
+      "t1",
+      "t2",
+    ]);
+    expect(result.orderedEntries[0]?.kind === "goal" && result.orderedEntries[0].goalId).toBe("g");
   });
 });
