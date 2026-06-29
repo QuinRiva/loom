@@ -12,7 +12,8 @@ import type {
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
-  ThreadStatus,
+  ThreadPlanLane,
+  ThreadAttention,
   ProjectId,
   TurnId,
   MessageId,
@@ -120,7 +121,8 @@ export interface Thread {
   parentThreadId: ThreadId | null;
   role: string | null;
   purpose: string | null;
-  status: ThreadStatus;
+  planLane: ThreadPlanLane;
+  attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   modelSelection: ModelSelection;
@@ -150,7 +152,8 @@ export interface ThreadShell {
   parentThreadId: ThreadId | null;
   role: string | null;
   purpose: string | null;
-  status: ThreadStatus;
+  planLane: ThreadPlanLane;
+  attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   modelSelection: ModelSelection;
@@ -181,7 +184,8 @@ export interface SidebarThreadSummary {
   parentThreadId: ThreadId | null;
   role: string | null;
   purpose: string | null;
-  status: ThreadStatus;
+  planLane: ThreadPlanLane;
+  attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
   title: string;
   interactionMode: ProviderInteractionMode;

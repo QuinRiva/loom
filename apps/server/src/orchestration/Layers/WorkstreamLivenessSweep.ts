@@ -6,7 +6,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
-import { isTerminalStatus } from "@t3tools/shared/workstreamGraph";
+
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -201,13 +201,13 @@ const makeWorkstreamLivenessSweep = (
       // the decider's server-only `error` guard, and keying by thread id makes
       // the write idempotent across restarts (a thread already `error` is
       // skipped next sweep anyway). The reason rides a `thread.activity.append`
-      // (tone error) so the status payload stays lean — mirrors the dispatcher
+      // (tone error) so the attention raise stays lean — mirrors the dispatcher
       // park marker.
       yield* orchestrationEngine.dispatch({
-        type: "thread.status.set",
+        type: "thread.attention.raise",
         commandId: CommandId.make(`server:workstream-liveness:error:${thread.id}`),
         threadId: thread.id,
-        status: "error",
+        reason: "error",
         createdAt: now,
       } satisfies OrchestrationCommand);
       yield* orchestrationEngine.dispatch({
@@ -236,9 +236,15 @@ const makeWorkstreamLivenessSweep = (
       let erroredCount = 0;
 
       for (const thread of snapshot.threads) {
-        // Only sub-threads; never re-judge an already-terminal thread (terminal
-        // includes `error`, so a marked thread is left alone).
-        if (thread.parentThreadId === null || isTerminalStatus(thread.status)) {
+        // Only sub-threads; never re-judge a plan-terminal thread, nor one that
+        // already carries an attention flag (already error-marked / paused on a
+        // human — left alone, mirroring the old terminal-status skip).
+        if (
+          thread.parentThreadId === null ||
+          thread.planLane === "done" ||
+          thread.planLane === "cancelled" ||
+          thread.attention.length > 0
+        ) {
           failureCounts.delete(thread.id);
           continue;
         }

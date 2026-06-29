@@ -37,7 +37,8 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       "Keep purpose to 1-3 sentences and free of step-by-step mechanics; the detailed how goes in brief, not purpose.",
       "For anything beyond a trivial task, pass a full self-contained brief: it becomes the child's first-turn prompt verbatim, and the child starts fresh without inheriting this transcript. Omit brief only when the short purpose is already a sufficient prompt.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
-      "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model."
+      "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
+      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run."
     ],
     parameters: {
       type: "object",
@@ -47,6 +48,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
         title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
+        staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a DAG for review before any tokens are spent; release it later with workstream_release." },
         modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
         modelSelection: {
           type: "object",
@@ -89,29 +91,115 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   });
 
   pi.registerTool({
-    name: "workstream_set_status",
-    label: "Set Workstream Status",
-    description: "Set the workflow status of a T3 Code Workstream thread you own (this thread or a thread you directly spawned).",
-    promptSnippet: "workstream_set_status: move a Workstream thread between planned, running, blocked, review, and done.",
+    name: "workstream_set_lane",
+    label: "Set Workstream Plan Lane",
+    description: "Advance the PLAN of a T3 Code Workstream thread you own (this thread or one you directly spawned) along its lifecycle: planned (held) → ready (released) → done, or cancelled. 'done' is the only lane that releases dependents and lets the next thread start; 'cancelled' abandons the work and does NOT release dependents. 'in_progress' is set automatically when a turn starts and is never settable here. This is the PLAN axis only — to flag that a human is needed, use workstream_request_attention instead.",
+    promptSnippet: "workstream_set_lane: advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'in_progress' is automatic.",
     promptGuidelines: [
-      "Use workstream_set_status to reflect real progress on your own thread or a child you spawned.",
-      "Omit threadId to report your own status; you may only set status on your own thread or threads you directly parent."
+      "Set 'done' when the work is genuinely complete — it releases any dependents/reviewers. Set 'cancelled' to abandon work (dependents stay blocked).",
+      "Use 'ready'/'planned' to release or hold staged work. Omit threadId to advance your own plan; you may only set the lane on your own thread or threads you directly parent.",
+      "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane — raise attention with workstream_request_attention."
     ],
     parameters: {
       type: "object",
       properties: {
         threadId: { type: "string", description: "Id of the thread to update; defaults to the calling thread when omitted." },
-        status: { type: "string", enum: ["planned", "running", "blocked", "review", "done"], description: "New workflow status." }
+        planLane: { type: "string", enum: ["planned", "ready", "done", "cancelled"], description: "New plan lane. 'done' releases dependents; 'cancelled' abandons (does not release). 'in_progress' is control-plane-only and not settable." }
       },
-      required: ["status"],
+      required: ["planLane"],
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_STATUS_URL, params, signal);
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LANE_URL, params, signal);
       if (!outcome.ok) return outcome.error;
       const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
       return {
-        content: [{ type: "text", text: "Set Workstream thread " + threadId + " status to " + params.status + "." }],
+        content: [{ type: "text", text: "Set Workstream thread " + threadId + " plan lane to " + params.planLane + "." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_request_attention",
+    label: "Request Workstream Attention",
+    description: "Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. Two reasons: 'awaiting_acceptance' means a human (or the parent acting for the human) must accept this thread's output before its plan may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just goes 'done', which releases that reviewer). 'needs_guidance' means you cannot proceed without a human. The flag clears automatically when the thread resumes or reaches done/cancelled.",
+    promptSnippet: "workstream_request_attention: flag that a human is needed — 'awaiting_acceptance' (your output needs sign-off before done) or 'needs_guidance' (you're stuck).",
+    promptGuidelines: [
+      "Raise 'awaiting_acceptance' only when a HUMAN must accept your output before completion — not merely because a reviewer thread exists (that case is just 'done', which releases the reviewer).",
+      "Raise 'needs_guidance' when you genuinely cannot proceed without a human. Don't sit silently halted — either advance the plan, or raise attention.",
+      "Omit threadId to flag your own thread; you may only raise attention on your own thread or threads you directly parent."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Id of the thread to flag; defaults to the calling thread when omitted." },
+        reason: { type: "string", enum: ["awaiting_acceptance", "needs_guidance"], description: "Why a human is needed: 'awaiting_acceptance' (output needs human sign-off before done) or 'needs_guidance' (cannot proceed without a human)." }
+      },
+      required: ["reason"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_ATTENTION_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
+      return {
+        content: [{ type: "text", text: "Flagged Workstream thread " + threadId + " for attention: " + params.reason + "." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_release",
+    label: "Release Workstream Subtree",
+    description: "Release a held (staged) Workstream subtree: flip every 'planned' node in the target thread's subtree to 'ready' so it runs once its dependencies clear. Use this after laying out a DAG with staged spawns and reviewing the work breakdown. The result names exactly which nodes were flipped so an intentional mixed-hold is not silently erased. Default target is your own subtree.",
+    promptSnippet: "workstream_release: flip a held (planned) subtree to ready so it starts running; reports which nodes were released.",
+    promptGuidelines: [
+      "Use workstream_release once you've reviewed a staged DAG and want it to run. Only 'planned' nodes in the subtree are flipped; already-released/running nodes are untouched.",
+      "Omit threadId to release your own subtree; you may only release your own thread or a thread you directly parent."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Root of the subtree to release; defaults to the calling thread when omitted." }
+      },
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_RELEASE_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const released = Array.isArray(outcome.result?.released) ? outcome.result.released : [];
+      const text = released.length > 0
+        ? "Released " + released.length + " held sub-thread(s): " + released.join(", ") + "."
+        : "No held (planned) sub-threads to release in that subtree.";
+      return { content: [{ type: "text", text }], details: { ok: true, ...outcome.result } };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_stop",
+    label: "Stop Workstream Child",
+    description: "Stop a direct child Workstream thread you spawned: interrupt its active turn and pause it, leaving its plan lane 'in_progress'. This is an ORCHESTRATOR pause — you own restarting it (send it a prompt to resume). No attention flag is raised, because you are the resumer; if you forget to resume, the idle backstop surfaces it for a human after a grace window.",
+    promptSnippet: "workstream_stop: interrupt a direct child's active turn (orchestrator pause; you own the resume).",
+    promptGuidelines: [
+      "Use workstream_stop to pause a child you intend to redirect or resume yourself. To resume, just send it a prompt (the next turn continues).",
+      "This is for direct children only. A human stop from the board raises needs_guidance instead, because no agent owns the resume."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Id of the direct child thread to stop." }
+      },
+      required: ["threadId"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_STOP_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const threadId = outcome.result?.threadId ?? params.threadId;
+      return {
+        content: [{ type: "text", text: "Stopped Workstream child " + threadId + " (paused, lane stays in_progress — resume by sending it a prompt)." }],
         details: { ok: true, ...outcome.result }
       };
     }
@@ -124,7 +212,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     promptSnippet: "workstream_report: hand a concise markdown result back to your parent orchestrator before you finish.",
     promptGuidelines: [
       "Write a self-contained markdown summary: what you did, key results/decisions, and anything the parent must act on.",
-      "Call workstream_report before workstream_set_status so the parent sees your report when it is woken.",
+      "Call workstream_report before you advance your plan lane (workstream_set_lane) or raise attention so the parent sees your report when it is woken.",
       "Keep it a deliberate handoff, not a transcript dump."
     ],
     parameters: {
@@ -179,7 +267,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_list",
     label: "List Workstream",
-    description: "List your workstream: the whole graph of threads in your orchestration tree (every thread's id, role, title, status, spawn generation, parent, whether it has filed a report) plus lineage and waits-on edges. This is how you discover the ids of sibling/other threads you were not handed directly, so you can then read_thread or ask_thread them.",
+    description: "List your workstream: the whole graph of threads in your orchestration tree (every thread's id, role, title, plan lane, attention flags, spawn generation, parent, whether it has filed a report) plus lineage and waits-on edges. This is how you discover the ids of sibling/other threads you were not handed directly, so you can then read_thread or ask_thread them.",
     promptSnippet: "workstream_list: see your whole workstream graph (thread ids, roles, statuses, edges) to discover threads you can read or ask.",
     promptGuidelines: [
       "Call workstream_list first when you need to coordinate with another thread but only know it exists, not its id.",
@@ -200,7 +288,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_read_thread",
     label: "Read Workstream Thread",
-    description: "Read another thread in your workstream: its filed report (markdown), role/title/status, whether it has a report, and a compact recent-activity summary (last assistant message + recent activity rows). No model call — this is a passive pull. Works on siblings and on finished/archived threads (archived targets return report + metadata without the activity summary). Use workstream_list first to find the threadId.",
+    description: "Read another thread in your workstream: its filed report (markdown), role/title/plan lane + attention flags, whether it has a report, and a compact recent-activity summary (last assistant message + recent activity rows). No model call — this is a passive pull. Works on siblings and on finished/archived threads (archived targets return report + metadata without the activity summary). Use workstream_list first to find the threadId.",
     promptSnippet: "workstream_read_thread: pull another workstream thread's report + metadata (no model call).",
     promptGuidelines: [
       "Use read_thread to get a thread's filed report and recent state without re-running it.",
@@ -220,7 +308,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       const result = outcome.result ?? {};
       const parts = [];
       if (result.report) parts.push(result.report);
-      else parts.push("(" + (result.role ?? "thread") + " " + (result.threadId ?? params.threadId) + " — " + (result.status ?? "unknown") + "; no report filed)");
+      else parts.push("(" + (result.role ?? "thread") + " " + (result.threadId ?? params.threadId) + " — " + (result.planLane ?? "unknown") + "; no report filed)");
       return {
         content: [{ type: "text", text: parts.join("\n\n") }],
         details: { ok: true, ...result }
@@ -284,7 +372,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       if (result.resolved === false) {
         const candidates = Array.isArray(result.candidates) ? result.candidates : [];
         const lines = candidates.map((candidate) =>
-          "- " + (candidate.title ?? "(untitled)") + " — " + (candidate.role ?? "thread") + ", " + (candidate.status ?? "unknown") +
+          "- " + (candidate.title ?? "(untitled)") + " — " + (candidate.role ?? "thread") + ", " + (candidate.planLane ?? "unknown") +
           (candidate.worktreePath ? " [" + candidate.worktreePath + "]" : "") + " (threadId: " + candidate.threadId + ")"
         );
         const text = candidates.length > 0

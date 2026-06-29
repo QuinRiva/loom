@@ -54,6 +54,7 @@ import Migration0038 from "./Migrations/038_ProjectionThreadStatusAndDependencie
 import Migration0039 from "./Migrations/039_ProjectionThreadBrief.ts";
 import Migration0040 from "./Migrations/040_ProjectionThreadNotifyFields.ts";
 import Migration0041 from "./Migrations/041_ProjectionThreadCumulativeCost.ts";
+import Migration0042 from "./Migrations/042_ProjectionThreadPlanLaneAndAttention.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -107,6 +108,7 @@ export const migrationEntries = [
   [39, "ProjectionThreadBrief", Migration0039],
   [40, "ProjectionThreadNotifyFields", Migration0040],
   [41, "ProjectionThreadCumulativeCost", Migration0041],
+  [42, "ProjectionThreadPlanLaneAndAttention", Migration0042],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

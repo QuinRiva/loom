@@ -533,6 +533,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.blockedBy !== undefined
             ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
             : {}),
+          ...(command.planLane !== undefined ? { planLane: command.planLane } : {}),
           ...(command.spawnGeneration !== undefined
             ? { spawnGeneration: command.spawnGeneration }
             : {}),
@@ -758,23 +759,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.status.set": {
+    case "thread.plan-lane.set": {
       yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      // D-liveness server-only `error` guard (load-bearing chokepoint). The
-      // decider is the only path every status write passes through. `error` is
-      // a failure state the liveness sweep sets; clients/MCP must not forge it.
-      // Server writers build a `server:`-prefixed commandId (the web/WS board
-      // dispatches a bare UUID and cannot forge that prefix), so reject `error`
-      // unless the command carries it. (The MCP boundary also filters `error`
-      // out of its settable set as defence-in-depth.)
-      if (command.status === "error" && !command.commandId.startsWith("server:")) {
+      // Authorisation chokepoint (design §8). The decider is the only path every
+      // plan-lane write passes through. `in_progress` is control-plane-only: it
+      // is set by *starting a turn* (the atomic kickoff below), never assigned
+      // directly. Server writers build a `server:`-prefixed commandId (the
+      // web/WS board dispatches a bare UUID and cannot forge that prefix), so
+      // reject `in_progress` unless the command carries it. `planned`, `ready`,
+      // `done`, and `cancelled` are accepted from client/agent.
+      if (command.planLane === "in_progress" && !command.commandId.startsWith("server:")) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Status 'error' is server-only and cannot be set by clients.",
+          detail:
+            "Plan lane 'in_progress' is control-plane-only — it is set by starting a turn, not assigned directly.",
         });
       }
       const occurredAt = yield* nowIso;
@@ -785,10 +787,74 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         })),
-        type: "thread.status-set",
+        type: "thread.plan-lane-set",
         payload: {
           threadId: command.threadId,
-          status: command.status,
+          planLane: command.planLane,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.attention.raise": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // Attention authorisation (design §8). `error` is server-only (the liveness
+      // sweep sets it via a `server:`-prefixed command). The two `awaiting_*`
+      // request reasons are *derived* from open approval/input requests and are
+      // never stored, so they may never be raised by command. Only
+      // `awaiting_acceptance` and `needs_guidance` are agent-raisable.
+      if (command.reason === "error" && !command.commandId.startsWith("server:")) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Attention 'error' is server-only and cannot be raised by clients.",
+        });
+      }
+      if (command.reason === "awaiting_approval" || command.reason === "awaiting_input") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Attention 'awaiting_approval'/'awaiting_input' are derived from open requests and cannot be raised directly.",
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.attention-raised",
+        payload: {
+          threadId: command.threadId,
+          reason: command.reason,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.attention.clear": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.attention-cleared",
+        payload: {
+          threadId: command.threadId,
+          ...(command.reason !== undefined ? { reason: command.reason } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -912,39 +978,67 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
-      if (command.setRunning !== true) {
-        return [userMessageEvent, turnStartRequestedEvent];
+      // Sticky terminal (design §3.4/§6): a turn-start on a `done`/`cancelled`
+      // thread is a re-engagement — it changes neither the plan lane nor stored
+      // attention; runtime alone reflects the activity.
+      const targetTerminal =
+        targetThread.planLane === "done" || targetThread.planLane === "cancelled";
+      const trailingEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      // §7 unifying rule: a turn-start clears ALL stored attention (a running
+      // thread is, by definition, no longer halted-awaiting-a-human). Applies to
+      // every turn-start — a human/parent resume, an agent message, and the
+      // kickoff alike — so error/awaiting_acceptance/needs_guidance clear the
+      // moment work resumes. The two derived `awaiting_*` reasons are projected
+      // from open requests and unaffected.
+      if (!targetTerminal && targetThread.attention.length > 0) {
+        trailingEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: turnStartRequestedEvent.eventId,
+          type: "thread.attention-cleared",
+          payload: {
+            threadId: command.threadId,
+            updatedAt: command.createdAt,
+          },
+        });
       }
-      // Atomic kickoff (D-core child promotion): emit the `running` status-set in
-      // the SAME command as the turn-start so both land in one engine
-      // transaction. A crash can no longer leave the child with a started turn
-      // but a status stuck at `planned`. Only the dispatcher sets `setRunning`;
-      // normal/user/agent turn-starts and the requireIdle wake path never do.
-      const statusSetEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        causationEventId: turnStartRequestedEvent.eventId,
-        type: "thread.status-set",
-        payload: {
-          threadId: command.threadId,
-          status: "running",
-          updatedAt: command.createdAt,
-        },
-      };
-      return [userMessageEvent, turnStartRequestedEvent, statusSetEvent];
+      // Atomic kickoff (D-core child promotion): `setInProgress` makes the
+      // decider emit the `in_progress` plan-lane-set in the SAME command as the
+      // turn-start so both land in one engine transaction. A crash can no longer
+      // leave the child with a started turn but a lane stuck at `ready`. Only the
+      // dispatcher sets `setInProgress` (control-plane-only, design §8); normal
+      // user/agent turn-starts and the requireIdle wake path never do.
+      if (command.setInProgress === true && !targetTerminal) {
+        trailingEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: turnStartRequestedEvent.eventId,
+          type: "thread.plan-lane-set",
+          payload: {
+            threadId: command.threadId,
+            planLane: "in_progress",
+            updatedAt: command.createdAt,
+          },
+        });
+      }
+      return [userMessageEvent, turnStartRequestedEvent, ...trailingEvents];
     }
 
     case "thread.turn.interrupt": {
-      yield* requireThread({
+      const interruptThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      return {
+      const interruptEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -958,6 +1052,35 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
+      // No-silent-halt (design §6.1). A HUMAN stop (bare commandId) of a
+      // non-terminal thread additionally raises `needs_guidance`, so a
+      // human-stopped thread surfaces immediately rather than waiting out the
+      // idle grace. An orchestrator stop (workstream_stop, `server:`-prefixed)
+      // interrupts WITHOUT raising — it owns the resume; the async backstop
+      // covers a forgotten resume.
+      const interruptTerminal =
+        interruptThread.planLane === "done" || interruptThread.planLane === "cancelled";
+      if (command.commandId.startsWith("server:") || interruptTerminal) {
+        return interruptEvent;
+      }
+      return [
+        interruptEvent,
+        {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: interruptEvent.eventId,
+          type: "thread.attention-raised",
+          payload: {
+            threadId: command.threadId,
+            reason: "needs_guidance",
+            updatedAt: command.createdAt,
+          },
+        },
+      ];
     }
 
     case "thread.approval.respond": {

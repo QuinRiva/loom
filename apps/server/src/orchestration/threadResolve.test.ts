@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ProjectId, ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -22,7 +22,7 @@ const candidate = (
   id: id as ThreadId,
   title,
   role: "coder",
-  status: "running" as ThreadStatus,
+  planLane: "in_progress" as ThreadPlanLane,
   projectId: "proj" as ProjectId,
   worktreePath: null,
   updatedAt: "2026-06-26T00:00:00.000Z",

@@ -65,21 +65,71 @@ const seedReadModel = Effect.gen(function* () {
   });
 });
 
-const statusSet = (commandId: string, status: "error" | "done"): OrchestrationCommand => ({
-  type: "thread.status.set",
+const attentionRaise = (
+  commandId: string,
+  reason: "error" | "awaiting_acceptance",
+): OrchestrationCommand => ({
+  type: "thread.attention.raise",
   commandId: CommandId.make(commandId),
   threadId: ThreadId.make("thread-1"),
-  status,
+  reason,
   createdAt: now,
 });
 
-it.layer(NodeServices.layer)("decider error-status server-only guard", (it) => {
-  it.effect("rejects `error` from a client/web commandId (bare UUID, no server: prefix)", () =>
+const laneSet = (commandId: string, planLane: "in_progress" | "done"): OrchestrationCommand => ({
+  type: "thread.plan-lane.set",
+  commandId: CommandId.make(commandId),
+  threadId: ThreadId.make("thread-1"),
+  planLane,
+  createdAt: now,
+});
+
+it.layer(NodeServices.layer)("decider control-plane-only guards", (it) => {
+  it.effect(
+    "rejects attention `error` from a client/web commandId (bare UUID, no server: prefix)",
+    () =>
+      Effect.gen(function* () {
+        const readModel = yield* seedReadModel;
+        const exit = yield* Effect.exit(
+          decideOrchestrationCommand({
+            command: attentionRaise("11111111-2222-3333", "error"),
+            readModel,
+          }),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
+  it.effect("accepts attention `error` from a server:-prefixed commandId (the sweep)", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedReadModel;
+      const events = yield* decideOrchestrationCommand({
+        command: attentionRaise("server:workstream-liveness:error:thread-1", "error"),
+        readModel,
+      });
+      const list = Array.isArray(events) ? events : [events];
+      expect(list[0]?.type).toBe("thread.attention-raised");
+    }),
+  );
+
+  it.effect("accepts an agent-raisable reason (awaiting_acceptance) from a client commandId", () =>
+    Effect.gen(function* () {
+      const readModel = yield* seedReadModel;
+      const events = yield* decideOrchestrationCommand({
+        command: attentionRaise("44444444-5555-6666", "awaiting_acceptance"),
+        readModel,
+      });
+      const list = Array.isArray(events) ? events : [events];
+      expect(list[0]?.type).toBe("thread.attention-raised");
+    }),
+  );
+
+  it.effect("rejects plan lane `in_progress` from a client commandId (control-plane-only)", () =>
     Effect.gen(function* () {
       const readModel = yield* seedReadModel;
       const exit = yield* Effect.exit(
         decideOrchestrationCommand({
-          command: statusSet("11111111-2222-3333", "error"),
+          command: laneSet("77777777-8888-9999", "in_progress"),
           readModel,
         }),
       );
@@ -87,27 +137,15 @@ it.layer(NodeServices.layer)("decider error-status server-only guard", (it) => {
     }),
   );
 
-  it.effect("accepts `error` from a server:-prefixed commandId (the sweep)", () =>
+  it.effect("accepts plan lane `done` from a client commandId", () =>
     Effect.gen(function* () {
       const readModel = yield* seedReadModel;
       const events = yield* decideOrchestrationCommand({
-        command: statusSet("server:workstream-liveness:error:thread-1", "error"),
+        command: laneSet("aaaa1111-bbbb-2222", "done"),
         readModel,
       });
       const list = Array.isArray(events) ? events : [events];
-      expect(list[0]?.type).toBe("thread.status-set");
-    }),
-  );
-
-  it.effect("still accepts non-error statuses from a client commandId", () =>
-    Effect.gen(function* () {
-      const readModel = yield* seedReadModel;
-      const events = yield* decideOrchestrationCommand({
-        command: statusSet("44444444-5555-6666", "done"),
-        readModel,
-      });
-      const list = Array.isArray(events) ? events : [events];
-      expect(list[0]?.type).toBe("thread.status-set");
+      expect(list[0]?.type).toBe("thread.plan-lane-set");
     }),
   );
 });

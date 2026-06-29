@@ -266,7 +266,8 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     parentThreadId: thread.parentThreadId ?? null,
     role: thread.role ?? null,
     purpose: thread.purpose ?? null,
-    status: thread.status,
+    planLane: thread.planLane,
+    attention: thread.attention,
     blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
@@ -306,7 +307,8 @@ function mapThreadShell(
     parentThreadId: thread.parentThreadId ?? null,
     role: thread.role ?? null,
     purpose: thread.purpose ?? null,
-    status: thread.status,
+    planLane: thread.planLane,
+    attention: thread.attention,
     blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
@@ -332,7 +334,8 @@ function mapThreadShell(
     parentThreadId: thread.parentThreadId ?? null,
     role: thread.role ?? null,
     purpose: thread.purpose ?? null,
-    status: thread.status,
+    planLane: thread.planLane,
+    attention: thread.attention,
     blockedBy: thread.blockedBy,
     title: thread.title,
     interactionMode: thread.interactionMode,
@@ -368,7 +371,8 @@ function toThreadShell(thread: Thread): ThreadShell {
     parentThreadId: thread.parentThreadId ?? null,
     role: thread.role ?? null,
     purpose: thread.purpose ?? null,
-    status: thread.status,
+    planLane: thread.planLane,
+    attention: thread.attention,
     blockedBy: thread.blockedBy,
     title: thread.title,
     modelSelection: thread.modelSelection,
@@ -445,6 +449,10 @@ function blockedByEqual(left: ReadonlyArray<ThreadId>, right: ReadonlyArray<Thre
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+function attentionEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((reason, index) => reason === right[index]);
+}
+
 function sidebarThreadSummariesEqual(
   left: SidebarThreadSummary | undefined,
   right: SidebarThreadSummary,
@@ -456,7 +464,8 @@ function sidebarThreadSummariesEqual(
     left.parentThreadId === right.parentThreadId &&
     left.role === right.role &&
     left.purpose === right.purpose &&
-    left.status === right.status &&
+    left.planLane === right.planLane &&
+    attentionEqual(left.attention, right.attention) &&
     blockedByEqual(left.blockedBy, right.blockedBy) &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
@@ -486,7 +495,8 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.parentThreadId === right.parentThreadId &&
     left.role === right.role &&
     left.purpose === right.purpose &&
-    left.status === right.status &&
+    left.planLane === right.planLane &&
+    attentionEqual(left.attention, right.attention) &&
     blockedByEqual(left.blockedBy, right.blockedBy) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
@@ -1396,7 +1406,8 @@ function applyEnvironmentOrchestrationEvent(
           parentThreadId: event.payload.parentThreadId ?? null,
           role: event.payload.role ?? null,
           purpose: event.payload.purpose ?? null,
-          status: event.payload.status ?? "planned",
+          planLane: event.payload.planLane ?? "planned",
+          attention: event.payload.attention ?? [],
           blockedBy: event.payload.blockedBy ?? [],
           spawnGeneration: event.payload.spawnGeneration ?? null,
           reportPath: null,
@@ -1471,10 +1482,31 @@ function applyEnvironmentOrchestrationEvent(
         updatedAt: event.payload.updatedAt,
       }));
 
-    case "thread.status-set":
+    case "thread.plan-lane-set":
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
-        status: event.payload.status,
+        planLane: event.payload.planLane,
+        updatedAt: event.payload.updatedAt,
+      }));
+
+    case "thread.attention-raised":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        attention: thread.attention.includes(event.payload.reason)
+          ? thread.attention
+          : [...thread.attention, event.payload.reason],
+        updatedAt: event.payload.updatedAt,
+      }));
+
+    case "thread.attention-cleared":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        // Omitted reason clears all stored attention; a present reason clears
+        // just that flag.
+        attention:
+          event.payload.reason === undefined
+            ? []
+            : thread.attention.filter((reason) => reason !== event.payload.reason),
         updatedAt: event.payload.updatedAt,
       }));
 

@@ -14,11 +14,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadId } from "@t3tools/contracts";
+import { ModelSelection, ThreadAttention, ThreadId } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    attention: Schema.fromJsonString(ThreadAttention),
     blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
   }),
 );
@@ -39,7 +40,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           role,
           purpose,
           brief,
-          status,
+          plan_lane,
+          attention,
           blocked_by,
           spawn_generation,
           report_path,
@@ -68,7 +70,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.role},
           ${row.purpose},
           ${row.brief},
-          ${row.status},
+          ${row.planLane},
+          ${JSON.stringify(row.attention)},
           ${JSON.stringify(row.blockedBy)},
           ${row.spawnGeneration},
           ${row.reportPath},
@@ -97,7 +100,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           role = excluded.role,
           purpose = excluded.purpose,
           brief = excluded.brief,
-          status = excluded.status,
+          plan_lane = excluded.plan_lane,
+          attention = excluded.attention,
           blocked_by = excluded.blocked_by,
           spawn_generation = excluded.spawn_generation,
           report_path = excluded.report_path,
@@ -133,7 +137,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           role,
           purpose,
           brief,
-          status,
+          plan_lane AS "planLane",
+          attention,
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           report_path AS "reportPath",
@@ -171,7 +176,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           role,
           purpose,
           brief,
-          status,
+          plan_lane AS "planLane",
+          attention,
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           report_path AS "reportPath",

@@ -12,6 +12,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { remapLegacyStatus } from "../projector.ts";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
@@ -767,7 +768,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             role: event.payload.role ?? null,
             purpose: event.payload.purpose ?? null,
             brief: event.payload.brief ?? null,
-            status: event.payload.status ?? "planned",
+            planLane: event.payload.planLane ?? "planned",
+            attention: event.payload.attention ?? [],
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,
             reportPath: null,
@@ -875,7 +877,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "thread.status-set": {
+        case "thread.plan-lane-set": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
@@ -884,7 +886,72 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
+            planLane: event.payload.planLane,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.attention-raised": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const attention = existingRow.value.attention.includes(event.payload.reason)
+            ? existingRow.value.attention
+            : [...existingRow.value.attention, event.payload.reason];
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            attention,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.attention-cleared": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          // Omitted reason clears all stored attention; a present reason clears
+          // just that flag.
+          const attention =
+            event.payload.reason === undefined
+              ? []
+              : existingRow.value.attention.filter((reason) => reason !== event.payload.reason);
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            attention,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // Migration-only (design §9): a historical status-set replayed into the
+        // SQL projection. Best-effort remap with no sibling lookup — a non-empty
+        // `blockedBy` is treated as board-blocked (deps unmet); an empty one as a
+        // human-pause. The migration handles the already-projected rows.
+        case "thread.status-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const remapped = remapLegacyStatus({
+            planLane: existingRow.value.planLane,
+            attention: existingRow.value.attention,
             status: event.payload.status,
+            depsSatisfied: existingRow.value.blockedBy.length === 0,
+          });
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            planLane: remapped.planLane,
+            attention: remapped.attention,
             updatedAt: event.payload.updatedAt,
           });
           return;

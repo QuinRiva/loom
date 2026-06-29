@@ -75,6 +75,11 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
     case "thread.proposed-plan-upserted":
     case "thread.runtime-mode-set":
     case "thread.interaction-mode-set":
+    // Plan lane + attention are intent/notification metadata, not turn-state
+    // changes — same treatment as the legacy status-set they replace.
+    case "thread.plan-lane-set":
+    case "thread.attention-raised":
+    case "thread.attention-cleared":
     case "thread.status-set":
     case "thread.dependencies-set":
       return false;

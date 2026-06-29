@@ -1,8 +1,9 @@
 import {
+  AttentionReason,
   CommandId,
   ModelSelection,
   ThreadId,
-  ThreadStatus,
+  ThreadPlanLane,
   type OrchestrationCommand,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
@@ -13,7 +14,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import { graphViewFor, isInSameTree } from "@t3tools/shared/workstreamGraph";
+import { graphViewFor, isInSameTree, subtreeOf } from "@t3tools/shared/workstreamGraph";
 
 import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -37,11 +38,21 @@ interface WorkstreamSpawnRequest {
   readonly blockedBy?: unknown;
   readonly modelSelection?: unknown;
   readonly modelPreset?: unknown;
+  readonly staged?: unknown;
 }
 
-interface WorkstreamStatusRequest {
+interface WorkstreamLaneRequest {
   readonly threadId?: unknown;
-  readonly status?: unknown;
+  readonly planLane?: unknown;
+}
+
+interface WorkstreamAttentionRequest {
+  readonly threadId?: unknown;
+  readonly reason?: unknown;
+}
+
+interface WorkstreamTargetRequest {
+  readonly threadId?: unknown;
 }
 
 interface WorkstreamDependenciesRequest {
@@ -69,7 +80,10 @@ interface WorkstreamConsultThreadRequest {
 }
 
 const SPAWN_PATH = "/provider-tools/workstream/spawn";
-const STATUS_PATH = "/provider-tools/workstream/status";
+const LANE_PATH = "/provider-tools/workstream/lane";
+const ATTENTION_PATH = "/provider-tools/workstream/attention";
+const RELEASE_PATH = "/provider-tools/workstream/release";
+const STOP_PATH = "/provider-tools/workstream/stop";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
 const REPORT_PATH = "/provider-tools/workstream/report";
 const LIST_PATH = "/provider-tools/workstream/list";
@@ -87,11 +101,16 @@ const CONSULT_CANDIDATE_LIMIT = 8;
 const READ_ACTIVITY_LIMIT = 3;
 const READ_MESSAGE_EXCERPT_LIMIT = 800;
 
-// `error` is server-only (D-liveness): adding it to `ThreadStatus.literals`
-// auto-joins it here, so exclude it explicitly. Validating "against the literal
-// set" would silently let a credential set `error` on its child.
-const SETTABLE_STATUSES = ThreadStatus.literals.filter((status) => status !== "error");
-const VALID_STATUSES = new Set<ThreadStatus>(SETTABLE_STATUSES);
+// Plan lanes an agent may set (the `workstream_set_lane` enum). `in_progress` is
+// control-plane-only (set by starting a turn) and is excluded; the decider also
+// rejects an agent `in_progress`.
+const SETTABLE_LANES: ReadonlyArray<ThreadPlanLane> = ["planned", "ready", "done", "cancelled"];
+const VALID_LANES = new Set<ThreadPlanLane>(SETTABLE_LANES);
+// Attention reasons an agent may raise. `error` is server-only and the two
+// `awaiting_*` request reasons are derived from open requests — the decider
+// rejects all three; this mirrors that set at the boundary.
+const RAISABLE_REASONS: ReadonlyArray<AttentionReason> = ["awaiting_acceptance", "needs_guidance"];
+const VALID_REASONS = new Set<AttentionReason>(RAISABLE_REASONS);
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
@@ -124,10 +143,7 @@ const authorizationError = Effect.fn("WorkstreamHttp.authorize")(function* (
   if (Option.isNone(target)) return jsonError(404, "Target thread was not found.");
   return target.value.parentThreadId === scopeThreadId
     ? undefined
-    : jsonError(
-        403,
-        "Credential may only set status/dependencies on its own thread or a thread it directly parents.",
-      );
+    : jsonError(403, "Credential may only act on its own thread or a thread it directly parents.");
 });
 
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
@@ -183,8 +199,17 @@ const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string
 export const workstreamSpawnUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, SPAWN_PATH);
 
-export const workstreamStatusUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, STATUS_PATH);
+export const workstreamLaneUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, LANE_PATH);
+
+export const workstreamAttentionUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, ATTENTION_PATH);
+
+export const workstreamReleaseUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, RELEASE_PATH);
+
+export const workstreamStopUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, STOP_PATH);
 
 export const workstreamDependenciesUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, DEPENDENCIES_PATH);
@@ -232,6 +257,9 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const purpose = trimString(body.purpose);
   const brief = trimString(body.brief);
   const title = trimString(body.title) ?? purpose;
+  // Default `ready` (runs once deps clear — current ergonomics); `staged: true`
+  // creates a held `planned` node for the review-the-graph flow (design §3).
+  const planLane: ThreadPlanLane = body.staged === true ? "planned" : "ready";
   if (!role) return jsonError(400, "role is required.");
   if (!purpose) return jsonError(400, "purpose is required.");
   if (!title) return jsonError(400, "title is required.");
@@ -309,6 +337,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     purpose,
     ...(brief !== undefined ? { brief } : {}),
     ...(blockedBy !== undefined ? { blockedBy } : {}),
+    planLane,
     spawnGeneration,
     title,
     modelSelection,
@@ -331,7 +360,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   ),
 );
 
-const handleWorkstreamSetStatus = Effect.gen(function* () {
+const handleWorkstreamSetLane = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const scope = yield* resolveWorkstreamScope();
   if (!scope) {
@@ -339,12 +368,12 @@ const handleWorkstreamSetStatus = Effect.gen(function* () {
   }
 
   const body = (yield* request.json.pipe(
-    Effect.orElseSucceed((): WorkstreamStatusRequest => ({})),
-  )) as WorkstreamStatusRequest;
+    Effect.orElseSucceed((): WorkstreamLaneRequest => ({})),
+  )) as WorkstreamLaneRequest;
   const threadId = trimString(body.threadId);
-  const status = trimString(body.status);
-  if (!status || !VALID_STATUSES.has(status as ThreadStatus)) {
-    return jsonError(400, `status must be one of: ${SETTABLE_STATUSES.join(", ")}.`);
+  const planLane = trimString(body.planLane);
+  if (!planLane || !VALID_LANES.has(planLane as ThreadPlanLane)) {
+    return jsonError(400, `planLane must be one of: ${SETTABLE_LANES.join(", ")}.`);
   }
 
   // Missing threadId defaults to the caller's own thread (always authorised).
@@ -356,18 +385,142 @@ const handleWorkstreamSetStatus = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const engine = yield* OrchestrationEngineService;
   yield* engine.dispatch({
-    type: "thread.status.set",
-    commandId: CommandId.make(`server:workstream-status:${yield* crypto.randomUUIDv4}`),
+    type: "thread.plan-lane.set",
+    commandId: CommandId.make(`server:workstream-lane:${yield* crypto.randomUUIDv4}`),
     threadId: targetThreadId,
-    status: status as ThreadStatus,
+    planLane: planLane as ThreadPlanLane,
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, status });
+  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, planLane });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
-      jsonError(500, error instanceof Error ? error.message : "Failed to set Workstream status."),
+      jsonError(500, error instanceof Error ? error.message : "Failed to set Workstream lane."),
+    ),
+  ),
+);
+
+const handleWorkstreamRequestAttention = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamAttentionRequest => ({})),
+  )) as WorkstreamAttentionRequest;
+  const threadId = trimString(body.threadId);
+  const reason = trimString(body.reason);
+  if (!reason || !VALID_REASONS.has(reason as AttentionReason)) {
+    return jsonError(400, `reason must be one of: ${RAISABLE_REASONS.join(", ")}.`);
+  }
+
+  const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
+  const denied = yield* authorizationError(scope.threadId, targetThreadId);
+  if (denied) return denied;
+
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.attention.raise",
+    commandId: CommandId.make(`server:workstream-attention:${yield* crypto.randomUUIDv4}`),
+    threadId: targetThreadId,
+    reason: reason as AttentionReason,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, reason });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to request attention."),
+    ),
+  ),
+);
+
+// Release a held subtree: flip every `planned` node in the target's subtree to
+// `ready`. Reports the scope (which nodes flipped) so an intentional mixed-hold
+// is not silently erased.
+const handleWorkstreamRelease = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamTargetRequest => ({})),
+  )) as WorkstreamTargetRequest;
+  const threadId = trimString(body.threadId);
+  const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
+  const denied = yield* authorizationError(scope.threadId, targetThreadId);
+  if (denied) return denied;
+
+  const threads = yield* collectGraphThreads();
+  const held = subtreeOf(targetThreadId, threads).filter((t) => t.planLane === "planned");
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  for (const node of held) {
+    yield* engine.dispatch({
+      type: "thread.plan-lane.set",
+      commandId: CommandId.make(`server:workstream-release:${yield* crypto.randomUUIDv4}`),
+      threadId: node.id,
+      planLane: "ready",
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  }
+
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    released: held.map((node) => node.id),
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to release subtree."),
+    ),
+  ),
+);
+
+// Orchestrator stop of a direct child: interrupt the active turn WITHOUT raising
+// attention (the `server:` commandId tells the decider this is an
+// orchestrator-owned pause, not a human stop — the orchestrator owns the
+// resume; the dispatcher's idle backstop covers a forgotten one).
+const handleWorkstreamStop = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamTargetRequest => ({})),
+  )) as WorkstreamTargetRequest;
+  const threadId = trimString(body.threadId);
+  if (!threadId) return jsonError(400, "threadId is required.");
+  const targetThreadId = ThreadId.make(threadId);
+  const denied = yield* authorizationError(scope.threadId, targetThreadId);
+  if (denied) return denied;
+
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.turn.interrupt",
+    commandId: CommandId.make(`server:workstream-stop:${yield* crypto.randomUUIDv4}`),
+    threadId: targetThreadId,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to stop the thread."),
     ),
   ),
 );
@@ -527,7 +680,8 @@ const handleWorkstreamReadThread = Effect.gen(function* () {
     threadId: target,
     role: source.role,
     title: source.title,
-    status: source.status,
+    planLane: source.planLane,
+    attention: source.attention,
     archived: Option.isNone(detail),
     hasReport: source.reportPath !== null,
     report: Option.getOrNull(report),
@@ -670,7 +824,7 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
       threadId: entry.thread.id,
       title: entry.thread.title,
       role: entry.thread.role,
-      status: entry.thread.status,
+      planLane: entry.thread.planLane,
       projectId: entry.thread.projectId,
       worktreePath: entry.thread.worktreePath,
     })),
@@ -684,11 +838,18 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
 );
 
 export const workstreamSpawnRouteLayer = HttpRouter.add("POST", SPAWN_PATH, handleWorkstreamSpawn);
-export const workstreamStatusRouteLayer = HttpRouter.add(
+export const workstreamLaneRouteLayer = HttpRouter.add("POST", LANE_PATH, handleWorkstreamSetLane);
+export const workstreamAttentionRouteLayer = HttpRouter.add(
   "POST",
-  STATUS_PATH,
-  handleWorkstreamSetStatus,
+  ATTENTION_PATH,
+  handleWorkstreamRequestAttention,
 );
+export const workstreamReleaseRouteLayer = HttpRouter.add(
+  "POST",
+  RELEASE_PATH,
+  handleWorkstreamRelease,
+);
+export const workstreamStopRouteLayer = HttpRouter.add("POST", STOP_PATH, handleWorkstreamStop);
 export const workstreamDependenciesRouteLayer = HttpRouter.add(
   "POST",
   DEPENDENCIES_PATH,
@@ -718,7 +879,10 @@ export const workstreamConsultThreadRouteLayer = HttpRouter.add(
 
 export const layer = Layer.mergeAll(
   workstreamSpawnRouteLayer,
-  workstreamStatusRouteLayer,
+  workstreamLaneRouteLayer,
+  workstreamAttentionRouteLayer,
+  workstreamReleaseRouteLayer,
+  workstreamStopRouteLayer,
   workstreamDependenciesRouteLayer,
   workstreamReportRouteLayer,
   workstreamListRouteLayer,

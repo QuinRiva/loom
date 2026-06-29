@@ -1,13 +1,43 @@
-import type { EnvironmentId, ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 
 import type { SidebarThreadSummary } from "../types";
 
-/** Board column a thread occupies ignoring dependencies (the D1 precedence minus the `blockedBy` step). */
-export type WorkstreamColumnId = ThreadStatus;
+/**
+ * Three-axis Workstream presentation (see
+ * `.plans/workstream-state-model-design.md`):
+ *
+ *  - **Plan lane** (intent; the kanban column): `planned | ready | in_progress |
+ *    done | cancelled`, plus the *derived* `blocked` (a released `ready` thread
+ *    whose dependencies are unmet). This is the only axis a thread is grouped
+ *    into a column by.
+ *  - **Activity** (the truth; derived): is a turn literally executing right now
+ *    (`hasRunningSignal`). Rendered as an overlay (live dots), never a column —
+ *    a re-engaged `done` thread is plan-`done` AND activity-active at once.
+ *  - **Attention** (needs-a-human; derived + agent-raised): a set of reasons,
+ *    rendered as overlay badges, never a column.
+ */
+
+/**
+ * Board column a thread occupies: its plan lane, or the derived `blocked` (ready
+ * but waiting on upstream). Attention and activity are overlays, not columns.
+ */
+export type WorkstreamColumnId = ThreadPlanLane | "blocked";
 
 export type GraphState = "active" | "attention" | "deadlocked" | "idle" | "done" | "empty";
-export type AttentionReason = "approval" | "input" | "review" | "blocked" | "plan";
+
+/**
+ * Attention reasons (the single notification surface). The first five mirror the
+ * wire `AttentionReason`; `proposed_plan` is a derived, presentation-only gate
+ * (an actionable proposed plan awaiting a decision) with no stored counterpart.
+ */
+export type AttentionReason =
+  | "error"
+  | "awaiting_approval"
+  | "awaiting_input"
+  | "awaiting_acceptance"
+  | "needs_guidance"
+  | "proposed_plan";
 
 /** Per-state facet counts the tooltip expands the headline number into. */
 export interface GraphBreakdown {
@@ -35,7 +65,7 @@ export interface GraphActionNode {
 export interface GraphRollup {
   readonly graphState: GraphState;
   readonly activeWorkerCount: number;
-  /** Nodes parked on a human gate (approval/input/review/blocked/plan) — the `attention` badge number. */
+  /** Nodes carrying any attention reason — the `attention` badge number. */
   readonly attentionCount: number;
   readonly highestAttentionReason: AttentionReason | null;
   /** Non-archived descendant count (tooltip footer). */
@@ -51,38 +81,53 @@ export interface GraphRollup {
 }
 
 const ATTENTION_PRIORITY: Record<AttentionReason, number> = {
-  approval: 5,
-  input: 4,
-  review: 3,
-  blocked: 2,
-  plan: 1,
+  error: 6,
+  awaiting_approval: 5,
+  awaiting_input: 4,
+  awaiting_acceptance: 3,
+  needs_guidance: 2,
+  proposed_plan: 1,
 };
 
-/** A live running session/turn — the single source of truth shared with the board. */
+/** A live running session/turn — the activity axis, shared with the board. */
 export function hasRunningSignal(thread: SidebarThreadSummary): boolean {
   return thread.session?.status === "running" || thread.latestTurn?.state === "running";
 }
 
 /**
- * Dependency-free resolution of a thread's column from its explicit status and
- * live session/turn signals — the D1 precedence with the `blockedBy` step
- * removed. Used both for a thread's own base column and to decide whether a
- * dependency counts as satisfied, keeping the effective-status computation
- * non-recursive and safe against dependency cycles.
+ * A thread's plan-lane column, ignoring dependencies. The activity axis is NOT
+ * folded in here (the design's "describe the plan, not the runtime" rule):
+ * `in_progress` is the plan phase, never relabelled "running". The live signal
+ * is surfaced separately as the activity overlay.
  */
 export function resolveBaseColumn(thread: SidebarThreadSummary): WorkstreamColumnId {
-  // `error` (server-set liveness failure) is terminal-distinct and wins over
-  // every live/explicit signal so a dead/stalled child never hides as running.
-  if (thread.status === "error") return "error";
-  if (thread.status === "review" || thread.status === "done") return thread.status;
-  if (thread.status === "blocked") return "blocked";
-  if (thread.status === "running" || hasRunningSignal(thread)) return "running";
-  return "planned";
+  return thread.planLane;
+}
+
+/**
+ * The attention reasons a thread carries: the stored set (`error`,
+ * `awaiting_acceptance`, `needs_guidance`) unioned with the derived gates
+ * (open approval/input requests, an actionable proposed plan). Highest-priority
+ * first.
+ */
+export function attentionReasonsOf(thread: SidebarThreadSummary): ReadonlyArray<AttentionReason> {
+  const reasons: AttentionReason[] = [...thread.attention];
+  if (thread.hasPendingApprovals && !reasons.includes("awaiting_approval"))
+    reasons.push("awaiting_approval");
+  if (thread.hasPendingUserInput && !reasons.includes("awaiting_input"))
+    reasons.push("awaiting_input");
+  if (thread.hasActionableProposedPlan && !reasons.includes("proposed_plan"))
+    reasons.push("proposed_plan");
+  return reasons.sort((a, b) => ATTENTION_PRIORITY[b] - ATTENTION_PRIORITY[a]);
+}
+
+/** The single highest-priority attention reason on a thread, or `null`. */
+export function highestAttentionReasonOf(thread: SidebarThreadSummary): AttentionReason | null {
+  return attentionReasonsOf(thread)[0] ?? null;
 }
 
 /** A genuinely-executing worker — counted in the headline AND gates the `active` state. */
-const isActiveWorker = (t: SidebarThreadSummary): boolean =>
-  t.session?.status === "running" || t.latestTurn?.state === "running";
+const isActiveWorker = (t: SidebarThreadSummary): boolean => hasRunningSignal(t);
 
 /**
  * Liveness for the STATE gate is slightly broader than the count: a `connecting`
@@ -92,30 +137,17 @@ const isActiveWorker = (t: SidebarThreadSummary): boolean =>
 const isLive = (t: SidebarThreadSummary): boolean =>
   isActiveWorker(t) || t.session?.status === "connecting";
 
-/**
- * A node that needs a human before the graph can advance. Order matters only for
- * `highestAttentionReason`; presence (≠ null) is what gates `attention`. Only
- * consulted AFTER the liveness check, so an explicit `blocked` node whose blocker
- * is currently running never reaches here — it is `active`.
- */
-const attentionReasonOf = (t: SidebarThreadSummary): AttentionReason | null =>
-  t.hasPendingApprovals
-    ? "approval"
-    : t.hasPendingUserInput
-      ? "input"
-      : t.status === "review"
-        ? "review"
-        : t.status === "blocked"
-          ? "blocked"
-          : t.hasActionableProposedPlan
-            ? "plan"
-            : null;
+const isPlanTerminal = (t: SidebarThreadSummary): boolean =>
+  t.planLane === "done" || t.planLane === "cancelled";
 
 /**
- * Collapse an orchestrator's whole descendant DAG into a single graph state plus
- * a live active-worker count. Liveness anywhere dominates local blocked-ness: a
- * node waiting on a *running* blocker keeps the graph `active`, never `blocked`.
- * See docs/design/workstream-graph-state-rollup.md §4 for the precedence ladder.
+ * Collapse an orchestrator's whole descendant DAG into THREE independent
+ * projections (design §5): plan (done vs incomplete), activity (any executing),
+ * and attention (any needs-a-human). `graphState` is a representative summary
+ * for the single sidebar badge glyph; the board renders the three axes
+ * separately so e.g. a re-engaged `done` subtree reads done+active at once.
+ * Liveness anywhere dominates the badge glyph: a node waiting on a *running*
+ * blocker keeps the graph `active`, never `blocked`.
  */
 export function rollupGraphState(
   descendants: ReadonlyArray<SidebarThreadSummary>,
@@ -127,13 +159,13 @@ export function rollupGraphState(
   const breakdown: GraphBreakdown = {
     running: activeWorkerCount,
     awaitingApproval: nodes.filter((t) => t.hasPendingApprovals).length,
-    inReview: nodes.filter((t) => t.status === "review").length,
-    planned: nodes.filter((t) => resolveBaseColumn(t) === "planned").length,
-    done: nodes.filter((t) => resolveBaseColumn(t) === "done").length,
+    inReview: nodes.filter((t) => t.attention.includes("awaiting_acceptance")).length,
+    planned: nodes.filter((t) => t.planLane === "planned" || t.planLane === "ready").length,
+    done: nodes.filter(isPlanTerminal).length,
   };
 
   const gatedNodes = nodes
-    .map((t) => ({ thread: t, reason: attentionReasonOf(t) }))
+    .map((t) => ({ thread: t, reason: highestAttentionReasonOf(t) }))
     .filter(
       (x): x is { thread: SidebarThreadSummary; reason: AttentionReason } => x.reason !== null,
     )
@@ -158,7 +190,7 @@ export function rollupGraphState(
 
   if (nodes.length === 0) return { graphState: "empty", highestAttentionReason: null, ...base };
 
-  // 1. Liveness dominates — the blocked-on-running rule.
+  // 1. Liveness dominates the badge glyph — the blocked-on-running rule.
   if (nodes.some(isLive)) return { graphState: "active", highestAttentionReason, ...base };
 
   // 2. Nothing live → any human gate makes the graph "needs you". Surface the
@@ -171,23 +203,20 @@ export function rollupGraphState(
       actionNodes: attentionActionNodes,
     };
 
-  // 3. Settled? (base column — deps are irrelevant once done.)
-  const incomplete = nodes.filter((t) => resolveBaseColumn(t) !== "done");
+  // 3. Settled? All intended work is plan-terminal (done/cancelled).
+  const incomplete = nodes.filter((t) => !isPlanTerminal(t));
   if (incomplete.length === 0) return { graphState: "done", highestAttentionReason: null, ...base };
 
-  // 4. Deadlock is asserted conservatively: only when EVERY incomplete node is
-  //    `planned` and none is runnable (a genuine blockedBy cycle / work that only
-  //    waits on a cycle). If any incomplete node is non-planned without a live
-  //    signal — a stale/errored `status==="running"` node left after the subtree
-  //    quiesced (e.g. a mass disconnect) — the graph is merely idle, not a wired
-  //    deadlock. This keeps the rose "no path forward" alarm trustworthy rather
-  //    than firing on transient quiescence (§8). Surfacing such errored nodes as
-  //    their own signal is the deferred error-handling decision, out of scope here.
-  const allPlanned = incomplete.every((t) => resolveBaseColumn(t) === "planned");
+  // 4. Deadlock is asserted conservatively: only when EVERY incomplete node is a
+  //    *released* `ready` source with no runnable path — a genuine blockedBy
+  //    cycle / work that only waits on a cycle. A held `planned` subtree awaiting
+  //    release, or a stale `in_progress` node with no live signal, reads as idle,
+  //    not a wired deadlock.
+  const allReleased = incomplete.every((t) => t.planLane === "ready");
   const hasRunnableSource = incomplete.some(
-    (t) => resolveBaseColumn(t) === "planned" && areDependenciesSatisfied(t, byId),
+    (t) => t.planLane === "ready" && areDependenciesSatisfied(t, byId),
   );
-  const graphState = allPlanned && !hasRunnableSource ? "deadlocked" : "idle";
+  const graphState = allReleased && !hasRunnableSource ? "deadlocked" : "idle";
   return {
     graphState,
     highestAttentionReason: null,

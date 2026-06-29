@@ -8,7 +8,7 @@ import {
   type OrchestrationThreadShell,
   ProviderInstanceId,
   type ThreadId,
-  type ThreadStatus,
+  type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -61,7 +61,10 @@ const shell = (
     parentThreadId: "parent-1" as ThreadId,
     role: "coder",
     purpose: "do the thing",
-    status: "planned" as ThreadStatus,
+    // Default to a released lane so the un-started promotion tests exercise the
+    // dispatcher; held (`planned`) and other lanes are set per-test.
+    planLane: "ready" as ThreadPlanLane,
+    attention: [],
     blockedBy: [],
     spawnGeneration: null,
     reportPath: null,
@@ -122,9 +125,24 @@ describe("selectThreadsToDispatch", () => {
     ).toEqual([]);
   });
 
-  it("gates a sub-thread until every dependency is done (review does not release)", () => {
+  it("does not promote a held `planned` sub-thread even with deps clear (the release gate)", () => {
+    expect(selectThreadsToDispatch([shell({ id: "child-1", planLane: "planned" })])).toEqual([]);
+  });
+
+  it("promotes the same sub-thread once it is released to `ready`", () => {
+    expect(ids(selectThreadsToDispatch([shell({ id: "child-1", planLane: "ready" })]))).toEqual([
+      "child-1",
+    ]);
+  });
+
+  it("gates a sub-thread until every dependency is done (a non-done lane does not release)", () => {
     const threads = [
-      shell({ id: "dep-coder", status: "review", latestUserMessageAt: now }),
+      shell({
+        id: "dep-coder",
+        planLane: "in_progress",
+        attention: ["awaiting_acceptance"],
+        latestUserMessageAt: now,
+      }),
       shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
     ];
     expect(selectThreadsToDispatch(threads)).toEqual([]);
@@ -132,23 +150,23 @@ describe("selectThreadsToDispatch", () => {
 
   it("promotes the dependent once its dependency is done", () => {
     const threads = [
-      shell({ id: "dep-coder", status: "done", latestUserMessageAt: now }),
+      shell({ id: "dep-coder", planLane: "done", latestUserMessageAt: now }),
       shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
     ];
     expect(ids(selectThreadsToDispatch(threads))).toEqual(["child-reviewer"]);
   });
 
-  it("keeps the dependent gated on an `error` dependency, then promotes it on `error`→`done`", () => {
+  it("keeps the dependent gated on an `error`-flagged dependency, then promotes it once it reaches `done`", () => {
     // Dependent release is done-only, so an errored dependency keeps the
     // dependent waiting; the same promote pass releases it once the dependency
     // recovers to `done` (no special-casing of the error→done flip needed).
     const errored = [
-      shell({ id: "dep-coder", status: "error", latestUserMessageAt: now }),
+      shell({ id: "dep-coder", attention: ["error"], latestUserMessageAt: now }),
       shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
     ];
     expect(selectThreadsToDispatch(errored)).toEqual([]);
     const recovered = [
-      shell({ id: "dep-coder", status: "done", latestUserMessageAt: now }),
+      shell({ id: "dep-coder", planLane: "done", latestUserMessageAt: now }),
       shell({ id: "child-reviewer", blockedBy: ["dep-coder" as ThreadId] }),
     ];
     expect(ids(selectThreadsToDispatch(recovered))).toEqual(["child-reviewer"]);
@@ -159,7 +177,7 @@ describe("selectThreadsToDispatch", () => {
       shell({
         id: "cousin-coder",
         parentThreadId: "other-parent" as ThreadId,
-        status: "running",
+        planLane: "in_progress",
         latestUserMessageAt: now,
       }),
       shell({ id: "child-reviewer", blockedBy: ["cousin-coder" as ThreadId] }),
@@ -250,19 +268,19 @@ describe("wakeRateGuardTrips", () => {
 });
 
 describe("buildParentWakeMessage", () => {
-  it("carries each child's role, id, status, report reference, and a short report inline", () => {
+  it("carries each child's role, id, plan lane, report reference, and a short report inline", () => {
     const text = buildParentWakeMessage([
       {
         id: "child-1" as ThreadId,
         role: "researcher",
-        status: "done",
+        planLane: "done",
         reportPath: "child-1.md",
         report: "# Findings\nAll good.",
       },
       {
         id: "child-2" as ThreadId,
         role: "reviewer",
-        status: "review",
+        planLane: "in_progress",
         reportPath: null,
         report: null,
       },
@@ -275,7 +293,7 @@ describe("buildParentWakeMessage", () => {
     // The on-disk pointer is referenced, never the raw content alone.
     expect(text).toContain("child-1.md");
     expect(text).toContain("No report was filed");
-    expect(text).toContain("workstream_set_status");
+    expect(text).toContain("workstream_set_lane");
   });
 
   it("bounds an oversized report to an excerpt + reference, never the full text", () => {
@@ -285,7 +303,7 @@ describe("buildParentWakeMessage", () => {
       {
         id: "child-1" as ThreadId,
         role: "researcher",
-        status: "done",
+        planLane: "done",
         reportPath: "child-1.md",
         report,
       },
@@ -354,8 +372,14 @@ describe("classifyGenerationByReceipts", () => {
 // decision the dispatcher composes: join × idle-gate.
 describe("deferred wake gates on parent idleness", () => {
   const generation = [
-    shell({ id: "child-a", spawnGeneration: "gen-1", status: "done", latestUserMessageAt: now }),
-    shell({ id: "child-b", spawnGeneration: "gen-1", status: "review", latestUserMessageAt: now }),
+    shell({ id: "child-a", spawnGeneration: "gen-1", planLane: "done", latestUserMessageAt: now }),
+    shell({
+      id: "child-b",
+      spawnGeneration: "gen-1",
+      planLane: "in_progress",
+      attention: ["awaiting_acceptance"],
+      latestUserMessageAt: now,
+    }),
   ];
 
   it("joins the generation regardless of whether the parent is busy", () => {
@@ -413,29 +437,29 @@ describe("buildChildWakeMessage (recovered re-notifies the parent of an error→
 });
 
 describe("classifyChildWake (per-child wake rail, §1e)", () => {
-  it("classifies an error child as an error wake", () => {
-    const child = shell({ id: "child-1", status: "error", session: null });
+  it("classifies an `error`-flagged child as an error wake", () => {
+    const child = shell({ id: "child-1", attention: ["error"], session: null });
     expect(classifyChildWake(child, new Set())).toBe("error");
   });
 
   it("classifies a ran-then-idle non-terminal child as a forgot-to-finish idle wake", () => {
     const child = shell({
       id: "child-1",
-      status: "running",
+      planLane: "in_progress",
       session: runningSession({ status: "ready", activeTurnId: null }),
     });
     expect(classifyChildWake(child, new Set())).toBe("idle");
   });
 
-  it("does NOT wake a never-started planned child (no session → waiting on deps)", () => {
-    const child = shell({ id: "child-1", status: "planned", session: null });
+  it("does NOT wake a never-started held child (no session → waiting on release/deps)", () => {
+    const child = shell({ id: "child-1", planLane: "planned", session: null });
     expect(classifyChildWake(child, new Set())).toBeNull();
   });
 
   it("does NOT wake a child still mid-turn", () => {
     const child = shell({
       id: "child-1",
-      status: "running",
+      planLane: "in_progress",
       session: runningSession({ status: "running", activeTurnId: "turn-1" as TurnId }),
     });
     expect(classifyChildWake(child, new Set())).toBeNull();
@@ -444,25 +468,40 @@ describe("classifyChildWake (per-child wake rail, §1e)", () => {
   it("does NOT wake a child whose turn-start is still pending (kickoff race)", () => {
     const child = shell({
       id: "child-1",
-      status: "running",
+      planLane: "in_progress",
       session: runningSession({ status: "ready", activeTurnId: null }),
     });
     expect(classifyChildWake(child, new Set(["child-1" as ThreadId]))).toBeNull();
   });
 
-  it("does NOT wake terminal done/blocked/review children", () => {
-    for (const status of ["done", "blocked", "review"] as const) {
+  it("does NOT wake plan-terminal done/cancelled children", () => {
+    for (const planLane of ["done", "cancelled"] as const) {
       const child = shell({
         id: "child-1",
-        status,
+        planLane,
         session: runningSession({ status: "ready", activeTurnId: null }),
       });
       expect(classifyChildWake(child, new Set())).toBeNull();
     }
   });
 
+  it("does NOT idle-wake a child that already carries an attention flag (already surfaced)", () => {
+    const child = shell({
+      id: "child-1",
+      planLane: "in_progress",
+      attention: ["needs_guidance"],
+      session: runningSession({ status: "ready", activeTurnId: null }),
+    });
+    expect(classifyChildWake(child, new Set())).toBeNull();
+  });
+
   it("does NOT wake a top-level thread (no agent parent)", () => {
-    const child = shell({ id: "root-1", parentThreadId: null, status: "error", session: null });
+    const child = shell({
+      id: "root-1",
+      parentThreadId: null,
+      attention: ["error"],
+      session: null,
+    });
     expect(classifyChildWake(child, new Set())).toBeNull();
   });
 
@@ -520,7 +559,7 @@ describe("idle-wake activity-freshness grace", () => {
 
   const idleChild = shell({
     id: "child-1",
-    status: "running",
+    planLane: "in_progress",
     session: runningSession({ status: "ready", activeTurnId: null }),
     latestTurn: latestTurn({ completedAt: now }),
   });
@@ -577,7 +616,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
   const child = shell({
     id: CHILD_ID as unknown as string,
     parentThreadId: PARENT_ID,
-    status: "running",
+    planLane: "in_progress",
     session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
     latestTurn: latestTurn({ completedAt: epochIso }),
   });
@@ -651,8 +690,17 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
               Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
             );
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(1);
-            const wake = dispatched[0]!;
+            // No-silent-halt backstop (§4.7): the idle child first gets a
+            // `needs_guidance` flag raised on IT, then the parent wake — two
+            // dispatches.
+            expect(dispatched.length).toBe(2);
+            const flag = dispatched[0]!;
+            if (flag.type !== "thread.attention.raise") {
+              throw new Error(`expected a thread.attention.raise, got ${flag.type}`);
+            }
+            expect(flag.threadId).toBe(CHILD_ID);
+            expect(flag.reason).toBe("needs_guidance");
+            const wake = dispatched[1]!;
             // The wake is the "forgot to finish" child wake delivered to the
             // parent as a fresh turn-start.
             if (wake.type !== "thread.turn.start") {
@@ -665,7 +713,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
             // by the `idle:${maxSequence}` key + in-memory handled set.
             yield* TestClock.adjust(Duration.millis(IDLE_WAKE_REPASS_INTERVAL_MS * 5));
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(1);
+            expect(dispatched.length).toBe(2);
           }).pipe(Effect.provide(buildLayer(dispatched)));
         }),
       ),
@@ -688,7 +736,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
   const child = shell({
     id: CHILD_ID as unknown as string,
     parentThreadId: PARENT_ID,
-    status: "done",
+    planLane: "done",
     session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
     reportPath: "child-rec.md",
   });

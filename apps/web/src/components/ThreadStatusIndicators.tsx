@@ -78,11 +78,12 @@ const BREAKDOWN_LINES: ReadonlyArray<{
 
 /** Dot colour for a gated sub-thread row in the popover, by its human gate. */
 const ACTION_REASON_DOT: Record<AttentionReason, string> = {
-  approval: "bg-amber-400",
-  input: "bg-amber-400",
-  review: "bg-violet-400",
-  blocked: "bg-amber-400",
-  plan: "bg-violet-400",
+  error: "bg-rose-400",
+  awaiting_approval: "bg-amber-400",
+  awaiting_input: "bg-amber-400",
+  awaiting_acceptance: "bg-violet-400",
+  needs_guidance: "bg-orange-400",
+  proposed_plan: "bg-violet-400",
 };
 
 /**

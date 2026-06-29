@@ -1,4 +1,4 @@
-import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
+import type { AttentionReason, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
 /**
  * workstreamGraph - the single pure source of truth for the workstream graph:
@@ -22,10 +22,25 @@ import type { ThreadId, ThreadStatus } from "@t3tools/contracts";
  */
 export interface GraphThread extends GraphLineageNode {
   readonly spawnGeneration: string | null;
-  readonly status: ThreadStatus;
+  readonly planLane: ThreadPlanLane;
+  readonly attention: ReadonlyArray<AttentionReason>;
   readonly role: string | null;
   readonly title: string | null;
 }
+
+/**
+ * Runtime-executing projection (axis 2): a turn is literally turning right now.
+ * Both `OrchestrationThread` and `OrchestrationThreadShell` carry `session` +
+ * `latestTurn`, so this single predicate keeps the dispatcher join, the board,
+ * and the terminal-for-join predicate in agreement on "is it executing?".
+ */
+export interface RuntimeExecutingNode {
+  readonly session: { readonly status: string } | null;
+  readonly latestTurn: { readonly state: string } | null;
+}
+
+export const isExecuting = (node: RuntimeExecutingNode): boolean =>
+  node.session?.status === "running" || node.latestTurn?.state === "running";
 
 /**
  * The minimal lineage shape the structural walkers (root/descendants/subtree)
@@ -159,28 +174,33 @@ export const isInSameTree = <T extends GraphLineageNode>(
 };
 
 /**
- * A child is "terminal" for the join barrier when it has reached `done`,
- * `blocked`, `review`, or `error`. `planned`/`running` are not.
+ * A child is "terminal" for the join barrier (design §6) when its plan lane is
+ * `done`/`cancelled`, OR it carries a raised attention flag and is not currently
+ * executing ("won't progress without a human"). A node that is merely
+ * `planned`/`ready`/`in_progress` with no attention is not terminal.
  *
- * `error` is included for ONE reason only (D-liveness decision 5): barrier
- * unblock — a generation containing an errored child can still *join* once the
- * rest are terminal, so an errored child no longer strands its siblings'
- * results forever. It is NOT the wake mechanism: an errored child among
- * still-running siblings won't fire this barrier, so the parent is woken
- * promptly through the per-child rail in `WorkstreamDispatcher` instead.
- * `error` also does NOT release dependents (that stays done-only in
- * `workstreamDependencies`).
+ * An attention-flagged child still *joins* once the rest of its generation is
+ * terminal, so it never strands its siblings' results forever. It is NOT the
+ * wake mechanism: a flagged child among still-executing siblings won't fire this
+ * barrier, so the parent is woken promptly through the per-child rail in
+ * `WorkstreamDispatcher` instead. Only `done` releases dependents (that stays
+ * done-only in `workstreamDependencies`).
  */
-const TERMINAL_STATUSES: ReadonlySet<ThreadStatus> = new Set([
-  "done",
-  "blocked",
-  "review",
-  "error",
-]);
-export const isTerminalStatus = (status: ThreadStatus): boolean => TERMINAL_STATUSES.has(status);
+export interface TerminalForJoinNode extends RuntimeExecutingNode {
+  readonly planLane: ThreadPlanLane;
+  readonly attention: ReadonlyArray<AttentionReason>;
+}
 
-/** The fields the generation join reads — a subset of `GraphThread`. */
-type JoinGroupThread = Pick<GraphThread, "parentThreadId" | "spawnGeneration" | "status">;
+export const isTerminalForJoin = (node: TerminalForJoinNode): boolean =>
+  node.planLane === "done" ||
+  node.planLane === "cancelled" ||
+  (node.attention.length > 0 && !isExecuting(node));
+
+/** The fields the generation join reads. */
+type JoinGroupThread = {
+  readonly parentThreadId: ThreadId | null;
+  readonly spawnGeneration: string | null;
+} & TerminalForJoinNode;
 
 export interface JoinedGeneration<T> {
   readonly parentId: ThreadId;
@@ -215,7 +235,7 @@ export const selectJoinedGenerations = <T extends JoinGroupThread>(
       });
   }
   return [...groups.values()].filter((group) =>
-    group.children.every((child) => isTerminalStatus(child.status)),
+    group.children.every((child) => isTerminalForJoin(child)),
   );
 };
 
@@ -230,7 +250,8 @@ export interface GraphViewNode {
   readonly parentThreadId: ThreadId | null;
   readonly role: string | null;
   readonly title: string | null;
-  readonly status: ThreadStatus;
+  readonly planLane: ThreadPlanLane;
+  readonly attention: ReadonlyArray<AttentionReason>;
   readonly spawnGeneration: string | null;
   readonly hasReport: boolean;
 }
@@ -269,7 +290,8 @@ export const graphViewFor = <T extends GraphViewThread>(
     parentThreadId: thread.parentThreadId,
     role: thread.role,
     title: thread.title,
-    status: thread.status,
+    planLane: thread.planLane,
+    attention: thread.attention,
     spawnGeneration: thread.spawnGeneration,
     hasReport: thread.reportPath !== null,
   }));

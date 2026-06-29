@@ -61,11 +61,12 @@ export interface WorkstreamGraphBadge {
 }
 
 export const ATTENTION_REASON_LABEL: Record<AttentionReason, string> = {
-  approval: "awaiting approval",
-  input: "awaiting input",
-  review: "in review",
-  blocked: "blocked",
-  plan: "plan ready",
+  error: "error / stalled",
+  awaiting_approval: "awaiting approval",
+  awaiting_input: "awaiting input",
+  awaiting_acceptance: "awaiting acceptance",
+  needs_guidance: "needs guidance",
+  proposed_plan: "plan ready",
 };
 
 const BADGE_TONE_CLASS: Record<WorkstreamGraphBadge["tone"], string> = {

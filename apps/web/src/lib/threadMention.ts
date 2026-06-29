@@ -15,7 +15,7 @@ export const THREAD_MENTION_MATCH_LIMIT = 8;
 export const describeThreadSummary = (thread: SidebarThreadSummary): string => {
   const location =
     thread.branch ?? (thread.worktreePath ? basenameOfPath(thread.worktreePath) : null);
-  return [thread.role, thread.status, location].filter(Boolean).join(" · ");
+  return [thread.role, thread.planLane, location].filter(Boolean).join(" · ");
 };
 
 /**
