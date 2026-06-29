@@ -122,6 +122,17 @@ export const wakeRateGuardTrips = (
 export const WAKE_REPORT_EXCERPT_LIMIT = 600;
 
 /**
+ * Control-plane attribution marker. The dispatcher injects wake/notice texts as
+ * `role:"user"` turns (pi has no separate channel), so without this leading line
+ * a parent cannot tell an automated workstream notice from a real human message.
+ * Shared by both wake builders so they can't drift; the work-model system prompt
+ * teaches the agent to treat a marked turn as a control-plane signal, not the
+ * user's directive.
+ */
+export const WORKSTREAM_CONTROL_PLANE_MARKER =
+  "[T3 Workstream control plane — automated notice, not from the user]";
+
+/**
  * Bounded inline report excerpt shared by both wake-message builders: empty when
  * there is no report, the trimmed report when it fits, else a truncated prefix
  * plus a pointer to the on-disk reference. Leads with a blank line so callers
@@ -161,6 +172,8 @@ export const buildParentWakeMessage = (
     return `${header}\n\n${reference}${formatReportExcerpt(child.report)}`;
   });
   return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
     "A spawn generation of your Workstream sub-thread(s) has finished. Results:",
     "",
     sections.join("\n\n"),
@@ -303,8 +316,8 @@ export const idleWakeWithinGrace = (
 /**
  * Pure per-child wake-message builder. Tells the parent which child went
  * `error` / quiet, points at its on-disk report (with a bounded excerpt), and
- * instructs it to investigate via `workstream_read_thread`/`workstream_ask_thread`
- * then advance the child's plan lane (`done`/`cancelled`) or re-dispatch.
+ * instructs it to investigate (its report, or `consult_thread` for a Q&A) then
+ * advance the child's plan lane (`done`/`cancelled`) or re-dispatch.
  */
 export const buildChildWakeMessage = (
   child: {
@@ -328,9 +341,17 @@ export const buildChildWakeMessage = (
       : "_No report was filed._";
   const tail =
     kind === "recovered"
-      ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report via `workstream_read_thread`, fold its result into your orchestration, and continue."
-      : "Investigate with `workstream_read_thread` / `workstream_ask_thread`, then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
-  return [lead, "", reference + formatReportExcerpt(report), "", tail].join("\n");
+      ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
+      : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
+  return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    lead,
+    "",
+    reference + formatReportExcerpt(report),
+    "",
+    tail,
+  ].join("\n");
 };
 const parkCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:park:${parentId}:${generation}`;

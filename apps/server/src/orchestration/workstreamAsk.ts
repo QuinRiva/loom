@@ -1,5 +1,5 @@
 /**
- * workstreamAsk - the `ask_thread` frozen-oracle mechanism.
+ * workstreamAsk - the frozen-oracle mechanism behind `consult_thread`.
  *
  * Answers a question from a READ-ONLY fork of a target workstream thread's pi
  * session, without resuming or mutating the target. Mirrors `consult_manager`:

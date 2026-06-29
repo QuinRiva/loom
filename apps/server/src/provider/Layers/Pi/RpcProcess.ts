@@ -148,7 +148,7 @@ export interface PiRpcProcessOptions {
   readonly sessionId?: string | undefined;
   // Fork the named source session (id or path) into a fresh session. Combined
   // with `sessionId`, pi creates a throwaway fork with that fresh id and never
-  // mutates the source (the `ask_thread` frozen-oracle mechanism). pi errors if
+  // mutates the source (the `consult_thread` frozen-oracle mechanism). pi errors if
   // `sessionId` already exists, so the fresh id must be unique.
   readonly forkFrom?: string | undefined;
   readonly appendSystemPrompt?: string | undefined;

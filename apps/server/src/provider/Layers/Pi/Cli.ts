@@ -8,7 +8,7 @@ export const DEFAULT_PI_BINARY_PATH = "pi";
 /**
  * Deterministic per-thread pi session id: the thread id with non-id characters
  * sanitized. pi create-or-resumes the SAME session file for it across restarts,
- * and `ask_thread` resolves the target's frozen session by this same id.
+ * and `consult_thread` resolves the target's frozen session by this same id.
  */
 export const piSessionIdForThread = (threadId: string): string =>
   threadId.replace(/[^a-zA-Z0-9_-]/g, "-");

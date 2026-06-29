@@ -41,13 +41,11 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
-  workstreamAskThreadUrlFromMcpEndpoint,
   workstreamAttentionUrlFromMcpEndpoint,
   workstreamConsultThreadUrlFromMcpEndpoint,
   workstreamDependenciesUrlFromMcpEndpoint,
   workstreamLaneUrlFromMcpEndpoint,
   workstreamListUrlFromMcpEndpoint,
-  workstreamReadThreadUrlFromMcpEndpoint,
   workstreamReleaseUrlFromMcpEndpoint,
   workstreamReportUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
@@ -91,8 +89,8 @@ const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilitie
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
 });
-const PI_WORKSTREAM_SYSTEM_PROMPT =
-  "T3 Code exposes Workstream tools in this session. Use `workstream_spawn` to delegate durable, autonomous work to a child thread (for example a coder, reviewer, or researcher); it resolves this current thread as the parent automatically, so provide a role, a short `purpose` (1-3 sentences shown on the sidebar card as the thread's 'Goal'; state the value the work delivers — the capability, fix, or decision it produces — not the role or the mechanical steps, since the card already shows the role), and — for non-trivial work — a full self-contained `brief` that becomes the child's first-turn prompt (it defaults to `purpose` when omitted, since the child starts fresh and inherits no transcript). Pass an optional title too. A child with no dependencies starts immediately; a child spawned with `blockedBy` (an array of sibling thread ids) is created but does not start until every listed thread reaches `done`, then starts automatically. To gate execution, spawn the dependency first to get its id, then spawn the dependent with `blockedBy: [thatId]`. Use `workstream_set_status` to move a thread between planned, running, blocked, review, and done (omit threadId to report your own status). `workstream_set_dependencies` is re-planning only: it re-gates a not-yet-started thread, but cannot un-run a thread that has already started — for that thread the edge is recorded for display only. You may only set status or dependencies on your own thread or threads you directly spawned. To coordinate across the workstream, use `workstream_list` to see your whole workstream graph (every thread's id, role, status, and waits-on edges) — this is how you discover sibling ids you were not handed. Then `read_thread` pulls another thread's filed report plus recent activity (no model call), and `ask_thread` asks another thread a read-only question answered from a frozen fork of its session (it never resumes or mutates that thread). Read/ask work on any thread in your workstream tree, including siblings and finished/archived threads. Separately, when the USER points you at some other thread by name (e.g. \"ask the liveness-detection thread how it fixed the loop detector\"), use `consult_thread` — it is the user-directed, GLOBAL-scope read-only consult (any thread on the server, across worktrees/projects), not limited to your workstream tree. Pass `name` for a fuzzy title match; if the user @-mentioned a thread it arrives in the message as `[Title](thread://<id>)`, so pass that exact `<id>` as `threadId` instead. If a name is ambiguous, `consult_thread` returns ranked candidates rather than guessing — show them to the user and confirm which thread they meant before consulting.";
+const PI_WORK_MODEL_SYSTEM_PROMPT =
+  "You operate inside T3 Code's work model: Goals → Tasks → Workstream. This is how every thread here is organised, whatever its role.\n\nA GOAL is a single durable objective that outlives any one session and spans many — the north star for all work under it. Orient to it; if work drifts from the goal, refocus or update it. A goal is decomposed into a TASK TREE: the living, shared record of what is done and what remains — for the agents working it and for the human who glances at it to re-orient. It is kept current as work progresses.\n\nWork happens in a WORKSTREAM: a tree of durable threads. You are one thread in it, and your role overlay says how you act within it. A ROOT thread ORCHESTRATES — it plans, delegates, and reviews rather than doing the work by hand. A CHILD thread EXECUTES a single self-contained brief and hands a result back. A child is a real, persistent thread a human can open and talk to, not a throwaway: spawning one is deliberate, and a child starts fresh — it inherits none of the parent's conversation, only the brief it is given. Work flows down as briefs and back up as reports; dependencies order it, so dependent work waits while independent work runs in parallel.\n\nGetting information from another thread, cheapest first: a thread's REPORT is its curated hand-back — read that first. The workstream GRAPH lets you see every thread and find any of them without searching (`workstream_list`). To resolve an ambiguity, CONSULT the thread that holds the context. The full thread history can be accessed via the Pi session jsonl file if necessary.\n\nA few principles keep this coherent:\n- Your assignment is your task. For a child that is its spawn brief; at the root it is the user's direction. An inherited goal is background - align to it, but where it and your assignment differ, follow the assignment.\n- Work at your level. If you orchestrate, delegate substantial work to children rather than absorbing it inline. If you execute a brief, do the work directly.\n- Status describes the plan; runtime is the truth. A thread's status is where it sits in the workflow; whether its agent is actually working is a separate, system-tracked fact. Lean on the system's signals for a child's state rather than inferring from a single quiet look — and if a signal looks wrong for what you can plainly see, verify rather than act blindly.\n- System notices are not the human. Automated workstream notices (a child finished, needs attention, recovered) are control-plane signals for you to act on, not messages from the user.";
 
 const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [
@@ -712,8 +710,8 @@ function makePiAdapter(input: {
           try: () => {
             const mcpSession = McpProviderSession.readMcpProviderSession(startInput.threadId);
             const appendSystemPrompt = appendSystemPrompts(
+              mcpSession ? PI_WORK_MODEL_SYSTEM_PROMPT : undefined,
               startInput.appendSystemPrompt,
-              mcpSession ? PI_WORKSTREAM_SYSTEM_PROMPT : undefined,
             );
             const piCwd = startInput.cwd ?? input.serverConfig.cwd;
             return createPiRpcProcess({
@@ -753,12 +751,6 @@ function makePiAdapter(input: {
                         mcpSession.endpoint,
                       ),
                       T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_WORKSTREAM_READ_THREAD_URL: workstreamReadThreadUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_ASK_THREAD_URL: workstreamAskThreadUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
                       T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),

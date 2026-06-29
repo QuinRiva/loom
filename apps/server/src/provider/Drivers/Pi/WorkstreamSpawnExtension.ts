@@ -30,12 +30,8 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
     description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces — NOT the role or the mechanical steps, and put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId]. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
-    promptSnippet: "workstream_spawn: launch a durable child T3 thread for delegated work; pass role, a short purpose, an optional full brief (the child's kickoff prompt; defaults to purpose), optional title, optional blockedBy (waits-on thread ids), and an optional model override (modelSelection or a named modelPreset; with neither, a preset named after the role is used when configured, else the parent's model is inherited).",
+    promptSnippet: "launch a durable child thread for delegated work: role + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
     promptGuidelines: [
-      "Use workstream_spawn when you need a separate coder, reviewer, researcher, or other durable child thread to work independently.",
-      "Write purpose as the VALUE the work delivers, not the actions it takes. The sidebar card already shows the role (coder, reviewer, researcher…), so 'Implement X' or 'Review Y' is redundant — lead with the user-facing capability gained, the problem solved, or the question answered, so a reader scanning the sidebar can tell why the work matters and how to judge it, without reading the brief.",
-      "Keep purpose to 1-3 sentences and free of step-by-step mechanics; the detailed how goes in brief, not purpose.",
-      "For anything beyond a trivial task, pass a full self-contained brief: it becomes the child's first-turn prompt verbatim, and the child starts fresh without inheriting this transcript. Omit brief only when the short purpose is already a sufficient prompt.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
       "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run."
@@ -94,7 +90,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_set_lane",
     label: "Set Workstream Plan Lane",
     description: "Advance the PLAN of a T3 Code Workstream thread you own (this thread or one you directly spawned) along its lifecycle: planned (held) → ready (released) → done, or cancelled. 'done' is the only lane that releases dependents and lets the next thread start; 'cancelled' abandons the work and does NOT release dependents. 'in_progress' is set automatically when a turn starts and is never settable here. This is the PLAN axis only — to flag that a human is needed, use workstream_request_attention instead.",
-    promptSnippet: "workstream_set_lane: advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'in_progress' is automatic.",
+    promptSnippet: "advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'in_progress' is automatic.",
     promptGuidelines: [
       "Set 'done' when the work is genuinely complete — it releases any dependents/reviewers. Set 'cancelled' to abandon work (dependents stay blocked).",
       "Use 'ready'/'planned' to release or hold staged work. Omit threadId to advance your own plan; you may only set the lane on your own thread or threads you directly parent.",
@@ -124,7 +120,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_request_attention",
     label: "Request Workstream Attention",
     description: "Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. Two reasons: 'awaiting_acceptance' means a human (or the parent acting for the human) must accept this thread's output before its plan may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just goes 'done', which releases that reviewer). 'needs_guidance' means you cannot proceed without a human. The flag clears automatically when the thread resumes or reaches done/cancelled.",
-    promptSnippet: "workstream_request_attention: flag that a human is needed — 'awaiting_acceptance' (your output needs sign-off before done) or 'needs_guidance' (you're stuck).",
+    promptSnippet: "flag that a human is needed — 'awaiting_acceptance' (your output needs sign-off before done) or 'needs_guidance' (you're stuck).",
     promptGuidelines: [
       "Raise 'awaiting_acceptance' only when a HUMAN must accept your output before completion — not merely because a reviewer thread exists (that case is just 'done', which releases the reviewer).",
       "Raise 'needs_guidance' when you genuinely cannot proceed without a human. Don't sit silently halted — either advance the plan, or raise attention.",
@@ -154,7 +150,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_release",
     label: "Release Workstream Subtree",
     description: "Release a held (staged) Workstream subtree: flip every 'planned' node in the target thread's subtree to 'ready' so it runs once its dependencies clear. Use this after laying out a DAG with staged spawns and reviewing the work breakdown. The result names exactly which nodes were flipped so an intentional mixed-hold is not silently erased. Default target is your own subtree.",
-    promptSnippet: "workstream_release: flip a held (planned) subtree to ready so it starts running; reports which nodes were released.",
+    promptSnippet: "flip a held (planned) subtree to ready so it starts running; reports which nodes were released.",
     promptGuidelines: [
       "Use workstream_release once you've reviewed a staged DAG and want it to run. Only 'planned' nodes in the subtree are flipped; already-released/running nodes are untouched.",
       "Omit threadId to release your own subtree; you may only release your own thread or a thread you directly parent."
@@ -181,7 +177,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_stop",
     label: "Stop Workstream Child",
     description: "Stop a direct child Workstream thread you spawned: interrupt its active turn and pause it, leaving its plan lane 'in_progress'. This is an ORCHESTRATOR pause — you own restarting it (send it a prompt to resume). No attention flag is raised, because you are the resumer; if you forget to resume, the idle backstop surfaces it for a human after a grace window.",
-    promptSnippet: "workstream_stop: interrupt a direct child's active turn (orchestrator pause; you own the resume).",
+    promptSnippet: "interrupt a direct child's active turn (orchestrator pause; you own the resume).",
     promptGuidelines: [
       "Use workstream_stop to pause a child you intend to redirect or resume yourself. To resume, just send it a prompt (the next turn continues).",
       "This is for direct children only. A human stop from the board raises needs_guidance instead, because no agent owns the resume."
@@ -208,8 +204,8 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_report",
     label: "Report Workstream Result",
-    description: "Record a deliberate markdown handoff of what this T3 Code Workstream sub-thread wants to communicate back to its parent orchestrator (not your whole transcript). The report is stored and shown to the parent when it is woken on your completion. Call this just before marking yourself 'done', 'review', or 'blocked'.",
-    promptSnippet: "workstream_report: hand a concise markdown result back to your parent orchestrator before you finish.",
+    description: "Record a deliberate markdown handoff of what this T3 Code Workstream sub-thread wants to communicate back to its parent orchestrator (not your whole transcript). The report is stored and shown to the parent when it is woken on your completion. Call this just before you advance your plan lane (e.g. to 'done') or raise attention.",
+    promptSnippet: "hand a concise markdown result back to your parent before you finish.",
     promptGuidelines: [
       "Write a self-contained markdown summary: what you did, key results/decisions, and anything the parent must act on.",
       "Call workstream_report before you advance your plan lane (workstream_set_lane) or raise attention so the parent sees your report when it is woken.",
@@ -237,11 +233,9 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     name: "workstream_set_dependencies",
     label: "Set Workstream Dependencies",
     description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but a thread that has already started running is never un-run — the edge is recorded for display only. To gate a child's execution from the start, pass blockedBy at spawn time instead.",
-    promptSnippet: "workstream_set_dependencies: declare the threads a Workstream thread is blocked by (replace-set, re-planning only).",
+    promptSnippet: "adjust the blockedBy set of a not-yet-started thread (re-planning only; does not gate an already-started thread).",
     promptGuidelines: [
-      "Use workstream_set_dependencies to declare 'waits-on' edges; blockedBy replaces the whole set each call.",
-      "To actually defer a child's start until its dependencies finish, set blockedBy when you spawn it; setting dependencies after a thread is already running does not stop it.",
-      "Omit threadId to declare your own dependencies; you may only set dependencies on your own thread or threads you directly parent."
+      "blockedBy replaces the whole set each call; to actually defer a child's start, set blockedBy at spawn time — setting dependencies after a thread is already running does not stop it."
     ],
     parameters: {
       type: "object",
@@ -267,11 +261,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_list",
     label: "List Workstream",
-    description: "List your workstream: the whole graph of threads in your orchestration tree (every thread's id, role, title, plan lane, attention flags, spawn generation, parent, whether it has filed a report) plus lineage and waits-on edges. This is how you discover the ids of sibling/other threads you were not handed directly, so you can then read_thread or ask_thread them.",
-    promptSnippet: "workstream_list: see your whole workstream graph (thread ids, roles, statuses, edges) to discover threads you can read or ask.",
+    description: "List your workstream: the whole graph of threads in your orchestration tree (every node's id, role, title, plan lane, attention flags, spawn generation, parent, last-activity, and report/session file paths) plus lineage and waits-on edges. This is how you discover the ids of sibling/other threads you were not handed directly, so you can then consult them or read their report/session files.",
+    promptSnippet: "see your whole workstream graph — ids, roles, plan lanes/attention, last-activity, report/session paths — to find any thread without searching.",
     promptGuidelines: [
-      "Call workstream_list first when you need to coordinate with another thread but only know it exists, not its id.",
-      "The returned tree is exactly the scope you can read_thread / ask_thread — you can only inspect threads in your own workstream."
+      "Call workstream_list first when you need to coordinate with another thread but only know it exists, not its id; the returned tree is exactly your workstream scope."
     ],
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute(_id, params, signal) {
@@ -286,74 +279,13 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   });
 
   pi.registerTool({
-    name: "workstream_read_thread",
-    label: "Read Workstream Thread",
-    description: "Read another thread in your workstream: its filed report (markdown), role/title/plan lane + attention flags, whether it has a report, and a compact recent-activity summary (last assistant message + recent activity rows). No model call — this is a passive pull. Works on siblings and on finished/archived threads (archived targets return report + metadata without the activity summary). Use workstream_list first to find the threadId.",
-    promptSnippet: "workstream_read_thread: pull another workstream thread's report + metadata (no model call).",
-    promptGuidelines: [
-      "Use read_thread to get a thread's filed report and recent state without re-running it.",
-      "If the thread filed no report you still get its metadata and last output — it never errors empty."
-    ],
-    parameters: {
-      type: "object",
-      properties: {
-        threadId: { type: "string", description: "Id of the workstream thread to read (from workstream_list)." }
-      },
-      required: ["threadId"],
-      additionalProperties: false
-    },
-    async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_READ_THREAD_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const result = outcome.result ?? {};
-      const parts = [];
-      if (result.report) parts.push(result.report);
-      else parts.push("(" + (result.role ?? "thread") + " " + (result.threadId ?? params.threadId) + " — " + (result.planLane ?? "unknown") + "; no report filed)");
-      return {
-        content: [{ type: "text", text: parts.join("\n\n") }],
-        details: { ok: true, ...result }
-      };
-    }
-  });
-
-  pi.registerTool({
-    name: "workstream_ask_thread",
-    label: "Ask Workstream Thread",
-    description: "Ask another thread in your workstream a question, answered from a READ-ONLY frozen fork of that thread's session. It never resumes or mutates the target — the fork is a throwaway with no write/command tools and no workstream access, so it cannot change anything. Use this to get clarifying answers from a sibling/child that has the relevant context. If that thread's context does not resolve your question, the answer says so rather than guessing. Use workstream_list first to find the threadId.",
-    promptSnippet: "workstream_ask_thread: ask another workstream thread a read-only question, answered from a frozen fork of its session.",
-    promptGuidelines: [
-      "Use ask_thread when you need a thread's reasoning/knowledge, not just its report — it consults a read-only fork of its session.",
-      "It cannot mutate the target; treat the answer as advisory and expect an honest 'not resolved' when the session lacks the context."
-    ],
-    parameters: {
-      type: "object",
-      properties: {
-        threadId: { type: "string", description: "Id of the workstream thread to ask (from workstream_list)." },
-        question: { type: "string", description: "The question to answer from the target thread's frozen session context." }
-      },
-      required: ["threadId", "question"],
-      additionalProperties: false
-    },
-    async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_ASK_THREAD_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const answer = outcome.result?.answer ?? "(no answer)";
-      return {
-        content: [{ type: "text", text: answer }],
-        details: { ok: true, ...outcome.result }
-      };
-    }
-  });
-
-  pi.registerTool({
     name: "consult_thread",
     label: "Consult Thread (user-directed)",
-    description: "USER-DIRECTED, GLOBAL read-only consult of another thread, answered from a frozen fork of that thread's session. This is the human-facing complement to workstream_ask_thread: it reaches ANY thread the server knows (across worktrees and projects), not just your workstream tree. Use it when the user points you at another thread — by name (\"ask the liveness-detection thread …\") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](thread://<id>) — pass that <id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm with the user, then call again with the chosen threadId. It never resumes or mutates the target.",
-    promptSnippet: "consult_thread: user-directed, global read-only consult of any thread on the server by name or @-mentioned threadId.",
+    description: "GLOBAL read-only consult of another thread, answered from a frozen fork of that thread's session. It reaches ANY thread the server knows (across worktrees and projects), not just your workstream tree. Use it when the user points you at another thread — by name (\"ask the liveness-detection thread …\") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](thread://<id>) — pass that <id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm with the user, then call again with the chosen threadId. It never resumes or mutates the target.",
+    promptSnippet: "ask another thread a read-only question (answered from a frozen fork) by id, @-mention, or name; never mutates it.",
     promptGuidelines: [
-      "Use consult_thread (not workstream_ask_thread) when the USER directs you to another thread — it is global scope and not limited to your workstream tree.",
       "Prefer threadId: an @-mentioned thread arrives as [Title](thread://<id>); pass that exact <id>. Otherwise pass name for a fuzzy title match.",
-      "If the result is unresolved with candidates, do not guess — show the candidates to the user and confirm which thread they meant before consulting."
+      "If the result is unresolved with candidates, do not guess — confirm which thread was meant before consulting again with its threadId."
     ],
     parameters: {
       type: "object",

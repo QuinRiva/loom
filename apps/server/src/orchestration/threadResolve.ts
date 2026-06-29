@@ -1,7 +1,6 @@
 /**
  * threadResolve - target resolution for the USER-DIRECTED `consult_thread`
- * capability (the human-facing complement to the workstream-scoped
- * `workstream_ask_thread`).
+ * capability (global scope: any thread the server knows, across worktrees).
  *
  * Two independent concerns, both deliberately OUTSIDE the workstream-tree scope:
  *

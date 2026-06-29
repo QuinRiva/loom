@@ -6,7 +6,6 @@ import {
   descendantsOf,
   graphViewFor,
   type GraphViewThread,
-  isInSameTree,
   isTerminalForJoin,
   selectJoinedGenerations,
   subtreeCostOf,
@@ -26,6 +25,8 @@ const node = (
   title: null,
   reportPath: null,
   blockedBy: [],
+  lastActivityAt: null,
+  lastActivitySummary: null,
   ...overrides,
   id: tid(overrides.id),
 });
@@ -104,38 +105,6 @@ describe("subtreeCostOf", () => {
   it("treats null/absent cost as 0 and a missing node as 0", () => {
     expect(subtreeCostOf(tid("ghost"), costTree)).toBe(0);
     expect(subtreeCostOf(tid("a"), [costNode("a", null, null), costNode("b", "a", 3)])).toBe(3);
-  });
-});
-
-describe("isInSameTree", () => {
-  it("is true for a thread and itself", () => {
-    expect(isInSameTree(tid("child-1"), tid("child-1"), tree)).toBe(true);
-  });
-
-  it("is true for siblings (the reviewer→coder case)", () => {
-    expect(isInSameTree(tid("child-1"), tid("child-2"), tree)).toBe(true);
-  });
-
-  it("is true across ancestor/descendant and cousin within one tree", () => {
-    expect(isInSameTree(tid("child-1"), tid("grandchild"), tree)).toBe(true);
-    expect(isInSameTree(tid("grandchild"), tid("root-a"), tree)).toBe(true);
-  });
-
-  it("is false across separate orchestration trees", () => {
-    expect(isInSameTree(tid("child-1"), tid("other"), tree)).toBe(false);
-    expect(isInSameTree(tid("root-a"), tid("root-b"), tree)).toBe(false);
-  });
-
-  it("is false for a target absent from the snapshot", () => {
-    expect(isInSameTree(tid("child-1"), tid("ghost"), tree)).toBe(false);
-  });
-
-  it("terminates (no infinite loop) on a parent cycle", () => {
-    const cyclic = [
-      node({ id: "x", parentThreadId: tid("y") }),
-      node({ id: "y", parentThreadId: tid("x") }),
-    ];
-    expect(typeof isInSameTree(tid("x"), tid("y"), cyclic)).toBe("boolean");
   });
 });
 

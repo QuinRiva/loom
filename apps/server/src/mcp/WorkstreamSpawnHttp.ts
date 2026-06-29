@@ -14,7 +14,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import { graphViewFor, isInSameTree, subtreeOf } from "@t3tools/shared/workstreamGraph";
+import { graphViewFor, subtreeOf } from "@t3tools/shared/workstreamGraph";
 
 import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -25,7 +25,7 @@ import {
   rankThreadsByName,
   resolveSessionFilePath,
 } from "../orchestration/threadResolve.ts";
-import { readWorkstreamReport, writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
+import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -64,15 +64,6 @@ interface WorkstreamReportRequest {
   readonly markdown?: unknown;
 }
 
-interface WorkstreamReadThreadRequest {
-  readonly threadId?: unknown;
-}
-
-interface WorkstreamAskThreadRequest {
-  readonly threadId?: unknown;
-  readonly question?: unknown;
-}
-
 interface WorkstreamConsultThreadRequest {
   readonly threadId?: unknown;
   readonly name?: unknown;
@@ -87,8 +78,6 @@ const STOP_PATH = "/provider-tools/workstream/stop";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
 const REPORT_PATH = "/provider-tools/workstream/report";
 const LIST_PATH = "/provider-tools/workstream/list";
-const READ_THREAD_PATH = "/provider-tools/workstream/read-thread";
-const ASK_THREAD_PATH = "/provider-tools/workstream/ask-thread";
 const CONSULT_THREAD_PATH = "/provider-tools/workstream/consult-thread";
 
 // Server-side guard on a single fork turn (forking handles transcript size, so
@@ -98,8 +87,6 @@ const ASK_QUESTION_MAX_CHARS = 8_000;
 // Cap candidates surfaced on an ambiguous name so the agent gets a focused
 // disambiguation set rather than the whole server's thread list.
 const CONSULT_CANDIDATE_LIMIT = 8;
-const READ_ACTIVITY_LIMIT = 3;
-const READ_MESSAGE_EXCERPT_LIMIT = 800;
 
 // Plan lanes an agent may set (the `workstream_set_lane` enum). `in_progress` is
 // control-plane-only (set by starting a turn) and is excluded; the decider also
@@ -219,12 +206,6 @@ export const workstreamReportUrlFromMcpEndpoint = (mcpEndpoint: string): string 
 
 export const workstreamListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, LIST_PATH);
-
-export const workstreamReadThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, READ_THREAD_PATH);
-
-export const workstreamAskThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, ASK_THREAD_PATH);
 
 export const workstreamConsultThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, CONSULT_THREAD_PATH);
@@ -619,8 +600,24 @@ const handleWorkstreamList = Effect.gen(function* () {
     return jsonError(401, "A valid provider-scoped Workstream credential is required.");
   }
   const threads = yield* collectGraphThreads();
+  // Enrich each node with a last-activity signal (the projection's freshness
+  // timestamp + one-line preview) and an absolute session jsonl path, so the
+  // three-tier read model (report → list+jsonl → consult) needs no bespoke
+  // read tool. `sessionPath` is resolved per node from the deterministic pi
+  // session id; null until the file first lands on disk.
+  const viewThreads = threads.map((thread) => ({
+    ...thread,
+    lastActivityAt: thread.updatedAt,
+    lastActivitySummary: thread.lastActivityPreview,
+  }));
   // The caller is implicitly in its own tree; no target arg, no 403 path.
-  return HttpServerResponse.jsonUnsafe(graphViewFor(scope.threadId, threads));
+  return HttpServerResponse.jsonUnsafe(
+    graphViewFor(
+      scope.threadId,
+      viewThreads,
+      (id) => resolveSessionFilePath(piSessionIdForThread(id)) ?? null,
+    ),
+  );
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -629,123 +626,9 @@ const handleWorkstreamList = Effect.gen(function* () {
   ),
 );
 
-const handleWorkstreamReadThread = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const scope = yield* resolveWorkstreamScope();
-  if (!scope) {
-    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
-  }
-  const body = (yield* request.json.pipe(
-    Effect.orElseSucceed((): WorkstreamReadThreadRequest => ({})),
-  )) as WorkstreamReadThreadRequest;
-  const threadId = trimString(body.threadId);
-  if (!threadId) return jsonError(400, "threadId is required.");
-  const target = ThreadId.make(threadId);
-
-  const threads = yield* collectGraphThreads();
-  const shell = threads.find((thread) => thread.id === target);
-  // Distinguish missing (404) from out-of-tree (403).
-  if (shell === undefined) return jsonError(404, "Target thread was not found.");
-  if (!isInSameTree(scope.threadId, target, threads)) {
-    return jsonError(403, "Credential may only read threads in its own workstream.");
-  }
-
-  const projection = yield* ProjectionSnapshotQuery;
-  // Active detail carries messages/activities for the recent-activity summary;
-  // an archived target has no detail query, so fall back to degraded shell
-  // metadata (report + role/title/status) and omit the activity summary.
-  const detail = yield* projection.getThreadDetailById(target);
-  const report = yield* readWorkstreamReport(target);
-  const source = Option.getOrUndefined(detail) ?? shell;
-
-  const recentActivity = Option.match(detail, {
-    onNone: () => null,
-    onSome: (thread) => {
-      const lastAssistant = [...thread.messages]
-        .toReversed()
-        .find((message) => message.role === "assistant");
-      const lastAssistantMessage = lastAssistant
-        ? lastAssistant.text.trim().slice(0, READ_MESSAGE_EXCERPT_LIMIT)
-        : null;
-      const activities = thread.activities.slice(-READ_ACTIVITY_LIMIT).map((activity) => ({
-        kind: activity.kind,
-        summary: activity.summary,
-        createdAt: activity.createdAt,
-      }));
-      return { lastAssistantMessage, activities };
-    },
-  });
-
-  return HttpServerResponse.jsonUnsafe({
-    threadId: target,
-    role: source.role,
-    title: source.title,
-    planLane: source.planLane,
-    attention: source.attention,
-    archived: Option.isNone(detail),
-    hasReport: source.reportPath !== null,
-    report: Option.getOrNull(report),
-    recentActivity,
-  });
-}).pipe(
-  Effect.catch((error: unknown) =>
-    Effect.succeed(
-      jsonError(500, error instanceof Error ? error.message : "Failed to read the thread."),
-    ),
-  ),
-);
-
-const handleWorkstreamAskThread = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const scope = yield* resolveWorkstreamScope();
-  if (!scope) {
-    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
-  }
-  const body = (yield* request.json.pipe(
-    Effect.orElseSucceed((): WorkstreamAskThreadRequest => ({})),
-  )) as WorkstreamAskThreadRequest;
-  const threadId = trimString(body.threadId);
-  const question = typeof body.question === "string" ? body.question.trim() : "";
-  if (!threadId) return jsonError(400, "threadId is required.");
-  if (question.length === 0) return jsonError(400, "question is required.");
-  if (question.length > ASK_QUESTION_MAX_CHARS) {
-    return jsonError(400, `question must be at most ${ASK_QUESTION_MAX_CHARS} characters.`);
-  }
-  const target = ThreadId.make(threadId);
-
-  const threads = yield* collectGraphThreads();
-  const shell = threads.find((thread) => thread.id === target);
-  if (shell === undefined) return jsonError(404, "Target thread was not found.");
-  if (!isInSameTree(scope.threadId, target, threads)) {
-    return jsonError(403, "Credential may only ask threads in its own workstream.");
-  }
-
-  const config = yield* ServerConfig;
-  const serverSettings = yield* ServerSettingsService;
-  const settings = yield* serverSettings.getSettings;
-  const crypto = yield* Crypto.Crypto;
-  const answer = yield* askWorkstreamThread({
-    binaryPath: settings.providers.pi.binaryPath,
-    targetSessionId: piSessionIdForThread(target),
-    freshSessionId: yield* crypto.randomUUIDv4,
-    cwd: shell.worktreePath ?? config.cwd,
-    question,
-    timeoutMs: ASK_TIMEOUT_MS,
-  });
-
-  return HttpServerResponse.jsonUnsafe({ threadId: target, answer });
-}).pipe(
-  Effect.catch((error: unknown) =>
-    Effect.succeed(
-      jsonError(502, error instanceof Error ? error.message : "Failed to ask the thread."),
-    ),
-  ),
-);
-
 /**
- * USER-DIRECTED consult: the human-facing complement to `workstream_ask_thread`.
- * Unlike that agent-to-agent primitive, this is GLOBAL scope (every thread the
- * server knows, across worktrees/projects) and identifies the target either by
+ * USER-DIRECTED consult: a GLOBAL-scope read-only Q&A over another thread (every
+ * thread the server knows, across worktrees/projects). It identifies the target either by
  * an exact `threadId` (e.g. injected by an @-mention) or by a fuzzy `name`. A
  * name with one clear match runs the read-only consult; an ambiguous name
  * returns ranked candidates for the caller to confirm with the user (consulting
@@ -861,16 +744,6 @@ export const workstreamReportRouteLayer = HttpRouter.add(
   handleWorkstreamReport,
 );
 export const workstreamListRouteLayer = HttpRouter.add("POST", LIST_PATH, handleWorkstreamList);
-export const workstreamReadThreadRouteLayer = HttpRouter.add(
-  "POST",
-  READ_THREAD_PATH,
-  handleWorkstreamReadThread,
-);
-export const workstreamAskThreadRouteLayer = HttpRouter.add(
-  "POST",
-  ASK_THREAD_PATH,
-  handleWorkstreamAskThread,
-);
 export const workstreamConsultThreadRouteLayer = HttpRouter.add(
   "POST",
   CONSULT_THREAD_PATH,
@@ -886,7 +759,5 @@ export const layer = Layer.mergeAll(
   workstreamDependenciesRouteLayer,
   workstreamReportRouteLayer,
   workstreamListRouteLayer,
-  workstreamReadThreadRouteLayer,
-  workstreamAskThreadRouteLayer,
   workstreamConsultThreadRouteLayer,
 );
