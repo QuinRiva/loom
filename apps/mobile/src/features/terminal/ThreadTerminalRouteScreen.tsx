@@ -2,6 +2,7 @@ import { DEFAULT_TERMINAL_ID, EnvironmentId, ThreadId } from "@t3tools/contracts
 import { type KnownTerminalSession } from "@t3tools/client-runtime/state/terminal";
 import { SymbolView } from "expo-symbols";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useHeaderHeight } from "expo-router/build/react-navigation/elements";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, Text as RNText, View, useColorScheme } from "react-native";
 import {
@@ -447,6 +448,7 @@ export function ThreadTerminalRouteScreen() {
   );
 
   const terminalTheme = getPierreTerminalTheme(appearanceScheme);
+  const headerHeight = useHeaderHeight();
   const usesNativeHeaderGlass = Platform.OS === "ios";
   const pendingModifier =
     pendingModifierState.terminalId === terminalId ? pendingModifierState.value : null;
@@ -1062,7 +1064,13 @@ export function ThreadTerminalRouteScreen() {
           />
         ) : (
           <>
-            <View style={{ flex: 1, paddingBottom: terminalBottomInset }}>
+            <View
+              style={{
+                flex: 1,
+                paddingTop: usesNativeHeaderGlass ? headerHeight : 0,
+                paddingBottom: terminalBottomInset,
+              }}
+            >
               <TerminalSurface
                 buffer={terminalSurfaceBuffer}
                 fontSize={fontSize}
