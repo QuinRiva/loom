@@ -57,6 +57,7 @@ import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { AccountUsageRegistryLive } from "./provider/Services/AccountUsageRegistry.ts";
+import { SubscriptionUsagePollerLive } from "./provider/Layers/SubscriptionUsagePoller.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
@@ -295,6 +296,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   WorkstreamLivenessSweepLive,
+  SubscriptionUsagePollerLive,
 ).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(

@@ -35,6 +35,7 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper.ts";
 import { WorkstreamLivenessSweep } from "./orchestration/Services/WorkstreamLivenessSweep.ts";
+import { SubscriptionUsagePoller } from "./provider/Services/SubscriptionUsagePoller.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -288,6 +289,7 @@ export const makeServerRuntimeStartup = Effect.gen(function* () {
   const orchestrationReactor = yield* OrchestrationReactor;
   const providerSessionReaper = yield* ProviderSessionReaper;
   const workstreamLivenessSweep = yield* WorkstreamLivenessSweep;
+  const subscriptionUsagePoller = yield* SubscriptionUsagePoller;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment;
@@ -337,6 +339,7 @@ export const makeServerRuntimeStartup = Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
         yield* workstreamLivenessSweep.start().pipe(Scope.provide(reactorScope));
+        yield* subscriptionUsagePoller.start().pipe(Scope.provide(reactorScope));
       }),
     );
 
