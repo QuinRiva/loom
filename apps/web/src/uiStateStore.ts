@@ -37,7 +37,22 @@ export interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
 
-export interface UiState extends UiProjectState, UiThreadState, UiEndpointState {}
+/**
+ * A one-shot request to scroll a thread's conversation timeline to the turn
+ * dispatched at-or-before `anchorAtIso`. Set when a Workstream graph orchestrator
+ * (bridge) node is clicked; survives the navigation + message load and is
+ * consumed once by `MessagesTimeline` on arrival. Ephemeral — never persisted.
+ */
+export interface ScrollToDispatchRequest {
+  threadId: string;
+  anchorAtIso: string;
+}
+
+export interface UiScrollState {
+  scrollRequest: ScrollToDispatchRequest | null;
+}
+
+export interface UiState extends UiProjectState, UiThreadState, UiEndpointState, UiScrollState {}
 
 export interface SyncProjectInput {
   /** Physical project key (env + cwd). Used for manual sort order. */
@@ -58,6 +73,7 @@ const initialState: UiState = {
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
+  scrollRequest: null,
 };
 
 const persistedCollapsedProjectCwds = new Set<string>();
@@ -634,6 +650,8 @@ export function reorderProjects(
 }
 
 interface UiStateStore extends UiState {
+  requestScrollToDispatch: (threadId: string, anchorAtIso: string) => void;
+  clearScrollRequest: () => void;
   syncProjects: (projects: readonly SyncProjectInput[]) => void;
   syncThreads: (threads: readonly SyncThreadInput[]) => void;
   markThreadVisited: (threadId: string, visitedAt?: string) => void;
@@ -651,6 +669,9 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
+  requestScrollToDispatch: (threadId, anchorAtIso) =>
+    set({ scrollRequest: { threadId, anchorAtIso } }),
+  clearScrollRequest: () => set((state) => (state.scrollRequest ? { scrollRequest: null } : state)),
   syncProjects: (projects) => set((state) => syncProjects(state, projects)),
   syncThreads: (threads) => set((state) => syncThreads(state, threads)),
   markThreadVisited: (threadId, visitedAt) =>

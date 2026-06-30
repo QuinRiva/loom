@@ -187,6 +187,8 @@ export interface SidebarThreadSummary {
   planLane: ThreadPlanLane;
   attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
+  /** Wave key: children sharing a (parentThreadId, spawnGeneration) were dispatched in one orchestrator turn. */
+  spawnGeneration: string | null;
   title: string;
   modelSelection: ModelSelection;
   reportPath: string | null;

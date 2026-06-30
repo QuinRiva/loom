@@ -10,9 +10,9 @@ import {
 
 /**
  * Pure presentation logic shared by the Workstream board, cards, and the
- * lazily-loaded graph. Kept JSX-free so the graph chunk (which pulls in the
- * d3-dag layout engine) can import the lane/role/format vocabulary without
- * dragging the board components — or vice versa — into either bundle.
+ * lazily-loaded graph. Kept JSX-free so the graph chunk can import the
+ * lane/role/format vocabulary without dragging the board components — or vice
+ * versa — into either bundle.
  *
  * Three axes (design §8): a thread is grouped into ONE plan column; activity
  * (live dots) and attention (badges) are overlays on top of that column.

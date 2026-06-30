@@ -510,9 +510,6 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
-      d3-dag:
-        specifier: ^1.2.1
-        version: 1.2.1
       effect:
         specifier: 4.0.0-beta.78
         version: 4.0.0-beta.78(patch_hash=883249d8efbb462e928e21fefef96027b66aec50751178cafdce45f08eee3754)
@@ -5513,9 +5510,6 @@ packages:
   d3-array@3.2.4:
     resolution: {integrity: sha512-tdQAmyA18i4J7wprpYq8ClcxZy3SC31QMeByyCFyRt7BVHdREQZ5lpzoe5mFEYZUWe+oq8HBvk9JjpibyEV4Jg==}
     engines: {node: '>=12'}
-
-  d3-dag@1.2.1:
-    resolution: {integrity: sha512-EMctxrHEOccjqrSRwQcjj3VKBEOtwoN0xCA8XtOYKKJii2B8XZqi9Yp2iVRcm6J/jZBzX+6fnihWGk+YuERDjA==}
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -14865,13 +14859,6 @@ snapshots:
   d3-array@3.2.4:
     dependencies:
       internmap: 2.0.3
-
-  d3-dag@1.2.1:
-    dependencies:
-      d3-array: 3.2.4
-      javascript-lp-solver: 1.0.3
-      quadprog: 1.6.1
-      stringify-object: 6.0.0
 
   debug@2.6.9:
     dependencies:

@@ -295,6 +295,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const rows = useStableRows(rawRows);
 
+  // Consume a one-shot scroll-to-dispatch request from the Workstream graph: once
+  // this thread is active and its rows have loaded, scroll to the latest turn
+  // dispatched at-or-before the clicked wave's earliest child, then clear it.
+  const scrollRequest = useUiStateStore((store) => store.scrollRequest);
+  const clearScrollRequest = useUiStateStore((store) => store.clearScrollRequest);
+  const activeThreadId = useMemo(
+    () => parseScopedThreadKey(routeThreadKey)?.threadId ?? null,
+    [routeThreadKey],
+  );
+  useEffect(() => {
+    if (!scrollRequest || scrollRequest.threadId !== activeThreadId || rows.length === 0) {
+      return;
+    }
+    let index = 0;
+    for (let i = 0; i < rows.length; i += 1) {
+      const createdAt = rows[i]!.createdAt;
+      if (createdAt && createdAt <= scrollRequest.anchorAtIso) index = i;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      void listRef.current?.scrollToIndex?.({ index, viewPosition: 0, animated: true });
+      clearScrollRequest();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [scrollRequest, activeThreadId, rows, clearScrollRequest, listRef]);
+
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     if (state) {

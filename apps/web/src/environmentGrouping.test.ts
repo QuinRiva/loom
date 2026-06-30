@@ -69,6 +69,7 @@ function makeSidebarThreadSummary(
     blockedBy: [],
     modelSelection: { instanceId: ProviderInstanceId.make("pi"), model: "openai/gpt-5.5" },
     reportPath: null,
+    spawnGeneration: null,
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     createdAt: "2026-01-01T00:00:00.000Z",
