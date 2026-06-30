@@ -1,5 +1,7 @@
 import type { EnvironmentId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 
 import type { SidebarThreadSummary } from "../types";
 
@@ -232,4 +234,39 @@ export function rollupGraphState(
           }))
         : [],
   };
+}
+
+/**
+ * Precompute the workstream rollup for every root thread that actually has
+ * descendants, keyed by scoped thread key. Built once per project from the
+ * UNFILTERED shell list (which still includes the hidden child threads) so
+ * individual rows do not each subscribe to the global shell atom. Roots with no
+ * descendants are omitted — their badge would render nothing anyway. Reuses the
+ * shared `descendantsOf` lineage walk (cycles broken by its own seen-set); the
+ * `createdAt` sort is a presentation concern applied here at the call site.
+ */
+export function buildGraphRollupByThreadKey(
+  threads: readonly SidebarThreadSummary[],
+): Map<string, GraphRollup> {
+  const byEnvironment = new Map<string, SidebarThreadSummary[]>();
+  for (const thread of threads) {
+    const existing = byEnvironment.get(thread.environmentId);
+    if (existing) existing.push(thread);
+    else byEnvironment.set(thread.environmentId, [thread]);
+  }
+  const rollups = new Map<string, GraphRollup>();
+  for (const environmentThreads of byEnvironment.values()) {
+    for (const root of environmentThreads) {
+      if (root.parentThreadId !== null) continue;
+      const descendants = [...descendantsOf(root.id, environmentThreads)].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt),
+      );
+      if (descendants.length === 0) continue;
+      rollups.set(
+        scopedThreadKey(scopeThreadRef(root.environmentId, root.id)),
+        rollupGraphState(descendants, new Map(descendants.map((t) => [t.id, t]))),
+      );
+    }
+  }
+  return rollups;
 }

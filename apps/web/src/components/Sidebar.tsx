@@ -206,7 +206,7 @@ import {
   isCompactSingleThreadGoal,
   type SidebarOrderedEntry,
 } from "./Sidebar.logic";
-import { rollupGraphState, type GraphRollup } from "../lib/workstreamGraph";
+import { buildGraphRollupByThreadKey, type GraphRollup } from "../lib/workstreamGraph";
 import { useGoals, countGoalTasks } from "../goals/goalState";
 import { SidebarAccountUsagePill } from "./sidebar/SidebarAccountUsagePill";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
@@ -250,68 +250,6 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
 };
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
-
-// Walk a workstream subtree: every descendant of `rootThreadId` within ONE
-// environment's thread set, breadth-first, capped at `maxDepth`. Mirrors the
-// fork's store selector (children ride the shell list with a non-null
-// parentThreadId; the sidebar list itself shows only roots, so descendants are
-// the hidden sub-threads the orchestrator's badge summarises).
-function collectDescendantThreads(
-  threadsInEnvironment: readonly SidebarThreadSummary[],
-  rootThreadId: ThreadId,
-  maxDepth = 16,
-): SidebarThreadSummary[] {
-  const childrenByParent = new Map<ThreadId, SidebarThreadSummary[]>();
-  for (const thread of threadsInEnvironment) {
-    if (thread.parentThreadId === null) continue;
-    const siblings = childrenByParent.get(thread.parentThreadId);
-    if (siblings) siblings.push(thread);
-    else childrenByParent.set(thread.parentThreadId, [thread]);
-  }
-  const descendants: SidebarThreadSummary[] = [];
-  const visited = new Set<ThreadId>([rootThreadId]);
-  let frontier = childrenByParent.get(rootThreadId) ?? [];
-  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
-    const next: SidebarThreadSummary[] = [];
-    for (const child of frontier) {
-      if (visited.has(child.id)) continue;
-      visited.add(child.id);
-      descendants.push(child);
-      next.push(...(childrenByParent.get(child.id) ?? []));
-    }
-    frontier = next;
-  }
-  return descendants.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-// Precompute the workstream rollup for every root thread that actually has
-// descendants, keyed by scoped thread key. Built once per project from the
-// UNFILTERED shell list (which still includes the hidden child threads) so
-// individual rows do not each subscribe to the global shell atom. Roots with no
-// descendants are omitted — their badge would render nothing anyway.
-function buildGraphRollupByThreadKey(
-  threads: readonly SidebarThreadSummary[],
-): Map<string, GraphRollup> {
-  const byEnvironment = new Map<string, SidebarThreadSummary[]>();
-  for (const thread of threads) {
-    const existing = byEnvironment.get(thread.environmentId);
-    if (existing) existing.push(thread);
-    else byEnvironment.set(thread.environmentId, [thread]);
-  }
-  const rollups = new Map<string, GraphRollup>();
-  for (const environmentThreads of byEnvironment.values()) {
-    for (const root of environmentThreads) {
-      if (root.parentThreadId !== null) continue;
-      const descendants = collectDescendantThreads(environmentThreads, root.id);
-      if (descendants.length === 0) continue;
-      rollups.set(
-        scopedThreadKey(scopeThreadRef(root.environmentId, root.id)),
-        rollupGraphState(descendants, new Map(descendants.map((t) => [t.id, t]))),
-      );
-    }
-  }
-  return rollups;
-}
 
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   useEnvironmentThread(threadRef.environmentId, threadRef.threadId);
