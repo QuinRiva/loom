@@ -375,11 +375,7 @@ function WorkstreamBoard({
                 {items.length}
               </span>
             </div>
-            {items.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/10 px-3 py-3 text-xs text-white/30">
-                — empty —
-              </div>
-            ) : (
+            {items.length > 0 &&
               items.map((thread) => (
                 <WorkstreamCard
                   key={thread.id}
@@ -392,8 +388,7 @@ function WorkstreamBoard({
                   onClearAttention={onClearAttention}
                   onSetDependencies={onSetDependencies}
                 />
-              ))
-            )}
+              ))}
           </section>
         );
       })}
