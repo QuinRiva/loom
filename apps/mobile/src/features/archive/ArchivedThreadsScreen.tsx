@@ -25,6 +25,7 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { EmptyState } from "../../components/EmptyState";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+import { deriveLayout } from "../../lib/layout";
 import { relativeTime } from "../../lib/time";
 import { useThemeColor } from "../../lib/useThemeColor";
 import {
@@ -62,9 +63,10 @@ function ArchivedThreadsHeader(props: {
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSortOrderChange: (sortOrder: ArchivedThreadSortOrder) => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const hasCustomFilter = props.selectedEnvironmentId !== null || props.sortOrder !== "newest";
-  const usesNativeMailToolbar = Platform.OS === "ios" && width < 700;
+  const usesNativeMailToolbar =
+    Platform.OS === "ios" && !deriveLayout({ width, height }).usesSplitView;
   const archiveFilterMenu = {
     title: "Archived thread options",
     items: [
