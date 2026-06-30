@@ -19,6 +19,7 @@ import {
   type StopThreadSessionInput,
   type UnarchiveThreadInput,
   type UpdateThreadMetadataInput,
+  type UpdateGoalMetaInput,
   archiveThread,
   clearThreadAttention,
   createThread,
@@ -35,6 +36,7 @@ import {
   stopThreadSession,
   unarchiveThread,
   updateThreadMetadata,
+  updateGoalMeta,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
@@ -55,6 +57,7 @@ export type {
   StopThreadSessionInput,
   UnarchiveThreadInput,
   UpdateThreadMetadataInput,
+  UpdateGoalMetaInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -160,6 +163,25 @@ export function createThreadEnvironmentAtoms<R, E>(
     stopSession: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:stop-session",
       execute: (input: StopThreadSessionInput) => stopThreadSession(input),
+      scheduler,
+      concurrency,
+    }),
+  };
+}
+
+export function createGoalEnvironmentAtoms<R, E>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
+) {
+  const scheduler = createAtomCommandScheduler();
+  const concurrency = {
+    mode: "serial" as const,
+    key: ({ environmentId, input }: { environmentId: string; input: { goalId: string } }) =>
+      JSON.stringify([environmentId, input.goalId]),
+  };
+  return {
+    updateMeta: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:goal:update-meta",
+      execute: (input: UpdateGoalMetaInput) => updateGoalMeta(input),
       scheduler,
       concurrency,
     }),

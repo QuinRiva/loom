@@ -160,7 +160,8 @@ import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import { buildThreadLineage, EMPTY_LINEAGE } from "../threadRouteLineage";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -200,6 +201,7 @@ import {
   useThread,
   useThreadProposedPlans,
   useThreadRefs,
+  useThreadShells,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -1287,6 +1289,35 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
+  );
+  const allThreadShells = useThreadShells();
+  const threadShellById = useMemo(() => {
+    const map: Record<ThreadId, (typeof allThreadShells)[number]> = {};
+    if (activeThread) {
+      for (const shell of allThreadShells) {
+        if (shell.environmentId === activeThread.environmentId) map[shell.id] = shell;
+      }
+    }
+    return map;
+  }, [allThreadShells, activeThread]);
+  const threadLineage = useMemo(
+    () =>
+      activeThread?.parentThreadId != null
+        ? buildThreadLineage(threadShellById, activeThread.id)
+        : EMPTY_LINEAGE,
+    [activeThread?.parentThreadId, activeThread?.id, threadShellById],
+  );
+  const navigateToThread = useCallback(
+    (targetThreadId: ThreadId) => {
+      if (!activeThread) return;
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(
+          scopeThreadRef(activeThread.environmentId, targetThreadId),
+        ),
+      });
+    },
+    [activeThread, navigate],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const [timelineAnchor, setTimelineAnchor] = useState<{
@@ -5062,6 +5093,10 @@ function ChatViewContent(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            goalId={activeThread.goalId ?? null}
+            threadLineage={threadLineage}
+            threadRole={activeThread.role}
+            onNavigateToThread={navigateToThread}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}

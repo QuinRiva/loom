@@ -31,6 +31,7 @@ type CommandInput<T extends CommandType> = Omit<
 export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
+export type UpdateGoalMetaInput = CommandInput<"goal.meta.update">;
 export type CreateThreadInput = CommandInput<"thread.create">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
@@ -110,6 +111,16 @@ export const deleteProject: (input: DeleteProjectInput) => CommandEffect = Effec
   return yield* dispatch({
     ...input,
     type: "project.delete",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const updateGoalMeta: (input: UpdateGoalMetaInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.updateGoalMeta",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "goal.meta.update",
     commandId: yield* commandId(input),
   });
 });
