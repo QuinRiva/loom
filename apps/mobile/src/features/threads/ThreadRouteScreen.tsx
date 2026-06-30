@@ -741,7 +741,8 @@ function ThreadRouteContent(
             layout.usesSplitView && Platform.OS === "ios"
               ? () => threadCenterHeaderItems
               : undefined,
-          unstable_headerSubtitle: undefined,
+          unstable_headerSubtitle:
+            usesNativeHeaderGlass && !layout.usesSplitView ? headerSubtitle : undefined,
           unstable_navigationItemStyle: usesNativeHeaderGlass ? "editor" : undefined,
         }}
       />
