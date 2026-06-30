@@ -202,35 +202,44 @@ function deriveCumulativeCostUsd(activities: ReadonlyArray<ProjectionThreadActiv
   return total;
 }
 
-// Effort/health meter: latest context-window snapshot for a thread = the newest
-// `context-window.updated` activity's running session totals. Unlike cost (a SUM
-// over all activities) this is a LATEST-SNAPSHOT — do not accumulate. `toolUses`
-// is the provider's running session total, mirroring the chat-header meter.
-// Returns null per-field when unknown (non-pi providers / no activity yet) so the
-// UI can suppress the chip rather than show a misleading 0.
+// Effort/health meter for a thread.
+//  - `usedTokens`/`maxTokens`: latest `context-window.updated` snapshot. This is
+//    a LATEST-SNAPSHOT (newest wins) — do not accumulate. Null when unknown
+//    (no context-window activity yet) so the UI suppresses the chip.
+//  - `toolUses`: COUNT of `tool.started` activities in the durable log. We count
+//    real tool-call events rather than the provider's self-reported
+//    `usage.tool_uses`, which is empty for several adapters (e.g. Claude). Null
+//    when the thread has made no tool calls yet so the UI suppresses the chip.
 function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity>): {
   readonly toolUses: number | null;
   readonly usedTokens: number | null;
   readonly maxTokens: number | null;
 } {
+  const asInt = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+  let toolStarts = 0;
+  let usedTokens: number | null = null;
+  let maxTokens: number | null = null;
+  // Newest-first: count tool.started everywhere, and take the first (latest)
+  // context-window snapshot that carries a usable usedTokens.
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
-    if (!activity || activity.kind !== "context-window.updated") {
+    if (!activity) continue;
+    if (activity.kind === "tool.started") {
+      toolStarts += 1;
       continue;
     }
+    if (activity.kind !== "context-window.updated" || usedTokens !== null) continue;
     const payload =
       typeof activity.payload === "object" && activity.payload !== null
         ? (activity.payload as Record<string, unknown>)
         : null;
-    const asInt = (value: unknown): number | null =>
-      typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
-    const usedTokens = asInt(payload?.usedTokens);
-    if (usedTokens === null) {
-      continue;
-    }
-    return { toolUses: asInt(payload?.toolUses), usedTokens, maxTokens: asInt(payload?.maxTokens) };
+    const used = asInt(payload?.usedTokens);
+    if (used === null) continue;
+    usedTokens = used;
+    maxTokens = asInt(payload?.maxTokens);
   }
-  return { toolUses: null, usedTokens: null, maxTokens: null };
+  return { toolUses: toolStarts > 0 ? toolStarts : null, usedTokens, maxTokens };
 }
 
 function deriveHasActionableProposedPlan(input: {
