@@ -27,6 +27,19 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: threadId,
     environmentId,
     projectId,
+    goalId: null,
+    parentThreadId: null,
+    role: null,
+    purpose: null,
+    brief: null,
+    planLane: "planned",
+    attention: [],
+    blockedBy: [],
+    spawnGeneration: null,
+    reportPath: null,
+    toolUses: null,
+    usedTokens: null,
+    maxTokens: null,
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
@@ -67,6 +80,7 @@ const readySession = {
   runtimeMode: "full-access" as const,
   activeTurnId: null,
   lastError: null,
+  queuedMessages: { steering: [], followUp: [] },
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
 
