@@ -79,7 +79,7 @@ import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform } from "../lib/utils";
+import { isMacPlatform, newGoalId } from "../lib/utils";
 import {
   readThreadShell,
   useProject,
@@ -117,7 +117,7 @@ import { useDesktopUpdateState } from "../state/desktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
-import { threadEnvironment, useEnvironmentThread } from "../state/threads";
+import { goalEnvironment, threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import {
@@ -980,6 +980,10 @@ interface SidebarProjectThreadListProps {
   collapsedGoalIds: ReadonlySet<string>;
   onToggleGoalCollapse: (goalId: string) => void;
   onNewGoalSession: (goalId: GoalId, goalProjectId: ProjectId) => void;
+  handleGoalContextMenu: (
+    goal: { id: GoalId; projectId: ProjectId; title: string },
+    position: { x: number; y: number },
+  ) => Promise<void>;
   graphRollupByThreadKey: ReadonlyMap<string, GraphRollup>;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
@@ -1036,6 +1040,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     collapsedGoalIds,
     onToggleGoalCollapse,
     onNewGoalSession,
+    handleGoalContextMenu,
     graphRollupByThreadKey,
     showEmptyThreadState,
     shouldShowThreadPanel,
@@ -1189,6 +1194,17 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
                   title={goal.title}
                   aria-expanded={goalExpanded}
                   onClick={() => onToggleGoalCollapse(goal.id)}
+                  onContextMenu={
+                    goal.known
+                      ? (event) => {
+                          event.preventDefault();
+                          void handleGoalContextMenu(
+                            { id: goal.id, projectId: goal.projectId, title: goal.title },
+                            { x: event.clientX, y: event.clientY },
+                          );
+                        }
+                      : undefined
+                  }
                 >
                   <ChevronRightIcon
                     className={`size-3 text-muted-foreground/60 transition-transform ${
@@ -1316,6 +1332,18 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     reportFailure: false,
   });
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  const createGoal = useAtomCommand(goalEnvironment.create, {
+    reportFailure: false,
+  });
+  const updateGoalMeta = useAtomCommand(goalEnvironment.updateMeta, {
+    reportFailure: false,
+  });
+  const archiveGoal = useAtomCommand(goalEnvironment.archive, {
+    reportFailure: false,
+  });
+  const deleteGoal = useAtomCommand(goalEnvironment.delete, {
     reportFailure: false,
   });
   const updateSettings = useUpdateClientSettings();
@@ -2323,10 +2351,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
       const threadWorkspacePath =
         thread.worktreePath ?? threadProject?.workspaceRoot ?? project.workspaceRoot ?? null;
+      // Goals are project-scoped: only offer assignment to goals in this thread's
+      // project, plus a "Clear goal" entry when the thread is already attached.
+      const assignGoalItems: ContextMenuItem<string>[] = projectGoals
+        .filter((goal) => goal.projectId === thread.projectId)
+        .map((goal) => ({ id: `assign-goal:${goal.id}`, label: goal.title || goal.slug }));
+      if (thread.goalId) {
+        assignGoalItems.push({ id: "assign-goal:", label: "Clear goal" });
+      }
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
+          { id: "create-goal", label: "Create goal from thread" },
+          ...(assignGoalItems.length > 0
+            ? [{ id: "assign-goal", label: "Assign to goal", children: assignGoalItems }]
+            : []),
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true, icon: "trash" },
@@ -2341,6 +2381,50 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "mark-unread") {
         markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        return;
+      }
+      if (clicked === "create-goal") {
+        const title = window.prompt("Goal title", thread.title)?.trim();
+        if (!title) return;
+        const slug = window
+          .prompt(
+            "Goal slug",
+            title
+              .toLowerCase()
+              .replace(/[^a-z0-9._-]+/g, "-")
+              .replace(/^-+|-+$/g, ""),
+          )
+          ?.trim();
+        if (!slug) return;
+        const description = window.prompt("Goal paragraph", title)?.trim() || title;
+        const goalId = newGoalId();
+        const createResult = await createGoal({
+          environmentId: thread.environmentId,
+          input: { goalId, projectId: thread.projectId, slug, title, description },
+        });
+        if (createResult._tag === "Failure" && !isAtomCommandInterrupted(createResult)) {
+          const error = squashAtomCommandFailure(createResult);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to create goal",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+          return;
+        }
+        await updateThreadMetadata({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, goalId },
+        });
+        return;
+      }
+      if (clicked?.startsWith("assign-goal:")) {
+        const rawGoalId = clicked.slice("assign-goal:".length);
+        await updateThreadMetadata({
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, goalId: rawGoalId ? GoalId.make(rawGoalId) : null },
+        });
         return;
       }
       if (clicked === "copy-path") {
@@ -2389,12 +2473,77 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       appSettingsConfirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
+      createGoal,
       deleteThread,
       markThreadUnread,
       memberProjectByScopedKey,
       project.workspaceRoot,
+      projectGoals,
       startThreadRename,
+      updateThreadMetadata,
     ],
+  );
+
+  const handleGoalContextMenu = useCallback(
+    async (
+      goal: { id: GoalId; projectId: ProjectId; title: string },
+      position: { x: number; y: number },
+    ) => {
+      const api = readLocalApi();
+      if (!api) return;
+      const member =
+        project.memberProjects.find((candidate) => candidate.id === goal.projectId) ??
+        project.memberProjects[0];
+      if (!member) return;
+      const environmentId = member.environmentId;
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "rename", label: "Rename goal" },
+          { id: "archive", label: "Archive goal" },
+          { id: "delete", label: "Delete goal", destructive: true, icon: "trash" },
+        ],
+        position,
+      );
+      if (clicked === "rename") {
+        const title = window.prompt("Goal title", goal.title)?.trim();
+        if (!title || title === goal.title) return;
+        await updateGoalMeta({ environmentId, input: { goalId: goal.id, title } });
+        return;
+      }
+      if (clicked === "archive") {
+        await archiveGoal({ environmentId, input: { goalId: goal.id } });
+        return;
+      }
+      if (clicked !== "delete") return;
+      // The decider cascade-deletes every thread attached to the goal, including
+      // workstream child threads (non-null parent) that the roots-only sidebar
+      // list omits — so count from the full unfiltered shells to avoid
+      // understating the blast radius in this destructive confirm.
+      const goalThreadCount = sidebarThreads.filter((thread) => thread.goalId === goal.id).length;
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Delete goal "${goal.title}"?`,
+          goalThreadCount > 0
+            ? `This permanently deletes the goal and its ${goalThreadCount} thread${
+                goalThreadCount === 1 ? "" : "s"
+              }, clearing their conversation history.`
+            : "This permanently deletes the goal.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      const result = await deleteGoal({ environmentId, input: { goalId: goal.id } });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to delete goal",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
+    [archiveGoal, deleteGoal, project.memberProjects, sidebarThreads, updateGoalMeta],
   );
 
   return (
@@ -2516,6 +2665,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         collapsedGoalIds={collapsedGoalIds}
         onToggleGoalCollapse={onToggleGoalCollapse}
         onNewGoalSession={createGoalSession}
+        handleGoalContextMenu={handleGoalContextMenu}
         graphRollupByThreadKey={graphRollupByThreadKey}
         showEmptyThreadState={showEmptyThreadState}
         shouldShowThreadPanel={shouldShowThreadPanel}
