@@ -138,7 +138,7 @@ export const subtreeOf = <T extends GraphLineageNode>(
  * OWN spend; null/absent counts as 0 (e.g. providers that report no cost).
  */
 export interface CostGraphNode extends GraphLineageNode {
-  readonly cumulativeCostUsd: number | null;
+  readonly cumulativeCostUsd?: number | null | undefined;
 }
 
 /**
