@@ -320,6 +320,34 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       };
     }
   });
+
+  pi.registerTool({
+    name: "set_thread_title",
+    label: "Set Thread Title",
+    description: "Rename THIS thread's own sidebar title in T3 Code. You pass only a title; the thread is always resolved from the session, so you can only ever rename yourself — never another thread or a child. Use it to keep the sidebar legible: e.g. when a root's auto-from-first-message title is unhelpful, or when a child's scope has sharpened into something more specific than its spawn title. This does not touch the goal (use goal_update for that).",
+    promptSnippet: "rename this thread's own sidebar title to keep the workstream legible.",
+    promptGuidelines: [
+      "You never pass a thread id — this always renames the calling thread itself; renaming another thread is impossible.",
+      "title must be a non-empty string. Set a clear, specific title when the current one is unhelpful or your scope has sharpened."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "The new sidebar title for this thread. Required; non-empty." }
+      },
+      required: ["title"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_SET_THREAD_TITLE_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const title = outcome.result?.title ?? params.title;
+      return {
+        content: [{ type: "text", text: "Set this thread's title to \"" + title + "\"." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
 }
 `;
 

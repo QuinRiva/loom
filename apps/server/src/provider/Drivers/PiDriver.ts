@@ -48,6 +48,7 @@ import {
 } from "../../mcp/GoalTaskHttp.ts";
 import { goalHandoffUrlFromMcpEndpoint } from "../../mcp/GoalHandoffHttp.ts";
 import {
+  setThreadTitleUrlFromMcpEndpoint,
   workstreamAttentionUrlFromMcpEndpoint,
   workstreamConsultThreadUrlFromMcpEndpoint,
   workstreamDependenciesUrlFromMcpEndpoint,
@@ -765,6 +766,9 @@ function makePiAdapter(input: {
                       ),
                       T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
                       T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_SET_THREAD_TITLE_URL: setThreadTitleUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
                       T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),

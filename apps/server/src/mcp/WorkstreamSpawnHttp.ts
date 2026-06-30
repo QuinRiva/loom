@@ -70,6 +70,10 @@ interface WorkstreamConsultThreadRequest {
   readonly question?: unknown;
 }
 
+interface SetThreadTitleRequest {
+  readonly title?: unknown;
+}
+
 const SPAWN_PATH = "/provider-tools/workstream/spawn";
 const LANE_PATH = "/provider-tools/workstream/lane";
 const ATTENTION_PATH = "/provider-tools/workstream/attention";
@@ -79,6 +83,7 @@ const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
 const REPORT_PATH = "/provider-tools/workstream/report";
 const LIST_PATH = "/provider-tools/workstream/list";
 const CONSULT_THREAD_PATH = "/provider-tools/workstream/consult-thread";
+const SET_TITLE_PATH = "/provider-tools/thread/set-title";
 
 // Server-side guard on a single fork turn (forking handles transcript size, so
 // only the turn duration and the question length need bounding).
@@ -209,6 +214,9 @@ export const workstreamListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
 
 export const workstreamConsultThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, CONSULT_THREAD_PATH);
+
+export const setThreadTitleUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, SET_TITLE_PATH);
 
 /**
  * The caller's whole workstream graph, active + archived. Both `list` (the
@@ -720,6 +728,42 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
   ),
 );
 
+// A thread renames its OWN sidebar title. The title is always keyed to the
+// calling thread (no threadId override — renaming an arbitrary thread is
+// structurally impossible). Dispatches the existing `thread.meta.update`
+// command (one source of truth); a later rename naturally wins over the
+// auto-from-first-message title.
+const handleSetThreadTitle = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): SetThreadTitleRequest => ({})),
+  )) as SetThreadTitleRequest;
+  const title = trimString(body.title);
+  if (!title) return jsonError(400, "title must be a non-empty string.");
+
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.meta.update",
+    commandId: CommandId.make(`server:set-thread-title:${yield* crypto.randomUUIDv4}`),
+    threadId: scope.threadId,
+    title,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({ threadId: scope.threadId, title });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to set the thread title."),
+    ),
+  ),
+);
+
 export const workstreamSpawnRouteLayer = HttpRouter.add("POST", SPAWN_PATH, handleWorkstreamSpawn);
 export const workstreamLaneRouteLayer = HttpRouter.add("POST", LANE_PATH, handleWorkstreamSetLane);
 export const workstreamAttentionRouteLayer = HttpRouter.add(
@@ -749,6 +793,11 @@ export const workstreamConsultThreadRouteLayer = HttpRouter.add(
   CONSULT_THREAD_PATH,
   handleWorkstreamConsultThread,
 );
+export const setThreadTitleRouteLayer = HttpRouter.add(
+  "POST",
+  SET_TITLE_PATH,
+  handleSetThreadTitle,
+);
 
 export const layer = Layer.mergeAll(
   workstreamSpawnRouteLayer,
@@ -760,4 +809,5 @@ export const layer = Layer.mergeAll(
   workstreamReportRouteLayer,
   workstreamListRouteLayer,
   workstreamConsultThreadRouteLayer,
+  setThreadTitleRouteLayer,
 );
