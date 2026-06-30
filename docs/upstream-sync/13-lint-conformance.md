@@ -15,7 +15,7 @@ Final state: `vp check` **exits 0** (0 errors, 15 non-blocking warnings).
 Converted named `node:*` builtin imports to namespace imports (matching upstream's
 idiom, e.g. `import * as NodeFS from "node:fs"` and call sites `NodeFS.readFileSync`).
 The `@effect-diagnostics nodeBuiltinImport:off` pragmas already present on some files
-suppress a *different* (effect) rule, not this oxlint rule, so they did not help.
+suppress a _different_ (effect) rule, not this oxlint rule, so they did not help.
 
 Naming used (upstream convention): `node:fs`→`NodeFS`, `node:fs/promises`→`NodeFSP`,
 `node:path`→`NodePath`, `node:os`→`NodeOS`, `node:crypto`→`NodeCrypto`,
@@ -56,7 +56,7 @@ extension `String.raw` templates were deliberately left untouched.)
   impact; revisit opportunistically.
 - **`react(no-array-index-key)` (2)** — `chat/ComposerQueuedMessages.tsx`. These map
   over `ReadonlyArray<string>` ephemeral steering/follow-up queues that have **no
-  stable id and can contain duplicate strings**. The list index *is* the correct
+  stable id and can contain duplicate strings**. The list index _is_ the correct
   positional identity here; keying on the (mutable, possibly-duplicate) message
   content would introduce duplicate-key reconciliation bugs — a behaviour
   regression. (oxlint only flags `.map`, not `Array.from`, which is why the
@@ -65,8 +65,8 @@ extension `String.raw` templates were deliberately left untouched.)
 
 ## Verification
 
-| Check | Result |
-| --- | --- |
-| `vp check` | **exit 0** — 0 errors, 15 warnings (1942 files) |
-| `vp run typecheck` | **exit 0** — 0 errors across all 15 packages |
-| `pnpm build` | **exit 0** — all builds complete |
+| Check              | Result                                          |
+| ------------------ | ----------------------------------------------- |
+| `vp check`         | **exit 0** — 0 errors, 15 warnings (1942 files) |
+| `vp run typecheck` | **exit 0** — 0 errors across all 15 packages    |
+| `pnpm build`       | **exit 0** — all builds complete                |
