@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics preferSchemaOverJson:off
-import { spawn } from "node:child_process";
+import * as NodeChildProcess from "node:child_process";
 
 import type { ModelSelection } from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
@@ -94,7 +94,7 @@ function runPiOneShot(input: {
   readonly shell: boolean;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(input.command, [...input.args], {
+    const child = NodeChildProcess.spawn(input.command, [...input.args], {
       env: input.env,
       ...(input.cwd ? { cwd: input.cwd } : {}),
       stdio: ["ignore", "pipe", "pipe"],

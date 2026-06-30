@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 const EXTENSION_FILE = "t3-workstream-spawn-extension.mjs";
 
@@ -324,11 +324,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
 `;
 
 export function ensurePiWorkstreamSpawnExtension(stateDir: string): string {
-  const extensionDir = join(stateDir, "pi-extensions");
-  const extensionPath = join(extensionDir, EXTENSION_FILE);
+  const extensionDir = NodePath.join(stateDir, "pi-extensions");
+  const extensionPath = NodePath.join(extensionDir, EXTENSION_FILE);
   // Write unconditionally so edits to EXTENSION_SOURCE propagate to existing
   // state dirs (a one-time existsSync guard would pin stale tool code forever).
-  mkdirSync(extensionDir, { recursive: true });
-  writeFileSync(extensionPath, EXTENSION_SOURCE, "utf8");
+  NodeFS.mkdirSync(extensionDir, { recursive: true });
+  NodeFS.writeFileSync(extensionPath, EXTENSION_SOURCE, "utf8");
   return extensionPath;
 }

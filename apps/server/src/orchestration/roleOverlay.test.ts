@@ -1,17 +1,17 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
 import { loadRoleOverlay } from "./roleOverlay.ts";
 
 const fixtureRoot = (): string => {
-  const root = mkdtempSync(join(tmpdir(), "role-overlay-"));
-  mkdirSync(join(root, "roles"));
-  writeFileSync(join(root, "roles", "orchestrator.md"), "ORCH OVERLAY", "utf8");
-  writeFileSync(join(root, "roles", "coder.md"), "CODER OVERLAY", "utf8");
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "role-overlay-"));
+  NodeFS.mkdirSync(NodePath.join(root, "roles"));
+  NodeFS.writeFileSync(NodePath.join(root, "roles", "orchestrator.md"), "ORCH OVERLAY", "utf8");
+  NodeFS.writeFileSync(NodePath.join(root, "roles", "coder.md"), "CODER OVERLAY", "utf8");
   return root;
 };
 

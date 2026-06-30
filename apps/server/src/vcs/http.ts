@@ -6,7 +6,7 @@
  * viewer) and has nothing to do with goals.
  */
 // @effect-diagnostics nodeBuiltinImport:off
-import { execFileSync } from "node:child_process";
+import * as NodeChildProcess from "node:child_process";
 
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -23,6 +23,8 @@ export const vcsRouteLayer = HttpRouter.add(
     if (!cwd) return HttpServerResponse.text("cwd is required.", { status: 400 });
     const args = ["diff", "--no-ext-diff", "--no-color"];
     if (url.value.searchParams.get("ignoreWhitespace") === "1") args.push("--ignore-all-space");
-    return HttpServerResponse.text(execFileSync("git", args, { cwd, encoding: "utf8" }));
+    return HttpServerResponse.text(
+      NodeChildProcess.execFileSync("git", args, { cwd, encoding: "utf8" }),
+    );
   }),
 );

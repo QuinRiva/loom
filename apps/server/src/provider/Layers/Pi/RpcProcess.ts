@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
-import { randomUUID } from "node:crypto";
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { StringDecoder } from "node:string_decoder";
+import * as NodeCrypto from "node:crypto";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeStringDecoder from "node:string_decoder";
 
 import {
   buildPiRpcInvocation,
@@ -160,7 +160,7 @@ export interface PiRpcProcessOptions {
 }
 
 export interface PiRpcProcess {
-  readonly child: ChildProcessWithoutNullStreams;
+  readonly child: NodeChildProcess.ChildProcessWithoutNullStreams;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly cwd?: string | undefined;
@@ -193,7 +193,7 @@ function isPiRpcResponse(message: PiRpcStdoutMessage): message is PiRpcResponse 
 }
 
 function writeJsonLine(
-  child: ChildProcessWithoutNullStreams,
+  child: NodeChildProcess.ChildProcessWithoutNullStreams,
   command: PiRpcCommand,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -243,7 +243,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
   const command = useWindowsShell
     ? quoteWindowsPiShellCommand(invocation.command, options.platform)
     : invocation.command;
-  const child = spawn(command, args, {
+  const child = NodeChildProcess.spawn(command, args, {
     ...(options.cwd ? { cwd: options.cwd } : {}),
     env: options.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -252,7 +252,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
 
   const listeners = new Set<(message: PiRpcStdoutMessage) => void>();
   const pending = new Map<string, PendingResponse>();
-  const decoder = new StringDecoder("utf8");
+  const decoder = new NodeStringDecoder.StringDecoder("utf8");
   let stdoutBuffer = "";
   let stderrTail = "";
   let closed = false;
@@ -330,7 +330,7 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
         signal: null,
         stderrTail,
       });
-    const id = `pi-${randomUUID()}`;
+    const id = `pi-${NodeCrypto.randomUUID()}`;
     const response = await new Promise<PiRpcResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
         pending.delete(id);
@@ -351,7 +351,9 @@ export function createPiRpcProcess(options: PiRpcProcessOptions): Promise<PiRpcP
   const killPiChild = (signal: NodeJS.Signals) => {
     if (options.platform === "win32" && child.pid !== undefined) {
       try {
-        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+        NodeChildProcess.spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+        });
         return;
       } catch {
         // Fall through to direct kill.

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeModule from "node:module";
+import * as NodePath from "node:path";
 
 export const DEFAULT_PI_BINARY_PATH = "pi";
 
@@ -21,11 +21,15 @@ export interface PiInvocation {
 const WINDOWS_COMMAND_SCRIPT_PATTERN = /\.(?:bat|cmd)$/i;
 
 export function resolveBundledPiCliPath(): string | undefined {
-  const req = createRequire(import.meta.url);
+  const req = NodeModule.createRequire(import.meta.url);
   for (const packageName of ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]) {
     try {
-      const cliPath = join(dirname(req.resolve(`${packageName}/package.json`)), "dist", "cli.js");
-      if (existsSync(cliPath)) return cliPath;
+      const cliPath = NodePath.join(
+        NodePath.dirname(req.resolve(`${packageName}/package.json`)),
+        "dist",
+        "cli.js",
+      );
+      if (NodeFS.existsSync(cliPath)) return cliPath;
     } catch {
       // Try the next known package name.
     }

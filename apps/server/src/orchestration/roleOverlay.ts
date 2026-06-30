@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 const ROLE_OVERLAY_DIR = "roles";
 const DEFAULT_ROLE = "orchestrator";
@@ -22,8 +22,8 @@ export const loadRoleOverlay = (input: {
     .replace(/[^a-z0-9-]/g, "");
   if (slug.length === 0) return undefined;
   try {
-    const text = readFileSync(
-      join(input.projectRoot, ROLE_OVERLAY_DIR, `${slug}.md`),
+    const text = NodeFS.readFileSync(
+      NodePath.join(input.projectRoot, ROLE_OVERLAY_DIR, `${slug}.md`),
       "utf8",
     ).trim();
     return text.length > 0 ? text : undefined;

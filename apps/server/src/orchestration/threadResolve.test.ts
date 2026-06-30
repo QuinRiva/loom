@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalDate:off
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -88,42 +88,47 @@ describe("resolveSessionFilePath (cross-worktree)", () => {
   // than the caller. Resolving the id-suffixed filename to an absolute path must
   // find it regardless of slug, sidestepping pi's id-scoping trap.
   it("finds a session file by id under any project-slug dir", () => {
-    const root = mkdtempSync(join(tmpdir(), "sessions-root-"));
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "sessions-root-"));
     const sessionId = "207f5c53-4700-4751-a475-d0c7c9062db1";
-    const callerSlug = join(root, "--home-caller--");
-    const otherSlug = join(root, "--home-some-other-worktree--");
-    mkdirSync(callerSlug, { recursive: true });
-    mkdirSync(otherSlug, { recursive: true });
+    const callerSlug = NodePath.join(root, "--home-caller--");
+    const otherSlug = NodePath.join(root, "--home-some-other-worktree--");
+    NodeFS.mkdirSync(callerSlug, { recursive: true });
+    NodeFS.mkdirSync(otherSlug, { recursive: true });
     // Decoys that must NOT match.
-    writeFileSync(join(callerSlug, `2026-06-26T00-00-00-000Z_other-id.jsonl`), "{}");
-    writeFileSync(join(otherSlug, `not-a-session.txt`), "x");
-    const target = join(otherSlug, `2026-06-26T03-54-09-026Z_${sessionId}.jsonl`);
-    writeFileSync(target, "{}");
+    NodeFS.writeFileSync(
+      NodePath.join(callerSlug, `2026-06-26T00-00-00-000Z_other-id.jsonl`),
+      "{}",
+    );
+    NodeFS.writeFileSync(NodePath.join(otherSlug, `not-a-session.txt`), "x");
+    const target = NodePath.join(otherSlug, `2026-06-26T03-54-09-026Z_${sessionId}.jsonl`);
+    NodeFS.writeFileSync(target, "{}");
 
     expect(resolveSessionFilePath(sessionId, root)).toBe(target);
   });
 
   it("returns the newest match when an id appears in multiple slugs", () => {
-    const root = mkdtempSync(join(tmpdir(), "sessions-root-"));
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "sessions-root-"));
     const sessionId = "dup-id-1234";
-    const slugA = join(root, "--a--");
-    const slugB = join(root, "--b--");
-    mkdirSync(slugA, { recursive: true });
-    mkdirSync(slugB, { recursive: true });
-    const older = join(slugA, `2026-01-01T00-00-00-000Z_${sessionId}.jsonl`);
-    const newer = join(slugB, `2026-06-26T00-00-00-000Z_${sessionId}.jsonl`);
-    writeFileSync(older, "{}");
-    writeFileSync(newer, "{}");
-    utimesSync(older, new Date("2026-01-01"), new Date("2026-01-01"));
-    utimesSync(newer, new Date("2026-06-26"), new Date("2026-06-26"));
+    const slugA = NodePath.join(root, "--a--");
+    const slugB = NodePath.join(root, "--b--");
+    NodeFS.mkdirSync(slugA, { recursive: true });
+    NodeFS.mkdirSync(slugB, { recursive: true });
+    const older = NodePath.join(slugA, `2026-01-01T00-00-00-000Z_${sessionId}.jsonl`);
+    const newer = NodePath.join(slugB, `2026-06-26T00-00-00-000Z_${sessionId}.jsonl`);
+    NodeFS.writeFileSync(older, "{}");
+    NodeFS.writeFileSync(newer, "{}");
+    NodeFS.utimesSync(older, new Date("2026-01-01"), new Date("2026-01-01"));
+    NodeFS.utimesSync(newer, new Date("2026-06-26"), new Date("2026-06-26"));
 
     expect(resolveSessionFilePath(sessionId, root)).toBe(newer);
   });
 
   it("returns undefined when no session file matches (caller falls back to bare id)", () => {
-    const root = mkdtempSync(join(tmpdir(), "sessions-root-"));
-    mkdirSync(join(root, "--a--"), { recursive: true });
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "sessions-root-"));
+    NodeFS.mkdirSync(NodePath.join(root, "--a--"), { recursive: true });
     expect(resolveSessionFilePath("missing-id", root)).toBeUndefined();
-    expect(resolveSessionFilePath("missing-id", join(root, "does-not-exist"))).toBeUndefined();
+    expect(
+      resolveSessionFilePath("missing-id", NodePath.join(root, "does-not-exist")),
+    ).toBeUndefined();
   });
 });

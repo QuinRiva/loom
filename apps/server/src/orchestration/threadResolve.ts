@@ -20,9 +20,9 @@
  * @module threadResolve
  */
 // @effect-diagnostics nodeBuiltinImport:off
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
@@ -110,7 +110,8 @@ export const isUnambiguousMatch = <T extends ThreadNameCandidate>(
 };
 
 /** Default pi sessions root: `~/.pi/agent/sessions`. */
-export const defaultSessionsRoot = (): string => join(homedir(), ".pi", "agent", "sessions");
+export const defaultSessionsRoot = (): string =>
+  NodePath.join(NodeOS.homedir(), ".pi", "agent", "sessions");
 
 /**
  * Resolve a deterministic pi session id to its absolute `.jsonl` path by
@@ -125,21 +126,21 @@ export const resolveSessionFilePath = (
   sessionId: string,
   root: string = defaultSessionsRoot(),
 ): string | undefined => {
-  if (!existsSync(root)) return undefined;
+  if (!NodeFS.existsSync(root)) return undefined;
   const suffix = `_${sessionId}.jsonl`;
   let best: { path: string; mtimeMs: number } | undefined;
-  for (const slug of readdirSync(root)) {
-    const dir = join(root, slug);
+  for (const slug of NodeFS.readdirSync(root)) {
+    const dir = NodePath.join(root, slug);
     let entries: ReadonlyArray<string>;
     try {
-      entries = readdirSync(dir);
+      entries = NodeFS.readdirSync(dir);
     } catch {
       continue; // Not a readable directory; skip.
     }
     for (const name of entries) {
       if (!name.endsWith(suffix)) continue;
-      const path = join(dir, name);
-      const mtimeMs = statSync(path).mtimeMs;
+      const path = NodePath.join(dir, name);
+      const mtimeMs = NodeFS.statSync(path).mtimeMs;
       if (best === undefined || mtimeMs > best.mtimeMs) best = { path, mtimeMs };
     }
   }

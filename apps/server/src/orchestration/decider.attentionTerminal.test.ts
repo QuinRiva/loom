@@ -94,7 +94,7 @@ it.layer(NodeServices.layer)("terminal plan lane clears attention (design §3)",
       const list = Array.isArray(events) ? events : [events];
       expect(list.map((e) => e.type)).toEqual(["thread.plan-lane-set", "thread.attention-cleared"]);
       // Omitted reason ⇒ clears ALL stored attention.
-      expect((list[1]?.payload as { reason?: string }).reason).toBeUndefined();
+      expect((list[1]!.payload as { reason?: string }).reason).toBeUndefined();
     }),
   );
 

@@ -24,7 +24,7 @@
  */
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
-import { unlink } from "node:fs/promises";
+import * as NodeFSP from "node:fs/promises";
 
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -176,7 +176,7 @@ export const askWorkstreamThread = Effect.fn("askWorkstreamThread")(function* (
     (proc) =>
       Effect.promise(async () => {
         await proc.stop().catch(() => undefined);
-        if (forkSessionFile) await unlink(forkSessionFile).catch(() => undefined);
+        if (forkSessionFile) await NodeFSP.unlink(forkSessionFile).catch(() => undefined);
       }),
   );
 });

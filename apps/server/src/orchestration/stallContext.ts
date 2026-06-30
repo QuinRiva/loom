@@ -14,7 +14,7 @@
  * @module stallContext
  */
 // @effect-diagnostics nodeBuiltinImport:off
-import { readFile } from "node:fs/promises";
+import * as NodeFSP from "node:fs/promises";
 
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -115,6 +115,6 @@ export const readThreadStallContext = (threadId: ThreadId): Effect.Effect<StallC
   Effect.gen(function* () {
     const path = resolveSessionFilePath(piSessionIdForThread(threadId));
     if (path === undefined) return null;
-    const jsonl = yield* Effect.promise(() => readFile(path, "utf8").catch(() => ""));
+    const jsonl = yield* Effect.promise(() => NodeFSP.readFile(path, "utf8").catch(() => ""));
     return jsonl.length === 0 ? null : extractStallContext(jsonl);
   });

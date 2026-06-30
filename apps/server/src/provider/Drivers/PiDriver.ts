@@ -2,8 +2,8 @@
 // @effect-diagnostics globalDate:off
 // @effect-diagnostics runEffectInsideEffect:off
 // @effect-diagnostics preferSchemaOverJson:off
-import { existsSync, readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import * as NodeFS from "node:fs";
+import * as NodeCrypto from "node:crypto";
 
 import {
   EventId,
@@ -324,7 +324,7 @@ function eventBase(input: {
   readonly raw?: ProviderRuntimeEvent["raw"];
 }): Omit<ProviderRuntimeEvent, "type" | "payload"> {
   return {
-    eventId: EventId.make(`pi-event-${randomUUID()}`),
+    eventId: EventId.make(`pi-event-${NodeCrypto.randomUUID()}`),
     provider: DRIVER_KIND,
     providerInstanceId: input.instanceId,
     threadId: input.threadId,
@@ -487,11 +487,11 @@ function imageAttachments(
 ) {
   return (attachments ?? []).flatMap((attachment) => {
     const path = resolveAttachmentPath({ attachmentsDir, attachment });
-    return path && existsSync(path)
+    return path && NodeFS.existsSync(path)
       ? [
           {
             type: "image" as const,
-            data: readFileSync(path).toString("base64"),
+            data: NodeFS.readFileSync(path).toString("base64"),
             mimeType: attachment.mimeType,
           },
         ]
@@ -560,7 +560,7 @@ function makePiAdapter(input: {
       case "turn_start":
         return Effect.void;
       case "message_start":
-        session.currentAssistantMessageId = `assistant-${randomUUID()}`;
+        session.currentAssistantMessageId = `assistant-${NodeCrypto.randomUUID()}`;
         return Effect.void;
       case "message_update": {
         const assistantEvent = message.assistantMessageEvent;
@@ -604,7 +604,7 @@ function makePiAdapter(input: {
       }
       case "message_end": {
         if (message.message.role !== "assistant") return Effect.void;
-        const itemId = session.currentAssistantMessageId ?? `assistant-${randomUUID()}`;
+        const itemId = session.currentAssistantMessageId ?? `assistant-${NodeCrypto.randomUUID()}`;
         const usage = normalizePiTokenUsage(
           message.message.usage,
           session.session.model ? input.modelContextWindows.get(session.session.model) : undefined,
@@ -920,7 +920,7 @@ function makePiAdapter(input: {
             // mid-turn or it rejects the prompt. Future: let the user choose
             // steer vs followUp per message (design doc Decision 3).
             const activeTurnId = session.activeTurnId;
-            const turnId = activeTurnId ?? TurnId.make(`pi-turn-${randomUUID()}`);
+            const turnId = activeTurnId ?? TurnId.make(`pi-turn-${NodeCrypto.randomUUID()}`);
             if (activeTurnId === undefined) {
               session.activeTurnId = turnId;
               session.turns.push({ id: turnId, items: [] });
