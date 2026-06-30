@@ -34,12 +34,16 @@ import {
  * failing fetch logs and leaves that pill quiet without killing the other
  * provider or the schedule.
  *
- * Key reconciliation: the per-driver adapters emit `account.rate-limits.updated`
- * WITHOUT a `providerInstanceId` (their runtime-event base omits it), so the
- * registry keys those snapshots purely by `providerName` ("claudeAgent" /
- * "codex"). This poller emits the SAME key (instance id null, matching driver
- * name), so a poller update and an adapter update merge into one registry entry
- * — and `deriveAccountUsageViews` renders exactly one pill per account.
+ * Key reconciliation: the registry/derive key is `providerInstanceId ?? providerName`.
+ * Adapter-emitted `account.rate-limits.updated` events ARE stamped with the bound
+ * instance id by `ProviderService` (`correlateRuntimeEventWithInstance`), but for a
+ * built-in driver the *default* instance id IS the driver kind
+ * (`defaultInstanceIdForDriver(kind) === kind`) — i.e. "claudeAgent"/"codex", the
+ * same string as `providerName`. This poller emits `providerInstanceId: null`, which
+ * also keys by `providerName`. So for the default instance an adapter update and a
+ * poller update collapse into one registry entry, and `deriveAccountUsageViews`
+ * renders exactly one pill. (A user-configured NON-default named instance keys by its
+ * own id and would render its own pill — see the single-default-account caveat.)
  */
 
 const POLL_INTERVAL = Duration.seconds(60);
@@ -49,11 +53,13 @@ const PiAuthSchema = Schema.Struct({
     Schema.NullOr(Schema.Struct({ access: Schema.optional(Schema.String) })),
   ),
   "openai-codex": Schema.optional(
-    Schema.NullOr(Schema.Struct({ access: Schema.optional(Schema.String) })),
+    Schema.NullOr(
+      Schema.Struct({
+        access: Schema.optional(Schema.String),
+        accountId: Schema.optional(Schema.String),
+      }),
+    ),
   ),
-});
-const CodexAuthSchema = Schema.Struct({
-  tokens: Schema.Struct({ account_id: Schema.String }),
 });
 
 const make = Effect.gen(function* () {
@@ -63,15 +69,10 @@ const make = Effect.gen(function* () {
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
 
   const piAuthPath = path.join(NodeOS.homedir(), ".pi", "agent", "auth.json");
-  const codexAuthPath = path.join(NodeOS.homedir(), ".codex", "auth.json");
 
   const readPiAuth = fileSystem
     .readFileString(piAuthPath)
     .pipe(Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(PiAuthSchema))));
-  const readCodexAccountId = fileSystem.readFileString(codexAuthPath).pipe(
-    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(CodexAuthSchema))),
-    Effect.map((auth) => auth.tokens.account_id),
-  );
 
   const feed = (providerName: string, usage: ProviderUsage) =>
     usage.windows.length === 0
@@ -88,29 +89,31 @@ const make = Effect.gen(function* () {
             }),
           ),
           Effect.andThen(
-            Effect.logInfo(`subscription-usage poller: ${providerName} usage updated`, {
+            Effect.logDebug(`subscription-usage poller: ${providerName} usage updated`, {
               windows: usage.windows.map((w) => `${w.kind}=${Math.round(w.usedPercent)}%`),
             }),
           ),
         );
 
-  const pollAnthropic = Effect.gen(function* () {
-    const token = (yield* readPiAuth).anthropic?.access;
-    if (!token) {
-      yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
-      return;
-    }
-    yield* feed("claudeAgent", yield* fetchAnthropicUsage(httpClient, token));
-  });
+  const pollAnthropic = (auth: typeof PiAuthSchema.Type) =>
+    Effect.gen(function* () {
+      const token = auth.anthropic?.access;
+      if (!token) {
+        yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
+        return;
+      }
+      yield* feed("claudeAgent", yield* fetchAnthropicUsage(httpClient, token));
+    });
 
-  const pollCodex = Effect.gen(function* () {
-    const token = (yield* readPiAuth)["openai-codex"]?.access;
-    if (!token) {
-      yield* Effect.logDebug("subscription-usage poller: no Codex token on disk; skipping");
-      return;
-    }
-    yield* feed("codex", yield* fetchCodexUsage(httpClient, token, yield* readCodexAccountId));
-  });
+  const pollCodex = (auth: typeof PiAuthSchema.Type) =>
+    Effect.gen(function* () {
+      const codex = auth["openai-codex"];
+      if (!codex?.access || !codex.accountId) {
+        yield* Effect.logDebug("subscription-usage poller: no Codex token on disk; skipping");
+        return;
+      }
+      yield* feed("codex", yield* fetchCodexUsage(httpClient, codex.access, codex.accountId));
+    });
 
   // Isolate each provider so one failing fetch/credential read neither aborts
   // the other provider nor breaks the repeat schedule.
@@ -121,7 +124,15 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const pollOnce = Effect.andThen(isolate("Anthropic", pollAnthropic), isolate("Codex", pollCodex));
+  // Read pi's auth once per cycle and feed both provider polls.
+  const pollOnce = readPiAuth.pipe(
+    Effect.flatMap((auth) =>
+      Effect.andThen(isolate("Anthropic", pollAnthropic(auth)), isolate("Codex", pollCodex(auth))),
+    ),
+    Effect.catchCause((cause) =>
+      Effect.logWarning("subscription-usage poller: failed to read pi auth", { cause }),
+    ),
+  );
 
   const start: SubscriptionUsagePollerShape["start"] = () =>
     Effect.gen(function* () {
