@@ -414,16 +414,20 @@ function WorkstreamCard({
   const isRunning = hasRunningSignal(thread);
   const isBlocked = status.column === "blocked";
   const badges = getAttentionBadges(thread);
-  // Card face shows this thread's OWN spend only; the subtree roll-up lives in
-  // the (labelled) detail popover to avoid an unlabelled parent total reading as
-  // double-counting against its children's own-cost chips elsewhere on the board.
+  // Quiet metadata (model · spend · context) rides in the header next to the age
+  // as muted text. Context% is a health signal, not a vanity stat: hidden below
+  // 20% (a near-empty window says nothing actionable), shown muted 20-50%, red
+  // above 50%. Own spend only; the subtree roll-up belongs in the detail popover.
   const ownCost = formatCostUsd(thread.cumulativeCostUsd);
-  const contextPercent = formatContextPercent(thread.usedTokens, thread.maxTokens);
-  const isContextHot =
-    thread.usedTokens !== null &&
-    thread.maxTokens !== null &&
-    thread.maxTokens > 0 &&
-    thread.usedTokens / thread.maxTokens > 0.9;
+  const contextPercentRaw =
+    thread.usedTokens !== null && thread.maxTokens !== null && thread.maxTokens > 0
+      ? (thread.usedTokens / thread.maxTokens) * 100
+      : null;
+  const contextPercent =
+    contextPercentRaw !== null && contextPercentRaw >= 20
+      ? formatContextPercent(thread.usedTokens, thread.maxTokens)
+      : null;
+  const isContextHot = contextPercentRaw !== null && contextPercentRaw > 50;
   const open = () => onOpenThread(thread);
   return (
     <div
@@ -442,6 +446,32 @@ function WorkstreamCard({
           <span className="truncate">{getRoleLabel(thread)}</span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-white/35">
+          <span
+            className="max-w-[7.5rem] truncate"
+            title={`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}
+          >
+            {formatModelLabel(thread.modelSelection)}
+          </span>
+          {ownCost ? (
+            <>
+              <span className="text-white/20">·</span>
+              <span className="tabular-nums" title="This sub-thread's own spend">
+                {ownCost}
+              </span>
+            </>
+          ) : null}
+          {contextPercent ? (
+            <>
+              <span className="text-white/20">·</span>
+              <span
+                className={`tabular-nums ${isContextHot ? "text-rose-400" : ""}`}
+                title="Context window used"
+              >
+                {contextPercent}
+              </span>
+            </>
+          ) : null}
+          <span className="text-white/20">·</span>
           <span>{formatRelativeAge(getLastActivityAt(thread))}</span>
         </div>
       </button>
@@ -468,56 +498,29 @@ function WorkstreamCard({
           {isRunning ? <LiveDots /> : null}
           {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}
           <span>{activity}</span>
+          {thread.toolUses && thread.toolUses > 0 ? (
+            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-white/35">
+              {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
+            </span>
+          ) : null}
         </div>
       </button>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <span
-          className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] text-white/40"
-          title={`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}
-        >
-          {formatModelLabel(thread.modelSelection)}
-        </span>
-        {badges.map(({ reason, label }) => {
-          const style = ATTENTION_STYLES[reason];
-          return (
-            <span
-              key={reason}
-              className={`rounded-full border px-2 py-0.5 text-[11px] ${style.borderClass} ${style.bgClass} ${style.textClass}`}
-            >
-              {label}
-            </span>
-          );
-        })}
-        {ownCost ? (
-          <span
-            className="rounded-md border border-emerald-400/20 bg-emerald-400/[0.06] px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-emerald-200/70"
-            title="This sub-thread's own spend"
-          >
-            {ownCost}
-          </span>
-        ) : null}
-        {thread.toolUses && thread.toolUses > 0 ? (
-          <span
-            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-white/40"
-            title="Tool calls this session"
-          >
-            {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
-          </span>
-        ) : null}
-        {contextPercent ? (
-          <span
-            className={`rounded-md border px-2 py-0.5 font-mono text-[10.5px] tabular-nums ${
-              isContextHot
-                ? "border-rose-500/30 bg-rose-500/[0.08] text-rose-200/80"
-                : "border-white/10 bg-white/[0.04] text-white/40"
-            }`}
-            title="Context window used"
-          >
-            {contextPercent}
-          </span>
-        ) : null}
-      </div>
+      {badges.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {badges.map(({ reason, label }) => {
+            const style = ATTENTION_STYLES[reason];
+            return (
+              <span
+                key={reason}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${style.borderClass} ${style.bgClass} ${style.textClass}`}
+              >
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
         <label className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/35">
