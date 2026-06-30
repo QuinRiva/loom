@@ -237,7 +237,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const role = trimString(body.role);
   const purpose = trimString(body.purpose);
   const brief = trimString(body.brief);
-  const title = trimString(body.title) ?? purpose;
+  const title = trimString(body.title);
   // Default `ready` (runs once deps clear — current ergonomics); `staged: true`
   // creates a held `planned` node for the review-the-graph flow (design §3).
   const planLane: ThreadPlanLane = body.staged === true ? "planned" : "ready";

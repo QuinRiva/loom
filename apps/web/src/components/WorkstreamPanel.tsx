@@ -82,6 +82,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   );
   const [view, setView] = useState<WorkstreamView>("graph");
   const [role, setRole] = useState("");
+  const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
   const [isSpawning, setIsSpawning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,8 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   const spawnChild = async () => {
     const trimmedPurpose = purpose.trim();
     const trimmedRole = role.trim();
-    if (!trimmedPurpose || isSpawning) {
+    const trimmedTitle = title.trim();
+    if (!trimmedPurpose || !trimmedTitle || isSpawning) {
       return;
     }
     setIsSpawning(true);
@@ -186,7 +188,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         role: trimmedRole || null,
         purpose: trimmedPurpose,
         goalId: activeThread.goalId ?? null,
-        title: trimmedPurpose,
+        title: trimmedTitle,
         modelSelection: activeThread.modelSelection,
         runtimeMode: activeThread.runtimeMode,
         interactionMode: activeThread.interactionMode,
@@ -195,6 +197,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         createdAt: new Date().toISOString(),
       });
       setRole("");
+      setTitle("");
       setPurpose("");
       await navigate({
         to: "/$environmentId/$threadId",
@@ -287,7 +290,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               Manual spawn
             </span>
             <span className="text-xs font-normal text-white/35 group-open:hidden">
-              role + purpose
+              role + title + purpose
             </span>
           </summary>
           <div className="border-t border-white/10 p-3">
@@ -306,6 +309,19 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             />
             <label
               className="mt-3 block text-xs font-medium uppercase tracking-wide text-white/40"
+              htmlFor="workstream-title"
+            >
+              Title
+            </label>
+            <input
+              id="workstream-title"
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-violet-400/60"
+              placeholder="Short label, e.g. Fix spawn title fallback"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+            <label
+              className="mt-3 block text-xs font-medium uppercase tracking-wide text-white/40"
               htmlFor="workstream-purpose"
             >
               Purpose
@@ -321,7 +337,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             <button
               type="button"
               className="mt-3 inline-flex items-center gap-2 rounded-md bg-violet-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!purpose.trim() || isSpawning}
+              disabled={!purpose.trim() || !title.trim() || isSpawning}
               onClick={() => void spawnChild()}
             >
               {isSpawning ? (
