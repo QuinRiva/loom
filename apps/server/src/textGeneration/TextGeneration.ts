@@ -109,6 +109,14 @@ export interface TextGenerationShape {
 
   /**
    * Generate a concise branch name from a user message.
+   *
+   * NOTE: currently call-less. First-turn worktree-branch renaming now reuses the
+   * generated thread title (one interpretation round-trip, see
+   * ProviderCommandReactor's interpretThreadIntent / renameWorktreeBranchToTitle),
+   * so branch and title stay consistent. Retained — not deleted — for the same
+   * reason as generateThreadTitle: removing it across the shape + every driver
+   * would be a standing merge-conflict liability against upstream T3 Code for
+   * little gain.
    */
   readonly generateBranchName: (
     input: BranchNameGenerationInput,

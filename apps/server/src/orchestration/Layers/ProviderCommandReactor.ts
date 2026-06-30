@@ -760,40 +760,28 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const maybeGenerateAndRenameWorktreeBranchForFirstTurn = Effect.fn(
-    "maybeGenerateAndRenameWorktreeBranchForFirstTurn",
-  )(function* (input: {
+  // Rename the temporary `t3code/<hash>` worktree branch to a slug derived from
+  // the generated thread title, so branch and title stay consistent. Guards:
+  // temp-branch-only (never touch a user-named branch), collision-safe via
+  // renameBranch, and no-ops when the slug already matches. Internally
+  // failure-isolated so a git failure leaves the temp branch intact and never
+  // aborts the surrounding interpretation (e.g. emergent-goal creation). The
+  // worktree DIRECTORY is intentionally left as the hash dir.
+  const renameWorktreeBranchToTitle = Effect.fn("renameWorktreeBranchToTitle")(function* (input: {
     readonly threadId: ThreadId;
     readonly branch: string | null;
     readonly worktreePath: string | null;
-    readonly messageText: string;
-    readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly title: string;
   }) {
-    if (!input.branch || !input.worktreePath) {
+    if (!input.branch || !input.worktreePath || !isTemporaryWorktreeBranch(input.branch)) {
       return;
     }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
-      return;
-    }
-
     const oldBranch = input.branch;
     const cwd = input.worktreePath;
-    const attachments = input.attachments ?? [];
+    const targetBranch = buildGeneratedWorktreeBranchName(input.title);
+    if (targetBranch === oldBranch) return;
+
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
-
-      const generated = yield* textGeneration.generateBranchName({
-        cwd,
-        message: input.messageText,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection,
-      });
-      if (!generated) return;
-
-      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
-      if (targetBranch === oldBranch) return;
-
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
@@ -805,10 +793,11 @@ const make = Effect.gen(function* () {
       yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
     }).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {
+        Effect.logWarning("provider command reactor failed to rename worktree branch", {
           threadId: input.threadId,
           cwd,
           oldBranch,
+          targetBranch,
           cause: Cause.pretty(cause),
         }),
       ),
@@ -850,11 +839,21 @@ const make = Effect.gen(function* () {
 
     if (input.applyTitle) {
       const title = sanitizeThreadTitle(interpretation.title);
-      if (title.length > 0 && canReplaceThreadTitle(thread.title, input.titleSeed)) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.meta.update",
-          commandId: yield* serverCommandId("thread-title-rename"),
+      if (title.length > 0) {
+        if (canReplaceThreadTitle(thread.title, input.titleSeed)) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: yield* serverCommandId("thread-title-rename"),
+            threadId: input.threadId,
+            title,
+          });
+        }
+        // Keep the git branch consistent with the generated title: rename the
+        // temporary worktree branch off the same title in one model call.
+        yield* renameWorktreeBranchToTitle({
           threadId: input.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
           title,
         });
       }
@@ -962,15 +961,6 @@ const make = Effect.gen(function* () {
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
     };
-
-    if (isFirstUserMessageTurn) {
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
-    }
 
     // Emergent goals ("every session has a goal" invariant): interpret intent on
     // every user turn while the thread is still goal-less. Turn 1 is
