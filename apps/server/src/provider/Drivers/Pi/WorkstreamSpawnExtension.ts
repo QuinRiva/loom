@@ -29,9 +29,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread and assign it a role. Give it a short purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces — NOT the role or the mechanical steps, and put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId]. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
-    promptSnippet: "launch a durable child thread for delegated work: role + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — an imperative label of roughly ≤6 words), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId]. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
+    promptSnippet: "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
     promptGuidelines: [
+      "Name the work with three distinct fields: title is a short imperative label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
       "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run."
@@ -42,7 +43,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         role: { type: "string", description: "Role label for the child agent, e.g. coder, reviewer, researcher." },
         purpose: { type: "string", description: "Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value/outcome the work delivers — why it matters and how to judge it — not the mechanical actions. The role badge already conveys that (e.g.) code is being written, so do not restate the role or lead with 'Implement…'/'Review…'; lead with the capability, fix, or decision the work produces. Put the detailed instructions in brief. Required." },
         brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
-        title: { type: "string", description: "Optional child thread title. Defaults to the purpose." },
+        title: { type: "string", description: "Short imperative label naming the work at a glance — the card's bold name, roughly ≤6 words (e.g. 'Fix spawn title fallback'). Distinct from purpose, which is the one-sentence why. Required." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
         staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a DAG for review before any tokens are spent; release it later with workstream_release." },
         modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
@@ -70,7 +71,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
           additionalProperties: false
         }
       },
-      required: ["role", "purpose"],
+      required: ["role", "purpose", "title"],
       additionalProperties: false
     },
     async execute(_id, params, signal) {
@@ -78,7 +79,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       if (!outcome.ok) return outcome.error;
       const result = outcome.result;
       const childThreadId = result?.childThreadId ?? "unknown";
-      const title = result?.title ?? params.title ?? params.purpose;
+      const title = result?.title ?? params.title;
       return {
         content: [{ type: "text", text: "Spawned Workstream sub-thread " + childThreadId + ": " + title }],
         details: { ok: true, ...result }
