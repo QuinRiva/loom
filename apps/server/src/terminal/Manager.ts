@@ -35,6 +35,7 @@ import {
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -1067,6 +1068,8 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
 
 function createTerminalSpawnEnv(
   baseEnv: NodeJS.ProcessEnv,
+  cwd: string,
+  platform: NodeJS.Platform,
   runtimeEnv?: Record<string, string> | null,
 ): NodeJS.ProcessEnv {
   const spawnEnv: NodeJS.ProcessEnv = {};
@@ -1080,7 +1083,9 @@ function createTerminalSpawnEnv(
       spawnEnv[key] = value;
     }
   }
-  return spawnEnv;
+  // Resolve the terminal's own worktree binaries (e.g. `vp`) before anything
+  // inherited from the server's PATH, which may point at a different checkout.
+  return withLocalNodeModulesBin(spawnEnv, cwd, platform);
 }
 
 function normalizedRuntimeEnv(
@@ -1837,7 +1842,12 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         Effect.andThen(
           Effect.gen(function* () {
             const shellCandidates = resolveShellCandidates(shellResolver, platform, baseEnv);
-            const terminalEnv = createTerminalSpawnEnv(baseEnv, session.runtimeEnv);
+            const terminalEnv = createTerminalSpawnEnv(
+              baseEnv,
+              session.cwd,
+              platform,
+              session.runtimeEnv,
+            );
             const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
             ptyProcess = spawnResult.process;
             startedShell = spawnResult.shellLabel;
