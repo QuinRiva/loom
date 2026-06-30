@@ -41,8 +41,9 @@ export interface AccountUsageView {
   readonly planType: string | null;
   /** Windows ordered primary (5-hour) then secondary (weekly). */
   readonly windows: ReadonlyArray<AccountUsageWindowView>;
-  /** Highest used-% across windows — what the compact pill shows. */
-  readonly tightestPercent: number;
+  /** The 5-hour (primary) window's used-% — the number the compact pill shows. */
+  readonly displayPercent: number;
+  /** Tone derived from the loudest window, so either window can drive the highlight. */
   readonly tone: AccountUsageTone;
   readonly observedAt: string;
 }
@@ -115,15 +116,17 @@ export function deriveAccountUsageViews(
       const windows = snapshot.windows
         .map((window) => toWindowView(window, nowMs))
         .sort((left, right) => WINDOW_ORDER[left.kind] - WINDOW_ORDER[right.kind]);
-      const tightestPercent = windows.reduce((max, window) => Math.max(max, window.usedPercent), 0);
+      const loudestPercent = windows.reduce((max, window) => Math.max(max, window.usedPercent), 0);
+      const displayPercent =
+        (windows.find((window) => window.kind === "primary") ?? windows[0])?.usedPercent ?? 0;
       return {
         key,
         providerName: snapshot.providerName,
         providerDisplayName: providerDisplayName(snapshot.providerName),
         planType: snapshot.planType,
         windows,
-        tightestPercent,
-        tone: accountUsageTone(tightestPercent),
+        displayPercent,
+        tone: accountUsageTone(loudestPercent),
         observedAt: snapshot.observedAt,
       };
     })
