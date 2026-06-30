@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { ProviderDriverKind } from "@t3tools/contracts";
-
 import {
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
@@ -9,15 +7,14 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
-  buildSidebarGoalOrderedEntries,
-  buildSidebarProjectThreadOrdering,
-  flattenSidebarOrderedThreads,
   hasUnseenCompletion,
   isContextMenuPointerDown,
+  isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
@@ -39,6 +36,44 @@ import {
 } from "../types";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("resolveSidebarStageBadgeLabel", () => {
+  it("returns Nightly for nightly primary server versions", () => {
+    expect(
+      resolveSidebarStageBadgeLabel({
+        primaryServerVersion: "0.0.28-nightly.20260616.12",
+        fallbackStageLabel: "Alpha",
+      }),
+    ).toBe("Nightly");
+  });
+
+  it("returns the fallback label for stable primary server versions", () => {
+    expect(
+      resolveSidebarStageBadgeLabel({
+        primaryServerVersion: "0.0.27",
+        fallbackStageLabel: "Alpha",
+      }),
+    ).toBe("Alpha");
+  });
+
+  it("returns the fallback label when the primary server version is missing", () => {
+    expect(
+      resolveSidebarStageBadgeLabel({
+        primaryServerVersion: null,
+        fallbackStageLabel: "Dev",
+      }),
+    ).toBe("Dev");
+  });
+
+  it("returns the fallback label for malformed nightly prerelease versions", () => {
+    expect(
+      resolveSidebarStageBadgeLabel({
+        primaryServerVersion: "0.0.28-nightly.20260616",
+        fallbackStageLabel: "Alpha",
+      }),
+    ).toBe("Alpha");
+  });
+});
 
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
@@ -67,6 +102,20 @@ describe("hasUnseenCompletion", () => {
         session: null,
       }),
     ).toBe(true);
+  });
+
+  it("treats a missing client visit marker as read", () => {
+    expect(
+      hasUnseenCompletion({
+        hasActionableProposedPlan: false,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        interactionMode: "default",
+        latestTurn: makeLatestTurn(),
+        lastVisitedAt: undefined,
+        session: null,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -174,6 +223,24 @@ describe("shouldClearThreadSelectionOnMouseDown", () => {
   });
 });
 
+describe("isTrailingDoubleClick", () => {
+  it("treats a single click as a normal activation", () => {
+    expect(isTrailingDoubleClick(1)).toBe(false);
+  });
+
+  it("treats synthetic/keyboard activations (detail 0) as a normal activation", () => {
+    expect(isTrailingDoubleClick(0)).toBe(false);
+  });
+
+  it("ignores the second click of a double-click so it does not navigate", () => {
+    expect(isTrailingDoubleClick(2)).toBe(true);
+  });
+
+  it("ignores further clicks of a triple-click", () => {
+    expect(isTrailingDoubleClick(3)).toBe(true);
+  });
+});
+
 describe("resolveSidebarNewThreadEnvMode", () => {
   it("uses the app default when the caller does not request a specific mode", () => {
     expect(
@@ -209,6 +276,7 @@ describe("resolveSidebarNewThreadSeedContext", () => {
           branch: "feature/draft",
           worktreePath: "/repo/.t3/worktrees/draft",
           envMode: "worktree",
+          startFromOrigin: true,
         },
       }),
     ).toEqual({
@@ -250,12 +318,14 @@ describe("resolveSidebarNewThreadSeedContext", () => {
           branch: "feature/new-draft",
           worktreePath: "/repo/worktree",
           envMode: "worktree",
+          startFromOrigin: true,
         },
       }),
     ).toEqual({
       branch: "feature/new-draft",
       worktreePath: "/repo/worktree",
       envMode: "worktree",
+      startFromOrigin: true,
     });
   });
 
@@ -330,17 +400,17 @@ describe("orderItemsByPreferredIds", () => {
       {
         environmentId: EnvironmentId.make("environment-local"),
         id: ProjectId.make("id-alpha"),
-        cwd: "/work/alpha",
+        workspaceRoot: "/work/alpha",
       },
       {
         environmentId: EnvironmentId.make("environment-local"),
         id: ProjectId.make("id-beta"),
-        cwd: "/work/beta",
+        workspaceRoot: "/work/beta",
       },
       {
         environmentId: EnvironmentId.make("environment-local"),
         id: ProjectId.make("id-gamma"),
-        cwd: "/work/gamma",
+        workspaceRoot: "/work/gamma",
       },
     ];
     const ordered = orderItemsByPreferredIds({
@@ -349,10 +419,29 @@ describe("orderItemsByPreferredIds", () => {
       getId: getProjectOrderKey,
     });
 
-    expect(ordered.map((project) => project.cwd)).toEqual([
+    expect(ordered.map((project) => project.workspaceRoot)).toEqual([
       "/work/gamma",
       "/work/alpha",
       "/work/beta",
+    ]);
+  });
+
+  it("resolves legacy preference aliases without materializing project state", () => {
+    const ordered = orderItemsByPreferredIds({
+      items: [
+        { id: "physical-a", cwd: "/work/a" },
+        { id: "physical-b", cwd: "/work/b" },
+        { id: "physical-c", cwd: "/work/c" },
+      ],
+      preferredIds: ["legacy:/work/c", "legacy:/work/a"],
+      getId: (project) => project.id,
+      getPreferenceIds: (project) => [project.id, `legacy:${project.cwd}`],
+    });
+
+    expect(ordered.map((project) => project.id)).toEqual([
+      "physical-c",
+      "physical-a",
+      "physical-b",
     ]);
   });
 });
@@ -484,12 +573,14 @@ describe("resolveThreadStatusPill", () => {
     latestTurn: null,
     lastVisitedAt: undefined,
     session: {
-      provider: ProviderDriverKind.make("codex"),
+      threadId: ThreadId.make("thread-1"),
       status: "running" as const,
-      createdAt: "2026-03-09T10:00:00.000Z",
+      providerName: "Codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      activeTurnId: "turn-1" as never,
+      lastError: null,
       updatedAt: "2026-03-09T10:00:00.000Z",
-      queuedMessages: { steering: [], followUp: [] },
-      orchestrationStatus: "running" as const,
     },
   };
 
@@ -534,14 +625,14 @@ describe("resolveThreadStatusPill", () => {
           session: {
             ...baseThread.session,
             status: "ready",
-            orchestrationStatus: "ready",
+            activeTurnId: null,
           },
         },
       }),
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
+  it("does not manufacture completed state without a client visit marker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -550,11 +641,11 @@ describe("resolveThreadStatusPill", () => {
           session: {
             ...baseThread.session,
             status: "ready",
-            orchestrationStatus: "ready",
+            activeTurnId: null,
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toBeNull();
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {
@@ -568,7 +659,7 @@ describe("resolveThreadStatusPill", () => {
           session: {
             ...baseThread.session,
             status: "ready",
-            orchestrationStatus: "ready",
+            activeTurnId: null,
           },
         },
       }),
@@ -706,8 +797,9 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   return {
     id: ProjectId.make("project-1"),
     environmentId: localEnvironmentId,
-    name: "Project",
-    cwd: "/tmp/project",
+    title: "Project",
+    workspaceRoot: "/tmp/project",
+    repositoryIdentity: null,
     defaultModelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.4",
@@ -724,15 +816,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.make("thread-1"),
     environmentId: localEnvironmentId,
-    codexThreadId: null,
     projectId: ProjectId.make("project-1"),
-    parentThreadId: null,
-    role: null,
-    purpose: null,
-    brief: null,
-    planLane: "planned" as const,
-    attention: [],
-    blockedBy: [],
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
@@ -744,14 +828,14 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     session: null,
     messages: [],
     proposedPlans: [],
-    error: null,
     createdAt: "2026-03-09T10:00:00.000Z",
     archivedAt: null,
+    deletedAt: null,
     updatedAt: "2026-03-09T10:00:00.000Z",
     latestTurn: null,
     branch: null,
     worktreePath: null,
-    turnDiffSummaries: [],
+    checkpoints: [],
     activities: [],
     ...overrides,
   };
@@ -826,8 +910,8 @@ describe("getFallbackThreadIdAfterDelete", () => {
 describe("sortProjectsForSidebar", () => {
   it("sorts projects by the most recent user message across their threads", () => {
     const projects = [
-      makeProject({ id: ProjectId.make("project-1"), name: "Older project" }),
-      makeProject({ id: ProjectId.make("project-2"), name: "Newer project" }),
+      makeProject({ id: ProjectId.make("project-1"), title: "Older project" }),
+      makeProject({ id: ProjectId.make("project-2"), title: "Newer project" }),
     ];
     const threads = [
       makeThread({
@@ -838,9 +922,10 @@ describe("sortProjectsForSidebar", () => {
             id: "message-1" as never,
             role: "user",
             text: "older project user message",
+            turnId: null,
             createdAt: "2026-03-09T10:01:00.000Z",
+            updatedAt: "2026-03-09T10:01:00.000Z",
             streaming: false,
-            completedAt: "2026-03-09T10:01:00.000Z",
           },
         ],
       }),
@@ -853,9 +938,10 @@ describe("sortProjectsForSidebar", () => {
             id: "message-2" as never,
             role: "user",
             text: "newer project user message",
+            turnId: null,
             createdAt: "2026-03-09T10:05:00.000Z",
+            updatedAt: "2026-03-09T10:05:00.000Z",
             streaming: false,
-            completedAt: "2026-03-09T10:05:00.000Z",
           },
         ],
       }),
@@ -874,12 +960,12 @@ describe("sortProjectsForSidebar", () => {
       [
         makeProject({
           id: ProjectId.make("project-1"),
-          name: "Older project",
+          title: "Older project",
           updatedAt: "2026-03-09T10:01:00.000Z",
         }),
         makeProject({
           id: ProjectId.make("project-2"),
-          name: "Newer project",
+          title: "Newer project",
           updatedAt: "2026-03-09T10:05:00.000Z",
         }),
       ],
@@ -898,15 +984,15 @@ describe("sortProjectsForSidebar", () => {
       [
         makeProject({
           id: ProjectId.make("project-2"),
-          name: "Beta",
-          createdAt: undefined,
-          updatedAt: undefined,
+          title: "Beta",
+          createdAt: "invalid-created-at" as never,
+          updatedAt: "invalid-updated-at" as never,
         }),
         makeProject({
           id: ProjectId.make("project-1"),
-          name: "Alpha",
-          createdAt: undefined,
-          updatedAt: undefined,
+          title: "Alpha",
+          createdAt: "invalid-created-at" as never,
+          updatedAt: "invalid-updated-at" as never,
         }),
       ],
       [],
@@ -921,8 +1007,8 @@ describe("sortProjectsForSidebar", () => {
 
   it("preserves manual project ordering", () => {
     const projects = [
-      makeProject({ id: ProjectId.make("project-2"), name: "Second" }),
-      makeProject({ id: ProjectId.make("project-1"), name: "First" }),
+      makeProject({ id: ProjectId.make("project-2"), title: "Second" }),
+      makeProject({ id: ProjectId.make("project-1"), title: "First" }),
     ];
 
     const sorted = sortProjectsForSidebar(projects, [], "manual");
@@ -938,12 +1024,12 @@ describe("sortProjectsForSidebar", () => {
       [
         makeProject({
           id: ProjectId.make("project-1"),
-          name: "Visible project",
+          title: "Visible project",
           updatedAt: "2026-03-09T10:01:00.000Z",
         }),
         makeProject({
           id: ProjectId.make("project-2"),
-          name: "Archived-only project",
+          title: "Archived-only project",
           updatedAt: "2026-03-09T10:00:00.000Z",
         }),
       ],
@@ -978,296 +1064,5 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));
-  });
-});
-
-describe("buildSidebarGoalOrderedEntries", () => {
-  const thread = (id: string, createdAt: string, goalId?: string) => ({
-    id: ThreadId.make(id),
-    createdAt,
-    updatedAt: createdAt,
-    ...(goalId ? { goalId } : {}),
-  });
-  const goal = (id: string, createdAt: string) => ({ id, createdAt, updatedAt: createdAt });
-  const at = (hour: string) => `2026-03-09T${hour}:00:00.000Z`;
-
-  it("interleaves goal groups and loose threads into one recency sequence", () => {
-    const entries = buildSidebarGoalOrderedEntries({
-      threads: [
-        thread("a1", at("05"), "goal-a"),
-        thread("a2", at("02"), "goal-a"),
-        thread("loose", at("04")),
-      ],
-      goals: [goal("goal-a", at("01")), goal("goal-b", at("03"))],
-      sortOrder: "created_at",
-    });
-
-    // goal-a ranks by its most recent thread (05:00), loose at 04:00,
-    // empty goal-b falls back to its own timestamp (03:00).
-    expect(
-      entries.map((entry) => (entry.kind === "goal" ? entry.goalId : entry.thread.id)),
-    ).toEqual(["goal-a", "loose", "goal-b"]);
-    // Within a goal, threads stay recency-ordered (most recent first).
-    const goalA = entries.find((e) => e.kind === "goal" && e.goalId === "goal-a");
-    expect(goalA?.kind === "goal" && goalA.threads.map((t) => t.id)).toEqual(["a1", "a2"]);
-  });
-
-  it("flattens to the exact top-to-bottom visible thread order (jump == render)", () => {
-    const entries = buildSidebarGoalOrderedEntries({
-      threads: [
-        thread("a1", at("05"), "goal-a"),
-        thread("a2", at("02"), "goal-a"),
-        thread("loose", at("04")),
-      ],
-      goals: [goal("goal-a", at("01")), goal("goal-b", at("03"))],
-      sortOrder: "created_at",
-    });
-
-    // Empty goal-b contributes no jump targets; order is goal-a's threads then loose.
-    expect(flattenSidebarOrderedThreads(entries).map((t) => t.id)).toEqual(["a1", "a2", "loose"]);
-  });
-
-  it("flatten-with-collapse equals the visible-row walk (collapsed multi-thread + compact single-thread)", () => {
-    const goals = [goal("multi", at("06")), goal("solo", at("04"))];
-    const threads = [
-      thread("m1", at("06"), "multi"),
-      thread("m2", at("03"), "multi"),
-      thread("loose", at("05")),
-      thread("s1", at("04"), "solo"),
-    ];
-    const entries = buildSidebarGoalOrderedEntries({ threads, goals, sortOrder: "created_at" });
-    const knownGoalIds = new Set(goals.map((g) => g.id));
-
-    // Recency order of entries: multi(06) > loose(05) > solo(04).
-    expect(
-      entries.map((entry) => (entry.kind === "goal" ? entry.goalId : entry.thread.id)),
-    ).toEqual(["multi", "loose", "solo"]);
-
-    // Walk the rows the render would actually paint with "multi" collapsed:
-    // the collapsible multi-thread goal hides m1/m2; the compact single-thread
-    // "solo" goal renders as a plain row that always shows; loose always shows.
-    const collapsedGoalIds = new Set(["multi"]);
-    const visibleRowWalk = entries.flatMap((entry) => {
-      if (entry.kind === "thread") return [entry.thread.id];
-      const compact = knownGoalIds.has(entry.goalId) && entry.threads.length === 1;
-      if (compact) return entry.threads.map((t) => t.id);
-      return collapsedGoalIds.has(entry.goalId) ? [] : entry.threads.map((t) => t.id);
-    });
-
-    expect(
-      flattenSidebarOrderedThreads(entries, { collapsedGoalIds, knownGoalIds }).map((t) => t.id),
-    ).toEqual(visibleRowWalk);
-    expect(visibleRowWalk).toEqual(["loose", "s1"]);
-
-    // Expanding "multi" brings its threads back as jump targets, still in order.
-    expect(
-      flattenSidebarOrderedThreads(entries, {
-        collapsedGoalIds: new Set<string>(),
-        knownGoalIds,
-      }).map((t) => t.id),
-    ).toEqual(["m1", "m2", "loose", "s1"]);
-
-    // A compact single-thread goal still counts even when its id is in the
-    // collapsed set (it has no chevron, so its row is always on screen). This
-    // happens when a collapsed multi-thread goal loses threads down to one.
-    expect(
-      flattenSidebarOrderedThreads(entries, {
-        collapsedGoalIds: new Set(["multi", "solo"]),
-        knownGoalIds,
-      }).map((t) => t.id),
-    ).toEqual(["loose", "s1"]);
-  });
-
-  it("keeps orphan goalIds (missing from goals) as goal groups", () => {
-    const entries = buildSidebarGoalOrderedEntries({
-      threads: [thread("o1", at("06"), "ghost-goal")],
-      goals: [],
-      sortOrder: "created_at",
-    });
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.kind === "goal" && entries[0].goalId).toBe("ghost-goal");
-  });
-});
-
-describe("buildSidebarProjectThreadOrdering", () => {
-  const thread = (
-    id: string,
-    createdAt: string,
-    goalId?: string,
-    archivedAt: string | null = null,
-  ) => ({
-    id: ThreadId.make(id),
-    createdAt,
-    updatedAt: createdAt,
-    archivedAt,
-    ...(goalId ? { goalId } : {}),
-  });
-  const goal = (id: string, createdAt: string) => ({ id, createdAt, updatedAt: createdAt });
-  const at = (hour: string) => `2026-03-09T${hour}:00:00.000Z`;
-
-  it("filters archived, recency-sorts, preview-slices, and the entries flatten to the visible rows (jump == render)", () => {
-    const threads = [
-      thread("t1", at("06")),
-      thread("t2", at("05")),
-      thread("t3", at("04")),
-      thread("gone", at("07"), undefined, at("07")),
-    ];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [],
-      sortOrder: "created_at",
-      previewCount: 2,
-      isThreadListExpanded: false,
-      collapsedGoalIds: new Set(),
-      knownGoalIds: new Set(),
-    });
-
-    // Archived "gone" excluded; recency order t1>t2>t3; preview keeps the top 2.
-    expect(result.sortedThreads.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
-    expect(result.hasOverflowingThreads).toBe(true);
-    expect(result.previewThreads.map((t) => t.id)).toEqual(["t1", "t2"]);
-    // The jump map flattens exactly these entries, so it equals the rendered preview.
-    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
-      "t1",
-      "t2",
-    ]);
-  });
-
-  it("expanding the thread list drops the preview cap so all rows are ordered", () => {
-    const threads = [thread("t1", at("06")), thread("t2", at("05")), thread("t3", at("04"))];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [goal("g", at("03"))],
-      sortOrder: "created_at",
-      previewCount: 2,
-      isThreadListExpanded: true,
-      collapsedGoalIds: new Set(),
-      knownGoalIds: new Set(["g"]),
-    });
-
-    expect(result.previewThreads.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
-    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
-      "t1",
-      "t2",
-      "t3",
-    ]);
-  });
-
-  it("keeps a single-thread goal whole with its thread instead of stranding the header above the fold", () => {
-    // g1 is the freshest entry (its only thread at 07), then loose t1..t3.
-    // previewCount 2 means only g1's compact row + t1 fit; the rest go below.
-    const threads = [
-      thread("g1t", at("07"), "g1"),
-      thread("t1", at("06")),
-      thread("t2", at("05")),
-      thread("t3", at("04")),
-    ];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [goal("g1", at("07"))],
-      sortOrder: "created_at",
-      previewCount: 2,
-      isThreadListExpanded: false,
-      collapsedGoalIds: new Set(),
-      knownGoalIds: new Set(["g1"]),
-    });
-
-    // The compact single-thread goal exposes its thread as 1 jump target; the
-    // budget then admits t1. No empty-goal stub is emitted.
-    expect(
-      result.orderedEntries.map((e) => (e.kind === "goal" ? `goal:${e.goalId}` : e.thread.id)),
-    ).toEqual(["goal:g1", "t1"]);
-    expect(result.orderedEntries.every((e) => e.kind === "thread" || e.threads.length === 1)).toBe(
-      true,
-    );
-    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
-      "g1t",
-      "t1",
-    ]);
-    expect(result.hasOverflowingThreads).toBe(true);
-  });
-
-  it("keeps a multi-thread goal atomic across the fold (counting its threads as jump targets)", () => {
-    // Goal g with 3 threads is the freshest entry; with previewCount 2 the whole
-    // goal still crosses the fold together (atomic), overshooting the budget.
-    const threads = [
-      thread("ga", at("09"), "g"),
-      thread("gb", at("08"), "g"),
-      thread("gc", at("07"), "g"),
-      thread("t1", at("06")),
-    ];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [goal("g", at("09"))],
-      sortOrder: "created_at",
-      previewCount: 2,
-      isThreadListExpanded: false,
-      collapsedGoalIds: new Set(),
-      knownGoalIds: new Set(["g"]),
-    });
-
-    // The expanded goal exposes 3 jump targets, reaching the budget in one entry;
-    // t1 is pushed below the fold.
-    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual([
-      "ga",
-      "gb",
-      "gc",
-    ]);
-    expect(result.hasOverflowingThreads).toBe(true);
-  });
-
-  it("keeps an orphan goal (referenced by a thread but absent from goals) whole with its thread", () => {
-    // gx is referenced by a thread but not in `goals`/knownGoalIds, so it is not
-    // compact: it renders as a collapsible (default-expanded) header. It must
-    // still travel atomically with its thread rather than strand the header.
-    const threads = [thread("gxt", at("07"), "gx"), thread("t1", at("06")), thread("t2", at("05"))];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [],
-      sortOrder: "created_at",
-      previewCount: 1,
-      isThreadListExpanded: false,
-      collapsedGoalIds: new Set(),
-      knownGoalIds: new Set(),
-    });
-
-    // The expanded orphan goal exposes its 1 thread, reaching the budget; t1/t2
-    // drop below the fold. The header is never emitted without its thread.
-    expect(
-      result.orderedEntries.map((e) => (e.kind === "goal" ? `goal:${e.goalId}` : e.thread.id)),
-    ).toEqual(["goal:gx"]);
-    expect(flattenSidebarOrderedThreads(result.orderedEntries).map((t) => t.id)).toEqual(["gxt"]);
-    expect(result.hasOverflowingThreads).toBe(true);
-  });
-
-  it("a collapsed goal costs no budget, so collapsing it surfaces more rows", () => {
-    // Goal g (collapsed) is freshest; its 3 threads hide under the chevron and
-    // cost 0, so the budget is spent entirely on the loose threads below it.
-    const threads = [
-      thread("ga", at("09"), "g"),
-      thread("gb", at("08"), "g"),
-      thread("gc", at("07"), "g"),
-      thread("t1", at("06")),
-      thread("t2", at("05")),
-      thread("t3", at("04")),
-    ];
-    const result = buildSidebarProjectThreadOrdering({
-      threads,
-      goals: [goal("g", at("09"))],
-      sortOrder: "created_at",
-      previewCount: 2,
-      isThreadListExpanded: false,
-      collapsedGoalIds: new Set(["g"]),
-      knownGoalIds: new Set(["g"]),
-    });
-
-    const collapse = { collapsedGoalIds: new Set(["g"]), knownGoalIds: new Set(["g"]) };
-    // Collapsed goal header rides along for free; t1 and t2 fill the budget.
-    expect(flattenSidebarOrderedThreads(result.orderedEntries, collapse).map((t) => t.id)).toEqual([
-      "t1",
-      "t2",
-    ]);
-    expect(result.orderedEntries[0]?.kind === "goal" && result.orderedEntries[0].goalId).toBe("g");
   });
 });

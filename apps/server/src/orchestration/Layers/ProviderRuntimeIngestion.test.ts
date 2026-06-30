@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import {
   OrchestrationReadModel,
@@ -39,9 +39,7 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { AccountUsageRegistryLive } from "../../provider/Services/AccountUsageRegistry.ts";
-import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
-import { ReasoningStreamBusLive } from "./ReasoningStreamBus.ts";
+import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -200,7 +198,7 @@ describe("ProviderRuntimeIngestion", () => {
   const tempDirs: string[] = [];
 
   function makeTempDir(prefix: string): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), prefix));
     tempDirs.push(dir);
     return dir;
   }
@@ -215,24 +213,24 @@ describe("ProviderRuntimeIngestion", () => {
     }
     runtime = null;
     for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
+      NodeFS.rmSync(dir, { recursive: true, force: true });
     }
   });
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
-    fs.mkdirSync(path.join(workspaceRoot, ".git"));
+    NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provide(RepositoryIdentityResolverLive),
+      Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
     const projectionSnapshotLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
-      Layer.provide(RepositoryIdentityResolverLive),
+      Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
@@ -240,11 +238,9 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
-      Layer.provideMerge(AccountUsageRegistryLive),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
       Layer.provideMerge(NodeServices.layer),
-      Layer.provideMerge(ReasoningStreamBusLive),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -300,7 +296,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: createdAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       }),
@@ -527,7 +522,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: seededAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt: seededAt,
       }),
@@ -723,67 +717,6 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("hello world");
     expect(message?.streaming).toBe(false);
-  });
-
-  it("streams reasoning chunks transiently and persists exactly one reasoning event at finalization", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
-
-    const reasoningEvents = async () => {
-      const events = await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0)));
-      return Array.from(events).filter((event) => event.type === "thread.message-reasoning");
-    };
-
-    for (const [index, delta] of ["Think", "ing", " hard"].entries()) {
-      harness.emit({
-        type: "content.delta",
-        eventId: asEventId(`evt-reasoning-${index}`),
-        provider: ProviderDriverKind.make("codex"),
-        createdAt: now,
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-r"),
-        itemId: asItemId("item-r"),
-        payload: {
-          streamKind: "reasoning_text",
-          delta,
-        },
-      });
-    }
-    await harness.drain();
-
-    // Reasoning chunks are transient (ReasoningStreamBus) — no durable event yet.
-    expect((await reasoningEvents()).length).toBe(0);
-
-    harness.emit({
-      type: "turn.completed",
-      eventId: asEventId("evt-reasoning-turn-completed"),
-      provider: ProviderDriverKind.make("codex"),
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-r"),
-      payload: {
-        state: "completed",
-      },
-    });
-    await harness.drain();
-
-    const events = await reasoningEvents();
-    expect(events.length).toBe(1);
-    expect(events[0]?.payload).toMatchObject({
-      reasoningText: "Thinking hard",
-      reasoningStreaming: false,
-    });
-
-    const thread = await waitForThread(harness.readModel, (entry) =>
-      entry.messages.some(
-        (message: ProviderRuntimeTestMessage) => (message.reasoningText ?? "").length > 0,
-      ),
-    );
-    const message = thread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => (entry.reasoningText ?? "").length > 0,
-    );
-    expect(message?.reasoningText).toBe("Thinking hard");
-    expect(message?.reasoningStreaming).toBe(false);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
@@ -1027,7 +960,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: createdAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       }),
@@ -1063,7 +995,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: createdAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       }),
@@ -1215,7 +1146,6 @@ describe("ProviderRuntimeIngestion", () => {
             activeTurnId: null,
             updatedAt: createdAt,
             lastError: null,
-            queuedMessages: { steering: [], followUp: [] },
           },
           createdAt,
         }),
@@ -1456,7 +1386,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: createdAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       }),
@@ -1492,7 +1421,6 @@ describe("ProviderRuntimeIngestion", () => {
           activeTurnId: null,
           updatedAt: createdAt,
           lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
         },
         createdAt,
       }),

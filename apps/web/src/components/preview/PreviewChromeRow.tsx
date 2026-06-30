@@ -87,12 +87,6 @@ export function PreviewChromeRow({
   const [draft, setDraft] = useState(url);
   const [inputFocused, setInputFocused] = useState(false);
 
-  // Sync the input with external URL changes, but only when the user isn't
-  // actively typing (preserves in-progress edits during navigation events).
-  useEffect(() => {
-    setDraft((previous) => (document.activeElement === inputRef.current ? previous : url));
-  }, [url]);
-
   useEffect(() => {
     if (focusUrlNonce == null) return;
     const node = inputRef.current;
@@ -110,10 +104,7 @@ export function PreviewChromeRow({
 
   return (
     <div className="relative">
-      <form
-        onSubmit={submit}
-        className="flex h-10 items-center gap-1 border-b border-border/70 bg-background px-2"
-      >
+      <form onSubmit={submit} className="surface-subheader gap-1 px-2" data-surface-subheader>
         <div className="flex items-center gap-0.5" role="group" aria-label="Navigation">
           <Tooltip>
             <TooltipTrigger
@@ -174,7 +165,7 @@ export function PreviewChromeRow({
               render={
                 <InputGroupInput
                   ref={inputRef}
-                  value={inputFocused ? draft : (displayUrl ?? draft)}
+                  value={inputFocused ? draft : (displayUrl ?? url)}
                   className={cn(
                     onOpenInBrowser &&
                       !inputFocused &&
@@ -187,7 +178,6 @@ export function PreviewChromeRow({
                     queueMicrotask(() => inputRef.current?.select());
                   }}
                   onBlur={() => {
-                    setDraft(url);
                     setInputFocused(false);
                   }}
                   onKeyDown={(event) => {

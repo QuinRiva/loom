@@ -2,6 +2,10 @@ import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
 } from "./lib/terminalContext";
+import {
+  collectComposerInlineTokens,
+  type ComposerInlineToken,
+} from "@t3tools/shared/composerInlineTokens";
 
 export type ComposerPromptSegment =
   | {
@@ -14,12 +18,6 @@ export type ComposerPromptSegment =
       source: string;
     }
   | {
-      type: "thread";
-      id: string;
-      label: string;
-      source: string;
-    }
-  | {
       type: "skill";
       name: string;
     }
@@ -27,13 +25,6 @@ export type ComposerPromptSegment =
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
-
-const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s)/g;
-const MENTION_TOKEN_REGEX = /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g;
-const FILE_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)\)(?=\s)/g;
-const THREAD_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(thread:\/\/([^)\s]+)\)(?=\s)/g;
-const URI_SCHEME_REGEX = /^[A-Za-z][A-Za-z0-9+.-]*:/;
-const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;
 
 function rangeIncludesIndex(start: number, end: number, index: number): boolean {
   return start <= index && index < end;
@@ -47,115 +38,6 @@ function pushTextSegment(segments: ComposerPromptSegment[], text: string): void 
     return;
   }
   segments.push({ type: "text", text });
-}
-
-type InlineTokenMatch =
-  | {
-      type: "mention";
-      value: string;
-      start: number;
-      end: number;
-    }
-  | {
-      type: "thread";
-      id: string;
-      label: string;
-      source: string;
-      start: number;
-      end: number;
-    }
-  | {
-      type: "skill";
-      value: string;
-      start: number;
-      end: number;
-    };
-
-type MentionTokenMatch = Extract<InlineTokenMatch, { type: "mention" }>;
-type ThreadTokenMatch = Extract<InlineTokenMatch, { type: "thread" }>;
-
-// `thread://` links are parsed in their own branch; the file-link branch above
-// deliberately skips them via the external-scheme check, so they never become
-// file mentions.
-function collectThreadTokenMatches(text: string): ThreadTokenMatch[] {
-  const matches: ThreadTokenMatch[] = [];
-  for (const match of text.matchAll(THREAD_LINK_TOKEN_REGEX)) {
-    const fullMatch = match[0];
-    const prefix = match[1] ?? "";
-    const label = (match[2] ?? "").replace(/\\(.)/g, "$1");
-    const id = match[3] ?? "";
-    if (!id) continue;
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + prefix.length;
-    const end = start + fullMatch.length - prefix.length;
-    matches.push({ type: "thread", id, label, source: text.slice(start, end), start, end });
-  }
-  return matches;
-}
-
-function collectMentionTokenMatches(text: string): MentionTokenMatch[] {
-  const matches: MentionTokenMatch[] = [];
-
-  for (const match of text.matchAll(FILE_LINK_TOKEN_REGEX)) {
-    const fullMatch = match[0];
-    const prefix = match[1] ?? "";
-    const label = (match[2] ?? "").replace(/\\(.)/g, "$1");
-    const encodedPath = match[3] ?? "";
-    let path = encodedPath;
-    try {
-      path = decodeURIComponent(encodedPath);
-    } catch {
-      // Keep the source value when malformed percent escapes are present.
-    }
-    const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    const basename = separatorIndex >= 0 ? path.slice(separatorIndex + 1) : path;
-    const hasExternalScheme = URI_SCHEME_REGEX.test(path) && !WINDOWS_DRIVE_PATH_REGEX.test(path);
-    if (!path || hasExternalScheme || label !== basename) {
-      continue;
-    }
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + prefix.length;
-    const end = start + fullMatch.length - prefix.length;
-    matches.push({ type: "mention", value: path, start, end });
-  }
-
-  for (const match of text.matchAll(MENTION_TOKEN_REGEX)) {
-    const fullMatch = match[0];
-    const prefix = match[1] ?? "";
-    const quotedPath = match[2];
-    const unquotedPath = match[3];
-    const path =
-      quotedPath !== undefined ? quotedPath.replace(/\\(.)/g, "$1") : (unquotedPath ?? "");
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + prefix.length;
-    const end = start + fullMatch.length - prefix.length;
-    if (path.length > 0) {
-      matches.push({ type: "mention", value: path, start, end });
-    }
-  }
-
-  return matches;
-}
-
-function collectInlineTokenMatches(text: string): InlineTokenMatch[] {
-  const matches: InlineTokenMatch[] = [
-    ...collectMentionTokenMatches(text),
-    ...collectThreadTokenMatches(text),
-  ];
-
-  for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
-    const fullMatch = match[0];
-    const prefix = match[1] ?? "";
-    const skillName = match[2] ?? "";
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + prefix.length;
-    const end = start + fullMatch.length - prefix.length;
-    if (skillName.length > 0) {
-      matches.push({ type: "skill", value: skillName, start, end });
-    }
-  }
-
-  return matches.toSorted((left, right) => left.start - right.start);
 }
 
 function forEachPromptSegmentSlice(
@@ -224,10 +106,16 @@ function forEachPromptTextSlice(
 
 function forEachMentionMatch(
   prompt: string,
-  visitor: (match: { start: number; end: number }, promptOffset: number) => boolean | void,
+  visitor: (
+    match: Extract<ComposerInlineToken, { type: "mention" }>,
+    promptOffset: number,
+  ) => boolean | void,
 ): boolean {
   return forEachPromptTextSlice(prompt, (text, promptOffset) => {
-    for (const match of [...collectMentionTokenMatches(text), ...collectThreadTokenMatches(text)]) {
+    for (const match of collectComposerInlineTokens(text)) {
+      if (match.type !== "mention") {
+        continue;
+      }
       if (visitor(match, promptOffset) === true) {
         return true;
       }
@@ -242,7 +130,7 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
     return segments;
   }
 
-  const tokenMatches = collectInlineTokenMatches(text);
+  const tokenMatches = collectComposerInlineTokens(text);
   let cursor = 0;
   for (const match of tokenMatches) {
     if (match.start < cursor) {
@@ -257,10 +145,8 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
       segments.push({
         type: "mention",
         path: match.value,
-        source: text.slice(match.start, match.end),
+        source: match.source,
       });
-    } else if (match.type === "thread") {
-      segments.push({ type: "thread", id: match.id, label: match.label, source: match.source });
     } else {
       segments.push({ type: "skill", name: match.value });
     }

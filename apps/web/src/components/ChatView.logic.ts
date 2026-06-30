@@ -7,11 +7,13 @@ import {
   type ServerProvider,
   type ScopedThreadRef,
   type ThreadId,
+  type TurnId,
 } from "@t3tools/contracts";
-import { type ChatMessage, type Thread } from "../types";
+import { type ChatMessage, type SessionPhase, type Thread } from "../types";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
-import { selectThreadByRef, useStore } from "../store";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { environmentThreadDetails } from "../state/threads";
 import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
@@ -29,34 +31,25 @@ export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,
   fallbackModelSelection: ModelSelection,
-  error: string | null,
 ): Thread {
   return {
     id: threadId,
     environmentId: draftThread.environmentId,
-    codexThreadId: null,
     projectId: draftThread.projectId,
-    goalId: draftThread.goalId,
-    parentThreadId: null,
-    role: null,
-    purpose: null,
-    brief: null,
-    planLane: "planned" as const,
-    attention: [],
-    blockedBy: [],
     title: "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,
     session: null,
     messages: [],
-    error,
     createdAt: draftThread.createdAt,
+    updatedAt: draftThread.createdAt,
     archivedAt: null,
+    deletedAt: null,
     latestTurn: null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
-    turnDiffSummaries: [],
+    checkpoints: [],
     activities: [],
     proposedPlans: [],
   };
@@ -79,6 +72,17 @@ export function shouldWriteThreadErrorToCurrentServerThread(input: {
     input.serverThread.environmentId === input.routeThreadRef.environmentId &&
     input.serverThread.id === input.targetThreadId,
   );
+}
+
+export function buildThreadTurnInterruptInput(thread: Pick<Thread, "id" | "session">): {
+  threadId: ThreadId;
+  turnId?: TurnId;
+} {
+  const runningTurnId = thread.session?.status === "running" ? thread.session.activeTurnId : null;
+  return {
+    threadId: thread.id,
+    ...(runningTurnId !== null ? { turnId: runningTurnId } : {}),
+  };
 }
 
 export function reconcileMountedTerminalThreadIds(input: {
@@ -282,8 +286,8 @@ export function deriveLockedProvider(input: {
   if (!threadHasStarted(input.thread)) {
     return null;
   }
-  const sessionProvider = input.thread?.session?.provider ?? null;
-  if (sessionProvider) {
+  const sessionProvider = input.thread?.session?.providerName ?? null;
+  if (sessionProvider && isProviderDriverKind(sessionProvider)) {
     return sessionProvider;
   }
   const narrowedThreadProvider =
@@ -339,7 +343,8 @@ export async function waitForStartedServerThread(
   threadRef: ScopedThreadRef,
   timeoutMs = 1_000,
 ): Promise<boolean> {
-  const getThread = () => selectThreadByRef(useStore.getState(), threadRef);
+  const threadAtom = environmentThreadDetails.detailAtom(threadRef);
+  const getThread = () => appAtomRegistry.get(threadAtom);
   const thread = getThread();
 
   if (threadHasStarted(thread)) {
@@ -361,8 +366,8 @@ export async function waitForStartedServerThread(
       resolve(result);
     };
 
-    const unsubscribe = useStore.subscribe((state) => {
-      if (!threadHasStarted(selectThreadByRef(state, threadRef))) {
+    const unsubscribe = appAtomRegistry.subscribe(threadAtom, (thread) => {
+      if (!threadHasStarted(thread)) {
         return;
       }
       finish(true);
@@ -379,35 +384,40 @@ export async function waitForStartedServerThread(
   });
 }
 
-// Sequence-correlated acknowledgement. The event log is the single source of
-// truth: `dispatchCommand` returns the global log offset the command was
-// assigned (`awaitedSequence`), and every thread event carries its own
-// `sequence`. The composer's optimistic lock clears the moment the thread's
-// applied-sequence high-water mark reaches that offset — deterministically, and
-// identically for turn.start, steer, and follow-up (a steer folds into the
-// running turn but still produces an event at sequence ≥ the dispatched offset,
-// which the old turn/timestamp diffing could never observe).
 export interface LocalDispatchSnapshot {
   startedAt: string;
   preparingWorktree: boolean;
-  // The dispatch log offset to wait for. Null until `dispatchCommand` resolves
-  // — that synchronous window is covered by `sendInFlightRef` in ChatView.
-  awaitedSequence: number | null;
+  latestTurnTurnId: TurnId | null;
+  latestTurnRequestedAt: string | null;
+  latestTurnStartedAt: string | null;
+  latestTurnCompletedAt: string | null;
+  sessionStatus: NonNullable<Thread["session"]>["status"] | null;
+  sessionUpdatedAt: string | null;
 }
 
-export function createLocalDispatchSnapshot(options?: {
-  preparingWorktree?: boolean;
-}): LocalDispatchSnapshot {
+export function createLocalDispatchSnapshot(
+  activeThread: Thread | undefined,
+  options?: { preparingWorktree?: boolean },
+): LocalDispatchSnapshot {
+  const latestTurn = activeThread?.latestTurn ?? null;
+  const session = activeThread?.session ?? null;
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
-    awaitedSequence: null,
+    latestTurnTurnId: latestTurn?.turnId ?? null,
+    latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
+    latestTurnStartedAt: latestTurn?.startedAt ?? null,
+    latestTurnCompletedAt: latestTurn?.completedAt ?? null,
+    sessionStatus: session?.status ?? null,
+    sessionUpdatedAt: session?.updatedAt ?? null,
   };
 }
 
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
-  appliedSequence: number;
+  phase: SessionPhase;
+  latestTurn: Thread["latestTurn"] | null;
+  session: Thread["session"] | null;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -418,10 +428,35 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
-  if (input.localDispatch.awaitedSequence === null) {
-    // The dispatch round-trip has not resolved yet; `sendInFlightRef` guards
-    // this window synchronously so the composer can't double-send.
-    return false;
+
+  const latestTurn = input.latestTurn ?? null;
+  const session = input.session ?? null;
+  const latestTurnChanged =
+    input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
+    input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
+    input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
+    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null);
+
+  if (input.phase === "running") {
+    if (!latestTurnChanged) {
+      return false;
+    }
+    if (latestTurn?.startedAt === null || latestTurn === null) {
+      return false;
+    }
+    if (
+      session?.activeTurnId !== null &&
+      session?.activeTurnId !== undefined &&
+      latestTurn?.turnId !== session.activeTurnId
+    ) {
+      return false;
+    }
+    return true;
   }
-  return input.appliedSequence >= input.localDispatch.awaitedSequence;
+
+  return (
+    latestTurnChanged ||
+    input.localDispatch.sessionStatus !== (session?.status ?? null) ||
+    input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
+  );
 }
