@@ -289,6 +289,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           parentThreadId: null,
           role: null,
           purpose: null,
+          brief: null,
           planLane: "planned" as const,
           attention: [],
           cumulativeCostUsd: 0,

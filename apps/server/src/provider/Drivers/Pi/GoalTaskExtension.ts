@@ -116,6 +116,38 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   });
 
   pi.registerTool({
+    name: "goal_handoff",
+    label: "Hand Off New Goal",
+    description: "Hand off a separate, out-of-scope piece of work as its OWN new goal and a staged (held) root session. Use when you discover follow-up work that deserves to run independently rather than as a task under THIS goal. Creates a new goal in this thread's project and a parent-less session pre-loaded with your brief, then leaves it for the human to launch with a single send (which provisions a fresh worktree). You never pass a goalId/projectId — both are inherited from this thread. Returns the new goalId + threadId.",
+    promptSnippet: "hand off discovered out-of-scope work as a new goal + a staged root session pre-loaded with a brief.",
+    promptGuidelines: [
+      "Use this for genuinely separate work that should run concurrently in its own goal/session \u2014 not for tasks that belong under this thread's existing goal (use goal_task_add for those).",
+      "The brief becomes the new session's first turn: write it as a complete, self-contained kickoff prompt, not a one-line summary.",
+      "The session is created held; the human launches it. You do NOT start it and no worktree is provisioned until the human sends."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "The new goal's title. Required." },
+        brief: { type: "string", description: "The handoff/kickoff prompt that becomes the new session's first turn. Required; write it self-contained." },
+        description: { type: "string", description: "Optional short goal objective paragraph." }
+      },
+      required: ["title", "brief"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callGoalEndpoint(process.env.T3_GOAL_HANDOFF_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const goalId = outcome.result?.goalId ?? "unknown";
+      const threadId = outcome.result?.threadId ?? "unknown";
+      return {
+        content: [{ type: "text", text: "Handed off new goal " + goalId + " with staged session " + threadId + " (" + (params.title ?? "") + "). The human launches it with one send." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
     name: "goal_update",
     label: "Update Goal",
     description: "Update the metadata of THIS thread's active goal: its title, description (the objective paragraph), and/or slug. The goal is resolved from the session — you never pass a goalId. Use this to keep the goal's framing accurate as understanding evolves. Pass only the fields you want to change.",

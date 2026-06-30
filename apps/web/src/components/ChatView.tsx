@@ -1169,6 +1169,7 @@ export default function ChatView(props: ChatViewProps) {
         : null,
   );
   const promptRef = useRef("");
+  const seededBriefThreadIdsRef = useRef<Set<string>>(new Set());
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
@@ -1266,6 +1267,23 @@ export default function ChatView(props: ChatViewProps) {
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
+
+  // Seed the composer from a staged thread's stored brief: when the human opens
+  // a not-yet-launched server thread (no messages) that carries a handoff brief
+  // and the composer is empty, pre-fill it so launching is a single send. Seeded
+  // once per thread, so re-opening after the human edits/clears it won't clobber.
+  useEffect(() => {
+    if (!isServerThread || !activeThread) return;
+    const brief = activeThread.brief;
+    if (!brief || activeThread.messages.length > 0) return;
+    if (seededBriefThreadIdsRef.current.has(activeThread.id)) return;
+    seededBriefThreadIdsRef.current.add(activeThread.id);
+    const currentPrompt =
+      useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ?? "";
+    if (currentPrompt.trim().length > 0) return;
+    promptRef.current = brief;
+    setComposerDraftPrompt(composerDraftTarget, brief);
+  }, [isServerThread, activeThread, composerDraftTarget, promptRef, setComposerDraftPrompt]);
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -3365,8 +3383,22 @@ export default function ChatView(props: ChatViewProps) {
     activeThread.worktreePath === null &&
     !envLocked,
   );
+  // A staged handoff root session (created by the `goal_handoff` tool) is
+  // parent-less, has no worktree, and carries a kickoff brief. Default its
+  // composer to worktree env-mode so the human's single send provisions a fresh
+  // worktree; the human can still flip to local via the branch toolbar
+  // (pendingServerThreadEnvMode). This signature only arises from the handoff
+  // tool — normal root sessions are provisioned with a worktree before creation.
+  const prefersWorktreeLaunch = Boolean(
+    canOverrideServerThreadEnvMode &&
+    activeThread &&
+    activeThread.parentThreadId === null &&
+    activeThread.brief,
+  );
   const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+    ? (pendingServerThreadEnvMode ??
+      draftThread?.envMode ??
+      (prefersWorktreeLaunch ? "worktree" : derivedEnvMode))
     : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined

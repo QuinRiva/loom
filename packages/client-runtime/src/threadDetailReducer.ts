@@ -145,6 +145,7 @@ export function applyThreadDetailEvent(
           parentThreadId: event.payload.parentThreadId ?? null,
           role: event.payload.role ?? null,
           purpose: event.payload.purpose ?? null,
+          brief: event.payload.brief ?? null,
           planLane: event.payload.planLane ?? "planned",
           attention: event.payload.attention ?? [],
           blockedBy: event.payload.blockedBy ?? [],

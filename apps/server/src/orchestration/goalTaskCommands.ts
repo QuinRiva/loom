@@ -6,9 +6,34 @@
  * the already-branded ids / generated `commandId` / `createdAt`; the builders
  * only assemble the struct (and drop absent optionals).
  */
-import type { ClientOrchestrationCommand, CommandId, GoalId, GoalTaskId } from "@t3tools/contracts";
+import type {
+  ClientOrchestrationCommand,
+  CommandId,
+  GoalId,
+  GoalTaskId,
+  ProjectId,
+} from "@t3tools/contracts";
 
 type GoalCommand<T extends string> = Extract<ClientOrchestrationCommand, { readonly type: T }>;
+
+export const buildGoalCreateCommand = (input: {
+  readonly commandId: CommandId;
+  readonly goalId: GoalId;
+  readonly projectId: ProjectId;
+  readonly slug: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly createdAt: string;
+}): GoalCommand<"goal.create"> => ({
+  type: "goal.create",
+  commandId: input.commandId,
+  goalId: input.goalId,
+  projectId: input.projectId,
+  slug: input.slug,
+  title: input.title,
+  ...(input.description !== undefined ? { description: input.description } : {}),
+  createdAt: input.createdAt,
+});
 
 export const buildGoalTaskCreateCommand = (input: {
   readonly commandId: CommandId;

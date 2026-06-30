@@ -417,6 +417,9 @@ export const OrchestrationThread = Schema.Struct({
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  brief: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   planLane: ThreadPlanLane.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_PLAN_LANE)),
   ),
