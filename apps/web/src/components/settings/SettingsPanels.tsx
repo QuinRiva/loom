@@ -18,7 +18,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_UNIFIED_SETTINGS, type ReasoningDisplayMode } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
@@ -401,6 +401,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
+      ...(settings.reasoningDisplay !== DEFAULT_UNIFIED_SETTINGS.reasoningDisplay
+        ? ["Reasoning trace"]
+        : []),
       ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
       Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
         ? ["Automatic Git fetch interval"]
@@ -434,6 +437,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.automaticGitFetchInterval,
       settings.enableAssistantStreaming,
+      settings.reasoningDisplay,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       settings.wordWrap,
@@ -459,6 +463,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+      reasoningDisplay: DEFAULT_UNIFIED_SETTINGS.reasoningDisplay,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
@@ -692,6 +697,52 @@ export function GeneralSettingsPanel() {
               }
               aria-label="Check provider versions"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Reasoning trace"
+          description="Show the model's thinking above its answer. Collapsed shows a summary you can expand; expanded opens it by default."
+          resetAction={
+            settings.reasoningDisplay !== DEFAULT_UNIFIED_SETTINGS.reasoningDisplay ? (
+              <SettingResetButton
+                label="reasoning trace"
+                onClick={() =>
+                  updateSettings({
+                    reasoningDisplay: DEFAULT_UNIFIED_SETTINGS.reasoningDisplay,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.reasoningDisplay}
+              onValueChange={(value) =>
+                updateSettings({ reasoningDisplay: value as ReasoningDisplayMode })
+              }
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Reasoning trace display">
+                <SelectValue>
+                  {settings.reasoningDisplay === "off"
+                    ? "Off"
+                    : settings.reasoningDisplay === "expanded"
+                      ? "Expanded"
+                      : "Collapsed"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="off">
+                  Off
+                </SelectItem>
+                <SelectItem hideIndicator value="collapsed">
+                  Collapsed
+                </SelectItem>
+                <SelectItem hideIndicator value="expanded">
+                  Expanded
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 
