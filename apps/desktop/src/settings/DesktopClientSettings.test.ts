@@ -20,6 +20,7 @@ const clientSettings: ClientSettings = {
   diffIgnoreWhitespace: true,
   favorites: [],
   providerModelPreferences: {},
+  reasoningDisplay: "collapsed",
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",

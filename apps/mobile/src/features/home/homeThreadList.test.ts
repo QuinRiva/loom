@@ -26,12 +26,25 @@ function makeThread(
     Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "title">,
 ): EnvironmentThreadShell {
   return {
+    goalId: null,
+    parentThreadId: null,
+    role: null,
+    purpose: null,
+    brief: null,
+    planLane: "planned" as const,
+    attention: [],
+    blockedBy: [],
+    spawnGeneration: null,
+    reportPath: null,
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
     worktreePath: null,
     latestTurn: null,
+    toolUses: null,
+    usedTokens: null,
+    maxTokens: null,
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
     archivedAt: null,
@@ -40,6 +53,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    lastActivityPreview: null,
     ...input,
   };
 }

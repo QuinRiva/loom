@@ -144,7 +144,9 @@ export function ComposerEditor({
         label:
           token.type === "skill"
             ? (skillLabels.get(token.value) ?? token.value)
-            : basename(token.value),
+            : token.type === "thread"
+              ? token.label
+              : basename(token.value),
         iconUri: token.type === "mention" ? fileIconUri(token.value) : null,
       })),
     );
