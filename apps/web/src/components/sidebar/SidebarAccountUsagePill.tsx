@@ -29,7 +29,7 @@ function AccountUsagePill({
   view: AccountUsageView;
   onOpenSettings: () => void;
 }) {
-  const percent = Math.round(view.tightestPercent);
+  const percent = Math.round(view.displayPercent);
   return (
     <Popover>
       <PopoverTrigger
