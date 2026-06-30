@@ -41,6 +41,12 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
+  goalTaskAddUrlFromMcpEndpoint,
+  goalTaskDeleteUrlFromMcpEndpoint,
+  goalTaskUpdateUrlFromMcpEndpoint,
+  goalUpdateUrlFromMcpEndpoint,
+} from "../../mcp/GoalTaskHttp.ts";
+import {
   workstreamAttentionUrlFromMcpEndpoint,
   workstreamConsultThreadUrlFromMcpEndpoint,
   workstreamDependenciesUrlFromMcpEndpoint,
@@ -80,6 +86,7 @@ import {
 } from "../Layers/Pi/RpcProcess.ts";
 import { generatePiStructured } from "../Layers/Pi/OneShotCompletion.ts";
 import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
+import { ensurePiGoalTaskExtension } from "./Pi/GoalTaskExtension.ts";
 import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
@@ -724,7 +731,12 @@ function makePiAdapter(input: {
               sessionId: piSessionIdForThread(startInput.threadId),
               ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
               ...(mcpSession
-                ? { extensions: [ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir)] }
+                ? {
+                    extensions: [
+                      ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir),
+                      ensurePiGoalTaskExtension(input.serverConfig.stateDir),
+                    ],
+                  }
                 : {}),
               // Prepend the session worktree's node_modules/.bin so pi resolves
               // that worktree's workspace binaries before the server's inherited
@@ -754,6 +766,14 @@ function makePiAdapter(input: {
                       T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
+                      T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),
+                      T3_GOAL_TASK_UPDATE_URL: goalTaskUpdateUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_GOAL_TASK_DELETE_URL: goalTaskDeleteUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
+                      T3_GOAL_UPDATE_URL: goalUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
                       T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
                     }
                   : process.env,

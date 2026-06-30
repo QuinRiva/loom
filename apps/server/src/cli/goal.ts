@@ -16,6 +16,12 @@ import type * as Path from "effect/Path";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import type { HttpClient } from "effect/unstable/http";
 
+import {
+  buildGoalMetaUpdateCommand,
+  buildGoalTaskCreateCommand,
+  buildGoalTaskDeleteCommand,
+  buildGoalTaskUpdateCommand,
+} from "../orchestration/goalTaskCommands.ts";
 import { WorkspacePaths } from "../workspace/Services/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, projectLocationFlags } from "./config.ts";
 import {
@@ -229,13 +235,14 @@ const goalUpdateCommand = Command.make("update", {
     runGoalMutation(flags, ({ snapshot, dispatch }) =>
       Effect.gen(function* () {
         const goal = yield* resolveGoal(snapshot, flags.goal);
-        yield* dispatch({
-          type: "goal.meta.update",
-          commandId: CommandId.make(yield* orchestrationCliUuid),
-          goalId: goal.id,
-          ...(Option.isSome(flags.title) ? { title: flags.title.value } : {}),
-          ...(Option.isSome(flags.description) ? { description: flags.description.value } : {}),
-        });
+        yield* dispatch(
+          buildGoalMetaUpdateCommand({
+            commandId: CommandId.make(yield* orchestrationCliUuid),
+            goalId: goal.id,
+            ...(Option.isSome(flags.title) ? { title: flags.title.value } : {}),
+            ...(Option.isSome(flags.description) ? { description: flags.description.value } : {}),
+          }),
+        );
         return `Updated goal ${goal.id}.`;
       }),
     ),
@@ -257,15 +264,16 @@ const goalTaskAddCommand = Command.make("add", {
           ? (yield* requireTask(goal, flags.parent.value)).id
           : null;
         const taskId = GoalTaskId.make(yield* orchestrationCliUuid);
-        yield* dispatch({
-          type: "goal.task.create",
-          commandId: CommandId.make(yield* orchestrationCliUuid),
-          goalId: goal.id,
-          taskId,
-          parentTaskId,
-          text: flags.text,
-          createdAt: DateTime.formatIso(yield* DateTime.now),
-        });
+        yield* dispatch(
+          buildGoalTaskCreateCommand({
+            commandId: CommandId.make(yield* orchestrationCliUuid),
+            goalId: goal.id,
+            taskId,
+            parentTaskId,
+            text: flags.text,
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+          }),
+        );
         return `Added task ${taskId} to goal ${goal.id}.`;
       }),
     ),
@@ -284,13 +292,14 @@ const setTaskDoneCommand = (name: "done" | "open", done: boolean) =>
         Effect.gen(function* () {
           const goal = yield* resolveGoal(snapshot, flags.goal);
           const task = yield* requireTask(goal, flags.task);
-          yield* dispatch({
-            type: "goal.task.update",
-            commandId: CommandId.make(yield* orchestrationCliUuid),
-            goalId: goal.id,
-            taskId: task.id,
-            done,
-          });
+          yield* dispatch(
+            buildGoalTaskUpdateCommand({
+              commandId: CommandId.make(yield* orchestrationCliUuid),
+              goalId: goal.id,
+              taskId: task.id,
+              done,
+            }),
+          );
           return `Marked task ${task.id} ${done ? "done" : "open"}.`;
         }),
       ),
@@ -309,13 +318,14 @@ const goalTaskRenameCommand = Command.make("rename", {
       Effect.gen(function* () {
         const goal = yield* resolveGoal(snapshot, flags.goal);
         const task = yield* requireTask(goal, flags.task);
-        yield* dispatch({
-          type: "goal.task.update",
-          commandId: CommandId.make(yield* orchestrationCliUuid),
-          goalId: goal.id,
-          taskId: task.id,
-          text: flags.text,
-        });
+        yield* dispatch(
+          buildGoalTaskUpdateCommand({
+            commandId: CommandId.make(yield* orchestrationCliUuid),
+            goalId: goal.id,
+            taskId: task.id,
+            text: flags.text,
+          }),
+        );
         return `Renamed task ${task.id}.`;
       }),
     ),
@@ -333,12 +343,13 @@ const goalTaskDeleteCommand = Command.make("delete", {
       Effect.gen(function* () {
         const goal = yield* resolveGoal(snapshot, flags.goal);
         const task = yield* requireTask(goal, flags.task);
-        yield* dispatch({
-          type: "goal.task.delete",
-          commandId: CommandId.make(yield* orchestrationCliUuid),
-          goalId: goal.id,
-          taskId: task.id,
-        });
+        yield* dispatch(
+          buildGoalTaskDeleteCommand({
+            commandId: CommandId.make(yield* orchestrationCliUuid),
+            goalId: goal.id,
+            taskId: task.id,
+          }),
+        );
         return `Deleted task ${task.id}.`;
       }),
     ),
