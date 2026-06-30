@@ -19,7 +19,10 @@ import {
   type StopThreadSessionInput,
   type UnarchiveThreadInput,
   type UpdateThreadMetadataInput,
+  type CreateGoalInput,
   type UpdateGoalMetaInput,
+  type ArchiveGoalInput,
+  type DeleteGoalInput,
   archiveThread,
   clearThreadAttention,
   createThread,
@@ -36,7 +39,10 @@ import {
   stopThreadSession,
   unarchiveThread,
   updateThreadMetadata,
+  createGoal,
   updateGoalMeta,
+  archiveGoal,
+  deleteGoal,
 } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
@@ -57,7 +63,10 @@ export type {
   StopThreadSessionInput,
   UnarchiveThreadInput,
   UpdateThreadMetadataInput,
+  CreateGoalInput,
   UpdateGoalMetaInput,
+  ArchiveGoalInput,
+  DeleteGoalInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -179,9 +188,27 @@ export function createGoalEnvironmentAtoms<R, E>(
       JSON.stringify([environmentId, input.goalId]),
   };
   return {
+    create: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:goal:create",
+      execute: (input: CreateGoalInput) => createGoal(input),
+      scheduler,
+      concurrency,
+    }),
     updateMeta: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:goal:update-meta",
       execute: (input: UpdateGoalMetaInput) => updateGoalMeta(input),
+      scheduler,
+      concurrency,
+    }),
+    archive: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:goal:archive",
+      execute: (input: ArchiveGoalInput) => archiveGoal(input),
+      scheduler,
+      concurrency,
+    }),
+    delete: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:goal:delete",
+      execute: (input: DeleteGoalInput) => deleteGoal(input),
       scheduler,
       concurrency,
     }),

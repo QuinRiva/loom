@@ -31,7 +31,10 @@ type CommandInput<T extends CommandType> = Omit<
 export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
+export type CreateGoalInput = CommandInput<"goal.create">;
 export type UpdateGoalMetaInput = CommandInput<"goal.meta.update">;
+export type ArchiveGoalInput = CommandInput<"goal.archive">;
+export type DeleteGoalInput = CommandInput<"goal.delete">;
 export type CreateThreadInput = CommandInput<"thread.create">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
@@ -115,12 +118,44 @@ export const deleteProject: (input: DeleteProjectInput) => CommandEffect = Effec
   });
 });
 
+export const createGoal: (input: CreateGoalInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.createGoal",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "goal.create",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
 export const updateGoalMeta: (input: UpdateGoalMetaInput) => CommandEffect = Effect.fn(
   "EnvironmentCommands.updateGoalMeta",
 )(function* (input) {
   return yield* dispatch({
     ...input,
     type: "goal.meta.update",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const archiveGoal: (input: ArchiveGoalInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.archiveGoal",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "goal.archive",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const deleteGoal: (input: DeleteGoalInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.deleteGoal",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "goal.delete",
     commandId: yield* commandId(input),
   });
 });
