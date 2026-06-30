@@ -4,9 +4,12 @@ import { Atom } from "effect/unstable/reactivity";
 import { createAtomCommandScheduler, createEnvironmentCommand } from "./runtime.ts";
 import {
   type ArchiveThreadInput,
+  type ClearThreadAttentionInput,
   type CreateThreadInput,
   type DeleteThreadInput,
   type InterruptThreadTurnInput,
+  type SetThreadDependenciesInput,
+  type SetThreadPlanLaneInput,
   type RespondToThreadApprovalInput,
   type RespondToThreadUserInputInput,
   type RevertThreadCheckpointInput,
@@ -17,9 +20,12 @@ import {
   type UnarchiveThreadInput,
   type UpdateThreadMetadataInput,
   archiveThread,
+  clearThreadAttention,
   createThread,
   deleteThread,
   interruptThreadTurn,
+  setThreadDependencies,
+  setThreadPlanLane,
   respondToThreadApproval,
   respondToThreadUserInput,
   revertThreadCheckpoint,
@@ -34,9 +40,12 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 export type {
   ArchiveThreadInput,
+  ClearThreadAttentionInput,
   CreateThreadInput,
   DeleteThreadInput,
   InterruptThreadTurnInput,
+  SetThreadDependenciesInput,
+  SetThreadPlanLaneInput,
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   RevertThreadCheckpointInput,
@@ -109,6 +118,24 @@ export function createThreadEnvironmentAtoms<R, E>(
     interruptTurn: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:interrupt-turn",
       execute: (input: InterruptThreadTurnInput) => interruptThreadTurn(input),
+      scheduler,
+      concurrency,
+    }),
+    setPlanLane: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-plan-lane",
+      execute: (input: SetThreadPlanLaneInput) => setThreadPlanLane(input),
+      scheduler,
+      concurrency,
+    }),
+    clearAttention: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:clear-attention",
+      execute: (input: ClearThreadAttentionInput) => clearThreadAttention(input),
+      scheduler,
+      concurrency,
+    }),
+    setDependencies: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-dependencies",
+      execute: (input: SetThreadDependenciesInput) => setThreadDependencies(input),
       scheduler,
       concurrency,
     }),

@@ -152,9 +152,9 @@ describe("rollupGraphState", () => {
     expect(r.breakdown).toMatchObject({ running: 2, awaitingApproval: 1, planned: 1 });
   });
 
-  it("connecting session keeps state active but is not counted in the headline", () => {
+  it("starting session keeps state active but is not counted in the headline", () => {
     const r = rollup([
-      node({ id: "a", planLane: "in_progress", sessionStatus: "connecting" }),
+      node({ id: "a", planLane: "in_progress", sessionStatus: "starting" }),
       node({ id: "b", planLane: "planned" }),
     ]);
     expect(r).toMatchObject({ graphState: "active", activeWorkerCount: 0 });

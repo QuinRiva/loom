@@ -40,6 +40,9 @@ export type SetThreadRuntimeModeInput = CommandInput<"thread.runtime-mode.set">;
 export type SetThreadInteractionModeInput = CommandInput<"thread.interaction-mode.set">;
 export type StartThreadTurnInput = CommandInput<"thread.turn.start">;
 export type InterruptThreadTurnInput = CommandInput<"thread.turn.interrupt">;
+export type SetThreadPlanLaneInput = CommandInput<"thread.plan-lane.set">;
+export type ClearThreadAttentionInput = CommandInput<"thread.attention.clear">;
+export type SetThreadDependenciesInput = CommandInput<"thread.dependencies.set">;
 export type RespondToThreadApprovalInput = CommandInput<"thread.approval.respond">;
 export type RespondToThreadUserInputInput = CommandInput<"thread.user-input.respond">;
 export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert">;
@@ -209,6 +212,45 @@ export const interruptThreadTurn: (input: InterruptThreadTurnInput) => CommandEf
     createdAt: metadata.createdAt,
   });
 });
+
+// Workstream plan axis (`workstream_set_lane`). `in_progress` is control-plane
+// only — the decider rejects it from a client commandId.
+export const setThreadPlanLane: (input: SetThreadPlanLaneInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.setThreadPlanLane",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.plan-lane.set",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+// Workstream attention axis: an omitted `reason` clears all stored attention.
+export const clearThreadAttention: (input: ClearThreadAttentionInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.clearThreadAttention",
+)(function* (input) {
+  const metadata = yield* timestampedCommandMetadata(input);
+  return yield* dispatch({
+    ...input,
+    type: "thread.attention.clear",
+    commandId: metadata.commandId,
+    createdAt: metadata.createdAt,
+  });
+});
+
+// Workstream dependency edges (`blockedBy`). Self-refs/dangling ids tolerated.
+export const setThreadDependencies: (input: SetThreadDependenciesInput) => CommandEffect =
+  Effect.fn("EnvironmentCommands.setThreadDependencies")(function* (input) {
+    const metadata = yield* timestampedCommandMetadata(input);
+    return yield* dispatch({
+      ...input,
+      type: "thread.dependencies.set",
+      commandId: metadata.commandId,
+      createdAt: metadata.createdAt,
+    });
+  });
 
 export const respondToThreadApproval: (input: RespondToThreadApprovalInput) => CommandEffect =
   Effect.fn("EnvironmentCommands.respondToThreadApproval")(function* (input) {

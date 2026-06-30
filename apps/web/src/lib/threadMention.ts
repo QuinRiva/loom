@@ -2,7 +2,7 @@ import type { ThreadId } from "@t3tools/contracts";
 
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import type { SidebarThreadSummary } from "../types";
-import { basenameOfPath } from "../vscode-icons";
+import { basenameOfPath } from "../pierre-icons";
 
 /** Max thread suggestions surfaced in the `@` menu (titles are non-unique). */
 export const THREAD_MENTION_MATCH_LIMIT = 8;

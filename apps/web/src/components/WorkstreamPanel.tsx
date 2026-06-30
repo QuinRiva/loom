@@ -1,5 +1,6 @@
-import { scopeThreadRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -10,10 +11,8 @@ import {
   PlusIcon,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
 
-import { readEnvironmentApi } from "../environmentApi";
-import { newCommandId, newThreadId } from "../lib/utils";
+import { newThreadId } from "../lib/utils";
 import { formatCostUsd } from "../lib/contextWindow";
 import {
   ATTENTION_STYLES,
@@ -37,7 +36,9 @@ import {
   STATUS_STYLES,
   truncateLabel,
 } from "../lib/workstreamPresentation";
-import { type AppState, useStore } from "../store";
+import { useThreadShells } from "../state/entities";
+import { threadEnvironment } from "../state/threads";
+import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { useUiStateStore } from "../uiStateStore";
@@ -50,42 +51,36 @@ const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
 
 // The board manages THIS thread's direct children (sibling dependency editing,
 // per-lane kanban). The graph instead renders the WHOLE orchestration, so the
-// two views read different slices of the same summary map.
+// two views read different slices of the same shell list. Both operate over the
+// thread shells already filtered to the active environment.
 function selectWorkstreamChildren(
-  state: AppState,
-  environmentId: EnvironmentId,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
   parentThreadId: ThreadId,
-) {
-  const environmentState = state.environmentStateById[environmentId];
-  if (!environmentState) return [];
-  return Object.values(environmentState.sidebarThreadSummaryById)
+): ReadonlyArray<SidebarThreadSummary> {
+  return shells
     .filter((thread) => thread.parentThreadId === parentThreadId)
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
 // The whole orchestration as seen from `activeThreadId`: walk lineage up to the
 // top-most ancestor (root orchestrator), then return its full descendant
-// subtree, time-ordered. The summary map holds every thread in the environment,
+// subtree, time-ordered. The shell list holds every thread in the environment,
 // so grandchildren are present.
 function selectWorkstreamSubtree(
-  state: AppState,
-  environmentId: EnvironmentId,
+  shells: ReadonlyArray<EnvironmentThreadShell>,
   activeThreadId: ThreadId,
 ): ReadonlyArray<SidebarThreadSummary> {
-  const environmentState = state.environmentStateById[environmentId];
-  if (!environmentState) return [];
-  const byId = environmentState.sidebarThreadSummaryById;
-  const all = Object.values(byId);
+  const byId = new Map(shells.map((thread) => [thread.id, thread] as const));
   const seen = new Set<ThreadId>();
   let rootId = activeThreadId;
   for (;;) {
     if (seen.has(rootId)) break;
     seen.add(rootId);
-    const parent = byId[rootId]?.parentThreadId;
-    if (!parent || byId[parent] === undefined) break;
+    const parent = byId.get(rootId)?.parentThreadId;
+    if (!parent || !byId.has(parent)) break;
     rootId = parent;
   }
-  return subtreeOf(rootId, all).toSorted((left, right) =>
+  return subtreeOf(rootId, shells).toSorted((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
   );
 }
@@ -97,37 +92,36 @@ interface WorkstreamPanelProps {
 
 export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPanelProps) {
   const navigate = useNavigate();
-  const children = useStore(
-    useShallow(
-      useMemo(
-        () => (state: AppState) =>
-          activeThread
-            ? selectWorkstreamChildren(state, activeThread.environmentId, activeThread.id)
-            : [],
-        [activeThread],
-      ),
-    ),
+  const allShells = useThreadShells();
+  const environmentShells = useMemo(
+    () =>
+      activeThread
+        ? allShells.filter((thread) => thread.environmentId === activeThread.environmentId)
+        : [],
+    [allShells, activeThread],
+  );
+  const children = useMemo(
+    () => (activeThread ? selectWorkstreamChildren(environmentShells, activeThread.id) : []),
+    [environmentShells, activeThread],
   );
   const childById = useMemo<ChildIndex>(
     () => new Map(children.map((thread) => [thread.id, thread])),
     [children],
   );
-  const subtree = useStore(
-    useShallow(
-      useMemo(
-        () => (state: AppState) =>
-          activeThread
-            ? selectWorkstreamSubtree(state, activeThread.environmentId, activeThread.id)
-            : [],
-        [activeThread],
-      ),
-    ),
+  const subtree = useMemo(
+    () => (activeThread ? selectWorkstreamSubtree(environmentShells, activeThread.id) : []),
+    [environmentShells, activeThread],
   );
   const subtreeById = useMemo<ChildIndex>(
     () => new Map(subtree.map((thread) => [thread.id, thread])),
     [subtree],
   );
   const requestScrollToDispatch = useUiStateStore((store) => store.requestScrollToDispatch);
+  const spawnThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const setPlanLane = useAtomCommand(threadEnvironment.setPlanLane);
+  const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
+  const clearThreadAttention = useAtomCommand(threadEnvironment.clearAttention);
+  const setThreadDependencies = useAtomCommand(threadEnvironment.setDependencies);
   const [view, setView] = useState<WorkstreamView>("graph");
   const [role, setRole] = useState("");
   const [title, setTitle] = useState("");
@@ -165,53 +159,24 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   // control plane at kickoff and `blocked` is derived from dependencies, so
   // neither is offered here.
   const setLane = (threadId: ThreadId, planLane: ThreadPlanLane) => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-    void api.orchestration.dispatchCommand({
-      type: "thread.plan-lane.set",
-      commandId: newCommandId(),
-      threadId,
-      planLane,
-      createdAt: new Date().toISOString(),
-    });
+    void setPlanLane({ environmentId, input: { threadId, planLane } });
   };
 
   // Human stop: interrupting the active turn. The decider raises
   // `needs_guidance` on a human-issued interrupt so the halted thread surfaces
   // immediately (no-silent-halt).
   const stopThread = (threadId: ThreadId) => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-    void api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
-      commandId: newCommandId(),
-      threadId,
-      createdAt: new Date().toISOString(),
-    });
+    void interruptTurn({ environmentId, input: { threadId } });
   };
 
   // Dismiss all stored attention flags on a thread (human/parent acknowledge).
+  // An omitted `reason` clears every stored flag.
   const clearAttention = (threadId: ThreadId) => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-    void api.orchestration.dispatchCommand({
-      type: "thread.attention.clear",
-      commandId: newCommandId(),
-      threadId,
-      createdAt: new Date().toISOString(),
-    });
+    void clearThreadAttention({ environmentId, input: { threadId } });
   };
 
   const setDependencies = (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-    void api.orchestration.dispatchCommand({
-      type: "thread.dependencies.set",
-      commandId: newCommandId(),
-      threadId,
-      blockedBy: [...blockedBy],
-      createdAt: new Date().toISOString(),
-    });
+    void setThreadDependencies({ environmentId, input: { threadId, blockedBy: [...blockedBy] } });
   };
 
   const spawnChild = async () => {
@@ -224,22 +189,15 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     setIsSpawning(true);
     setError(null);
     const childThreadId = newThreadId();
-    const api = readEnvironmentApi(environmentId);
-    if (!api) {
-      setError("Environment connection is unavailable.");
-      setIsSpawning(false);
-      return;
-    }
 
-    try {
-      // A sub-thread is created directly via `thread.create` (rather than the
-      // usual draft -> bootstrap path in useHandleNewThread): a draft thread is
-      // not a persisted server thread, so it would never surface on this board
-      // until promoted by a first turn. Spawning eagerly is what acceptance
-      // criterion 3 (children visible in the Workstream board) requires.
-      await api.orchestration.dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
+    // A sub-thread is created directly via `thread.create` (rather than the
+    // usual draft -> bootstrap path in useHandleNewThread): a draft thread is
+    // not a persisted server thread, so it would never surface on this board
+    // until promoted by a first turn. Spawning eagerly is what acceptance
+    // criterion 3 (children visible in the Workstream board) requires.
+    const result = await spawnThread({
+      environmentId,
+      input: {
         threadId: childThreadId,
         projectId: activeProjectId,
         parentThreadId: activeThread.id,
@@ -252,20 +210,21 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         interactionMode: activeThread.interactionMode,
         branch: activeThread.branch,
         worktreePath: activeThread.worktreePath,
-        createdAt: new Date().toISOString(),
-      });
-      setRole("");
-      setTitle("");
-      setPurpose("");
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(environmentId, childThreadId)),
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Failed to spawn sub-thread.");
-    } finally {
+      },
+    });
+    if (result._tag === "Failure") {
+      setError("Failed to spawn sub-thread.");
       setIsSpawning(false);
+      return;
     }
+    setRole("");
+    setTitle("");
+    setPurpose("");
+    setIsSpawning(false);
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, childThreadId)),
+    });
   };
 
   return (

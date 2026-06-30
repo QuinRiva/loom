@@ -130,12 +130,12 @@ export function highestAttentionReasonOf(thread: SidebarThreadSummary): Attentio
 const isActiveWorker = (t: SidebarThreadSummary): boolean => hasRunningSignal(t);
 
 /**
- * Liveness for the STATE gate is slightly broader than the count: a `connecting`
+ * Liveness for the STATE gate is slightly broader than the count: a `starting`
  * session is a worker spinning up. Counting it as live keeps the row from
  * flashing idle/deadlocked/needs-you during a reconnect or restart.
  */
 const isLive = (t: SidebarThreadSummary): boolean =>
-  isActiveWorker(t) || t.session?.status === "connecting";
+  isActiveWorker(t) || t.session?.status === "starting";
 
 const isPlanTerminal = (t: SidebarThreadSummary): boolean =>
   t.planLane === "done" || t.planLane === "cancelled";

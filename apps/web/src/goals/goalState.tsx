@@ -1,21 +1,25 @@
 /**
- * Store-backed access to DB-authoritative goals.
+ * Atom-backed access to DB-authoritative goals.
  *
- * Goals arrive via the orchestration shell stream and live in the Zustand
- * store; these selectors/components replace the old file-index polling client.
+ * Goals arrive via the orchestration shell snapshot and are flattened across
+ * environments by `goalsAtom`; these hooks/components replace the old
+ * file-index polling client.
  */
-import { useShallow } from "zustand/react/shallow";
+import { useAtomValue } from "@effect/atom-react";
+import { useMemo } from "react";
 
 import type { GoalShell, GoalTask } from "../types";
-import { selectGoalsAcrossEnvironments, useStore } from "../store";
+import { goalsAtom } from "../state/shell";
 
-export function useGoals(): GoalShell[] {
-  return useStore(useShallow(selectGoalsAcrossEnvironments));
+export function useGoals(): ReadonlyArray<GoalShell> {
+  return useAtomValue(goalsAtom);
 }
 
 export function useGoalById(goalId: string | null | undefined): GoalShell | undefined {
-  return useStore((state) =>
-    goalId == null ? undefined : selectGoalsAcrossEnvironments(state).find((g) => g.id === goalId),
+  const goals = useGoals();
+  return useMemo(
+    () => (goalId == null ? undefined : goals.find((goal) => goal.id === goalId)),
+    [goalId, goals],
   );
 }
 

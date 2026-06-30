@@ -1,5 +1,8 @@
 import type {
   ChatImageAttachment as ContractChatImageAttachment,
+  OrchestrationGoal,
+  OrchestrationGoalShell,
+  OrchestrationGoalTask,
   OrchestrationCheckpointFile,
   OrchestrationCheckpointSummary,
   OrchestrationLatestTurn,
@@ -48,6 +51,13 @@ export type TurnDiffSummary = OrchestrationCheckpointSummary;
 export type Project = EnvironmentProject;
 export type Thread = EnvironmentThread;
 export type ThreadShell = EnvironmentThreadShell;
+
+// DB-authoritative goals arrive on the orchestration shell snapshot. The web
+// aliases mirror the thread aliases above so feature code stays decoupled from
+// the contract module names.
+export type Goal = OrchestrationGoal;
+export type GoalShell = OrchestrationGoalShell;
+export type GoalTask = OrchestrationGoalTask;
 
 export interface ThreadTurnState {
   latestTurn: OrchestrationLatestTurn | null;
