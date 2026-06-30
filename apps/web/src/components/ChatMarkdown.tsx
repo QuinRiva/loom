@@ -40,7 +40,11 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
-import { CHAT_FILE_TAG_CHIP_CLASS_NAME, FileTagChipContent } from "./chat/FileTagChip";
+import {
+  CHAT_FILE_TAG_CHIP_CLASS_NAME,
+  FileTagChipContent,
+  ThreadTagChipContent,
+} from "./chat/FileTagChip";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { hasSpecificPierreIconForFileName, syntheticFileNameForLanguageId } from "../pierre-icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -160,7 +164,7 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "file"],
+    href: [...(defaultSchema.protocols?.href ?? []), "file", "thread"],
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
 
@@ -1273,6 +1277,7 @@ function ChatMarkdown({
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [markdownFileLinkMetaByHref]);
   const markdownUrlTransform = useCallback((href: string) => {
+    if (href.startsWith("thread://")) return href;
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
   // Re-emit highlighted content as markdown so copying out of the rendered
@@ -1371,6 +1376,13 @@ function ChatMarkdown({
         );
       },
       a({ node, href, children, ...props }) {
+        if (href?.startsWith("thread://")) {
+          return (
+            <span className={CHAT_FILE_TAG_CHIP_CLASS_NAME}>
+              <ThreadTagChipContent label={plainHastText(node) || "thread"} />
+            </span>
+          );
+        }
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
         const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
         if (!fileLinkMeta) {

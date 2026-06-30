@@ -102,6 +102,13 @@ export type MessagesTimelineRow =
       groupedEntries: WorkLogEntry[];
     }
   | {
+      kind: "spawn";
+      id: string;
+      createdAt: string;
+      turnId: TurnId | null;
+      entries: WorkLogEntry[];
+    }
+  | {
       kind: "work-toggle";
       id: string;
       createdAt: string;
@@ -164,6 +171,11 @@ export function computeMessageDurationStart(
 
 export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
+}
+
+/** `workstream_spawn` results carry a spawned-child payload; they render as a grouped spawn card. */
+function isSpawnWorkEntry(entry: WorkLogEntry): boolean {
+  return entry.spawnedChild !== undefined;
 }
 
 export function resolveAssistantMessageCopyState({
@@ -421,6 +433,39 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
+      // Spawn cards never merge with ordinary tool rows; they group strictly by
+      // turnId (the causality signal) and bypass the neutral-status filtering
+      // and work-toggle collapsing applied to ordinary work entries.
+      if (isSpawnWorkEntry(timelineEntry.entry)) {
+        const groupTurnId = timelineEntry.entry.turnId ?? null;
+        const groupedSpawnEntries = [timelineEntry.entry];
+        let spawnCursor = index + 1;
+        while (spawnCursor < input.timelineEntries.length) {
+          const nextEntry = input.timelineEntries[spawnCursor];
+          if (
+            !nextEntry ||
+            nextEntry.kind !== "work" ||
+            collapsedEntryIds.has(nextEntry.id) ||
+            foldsByAnchorEntryId.has(nextEntry.id) ||
+            !isSpawnWorkEntry(nextEntry.entry) ||
+            (nextEntry.entry.turnId ?? null) !== groupTurnId
+          ) {
+            break;
+          }
+          groupedSpawnEntries.push(nextEntry.entry);
+          spawnCursor += 1;
+        }
+        nextRows.push({
+          kind: "spawn",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          turnId: groupTurnId,
+          entries: groupedSpawnEntries,
+        });
+        index = spawnCursor - 1;
+        continue;
+      }
+
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -429,7 +474,8 @@ export function deriveMessagesTimelineRows(input: {
           !nextEntry ||
           nextEntry.kind !== "work" ||
           collapsedEntryIds.has(nextEntry.id) ||
-          foldsByAnchorEntryId.has(nextEntry.id)
+          foldsByAnchorEntryId.has(nextEntry.id) ||
+          isSpawnWorkEntry(nextEntry.entry)
         ) {
           break;
         }
@@ -573,6 +619,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "work":
       return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);
+
+    case "spawn": {
+      const bs = b as typeof a;
+      return a.turnId === bs.turnId && Equal.equals(a.entries, bs.entries);
+    }
 
     case "work-toggle": {
       const bw = b as typeof a;
