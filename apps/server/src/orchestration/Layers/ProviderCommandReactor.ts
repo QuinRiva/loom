@@ -128,13 +128,7 @@ const activeGoalContextInstruction = (
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
     `\n\nCurrent tasks:\n${tasks}`,
-    `\n\nKeep the task list current as you work — do NOT edit goal files. Use the CLI:`,
-    `\n  t3 goal task add ${goal.id} "<text>" [--parent <task-id>]`,
-    `\n  t3 goal task done ${goal.id} <task-id>`,
-    `\n  t3 goal task open ${goal.id} <task-id>`,
-    `\n  t3 goal task rename ${goal.id} <task-id> "<text>"`,
-    `\n  t3 goal task delete ${goal.id} <task-id>`,
-    `\n  t3 goal update ${goal.id} [--title <title>] [--description <text>]`,
+    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. Mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen, reorder), \`goal_task_delete\`, and \`goal_update\` (title/description/slug).`,
   ].join("");
 };
 
