@@ -1274,6 +1274,10 @@ export default function ChatView(props: ChatViewProps) {
   // once per thread, so re-opening after the human edits/clears it won't clobber.
   useEffect(() => {
     if (!isServerThread || !activeThread) return;
+    // Only parent-less handoff roots are composer-seeded; spawned children
+    // (non-null parentThreadId) already receive their brief as a dispatched
+    // first turn, so seeding would duplicate it into their composer.
+    if (activeThread.parentThreadId !== null) return;
     const brief = activeThread.brief;
     if (!brief || activeThread.messages.length > 0) return;
     if (seededBriefThreadIdsRef.current.has(activeThread.id)) return;
