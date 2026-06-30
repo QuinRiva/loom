@@ -21,12 +21,12 @@ Australian English._
 
 ## Headline — the surface is ~40% lighter than predicted
 
-| Set | Predicted (doc 04) | **Measured** |
-|---|---|---|
-| Files changed fork-side (`$B..HEAD`) | 319 | **325** |
-| Files changed upstream-side (`$B..upstream/main`) | 1535 | **1535** |
-| Files touched by **both** (candidates) | 106 | **106** |
-| **Files git actually CONFLICTS on** | _(implied ~106)_ | **62** |
+| Set                                               | Predicted (doc 04) | **Measured** |
+| ------------------------------------------------- | ------------------ | ------------ |
+| Files changed fork-side (`$B..HEAD`)              | 319                | **325**      |
+| Files changed upstream-side (`$B..upstream/main`) | 1535               | **1535**     |
+| Files touched by **both** (candidates)            | 106                | **106**      |
+| **Files git actually CONFLICTS on**               | _(implied ~106)_   | **62**       |
 
 **The single most important number: 62 real conflicts, not 106.** Of the 106
 both-touched candidates, **45 auto-merged cleanly** (git reconciled the two sides
@@ -42,10 +42,10 @@ Substrate facts (all verified live in this worktree):
 - Branch fast-forwarded to `origin/main` (`e9e86648b`); Phase 1 docs committed
   locally on top (`edc0cd715`, **not pushed**).
 - `git replace --graft 6c82133 477795697` created; `git merge-base HEAD
-  upstream/main` → **`477795697`** ✓. The graft ref is global to the shared clone,
+upstream/main` → **`477795697`** ✓. The graft ref is global to the shared clone,
   reversible with `git replace -d 6c82133`, and has **not** been pushed.
 - `git merge-base HEAD upstream/main` measured against `upstream/main =
-  2448212367` (v0.0.28, 289 commits past baseline). `filter-repo` was **not** run.
+2448212367` (v0.0.28, 289 commits past baseline). `filter-repo` was **not** run.
 - Conflicts measured with `git merge --no-commit --no-ff upstream/main` →
   `git status --porcelain` → `git merge --abort`. Working tree ends **clean**.
   (`git merge-tree --write-tree` is git 2.38+; this clone is git 2.30.2, so the
@@ -84,17 +84,17 @@ ordering still holds. The surface is just smaller around them.
 
 ## Surprises — real conflicts NOT in the 20-zone map
 
-| File | fork (+/−) | upstream (+/−) | Note / disposition |
-|---|---|---|---|
-| `apps/server/src/terminal/Layers/Manager.ts` | edited | **deleted** | Doc 04 (Z8) assumed a content edit; upstream **deleted** it (terminal layer restructure). It is a **delete/modify**, belongs in the re-home bucket, not the Effect sweep. |
-| `apps/web/src/environments/runtime/service.ts` | edited | **deleted** | Upstream deleted a web runtime service the fork modified. New structural delete/modify, not in the map. |
-| `apps/web/src/components/chat/ChatHeader.tsx` | **+249/−2** | +25/−73 | Substantial fork addition (goal header / multi-session) — a real web-shell conflict that should be tracked alongside Z11 ChatView. |
-| `apps/web/src/types.ts` | +59/−0 | +23/−137 | Fork added shared web types; upstream reshaped. Re-home additive types. |
-| `apps/web/src/routes/_chat.index.tsx` | +55/−1 | +12/−8 | Route-level shell wiring (multi-session). Re-apply fork hook. |
-| `apps/server/src/cli/project.ts` | +17/−202 | +203/−65 | Both heavily rewrote it. Genuine 3-way; not previously called out. |
-| `apps/web/src/components/DiffPanel.tsx` | +30/−11 | **+538/−401** | Upstream rewrote it wholesale; THEIRS+ADD. Sits with the Z14 cluster. |
-| `apps/desktop/src/settings/DesktopClientSettings.test.ts` | +1/−0 | +25/−2 | **Out of declared fork scope** — the fork touched `apps/desktop`. Trivial (+1 line); take-theirs/drop the fork edit. Flags that the fork delta leaked into desktop. |
-| `packages/client-runtime/src/state/threadReducer.test.ts` | (rename) | +700/−0 | The 1 conflict outside the 106 set — rename detection paired a deleted fork `*State.test.ts` against this new upstream `state/` file. Resolves with the Z4 client-runtime re-home. |
+| File                                                      | fork (+/−)  | upstream (+/−) | Note / disposition                                                                                                                                                                 |
+| --------------------------------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/terminal/Layers/Manager.ts`              | edited      | **deleted**    | Doc 04 (Z8) assumed a content edit; upstream **deleted** it (terminal layer restructure). It is a **delete/modify**, belongs in the re-home bucket, not the Effect sweep.          |
+| `apps/web/src/environments/runtime/service.ts`            | edited      | **deleted**    | Upstream deleted a web runtime service the fork modified. New structural delete/modify, not in the map.                                                                            |
+| `apps/web/src/components/chat/ChatHeader.tsx`             | **+249/−2** | +25/−73        | Substantial fork addition (goal header / multi-session) — a real web-shell conflict that should be tracked alongside Z11 ChatView.                                                 |
+| `apps/web/src/types.ts`                                   | +59/−0      | +23/−137       | Fork added shared web types; upstream reshaped. Re-home additive types.                                                                                                            |
+| `apps/web/src/routes/_chat.index.tsx`                     | +55/−1      | +12/−8         | Route-level shell wiring (multi-session). Re-apply fork hook.                                                                                                                      |
+| `apps/server/src/cli/project.ts`                          | +17/−202    | +203/−65       | Both heavily rewrote it. Genuine 3-way; not previously called out.                                                                                                                 |
+| `apps/web/src/components/DiffPanel.tsx`                   | +30/−11     | **+538/−401**  | Upstream rewrote it wholesale; THEIRS+ADD. Sits with the Z14 cluster.                                                                                                              |
+| `apps/desktop/src/settings/DesktopClientSettings.test.ts` | +1/−0       | +25/−2         | **Out of declared fork scope** — the fork touched `apps/desktop`. Trivial (+1 line); take-theirs/drop the fork edit. Flags that the fork delta leaked into desktop.                |
+| `packages/client-runtime/src/state/threadReducer.test.ts` | (rename)    | +700/−0        | The 1 conflict outside the 106 set — rename detection paired a deleted fork `*State.test.ts` against this new upstream `state/` file. Resolves with the Z4 client-runtime re-home. |
 
 **Plus a cluster of test/browser files** the zone map (which enumerated source
 files) did not list individually — they conflict and travel with their source
@@ -115,6 +115,7 @@ These cannot be 3-way-merged; the fork delta must be **re-homed** onto upstream'
 new layout.
 
 **`packages/client-runtime` (9)** — the #2978 connection rewrite (Z4):
+
 - `src/wsTransport.ts`, `src/wsTransport.test.ts`
 - `src/wsRpcProtocol.ts`
 - `src/threadDetailState.ts`, `src/threadDetailState.test.ts`
@@ -122,13 +123,15 @@ new layout.
 - `src/archivedThreadsState.test.ts`, `src/shellSnapshotState.test.ts`
 
 **`apps/web` (7)** — store decomposition (Z3) + deleted services/browser tests:
+
 - `src/store.ts`, `src/store.test.ts` (Z3)
 - `src/rpc/serverState.ts` (Z4 sibling, deleted)
-- `src/environments/runtime/service.ts`, `…/service.threadSubscriptions.test.ts` *(surprise: deleted upstream)*
+- `src/environments/runtime/service.ts`, `…/service.threadSubscriptions.test.ts` _(surprise: deleted upstream)_
 - `src/components/ChatView.browser.tsx`, `src/components/chat/MessagesTimeline.browser.tsx`, `src/components/KeybindingsToast.browser.tsx`
 
 **`apps/server` (3)**:
-- `src/terminal/Layers/Manager.ts` *(surprise: deleted upstream, not a content edit)*
+
+- `src/terminal/Layers/Manager.ts` _(surprise: deleted upstream, not a content edit)_
 - `src/checkpointing/Layers/CheckpointDiffQuery.test.ts`
 - `src/project/Layers/ProjectSetupScriptRunner.test.ts`
 
@@ -137,21 +140,23 @@ new layout.
 **`packages/contracts` (1):** `src/settings.ts` (Z5).
 
 **`apps/server` (15):**
+
 - `src/server.ts`, `src/ws.ts` (Z9), `src/serverRuntimeStartup.ts` (Z10)
 - `src/orchestration/Layers/ProjectionSnapshotQuery.ts` (Z2 — predicted trivial, did produce a small conflict), `…/ProviderRuntimeIngestion.test.ts`
 - `src/textGeneration/TextGeneration.ts` (Z17), `…/ClaudeTextGeneration.ts`, `…/CodexTextGeneration.ts`, `…/CursorTextGeneration.ts`, `…/GrokTextGeneration.ts`, `…/OpenCodeTextGeneration.ts`, `…/TextGeneration.test.ts` (Z8 — the Effect conflicts live **here**)
-- `src/cli/project.ts` *(surprise)*, `src/mcp/McpSessionRegistry.test.ts`, `src/server.test.ts`
+- `src/cli/project.ts` _(surprise)_, `src/mcp/McpSessionRegistry.test.ts`, `src/server.test.ts`
 
 **`apps/web` (24):**
-- Chat shell: `ChatView.tsx`, `ChatView.logic.ts`, `ChatView.logic.test.ts` (Z11); `chat/ChatHeader.tsx` *(surprise)*; `chat/ChatComposer.tsx`, `composerDraftStore.ts`, `composer-editor-mentions.ts`, `uiStateStore.ts`, `rightPanelStore.ts`, `components/RightPanelTabs.tsx`, `components/CommandPalette.tsx` (Z14); `components/DiffPanel.tsx` *(surprise)*
+
+- Chat shell: `ChatView.tsx`, `ChatView.logic.ts`, `ChatView.logic.test.ts` (Z11); `chat/ChatHeader.tsx` _(surprise)_; `chat/ChatComposer.tsx`, `composerDraftStore.ts`, `composer-editor-mentions.ts`, `uiStateStore.ts`, `rightPanelStore.ts`, `components/RightPanelTabs.tsx`, `components/CommandPalette.tsx` (Z14); `components/DiffPanel.tsx` _(surprise)_
 - Timeline/markdown: `chat/MessagesTimeline.tsx`, `chat/MessagesTimeline.logic.ts`, `ChatMarkdown.tsx` (Z13)
 - Sidebar: `Sidebar.tsx`, `Sidebar.logic.test.ts` (Z12 — note `Sidebar.logic.ts` auto-merged)
-- Status/settings/routing: `ThreadStatusIndicators.tsx` (Z15), `settings/SettingsPanels.tsx`, `routes/_chat.index.tsx` *(surprise)*, `types.ts` *(surprise)*, `hooks/useHandleNewThread.ts` (Z17)
+- Status/settings/routing: `ThreadStatusIndicators.tsx` (Z15), `settings/SettingsPanels.tsx`, `routes/_chat.index.tsx` _(surprise)_, `types.ts` _(surprise)_, `hooks/useHandleNewThread.ts` (Z17)
 - Tests: `environmentGrouping.test.ts`, `localApi.test.ts`
 
-**`packages/client-runtime` (1):** `src/state/threadReducer.test.ts` *(rename surprise)*.
+**`packages/client-runtime` (1):** `src/state/threadReducer.test.ts` _(rename surprise)_.
 
-**`apps/desktop` (1):** `src/settings/DesktopClientSettings.test.ts` *(out-of-scope surprise)*.
+**`apps/desktop` (1):** `src/settings/DesktopClientSettings.test.ts` _(out-of-scope surprise)_.
 
 **Lockfile (1):** `pnpm-lock.yaml` (Z19 — regenerate).
 
@@ -159,28 +164,28 @@ new layout.
 
 ## Zone map reconciliation (doc 04) — did each prediction materialise?
 
-| Zone | Prediction | **Reality** |
-|---|---|---|
-| Z1 `orchestration.ts` contract | OURS + 1 line, trivial | **CLEAN auto-merge** — even better; no conflict |
-| Z2 `ProjectionSnapshotQuery.ts` | OURS, trivial | **UU** — small conflict did surface (still trivial) |
-| Z3 `store.ts` decomposition | RE-ENGINEER (hard) | **UD ✓** confirmed hard (+`store.test.ts`) |
-| Z4 client-runtime rewrite | RE-ENGINEER (hard) | **UD ✓** all flat modules + `serverState.ts` |
-| Z5 `settings.ts` | 3-way | **UU ✓**; contracts `rpc.ts`/`server.ts` **clean** (better) |
-| Z6 PiDriver SPI re-fit | OURS, re-fit (no conflict) | **No conflict ✓** — typecheck task, as predicted |
-| Z7 `builtInDrivers.ts` | restore THEIRS + add Pi | **No conflict ✓** — upstream untouched |
-| Z8 Effect sweep | THEIRS, pervasive | **Localised ✓ to `*TextGeneration.ts`**; adapters/config/relay **clean** (much better) |
-| Z9 `ws.ts`/`server.ts` | 3-way | **UU ✓** both |
-| Z10 `serverRuntimeStartup.ts` | THEIRS + re-add layers | **UU ✓** (`.test.ts` clean) |
-| Z11 `ChatView.tsx` | RE-ENGINEER (hardest textual) | **UU ✓** (+`.logic.ts`/`.logic.test.ts`; `.browser.tsx` UD) |
-| Z12 `Sidebar.tsx` | 3-way, fork-heavy | **UU ✓**; `Sidebar.logic.ts` **clean** |
-| Z13 timeline/reasoning | REDO-CLEAN | **UU ✓** (`MessagesTimeline.tsx`/`.logic.ts`/`ChatMarkdown.tsx`) |
-| Z14 composer cluster | THEIRS+ADD | **UU ✓** all seven |
-| Z15 `ThreadStatusIndicators.tsx` | OURS-leaning 3-way | **UU ✓** |
-| Z16 account-usage | OURS, self-contained | **No conflict ✓** |
-| Z17 `useHandleNewThread.ts` + textGen | THEIRS+ADD | **UU ✓** (`TextGenerationUtils.ts` clean) |
-| Z18 goal/workstream engine | OURS, carries through | **No conflict ✓** — fork-only paths |
-| Z19 lockfiles/package.json | THEIRS, regenerate | **Only `pnpm-lock.yaml` UU**; all `package.json` **clean** |
-| Z20 docs/plans/goals | DROP/carry | **No conflict ✓** (`docs/upstream-sync/` committed ours) |
+| Zone                                  | Prediction                    | **Reality**                                                                            |
+| ------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
+| Z1 `orchestration.ts` contract        | OURS + 1 line, trivial        | **CLEAN auto-merge** — even better; no conflict                                        |
+| Z2 `ProjectionSnapshotQuery.ts`       | OURS, trivial                 | **UU** — small conflict did surface (still trivial)                                    |
+| Z3 `store.ts` decomposition           | RE-ENGINEER (hard)            | **UD ✓** confirmed hard (+`store.test.ts`)                                             |
+| Z4 client-runtime rewrite             | RE-ENGINEER (hard)            | **UD ✓** all flat modules + `serverState.ts`                                           |
+| Z5 `settings.ts`                      | 3-way                         | **UU ✓**; contracts `rpc.ts`/`server.ts` **clean** (better)                            |
+| Z6 PiDriver SPI re-fit                | OURS, re-fit (no conflict)    | **No conflict ✓** — typecheck task, as predicted                                       |
+| Z7 `builtInDrivers.ts`                | restore THEIRS + add Pi       | **No conflict ✓** — upstream untouched                                                 |
+| Z8 Effect sweep                       | THEIRS, pervasive             | **Localised ✓ to `*TextGeneration.ts`**; adapters/config/relay **clean** (much better) |
+| Z9 `ws.ts`/`server.ts`                | 3-way                         | **UU ✓** both                                                                          |
+| Z10 `serverRuntimeStartup.ts`         | THEIRS + re-add layers        | **UU ✓** (`.test.ts` clean)                                                            |
+| Z11 `ChatView.tsx`                    | RE-ENGINEER (hardest textual) | **UU ✓** (+`.logic.ts`/`.logic.test.ts`; `.browser.tsx` UD)                            |
+| Z12 `Sidebar.tsx`                     | 3-way, fork-heavy             | **UU ✓**; `Sidebar.logic.ts` **clean**                                                 |
+| Z13 timeline/reasoning                | REDO-CLEAN                    | **UU ✓** (`MessagesTimeline.tsx`/`.logic.ts`/`ChatMarkdown.tsx`)                       |
+| Z14 composer cluster                  | THEIRS+ADD                    | **UU ✓** all seven                                                                     |
+| Z15 `ThreadStatusIndicators.tsx`      | OURS-leaning 3-way            | **UU ✓**                                                                               |
+| Z16 account-usage                     | OURS, self-contained          | **No conflict ✓**                                                                      |
+| Z17 `useHandleNewThread.ts` + textGen | THEIRS+ADD                    | **UU ✓** (`TextGenerationUtils.ts` clean)                                              |
+| Z18 goal/workstream engine            | OURS, carries through         | **No conflict ✓** — fork-only paths                                                    |
+| Z19 lockfiles/package.json            | THEIRS, regenerate            | **Only `pnpm-lock.yaml` UU**; all `package.json` **clean**                             |
+| Z20 docs/plans/goals                  | DROP/carry                    | **No conflict ✓** (`docs/upstream-sync/` committed ours)                               |
 
 **Verdict: every predicted-hard zone is confirmed; several predicted-medium zones
 came in clean. No prediction was contradicted in a way that worsens the plan.**

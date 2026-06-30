@@ -30,11 +30,12 @@ Comparison point: baseline upstream commit **`477795697`** (per
   `ChatView` / `MessagesTimeline` cluster, the ws transport/protocol files, and
   the shared `textGeneration/*`. These are where Task D must do real work.
 - **One deliberate cheap hack to redo cleanly:** the other (non-Pi) harnesses
-  were *disabled by deletion from the driver registry* (`builtInDrivers.ts`).
+  were _disabled by deletion from the driver registry_ (`builtInDrivers.ts`).
   Per the user this was a quick test, **not** the long-term design and **not** a
   feature to preserve.
 
 Legend for the verdict column:
+
 - **PRESERVE** — load-bearing Pi-first functionality; must survive the merge.
 - **REDO-CLEAN** — keep the capability but re-engineer onto upstream's newer
   baseline rather than porting our hacked version verbatim.
@@ -53,6 +54,7 @@ CLI, talking to Pi over its JSON-RPC wire, plus one-shot completion and quota
 plumbing.
 
 **Files (~2 250 LOC, almost all fork-only-new):**
+
 - `apps/server/src/provider/Drivers/PiDriver.ts` (1 125) + `PiDriver.test.ts`
 - `apps/server/src/provider/Layers/Pi/{Cli.ts (68), RpcProcess.ts (392), OneShotCompletion.ts (201)}`
 - `apps/server/src/provider/quotas/piQuotas.ts` (152)
@@ -64,7 +66,7 @@ plumbing.
 surface from `@t3tools/contracts` — `AnyProviderDriver`, `ProviderDriverKind`,
 `ServerProvider`, `ProviderSession`, `ProviderTurnStartResult`,
 `ProviderRuntimeEvent`, `ThreadTokenUsageSnapshot`, `ModelCapabilities`, etc.
-The *files* are fork-only (no merge conflict), but the **driver SPI shape is
+The _files_ are fork-only (no merge conflict), but the **driver SPI shape is
 upstream's and moved across 289 commits** (note the baseline's headline commit
 was itself a provider-state refactor). Task D must diff the current
 `ProviderDriver`/`ServerProvider` interfaces against baseline and re-fit
@@ -92,7 +94,7 @@ BUILT_IN_DRIVERS = [PiDriver];              // was [Codex, Claude, Cursor, Grok,
 **Crucially, the other drivers were NOT deleted** — `ClaudeDriver.ts`,
 `CodexDriver.ts`, `CursorDriver.ts`, `GrokDriver.ts`, `OpenCodeDriver.ts` (and
 their `Services/*Adapter.ts`, `*TextGeneration.ts`) all still exist on disk.
-Only the *registry wiring* was cut, so re-enabling is a near-trivial revert.
+Only the _registry wiring_ was cut, so re-enabling is a near-trivial revert.
 
 **Per the user (frontloaded steer):** this was a cheap test to get a Pi-only
 build up, **not** the intended long-term solution and **not** a feature to
@@ -100,7 +102,7 @@ preserve. **Redo cleanly on the new baseline** — ideally the other harnesses
 work again eventually, but **Pi-first features take priority and must not be
 delayed or complicated to accommodate cross-harness support.** Practical
 implication for the merge: take **upstream's** `builtInDrivers.ts` (which will
-re-register all upstream drivers) and simply *add* `PiDriver` to the union and
+re-register all upstream drivers) and simply _add_ `PiDriver` to the union and
 array, rather than porting our gutted version. `builtInDrivers.ts` is fork-only
 in the overlap sense (upstream may also have touched it — verify), but the right
 resolution is "theirs + add Pi", not "ours".
@@ -114,6 +116,7 @@ file-based `goals/<slug>/goal.md` approach was superseded — see goal.md's own
 "NON-AUTHORITATIVE" banner; the markdown goals are now historical artefacts).
 
 **Files:**
+
 - contracts: goal/task commands + events + aggregates in `orchestration.ts`
   (`OrchestrationGoal`, `OrchestrationGoalTask`, `OrchestrationGoalShell`,
   `Goal{Create,MetaUpdate,Archive,Unarchive,Delete}Command`,
@@ -129,7 +132,7 @@ file-based `goals/<slug>/goal.md` approach was superseded — see goal.md's own
   goal surfacing in `ChatHeader`, `RightPanelTabs`, `Sidebar`.
 
 **Coupling: mostly LOW, one HIGH node.** The aggregate/command/event additions
-are *additive* members of the `orchestration.ts` unions — but that file is in
+are _additive_ members of the `orchestration.ts` unions — but that file is in
 the overlap set (§G), so the additions must be re-applied onto upstream's
 current union definitions. `decider.ts`/`projector.ts`/`ProjectionGoals` are
 fork-only-touched (LOW). `ProjectionSnapshotQuery.ts` (which assembles the read
@@ -145,6 +148,7 @@ ask/report hand-backs, and a fork–join graph view. This is the largest single
 subsystem.
 
 **Files (~5 000+ LOC, overwhelmingly fork-only-new):**
+
 - server orchestration layers: `WorkstreamDispatcher.ts` (826) +`.test` (837),
   `WorkstreamLivenessSweep.ts` (672) +`.test` (319), plus `Services/*` for both;
   `workstreamAsk.ts` (182), `workstreamReport.ts` (54),
@@ -169,7 +173,7 @@ subsystem.
 **Coupling: LOW for the engine, HIGH at the edges.** The dispatcher, liveness
 sweep, ask/report, shared graph libs and all web components are fork-only files
 on paths upstream never touched — they merge cleanly. The collision points are
-the *shared* files these hook into: `orchestration.ts` (union additions),
+the _shared_ files these hook into: `orchestration.ts` (union additions),
 `ProjectionSnapshotQuery.ts` (read model), `serverRuntimeStartup.ts` (wiring the
 dispatcher/sweep layers into the runtime), `server.ts`/`ws.ts`, and the web
 `store.ts`/`Sidebar.tsx`/`ChatView.tsx` cluster — all in the overlap set.
@@ -217,7 +221,7 @@ it). All the goal/task/workstream/attention commands, events and aggregates are
 additive members of upstream's discriminated unions.
 
 **Coupling: HIGH.** Resolution strategy for Task D: take upstream's union
-*structure* as the base and re-graft the fork's additional command/event/payload
+_structure_ as the base and re-graft the fork's additional command/event/payload
 members onto it, rather than taking "ours" wholesale. If upstream restructured
 how commands are tagged or how the event store decodes them, every fork addition
 must be reshaped to match. Sibling high-risk contract files in the overlap:
@@ -322,20 +326,20 @@ feature preservation; re-sync `.repos/` from upstream's tooling regardless.
 
 ## Quick reference — verdict × coupling
 
-| Area | Verdict | Collision risk for Task D |
-|---|---|---|
-| A. Pi provider driver | PRESERVE | HIGH (upstream SPI drift; files fork-only) |
-| B. Other harnesses disabled | DROP/REVERT | resolve as "upstream + add Pi" |
-| C. Goal & Task system | PRESERVE | LOW core; HIGH at contract + SnapshotQuery |
-| D. Workstream delegation | PRESERVE | LOW engine; HIGH at shared edges |
-| E. Role-scoped prompting | PRESERVE | LOW |
-| F. Thread status/lane/attention | PRESERVE | LOW server; HIGH indicators+contract |
-| G. orchestration.ts contract | PRESERVE | **HIGH (the spine; in overlap)** |
-| H. Reasoning display | PRESERVE/REDO-CLEAN | HIGH |
-| I. Subscription usage | PRESERVE | LOW core; HIGH wiring |
-| J. Thread interpretation prompt | PRESERVE | HIGH (textGeneration overlap) |
-| K. Composer/chat UX | REDO-CLEAN (mostly) | HIGH |
-| L. Plans/docs/goals artefacts | DROP | none |
+| Area                            | Verdict             | Collision risk for Task D                  |
+| ------------------------------- | ------------------- | ------------------------------------------ |
+| A. Pi provider driver           | PRESERVE            | HIGH (upstream SPI drift; files fork-only) |
+| B. Other harnesses disabled     | DROP/REVERT         | resolve as "upstream + add Pi"             |
+| C. Goal & Task system           | PRESERVE            | LOW core; HIGH at contract + SnapshotQuery |
+| D. Workstream delegation        | PRESERVE            | LOW engine; HIGH at shared edges           |
+| E. Role-scoped prompting        | PRESERVE            | LOW                                        |
+| F. Thread status/lane/attention | PRESERVE            | LOW server; HIGH indicators+contract       |
+| G. orchestration.ts contract    | PRESERVE            | **HIGH (the spine; in overlap)**           |
+| H. Reasoning display            | PRESERVE/REDO-CLEAN | HIGH                                       |
+| I. Subscription usage           | PRESERVE            | LOW core; HIGH wiring                      |
+| J. Thread interpretation prompt | PRESERVE            | HIGH (textGeneration overlap)              |
+| K. Composer/chat UX             | REDO-CLEAN (mostly) | HIGH                                       |
+| L. Plans/docs/goals artefacts   | DROP                | none                                       |
 
 **The three files Task D should open first** (highest blast radius, all in the
 106-overlap): `packages/contracts/src/orchestration.ts`,

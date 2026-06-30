@@ -33,15 +33,15 @@ The two graphs share no commit. The fork was **not** created with `git clone`/`g
 
 Method: for every upstream commit in the 2026-06-12…06-17 window, count files differing from the fork root tree (`git diff --name-only 6c82133 <commit>`), then confirm the winner blob-by-blob.
 
-| upstream commit | date | files differing from fork root |
-|---|---|---|
-| **`477795697`** | **2026-06-14 16:47 -0700** | **50** |
-| `de8bdc10` | 2026-06-15 14:17 | 111 |
-| `c2d44a31` / `9d5e632d` / `71ea5fa1` | 2026-06-15 | 122 |
-| `d0a7d18c` | 2026-06-16 00:10 | 124 |
-| … | … | ≥132 |
+| upstream commit                      | date                       | files differing from fork root |
+| ------------------------------------ | -------------------------- | ------------------------------ |
+| **`477795697`**                      | **2026-06-14 16:47 -0700** | **50**                         |
+| `de8bdc10`                           | 2026-06-15 14:17           | 111                            |
+| `c2d44a31` / `9d5e632d` / `71ea5fa1` | 2026-06-15                 | 122                            |
+| `d0a7d18c`                           | 2026-06-16 00:10           | 124                            |
+| …                                    | …                          | ≥132                           |
 
-`477795697` is a sharp local minimum. Commits **after** it (closer to the fork's 06-15 23:15 UTC checkpoint date) score *worse*, exactly as expected if the fork was cut at `477795697` and upstream then diverged on top of it.
+`477795697` is a sharp local minimum. Commits **after** it (closer to the fork's 06-15 23:15 UTC checkpoint date) score _worse_, exactly as expected if the fork was cut at `477795697` and upstream then diverged on top of it.
 
 Blob-level confirmation against `477795697`:
 
@@ -67,7 +67,7 @@ git merge-base HEAD upstream/main        # → 477795697   ✓
 Verified live in this worktree: after the graft, `merge-base HEAD upstream/main` resolves to `477795697`; removing the replace ref (`git replace -d 6c82133`) restores the no-ancestor state. A real 3-way `git merge upstream/main` will then base off `477795697` and only present genuine divergence.
 
 - **Feasibility:** proven here, takes seconds.
-- **Risk:** very low. `git replace` is a local overlay ref (`refs/replace/*`); it changes no commit, is trivially reversible, and need not be pushed. `git filter-repo --replace-refs` later bakes the graft into real history if a permanent clean lineage is wanted (that step *does* rewrite SHAs and needs a force-push + coordination across the ~10 shared worktrees).
+- **Risk:** very low. `git replace` is a local overlay ref (`refs/replace/*`); it changes no commit, is trivially reversible, and need not be pushed. `git filter-repo --replace-refs` later bakes the graft into real history if a permanent clean lineage is wanted (that step _does_ rewrite SHAs and needs a force-push + coordination across the ~10 shared worktrees).
 - **Preserves our work fully:** all fork commits stay; we only add a parent edge.
 - **Caveat:** a plain two-tree `git diff HEAD upstream/main` still prints 1772 files — that command ignores the merge-base by design. Use 3-way merge, or `git diff 477795697...upstream/main` / `git diff 477795697 HEAD`, to see real attribution.
 
@@ -89,11 +89,11 @@ Check out `upstream/main`, then reconstruct the 35-file pi delta on top (cherry-
 
 Computed against baseline `477795697`:
 
-| set | files |
-|---|---|
-| Changed by fork (`477795697..HEAD`) | 319 |
-| Changed by upstream (`477795697..upstream/main`) | 1535 |
-| **Changed by BOTH (true conflict candidates)** | **106** |
+| set                                              | files   |
+| ------------------------------------------------ | ------- |
+| Changed by fork (`477795697..HEAD`)              | 319     |
+| Changed by upstream (`477795697..upstream/main`) | 1535    |
+| **Changed by BOTH (true conflict candidates)**   | **106** |
 
 The 106 overlap files (full list captured during analysis) are concentrated in: `apps/server` text-generation + provider adapters + orchestration, `apps/web` chat/sidebar/store, `packages/contracts` (`orchestration.ts`, `settings.ts`, `rpc.ts`, `server.ts`), `client-runtime` ws transport/protocol, and lockfiles/`package.json`. These — plus the pi-only files — are the scope for Task D's per-zone resolution.
 

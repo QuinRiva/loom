@@ -7,12 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { memo, useEffect, useState, type ReactNode } from "react";
-import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CornerLeftUpIcon,
-  TargetIcon,
-} from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, CornerLeftUpIcon, TargetIcon } from "lucide-react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";

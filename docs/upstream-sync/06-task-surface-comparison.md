@@ -23,7 +23,7 @@ Two further facts collapse the supposed collision flagged in `04-conflict-surfac
 1. **The "plan" surface is common ancestry, not a new upstream feature.**
    `OrchestrationProposedPlan` (the contract) and `apps/web/src/components/PlanSidebar.tsx`
    (the UI) exist at **baseline `477795697`, our `HEAD`, AND `upstream/main`**.
-   It is the agent's *plan-mode proposal*, inherited by both sides from the common
+   It is the agent's _plan-mode proposal_, inherited by both sides from the common
    baseline. Upstream refined where it renders (inline right panel, #3118); we kept
    it too. There is nothing to rename and nothing to reconcile conceptually — it is
    literally the same entity on both sides.
@@ -32,7 +32,7 @@ Two further facts collapse the supposed collision flagged in `04-conflict-surfac
    `goalTask*` commands, `GoalTasksPanel.tsx`, `goal_task_add` MCP). Upstream's
    "task" tokens are bare and live in unrelated domains. They do not clash as
    symbols; the overlap is only the English word and a sliver of right-panel real
-   estate that **our HEAD already shares cleanly** (we run `PlanSidebar` *and*
+   estate that **our HEAD already shares cleanly** (we run `PlanSidebar` _and_
    `GoalTasksPanel` side by side today).
 
 **Recommendation: do NOT rename our side. Converge on the shared `plan`
@@ -49,9 +49,10 @@ Upstream uses the words "plan" and "task" for **three distinct agent-runtime / U
 affordances**, none of which is objective-decomposition tracking:
 
 ### 1. "Plan" = the agent's ProposedPlan (plan mode) — shared with us
+
 - **Contract** (`packages/contracts/src/orchestration.ts`):
   `OrchestrationProposedPlan { id, turnId, planMarkdown, implementedAt,
-  implementationThreadId, createdAt, updatedAt }`. The body is a single opaque
+implementationThreadId, createdAt, updatedAt }`. The body is a single opaque
   **`planMarkdown` blob** — not a structured list of tracked items.
 - **Origin = the model.** `apps/server/.../ProviderRuntimeIngestion.ts` turns an
   agent runtime event into the plan; the agent runs in `interactionMode: "plan"`
@@ -65,19 +66,21 @@ affordances**, none of which is objective-decomposition tracking:
 - **Purpose = review-then-launch.** `proposedPlan.ts` is all presentation/launch
   helpers: title extraction, collapsed preview, **"PLEASE IMPLEMENT THIS PLAN: …"**
   (`buildPlanImplementationPrompt`), download-as-markdown, and
-  `implementationThreadId` linking the plan to the *new thread* spawned to execute
+  `implementationThreadId` linking the plan to the _new thread_ spawned to execute
   it. It is a plan-mode artefact you read, optionally tweak, and hand back to an
   agent — a per-conversation deliverable, not a living tracker.
 
 ### 2. "Task" (web) = GFM markdown checkbox toggles — pure rendering
+
 - `ChatMarkdown.tsx` renders `- [ ]` / `- [x]` list items as interactive
   checkboxes (`onTaskListChange`, `findTaskListMarkerOffset`, `aria-label="Toggle
-  task"`); `files/FilePreviewPanel.tsx` + `filePreviewMode.setMarkdownTaskChecked`
+task"`); `files/FilePreviewPanel.tsx` + `filePreviewMode.setMarkdownTaskChecked`
   let you tick a checkbox inside a previewed markdown file and write it back. This
   is the "file preview comments and task toggles" work (#3115). It is a **markdown
   editing affordance** — no entity, no persistence, no objective. Pure UI.
 
 ### 3. "Task" (agent activity + mobile) = a turn's work unit
+
 - The agent runtime emits `task.started` / `task.progress` events with a
   `taskType` (e.g. `"plan"`), surfaced as **activity-feed entries** for the current
   turn (`ProviderRuntimeIngestion.ts` ~451). This is the model's own in-flight
@@ -89,18 +92,18 @@ affordances**, none of which is objective-decomposition tracking:
 
 > Note: the drift doc's phrase "task sidebar" was loose wording. There is **no**
 > `TaskSidebar` component upstream. The only sidebar is `PlanSidebar` (the shared
-> ProposedPlan), and `autoOpenPlanSidebar` controls *that* — not any task list.
+> ProposedPlan), and `autoOpenPlanSidebar` controls _that_ — not any task list.
 
 ---
 
 ## Our goal/task model (for contrast)
 
 - **Contract** (`packages/contracts/src/orchestration.ts`): `OrchestrationGoal
-  { id, projectId, slug, title, description, tasks[…] }` with a recursively nested
+{ id, projectId, slug, title, description, tasks[…] }` with a recursively nested
   `OrchestrationGoalTask { id, goalId, parentTaskId, text, done, position,
-  children[] }`. A goal is **project-scoped and durable**; it lives in the
+children[] }`. A goal is **project-scoped and durable**; it lives in the
   `OrchestrationReadModel.goals[]` array alongside threads, not inside any thread.
-- **Origin = humans *and* agents, deliberately.** Authored via the command
+- **Origin = humans _and_ agents, deliberately.** Authored via the command
   surface (`GoalCreateCommand`, `GoalTaskCreate/Update/DeleteCommand`) and the MCP
   tools (`goal_task_add`, `goal_task_update`, `goal_handoff` in
   `apps/server/src/mcp/GoalTaskHttp.ts`). The orchestrator keeps the tree current;
@@ -117,15 +120,15 @@ affordances**, none of which is objective-decomposition tracking:
 
 ## Side-by-side
 
-| Axis | Upstream "plan" (ProposedPlan) | Upstream "task" (md toggle / activity / mobile) | **Our Goal + GoalTask** |
-|---|---|---|---|
-| What it is | Agent's plan-mode proposal (markdown blob) | GFM checkbox UI / turn activity / "new thread" | Durable objective → nested tracked task tree |
-| Authored by | The model (plan mode) | n/a (rendering) / model / user-as-launcher | Humans **and** agents (commands + MCP) |
-| Structure | One `planMarkdown` string | A checkbox / an event / a draft | Recursive `parentTaskId` tree, `done`/`position` |
-| Scope | Per-thread, per-turn | Per-render / per-turn / per-new-thread | Per-objective, spans threads & sessions |
-| Lifetime | A turn's deliverable | Ephemeral | Persists for the life of the goal |
-| Drives | "Implement plan" → spawn one thread | Nothing durable | Workstream delegation & re-orientation |
-| Status today | **Present on both** (baseline-shared) | Upstream-only, refined in-window | **Fork-only** (no upstream competitor) |
+| Axis         | Upstream "plan" (ProposedPlan)             | Upstream "task" (md toggle / activity / mobile) | **Our Goal + GoalTask**                          |
+| ------------ | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------ |
+| What it is   | Agent's plan-mode proposal (markdown blob) | GFM checkbox UI / turn activity / "new thread"  | Durable objective → nested tracked task tree     |
+| Authored by  | The model (plan mode)                      | n/a (rendering) / model / user-as-launcher      | Humans **and** agents (commands + MCP)           |
+| Structure    | One `planMarkdown` string                  | A checkbox / an event / a draft                 | Recursive `parentTaskId` tree, `done`/`position` |
+| Scope        | Per-thread, per-turn                       | Per-render / per-turn / per-new-thread          | Per-objective, spans threads & sessions          |
+| Lifetime     | A turn's deliverable                       | Ephemeral                                       | Persists for the life of the goal                |
+| Drives       | "Implement plan" → spawn one thread        | Nothing durable                                 | Workstream delegation & re-orientation           |
+| Status today | **Present on both** (baseline-shared)      | Upstream-only, refined in-window                | **Fork-only** (no upstream competitor)           |
 
 ---
 
@@ -144,16 +147,16 @@ already coexist in our HEAD. Specifically:
 The only things to actually watch during the merge — all small:
 
 1. **Right-panel real estate & auto-open**, not symbols. We auto-open the plan
-   sidebar (`settings.autoOpenPlanSidebar`) *and* the goal panel
+   sidebar (`settings.autoOpenPlanSidebar`) _and_ the goal panel
    (`autoOpenedTasksByThreadKey` ref in `ChatView.tsx`). Upstream rewrote
    `ChatView.tsx`/right-panel heavily; re-attach **both** auto-open behaviours and
    make sure they don't fight for the same panel slot. This is a Z11/Z14 re-apply,
    not a contract change.
 2. **`autoOpenPlanSidebar` default flip** (`true`→`false`, #2421). Decide our
-   preferred default when re-applying `settings.ts`; it concerns the *plan* sidebar
+   preferred default when re-applying `settings.ts`; it concerns the _plan_ sidebar
    only, so it does not touch the goal panel.
 3. **UI wording only.** Upstream surfaces "task" in markdown ("Toggle task") and
-   mobile ("New task"). To avoid *human* confusion, keep our panel labelled with
+   mobile ("New task"). To avoid _human_ confusion, keep our panel labelled with
    the goal framing (e.g. "Goal tasks" / "Goals & tasks"), not a bare "Tasks". No
    code rename required — purely a label choice.
 

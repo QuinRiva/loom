@@ -39,12 +39,12 @@ item was skipped.
 
 ## Build state — verified, not taken on trust
 
-| Package | Claimed | **Measured** | Notes |
-|---|---|---|---|
-| `packages/client-runtime` | 0 | **0** ✓ | |
-| `apps/server` | 0 | **0** ✓ | |
-| `apps/web` | (residual) | **26** | Phase 2.5/2.6 only — composer `@thread` mention kind, `ComposerPromptEditor`, `ChatView.logic`/`Sidebar.logic` test fixtures missing `queuedMessages`/goal fields. Confined to web shell. |
-| `apps/desktop` | (not claimed) | **1** | `DesktopClientSettings.test.ts` fixture missing `reasoningDisplay` (consequence of the fork's settings.ts addition). 2.6 tail. |
+| Package                   | Claimed       | **Measured** | Notes                                                                                                                                                                                     |
+| ------------------------- | ------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/client-runtime` | 0             | **0** ✓      |                                                                                                                                                                                           |
+| `apps/server`             | 0             | **0** ✓      |                                                                                                                                                                                           |
+| `apps/web`                | (residual)    | **26**       | Phase 2.5/2.6 only — composer `@thread` mention kind, `ComposerPromptEditor`, `ChatView.logic`/`Sidebar.logic` test fixtures missing `queuedMessages`/goal fields. Confined to web shell. |
+| `apps/desktop`            | (not claimed) | **1**        | `DesktopClientSettings.test.ts` fixture missing `reasoningDisplay` (consequence of the fork's settings.ts addition). 2.6 tail.                                                            |
 
 `vp run typecheck` = 2 of 11 packages failing (`apps/web`, `apps/desktop`) — both
 expected and outside the 2.2–2.4 deliverable.
@@ -54,16 +54,17 @@ expected and outside the 2.2–2.4 deliverable.
 ## Lost-feature audit (highest priority) — walked item by item
 
 ### Six runtime layers — all wired AND invoked ✓
-Verified each is in the live layer graph *and* does work at runtime, not just imported:
 
-| Layer | Wired at | Invoked / does work |
-|---|---|---|
-| `WorkstreamDispatcherLive` | `server.ts:174` (`provideMerge`) | dispatcher engine carried intact |
-| `WorkstreamLivenessSweepLive` | `server.ts:298` + **started** `serverRuntimeStartup.ts:350` | `.start()` in reactor scope |
-| `ProjectionGoals` | via `OrchestrationProjectionPipelineLive` (`ProjectionPipeline.ts:1969` `provideMerge(ProjectionGoalRepositoryLive)`) → `runtimeLayer.ts` | goal events projected via `upsertGoal` (`ProjectionPipeline.ts:609–670`); projector registered as `projection.goals` |
-| `ProjectionThreadHeartbeats` | via `ProviderRuntimeIngestionLive` (`server.ts:170`; repo provided `ProviderRuntimeIngestion.ts:2020`) | `heartbeatRepository.touch(...)` on any runtime activity (`:659`) |
-| `ReasoningStreamBusLive` | `server.ts:180` (`provideMerge`) | subscribed in `ws.ts` `subscribeThread` |
-| `SubscriptionUsagePollerLive` | `server.ts:299` + **started** `serverRuntimeStartup.ts:351` | `.start()` in reactor scope |
+Verified each is in the live layer graph _and_ does work at runtime, not just imported:
+
+| Layer                         | Wired at                                                                                                                                  | Invoked / does work                                                                                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `WorkstreamDispatcherLive`    | `server.ts:174` (`provideMerge`)                                                                                                          | dispatcher engine carried intact                                                                                     |
+| `WorkstreamLivenessSweepLive` | `server.ts:298` + **started** `serverRuntimeStartup.ts:350`                                                                               | `.start()` in reactor scope                                                                                          |
+| `ProjectionGoals`             | via `OrchestrationProjectionPipelineLive` (`ProjectionPipeline.ts:1969` `provideMerge(ProjectionGoalRepositoryLive)`) → `runtimeLayer.ts` | goal events projected via `upsertGoal` (`ProjectionPipeline.ts:609–670`); projector registered as `projection.goals` |
+| `ProjectionThreadHeartbeats`  | via `ProviderRuntimeIngestionLive` (`server.ts:170`; repo provided `ProviderRuntimeIngestion.ts:2020`)                                    | `heartbeatRepository.touch(...)` on any runtime activity (`:659`)                                                    |
+| `ReasoningStreamBusLive`      | `server.ts:180` (`provideMerge`)                                                                                                          | subscribed in `ws.ts` `subscribeThread`                                                                              |
+| `SubscriptionUsagePollerLive` | `server.ts:299` + **started** `serverRuntimeStartup.ts:351`                                                                               | `.start()` in reactor scope                                                                                          |
 
 Plus `AccountUsageRegistryLive` (`server.ts:316`) and the MCP HTTP routes
 `WorkstreamSpawnHttp`/`GoalTaskHttp`/`GoalHandoffHttp` (`server.ts:382–384`). The
@@ -72,8 +73,10 @@ carried-through fork paths is **true** — confirmed by tracing the provideMerge
 not the report's word. **No missed layer.**
 
 ### Workstream/goal RPC surface — registered end-to-end ✓
+
 Commands route through a single `dispatchCommand` RPC carrying an
 `OrchestrationCommand` union (not per-method handlers). Verified the union + decider:
+
 - **Workstream axes** are modelled as `thread.*` commands — `thread.plan-lane.set`
   (set-lane), `thread.attention.raise`/`.clear`, `thread.dependencies.set`,
   `thread.report.set` — all present in `contracts/orchestration.ts` **and** handled in
@@ -90,12 +93,14 @@ Commands route through a single `dispatchCommand` RPC carrying an
   (`operations/commands.ts`, `state/threadCommands.ts`).
 
 ### PiDriver deterministic `--session-id` — intact ✓
+
 `git diff 6150362cf..HEAD -- PiDriver.ts` is **3 lines, type-only**
 (`ServerConfigShape` → `ServerConfig["Service"]`). The create-or-resume logic
 (`sessionId: piSessionIdForThread(startInput.threadId)`, `:732`, with the
 "survives server restarts" comment) is **untouched**.
 
 ### Account-usage / reasoning / goal-task-tree — present ✓
+
 - Account-usage: server emits on the config channel (`ws.ts:1795`) → client projects
   to `accountUsage` (full replace, `state/server.ts:48`) → `usageValueAtom` (`:150`)
   → web `useAccountUsage()`. End-to-end intact.
@@ -110,6 +115,7 @@ Commands route through a single `dispatchCommand` RPC carrying an
 ## Findings by severity
 
 ### BLOCKER — none
+
 No missed layer, no unregistered handler, no wire-shape mismatch between client (2.2)
 and server (2.4). The two typecheck claims are real.
 
@@ -125,6 +131,7 @@ and the fork edit was **not** re-homed: current `createTerminalSpawnEnv`
 `cwd`. Doc 08 explicitly lists this re-home item; the 2.4 report does **not** mention
 it — so it was neither re-homed nor consciously confirmed obsolete. It typechecks,
 which is why it slipped.
+
 - **Impact:** in this ~10-worktree shared-clone setup, commands typed in the app
   terminal can hit the **wrong checkout's** `vp`/project binaries. Real but
   feature-degrading, not feature-killing (global binaries still resolve).
@@ -139,7 +146,7 @@ which is why it slipped.
 restore upstream's full 5-driver registry **and** add PiDriver ("Pi-first; don't
 over-invest re-enabling the others"). The re-home kept the fork's deliberate Pi-only
 gutting instead. This is **faithful to the fork** (the pre-merge fork was already
-Pi-only), so it is not a *lost fork feature* — but it is an unflagged divergence from
+Pi-only), so it is not a _lost fork feature_ — but it is an unflagged divergence from
 the punch-list's stated target. Recommend the orchestrator **confirm** whether the
 non-Pi drivers should return; if Pi-only is intended, note it so future pulls don't
 keep re-litigating. Not blocking — Pi works.
@@ -147,7 +154,7 @@ keep re-litigating. Not blocking — Pi works.
 **m2 — `apps/desktop` typecheck red (1).** `DesktopClientSettings.test.ts` fixture
 lacks the now-required `reasoningDisplay` settings key (a consequence of the fork's
 2.1 settings.ts addition). One-line fixture fix; belongs to Phase 2.6 tail. Note this
-is a *different* breakage from doc 08(e)'s "drop the out-of-scope desktop edit" item —
+is a _different_ breakage from doc 08(e)'s "drop the out-of-scope desktop edit" item —
 that one was about discarding a fork `+1`; this is a required-field gap. Both land in 2.6.
 
 ### Assessed and accepted (not findings)
@@ -163,7 +170,7 @@ that one was about discarding a fork `+1`; this is a required-field gap. Both la
   effectively moot.** The fork had it in `textGeneration/{Claude,Codex}TextGeneration.ts`;
   HEAD's TextGeneration family omits it. Because the driver registry is Pi-only (m1),
   those drivers' TextGeneration paths are **dead code at runtime** — the deferral changes
-  nothing observable. The *live* session runtimes that matter still carry the helper
+  nothing observable. The _live_ session runtimes that matter still carry the helper
   (`PiDriver`, `ClaudeAdapter`, `CodexSessionRuntime`, `AcpSessionRuntime`,
   `workstreamAsk`). `opencodeRuntime.ts` has only a NOTE comment, but OpenCode is
   likewise unregistered. Fine.
@@ -175,6 +182,7 @@ that one was about discarding a fork `+1`; this is a required-field gap. Both la
 ---
 
 ## Top issues to fix (in order)
+
 1. **M1** — re-home the terminal worktree-local `.bin` PATH prepend onto
    `terminal/Manager.ts` (`createTerminalSpawnEnv`). _(Phase 2.6 / tracked)_
 2. **m1** — confirm the deliberate Pi-only `BUILT_IN_DRIVERS`; either restore the

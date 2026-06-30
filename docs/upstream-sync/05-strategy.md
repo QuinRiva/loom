@@ -62,12 +62,14 @@ Everything else is minutes-to-hours of re-attachment or carries through untouche
 ## 1. Mechanical approach — graft + guided 3-way (the hybrid)
 
 ### The problem in one paragraph
+
 The fork shares **no git history** with upstream: it was bootstrapped as a fresh root
 commit from a _copy_ of an upstream working tree, not via `clone`/`fork`. So
 `git merge-base` is empty and a naïve `git diff HEAD upstream/main` contrasts two whole
 trees ~2 weeks of independent drift apart → a meaningless 1772-file delta. (Report 01.)
 
 ### Why the baseline is known with very high confidence
+
 The fork tree is **byte-identical (5205/5240 files, same blob SHAs)** to upstream commit
 **`477795697`** (2026-06-14, _"resolve host process state through Effect"_). The only
 fork-side difference at the root is precisely the Phase 0-3 Pi work plus a vendored-repo
@@ -76,11 +78,11 @@ the current nightly `2448212` (v0.0.28, 2026-06-29). (Report 01 §2.)
 
 ### The three options, and why hybrid wins
 
-| Option | What it is | Verdict |
-|---|---|---|
-| **(a) Synthetic graft + 3-way** | `git replace --graft` splices the fork root onto baseline `477795697`; git then computes a correct merge-base and a real 3-way merge. | **Recommended substrate.** Proven live: after the graft, `merge-base HEAD upstream/main → 477795697`; removing the replace ref restores the prior state. Zero commits rewritten, trivially reversible, need never be pushed. |
-| **(b) Re-baseline from scratch** | Check out `upstream/main`; replay the fork's feature delta as fresh patches on top. | **Not as a substitute.** Loses fork commit history/attribution, and the per-file re-application work is _identical_ to (a)'s merge but without git's 3-way assistance. |
-| **(c) Hybrid** | Use (a) as the analysis+merge substrate; optionally land the _result_ as a clean re-baselined branch via `filter-repo` at the end. | **Recommended end-to-end path.** Get git's help discovering true conflicts; decide at ship time whether to keep grafted merge history or rewrite to a clean lineage. |
+| Option                           | What it is                                                                                                                            | Verdict                                                                                                                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **(a) Synthetic graft + 3-way**  | `git replace --graft` splices the fork root onto baseline `477795697`; git then computes a correct merge-base and a real 3-way merge. | **Recommended substrate.** Proven live: after the graft, `merge-base HEAD upstream/main → 477795697`; removing the replace ref restores the prior state. Zero commits rewritten, trivially reversible, need never be pushed. |
+| **(b) Re-baseline from scratch** | Check out `upstream/main`; replay the fork's feature delta as fresh patches on top.                                                   | **Not as a substitute.** Loses fork commit history/attribution, and the per-file re-application work is _identical_ to (a)'s merge but without git's 3-way assistance.                                                       |
+| **(c) Hybrid**                   | Use (a) as the analysis+merge substrate; optionally land the _result_ as a clean re-baselined branch via `filter-repo` at the end.    | **Recommended end-to-end path.** Get git's help discovering true conflicts; decide at ship time whether to keep grafted merge history or rewrite to a clean lineage.                                                         |
 
 **Decision: hybrid (c).** Graft now (reversible, free, correct), drive the merge off the
 real merge-base, and defer the "permanent rewrite vs keep graft" decision to the end —
@@ -100,11 +102,11 @@ git merge-base HEAD upstream/main             # → 477795697  ✓
 
 ### The conflict surface, sized
 
-| set | files | meaning |
-|---|---|---|
-| Changed by fork (`$B..HEAD`) | 319 | mostly fork-only new files → carry through |
-| Changed by upstream (`$B..upstream/main`) | 1535 | mostly upstream-only → fast-forward |
-| **Changed by BOTH** | **106** | the only true conflict candidates |
+| set                                       | files   | meaning                                    |
+| ----------------------------------------- | ------- | ------------------------------------------ |
+| Changed by fork (`$B..HEAD`)              | 319     | mostly fork-only new files → carry through |
+| Changed by upstream (`$B..upstream/main`) | 1535    | mostly upstream-only → fast-forward        |
+| **Changed by BOTH**                       | **106** | the only true conflict candidates          |
 
 And of those 106, only a handful are genuinely hard (see §2). The rest split into
 take-ours-trivially or take-theirs-and-re-attach-a-hook. (Reports 01 §"Conflict surface", 04.)
@@ -119,12 +121,15 @@ chat components. Each phase **must `vp check` + `vp run typecheck` green before 
 leans on it.** (Report 04 "Sequencing constraints".)
 
 ### Phase 0 — Substrate (minutes)
+
 - Graft the synthetic merge-base (§1). Confirm `merge-base → 477795697`.
 - Branch for the merge; keep the graft local.
 - **Exit:** real 3-way merge attributes correctly; baseline reproducible.
 
 ### Phase 1 — Contracts first (low effort, unblocks everything)
+
 Nothing on server or web typechecks until the contract surface is settled.
+
 - **Z1 `orchestration.ts` (the "spine") — TAKE OURS + 1 line.** Upstream changed this by
   **one line** (`startFromOrigin` flag); the fork added +701 (all goal/task/workstream/
   attention members). Take ours wholesale, cherry-pick the single upstream field.
@@ -137,6 +142,7 @@ Nothing on server or web typechecks until the contract surface is settled.
 - **Exit:** contracts package typechecks.
 
 ### Phase 2 — The two structural rewrites (highest effort; gate the web shell)
+
 - **Z4 client-runtime connection rewrite — RE-ENGINEER.** Upstream's #2978 **deleted**
   `wsTransport.ts`, `wsRpcProtocol.ts`, `threadDetailState.ts`, `index.ts`,
   `rpc/serverState.ts` and replaced them with `connection/`/`rpc/`/`state/`/`relay/`
@@ -150,6 +156,7 @@ Nothing on server or web typechecks until the contract surface is settled.
 - **Exit:** client-runtime + web state layer typecheck; the web shell has modules to import.
 
 ### Phase 3 — Server core (re-fit Pi onto drifted plumbing)
+
 - **Z6 PiDriver SPI re-fit — OURS, re-fit onto drifted SPI (high effort).** The PiDriver
   files don't textually conflict, but the `ProviderDriver`/`ServerProvider` SPI moved
   across 289 commits (the baseline's own headline was a provider-state refactor) and the
@@ -178,7 +185,9 @@ Nothing on server or web typechecks until the contract surface is settled.
 - **Exit:** server typechecks; a Pi session can start.
 
 ### Phase 4 — Web shell (re-apply Pi UX onto upstream's rebuilt components)
+
 All gated by Z3 + Z4.
+
 - **Z11 `ChatView.tsx` — RE-ENGINEER (highest textual effort).** Upstream rewrote it
   (+1956/−1442: file browser, preview/inline right panel, plan surface, scroll/minimap,
   env-scoped settings). Take upstream's rewritten component as base; **deliberately
@@ -206,48 +215,51 @@ All gated by Z3 + Z4.
 - **Exit:** web shell typechecks and renders; multi-session + workstream + goals visible.
 
 ### Phase 5 — Defer-able tail
+
 - **Z16 subscription/account-usage — OURS, self-contained.** Lowest priority; can land
   after the core sync (collisions only at already-resolved wiring files).
 - **Z19 lockfiles / `package.json` / `.repos/` — THEIRS, regenerate.** Take upstream's
   manifests, re-add only the fork's genuine new deps, then **regenerate** `pnpm-lock.yaml`
   (don't merge it). Re-sync `.repos/` from upstream tooling.
 - **Z20 plans/docs/goals artefacts — DROP from merge.** `.plans/**`, `docs/{design,plans,
-  research}/**`, `goals/**` (now non-authoritative), `progress.md`, `.pi/manager/**`,
+research}/**`, `goals/**` (now non-authoritative), `progress.md`, `.pi/manager/**`,
   `AGENTS.md` edits — fork-only, no conflict, not features. Carry through or drop freely;
   **keep this `docs/upstream-sync/` set.**
 - **Z7 follow-up (later, optional):** verify the re-registered other harnesses actually
   run, as a separate low-priority pass — explicitly _after_ Pi-first is solid.
 
 ### Hard ordering edges
+
 `Phase 0 substrate → everything` · `Z1 → Z18/Z6` · `Z5 → server+web` ·
 `Z4 → web shell & Z9` · `Z3 → Z11/Z12/Z14` · `Z6 → Z7/Z10`.
 
 ### What to take wholesale / re-engineer / redo-clean — at a glance
 
-| Disposition | Zones |
-|---|---|
-| **Take ours (trivial reconcile)** | Z1 orchestration contract, Z2 ProjectionSnapshotQuery, Z18 goal/workstream engine + roles |
-| **Take ours, re-fit onto drift** | Z6 PiDriver SPI, Z15 status indicators |
-| **Take theirs + re-attach Pi hook** | Z7 driver registry, Z10 runtime startup, Z14 composer cluster, Z17 new-thread prompt |
-| **Re-engineer onto new layout** | Z3 store decomposition, Z4 client-runtime, Z11 ChatView |
-| **Redo clean (adopt upstream, re-attach Pi bit)** | Z13 timeline/reasoning |
-| **3-way merge** | Z5 settings, Z9 ws/server, Z12 Sidebar |
-| **Take theirs / regenerate / drop** | Z8 Effect sweep (per-file), Z19 lockfiles/.repos, Z20 docs |
+| Disposition                                       | Zones                                                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Take ours (trivial reconcile)**                 | Z1 orchestration contract, Z2 ProjectionSnapshotQuery, Z18 goal/workstream engine + roles |
+| **Take ours, re-fit onto drift**                  | Z6 PiDriver SPI, Z15 status indicators                                                    |
+| **Take theirs + re-attach Pi hook**               | Z7 driver registry, Z10 runtime startup, Z14 composer cluster, Z17 new-thread prompt      |
+| **Re-engineer onto new layout**                   | Z3 store decomposition, Z4 client-runtime, Z11 ChatView                                   |
+| **Redo clean (adopt upstream, re-attach Pi bit)** | Z13 timeline/reasoning                                                                    |
+| **3-way merge**                                   | Z5 settings, Z9 ws/server, Z12 Sidebar                                                    |
+| **Take theirs / regenerate / drop**               | Z8 Effect sweep (per-file), Z19 lockfiles/.repos, Z20 docs                                |
 
 ---
 
 ## 3. Risk areas & how to de-risk
 
-| # | Risk | De-risking |
-|---|---|---|
-| 1 | **`store.ts` no longer exists (Z3)** — +441 fork lines of web state must be hand-re-homed into decomposed atoms; gates the whole web shell; mis-homing causes subtle multi-session bugs. | Do it immediately after Z4, before any chat component. Map each fork addition to its concern and the matching upstream atom; typecheck before touching Z11/Z12/Z14. Smoke-test multi-session switching specifically. |
-| 2 | **client-runtime rewrite #2978 (Z4)** — every flat module the fork edited was deleted; wire-contract drift breaks reconnect/replay (the project's stated reliability priority). | Re-register the fork's RPCs on the new `connection/`+`rpc/` surface in lock-step with the server `ws.ts`/`server.ts` (Z9). Explicitly test reconnect, partial-stream replay, and server-restart resume. |
-| 3 | **`ChatView.tsx` rewrite (Z11), +1956/−1442** — auto-merge is hopeless. | Treat as deliberate re-apply onto upstream's rebuilt component, not a 3-way. Do it after Z3 so the imports exist. |
-| 4 | **PiDriver SPI re-fit (Z6)** — files don't conflict but the SPI moved under them; the `--session-id` create-or-resume reliability fix must survive. | Diff the current `ProviderDriver`/`ServerProvider` interfaces against baseline first; re-fit signatures/error/event shapes; add a smoke test that resumes a Pi thread across a server restart. |
-| 5 | **Effect sweep is pervasive, not localised (Z8)** — ~70% of commits; new convention lint checks fail fork-new code; easy to under-budget. | Handle per-file as each zone is touched; budget extra time; run `vp check` (which includes the Effect/oxlint conventions) continuously, not just at the end. |
-| 6 | **"Plan/task" naming collision (Z14/Z5)** — upstream's plan-surface / "task sidebar" / `autoOpenPlanSidebar` share namespace with the fork's goal/task panel despite being a different concept (agent TODO / code-review tasks). | Decide the namespace explicitly during Z3/Z5 — rename one side's store atoms/settings keys so two "task" surfaces don't silently fight. |
+| #   | Risk                                                                                                                                                                                                                             | De-risking                                                                                                                                                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **`store.ts` no longer exists (Z3)** — +441 fork lines of web state must be hand-re-homed into decomposed atoms; gates the whole web shell; mis-homing causes subtle multi-session bugs.                                         | Do it immediately after Z4, before any chat component. Map each fork addition to its concern and the matching upstream atom; typecheck before touching Z11/Z12/Z14. Smoke-test multi-session switching specifically. |
+| 2   | **client-runtime rewrite #2978 (Z4)** — every flat module the fork edited was deleted; wire-contract drift breaks reconnect/replay (the project's stated reliability priority).                                                  | Re-register the fork's RPCs on the new `connection/`+`rpc/` surface in lock-step with the server `ws.ts`/`server.ts` (Z9). Explicitly test reconnect, partial-stream replay, and server-restart resume.              |
+| 3   | **`ChatView.tsx` rewrite (Z11), +1956/−1442** — auto-merge is hopeless.                                                                                                                                                          | Treat as deliberate re-apply onto upstream's rebuilt component, not a 3-way. Do it after Z3 so the imports exist.                                                                                                    |
+| 4   | **PiDriver SPI re-fit (Z6)** — files don't conflict but the SPI moved under them; the `--session-id` create-or-resume reliability fix must survive.                                                                              | Diff the current `ProviderDriver`/`ServerProvider` interfaces against baseline first; re-fit signatures/error/event shapes; add a smoke test that resumes a Pi thread across a server restart.                       |
+| 5   | **Effect sweep is pervasive, not localised (Z8)** — ~70% of commits; new convention lint checks fail fork-new code; easy to under-budget.                                                                                        | Handle per-file as each zone is touched; budget extra time; run `vp check` (which includes the Effect/oxlint conventions) continuously, not just at the end.                                                         |
+| 6   | **"Plan/task" naming collision (Z14/Z5)** — upstream's plan-surface / "task sidebar" / `autoOpenPlanSidebar` share namespace with the fork's goal/task panel despite being a different concept (agent TODO / code-review tasks). | Decide the namespace explicitly during Z3/Z5 — rename one side's store atoms/settings keys so two "task" surfaces don't silently fight.                                                                              |
 
 **General verification protocol (the "done" bar):**
+
 - `vp check` **and** `vp run typecheck` green after _each phase_, not just at the end.
 - If native mobile is ever touched (it shouldn't be — out of fork scope), `vp run lint:mobile` too.
 - **Canonical-entrypoint smoke test before declaring done:** start a real Pi session,
@@ -270,7 +282,9 @@ The whole point of this exercise is that the _next_ sync should be hours, not a 
 Three levers:
 
 ### 4.1 Keep a permanent, real merge-base
+
 Once this merge lands, **decide the lineage question deliberately:**
+
 - **Option A — bake the graft into real history** with `git filter-repo --replace-refs`
   (one-time SHA rewrite + coordinated force-push across the shared worktrees). Afterwards
   every future `git merge upstream/main` "just works" with a normal merge-base — no graft
@@ -285,8 +299,10 @@ pulls are ordinary 3-way merges against a moving `upstream/main` — the no-merg
 pathology never recurs.
 
 ### 4.2 Minimise and isolate the fork surface
+
 The merge cost is proportional to the **overlap** (files both sides touch), not the size
 of either delta. Keep overlap small:
+
 - **Prefer fork-only new files over edits to upstream files.** The fork's engine
   (dispatcher, liveness sweep, goal/task layers, role overlays, web workstream components)
   merged essentially for free precisely because it lives on paths upstream never touches.
@@ -305,7 +321,9 @@ of either delta. Keep overlap small:
   via a small seam rather than inline edits to upstream's hottest components.
 
 ### 4.3 Upstream-vs-isolate triage for every new fork change
+
 For each future fork change, ask: _is this generally useful, or Pi-specific?_
+
 - **Generally useful (bug fixes, perf, generic UX)** → **upstream it** (PR to
   `pingdotgg/t3code`). Once merged upstream, it arrives via the normal pull and stops being
   fork surface.
@@ -313,6 +331,7 @@ For each future fork change, ask: _is this generally useful, or Pi-specific?_
   modules behind a minimal seam, per §4.2.
 
 ### 4.4 Cadence mechanics
+
 - **Weekly (or daily) `git fetch upstream && git merge upstream/main`** on a sync branch;
   run `vp check` + `vp run typecheck`; resolve the (now small) overlap; PR into `main`.
 - **Pin and watch the high-tax zones** (`ChatView`, `Sidebar`, `settings.ts`, client-runtime
