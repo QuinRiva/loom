@@ -1,6 +1,6 @@
 import {
   type ApprovalRequestId,
-  DEFAULT_MODEL,
+  PI_DEFAULT_MODEL,
   defaultInstanceIdForDriver,
   type EnvironmentId,
   type MessageId,
@@ -1234,8 +1234,8 @@ function ChatViewContent(props: ChatViewProps) {
             threadId,
             draftThread,
             fallbackDraftProject?.defaultModelSelection ?? {
-              instanceId: ProviderInstanceId.make("codex"),
-              model: DEFAULT_MODEL,
+              instanceId: ProviderInstanceId.make("pi"),
+              model: PI_DEFAULT_MODEL,
             },
           )
         : undefined,
@@ -1312,9 +1312,7 @@ function ChatViewContent(props: ChatViewProps) {
       if (!activeThread) return;
       void navigate({
         to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(
-          scopeThreadRef(activeThread.environmentId, targetThreadId),
-        ),
+        params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, targetThreadId)),
       });
     },
     [activeThread, navigate],
@@ -4152,7 +4150,7 @@ function ChatViewContent(props: ChatViewProps) {
     const title = truncate(titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
-      ctxSelectedModel || activeProject.defaultModelSelection?.model || DEFAULT_MODEL,
+      ctxSelectedModel || activeProject.defaultModelSelection?.model || PI_DEFAULT_MODEL,
       ctxSelectedModelSelection.options,
     );
 
@@ -5044,7 +5042,10 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "tasks" ? (
       <GoalTasksPanel goalId={activeThread?.goalId ?? null} />
     ) : activeRightPanelSurface?.kind === "workstream" ? (
-      <WorkstreamPanel activeThread={activeThread ?? undefined} activeProjectId={activeProject?.id} />
+      <WorkstreamPanel
+        activeThread={activeThread ?? undefined}
+        activeProjectId={activeProject?.id}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
