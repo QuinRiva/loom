@@ -6,6 +6,7 @@ import {
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
+  type GoalId,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
@@ -45,6 +46,7 @@ export function useNewThreadHandler() {
       options?: {
         branch?: string | null;
         worktreePath?: string | null;
+        goalId?: GoalId | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
       },
@@ -70,6 +72,7 @@ export function useNewThreadHandler() {
         : scopedProjectKey(projectRef);
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
+      const hasGoalIdOption = options?.goalId !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
@@ -93,12 +96,14 @@ export function useNewThreadHandler() {
           if (
             hasBranchOption ||
             hasWorktreePathOption ||
+            hasGoalIdOption ||
             hasEnvModeOption ||
             hasStartFromOriginOption
           ) {
             setDraftThreadContext(reusableStoredDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+              ...(hasGoalIdOption ? { goalId: options?.goalId ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
               ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
             });
@@ -133,12 +138,14 @@ export function useNewThreadHandler() {
         if (
           hasBranchOption ||
           hasWorktreePathOption ||
+          hasGoalIdOption ||
           hasEnvModeOption ||
           hasStartFromOriginOption
         ) {
           setDraftThreadContext(currentRouteTarget.draftId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+            ...(hasGoalIdOption ? { goalId: options?.goalId ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
           });
@@ -150,6 +157,7 @@ export function useNewThreadHandler() {
           interactionMode: latestActiveDraftThread.interactionMode,
           ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
           ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+          ...(hasGoalIdOption ? { goalId: options?.goalId ?? null } : {}),
           ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
         });
@@ -166,6 +174,7 @@ export function useNewThreadHandler() {
           createdAt,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
+          goalId: options?.goalId ?? null,
           envMode: initialEnvMode,
           startFromOrigin:
             options?.startFromOrigin ??

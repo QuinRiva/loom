@@ -1,6 +1,16 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
-import { ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  ClipboardList,
+  FileDiff,
+  Files,
+  GitBranchIcon,
+  Globe2,
+  ListTodo,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -44,9 +54,13 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddTasks: () => void;
+  onAddWorkstream: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  tasksAvailable: boolean;
+  workstreamAvailable: boolean;
   children: ReactNode;
 }
 
@@ -54,6 +68,8 @@ const SURFACE_DISABLED_REASONS = {
   browser: "Browser previews are only available in the T3 Code desktop app.",
   files: "Files are only available when a project is open.",
   diff: "Diff is only available for server threads in Git repositories.",
+  tasks: "Goal tasks are only available for threads linked to a goal.",
+  workstream: "Workstream is only available for server threads.",
 } as const;
 
 type TabContextMenuAction = "copy-path" | "close" | "close-others" | "close-to-right" | "close-all";
@@ -91,9 +107,13 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddTasks: () => void;
+  onAddWorkstream: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
+  tasksAvailable: boolean;
+  workstreamAvailable: boolean;
 }) {
   const actions = [
     {
@@ -127,6 +147,22 @@ function RightPanelEmptyState(props: {
       available: props.diffAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.diff,
       onClick: props.onAddDiff,
+    },
+    {
+      label: "Goal tasks",
+      description: "Track this goal's task tree.",
+      icon: ListTodo,
+      available: props.tasksAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.tasks,
+      onClick: props.onAddTasks,
+    },
+    {
+      label: "Workstream",
+      description: "View the sub-thread delegation graph.",
+      icon: GitBranchIcon,
+      available: props.workstreamAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.workstream,
+      onClick: props.onAddWorkstream,
     },
   ] as const;
 
@@ -205,6 +241,10 @@ function surfaceTitle(
       );
     case "plan":
       return "Plan";
+    case "tasks":
+      return "Goal tasks";
+    case "workstream":
+      return "Workstream";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -266,6 +306,10 @@ function SurfaceIcon({
       return <TerminalSquare className="size-3.5 shrink-0" />;
     case "plan":
       return <ClipboardList className="size-3.5 shrink-0" />;
+    case "tasks":
+      return <ListTodo className="size-3.5 shrink-0" />;
+    case "workstream":
+      return <GitBranchIcon className="size-3.5 shrink-0" />;
   }
 }
 
@@ -455,6 +499,22 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <FileDiff />
                     Diff
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.tasksAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.tasks}
+                    onClick={props.onAddTasks}
+                  >
+                    <ListTodo />
+                    Goal tasks
+                  </SurfaceMenuItem>
+                  <SurfaceMenuItem
+                    available={props.workstreamAvailable}
+                    disabledReason={SURFACE_DISABLED_REASONS.workstream}
+                    onClick={props.onAddWorkstream}
+                  >
+                    <GitBranchIcon />
+                    Workstream
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -469,9 +529,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
+            onAddTasks={props.onAddTasks}
+            onAddWorkstream={props.onAddWorkstream}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}
+            tasksAvailable={props.tasksAvailable}
+            workstreamAvailable={props.workstreamAvailable}
           />
         ) : (
           props.children

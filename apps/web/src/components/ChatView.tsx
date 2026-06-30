@@ -132,6 +132,8 @@ import { closePreviewSession } from "./preview/closePreviewSession";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { GoalTasksPanel } from "./GoalTasksPanel";
+import { WorkstreamPanel } from "./WorkstreamPanel";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -2778,6 +2780,14 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
+  const addTasksSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "tasks");
+  }, [activeThreadRef]);
+  const addWorkstreamSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "workstream");
+  }, [activeThreadRef]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -4982,6 +4992,10 @@ function ChatViewContent(props: ChatViewProps) {
         timestampFormat={timestampFormat}
         mode="embedded"
       />
+    ) : activeRightPanelSurface?.kind === "tasks" ? (
+      <GoalTasksPanel goalId={activeThread?.goalId ?? null} />
+    ) : activeRightPanelSurface?.kind === "workstream" ? (
+      <WorkstreamPanel activeThread={activeThread ?? undefined} activeProjectId={activeProject?.id} />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -5314,9 +5328,13 @@ function ChatViewContent(props: ChatViewProps) {
           onAddTerminal={addTerminalSurface}
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
+          onAddTasks={addTasksSurface}
+          onAddWorkstream={addWorkstreamSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
+          tasksAvailable={Boolean(activeThread?.goalId)}
+          workstreamAvailable={isServerThread}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -5341,9 +5359,13 @@ function ChatViewContent(props: ChatViewProps) {
             onAddTerminal={addTerminalSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
+            onAddTasks={addTasksSurface}
+            onAddWorkstream={addWorkstreamSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
+            tasksAvailable={Boolean(activeThread?.goalId)}
+            workstreamAvailable={isServerThread}
           >
             {rightPanelContent}
           </RightPanelTabs>

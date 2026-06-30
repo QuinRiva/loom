@@ -4,8 +4,9 @@ import { LinkIcon, PlusIcon } from "lucide-react";
 import { NoActiveThreadState } from "../components/NoActiveThreadState";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
-import { SidebarInset } from "../components/ui/sidebar";
+import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
 import { useEnvironments } from "../state/environments";
+import { TaskTree, countGoalTasks, useGoals } from "../goals/goalState";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { cn } from "~/lib/utils";
@@ -14,12 +15,65 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments } = useEnvironments();
+  const goals = useGoals().filter((goal) => goal.archivedAt === null);
 
   if (authGateState.status === "hosted-static" && environments.length === 0) {
     return <HostedStaticOnboardingState />;
   }
 
-  return <NoActiveThreadState />;
+  if (goals.length === 0) return <NoActiveThreadState />;
+
+  return (
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+        <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+            <span className="text-sm font-medium text-foreground md:text-muted-foreground/70">
+              Goal overview
+            </span>
+          </div>
+        </header>
+        <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+          <div className="mx-auto grid w-full max-w-5xl gap-4">
+            {goals.map((goal) => {
+              const progress = countGoalTasks(goal.tasks);
+              return (
+                <section
+                  key={goal.id}
+                  className="rounded-2xl border border-border/70 bg-card/55 p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold text-foreground">
+                        {goal.title || goal.slug}
+                      </h2>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                        {goal.description || "No goal description yet."}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border/70 px-2 py-1 text-xs tabular-nums text-muted-foreground">
+                      {progress.done}/{progress.total}
+                    </span>
+                  </div>
+                  <div className="mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
+                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+                      Tasks
+                    </h3>
+                    {goal.tasks.length > 0 ? (
+                      <TaskTree tasks={goal.tasks} />
+                    ) : (
+                      <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </main>
+      </div>
+    </SidebarInset>
+  );
 }
 
 export const Route = createFileRoute("/_chat/")({

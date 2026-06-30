@@ -18,6 +18,12 @@ export type ComposerPromptSegment =
       source: string;
     }
   | {
+      type: "thread";
+      id: string;
+      label: string;
+      source: string;
+    }
+  | {
       type: "skill";
       name: string;
     }
@@ -145,6 +151,13 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
       segments.push({
         type: "mention",
         path: match.value,
+        source: match.source,
+      });
+    } else if (match.type === "thread") {
+      segments.push({
+        type: "thread",
+        id: match.id,
+        label: match.label,
         source: match.source,
       });
     } else {

@@ -14,7 +14,16 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export const RIGHT_PANEL_KINDS = ["plan", "diff", "files", "file", "preview", "terminal"] as const;
+export const RIGHT_PANEL_KINDS = [
+  "plan",
+  "tasks",
+  "workstream",
+  "diff",
+  "files",
+  "file",
+  "preview",
+  "terminal",
+] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export type RightPanelSurface =
@@ -29,6 +38,8 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
+  | { id: "tasks"; kind: "tasks" }
+  | { id: "workstream"; kind: "workstream" }
   | { id: "files"; kind: "files" }
   | {
       id: `file:${string}`;
@@ -92,6 +103,10 @@ const singletonSurface = (
       return { id: "files", kind };
     case "plan":
       return { id: "plan", kind };
+    case "tasks":
+      return { id: "tasks", kind };
+    case "workstream":
+      return { id: "workstream", kind };
   }
 };
 
