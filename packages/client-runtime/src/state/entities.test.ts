@@ -86,6 +86,16 @@ describe("scoped entity keys", () => {
 const THREAD_SHELL = {
   id: THREAD_ID,
   projectId: PROJECT_ID,
+  goalId: null,
+  parentThreadId: null,
+  role: null,
+  purpose: null,
+  brief: null,
+  planLane: "planned",
+  attention: [],
+  blockedBy: [],
+  spawnGeneration: null,
+  reportPath: null,
   title: "Thread",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",
@@ -93,6 +103,9 @@ const THREAD_SHELL = {
   branch: null,
   worktreePath: null,
   latestTurn: null,
+  toolUses: null,
+  usedTokens: null,
+  maxTokens: null,
   createdAt: "2026-06-01T00:00:00.000Z",
   updatedAt: "2026-06-01T00:00:00.000Z",
   archivedAt: null,
@@ -101,11 +114,13 @@ const THREAD_SHELL = {
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
+  lastActivityPreview: null,
 } as const;
 
 const SNAPSHOT: OrchestrationShellSnapshot = {
   snapshotSequence: 1,
   updatedAt: "2026-06-01T00:00:00.000Z",
+  goals: [],
   projects: [
     {
       id: PROJECT_ID,
@@ -354,6 +369,7 @@ describe("environment entity projections", () => {
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: "2026-06-01T00:01:00.000Z",
           },
         }),

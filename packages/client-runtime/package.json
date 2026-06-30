@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./accountUsage": {
+      "types": "./src/accountUsage.ts",
+      "default": "./src/accountUsage.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

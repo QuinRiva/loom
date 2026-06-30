@@ -1,11 +1,13 @@
 import {
   ORCHESTRATION_WS_METHODS,
   type EnvironmentId as EnvironmentIdType,
+  type MessageId,
   type OrchestrationThread,
   type OrchestrationThreadStreamItem,
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -19,7 +21,7 @@ import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import { EnvironmentCacheStore } from "../platform/persistence.ts";
 import { subscribe } from "../rpc/client.ts";
 import { parseThreadKey, threadKey } from "./entities.ts";
-import { applyThreadDetailEvent } from "./threadReducer.ts";
+import { applyReasoningStreamItem, applyThreadDetailEvent } from "./threadReducer.ts";
 import { THREAD_STATE_IDLE_TTL_MS } from "./threadRetention.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 
@@ -151,12 +153,44 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
+  // Message ids whose reasoning has been durably finalized (a REPLACE
+  // `thread.message-reasoning` event was seen). Lets out-of-order transient
+  // reasoning deltas on the merged stream be dropped so they cannot duplicate
+  // the authoritative full text. Reset on each fresh snapshot.
+  const reasoningFinalized = new Set<MessageId>();
+
   const applyItem = Effect.fn("EnvironmentThreadState.applyItem")(function* (
     item: OrchestrationThreadStreamItem,
   ) {
     if (item.kind === "snapshot") {
+      // A fresh snapshot bakes in all durable reasoning to date; reset the
+      // stale-drop tracking so it cannot leak across resubscribes.
+      reasoningFinalized.clear();
       yield* SubscriptionRef.set(lastSequence, item.snapshot.snapshotSequence);
       yield* setThread(item.snapshot.thread);
+      return;
+    }
+
+    const current = yield* SubscriptionRef.get(state);
+    if (Option.isNone(current.data)) {
+      if (item.kind === "event" && item.event.type === "thread.deleted") {
+        yield* setDeleted();
+      }
+      return;
+    }
+
+    // The ephemeral live reasoning channel carries no sequence and is applied
+    // for display only; never advance the durable sequence cursor for it.
+    if (item.kind === "reasoning-delta") {
+      const result = applyReasoningStreamItem(
+        current.data.value,
+        item.payload,
+        reasoningFinalized.has(item.payload.messageId),
+        DateTime.formatIso(DateTime.nowUnsafe()),
+      );
+      if (result.kind === "updated") {
+        yield* setThread(result.thread);
+      }
       return;
     }
 
@@ -166,13 +200,12 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }
     yield* SubscriptionRef.set(lastSequence, item.event.sequence);
 
-    const current = yield* SubscriptionRef.get(state);
-    if (Option.isNone(current.data)) {
-      if (item.event.type === "thread.deleted") {
-        yield* setDeleted();
-      }
-      return;
+    // A durable REPLACE settles this message's reasoning; record it so any
+    // later transient delta for the same message is dropped.
+    if (item.event.type === "thread.message-reasoning") {
+      reasoningFinalized.add(item.event.payload.messageId);
     }
+
     const result = applyThreadDetailEvent(current.data.value, item.event);
     if (result.kind === "updated") {
       yield* setThread(result.thread);

@@ -36,6 +36,7 @@ function shellState(input: {
         : Option.some({
             snapshotSequence: input.snapshotSequence ?? 1,
             updatedAt: input.updatedAt,
+            goals: [],
             projects: [],
             threads: [],
           }),

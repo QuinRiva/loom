@@ -1,4 +1,5 @@
 import {
+  type AccountUsageSnapshot,
   type EnvironmentId,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -17,8 +18,16 @@ import {
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
+const EMPTY_ACCOUNT_USAGE: ReadonlyArray<AccountUsageSnapshot> = [];
+
 export interface ServerConfigProjection {
   readonly config: ServerConfig;
+  // Live, account-scoped subscription usage (5-hour + weekly limits). Rides the
+  // config/lifecycle channel rather than the event-sourced orchestration
+  // projection because it is ephemeral global server state. Replace-on-emit:
+  // each `accountUsage` event carries the full current per-instance snapshot
+  // list. Empty until the first usage event arrives.
+  readonly accountUsage: ReadonlyArray<AccountUsageSnapshot>;
   readonly latestEvent: ServerConfigStreamEvent;
 }
 
@@ -30,10 +39,18 @@ export function applyServerConfigProjection(
     case "snapshot":
       return Option.some({
         config: event.config,
+        accountUsage: [],
         latestEvent: event,
       });
+    case "accountUsage":
+      return Option.map(current, (projection) => ({
+        ...projection,
+        accountUsage: event.payload.usage,
+        latestEvent: event,
+      }));
     case "keybindingsUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           keybindings: event.payload.keybindings,
@@ -43,6 +60,7 @@ export function applyServerConfigProjection(
       }));
     case "providerStatuses":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           providers: event.payload.providers,
@@ -51,6 +69,7 @@ export function applyServerConfigProjection(
       }));
     case "settingsUpdated":
       return Option.map(current, (projection) => ({
+        ...projection,
         config: {
           ...projection.config,
           settings: event.payload.settings,
@@ -128,11 +147,20 @@ export function createServerEnvironmentAtoms<R, E>(
       Atom.withLabel(`environment-data:server:providers:${environmentId}`),
     ),
   );
+  const usageValueAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get): ReadonlyArray<AccountUsageSnapshot> => {
+      const projection = Option.getOrNull(
+        AsyncResult.value(get(configProjection({ environmentId, input: {} }))),
+      );
+      return projection?.accountUsage ?? EMPTY_ACCOUNT_USAGE;
+    }).pipe(Atom.withLabel(`environment-data:server:account-usage:${environmentId}`)),
+  );
 
   return {
     configValueAtom,
     settingsValueAtom,
     providersValueAtom,
+    usageValueAtom,
     traceDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
