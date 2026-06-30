@@ -283,6 +283,20 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
+    // First-turn titling + branch renaming both ride generateStructured (one
+    // interpretation round-trip). Default to a confidence-low interpretation so a
+    // title is applied but no emergent goal is created unless a test opts in.
+    const generateStructured = vi.fn((_: unknown) =>
+      Effect.succeed({
+        title: "Generated title",
+        goal: { title: "Generated goal", description: "Generated goal description" },
+        confidence: "low",
+      }),
+    ) as unknown as TextGenerationShape["generateStructured"] & {
+      mockReturnValue: (value: unknown) => void;
+      mockImplementation: (impl: (input: unknown) => unknown) => void;
+      mock: { calls: ReadonlyArray<ReadonlyArray<unknown>> };
+    };
     const providerSnapshots = [
       {
         instanceId: modelSelection.instanceId,
@@ -365,6 +379,7 @@ describe("ProviderCommandReactor", () => {
         Layer.mock(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
+          generateStructured,
         }),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest()),
@@ -420,6 +435,7 @@ describe("ProviderCommandReactor", () => {
       refreshStatus,
       generateBranchName,
       generateThreadTitle,
+      generateStructured,
       runtimeSessions,
       stateDir,
       drain,
@@ -469,7 +485,13 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     const seededTitle = "Please investigate reconnect failures after restar...";
-    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
+    harness.generateStructured.mockReturnValue(
+      Effect.succeed({
+        title: "Generated title",
+        goal: { title: "Generated goal", description: "Generated goal description" },
+        confidence: "low",
+      }),
+    );
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -498,10 +520,13 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
-    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
-      message: "Please investigate reconnect failures after restarting the session.",
-    });
+    await waitFor(() => harness.generateStructured.mock.calls.length === 1);
+    const interpretationInput = harness.generateStructured.mock.calls[0]?.[0] as
+      | { prompt: string }
+      | undefined;
+    expect(interpretationInput?.prompt).toContain(
+      "Please investigate reconnect failures after restarting the session.",
+    );
 
     await waitFor(async () => {
       const readModel = await harness.readModel();
@@ -548,7 +573,7 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(harness.generateThreadTitle).not.toHaveBeenCalled();
+    await waitFor(() => harness.generateStructured.mock.calls.length === 1);
 
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
@@ -559,9 +584,11 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     const seededTitle = "Fix reconnect spinner on resume";
-    harness.generateThreadTitle.mockReturnValue(
+    harness.generateStructured.mockReturnValue(
       Effect.succeed({
         title: "Reconnect spinner resume bug",
+        goal: { title: "Generated goal", description: "Generated goal description" },
+        confidence: "low",
       }),
     );
 
@@ -592,7 +619,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(() => harness.generateStructured.mock.calls.length === 1);
     await waitFor(async () => {
       const readModel = await harness.readModel();
       return (
@@ -606,7 +633,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.title).toBe("Reconnect spinner resume bug");
   });
 
-  it("generates a worktree branch name for the first turn", async () => {
+  it("renames the temporary worktree branch off the generated title on the first turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -620,18 +647,11 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    harness.generateBranchName.mockImplementation((input: unknown) =>
+    harness.generateStructured.mockReturnValue(
       Effect.succeed({
-        branch:
-          typeof input === "object" &&
-          input !== null &&
-          "modelSelection" in input &&
-          typeof input.modelSelection === "object" &&
-          input.modelSelection !== null &&
-          "model" in input.modelSelection &&
-          typeof input.modelSelection.model === "string"
-            ? `feature/${input.modelSelection.model}`
-            : "feature/generated",
+        title: "Add a safer reconnect backoff",
+        goal: { title: "Generated goal", description: "Generated goal description" },
+        confidence: "low",
       }),
     );
 
@@ -652,10 +672,13 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    await waitFor(() => harness.renameBranch.mock.calls.length === 1);
     await waitFor(() => harness.refreshStatus.mock.calls.length === 1);
-    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
-      message: "Add a safer reconnect backoff.",
+    expect(harness.generateBranchName).not.toHaveBeenCalled();
+    expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
+      cwd: "/tmp/provider-project-worktree",
+      oldBranch: "t3code/1234abcd",
+      newBranch: "t3code/add-a-safer-reconnect-backoff",
     });
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
   });
