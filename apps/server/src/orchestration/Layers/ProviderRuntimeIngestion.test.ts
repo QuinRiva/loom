@@ -44,6 +44,8 @@ import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
+import { ReasoningStreamBusLive } from "./ReasoningStreamBus.ts";
+import { AccountUsageRegistryLive } from "../../provider/Services/AccountUsageRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -236,6 +238,8 @@ describe("ProviderRuntimeIngestion", () => {
     const layer = ProviderRuntimeIngestionLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
+      Layer.provideMerge(ReasoningStreamBusLive),
+      Layer.provideMerge(AccountUsageRegistryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
@@ -294,6 +298,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -520,6 +525,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "claudeAgent",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: seededAt,
           lastError: null,
         },
@@ -958,6 +964,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -993,6 +1000,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -1144,6 +1152,7 @@ describe("ProviderRuntimeIngestion", () => {
             providerName: "codex",
             runtimeMode: "approval-required",
             activeTurnId: null,
+            queuedMessages: { steering: [], followUp: [] },
             updatedAt: createdAt,
             lastError: null,
           },
@@ -1384,6 +1393,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },
@@ -1419,6 +1429,7 @@ describe("ProviderRuntimeIngestion", () => {
           providerName: "codex",
           runtimeMode: "approval-required",
           activeTurnId: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: createdAt,
           lastError: null,
         },

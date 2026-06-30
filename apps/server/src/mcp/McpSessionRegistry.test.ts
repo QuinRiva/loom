@@ -23,7 +23,6 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
   McpSessionRegistry.__testing
     .make({
       now,
-      idleTimeoutMs: 100,
       maximumLifetimeMs: 1_000,
     })
     .pipe(
@@ -75,16 +74,22 @@ it.effect("builds MCP endpoints from the bound server host", () =>
   }),
 );
 
-it.effect("expires credentials after inactivity", () =>
+it.effect("keeps idle credentials valid until the hard lifetime cap", () =>
   Effect.gen(function* () {
     let timestamp = 1_000;
     const registry = yield* makeRegistry(() => timestamp);
+    const threadId = ThreadId.make("thread-2");
     const issued = yield* registry.issue({
-      threadId: ThreadId.make("thread-2"),
+      threadId,
       providerInstanceId: ProviderInstanceId.make("claude"),
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
-    timestamp += 101;
+    // No tool calls for a long stretch (idle no longer expires anything): still
+    // valid because only the hard cap expires a credential (expiresAt = 2_000).
+    timestamp += 900;
+    expect((yield* registry.resolve(token))?.threadId).toBe(threadId);
+    // Past the hard cap: expired.
+    timestamp += 200;
     expect(yield* registry.resolve(token)).toBeUndefined();
   }),
 );

@@ -1,6 +1,6 @@
 import {
   CommandId,
-  DEFAULT_MODEL,
+  PI_DEFAULT_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ModelSelection,
   ProjectId,
@@ -34,6 +34,8 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
+import { WorkstreamLivenessSweep } from "./orchestration/Services/WorkstreamLivenessSweep.ts";
+import { SubscriptionUsagePoller } from "./provider/Services/SubscriptionUsagePoller.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -162,8 +164,8 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
 );
 
 export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+  instanceId: ProviderInstanceId.make("pi"),
+  model: PI_DEFAULT_MODEL,
 });
 
 export const resolveWelcomeBase = Effect.gen(function* () {
@@ -293,6 +295,8 @@ export const make = Effect.gen(function* () {
   const keybindings = yield* Keybindings.Keybindings;
   const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
   const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
+  const workstreamLivenessSweep = yield* WorkstreamLivenessSweep;
+  const subscriptionUsagePoller = yield* SubscriptionUsagePoller;
   const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -343,6 +347,8 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
+        yield* workstreamLivenessSweep.start().pipe(Scope.provide(reactorScope));
+        yield* subscriptionUsagePoller.start().pipe(Scope.provide(reactorScope));
       }),
     );
 

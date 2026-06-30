@@ -23,7 +23,7 @@ import {
   buildGoalTaskDeleteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
-import { WorkspacePaths } from "../workspace/Services/WorkspacePaths.ts";
+import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, projectLocationFlags } from "./config.ts";
 import {
   OrchestrationCliError,
@@ -54,7 +54,11 @@ const runGoalMutation = (
   ) => Effect.Effect<
     string,
     Error,
-    Crypto.Crypto | FileSystem.FileSystem | HttpClient.HttpClient | Path.Path | WorkspacePaths
+    | Crypto.Crypto
+    | FileSystem.FileSystem
+    | HttpClient.HttpClient
+    | Path.Path
+    | WorkspacePaths.WorkspacePaths
   >,
 ) => runOrchestrationMutation<GoalCliDispatchCommand>(flags, run);
 
@@ -69,7 +73,7 @@ const resolveProjectId = Effect.fn("resolveGoalProjectId")(function* (
   const activeProjects = snapshot.projects.filter((project) => project.deletedAt === null);
   const byId = activeProjects.find((project) => project.id === trimmed);
   if (byId) return byId.id;
-  const workspacePaths = yield* WorkspacePaths;
+  const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const normalized = yield* workspacePaths
     .normalizeWorkspaceRoot(trimmed)
     .pipe(Effect.orElseSucceed(() => trimmed));

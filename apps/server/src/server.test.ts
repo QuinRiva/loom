@@ -22,6 +22,7 @@ import {
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   type PreviewEvent,
+  type ReasoningStreamItem,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -72,6 +73,8 @@ const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 import * as ServerConfig from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
+import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
+import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -138,6 +141,7 @@ const makeDefaultOrchestrationReadModel = () => {
   return {
     snapshotSequence: 0,
     updatedAt: now,
+    goals: [],
     projects: [
       {
         id: defaultProjectId,
@@ -154,6 +158,19 @@ const makeDefaultOrchestrationReadModel = () => {
       {
         id: defaultThreadId,
         projectId: defaultProjectId,
+        goalId: null,
+        parentThreadId: null,
+        role: null,
+        purpose: null,
+        brief: null,
+        planLane: "planned" as const,
+        attention: [],
+        blockedBy: [],
+        spawnGeneration: null,
+        reportPath: null,
+        toolUses: null,
+        usedTokens: null,
+        maxTokens: null,
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -182,6 +199,16 @@ const makeDefaultOrchestrationThreadShell = (
   return {
     id: defaultThreadId,
     projectId: defaultProjectId,
+    goalId: null,
+    parentThreadId: null,
+    role: null,
+    purpose: null,
+    brief: null,
+    planLane: "planned",
+    attention: [],
+    blockedBy: [],
+    spawnGeneration: null,
+    reportPath: null,
     title: "Default Thread",
     modelSelection: defaultModelSelection,
     runtimeMode: "full-access",
@@ -189,6 +216,9 @@ const makeDefaultOrchestrationThreadShell = (
     branch: null,
     worktreePath: null,
     latestTurn: null,
+    toolUses: null,
+    usedTokens: null,
+    maxTokens: null,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -197,6 +227,7 @@ const makeDefaultOrchestrationThreadShell = (
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    lastActivityPreview: null,
     ...overrides,
   };
 };
@@ -689,6 +720,7 @@ const buildAppUnderTest = (options?: {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              goals: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
           getArchivedShellSnapshot: () =>
@@ -696,6 +728,7 @@ const buildAppUnderTest = (options?: {
               snapshotSequence: 0,
               projects: [],
               threads: [],
+              goals: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
           getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
@@ -731,6 +764,21 @@ const buildAppUnderTest = (options?: {
     );
 
     const appLayer = servedRoutesLayer.pipe(
+      Layer.provide(
+        Layer.mock(AccountUsageRegistry.AccountUsageRegistry)({
+          snapshot: Effect.succeed([]),
+          update: () => Effect.void,
+          streamChanges: Stream.empty,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ReasoningStreamBus.ReasoningStreamBus)({
+          publish: () => Effect.void,
+          subscribe: Effect.flatMap(PubSub.unbounded<ReasoningStreamItem>(), (pubsub) =>
+            PubSub.subscribe(pubsub),
+          ),
+        }),
+      ),
       Layer.provide(
         Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
           record: () => Effect.void,
@@ -5468,6 +5516,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const snapshot = {
         snapshotSequence: 1,
         updatedAt: now,
+        goals: [],
         projects: [
           {
             id: ProjectId.make("project-a"),
@@ -5484,6 +5533,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ThreadId.make("thread-1"),
             projectId: ProjectId.make("project-a"),
+            goalId: null,
+            parentThreadId: null,
+            role: null,
+            purpose: null,
+            brief: null,
+            planLane: "planned" as const,
+            attention: [],
+            blockedBy: [],
+            spawnGeneration: null,
+            reportPath: null,
+            toolUses: null,
+            usedTokens: null,
+            maxTokens: null,
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,
@@ -5708,6 +5770,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       providerName: "claudeAgent",
                       runtimeMode: "full-access",
                       activeTurnId: null,
+                      queuedMessages: { steering: [], followUp: [] },
                       lastError: null,
                       updatedAt: now,
                     },
@@ -5786,6 +5849,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                           providerName: "claudeAgent",
                           runtimeMode: "full-access",
                           activeTurnId: null,
+                          queuedMessages: { steering: [], followUp: [] },
                           lastError: null,
                           updatedAt: now,
                         },
@@ -5910,6 +5974,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                         providerName: "claudeAgent",
                         runtimeMode: "full-access",
                         activeTurnId: null,
+                        queuedMessages: { steering: [], followUp: [] },
                         lastError: null,
                         updatedAt: now,
                       },
@@ -5983,6 +6048,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       providerName: "claudeAgent",
                       runtimeMode: "full-access",
                       activeTurnId: null,
+                      queuedMessages: { steering: [], followUp: [] },
                       lastError: null,
                       updatedAt: now,
                     },
@@ -6055,6 +6121,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       providerName: "claudeAgent",
                       runtimeMode: "full-access",
                       activeTurnId: null,
+                      queuedMessages: { steering: [], followUp: [] },
                       lastError: null,
                       updatedAt: now,
                     },

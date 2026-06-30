@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import type * as Schema from "effect/Schema";
 import type { ChatAttachment, ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
 import { TextGenerationError } from "@t3tools/contracts";
 
@@ -67,6 +68,15 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
+export interface StructuredGenerationInput<S extends Schema.Top> {
+  /** Fully-built prompt instructing the model to return JSON for `outputSchema`. */
+  readonly prompt: string;
+  /** Effect Schema describing (and decoding) the model's JSON response. */
+  readonly outputSchema: S;
+  /** What model and provider to use for generation. */
+  readonly modelSelection: ModelSelection;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -98,6 +108,14 @@ export class TextGeneration extends Context.Service<
 
     /**
      * Generate a concise branch name from a user message.
+     *
+     * NOTE: currently call-less. First-turn worktree-branch renaming now reuses the
+     * generated thread title (one interpretation round-trip, see
+     * ProviderCommandReactor's interpretThreadIntent / renameWorktreeBranchToTitle),
+     * so branch and title stay consistent. Retained — not deleted — for the same
+     * reason as generateThreadTitle: removing it across the shape + every driver
+     * would be a standing merge-conflict liability against upstream T3 Code for
+     * little gain.
      */
     readonly generateBranchName: (
       input: BranchNameGenerationInput,
@@ -105,10 +123,26 @@ export class TextGeneration extends Context.Service<
 
     /**
      * Generate a concise thread title from a user's first message.
+     *
+     * NOTE: currently call-less. First-turn titling now flows through
+     * `generateStructured` + `buildThreadInterpretationPrompt`, which produces the
+     * title and the emergent goal in one round-trip (see ProviderCommandReactor's
+     * interpretThreadIntent). This method is intentionally retained — not deleted —
+     * to minimise divergence from upstream T3 Code.
      */
     readonly generateThreadTitle: (
       input: ThreadTitleGenerationInput,
     ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+    /**
+     * Generic structured generation: run a caller-built prompt through the
+     * driver's JSON runner and decode the response against `outputSchema`.
+     * New text-generation use cases ride this method instead of adding a
+     * bespoke per-operation method to every driver.
+     */
+    readonly generateStructured: <S extends Schema.Top>(
+      input: StructuredGenerationInput<S>,
+    ) => Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]>;
   }
 >()("t3/textGeneration/TextGeneration") {}
 
@@ -119,7 +153,8 @@ type TextGenerationOp =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
-  | "generateThreadTitle";
+  | "generateThreadTitle"
+  | "generateStructured";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -158,6 +193,10 @@ export const makeTextGenerationFromRegistry = (
     generateThreadTitle: (input) =>
       resolveInstance(registry, "generateThreadTitle", input.modelSelection.instanceId).pipe(
         Effect.flatMap((textGeneration) => textGeneration.generateThreadTitle(input)),
+      ),
+    generateStructured: (input) =>
+      resolveInstance(registry, "generateStructured", input.modelSelection.instanceId).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.generateStructured(input)),
       ),
   });
 

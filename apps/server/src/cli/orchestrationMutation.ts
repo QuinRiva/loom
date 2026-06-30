@@ -29,18 +29,17 @@ import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/ht
 import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import { ServerConfig, type ServerConfigShape } from "../config.ts";
+import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers/Sqlite.ts";
-import { RepositoryIdentityResolverLive } from "../project/Layers/RepositoryIdentityResolver.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import {
   clearPersistedServerRuntimeState,
   readPersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import { WorkspacePathsLive } from "../workspace/Layers/WorkspacePaths.ts";
-import type { WorkspacePaths } from "../workspace/Services/WorkspacePaths.ts";
+import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 export type OrchestrationCommandExecutionMode = "live" | "offline";
@@ -57,9 +56,9 @@ export const orchestrationCliUuid = Crypto.Crypto.pipe(
 );
 
 const CliRuntimeLive = Layer.mergeAll(
-  WorkspacePathsLive,
+  WorkspacePaths.layer,
   OrchestrationLayerLive.pipe(
-    Layer.provideMerge(RepositoryIdentityResolverLive),
+    Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(SqlitePersistenceLayerLive),
   ),
 );
@@ -68,7 +67,7 @@ const LIVE_SERVER_TIMEOUT = Duration.seconds(1);
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
 const withCliSessionToken = <A, E, R>(
-  environmentAuth: EnvironmentAuth.EnvironmentAuthShape,
+  environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
   run: (token: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.acquireUseRelease(
@@ -130,8 +129,8 @@ const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
 });
 
 const tryResolveLiveExecutionMode = Effect.fn("tryResolveLiveExecutionMode")(function* (
-  environmentAuth: EnvironmentAuth.EnvironmentAuthShape,
-  config: ServerConfigShape,
+  environmentAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+  config: ServerConfig["Service"],
 ) {
   const runtimeState = yield* readPersistedServerRuntimeState(config.serverRuntimeStatePath);
   if (Option.isNone(runtimeState)) {
@@ -167,7 +166,11 @@ export const runOrchestrationMutation = <Cmd extends ClientOrchestrationCommand>
   ) => Effect.Effect<
     string,
     Error,
-    Crypto.Crypto | FileSystem.FileSystem | HttpClient.HttpClient | Path.Path | WorkspacePaths
+    | Crypto.Crypto
+    | FileSystem.FileSystem
+    | HttpClient.HttpClient
+    | Path.Path
+    | WorkspacePaths.WorkspacePaths
   >,
 ) =>
   Effect.gen(function* () {
@@ -214,7 +217,7 @@ export const runOrchestrationMutation = <Cmd extends ClientOrchestrationCommand>
       }).pipe(Effect.provide(offlineRuntimeLayer));
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(EnvironmentAuth.runtimeLayer, WorkspacePathsLive).pipe(
+        Layer.mergeAll(EnvironmentAuth.runtimeLayer, WorkspacePaths.layer).pipe(
           Layer.provideMerge(FetchHttpClient.layer),
           Layer.provide(Layer.succeed(ServerConfig, config)),
           Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),

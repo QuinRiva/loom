@@ -24,6 +24,7 @@ import {
   CommandId,
   type DiscoveredLocalServerList,
   EventId,
+  GoalId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -68,12 +69,14 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -255,6 +258,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   {
     type:
       | "thread.message-sent"
+      | "thread.message-reasoning"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
@@ -264,6 +268,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 > {
   return (
     event.type === "thread.message-sent" ||
+    event.type === "thread.message-reasoning" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
@@ -274,6 +279,10 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
+// NOTE: `WS_METHODS.heartbeat` is intentionally absent. It is an
+// authenticated-session-only keepalive (least privilege; carries no data): any
+// session that authenticated at the WS upgrade may beat, regardless of scope.
+// Its handler therefore bypasses the scope-checked `observeRpcEffect` wrapper.
 const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
@@ -395,6 +404,7 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const reasoningStreamBus = yield* ReasoningStreamBus.ReasoningStreamBus;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -406,6 +416,7 @@ const makeWsRpcLayer = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const accountUsageRegistry = yield* AccountUsageRegistry.AccountUsageRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -657,6 +668,28 @@ const makeWsRpcLayer = (
               Effect.orElseSucceed(() => Option.none()),
             );
           default:
+            if (event.aggregateKind === "goal") {
+              const goalId = GoalId.make(event.aggregateId);
+              return projectionSnapshotQuery.getGoalShellById(goalId).pipe(
+                Effect.map((goal) =>
+                  Option.match(goal, {
+                    onNone: () =>
+                      Option.some({
+                        kind: "goal-removed" as const,
+                        sequence: event.sequence,
+                        goalId,
+                      }),
+                    onSome: (nextGoal) =>
+                      Option.some({
+                        kind: "goal-upserted" as const,
+                        sequence: event.sequence,
+                        goal: nextGoal,
+                      }),
+                  }),
+                ),
+                Effect.orElseSucceed(() => Option.none()),
+              );
+            }
             if (event.aggregateKind !== "thread") {
               return Effect.succeed(Option.none());
             }
@@ -822,6 +855,11 @@ const makeWsRpcLayer = (
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
                 threadId: command.threadId,
                 projectId: bootstrap.createThread.projectId,
+                goalId: bootstrap.createThread.goalId ?? null,
+                parentThreadId: bootstrap.createThread.parentThreadId ?? null,
+                role: bootstrap.createThread.role ?? null,
+                purpose: bootstrap.createThread.purpose ?? null,
+                brief: bootstrap.createThread.brief ?? null,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,
@@ -942,6 +980,10 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        // Authenticated-session-only keepalive: the WS upgrade already
+        // authenticated this session, so the handler just acknowledges. No
+        // scope check, no instrumentation (kept out of request telemetry).
+        [WS_METHODS.heartbeat]: (_input) => Effect.void,
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -1113,60 +1155,92 @@ const makeWsRpcLayer = (
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
-            Effect.gen(function* () {
-              const [threadDetail, snapshotSequence] = yield* Effect.all([
-                projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
-                  Effect.mapError(
-                    (cause) =>
+            Effect.succeed(
+              // `Stream.unwrap` runs this effect in the STREAM's scope, so the
+              // bus subscription acquired below lives for the stream's lifetime
+              // and is established BEFORE the snapshot fetch.
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  // Subscribe to the transient reasoning bus BEFORE loading the
+                  // snapshot. The subscription's queue buffers any chunks
+                  // published during the snapshot fetch; they are then drained
+                  // AFTER the snapshot element (the client applies the snapshot
+                  // as a whole-thread replace, so buffered deltas correctly land
+                  // on top of it instead of being wiped). This closes the
+                  // connect-gap where mid-fetch reasoning would otherwise be lost
+                  // until the durable finalization event.
+                  const reasoningSubscription = yield* reasoningStreamBus.subscribe;
+
+                  const [threadDetail, snapshotSequence] = yield* Effect.all([
+                    projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: `Failed to load thread ${input.threadId}`,
+                            cause,
+                          }),
+                      ),
+                    ),
+                    projectionSnapshotQuery.getSnapshotSequence().pipe(
+                      Effect.map(({ snapshotSequence }) => snapshotSequence),
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: "Failed to load orchestration snapshot sequence",
+                            cause,
+                          }),
+                      ),
+                    ),
+                  ]);
+
+                  if (Option.isNone(threadDetail)) {
+                    return Stream.fail(
                       new OrchestrationGetSnapshotError({
-                        message: `Failed to load thread ${input.threadId}`,
-                        cause,
+                        message: `Thread ${input.threadId} was not found`,
+                        cause: input.threadId,
                       }),
-                  ),
-                ),
-                projectionSnapshotQuery.getSnapshotSequence().pipe(
-                  Effect.map(({ snapshotSequence }) => snapshotSequence),
-                  Effect.mapError(
-                    (cause) =>
-                      new OrchestrationGetSnapshotError({
-                        message: "Failed to load orchestration snapshot sequence",
-                        cause,
-                      }),
-                  ),
-                ),
-              ]);
+                    );
+                  }
 
-              if (Option.isNone(threadDetail)) {
-                return yield* new OrchestrationGetSnapshotError({
-                  message: `Thread ${input.threadId} was not found`,
-                  cause: input.threadId,
-                });
-              }
+                  const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+                    Stream.filter(
+                      (event) =>
+                        event.aggregateKind === "thread" &&
+                        event.aggregateId === input.threadId &&
+                        isThreadDetailEvent(event),
+                    ),
+                    Stream.map((event) => ({
+                      kind: "event" as const,
+                      event,
+                    })),
+                  );
 
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-                Stream.filter(
-                  (event) =>
-                    event.aggregateKind === "thread" &&
-                    event.aggregateId === input.threadId &&
-                    isThreadDetailEvent(event),
-                ),
-                Stream.map((event) => ({
-                  kind: "event" as const,
-                  event,
-                })),
-              );
+                  // Transient ephemeral reasoning chunks for this thread. These
+                  // never touch the event store; they drive live "Thinking… ⟷
+                  // Thought for Xs" display. The durable `thread.message-reasoning`
+                  // event in liveStream is authoritative (REPLACE full text) on
+                  // finalization.
+                  const reasoningStream = Stream.fromSubscription(reasoningSubscription).pipe(
+                    Stream.filter((payload) => payload.threadId === input.threadId),
+                    Stream.map((payload) => ({
+                      kind: "reasoning-delta" as const,
+                      payload,
+                    })),
+                  );
 
-              return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  snapshot: {
-                    snapshotSequence,
-                    thread: threadDetail.value,
-                  },
+                  return Stream.concat(
+                    Stream.make({
+                      kind: "snapshot" as const,
+                      snapshot: {
+                        snapshotSequence,
+                        thread: threadDetail.value,
+                      },
+                    }),
+                    Stream.merge(liveStream, reasoningStream),
+                  );
                 }),
-                liveStream,
-              );
-            }),
+              ),
+            ),
             { "rpc.aggregate": "orchestration" },
           ),
         [WS_METHODS.serverGetConfig]: (_input) =>
@@ -1718,6 +1792,13 @@ const makeWsRpcLayer = (
                   payload: { settings },
                 })),
               );
+              const accountUsageUpdates = accountUsageRegistry.streamChanges.pipe(
+                Stream.map((usage) => ({
+                  version: 1 as const,
+                  type: "accountUsage" as const,
+                  payload: { usage },
+                })),
+              );
 
               yield* providerRegistry
                 .refresh()
@@ -1725,15 +1806,24 @@ const makeWsRpcLayer = (
 
               const liveUpdates = Stream.merge(
                 keybindingsUpdates,
-                Stream.merge(providerStatuses, settingsUpdates),
+                Stream.merge(providerStatuses, Stream.merge(settingsUpdates, accountUsageUpdates)),
               );
 
               return Stream.concat(
-                Stream.make({
-                  version: 1 as const,
-                  type: "snapshot" as const,
-                  config: yield* loadServerConfig,
-                }),
+                Stream.concat(
+                  Stream.make({
+                    version: 1 as const,
+                    type: "snapshot" as const,
+                    config: yield* loadServerConfig,
+                  }),
+                  // Initial usage so a fresh subscriber sees the latest known
+                  // limits without waiting for the next provider event.
+                  Stream.make({
+                    version: 1 as const,
+                    type: "accountUsage" as const,
+                    payload: { usage: yield* accountUsageRegistry.snapshot },
+                  }),
+                ),
                 liveUpdates,
               );
             }),

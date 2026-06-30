@@ -38,7 +38,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
-import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   goalTaskAddUrlFromMcpEndpoint,
@@ -248,7 +248,7 @@ function piCatalogModels(
  */
 function enrichPiSnapshot(input: {
   readonly settings: PiSettings;
-  readonly serverConfig: ServerConfigShape;
+  readonly serverConfig: ServerConfig["Service"];
   readonly snapshot: ServerProvider;
   readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   // Shared slug -> context-window map filled from the live catalogue so the
@@ -502,7 +502,7 @@ function imageAttachments(
 function makePiAdapter(input: {
   readonly instanceId: ProviderInstanceId;
   readonly settings: PiSettings;
-  readonly serverConfig: ServerConfigShape;
+  readonly serverConfig: ServerConfig["Service"];
   readonly events: Queue.Queue<ProviderRuntimeEvent>;
   // Shared slug -> context-window map populated by `enrichPiSnapshot` from pi's
   // live catalogue; read synchronously here to set token-usage `maxTokens`.

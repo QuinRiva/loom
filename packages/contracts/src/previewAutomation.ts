@@ -608,7 +608,10 @@ export type PreviewAutomationResponse = typeof PreviewAutomationResponse.Type;
 export class PreviewAutomationUnavailableError extends Schema.TaggedErrorClass<PreviewAutomationUnavailableError>()(
   "PreviewAutomationUnavailableError",
   {
-    capability: Schema.Literal("preview"),
+    // "workstream" added for the fork's MCP workstream-spawn capability gate
+    // (McpCapability = "preview" | "workstream"); the generic message renders
+    // whichever capability was denied.
+    capability: Schema.Literals(["preview", "workstream"]),
     environmentId: EnvironmentId,
     threadId: ThreadId,
     providerSessionId: TrimmedNonEmptyString,
