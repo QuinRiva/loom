@@ -345,6 +345,7 @@ function mapThreadShell(
     planLane: thread.planLane,
     attention: thread.attention,
     blockedBy: thread.blockedBy,
+    spawnGeneration: thread.spawnGeneration ?? null,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     reportPath: thread.reportPath ?? null,

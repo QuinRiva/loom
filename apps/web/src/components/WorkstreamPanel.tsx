@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import type { EnvironmentId, ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
   GitBranchIcon,
@@ -39,13 +40,17 @@ import {
 import { type AppState, useStore } from "../store";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { useUiStateStore } from "../uiStateStore";
 
 type WorkstreamView = "board" | "graph";
 
-// d3-dag (the graph's layout engine) is heavy; lazy-load the whole graph subtree
-// so it lands in its own chunk and never bloats the initial/board render path.
+// The graph subtree (own SVG renderer + hand-rolled fork–join layout) is
+// lazy-loaded so it lands in its own chunk and never bloats the board render path.
 const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
 
+// The board manages THIS thread's direct children (sibling dependency editing,
+// per-lane kanban). The graph instead renders the WHOLE orchestration, so the
+// two views read different slices of the same summary map.
 function selectWorkstreamChildren(
   state: AppState,
   environmentId: EnvironmentId,
@@ -56,6 +61,33 @@ function selectWorkstreamChildren(
   return Object.values(environmentState.sidebarThreadSummaryById)
     .filter((thread) => thread.parentThreadId === parentThreadId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+// The whole orchestration as seen from `activeThreadId`: walk lineage up to the
+// top-most ancestor (root orchestrator), then return its full descendant
+// subtree, time-ordered. The summary map holds every thread in the environment,
+// so grandchildren are present.
+function selectWorkstreamSubtree(
+  state: AppState,
+  environmentId: EnvironmentId,
+  activeThreadId: ThreadId,
+): ReadonlyArray<SidebarThreadSummary> {
+  const environmentState = state.environmentStateById[environmentId];
+  if (!environmentState) return [];
+  const byId = environmentState.sidebarThreadSummaryById;
+  const all = Object.values(byId);
+  const seen = new Set<ThreadId>();
+  let rootId = activeThreadId;
+  for (;;) {
+    if (seen.has(rootId)) break;
+    seen.add(rootId);
+    const parent = byId[rootId]?.parentThreadId;
+    if (!parent || byId[parent] === undefined) break;
+    rootId = parent;
+  }
+  return subtreeOf(rootId, all).toSorted((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
 }
 
 interface WorkstreamPanelProps {
@@ -80,6 +112,22 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(children.map((thread) => [thread.id, thread])),
     [children],
   );
+  const subtree = useStore(
+    useShallow(
+      useMemo(
+        () => (state: AppState) =>
+          activeThread
+            ? selectWorkstreamSubtree(state, activeThread.environmentId, activeThread.id)
+            : [],
+        [activeThread],
+      ),
+    ),
+  );
+  const subtreeById = useMemo<ChildIndex>(
+    () => new Map(subtree.map((thread) => [thread.id, thread])),
+    [subtree],
+  );
+  const requestScrollToDispatch = useUiStateStore((store) => store.requestScrollToDispatch);
   const [view, setView] = useState<WorkstreamView>("graph");
   const [role, setRole] = useState("");
   const [title, setTitle] = useState("");
@@ -102,6 +150,16 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
+
+  // Clicking an orchestrator (bridge) node: route to the dispatching orchestrator
+  // thread, then ask its timeline to scroll to the turn that spawned the wave.
+  const openDispatch = (orchestratorId: ThreadId, anchorAtIso: string) => {
+    requestScrollToDispatch(orchestratorId, anchorAtIso);
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, orchestratorId)),
+    });
+  };
 
   // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
   // control plane at kickoff and `blocked` is derived from dependencies, so
@@ -273,10 +331,10 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             }
           >
             <WorkstreamGraph
-              activeThread={activeThread}
-              threads={children}
-              childById={childById}
+              threads={subtree}
+              threadById={subtreeById}
               onOpenThread={openThread}
+              onOpenDispatch={openDispatch}
             />
           </Suspense>
         )}

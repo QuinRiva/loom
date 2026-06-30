@@ -1,14 +1,17 @@
-// Workstream lineage graph — a deliberately READ-ONLY topology view. Position
-// encodes lineage + dependency order (computed by d3-dag's layered Sugiyama
-// layout); status is conveyed by colour only. We own the SVG renderer and a
-// zero-dependency pan/zoom, and add only the missing concern (layout).
+// Workstream fork–join graph — a deliberately READ-ONLY "dispatch episode" view.
+// The orchestrator is not a single root: it recurs as one BRIDGE node per wave,
+// where a wave = the children of one (parentThreadId, spawnGeneration) — the set
+// the engine spawns before it next regains control. Waves stack down a neutral
+// solid spine ordered by each wave's earliest child; within a wave, children sit
+// in dependency columns and real `blockedBy` edges are dashed-amber cross-edges.
+// Nesting (a child that itself spawns) is the same layout applied recursively and
+// packed as a measured block. Position encodes temporal/causal dispatch order;
+// status is colour only. Hand-rolled band layout + zero-dependency pan/zoom.
 //
-// If this view ever becomes an EDITABLE orchestration canvas (drag nodes to
-// rewire, minimap, multi-select), the correct move is to refactor to React Flow
-// — not to extend this SVG. See docs/research/workstream-dag-visualization.md
-// (§"Future direction") for the full rationale and the decision boundary.
+// If this ever becomes an EDITABLE orchestration canvas (drag to rewire, minimap),
+// refactor to React Flow — see docs/research/workstream-dag-visualization.md.
 
-import { coordGreedy, type GraphNode, graph, layeringLongestPath, sugiyama } from "d3-dag";
+import type { ThreadId } from "@t3tools/contracts";
 import { MaximizeIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -19,6 +22,13 @@ import {
   useState,
 } from "react";
 
+import {
+  computeForkJoinLayout,
+  computeForkJoinViewBox,
+  type LaidEdge,
+  type LaidNode,
+  type ViewBox,
+} from "../lib/forkJoinLayout";
 import {
   type ChildIndex,
   COLUMN_LABELS,
@@ -31,114 +41,43 @@ import {
   truncateLabel,
   WAITS_ON_STROKE,
 } from "../lib/workstreamPresentation";
-import type { SidebarThreadSummary, Thread } from "../types";
+import type { SidebarThreadSummary } from "../types";
 
-// Sentinel id for the orchestrator (parent) node, which has no SidebarThreadSummary.
-const ROOT_ID = "__workstream_root__";
-
-const ROOT_SIZE = [160, 48] as const;
-const NODE_SIZE = [126, 54] as const;
-
-type Point = { readonly x: number; readonly y: number };
-type ViewBox = { readonly x: number; readonly y: number; readonly w: number; readonly h: number };
+const SPINE_STROKE = "rgba(255,255,255,0.30)";
+const FORK_STROKE = "rgba(255,255,255,0.26)";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/**
- * Lay out the orchestrator + every sub-thread with d3-dag's layered Sugiyama
- * algorithm. Lineage edges (parent→child) and `waits-on` edges both feed the
- * ranking so dependents sit below their dependencies — except `waits-on` edges
- * that would introduce a cycle, which sugiyama cannot lay out. We add each such
- * edge, then back it out if `g.acyclic()` flips false (self-edges are skipped
- * outright). Returns node *centres* keyed by id (ROOT_ID for the orchestrator).
- *
- * Operator choice: the default `layeringSimplex` + `coordSimplex` pull in an LP
- * solver (`javascript-lp-solver` + `quadprog`, ~142 KB). At <100 nodes the
- * lighter `layeringLongestPath` + `coordGreedy` (with the default solver-free
- * `decrossTwoLayer`) produce a clean layout without that weight.
- */
-function computeLayout(threads: ReadonlyArray<SidebarThreadSummary>): Map<string, Point> {
-  const g = graph<{ id: string }, undefined>();
-  const rootNode = g.node({ id: ROOT_ID });
-  const nodeById = new Map(threads.map((thread) => [thread.id, g.node({ id: thread.id })]));
-
-  for (const thread of threads) {
-    const parent = (thread.parentThreadId && nodeById.get(thread.parentThreadId)) || rootNode;
-    g.link(parent, nodeById.get(thread.id)!);
-  }
-
-  for (const thread of threads) {
-    const target = nodeById.get(thread.id)!;
-    for (const depId of thread.blockedBy) {
-      const source = depId === thread.id ? undefined : nodeById.get(depId);
-      if (!source) continue;
-      const link = g.link(source, target);
-      if (!g.acyclic()) link.delete();
-    }
-  }
-
-  sugiyama()
-    // d3-dag infers operator data as `never` unless the accessor is typed.
-    .nodeSize((node: GraphNode<{ id: string }, undefined>) =>
-      node.data.id === ROOT_ID ? ROOT_SIZE : NODE_SIZE,
-    )
-    .gap([28, 36])
-    .layering(layeringLongestPath())
-    .coord(coordGreedy())(g);
-
-  return new Map([...g.nodes()].map((node) => [node.data.id, { x: node.x, y: node.y }]));
-}
-
-// Node rects span ±63 × ±27 around their centre; the root rect is 160 × 48.
-function computeGraphViewBox(positions: ReadonlyArray<Point>, root: Point): ViewBox {
-  const pad = 28;
-  const xs = [root.x - 80, root.x + 80, ...positions.flatMap((p) => [p.x - 63, p.x + 63])];
-  const ys = [root.y - 24, root.y + 24, ...positions.flatMap((p) => [p.y - 27, p.y + 27])];
-  const x = Math.min(...xs) - pad;
-  const y = Math.min(...ys) - pad;
-  return { x, y, w: Math.max(...xs) + pad - x, h: Math.max(...ys) + pad - y };
-}
-
 export default function WorkstreamGraph({
-  activeThread,
   threads,
-  childById,
+  threadById,
   onOpenThread,
+  onOpenDispatch,
 }: {
-  readonly activeThread: Thread;
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
-  readonly childById: ChildIndex;
+  readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
 }) {
-  // Layout depends only on topology (ids + parent + blockedBy), not on status,
-  // so memoise on a structural key to avoid re-running Sugiyama every render.
-  const topologyKey = threads
-    .map((t) => `${t.id}>${t.parentThreadId ?? ""}:${t.blockedBy.join(",")}`)
+  // Layout depends only on structure (lineage + generation + deps + order), so
+  // memoise on a structural key rather than re-running on every status tick.
+  const structureKey = threads
+    .map(
+      (t) =>
+        `${t.id}>${t.parentThreadId ?? ""}@${t.spawnGeneration ?? ""}#${t.createdAt}:${t.blockedBy.join(",")}`,
+    )
     .join("|");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const layout = useMemo(() => computeLayout(threads), [topologyKey]);
+  const { nodes, edges } = useMemo(() => computeForkJoinLayout(threads), [structureKey]);
 
-  const root = layout.get(ROOT_ID) ?? { x: 0, y: 0 };
-  const positions = threads.flatMap((thread) => {
-    const point = layout.get(thread.id);
-    return point ? [{ threadId: thread.id, ...point }] : [];
-  });
-  const positionById = new Map(positions.map((position) => [position.threadId, position]));
-  const parentOf = (thread: SidebarThreadSummary): Point =>
-    (thread.parentThreadId && positionById.get(thread.parentThreadId)) || root;
-
-  const base = useMemo(
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    () => computeGraphViewBox(positions, root),
-    [topologyKey],
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const base = useMemo(() => computeForkJoinViewBox(nodes), [structureKey]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; vb: ViewBox } | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(base);
   const [adjusted, setAdjusted] = useState(false);
 
-  // Auto-fit until the user pans/zooms; "reset" re-enables auto-fit.
   useEffect(() => {
     if (!adjusted) setViewBox(base);
   }, [base, adjusted]);
@@ -157,8 +96,6 @@ export default function WorkstreamGraph({
     setViewBox(base);
   };
 
-  // Wheel zoom anchored at the cursor. Attached non-passively so it can
-  // preventDefault and not scroll the surrounding panel.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -173,12 +110,10 @@ export default function WorkstreamGraph({
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-    // zoomBy/base are stable enough for this listener's lifetime per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
-    // Let node clicks through; only pan when starting on empty canvas.
     if ((event.target as Element).closest(".ws-graph-node")) return;
     dragRef.current = { x: event.clientX, y: event.clientY, vb: viewBox };
     setAdjusted(true);
@@ -204,8 +139,9 @@ export default function WorkstreamGraph({
   return (
     <div className="flex flex-col items-center gap-3">
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
-        Lineage edges run orchestrator → sub-thread; dashed amber edges are &ldquo;waits-on&rdquo;
-        dependencies. Colour matches board state; click any node to open the thread.
+        The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
+        a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a
+        bridge to jump to where that wave was dispatched; click a node to open the thread.
       </p>
       <div className="relative w-full">
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
@@ -224,7 +160,7 @@ export default function WorkstreamGraph({
           className="min-h-[240px] w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
           role="img"
-          aria-label="Workstream lineage graph"
+          aria-label="Workstream fork–join graph"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endPan}
@@ -239,7 +175,7 @@ export default function WorkstreamGraph({
               refX="6"
               refY="3"
             >
-              <path d="M0 0 L6 3 L0 6 z" fill="rgba(255,255,255,0.35)" />
+              <path d="M0 0 L6 3 L0 6 z" fill={FORK_STROKE} />
             </marker>
             <marker
               id="workstream-waits-arrow"
@@ -252,67 +188,23 @@ export default function WorkstreamGraph({
               <path d="M0 0 L6 3 L0 6 z" fill={WAITS_ON_STROKE} />
             </marker>
           </defs>
-          <RootNode x={root.x} y={root.y} title={activeThread.title} />
-          {positions.map((position) => {
-            const thread = childById.get(position.threadId);
-            if (!thread) return null;
-            const parent = parentOf(thread);
-            return (
-              <path
-                d={`M ${parent.x} ${parent.y + 24} C ${parent.x} ${(parent.y + position.y) / 2}, ${
-                  position.x
-                } ${(parent.y + position.y) / 2}, ${position.x} ${position.y - 25}`}
-                fill="none"
-                key={`edge-${thread.id}`}
-                markerEnd="url(#workstream-arrow)"
-                stroke="rgba(255,255,255,0.28)"
-                strokeWidth="1.4"
-              />
-            );
-          })}
-          {positions.flatMap((position) => {
-            const thread = childById.get(position.threadId);
-            if (!thread) return [];
-            return thread.blockedBy.flatMap((depId) => {
-              if (depId === thread.id) return [];
-              const depPosition = positionById.get(depId);
-              if (!depPosition) return [];
-              return [
-                <line
-                  key={`waits-${thread.id}-${depId}`}
-                  markerEnd="url(#workstream-waits-arrow)"
-                  stroke={WAITS_ON_STROKE}
-                  strokeDasharray="4 3"
-                  strokeWidth="1.3"
-                  x1={depPosition.x}
-                  x2={position.x}
-                  y1={depPosition.y}
-                  y2={position.y}
-                />,
-              ];
-            });
-          })}
-          {positions.map((position) => {
-            const thread = childById.get(position.threadId);
-            return thread ? (
+          {edges.map((edge) => (
+            <GraphEdge key={edge.key} edge={edge} />
+          ))}
+          {nodes.map((node) =>
+            node.kind === "bridge" ? (
+              <BridgeNode key={node.key} node={node} onOpenDispatch={onOpenDispatch} />
+            ) : (
               <GraphNode
-                key={thread.id}
-                thread={thread}
-                childById={childById}
-                x={position.x}
-                y={position.y}
+                key={node.key}
+                node={node}
+                threadById={threadById}
                 onOpenThread={onOpenThread}
               />
-            ) : null;
-          })}
-          {threads.length === 0 ? (
-            <text
-              fill="rgba(255,255,255,0.38)"
-              fontSize="13"
-              textAnchor="middle"
-              x={root.x}
-              y={root.y + 42}
-            >
+            ),
+          )}
+          {nodes.length === 0 ? (
+            <text fill="rgba(255,255,255,0.38)" fontSize="13" textAnchor="middle" x={160} y={120}>
               No sub-threads yet.
             </text>
           ) : null}
@@ -326,6 +218,10 @@ export default function WorkstreamGraph({
           </span>
         ))}
         <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+          <span className="inline-block h-0 w-4 border-t" style={{ borderColor: SPINE_STROKE }} />
+          dispatch spine
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
           <span
             className="inline-block h-0 w-4 border-t border-dashed"
             style={{ borderColor: WAITS_ON_STROKE }}
@@ -337,57 +233,112 @@ export default function WorkstreamGraph({
   );
 }
 
-function RootNode({
-  x,
-  y,
-  title,
-}: {
-  readonly x: number;
-  readonly y: number;
-  readonly title: string;
-}) {
+function GraphEdge({ edge }: { readonly edge: LaidEdge }) {
+  if (edge.kind === "spine") {
+    return (
+      <line
+        stroke={SPINE_STROKE}
+        strokeWidth="2"
+        x1={edge.x1}
+        x2={edge.x2}
+        y1={edge.y1}
+        y2={edge.y2}
+      />
+    );
+  }
+  if (edge.kind === "fork") {
+    const midX = (edge.x1 + edge.x2) / 2;
+    return (
+      <path
+        d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+        fill="none"
+        markerEnd="url(#workstream-arrow)"
+        stroke={FORK_STROKE}
+        strokeWidth="1.4"
+      />
+    );
+  }
+  const midX = (edge.x1 + edge.x2) / 2;
   return (
-    <g>
+    <path
+      d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+      fill="none"
+      markerEnd="url(#workstream-waits-arrow)"
+      stroke={WAITS_ON_STROKE}
+      strokeDasharray="4 3"
+      strokeWidth="1.3"
+    />
+  );
+}
+
+function BridgeNode({
+  node,
+  onOpenDispatch,
+}: {
+  readonly node: Extract<LaidNode, { kind: "bridge" }>;
+  readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
+}) {
+  const open = () => onOpenDispatch(node.orchestratorId, node.anchorAtIso);
+  return (
+    <g
+      className="ws-graph-node cursor-pointer outline-none"
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <title>{`Jump to where wave ${node.waveIndex} was dispatched`}</title>
       <rect
         fill="rgba(255,255,255,0.07)"
-        height="48"
+        height={node.h}
         rx="11"
         stroke="rgba(255,255,255,0.18)"
-        width="160"
-        x={x - 80}
-        y={y - 24}
+        width={node.w}
+        x={node.x}
+        y={node.y}
       />
       <text
         fill="rgba(255,255,255,0.82)"
         fontSize="12"
         fontWeight="600"
         textAnchor="middle"
-        x={x}
-        y={y - 2}
+        x={node.x + node.w / 2}
+        y={node.y + 19}
       >
-        Orchestrator
+        {truncateLabel(node.label, 22)}
       </text>
-      <text fill="rgba(255,255,255,0.38)" fontSize="9.5" textAnchor="middle" x={x} y={y + 14}>
-        {truncateLabel(title, 24)}
+      <text
+        fill="rgba(255,255,255,0.4)"
+        fontSize="9.5"
+        textAnchor="middle"
+        x={node.x + node.w / 2}
+        y={node.y + 34}
+      >
+        Orchestrator · wave {node.waveIndex}
       </text>
     </g>
   );
 }
 
 function GraphNode({
-  thread,
-  childById,
-  x,
-  y,
+  node,
+  threadById,
   onOpenThread,
 }: {
-  readonly thread: SidebarThreadSummary;
-  readonly childById: ChildIndex;
-  readonly x: number;
-  readonly y: number;
+  readonly node: Extract<LaidNode, { kind: "thread" }>;
+  readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
 }) {
-  const status = getThreadStatus(thread, childById);
+  // The laid-out node carries a STRUCTURAL snapshot (layout is memoised on a key
+  // that excludes status), so resolve the live summary for status/labels — else
+  // a lane/attention change wouldn't recolour the node until the graph re-lays.
+  const thread = threadById.get(node.thread.id) ?? node.thread;
+  const status = getThreadStatus(thread, threadById);
   const open = () => onOpenThread(thread);
   return (
     <g
@@ -405,29 +356,35 @@ function GraphNode({
       <title>{`Goal: ${getPurpose(thread)}`}</title>
       <rect
         fill={status.graphFill}
-        height="54"
+        height={node.h}
         rx="10"
         stroke={status.graphStroke}
         strokeWidth="1.4"
-        width="126"
-        x={x - 63}
-        y={y - 27}
+        width={node.w}
+        x={node.x}
+        y={node.y}
       />
-      <circle cx={x - 48} cy={y - 10} fill={status.graphStroke} r="4" />
-      <text fill={status.graphStroke} fontSize="12" x={x - 38} y={y - 6}>
+      <circle cx={node.x + 15} cy={node.y + 17} fill={status.graphStroke} r="4" />
+      <text fill={status.graphStroke} fontSize="12" x={node.x + 25} y={node.y + 21}>
         {getRoleIcon(thread)}
       </text>
-      <text fill="rgba(255,255,255,0.9)" fontSize="11" fontWeight="600" x={x - 20} y={y - 6}>
-        {truncateLabel(thread.title, 16)}
+      <text
+        fill="rgba(255,255,255,0.9)"
+        fontSize="11"
+        fontWeight="600"
+        x={node.x + 43}
+        y={node.y + 21}
+      >
+        {truncateLabel(thread.title, 14)}
       </text>
       <text
         fill="rgba(255,255,255,0.45)"
         fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
         fontSize="8.5"
-        x={x - 49}
-        y={y + 11}
+        x={node.x + 14}
+        y={node.y + 39}
       >
-        {truncateLabel(getRoleLabel(thread), 12)} · {status.label}
+        {truncateLabel(getRoleLabel(thread), 13)} · {status.label}
       </text>
     </g>
   );
