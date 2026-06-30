@@ -80,6 +80,7 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         role: null,
         purpose: null,
+        brief: null,
         planLane: "planned",
         attention: [],
         blockedBy: [],

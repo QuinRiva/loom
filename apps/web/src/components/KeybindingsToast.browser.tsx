@@ -200,6 +200,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         parentThreadId: null,
         role: null,
         purpose: null,
+        brief: null,
         planLane: "planned" as const,
         attention: [] as const,
         blockedBy: [],

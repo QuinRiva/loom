@@ -729,6 +729,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     parentThreadId: null,
     role: null,
     purpose: null,
+    brief: null,
     planLane: "planned" as const,
     attention: [],
     blockedBy: [],

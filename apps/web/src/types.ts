@@ -121,6 +121,7 @@ export interface Thread {
   parentThreadId: ThreadId | null;
   role: string | null;
   purpose: string | null;
+  brief: string | null;
   planLane: ThreadPlanLane;
   attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;
@@ -152,6 +153,7 @@ export interface ThreadShell {
   parentThreadId: ThreadId | null;
   role: string | null;
   purpose: string | null;
+  brief: string | null;
   planLane: ThreadPlanLane;
   attention: ThreadAttention;
   blockedBy: ReadonlyArray<ThreadId>;

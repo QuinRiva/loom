@@ -17,6 +17,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import type { HttpClient } from "effect/unstable/http";
 
 import {
+  buildGoalCreateCommand,
   buildGoalMetaUpdateCommand,
   buildGoalTaskCreateCommand,
   buildGoalTaskDeleteCommand,
@@ -205,16 +206,17 @@ const goalCreateCommand = Command.make("create", {
       Effect.gen(function* () {
         const projectId = yield* resolveProjectId(snapshot, flags.project);
         const goalId = GoalId.make(yield* orchestrationCliUuid);
-        yield* dispatch({
-          type: "goal.create",
-          commandId: CommandId.make(yield* orchestrationCliUuid),
-          goalId,
-          projectId,
-          slug: flags.slug,
-          title: flags.title,
-          ...(Option.isSome(flags.description) ? { description: flags.description.value } : {}),
-          createdAt: DateTime.formatIso(yield* DateTime.now),
-        });
+        yield* dispatch(
+          buildGoalCreateCommand({
+            commandId: CommandId.make(yield* orchestrationCliUuid),
+            goalId,
+            projectId,
+            slug: flags.slug,
+            title: flags.title,
+            ...(Option.isSome(flags.description) ? { description: flags.description.value } : {}),
+            createdAt: DateTime.formatIso(yield* DateTime.now),
+          }),
+        );
         return `Created goal ${goalId} (${flags.slug}).`;
       }),
     ),
