@@ -125,6 +125,7 @@ export function AnnotatableCodeView({
         const persisted = reviewComments
           .filter(
             (comment) =>
+              comment.kind === "line" &&
               comment.sectionId === sectionId &&
               comment.filePath === filePath &&
               (comment.fenceLanguage ?? "diff") === "diff",

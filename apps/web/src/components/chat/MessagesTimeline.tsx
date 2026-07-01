@@ -1837,7 +1837,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
 function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentContext }) {
   const ctx = use(TimelineRowCtx);
-  const fenceLanguage = comment.fenceLanguage ?? "diff";
+  const fenceLanguage = comment.kind === "line" ? (comment.fenceLanguage ?? "diff") : "diff";
   const renderablePatch = getRenderablePatch(
     buildReviewCommentRenderablePatch(comment),
     `review-comment:${comment.id}`,
@@ -1858,7 +1858,7 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
           <SkillInlineText text={comment.text} skills={ctx.skills} />
         </div>
       )}
-      {fenceLanguage !== "diff" && comment.diff.trim().length > 0 && (
+      {comment.kind === "line" && fenceLanguage !== "diff" && comment.diff.trim().length > 0 && (
         <ChatMarkdown
           text={formatReviewCommentFence(fenceLanguage, comment.diff)}
           cwd={ctx.markdownCwd}
@@ -1866,6 +1866,11 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
           skills={ctx.skills}
           className="text-foreground"
         />
+      )}
+      {comment.kind === "mdx-anchor" && comment.quotedText.trim().length > 0 && (
+        <div className="whitespace-pre-wrap wrap-break-word rounded-md bg-muted/40 p-2 font-mono text-xs text-muted-foreground">
+          {comment.quotedText}
+        </div>
       )}
       {renderablePatch?.kind === "files" &&
         renderablePatch.files.map((fileDiff) => (

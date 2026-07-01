@@ -1,31 +1,55 @@
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
+import { PlanCommentAnchor } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
-export const ReviewCommentContextSchema = Schema.Struct({
+import { planCommentAnchorDetails } from "./planCommentAnchor";
+
+/**
+ * Injected review-comment evidence, as a discriminated union on `kind` (decision
+ * D6 — no dual-shape optional cruft):
+ *   - `line`: the original source/diff-review path (unchanged behaviour) — line
+ *     indices + a source/diff fence.
+ *   - `mdx-anchor`: rendered-MDX-plan annotation — a {@link PlanCommentAnchor}
+ *     (text-quote + section/block) plus the quoted passage as evidence.
+ *
+ * The Phase 1-Fan (server + injection) thread owns the authoritative
+ * agent-prompt serialisation/parse of the `mdx-anchor` variant; the format below
+ * is a correct first cut so the union is exhaustive today. Nothing constructs
+ * `mdx-anchor` yet (the Phase 2 annotation layer will).
+ */
+const reviewCommentBaseFields = {
   id: Schema.String,
   sectionId: Schema.String,
   sectionTitle: Schema.String,
   filePath: Schema.String,
-  startIndex: Schema.Number,
-  endIndex: Schema.Number,
   rangeLabel: Schema.String,
   text: Schema.String,
+};
+
+export const LineReviewCommentContextSchema = Schema.Struct({
+  kind: Schema.Literal("line"),
+  ...reviewCommentBaseFields,
+  startIndex: Schema.Number,
+  endIndex: Schema.Number,
   diff: Schema.String,
   fenceLanguage: Schema.optional(Schema.String),
 });
 
-export interface ReviewCommentContext {
-  readonly id: string;
-  readonly sectionId: string;
-  readonly sectionTitle: string;
-  readonly filePath: string;
-  readonly startIndex: number;
-  readonly endIndex: number;
-  readonly rangeLabel: string;
-  readonly text: string;
-  readonly diff: string;
-  readonly fenceLanguage?: string | undefined;
-}
+export const MdxAnchorReviewCommentContextSchema = Schema.Struct({
+  kind: Schema.Literal("mdx-anchor"),
+  ...reviewCommentBaseFields,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String,
+});
+
+export const ReviewCommentContextSchema = Schema.Union([
+  LineReviewCommentContextSchema,
+  MdxAnchorReviewCommentContextSchema,
+]);
+
+export type LineReviewCommentContext = typeof LineReviewCommentContextSchema.Type;
+export type MdxAnchorReviewCommentContext = typeof MdxAnchorReviewCommentContextSchema.Type;
+export type ReviewCommentContext = typeof ReviewCommentContextSchema.Type;
 
 interface DiffReviewLine {
   readonly change: "context" | "add" | "delete";
@@ -111,6 +135,7 @@ function parseReviewCommentContext(
   const body = extractReviewCommentBody(rawBody);
 
   return {
+    kind: "line",
     id: `review-comment:${index}:${sectionId}:${filePath}:${startIndex}:${endIndex}`,
     sectionId,
     sectionTitle: attributes.sectionTitle?.trim() || "Review",
@@ -184,7 +209,32 @@ export function formatReviewCommentFence(language: string, contents: string): st
   return [`${fence}${language}`, contents.trimEnd(), fence].join("\n");
 }
 
+function formatMdxAnchorReviewComment(comment: MdxAnchorReviewCommentContext): string {
+  const details = planCommentAnchorDetails(comment.anchor);
+  const body = [comment.text.trim(), details.length > 0 ? details.join("\n") : ""]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+  const fenceLanguage = inferReviewCommentFenceLanguage(comment.filePath);
+  return [
+    [
+      "<review_comment",
+      ` kind="mdx-anchor"`,
+      ` sectionId="${escapeReviewCommentAttribute(comment.sectionId)}"`,
+      ` sectionTitle="${escapeReviewCommentAttribute(comment.sectionTitle)}"`,
+      ` filePath="${escapeReviewCommentAttribute(comment.filePath)}"`,
+      ` rangeLabel="${escapeReviewCommentAttribute(comment.rangeLabel)}"`,
+      ">",
+    ].join(""),
+    body,
+    formatReviewCommentFence(fenceLanguage, comment.quotedText),
+    "</review_comment>",
+  ].join("\n");
+}
+
 export function formatReviewCommentContext(comment: ReviewCommentContext): string {
+  if (comment.kind === "mdx-anchor") {
+    return formatMdxAnchorReviewComment(comment);
+  }
   return [
     [
       "<review_comment",
@@ -226,6 +276,7 @@ export function buildFileReviewComment(input: {
   const endLine = Math.max(startLine, Math.max(input.startLine, input.endLine));
   const selectedLines = input.contents.split("\n").slice(startLine - 1, endLine);
   return {
+    kind: "line",
     id: input.id,
     sectionId: `file:${input.filePath}`,
     sectionTitle: "File comment",
@@ -332,6 +383,7 @@ export function restoreDiffReviewCommentRange(
   fileDiff: FileDiffMetadata,
   comment: ReviewCommentContext,
 ): SelectedLineRange | null {
+  if (comment.kind !== "line") return null;
   const lines = buildDiffReviewLines(fileDiff);
   const startLine = lines[comment.startIndex];
   const endLine = lines[comment.endIndex];
@@ -421,6 +473,7 @@ export function buildDiffReviewComment(input: {
   const newRange = getDiffRange(selectedLines, "newLineNumber");
 
   return {
+    kind: "line",
     id: input.id,
     sectionId: input.sectionId,
     sectionTitle: input.sectionTitle,
@@ -438,6 +491,7 @@ export function buildDiffReviewComment(input: {
 }
 
 export function buildReviewCommentRenderablePatch(comment: ReviewCommentContext): string {
+  if (comment.kind !== "line") return "";
   if ((comment.fenceLanguage ?? "diff") !== "diff") {
     return "";
   }

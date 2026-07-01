@@ -163,6 +163,7 @@ describe("review comment context parsing", () => {
     expect(inferReviewCommentFenceLanguage("src/view.tsx")).toBe("tsx");
 
     const serialized = formatReviewCommentContext({
+      kind: "line",
       id: "comment-3",
       sectionId: "file:docs/plan.md",
       sectionTitle: "File comment",
@@ -190,6 +191,7 @@ describe("review comment context parsing", () => {
 
   it("round-trips greater-than signs in attributes", () => {
     const serialized = formatReviewCommentContext({
+      kind: "line",
       id: "comment-4",
       sectionId: "turn:4",
       sectionTitle: "Changes > 5",
@@ -215,6 +217,7 @@ describe("review comment context parsing", () => {
   it("keeps fenced examples in comment text separate from the final context fence", () => {
     const text = ["Try this:", "```ts", "const value = 1;", "```", "Then retry."].join("\n");
     const serialized = formatReviewCommentContext({
+      kind: "line",
       id: "comment-5",
       sectionId: "turn:5",
       sectionTitle: "Turn 5",

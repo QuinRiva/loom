@@ -52,7 +52,8 @@ import { installFileEditorDismissal } from "./fileEditorDismissal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { isMarkdownPreviewFile, isMdxPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -575,6 +576,14 @@ function RenderedMarkdownSurface({
     relativePath,
     onPendingChange,
   });
+
+  if (isMdxPreviewFile(relativePath)) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        <MdxPlanRenderer source={contents} />
+      </ScrollArea>
+    );
+  }
 
   return (
     <ScrollArea className="min-h-0 flex-1">
