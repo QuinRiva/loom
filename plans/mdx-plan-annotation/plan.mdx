@@ -222,6 +222,57 @@ same `.mdx` and are individually annotatable.
   spec={'{\n  "openapi": "3.0.0",\n  "info": { "title": "Plan comments", "version": "0.1.0" },\n  "paths": {\n    "/api/plans/{slug}/comments": {\n      "put": {\n        "tags": ["comments"],\n        "summary": "Persist plan comments to a sidecar",\n        "responses": { "200": { "description": "Sidecar written" } }\n      }\n    }\n  }\n}'}
 />
 
+## Container blocks
+
+Container blocks nest other plan blocks so a reviewer can compare or group
+surfaces. `<Columns>` lays child blocks side by side (the common case is a
+before/after pair); `<TabsBlock>` stacks child blocks behind a keyboard-accessible
+tab strip. Both are MDX-native — each slot's blocks are ordinary children — and
+each nested block stays independently annotatable.
+
+<Columns>
+  <Column label="Before">
+    <Code
+      filename="registry.tsx"
+      language="ts"
+      code={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n]\n"}
+    />
+  </Column>
+  <Column label="After">
+    <Code
+      filename="registry.tsx"
+      language="ts"
+      code={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n  columnsBlock,\n  tabsBlock,\n]\n"}
+    />
+  </Column>
+</Columns>
+
+<TabsBlock>
+  <Tab label="Overview">
+    <Callout tone="info">
+      Tabs keep every panel mounted (inactive ones hidden), so a comment anchored
+      inside any tab survives a re-render and resolves to its own nested block.
+    </Callout>
+  </Tab>
+  <Tab label="Blocks">
+    <Table
+      columns={["Container", "Slot", "Nesting"]}
+      rows={[
+        ["Columns", "Column", "side-by-side"],
+        ["TabsBlock", "Tab", "one panel per tab"],
+      ]}
+    />
+  </Tab>
+  <Tab label="Checklist">
+    <Checklist
+      items={[
+        { id: "nest", label: "Nested blocks get distinct ids", checked: true },
+        { id: "anchor", label: "Each resolves to itself, not the container", checked: true },
+      ]}
+    />
+  </Tab>
+</TabsBlock>
+
 ## Wireframe surface
 
 A `<Screen>` renders a sanitised HTML mockup inside a surface-locked frame.

@@ -13,6 +13,7 @@ import {
 } from "./blocks/canvas";
 import { checklistBlock } from "./blocks/checklist";
 import { codeBlock } from "./blocks/code";
+import { columnBlock, columnsBlock } from "./blocks/columns";
 import { dataModelBlock } from "./blocks/dataModel";
 import { diagramBlock } from "./blocks/diagram";
 import { diffBlock } from "./blocks/diff";
@@ -24,6 +25,7 @@ import { openApiBlock } from "./blocks/openApi";
 import { questionFormBlock } from "./blocks/questionForm";
 import { designBlock, screenBlock } from "./blocks/screen";
 import { tableBlock } from "./blocks/table";
+import { tabBlock, tabsBlock } from "./blocks/tabs";
 import { visualQuestionsBlock } from "./blocks/visualQuestions";
 
 /**
@@ -67,6 +69,10 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: artboardBlock.mdx.tag, type: "wireframe", block: artboardBlock },
   { tag: annotationBlock.mdx.tag, type: "annotation", block: annotationBlock },
   { tag: connectorBlock.mdx.tag, type: "canvas-connector", block: connectorBlock },
+  { tag: columnsBlock.mdx.tag, type: "columns", block: columnsBlock },
+  { tag: columnBlock.mdx.tag, type: "column", block: columnBlock },
+  { tag: tabsBlock.mdx.tag, type: "tabs", block: tabsBlock },
+  { tag: tabBlock.mdx.tag, type: "tab", block: tabBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
