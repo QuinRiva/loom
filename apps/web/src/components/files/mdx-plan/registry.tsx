@@ -3,13 +3,20 @@ import type { FC, ReactNode } from "react";
 import type { MdxAttrValue, PlanBlock } from "./blockTypes";
 import { createAttrReader, parseFirstJsxBlock, serializeBlockElement } from "./mdxAttrs";
 import { annotatedCodeBlock } from "./blocks/annotatedCode";
+import { calloutBlock } from "./blocks/callout";
+import { checklistBlock } from "./blocks/checklist";
 import { codeBlock } from "./blocks/code";
 import { dataModelBlock } from "./blocks/dataModel";
 import { diagramBlock } from "./blocks/diagram";
+import { diffBlock } from "./blocks/diff";
 import { endpointBlock } from "./blocks/endpoint";
 import { fileTreeBlock } from "./blocks/fileTree";
 import { jsonBlock } from "./blocks/json";
+import { mermaidBlock } from "./blocks/mermaid";
+import { openApiBlock } from "./blocks/openApi";
 import { questionFormBlock } from "./blocks/questionForm";
+import { tableBlock } from "./blocks/table";
+import { visualQuestionsBlock } from "./blocks/visualQuestions";
 
 /**
  * The closed plan-block registry: tag → block. This is the one place that lists
@@ -38,6 +45,13 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: diagramBlock.mdx.tag, type: "diagram", block: diagramBlock },
   { tag: questionFormBlock.mdx.tag, type: "question-form", block: questionFormBlock },
   { tag: jsonBlock.mdx.tag, type: "json-explorer", block: jsonBlock },
+  { tag: calloutBlock.mdx.tag, type: "callout", block: calloutBlock },
+  { tag: checklistBlock.mdx.tag, type: "checklist", block: checklistBlock },
+  { tag: tableBlock.mdx.tag, type: "table", block: tableBlock },
+  { tag: visualQuestionsBlock.mdx.tag, type: "visual-questions", block: visualQuestionsBlock },
+  { tag: diffBlock.mdx.tag, type: "diff", block: diffBlock },
+  { tag: openApiBlock.mdx.tag, type: "openapi-spec", block: openApiBlock },
+  { tag: mermaidBlock.mdx.tag, type: "mermaid", block: mermaidBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));

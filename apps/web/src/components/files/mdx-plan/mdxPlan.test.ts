@@ -114,6 +114,77 @@ describe("mdx-plan block round-trip", () => {
     expect(roundTrip("QuestionForm", data)).toEqual(data);
   });
 
+  it("round-trips a Checklist block", () => {
+    const data = {
+      items: [
+        { id: "a", label: "Ship the renderer", checked: true },
+        { id: "b", label: "Wire annotations", note: "across all blocks" },
+      ],
+    };
+    expect(roundTrip("Checklist", data)).toEqual(data);
+  });
+
+  it("round-trips a Table block (columns + string rows)", () => {
+    const data = {
+      columns: ["Block", "Risk"],
+      rows: [
+        ["Diff", "self-contained LCS"],
+        ["Mermaid", "lazy dep"],
+      ],
+      density: "compact" as const,
+    };
+    expect(roundTrip("Table", data)).toEqual(data);
+  });
+
+  it("round-trips a VisualQuestions block (same shape as QuestionForm)", () => {
+    const data = {
+      questions: [
+        {
+          id: "tier",
+          title: "Which fidelity?",
+          mode: "single" as const,
+          options: [{ id: "w", label: "Wireframe", recommended: true }],
+        },
+      ],
+    };
+    expect(roundTrip("VisualQuestions", data)).toEqual(data);
+  });
+
+  it("round-trips a Diff block (multiline before/after + line annotations)", () => {
+    const data = {
+      filename: "src/add.ts",
+      language: "ts",
+      mode: "split" as const,
+      before: "export function add(a, b) {\n  return a\n}\n",
+      after: "export function add(a: number, b: number) {\n  return a + b\n}\n",
+      annotations: [{ side: "after" as const, lines: "2", label: "fix", note: "actually sum" }],
+    };
+    expect(roundTrip("Diff", data)).toEqual(data);
+  });
+
+  it("round-trips an OpenApi block (spec kept as a verbatim string)", () => {
+    const data = {
+      title: "Tokens",
+      spec: '{\n  "openapi": "3.0.0",\n  "info": { "title": "T", "version": "1" },\n  "paths": {}\n}',
+    };
+    expect(roundTrip("OpenApi", data)).toEqual(data);
+  });
+
+  it("round-trips a Mermaid block (multiline source attr)", () => {
+    const data = {
+      source: "flowchart TD\n  A[Start] --> B{Decision}\n  B --> C[Done]\n",
+      caption: "Flow",
+    };
+    expect(roundTrip("Mermaid", data)).toEqual(data);
+  });
+
+  it("round-trips a Callout block (tone attr; body is prose children)", () => {
+    const data = { tone: "risk" as const, body: "Untrusted HTML is a second trust boundary." };
+    // body is serialized as prose children (dropped by the self-closing
+    // serializer), so the attr round-trip covers `tone`; body decodes to "".
+    expect(roundTrip("Callout", data)).toEqual({ tone: "risk", body: "" });
+  });
+
   it("round-trips a Json block (json kept as a verbatim string)", () => {
     const data = {
       title: "Payload",
@@ -145,6 +216,32 @@ describe("mdx-plan security model", () => {
     expect(html).toContain("User");
     expect(html).toContain('data-plan-block-type="data-model"');
     expect(html).toContain("mintToken"); // code body (SSR fallback <pre>)
+  });
+
+  it("renders the Phase 4 document blocks through the registry", async () => {
+    const source = [
+      '<Callout tone={"risk"}>\n\nUntrusted HTML is a second trust boundary.\n\n</Callout>',
+      "",
+      '<Checklist items={[{ "id": "a", "label": "Ship it", "checked": true }]} />',
+      "",
+      '<Table columns={["A", "B"]} rows={[["1", "2"]]} />',
+      "",
+      '<Diff filename="x.ts" before={"const a = 1\\n"} after={"const a = 2\\n"} />',
+      "",
+      '<VisualQuestions questions={[{ "id": "q", "title": "Which?", "mode": "single" }]} />',
+      "",
+      '<OpenApi spec={"{\\"openapi\\":\\"3.0.0\\",\\"info\\":{\\"title\\":\\"T\\",\\"version\\":\\"1\\"},\\"paths\\":{}}"} />',
+    ].join("\n");
+    const Content = await compilePlanMdx(source);
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).toContain('data-plan-block-type="callout"');
+    expect(html).toContain('data-plan-block-type="checklist"');
+    expect(html).toContain('data-plan-block-type="table"');
+    expect(html).toContain('data-plan-block-type="diff"');
+    expect(html).toContain('data-plan-block-type="visual-questions"');
+    expect(html).toContain('data-plan-block-type="openapi-spec"');
   });
 
   it("rejects imports/exports at compile", async () => {

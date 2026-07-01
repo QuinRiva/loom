@@ -81,6 +81,12 @@ export const NON_PROSE_BLOCK_TYPES = new Set([
   "file-tree",
   "question-form",
   "json-explorer",
+  "checklist",
+  "table",
+  "visual-questions",
+  "diff",
+  "openapi-spec",
+  "mermaid",
 ]);
 
 /** Map a plan block type to the anchor's coarse `targetKind`. */
@@ -89,12 +95,17 @@ function targetKindForBlock(blockType: string | null): PlanCommentTargetKind {
     case "code":
     case "annotated-code":
     case "json-explorer":
+    case "diff":
+    case "openapi-spec":
       return "code";
     case "diagram":
+    case "mermaid":
       return "diagram";
     case "data-model":
+    case "table":
       return "table";
     case "question-form":
+    case "visual-questions":
       return "control";
     case "wireframe":
     case "design":

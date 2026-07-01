@@ -180,20 +180,41 @@ string literal attribute, so it must be sanitised at the block render point.
 rough.js sketch overlay is optional polish, deferred. Design-fidelity screens are
 a styling tier over the same renderer (a fidelity flag), not a separate renderer.
 
-## D9 — Live prototype: sandboxed iframe is the boundary (wire format pending user)
+## D9 — Security posture CONFIRMED by user: keep the real boundaries, drop the redundant belt-and-braces
 
-The live interactive prototype runs in `<iframe sandbox="allow-scripts
-allow-forms">` with `srcdoc` + a strict CSP and **no `allow-same-origin`** →
-opaque origin. Proven in a real browser: it cannot read the parent window, DOM,
-or cookies, yet stays interactive; its only channel is `postMessage`, treated as
-hostile. **Recommended (pending explicit user confirmation before C4 builds):**
-sandbox is the primary boundary + sanitise the prototype HTML as defence-in-depth
+**User confirmed (this session): foreign `.mdx` — e.g. opened from another
+repo — IS in scope.** So rendered plan content can be less trusted than the
+user's own agent, and the browser-session boundary is a real threat, not
+hypothetical. Rationale settled: the agent's arbitrary _server/workspace_ code
+execution does NOT already grant access to the _browser session_ (auth token,
+cookies, app RPCs-as-you); script-in-a-rendered-plan would be XSS-level
+escalation. Posture:
 
-- **no remote script** (`script-src 'self'`/`'unsafe-inline'` only) unless a plan
-  explicitly opts in; wire shape = a single `<Prototype html="…">` block. **v1
-  annotation = whole-prototype (block-level `visual` anchor)**; in-prototype node
-  pins need a postMessage geometry bridge and are a separate, gated follow-on
-  (C5) — not v1. This is the one Phase-4 decision flagged for a human.
+- **Already-shipped document tier is already safe** against foreign `.mdx`: the
+  MDX guard (rejects arbitrary JS in bodies + attribute expressions) + closed
+  registry + document blocks render _structured data_, not raw HTML. No further
+  work needed there.
+- **KEEP — live prototype in `<iframe sandbox="allow-scripts allow-forms">`**
+  (`srcdoc`, **no `allow-same-origin`** → opaque origin; proven to block
+  parent/DOM/cookie access while staying interactive). This is the primary and
+  sufficient boundary. Wire shape = a single `<Prototype html="…">` block. v1
+  annotation = whole-prototype (`visual` anchor); in-prototype node pins (C5) are
+  a deferred follow-on needing a postMessage geometry bridge.
+- **KEEP — `script-src 'self'`/`'unsafe-inline'` in the prototype `srcdoc` CSP
+  (no remote scripts by default).** Cheap, and justified now that untrusted
+  content is in scope (stops a foreign prototype phoning home / pulling arbitrary
+  libraries). Relaxable per-plan only on explicit user opt-in.
+- **KEEP — wireframe `sanitizeWireframeHtml` (D8)** and **HtmlBlock in a
+  locked-down iframe (no `allow-scripts`) + sanitise.** These render/allow raw
+  HTML, so they are genuine trust boundaries the MDX guard does not cover.
+- **DROP — sanitising the prototype HTML _on top of_ the opaque-origin sandbox.**
+  This was over-specified: the sandbox already fully isolates the prototype from
+  the app session, so a second sanitise pass adds negligible session-safety and
+  is exactly the overcomplicated defensive coding to avoid. The sandbox + CSP is
+  the boundary; no double-sanitise.
+
+Security-review gates remain for the ported wireframe sanitiser (C1), HtmlBlock
+(B5), and prototype execution (C4).
 
 ## D10 — Extend the anchor union additively; recursion for container blocks
 
@@ -208,8 +229,6 @@ nesting and lands before design screens.
 
 ## Open decisions deferred to their phase
 
-- **C4 prototype wire format + remote-script policy** — flagged for the human
-  (see D9). C4 does not build until confirmed.
 - **Mermaid diagrams**: lazy `await import()` per BuilderIO; added when needed.
 - **rough.js wireframe sketch overlay**: optional polish, deferred past C1.
 - **C5 in-prototype pin annotation**: postMessage geometry bridge; separate gated

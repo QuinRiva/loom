@@ -173,6 +173,55 @@ is **not** built now:
   first cut keeps comments in the composer store and never touches disk.
 </Endpoint>
 
+## Phase 4 block vocabulary
+
+Phase 4 ports the remaining BuilderIO document blocks so annotation works across
+the full vocabulary, not just prose. The blocks below are all rendered from the
+same `.mdx` and are individually annotatable.
+
+<Callout tone="risk">
+  The wireframe / HtmlBlock surfaces introduce a **second trust boundary** — the
+  HTML arrives as a passed-through string literal the MDX guard never reads, so it
+  must be sanitised at the block render point. Those surfaces are Wave C, not this
+  cut.
+</Callout>
+
+<Checklist
+  items={[
+    { id: "differ", label: "Diff ships a self-contained LCS differ (no jsdiff dep)", checked: true },
+    { id: "mermaid", label: "Mermaid is lazy-imported, never in the base bundle", checked: true },
+    { id: "annot", label: "Annotation resolves across every new block type" },
+  ]}
+/>
+
+<Table
+  columns={["Block", "Port size", "Risk"]}
+  rows={[
+    ["Callout / Checklist / Table", "trivial", "mirror shipped pattern"],
+    ["Diff", "medium", "inline LCS differ, self-contained"],
+    ["OpenApi", "medium", "read subset of the spec renderer"],
+    ["Mermaid", "medium", "lazy dep, isolated from base bundle"],
+  ]}
+/>
+
+<Diff
+  filename="apps/web/src/components/files/mdx-plan/registry.tsx"
+  language="ts"
+  before={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n]\n"}
+  after={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n  calloutBlock,\n  diffBlock,\n  mermaidBlock,\n]\n"}
+  annotations={[{ side: "after", lines: "4-6", label: "Phase 4", note: "new document blocks registered" }]}
+/>
+
+<Mermaid
+  source={"flowchart LR\n  A[Author .mdx] --> B[Runtime MDX render]\n  B --> C[Select span]\n  C --> D[Anchored comment]\n  D --> E[Injected user turn]"}
+  caption="The annotation flow, now across every block type"
+/>
+
+<OpenApi
+  title="Plan comments (deferred sidecar)"
+  spec={'{\n  "openapi": "3.0.0",\n  "info": { "title": "Plan comments", "version": "0.1.0" },\n  "paths": {\n    "/api/plans/{slug}/comments": {\n      "put": {\n        "tags": ["comments"],\n        "summary": "Persist plan comments to a sidecar",\n        "responses": { "200": { "description": "Sidecar written" } }\n      }\n    }\n  }\n}'}
+/>
+
 ## Verification
 
 Build the web app, run `vp check` + `vp run typecheck`, then smoke the real

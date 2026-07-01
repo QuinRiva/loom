@@ -80,12 +80,21 @@ const MODE_LABEL: Record<QuestionMode, string> = {
   freeform: "Write-in",
 };
 
-export function QuestionFormRead({ data, blockId }: PlanBlockReadProps<QuestionFormData>) {
+/**
+ * Shared read-only question list, keyed on a `blockType` so both `<QuestionForm>`
+ * and its `<VisualQuestions>` variant render the same UI while stamping their own
+ * `data-plan-block-type` (the annotation layer distinguishes them).
+ */
+export function QuestionListRead({
+  data,
+  blockId,
+  blockType,
+}: PlanBlockReadProps<QuestionFormData> & { blockType: string }) {
   const questions = data.questions ?? [];
   return (
     <section
       data-plan-block-id={blockId}
-      data-plan-block-type="question-form"
+      data-plan-block-type={blockType}
       className="my-4 overflow-hidden rounded-xl border border-border bg-card"
     >
       <div className="border-b border-border/60 bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -153,6 +162,10 @@ export function QuestionFormRead({ data, blockId }: PlanBlockReadProps<QuestionF
       </ol>
     </section>
   );
+}
+
+export function QuestionFormRead(props: PlanBlockReadProps<QuestionFormData>) {
+  return <QuestionListRead {...props} blockType="question-form" />;
 }
 
 export const questionFormBlock: PlanBlock<QuestionFormData> = {
