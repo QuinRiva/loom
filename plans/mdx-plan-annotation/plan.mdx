@@ -180,10 +180,10 @@ the full vocabulary, not just prose. The blocks below are all rendered from the
 same `.mdx` and are individually annotatable.
 
 <Callout tone="risk">
-  The wireframe / HtmlBlock surfaces introduce a **second trust boundary** — the
-  HTML arrives as a passed-through string literal the MDX guard never reads, so it
-  must be sanitised at the block render point. Those surfaces are Wave C, not this
-  cut.
+  The wireframe surface introduces a **second trust boundary** — the HTML arrives
+  as a passed-through string literal the MDX guard never reads, so it is sanitised
+  at the block render point (`sanitizeWireframeHtml`) before it is injected into
+  the live DOM. Wave C1 ships that sanitiser and the `<Screen>` artboard below.
 </Callout>
 
 <Checklist
@@ -220,6 +220,19 @@ same `.mdx` and are individually annotatable.
 <OpenApi
   title="Plan comments (deferred sidecar)"
   spec={'{\n  "openapi": "3.0.0",\n  "info": { "title": "Plan comments", "version": "0.1.0" },\n  "paths": {\n    "/api/plans/{slug}/comments": {\n      "put": {\n        "tags": ["comments"],\n        "summary": "Persist plan comments to a sidecar",\n        "responses": { "200": { "description": "Sidecar written" } }\n      }\n    }\n  }\n}'}
+/>
+
+## Wireframe surface
+
+A `<Screen>` renders a sanitised HTML mockup inside a surface-locked frame.
+Selecting any element inside the artboard pins a node-level comment (the
+`data-wf-node` contract), so a reviewer can annotate a specific control, not just
+the whole mockup.
+
+<Screen
+  surface="browser"
+  caption="Annotating a rendered plan — select a span, comment, inject as a user turn"
+  html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;justify-content:space-between'><h2>plan.mdx</h2><span class='wf-pill accent'>Rendered</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><p>Select any span to surface a <span class='wf-pill'>Comment</span> affordance.</p><p class='wf-muted'>The comment becomes a composer chip, then injects as a normal user turn.</p></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong>Reviewer comment</strong><p class='wf-muted'>Confirm this reuses the code-review seam verbatim.</p><div style='display:flex;gap:8px;margin-top:4px'><button class='primary'>Send to agent</button><button>Dismiss</button></div></div></div>"}
 />
 
 ## Verification

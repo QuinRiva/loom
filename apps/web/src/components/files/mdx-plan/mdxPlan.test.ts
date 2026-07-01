@@ -185,6 +185,15 @@ describe("mdx-plan block round-trip", () => {
     expect(roundTrip("Callout", data)).toEqual({ tone: "risk", body: "" });
   });
 
+  it("round-trips a Screen block (wireframe html + surface + caption)", () => {
+    const data = {
+      surface: "browser" as const,
+      html: "<div style='padding:16px'><h1>Sign in</h1><button class='primary'>Go</button></div>",
+      caption: "Sign-in screen",
+    };
+    expect(roundTrip("Screen", data)).toEqual(data);
+  });
+
   it("round-trips a Json block (json kept as a verbatim string)", () => {
     const data = {
       title: "Payload",

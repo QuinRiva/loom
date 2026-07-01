@@ -15,6 +15,7 @@ import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
 import { openApiBlock } from "./blocks/openApi";
 import { questionFormBlock } from "./blocks/questionForm";
+import { screenBlock } from "./blocks/screen";
 import { tableBlock } from "./blocks/table";
 import { visualQuestionsBlock } from "./blocks/visualQuestions";
 
@@ -52,6 +53,7 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: diffBlock.mdx.tag, type: "diff", block: diffBlock },
   { tag: openApiBlock.mdx.tag, type: "openapi-spec", block: openApiBlock },
   { tag: mermaidBlock.mdx.tag, type: "mermaid", block: mermaidBlock },
+  { tag: screenBlock.mdx.tag, type: "wireframe", block: screenBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
