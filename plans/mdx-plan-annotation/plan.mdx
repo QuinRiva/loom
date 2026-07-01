@@ -235,6 +235,62 @@ the whole mockup.
   html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;justify-content:space-between'><h2>plan.mdx</h2><span class='wf-pill accent'>Rendered</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><p>Select any span to surface a <span class='wf-pill'>Comment</span> affordance.</p><p class='wf-muted'>The comment becomes a composer chip, then injects as a normal user turn.</p></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong>Reviewer comment</strong><p class='wf-muted'>Confirm this reuses the code-review seam verbatim.</p><div style='display:flex;gap:8px;margin-top:4px'><button class='primary'>Send to agent</button><button>Dismiss</button></div></div></div>"}
 />
 
+## Canvas — cross-screen flow
+
+The canvas positions several artboards in one board-unit space, so a reviewer can
+comment on any control, any whole screen, or the flow between screens. Connectors
+and free-floating gutter notes live in the **same** coordinate space as the
+annotation overlay (board units → pixels at ~2 units/px), so a canvas comment
+resolves through the shared transform.
+
+<DesignBoard title="Onboarding flow" width={2400} height={1040}>
+  <Section title="Sign-in journey" x={-60} y={-60} width={2560} height={1080} />
+  <Artboard
+    id="cv-signin"
+    x={0}
+    y={0}
+    surface="mobile"
+    caption="Sign in"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><h2>Sign in</h2><label>Email<input placeholder='you@example.com'/></label><label>Password<input type='password'/></label><button class='primary'>Continue</button></div>"}
+  />
+  <Artboard
+    id="cv-verify"
+    x={760}
+    y={0}
+    surface="mobile"
+    caption="Verify"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><h2>Verify</h2><p class='wf-muted'>Enter the 6-digit code we sent.</p><input placeholder='------'/><button class='primary'>Verify</button><button>Resend code</button></div>"}
+  />
+  <Artboard
+    id="cv-home"
+    x={1520}
+    y={0}
+    surface="mobile"
+    caption="Home"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><div style='display:flex;justify-content:space-between;align-items:center'><h2>Home</h2><span class='wf-pill accent'>Live</span></div><div class='wf-card'>Welcome back</div><div class='wf-card'>Recent activity</div></div>"}
+  />
+  <Connector from="cv-signin" to="cv-verify" label="submit" />
+  <Connector from="cv-verify" to="cv-home" label="verified" />
+  <Annotation targetId="cv-verify" placement="bottom">
+    Confirm the OTP resend timer copy matches the security policy.
+  </Annotation>
+</DesignBoard>
+
+## Design-fidelity screen
+
+The **design** tier is a fidelity flag over the same artboard renderer: the same
+sanitised HTML injected into the live DOM, but with branded theme classes
+**preserved** (no sketch treatment) and a clean neutral frame. It is HTML-only —
+there is deliberately no authored `css`/`style` field — and it carries
+`data-plan-block-type="design"`, so it is node-pin annotatable exactly like a
+wireframe.
+
+<Design
+  surface="browser"
+  caption="Branded dashboard (design fidelity)"
+  html={"<div style='font-family:system-ui'><div style='background:linear-gradient(90deg,#4f46e5,#7c3aed);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center'><strong style='font-size:16px'>Acme Studio</strong><span style='background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:999px;font-size:12px'>Pro</span></div><div style='padding:20px;display:flex;gap:16px'><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Revenue</div><div style='font-size:24px;font-weight:700;color:#111827'>$48,120</div></div><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Active users</div><div style='font-size:24px;font-weight:700;color:#111827'>2,304</div></div></div><div style='padding:0 20px 20px'><button style='background:#4f46e5;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-weight:600'>Create report</button></div></div>"}
+/>
+
 ## Verification
 
 Build the web app, run `vp check` + `vp run typecheck`, then smoke the real

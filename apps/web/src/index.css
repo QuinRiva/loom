@@ -1043,3 +1043,102 @@ label:has(> select#reasoning-effort) select {
   height: 1em;
   vertical-align: -0.15em;
 }
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan design-fidelity tier (Wave C3)                                     */
+/* The SAME sanitised-HTML-in-live-DOM renderer as the wireframe, with branded */
+/* theme classes preserved (no --wf token theming, no sketch chrome). It keeps */
+/* the S1 containment box (position:relative + contain) so a design fragment    */
+/* can't escape its artboard to overlay host chrome. Fragments bring their own  */
+/* styling (inline styles / preserved Tailwind classes).                       */
+/* -------------------------------------------------------------------------- */
+.plan-design-surface {
+  box-sizing: border-box;
+  position: relative;
+  contain: layout paint;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.plan-design-surface * {
+  box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan canvas (Wave C2)                                                   */
+/* A DesignBoard is a board-unit coordinate space; artboards/section frames/   */
+/* notes are absolutely positioned children of .plan-canvas-surface (the       */
+/* positioned reference the board→pixel transform maps into). Connectors draw   */
+/* between artboards in the same space.                                        */
+/* -------------------------------------------------------------------------- */
+.plan-canvas {
+  display: block;
+}
+.plan-canvas-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.plan-canvas-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    )
+    0 0 / 22px 22px;
+  padding: 8px;
+}
+.plan-canvas-surface {
+  position: relative;
+  min-width: 100%;
+  min-height: 220px;
+}
+.plan-canvas-artboard {
+  z-index: 2;
+}
+.plan-canvas-section-frame {
+  z-index: 0;
+  border: 1.5px dashed color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  pointer-events: none;
+}
+.plan-canvas-section-label {
+  position: absolute;
+  top: -0.7rem;
+  left: 0.75rem;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  background: var(--background);
+}
+.plan-canvas-connector {
+  z-index: 1;
+  pointer-events: none;
+}
+.plan-canvas-connector-svg {
+  overflow: visible;
+}
+.plan-canvas-connector-label {
+  font-size: 10px;
+}
+.plan-canvas-annotation {
+  z-index: 3;
+  max-width: 220px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--warn, #d97706) 12%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--warn, #d97706) 40%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}

@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { z } from "zod";
 
+import { cn } from "~/lib/utils";
+
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { sanitizeWireframeHtml } from "../sanitizeWireframeHtml";
 
@@ -25,11 +27,22 @@ import { sanitizeWireframeHtml } from "../sanitizeWireframeHtml";
 
 export type WireframeSurface = "browser" | "desktop" | "mobile" | "popover" | "panel";
 
+/** Fidelity tier (C3). `wireframe` strips host theme classes and imposes the
+ * sketch chrome; `design` preserves branded theme classes and renders a clean,
+ * neutral frame — the SAME sanitised-HTML-in-live-DOM renderer, one flag. Design
+ * stays HTML-only: no authored `css`/`style` field (that would re-open the CSS
+ * trust surface the security review closed). */
+export type ScreenFidelity = "wireframe" | "design";
+
 export interface ScreenData {
   surface: WireframeSurface;
   /** Self-contained semantic HTML fragment of the screen (sanitised at render). */
   html: string;
   caption?: string;
+  /** Internal render tier (not a `<Screen>` wire attribute — set by the block/
+   * tag that renders: `<Screen>`→wireframe, `<Design>`→design, `<Artboard>` per
+   * its `fidelity`). */
+  fidelity?: ScreenFidelity;
 }
 
 /** Surface footprint presets — the frame's width, min-height floor, and corner
@@ -83,25 +96,40 @@ export function stampWireframeNodes(html: string): string {
   return doc.body.innerHTML;
 }
 
-export function ScreenRead({ data, blockId }: PlanBlockReadProps<ScreenData>) {
+/**
+ * Render a sanitised artboard. `flow` (default) gives the standalone `<Screen>`
+ * block its document-flow margins + responsive max-width; the canvas `<Artboard>`
+ * passes `flow={false}` so the figure sits at its absolute board position with a
+ * fixed footprint. The `design` tier preserves theme classes (sanitiser hook)
+ * and renders through a neutral surface (`.plan-design-surface`) instead of the
+ * wireframe sketch chrome — both surfaces keep the S1 containment box.
+ */
+export function ScreenRead({
+  data,
+  blockId,
+  flow = true,
+}: PlanBlockReadProps<ScreenData> & { flow?: boolean }) {
   const preset = SURFACE_PRESETS[data.surface] ?? SURFACE_PRESETS.browser;
+  const design = data.fidelity === "design";
   // Sanitise (trust boundary) then stamp node ids (annotation contract), memoised
-  // on the raw html so both DOM passes only run when the fragment changes.
+  // on the raw html + tier so both DOM passes only run when either changes. The
+  // design tier keeps branded theme classes; the wireframe tier strips them.
   const safeHtml = useMemo(
-    () => stampWireframeNodes(sanitizeWireframeHtml(data.html)),
-    [data.html],
+    () => stampWireframeNodes(sanitizeWireframeHtml(data.html, { preserveThemeClasses: design })),
+    [data.html, design],
   );
 
   return (
     <figure
       data-plan-block-id={blockId}
-      data-plan-block-type="wireframe"
+      data-plan-block-type={design ? "design" : "wireframe"}
       data-wf-surface={data.surface}
-      className="wf-artboard mx-auto my-6"
-      style={{ width: "100%", maxWidth: preset.width }}
+      data-wf-fidelity={design ? "design" : "wireframe"}
+      className={cn("wf-artboard", flow && "mx-auto my-6")}
+      style={flow ? { width: "100%", maxWidth: preset.width } : { width: preset.width }}
     >
       <div
-        className="wf-surface"
+        className={design ? "plan-design-surface" : "wf-surface"}
         style={{ minHeight: preset.minHeight, borderRadius: preset.radius }}
         dangerouslySetInnerHTML={{ __html: safeHtml }}
       />
@@ -114,4 +142,22 @@ export const screenBlock: PlanBlock<ScreenData> = {
   schema: screenSchema,
   mdx: screenMdx,
   Read: ScreenRead,
+};
+
+/**
+ * The `<Design>` block (Wave C3) — the design-fidelity tier: the SAME artboard
+ * renderer with `fidelity: "design"` forced, so branded theme classes survive
+ * (sanitiser `preserveThemeClasses`) and the render is clean (no sketch chrome),
+ * carrying `data-plan-block-type="design"` for A1's node-pin anchoring. It shares
+ * `screenSchema` (same surface/html/caption wire shape) — fidelity is implied by
+ * the tag, never an attribute, and there is deliberately NO css/style field.
+ */
+export function DesignRead({ data, blockId }: PlanBlockReadProps<ScreenData>) {
+  return <ScreenRead data={{ ...data, fidelity: "design" }} blockId={blockId} />;
+}
+
+export const designBlock: PlanBlock<ScreenData> = {
+  schema: screenSchema,
+  mdx: { ...screenMdx, tag: "Design" },
+  Read: DesignRead,
 };

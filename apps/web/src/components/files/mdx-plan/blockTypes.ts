@@ -54,6 +54,12 @@ export interface BlockMdxConfig<TData> {
   fromAttrs: (attrs: BlockAttrReader, children: string) => TData;
   /** When set, this field is serialized as MDX prose *children*, not a prop. */
   childrenField?: keyof TData & string;
+  /** Structural container blocks (canvas `<DesignBoard>`/`<Section>`, Wave B6
+   * `<Columns>`/`<Tabs>`) render their nested block *children* — already resolved
+   * to React nodes by the MDX evaluate path — without mapping them to a data
+   * field. Set this to forward `children` to `Read` when there is no
+   * `childrenField` prose body. */
+  passChildren?: boolean;
 }
 
 /** Props passed to a block's read-only renderer. */

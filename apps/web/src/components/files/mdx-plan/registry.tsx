@@ -4,6 +4,13 @@ import type { MdxAttrValue, PlanBlock } from "./blockTypes";
 import { createAttrReader, parseFirstJsxBlock, serializeBlockElement } from "./mdxAttrs";
 import { annotatedCodeBlock } from "./blocks/annotatedCode";
 import { calloutBlock } from "./blocks/callout";
+import {
+  annotationBlock,
+  artboardBlock,
+  connectorBlock,
+  designBoardBlock,
+  sectionBlock,
+} from "./blocks/canvas";
 import { checklistBlock } from "./blocks/checklist";
 import { codeBlock } from "./blocks/code";
 import { dataModelBlock } from "./blocks/dataModel";
@@ -15,7 +22,7 @@ import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
 import { openApiBlock } from "./blocks/openApi";
 import { questionFormBlock } from "./blocks/questionForm";
-import { screenBlock } from "./blocks/screen";
+import { designBlock, screenBlock } from "./blocks/screen";
 import { tableBlock } from "./blocks/table";
 import { visualQuestionsBlock } from "./blocks/visualQuestions";
 
@@ -54,6 +61,12 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: openApiBlock.mdx.tag, type: "openapi-spec", block: openApiBlock },
   { tag: mermaidBlock.mdx.tag, type: "mermaid", block: mermaidBlock },
   { tag: screenBlock.mdx.tag, type: "wireframe", block: screenBlock },
+  { tag: designBlock.mdx.tag, type: "design", block: designBlock },
+  { tag: designBoardBlock.mdx.tag, type: "canvas", block: designBoardBlock },
+  { tag: sectionBlock.mdx.tag, type: "canvas-section", block: sectionBlock },
+  { tag: artboardBlock.mdx.tag, type: "wireframe", block: artboardBlock },
+  { tag: annotationBlock.mdx.tag, type: "annotation", block: annotationBlock },
+  { tag: connectorBlock.mdx.tag, type: "canvas-connector", block: connectorBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
@@ -82,7 +95,7 @@ function PlanBlockError({ tag, message }: { tag: string; message: string }) {
 function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>> {
   const { block } = entry;
   const Read = block.Read;
-  const passesChildren = Boolean(block.mdx.childrenField);
+  const passesChildren = Boolean(block.mdx.childrenField) || Boolean(block.mdx.passChildren);
   return function PlanBlockComponent(props) {
     const blockId = typeof props.id === "string" && props.id.length > 0 ? props.id : undefined;
     const result = block.schema.safeParse(props);
