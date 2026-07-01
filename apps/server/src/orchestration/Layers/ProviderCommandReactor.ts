@@ -6,7 +6,6 @@ import {
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationGoal,
-  type OrchestrationGoalTask,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -39,6 +38,7 @@ import { buildThreadInterpretationPrompt } from "../../textGeneration/TextGenera
 import { sanitizeThreadTitle } from "../../textGeneration/TextGenerationUtils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { renderGoalTaskTree } from "../goalTaskRender.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -96,24 +96,12 @@ const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
 
-const renderGoalTasksForPrompt = (
-  tasks: ReadonlyArray<OrchestrationGoalTask>,
-  depth: number,
-): string =>
-  tasks
-    .map(
-      (task) =>
-        `${"  ".repeat(depth)}- [${task.done ? "x" : " "}] ${task.text} (${task.id})\n` +
-        renderGoalTasksForPrompt(task.children, depth + 1),
-    )
-    .join("");
-
 const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
   opts?: { readonly asChildBackground?: boolean },
 ) => {
   const tasks =
-    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTasksForPrompt(goal.tasks, 0).trimEnd();
+    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(goal.tasks).trimEnd();
   if (opts?.asChildBackground) {
     return [
       `Background context — your parent orchestrator is working toward this overall goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
@@ -128,7 +116,7 @@ const activeGoalContextInstruction = (
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
     `\n\nCurrent tasks:\n${tasks}`,
-    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. Mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen, reorder), \`goal_task_delete\`, and \`goal_update\` (title/description/slug).`,
+    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. This snapshot is delivered once and is not refreshed — read the current tree on demand with \`goal_task_list\` (it mutates nothing), and mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen, reorder), \`goal_task_delete\`, and \`goal_update\` (title/description/slug).`,
   ].join("");
 };
 

@@ -178,7 +178,7 @@ export const buildParentWakeMessage = (
     "",
     sections.join("\n\n"),
     "",
-    "Review these results. Decide what (if anything) genuinely warrants human escalation versus what you can act on or accept on the human's behalf. For any child awaiting acceptance, you are the first-pass reviewer: either accept it (advance its plan to `done` with `workstream_set_lane`, which releases its dependents) or escalate to the human when human review is genuinely warranted. Then continue orchestrating.",
+    "Review these results. Decide what (if anything) genuinely warrants human escalation versus what you can act on or accept on the human's behalf. For any child awaiting acceptance, you are the first-pass reviewer: either accept it (advance its plan to `done` with `workstream_set_lane`, which releases its dependents) or escalate to the human when human review is genuinely warranted. Then reconcile the task tree and continue orchestrating.",
   ].join("\n");
 };
 

@@ -18,6 +18,7 @@ import {
   buildGoalTaskDeleteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
+import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -45,6 +46,7 @@ interface GoalUpdateRequest {
   readonly slug?: unknown;
 }
 
+const TASK_LIST_PATH = "/provider-tools/goal/task/list";
 const TASK_ADD_PATH = "/provider-tools/goal/task/add";
 const TASK_UPDATE_PATH = "/provider-tools/goal/task/update";
 const TASK_DELETE_PATH = "/provider-tools/goal/task/delete";
@@ -108,6 +110,26 @@ const resolveActiveGoal = Effect.fn("GoalTaskHttp.resolveActiveGoal")(function* 
   if (!goal) return { error: jsonError(404, "This thread's active goal was not found.") };
   return { goal };
 });
+
+const handleGoalTaskList = Effect.gen(function* () {
+  const resolved = yield* resolveActiveGoal();
+  if ("error" in resolved) return resolved.error;
+  const goal: OrchestrationGoal = resolved.goal;
+  const rendered =
+    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(goal.tasks).trimEnd();
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    title: goal.title,
+    rendered,
+    tasks: toGoalTaskNodes(goal.tasks),
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to read the task tree."),
+    ),
+  ),
+);
 
 const handleGoalTaskAdd = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -290,6 +312,9 @@ const goalToolUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =
     ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
     : `${mcpEndpoint.replace(/\/$/, "")}${path}`;
 
+export const goalTaskListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_LIST_PATH);
+
 export const goalTaskAddUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_ADD_PATH);
 
@@ -303,6 +328,7 @@ export const goalUpdateUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   goalToolUrlFromMcpEndpoint(mcpEndpoint, GOAL_UPDATE_PATH);
 
 export const layer = Layer.mergeAll(
+  HttpRouter.add("POST", TASK_LIST_PATH, handleGoalTaskList),
   HttpRouter.add("POST", TASK_ADD_PATH, handleGoalTaskAdd),
   HttpRouter.add("POST", TASK_UPDATE_PATH, handleGoalTaskUpdate),
   HttpRouter.add("POST", TASK_DELETE_PATH, handleGoalTaskDelete),
