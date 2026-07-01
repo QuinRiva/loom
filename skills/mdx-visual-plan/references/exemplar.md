@@ -60,9 +60,11 @@ direction is genuinely open.
 - **Before/After baked into the frame.** A `Before` / `After` pill, title, or
   heading inside the wireframe `html`. The `<Column label>` (or `<Artboard
 caption>`) is the only place the state name belongs.
-- **Overlapping artboards.** Placing `browser` frames `<1100` board units apart —
-  they overlap by ~350 px in our renderer. Use the x-gaps in `canvas.md`
-  (≥ 2200 between browser frames).
+- **Overlapping artboards.** `browser` frames touch/overlap at any x-gap `<1800`
+  board units (and have no clear gutter below `2200`) in our renderer, because a
+  frame consumes ~2× its pixel width in board units. Use the x-gaps in `canvas.md`
+  (≥ 2200 between browser frames; ≥ 1000 between compact `mobile`/`popover`/`panel`
+  frames).
 - **Product screen polluted with plan explanations.** A wireframe with repo pills,
   file-contract arrows, or architecture notes drawn inside the screen. Keep the
   screen pure; put those in a `<DesignBoard>` `<Annotation>`, a `<Diagram>`, or the

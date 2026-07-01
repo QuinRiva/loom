@@ -531,8 +531,8 @@ children) contains:
   coordinates; the note body is the prose between the tags.
 
 ```mdx
-<DesignBoard title="Onboarding flow" width={1200} height={600}>
-  <Section title="Auth" x={0} y={0} width={900} height={500}>
+<DesignBoard title="Onboarding flow" width={2200} height={900}>
+  <Section title="Auth" x={0} y={0} width={1800} height={840}>
     <Artboard
       id="signin"
       x={40}
@@ -542,7 +542,7 @@ children) contains:
     />
     <Artboard
       id="home"
-      x={440}
+      x={1080}
       y={60}
       surface="mobile"
       html={'<div class="wf-card"><h1>Home</h1></div>'}
