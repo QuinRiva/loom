@@ -42,6 +42,7 @@ import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   goalTaskAddUrlFromMcpEndpoint,
+  goalTaskListUrlFromMcpEndpoint,
   goalTaskDeleteUrlFromMcpEndpoint,
   goalTaskUpdateUrlFromMcpEndpoint,
   goalUpdateUrlFromMcpEndpoint,
@@ -771,6 +772,7 @@ function makePiAdapter(input: {
                       T3_SET_THREAD_TITLE_URL: setThreadTitleUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
+                      T3_GOAL_TASK_LIST_URL: goalTaskListUrlFromMcpEndpoint(mcpSession.endpoint),
                       T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),
                       T3_GOAL_TASK_UPDATE_URL: goalTaskUpdateUrlFromMcpEndpoint(
                         mcpSession.endpoint,

@@ -23,6 +23,7 @@ import {
   buildGoalTaskDeleteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
+import { renderGoalTaskTree } from "../orchestration/goalTaskRender.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, projectLocationFlags } from "./config.ts";
 import {
@@ -123,15 +124,6 @@ const requireTask = Effect.fn("requireGoalCliTask")(function* (
   });
 });
 
-const renderTasks = (tasks: ReadonlyArray<OrchestrationGoalTask>, depth: number): string =>
-  tasks
-    .map(
-      (task) =>
-        `${"  ".repeat(depth)}- [${task.done ? "x" : " "}] ${task.text} (${task.id})\n` +
-        renderTasks(task.children, depth + 1),
-    )
-    .join("");
-
 const countTasks = (tasks: ReadonlyArray<OrchestrationGoalTask>): { done: number; total: number } =>
   tasks.reduce(
     (acc, task) => {
@@ -185,7 +177,7 @@ const goalShowCommand = Command.make("show", {
         const { done, total } = countTasks(goal.tasks);
         const header = `# ${goal.title} (${goal.id})\nslug: ${goal.slug}  tasks: ${done}/${total}\n\n${goal.description}`;
         const tasks =
-          goal.tasks.length === 0 ? "\n\n(no tasks)" : `\n\n${renderTasks(goal.tasks, 0)}`;
+          goal.tasks.length === 0 ? "\n\n(no tasks)" : `\n\n${renderGoalTaskTree(goal.tasks)}`;
         return `${header}${tasks}`;
       }),
     ),

@@ -27,6 +27,31 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   };
 
   pi.registerTool({
+    name: "goal_task_list",
+    label: "List Goal Tasks",
+    description: "Read the current task tree of THIS thread's active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. This is a read — it mutates nothing. Errors cleanly if this thread has no active goal.",
+    promptSnippet: "read this thread's active goal's current task tree (the shared tree) for orientation/reconciliation; mutates nothing.",
+    promptGuidelines: [
+      "You never pass a goalId — this always reads this thread's own active goal.",
+      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed."
+    ],
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callGoalEndpoint(process.env.T3_GOAL_TASK_LIST_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const rendered = outcome.result?.rendered ?? "(no tasks yet)";
+      return {
+        content: [{ type: "text", text: rendered }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
     name: "goal_task_add",
     label: "Add Goal Task",
     description: "Add a task to the task tree of THIS thread's active goal. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use this to record new actionable work: an orchestrator keeps the tree current as work evolves; a child should add a discovered-but-out-of-scope actionable item (e.g. 'evaluate whether to fix pre-existing bug X') directly rather than only mentioning it in its report. Errors cleanly if this thread has no active goal.",
