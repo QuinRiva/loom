@@ -643,14 +643,20 @@ export default function FilePreviewPanel({
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const [markdownView, setMarkdownView] = useState<{
     path: string | null;
+    mode: "rendered" | "source";
     revealRequestId: number | null;
-  }>({ path: null, revealRequestId: null });
+  }>({ path: null, mode: "rendered", revealRequestId: null });
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
+  const isMdx = relativePath ? isMdxPreviewFile(relativePath) : false;
+  // MDX plans open in the annotatable rendered view by default; plain `.md`
+  // still opens as source (rendered on demand). Either way a reveal-to-line
+  // forces source unless the user's explicit choice matches this reveal.
+  const explicitView = markdownView.path === relativePath ? markdownView.mode : null;
   const renderMarkdown =
     isMarkdown &&
-    markdownView.path === relativePath &&
-    (revealLine === null || markdownView.revealRequestId === revealRequestId);
+    (revealLine === null || markdownView.revealRequestId === revealRequestId) &&
+    (explicitView ? explicitView === "rendered" : isMdx);
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
   const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
@@ -758,8 +764,9 @@ export default function FilePreviewPanel({
                     pressed={renderMarkdown}
                     onPressedChange={(pressed) => {
                       setMarkdownView({
-                        path: pressed ? relativePath : null,
-                        revealRequestId: pressed ? revealRequestId : null,
+                        path: relativePath,
+                        mode: pressed ? "rendered" : "source",
+                        revealRequestId,
                       });
                     }}
                     aria-label={renderMarkdown ? "Show markdown source" : "Show rendered markdown"}

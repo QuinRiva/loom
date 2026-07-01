@@ -139,13 +139,13 @@ export function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) 
               <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
             </marker>
           </defs>
-          {edges.map((edge, index) => {
+          {edges.map((edge) => {
             const from = byId.get(edge.from);
             const to = byId.get(edge.to);
             if (!from || !to) return null;
             return (
               <line
-                key={`${edge.from}-${edge.to}-${index}`}
+                key={`${edge.from}-${edge.to}-${edge.label ?? ""}`}
                 x1={from.x}
                 y1={from.y}
                 x2={to.x}
@@ -159,13 +159,13 @@ export function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) 
           })}
         </svg>
 
-        {edges.map((edge, index) => {
+        {edges.map((edge) => {
           const from = byId.get(edge.from);
           const to = byId.get(edge.to);
           if (!from || !to || !edge.label) return null;
           return (
             <span
-              key={`label-${edge.from}-${edge.to}-${index}`}
+              key={`label-${edge.from}-${edge.to}-${edge.label}`}
               className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-card px-1 text-[10px] text-muted-foreground"
               style={{ left: `${(from.x + to.x) / 2}%`, top: `${(from.y + to.y) / 2}%` }}
             >

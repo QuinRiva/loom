@@ -219,9 +219,9 @@ export function EndpointRead({ data, blockId, children }: PlanBlockReadProps<End
                 Parameters
               </div>
               <div className="mt-2 flex flex-col gap-1.5">
-                {params.map((param, index) => (
+                {params.map((param) => (
                   <div
-                    key={`${param.name}-${index}`}
+                    key={`${param.in}-${param.name}`}
                     className="flex flex-wrap items-center gap-2 text-sm"
                   >
                     <span
@@ -273,8 +273,8 @@ export function EndpointRead({ data, blockId, children }: PlanBlockReadProps<End
                 Responses
               </div>
               <div className="mt-2 flex flex-col gap-2">
-                {responses.map((response, index) => (
-                  <div key={`${response.status}-${index}`}>
+                {responses.map((response) => (
+                  <div key={`${response.status}-${response.description ?? ""}`}>
                     <div className="flex items-center gap-2 text-sm">
                       <span
                         className={cn(

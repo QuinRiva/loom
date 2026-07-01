@@ -273,13 +273,13 @@ export function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelDat
                   )}
                   <table className="w-full border-collapse text-sm">
                     <tbody>
-                      {entity.fields.map((field, index) => {
+                      {entity.fields.map((field) => {
                         const fkTarget = field.fk
                           ? resolveEntity(entities, parseFk(field.fk).entity)
                           : undefined;
                         return (
                           <tr
-                            key={`${field.name}-${index}`}
+                            key={field.name}
                             className={cn(
                               "border-t border-border/70 align-top first:border-t-0",
                               field.fk && "cursor-pointer hover:bg-blue-500/5",
@@ -400,12 +400,12 @@ export function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelDat
             Relations
           </div>
           <div className="mt-2 flex flex-col gap-1.5">
-            {relations.map((relation, index) => {
+            {relations.map((relation) => {
               const fromEntity = resolveEntity(entities, relation.from);
               const toEntity = resolveEntity(entities, relation.to);
               return (
                 <button
-                  key={`${relation.from}-${relation.to}-${index}`}
+                  key={`${relation.from}-${relation.to}-${relation.label ?? ""}`}
                   type="button"
                   className="group flex w-fit items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-accent/60"
                   onMouseEnter={() => focusEntity(toEntity?.id, false)}

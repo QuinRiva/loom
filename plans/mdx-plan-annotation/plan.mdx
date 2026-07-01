@@ -1,0 +1,217 @@
+# First-party MDX plan annotation
+
+**Objective.** Let a coding agent hand back a plan as a rendered, annotatable
+`.mdx` document instead of chat-only prose, so a reviewer can select any span,
+leave an anchored comment, and have that comment injected back to the agent as a
+normal user turn. **Done** means: opening a `plans/<slug>/plan.mdx` file shows
+the rendered plan in the doc panel, selecting prose surfaces a **Comment**
+affordance, the comment becomes a composer chip, and on send it serialises into
+the user turn carrying the quoted passage and its section.
+
+This plan reuses the existing composer review-comment plumbing
+(`addReviewComment` → `appendReviewCommentsToPrompt`) rather than adding a new
+comment store; the genuinely new delta is the **MDX renderer** and the
+**rendered-DOM anchoring engine**. A few decisions remain open — see the form at
+the end.
+
+## What changes
+
+<FileTree
+  title="Files that change"
+  entries={[
+    {
+      path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+      change: "modified",
+      note: "route .mdx to the annotation layer; open rendered by default",
+    },
+    {
+      path: "apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx",
+      change: "added",
+      note: "runtime evaluate() + closed block registry + remark guard",
+    },
+    {
+      path: "apps/web/src/components/files/mdx-plan/annotation/anchoring.ts",
+      change: "added",
+      note: "Range → PlanCommentAnchor and back; detached → null",
+    },
+    {
+      path: "apps/web/src/reviewCommentContext.ts",
+      change: "modified",
+      note: "ReviewCommentContext becomes a line | mdx-anchor union",
+    },
+    {
+      path: "packages/contracts/src/plan.ts",
+      change: "added",
+      note: "PlanCommentAnchor + PlanComment schemas (schema-only)",
+    },
+  ]}
+/>
+
+## Approach
+
+The renderer compiles MDX at runtime in the browser with `@mdx-js/mdx`
+`evaluate()` against a fixed component registry. A remark guard rejects
+`import`/`export` and raw `{expression}` bodies, and MDX's own unknown-component
+trap (caught by an error boundary) closes the surface — a stronger bound than the
+current tag allow-list. Each top-level block is rendered with a stable
+`data-plan-block-id`, and the whole document sits under one
+`[data-plan-root]` container that the annotation layer attaches to.
+
+<Code
+  filename="apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx"
+  language="ts"
+  code={"const { default: Content } = await evaluate(source, {\n  ...runtime,\n  remarkPlugins: [remarkPlanGuard, remarkGfm],\n  useMDXComponents: () => PLAN_BLOCK_COMPONENTS,\n});\n"}
+/>
+
+### The anchor model
+
+A comment stores a portable anchor, not a DOM offset, so it survives re-render.
+Prose selections become a text-quote anchor with surrounding context for
+disambiguation; a selection inside a non-prose block (code, diagram, table)
+falls back to a whole-block `visual` anchor keyed on the block id.
+
+<DataModel
+  entities={[
+    {
+      id: "planComment",
+      name: "PlanComment",
+      fields: [
+        { name: "id", type: "string", pk: true },
+        { name: "planPath", type: "string", note: "the .mdx path" },
+        { name: "anchor", type: "PlanCommentAnchor", nullable: true, note: "null once detached" },
+        { name: "quotedText", type: "string" },
+        { name: "text", type: "string", note: "the reviewer's comment" },
+        { name: "status", type: "open | resolved" },
+      ],
+    },
+    {
+      id: "anchor",
+      name: "PlanCommentAnchor",
+      change: "added",
+      fields: [
+        { name: "anchorKind", type: "text | visual | point" },
+        { name: "targetKind", type: "PlanCommentTargetKind" },
+        { name: "textQuote", type: "string", nullable: true },
+        { name: "contextBefore", type: "string", nullable: true },
+        { name: "contextAfter", type: "string", nullable: true },
+        { name: "targetSelector", type: "string", nullable: true, note: "visual anchors" },
+      ],
+    },
+  ]}
+  relations={[{ from: "planComment", to: "anchor", kind: "1-n", label: "anchor" }]}
+/>
+
+The resolver re-finds the quoted text on every layout change and re-binds an
+exact character `Range`; when the quote is gone the comment degrades to a clean
+"detached" card rather than being dropped.
+
+<AnnotatedCode
+  filename="apps/web/src/components/files/mdx-plan/annotation/anchoring.ts"
+  language="ts"
+  code={"const hits = [];\nfor (let i = text.indexOf(quote); i !== -1; i = text.indexOf(quote, i + 1)) hits.push(i);\nif (hits.length === 0) return null; // detached: quoted text is gone\nconst best = hits.reduce((a, b) => (score(b) > score(a) ? b : a), hits[0]);\n"}
+  annotations={[
+    { lines: "2", label: "find all", note: "every occurrence of the quoted passage" },
+    { lines: "3", note: "no hit → null → the comment renders as detached" },
+    { lines: "4", label: "disambiguate", note: "context before/after picks the right duplicate" },
+  ]}
+/>
+
+### Injection path
+
+On send, each mdx-anchor comment is formatted into the injected user turn
+alongside the section title and quoted passage — reusing
+`appendReviewCommentsToPrompt`, the same seam that already carries line-based
+code-review comments.
+
+<Diagram
+  caption="Selection → anchored comment → injected user turn"
+  data={{
+    nodes: [
+      { id: "sel", label: "Text selection", x: 12, y: 30 },
+      { id: "anchor", label: "PlanCommentAnchor", detail: "text-quote + context", x: 50, y: 30 },
+      { id: "store", label: "composer store", detail: "reviewComments", x: 50, y: 78 },
+      { id: "turn", label: "User turn", x: 88, y: 78 },
+    ],
+    edges: [
+      { from: "sel", to: "anchor", label: "anchorFromRange" },
+      { from: "anchor", to: "store", label: "addReviewComment" },
+      { from: "store", to: "turn", label: "on send" },
+    ],
+  }}
+/>
+
+The shape the agent receives for one comment:
+
+<Json
+  title="Injected mdx-anchor comment"
+  json={'{\n  "kind": "mdx-anchor",\n  "planPath": "plans/mdx-plan-annotation/plan.mdx",\n  "sectionTitle": "Injection path",\n  "quotedText": "reusing appendReviewCommentsToPrompt",\n  "text": "Confirm this reuses the code-review seam verbatim.",\n  "status": "open"\n}'}
+/>
+
+## Scope and non-goals
+
+In scope: the 8 document blocks, prose annotation, whole-block annotation, and
+composer-store injection. **Non-goals for this cut:** a `comments.json` sidecar
+for external-tool interop (deferred), and the rich visual surfaces (wireframe
+canvas, live prototype tabs, design-fidelity screens) — those are a later phase.
+A future sync endpoint, if the sidecar is ever wanted, would look like this — it
+is **not** built now:
+
+<Endpoint
+  method="PUT"
+  path="/api/plans/:slug/comments"
+  summary="(Deferred) persist plan comments to a comments.json sidecar"
+  params={[
+    { name: "slug", in: "path", type: "string", required: true },
+    { name: "comments", in: "body", type: "PlanComment[]", required: true },
+  ]}
+  responses={[
+    { status: "200", description: "Sidecar written" },
+    { status: "404", description: "Unknown plan slug" },
+  ]}
+>
+  Only needed if BuilderIO-style external tooling must consume our comments; the
+  first cut keeps comments in the composer store and never touches disk.
+</Endpoint>
+
+## Verification
+
+Build the web app, run `vp check` + `vp run typecheck`, then smoke the real
+journey: open this file in the doc panel → it renders → select the phrase
+"anchored comment" → click **Comment** → confirm a composer chip appears → send
+and confirm the turn carries the quoted passage and section.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "default-view",
+      title: "Should .mdx plans open in the rendered (annotatable) view by default?",
+      mode: "single",
+      options: [
+        {
+          id: "rendered",
+          label: "Rendered by default",
+          recommended: true,
+          detail: "The whole point is annotation; source is one toggle away.",
+        },
+        { id: "source", label: "Source by default", detail: "Matches plain .md behaviour." },
+      ],
+    },
+    {
+      id: "sidecar",
+      title: "Do we ever want the comments.json sidecar?",
+      mode: "single",
+      options: [
+        { id: "no", label: "No — composer store only", recommended: true },
+        { id: "yes", label: "Yes — add the sync endpoint above", detail: "External-tool interop." },
+      ],
+    },
+    {
+      id: "anything",
+      title: "Anything else the annotation layer must handle before ship?",
+      mode: "freeform",
+      placeholder: "e.g. overlapping highlights, comment threads…",
+    },
+  ]}
+/>

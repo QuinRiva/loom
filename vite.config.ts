@@ -25,6 +25,7 @@ export default defineConfig({
       ".reference",
       ".repos/**",
       ".plans",
+      "plans/**",
       ".alchemy",
       "dist",
       "dist-electron",

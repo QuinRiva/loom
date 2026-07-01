@@ -107,8 +107,11 @@ export function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<Annotate
       {annotations.length > 0 && (
         <div className="border-t border-border/60 bg-muted/20 px-3 py-2">
           <ol className="flex flex-col gap-2">
-            {annotations.map((annotation, index) => (
-              <li key={`${annotation.lines}-${index}`} className="flex gap-2 text-xs">
+            {annotations.map((annotation) => (
+              <li
+                key={`${annotation.lines}-${annotation.label ?? annotation.note ?? ""}`}
+                className="flex gap-2 text-xs"
+              >
                 <span className="mt-0.5 shrink-0 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
                   L{annotation.lines.replace(/\s*-\s*/, "–")}
                 </span>

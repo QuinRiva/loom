@@ -64,6 +64,12 @@ per environment by copying or symlinking it into a provider skill directory:
 reviewed and diffs like any other repo file; trivially reversible. **Cons:**
 activation is a manual step, so it is opt-in rather than on by default.
 
+**Turnkey enablement.** `scripts/enable-mdx-plan-skill.sh [codex|claude|all]`
+symlinks `skills/mdx-visual-plan/` into the chosen provider skill dir
+(`~/.codex/skills/` and/or `~/.claude/skills/`). It is idempotent and reversible
+(delete the link); a symlink means skill edits track the repo live. Reload the
+provider session afterwards so it re-lists skills.
+
 ### B — Ship + auto-install into the shared Codex home
 
 Add a setup/build step that materialises the skill into the shared
