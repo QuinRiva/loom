@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -466,7 +467,11 @@ export function ConnectorRead({ data }: PlanBlockReadProps<ConnectorData>) {
     return () => observer.disconnect();
   }, [data.from, data.to]);
 
-  const markerId = `plan-connector-arrow-${data.from}-${data.to}`;
+  // Derive the arrowhead marker id from React's per-instance useId (DOM-safe,
+  // collision-free) rather than embedding raw author ids — author ids may carry
+  // whitespace/special chars that break the `url(#…)` ref, and duplicate
+  // from/to pairs would otherwise mint duplicate DOM ids (NH5).
+  const markerId = `plan-connector-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <div ref={rootRef} className="plan-canvas-connector" style={{ position: "absolute", inset: 0 }}>
       {line ? (

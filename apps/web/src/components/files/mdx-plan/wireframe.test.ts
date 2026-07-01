@@ -201,6 +201,73 @@ describe("sanitizeWireframeHtml — theme-class leakage", () => {
   });
 });
 
+describe("sanitizeWireframeHtml — reserved annotation attrs [SF1]", () => {
+  it("strips inbound data-plan-block-type/-id and data-wf-node so foreign HTML can't pollute the id namespace", () => {
+    const clean = sanitizeWireframeHtml(
+      "<section data-plan-block-type='code' data-plan-block-id='real-1'>" +
+        "<button data-wf-node='wf-0'>hijack</button></section>",
+    );
+    expect(clean).not.toMatch(/data-plan-block-type/i);
+    expect(clean).not.toMatch(/data-plan-block-id/i);
+    expect(clean).not.toMatch(/data-wf-node/i);
+    expect(clean).toContain("hijack"); // benign content survives
+  });
+
+  it("strips them on the DOM-less fallback path too", () => {
+    const savedParser = globalThis.DOMParser;
+    const savedDocument = globalThis.document;
+    // Force the SSR/regex fallback branch.
+    // @ts-expect-error test-only teardown of the DOM globals
+    delete globalThis.DOMParser;
+    // @ts-expect-error test-only teardown of the DOM globals
+    delete globalThis.document;
+    try {
+      const clean = sanitizeWireframeHtml(
+        `<div data-plan-block-id="real-1" data-plan-block-type='wireframe' data-wf-node=wf-3>x</div>`,
+      );
+      expect(clean).not.toMatch(/data-plan-block-type/i);
+      expect(clean).not.toMatch(/data-plan-block-id/i);
+      expect(clean).not.toMatch(/data-wf-node/i);
+      expect(clean).toContain("x");
+    } finally {
+      globalThis.DOMParser = savedParser;
+      globalThis.document = savedDocument;
+    }
+  });
+});
+
+describe("injected wireframe ids can't hijack a real block's anchor [SF1]", () => {
+  it("a legitimate block anchor still resolves to the real block, not the injected id", () => {
+    // A real prose block whose id a hostile wireframe tries to impersonate.
+    document.body.innerHTML = `<div data-plan-root><p data-plan-block-type="paragraph" data-plan-block-id="blk-target">REAL</p>${renderToStaticMarkup(
+      createElement(ScreenRead, {
+        data: {
+          surface: "browser",
+          html: "<div data-plan-block-type='paragraph' data-plan-block-id='blk-target'>FAKE</div>",
+        },
+        blockId: "wf-artboard",
+      }),
+    )}</div>`;
+    const root = document.querySelector<HTMLElement>("[data-plan-root]")!;
+    assignBlockIds(root);
+    // The injected fragment must not carry the impersonated id at all.
+    const matches = root.querySelectorAll('[data-plan-block-id="blk-target"]');
+    expect(matches.length).toBe(1);
+    expect(matches[0]?.textContent).toBe("REAL");
+
+    const resolved = resolveAnchor(
+      {
+        anchorKind: "visual",
+        targetKind: "block",
+        targetSelector: '[data-plan-block-id="blk-target"]',
+      },
+      root,
+    );
+    expect(resolved?.toString()).toContain("REAL");
+    expect(resolved?.toString()).not.toContain("FAKE");
+  });
+});
+
 const SIGN_IN =
   "<div style='padding:16px'><h1>Sign in</h1>" +
   "<button class='primary'>Continue</button>" +

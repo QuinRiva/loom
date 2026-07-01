@@ -40,7 +40,19 @@ export const mermaidMdx: BlockMdxConfig<MermaidData> = {
     }) as MermaidData,
 };
 
-/** Strip scripts / event handlers / javascript: URLs from rendered SVG markup. */
+/**
+ * Strip scripts / event handlers / javascript: URLs from rendered SVG markup.
+ *
+ * NOTE: this is deliberately DEFENCE-IN-DEPTH, not the primary trust boundary.
+ * Mermaid `securityLevel: "strict"` (set in `renderMermaidSvg`) is the real
+ * boundary — it disables `%%{init}%%` directives, HTML labels, and click/JS
+ * interaction, so the SVG we receive is already benign. This pass is therefore
+ * intentionally lighter than `sanitizeWireframeHtml` (no CSS escape/entity
+ * decoding, no `<style>`/containment/viewport handling): the wireframe surface
+ * injects raw author HTML with no upstream guard, whereas here Mermaid's own
+ * strict renderer produces the markup. Keep it as a cheap second net over the
+ * generated output, not a reimplementation of the wireframe sanitiser.
+ */
 function sanitizeSvgMarkup(svg: string): string {
   if (typeof DOMParser === "undefined") return svg;
   const doc = new DOMParser().parseFromString(svg, "image/svg+xml");

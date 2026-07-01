@@ -72,6 +72,20 @@ const URL_ATTRS = new Set([
 
 const SAFE_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:", "ftp:"]);
 
+// The renderer OWNS these annotation-id namespaces: `assignBlockIds` stamps
+// `data-plan-block-type`/`data-plan-block-id`, `stampWireframeNodes` stamps
+// `data-wf-node`. Foreign wireframe HTML carrying any of them pollutes the id
+// namespace (whole-block anchor collision → `querySelector` first-match hijack;
+// defeats wireframe node-pin capture via `closest("[data-plan-block-type]")`;
+// `data-wf-node` collision/counter drift; canvas connector/annotation target
+// hijack — SF1). Strip them on the way in, exactly as theme classes are, so a
+// mockup can't inject app annotation ids.
+const RESERVED_ANNOTATION_ATTRS = new Set([
+  "data-plan-block-type",
+  "data-plan-block-id",
+  "data-wf-node",
+]);
+
 const WHITESPACE = /\s+/g;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);/i;
@@ -195,6 +209,11 @@ function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
       "",
     )
     .replace(/\son[a-z][\w:-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    // Strip reserved annotation attrs the renderer owns (SF1).
+    .replace(
+      /\s(?:data-plan-block-type|data-plan-block-id|data-wf-node)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
+      "",
+    )
     .replace(
       /\s(?:href|src|srcset|xlink:href|action|formaction|poster|background|data|ping)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
       stripScheme,
@@ -220,7 +239,7 @@ function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOp
     }
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
-      if (name.startsWith("on")) {
+      if (name.startsWith("on") || RESERVED_ANNOTATION_ATTRS.has(name)) {
         el.removeAttribute(attr.name);
         continue;
       }

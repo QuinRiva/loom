@@ -10,14 +10,14 @@ manager_sessions:
 Independent review (reviewer did NOT author the code) of the Phase 4 work on
 `t3code/pivot-plannotator-to-mdx`, commit range **`362f3dcd8..HEAD`**:
 
-| Commit | Scope |
-| --- | --- |
-| `7d337cbfa` | A1 — widen anchor union (`wireframe`/`canvas` kinds) |
-| `85096a3e4` | A2 — recursive block ids + nested annotation |
-| `0fabe104d` | Wave B — 7 document blocks + D9 posture |
-| `6dcea3c1b` | C1 — wireframe artboard renderer + HTML sanitiser |
+| Commit      | Scope                                                           |
+| ----------- | --------------------------------------------------------------- |
+| `7d337cbfa` | A1 — widen anchor union (`wireframe`/`canvas` kinds)            |
+| `85096a3e4` | A2 — recursive block ids + nested annotation                    |
+| `0fabe104d` | Wave B — 7 document blocks + D9 posture                         |
+| `6dcea3c1b` | C1 — wireframe artboard renderer + HTML sanitiser               |
 | `020c294bf` | C1 fix — sanitiser XSS/clickjacking (already security-reviewed) |
-| `c4c665473` | C2 canvas + C3 design tier |
+| `c4c665473` | C2 canvas + C3 design tier                                      |
 
 Uncommitted working-tree work (`blocks/columns.tsx`, `plan-blocks.schema.json`,
 and the "Wave B6" container CSS's consumer) is **out of scope** and was ignored.
@@ -148,7 +148,7 @@ alongside the existing sanitiser suite.
   the spike proof §7.2.
 - **Nested-block foundation (A2).** `assignBlockIds` recursion uses one
   document-wide counter incremented only on stamped elements → deterministic,
-  collision-free ids across depth (for *authored* content). `enclosingBlock`
+  collision-free ids across depth (for _authored_ content). `enclosingBlock`
   (`closest`, nearest wins) and `sectionFor` (climb to top-level child, then
   scan prior siblings) are correct for nested blocks; the section stays
   document-level. Tested at depth.

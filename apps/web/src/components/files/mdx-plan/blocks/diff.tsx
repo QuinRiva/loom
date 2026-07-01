@@ -329,7 +329,7 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           No changes
         </div>
       ) : mode === "split" ? (
-        <div className="flex overflow-x-auto font-mono text-xs" data-plan-block-nonprose>
+        <div className="flex overflow-x-auto font-mono text-xs">
           <div className="min-w-0 flex-1 border-r border-border">
             {shownPairs.map((pair) => (
               <DiffLine key={`old-${pairKey(pair)}`} row={pair.left} side="old" />
@@ -342,7 +342,7 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto font-mono text-xs" data-plan-block-nonprose>
+        <div className="overflow-x-auto font-mono text-xs">
           {shownRows.map((row) => (
             <DiffLine key={rowKey(row)} row={row} />
           ))}
