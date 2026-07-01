@@ -15,7 +15,10 @@
  * as-is rather than reimprovised. It uses the browser's OWN parser + URL
  * normalisation (which decodes entities and collapses whitespace), so obfuscated
  * schemes (`java\tscript:`, `&#106;avascript:`) can't survive:
- *   - drops dangerous elements (script/style/iframe/object/embed/…);
+ *   - drops dangerous elements (script/style/iframe/object/embed/…), including
+ *     SVG SMIL animators (animate/set/…) that could animate an `href` to
+ *     `javascript:` after sanitisation, and raw-text elements (`xmp`) that hide
+ *     attributes from the walker;
  *   - strips every `on*` event-handler attribute;
  *   - removes URL attributes whose *browser-resolved* scheme isn't safe;
  *   - removes inline styles carrying `expression()`/`javascript:` AND — because
@@ -32,12 +35,31 @@
  * unsanitised HTML.
  */
 
+// SMIL animation elements (`animate`/`set`/…) can rewrite an attribute (e.g. a
+// link's `href`) to `javascript:` AFTER static sanitisation, so a later click
+// runs arbitrary JS (B1). They have no purpose in a low-fidelity wireframe, so
+// they are dropped outright rather than URL-checked. `xmp` is a raw-text element
+// (like `textarea`/`title`/`noembed`) whose contents parse as TEXT, hiding an
+// `<img onerror>` from the attribute walker (S2) — also dropped.
 const BLOCKED_TAGS =
-  "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal";
+  "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal,xmp,animate,set,animatetransform,animatemotion,animatecolor";
+
+// Belt-and-braces for B1: HTML-parsed SVG children live in the SVG namespace and
+// a type selector *should* match their (lowercase) localName, but we also drop
+// them by localName during the attribute walk so a fragile selector can't leave
+// a SMIL animator behind.
+const BLOCKED_LOCAL_NAMES = new Set([
+  "animate",
+  "set",
+  "animatetransform",
+  "animatemotion",
+  "animatecolor",
+]);
 
 const URL_ATTRS = new Set([
   "href",
   "src",
+  "srcset",
   "xlink:href",
   "srcdoc",
   "action",
@@ -88,7 +110,33 @@ const DANGEROUS_STYLE =
 // its artboard to overlay the host app. BuilderIO gate this in the CSS-field path;
 // we have no CSS field and inject into the live DOM, so we apply it to inline styles.
 const DANGEROUS_VIEWPORT_CSS =
-  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
+  /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky|absolute)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
+
+// The inline-style guards match raw text, so CSS comments (`position/**/:/**/fixed`)
+// and CSS escapes (`\66\69\78\65\64` = `fixed`) slip past. Normalise both away
+// before testing (ported from BuilderIO's `cssSafetyText`/`decodeCssSafetyEscapes`).
+// This is defence-in-depth on top of the structural containment fix in `.wf-surface`
+// (position:relative + contain:layout paint), which traps escaping descendants
+// regardless of any regex bypass.
+function cssSafetyText(value: string): string {
+  const noComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  return noComments
+    .replace(/\\([0-9a-fA-F]{1,6})\s?/g, (_m, hex: string) => {
+      const cp = Number.parseInt(hex, 16);
+      return cp ? String.fromCodePoint(cp) : "";
+    })
+    .replace(/\\(.)/g, "$1");
+}
+
+function isDangerousStyle(value: string): boolean {
+  const decoded = cssSafetyText(value);
+  return (
+    DANGEROUS_STYLE.test(value) ||
+    DANGEROUS_STYLE.test(decoded) ||
+    DANGEROUS_VIEWPORT_CSS.test(value) ||
+    DANGEROUS_VIEWPORT_CSS.test(decoded)
+  );
+}
 
 type SanitizeElementOptions = {
   stripWireframeThemeClasses?: boolean;
@@ -143,17 +191,15 @@ function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
   };
   let out = html
     .replace(
-      /<\/?(?:script|style|iframe|object|embed|link|meta|base|form|noscript|frame|frameset|applet|marquee|portal)\b[^>]*>/gi,
+      /<\/?(?:script|style|iframe|object|embed|link|meta|base|form|noscript|frame|frameset|applet|marquee|portal|xmp|animate|set|animatetransform|animatemotion|animatecolor)\b[^>]*>/gi,
       "",
     )
     .replace(/\son[a-z][\w:-]*\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .replace(
-      /\s(?:href|src|xlink:href|action|formaction|poster|background|data|ping)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      /\s(?:href|src|srcset|xlink:href|action|formaction|poster|background|data|ping)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
       stripScheme,
     )
-    .replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, (m) =>
-      DANGEROUS_STYLE.test(m) || DANGEROUS_VIEWPORT_CSS.test(m) ? "" : m,
-    );
+    .replace(/\sstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, (m) => (isDangerousStyle(m) ? "" : m));
   if (options?.stripWireframeThemeClasses) {
     out = out.replace(
       /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
@@ -168,6 +214,10 @@ function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
 
 function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOptions) {
   root.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    if (BLOCKED_LOCAL_NAMES.has(el.localName.toLowerCase())) {
+      el.remove();
+      return;
+    }
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
       if (name.startsWith("on")) {
@@ -178,10 +228,7 @@ function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOp
         el.removeAttribute(attr.name);
         continue;
       }
-      if (
-        name === "style" &&
-        (DANGEROUS_STYLE.test(attr.value) || DANGEROUS_VIEWPORT_CSS.test(attr.value))
-      ) {
+      if (name === "style" && isDangerousStyle(attr.value)) {
         el.removeAttribute(attr.name);
         continue;
       }

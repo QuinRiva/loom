@@ -113,6 +113,81 @@ describe("sanitizeWireframeHtml — dangerous inline styles", () => {
   });
 });
 
+/*
+ * Security regressions for the independent review (docs/mdx-wireframe-sanitiser-review.md).
+ * NOTE: jsdom does NOT replicate the browser's SVG SMIL runtime, CSS cascade, or
+ * foreign-content parsing — which is why the original passing jsdom suite missed
+ * B1 (the reviewer confirmed exec only in real Chromium). These assert on the
+ * sanitised OUTPUT (deterministic node/attr/style removal), which is jsdom-safe:
+ * if the dangerous node/attribute/style is absent from the output it cannot run,
+ * regardless of the runtime jsdom can't model.
+ */
+describe("sanitizeWireframeHtml — SVG SMIL href animation [B1]", () => {
+  it("drops <animate>/<set>/<animateTransform>/… so href can't be animated to javascript:", () => {
+    const clean = sanitizeWireframeHtml(
+      "<svg width='300' height='80'><a>" +
+        "<animate attributeName='href' to='javascript:pwn()' begin='0s' dur='999s' fill='freeze'/>" +
+        "<set attributeName='href' to='javascript:pwn()'/>" +
+        "<animateTransform attributeName='transform' to='javascript:pwn()'/>" +
+        "<animateMotion to='javascript:pwn()'/><animateColor to='javascript:pwn()'/>" +
+        "<rect width='300' height='80'/><text x='20' y='40'>Sign in</text>" +
+        "</a></svg>",
+    );
+    for (const tag of [
+      "<animate",
+      "<set",
+      "<animatetransform",
+      "<animatemotion",
+      "<animatecolor",
+    ]) {
+      expect(clean.toLowerCase()).not.toContain(tag);
+    }
+    // Confirmed against the live DOM too (querySelector sees SVG-namespaced nodes).
+    const el = parse(clean);
+    expect(
+      el.querySelectorAll("animate, set, animateTransform, animateMotion, animateColor").length,
+    ).toBe(0);
+    expect(clean).toContain("Sign in"); // benign content survives
+  });
+});
+
+describe("sanitizeWireframeHtml — clickjacking containment bypasses [S1]", () => {
+  it("neutralises comment-, escape-obfuscated position:fixed and bare position:absolute", () => {
+    const el = parse(
+      sanitizeWireframeHtml(
+        "<div style='position/**/:/**/fixed;inset:0;z-index:9999'>a</div>" + // CSS comments
+          "<div style='position:\\66\\69\\78\\65\\64;inset:0'>b</div>" + // \66\69\78\65\64 = fixed
+          "<div style='position:absolute;inset:0;z-index:9999'>c</div>" + // absolute now covered
+          "<div style='color:var(--wf-ink);padding:8px'>d</div>",
+      ),
+    );
+    const styles = Array.from(el.querySelectorAll("div"), (d) => d.getAttribute("style"));
+    expect(styles.slice(0, 3)).toEqual([null, null, null]); // all three bypasses dropped
+    expect(styles[3]).toContain("var(--wf-ink)"); // benign style kept
+  });
+});
+
+describe("sanitizeWireframeHtml — raw-text element hides handlers [S2]", () => {
+  it("drops <xmp> so an <img onerror> inside it can't survive as text", () => {
+    const clean = sanitizeWireframeHtml("<xmp><img src=x onerror=pwn()></xmp>ok");
+    expect(clean.toLowerCase()).not.toContain("<xmp");
+    expect(clean).not.toMatch(/onerror/i);
+    expect(clean).toContain("ok");
+  });
+});
+
+describe("sanitizeWireframeHtml — srcset scheme validation [S3]", () => {
+  it("strips javascript: srcset but keeps a safe candidate list", () => {
+    const el = parse(
+      sanitizeWireframeHtml(
+        "<img srcset='javascript:pwn() 1x' />" + "<source srcset='/a.png 1x, /b.png 2x' />",
+      ),
+    );
+    expect(el.querySelector("img")?.getAttribute("srcset")).toBeNull();
+    expect(el.querySelector("source")?.getAttribute("srcset")).toContain("/a.png");
+  });
+});
+
 describe("sanitizeWireframeHtml — theme-class leakage", () => {
   it("strips host/Tailwind theme classes by default, keeps them under preserveThemeClasses (C3 hook)", () => {
     const dirty = "<div class='wf-card bg-white text-zinc-950 shadow-xl'>x</div>";

@@ -905,6 +905,13 @@ label:has(> select#reasoning-effort) select {
 }
 .wf-surface {
   box-sizing: border-box;
+  /* Real containment box (S1): position:relative makes it the containing block for
+     absolute/fixed descendants, and contain:layout paint clips + traps anything that
+     tries to escape the artboard to overlay host chrome (clickjacking) — robust
+     against CSS-comment/escape regex bypasses, unlike overflow:hidden on a
+     position:static box, which does NOT clip positioned descendants. */
+  position: relative;
+  contain: layout paint;
   overflow: hidden;
   border: 1.5px solid var(--wf-line);
   background: var(--wf-paper);
