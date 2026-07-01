@@ -163,9 +163,53 @@ path that makes `fromAttrs` real + the round-trip testable). The `<Code>` block
 reuses the app's existing Shiki (`@pierre/diffs` `getSharedHighlighter`) — no
 second highlighter.
 
+## D8 — Phase 4 scoped; wireframes are sanitised HTML, not Excalidraw
+
+The Phase 4 scoping spike (`docs/mdx-phase4-scoping.md`, signed) returned GO on
+all rich surfaces, and **revises the D7 note**: wireframes/canvas are **not**
+Excalidraw/roughjs. A wireframe is a self-contained **semantic HTML fragment**
+(`data.html` + a `surface` preset) that BuilderIO render into the **live DOM**
+(so annotation geometry stays one model via `getClientRects()`), guarded by a
+DOM-parser sanitiser. **Decision: port BuilderIO's `sanitizeWireframeHtml`
+verbatim** (drop dangerous tags, `on*` handlers, unsafe URL schemes, dangerous
+inline styles; strip host theme classes for wireframe / keep them for design
+fidelity) as the security boundary for this surface, and cover it with
+exploit-shape regression tests like the MDX guard. This is a **second trust
+boundary the MDX guard does NOT cover** — the HTML arrives as a passed-through
+string literal attribute, so it must be sanitised at the block render point.
+rough.js sketch overlay is optional polish, deferred. Design-fidelity screens are
+a styling tier over the same renderer (a fidelity flag), not a separate renderer.
+
+## D9 — Live prototype: sandboxed iframe is the boundary (wire format pending user)
+
+The live interactive prototype runs in `<iframe sandbox="allow-scripts
+allow-forms">` with `srcdoc` + a strict CSP and **no `allow-same-origin`** →
+opaque origin. Proven in a real browser: it cannot read the parent window, DOM,
+or cookies, yet stays interactive; its only channel is `postMessage`, treated as
+hostile. **Recommended (pending explicit user confirmation before C4 builds):**
+sandbox is the primary boundary + sanitise the prototype HTML as defence-in-depth
++ **no remote script** (`script-src 'self'`/`'unsafe-inline'` only) unless a plan
+explicitly opts in; wire shape = a single `<Prototype html="…">` block. **v1
+annotation = whole-prototype (block-level `visual` anchor)**; in-prototype node
+pins need a postMessage geometry bridge and are a separate, gated follow-on
+(C5) — not v1. This is the one Phase-4 decision flagged for a human.
+
+## D10 — Extend the anchor union additively; recursion for container blocks
+
+Widen `anchorKind` to add `"wireframe"` (node pin: `targetSelector` artboard +
+`targetNodeId`/`targetNodePath`) and `"canvas"` (board coords) as **pure additive
+branches** in `anchoring.ts` — the text/visual paths are untouched (proven by a
+real-browser round-trip). No contract change beyond the literal widening; the
+visual/canvas fields were already reserved (D4/D7). Container blocks
+(`Columns`/`Tabs`) require `assignBlockIds` + `enclosingBlock`/`sectionFor` to
+**recurse** into nested blocks (currently top-level only); `Columns` de-risks
+nesting and lands before design screens.
+
 ## Open decisions deferred to their phase
 
-- **Phase 4 full vocab** (wireframe canvas / live prototype / design screens):
-  own scoping spike at that gate — Excalidraw for canvas, sandboxed execution for
-  live prototype, plus wireframe-node + canvas-coord anchor kinds. Not scoped yet.
+- **C4 prototype wire format + remote-script policy** — flagged for the human
+  (see D9). C4 does not build until confirmed.
 - **Mermaid diagrams**: lazy `await import()` per BuilderIO; added when needed.
+- **rough.js wireframe sketch overlay**: optional polish, deferred past C1.
+- **C5 in-prototype pin annotation**: postMessage geometry bridge; separate gated
+  tier, only if demanded.
