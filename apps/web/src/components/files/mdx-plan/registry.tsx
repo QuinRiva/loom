@@ -23,6 +23,7 @@ import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
 import { openApiBlock } from "./blocks/openApi";
 import { questionFormBlock } from "./blocks/questionForm";
+import { htmlBlock, prototypeBlock } from "./blocks/sandboxedFrame";
 import { designBlock, screenBlock } from "./blocks/screen";
 import { tableBlock } from "./blocks/table";
 import { tabBlock, tabsBlock } from "./blocks/tabs";
@@ -73,6 +74,8 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: columnBlock.mdx.tag, type: "column", block: columnBlock },
   { tag: tabsBlock.mdx.tag, type: "tabs", block: tabsBlock },
   { tag: tabBlock.mdx.tag, type: "tab", block: tabBlock },
+  { tag: prototypeBlock.mdx.tag, type: "prototype", block: prototypeBlock },
+  { tag: htmlBlock.mdx.tag, type: "html", block: htmlBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));

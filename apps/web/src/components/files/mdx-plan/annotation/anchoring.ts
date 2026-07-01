@@ -87,6 +87,10 @@ export const NON_PROSE_BLOCK_TYPES = new Set([
   "diff",
   "openapi-spec",
   "mermaid",
+  // Sandboxed-iframe surfaces (Wave B5/C4): opaque-origin frames you cannot
+  // select into, so a selection on the host resolves to a whole-block anchor.
+  "prototype",
+  "html",
 ]);
 
 /** Map a plan block type to the anchor's coarse `targetKind`. */
@@ -110,6 +114,8 @@ function targetKindForBlock(blockType: string | null): PlanCommentTargetKind {
     case "wireframe":
     case "design":
       return "wireframe";
+    case "prototype":
+      return "prototype";
     default:
       return "block";
   }

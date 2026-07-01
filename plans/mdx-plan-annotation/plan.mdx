@@ -342,6 +342,32 @@ wireframe.
   html={"<div style='font-family:system-ui'><div style='background:linear-gradient(90deg,#4f46e5,#7c3aed);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center'><strong style='font-size:16px'>Acme Studio</strong><span style='background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:999px;font-size:12px'>Pro</span></div><div style='padding:20px;display:flex;gap:16px'><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Revenue</div><div style='font-size:24px;font-weight:700;color:#111827'>$48,120</div></div><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Active users</div><div style='font-size:24px;font-weight:700;color:#111827'>2,304</div></div></div><div style='padding:0 20px 20px'><button style='background:#4f46e5;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-weight:600'>Create report</button></div></div>"}
 />
 
+## Live prototype
+
+The **prototype** is a functional, operable mock that runs in a sandboxed
+iframe (`allow-scripts allow-forms`, opaque origin, no `allow-same-origin`) under
+a strict `srcdoc` CSP — it stays interactive but cannot reach the parent window,
+cookies, or app RPCs. It carries `data-plan-block-type="prototype"`, so the
+whole prototype is annotatable as one block (in-frame pins are a deferred tier).
+
+<Prototype
+  caption="Interactive counter (runs in the sandbox)"
+  height={180}
+  html={"<div style='padding:24px;text-align:center'><h2 style='margin:0 0 12px'>Counter</h2><output id='n' style='font-size:40px;font-weight:700'>0</output><div style='margin-top:16px;display:flex;gap:8px;justify-content:center'><button id='dec' style='padding:8px 16px'>-1</button><button id='inc' style='padding:8px 16px'>+1</button></div></div><script>let n=0;const o=document.getElementById('n');document.getElementById('inc').onclick=()=>o.textContent=++n;document.getElementById('dec').onclick=()=>o.textContent=--n;</script>"}
+/>
+
+## Embedded HTML
+
+An `<HtmlBlock>` shows arbitrary **static** HTML in a fully locked iframe
+(`sandbox=""` — no scripts run at all), so no sanitiser is needed on top of the
+sandbox. It carries `data-plan-block-type="html"` and is annotatable as one block.
+
+<HtmlBlock
+  caption="Static marketing snippet"
+  height={140}
+  html={"<div style='padding:20px;font-family:system-ui'><h3 style='margin:0 0 8px;color:#4f46e5'>Ship faster</h3><p style='margin:0;color:#374151'>A static HTML fragment rendered inside a locked-down sandbox — no scripts execute.</p></div>"}
+/>
+
 ## Verification
 
 Build the web app, run `vp check` + `vp run typecheck`, then smoke the real
