@@ -76,7 +76,7 @@ path, and it must be understood precisely:
   because the rough.js overlay must measure laid-out elements — and they
   compensate with a DOM-based sanitiser (`sanitizeWireframeHtml`): parse via
   `DOMParser`, drop blocked tags (`script,style,iframe,object,embed,link,meta,
-  base,form,noscript,frame,frameset,applet,marquee,portal`), strip every `on*`
+base,form,noscript,frame,frameset,applet,marquee,portal`), strip every `on*`
   handler, strip URL attributes whose **browser-resolved** scheme isn't safe
   (defeats `java\tscript:` / entity obfuscation), strip dangerous inline styles
   (`expression()`, `position:fixed`, huge `z-index`), and strip host/Tailwind
@@ -205,9 +205,9 @@ Add two branches; the existing branches are untouched:
     analogous to `assignBlockIds`),
   - `targetNodePath` = a structural nth-child chain scoped to the artboard, as a
     **fallback** when the node id is absent/regenerated.
-  Resolve: find artboard → prefer `data-wf-node` match → else walk the path →
-  else `null` (detached). Overlay geometry via `getClientRects()` on the resolved
-  element (same as prose), because the artboard lives in the live DOM (§1.1).
+    Resolve: find artboard → prefer `data-wf-node` match → else walk the path →
+    else `null` (detached). Overlay geometry via `getClientRects()` on the resolved
+    element (same as prose), because the artboard lives in the live DOM (§1.1).
 - **`anchorKind: "canvas"` (board coordinate).** For annotations placed in open
   canvas space (not pinned to a node): `canvasX`/`canvasY` in board units (+
   optional `canvasWidth`/`canvasHeight` for a region), resolved by the canvas
@@ -231,22 +231,23 @@ tier. Whole-prototype comments use the existing `visual` branch today.
 ## 5. Remaining document blocks — triage + sizing
 
 All mirror the shipped slim `PlanBlock` pattern (zod `schema` + `BlockMdxConfig`
-+ `Read`). Sizes are the ported Read+config subset (BuilderIO LOC in parens is
-the full editor+spec source, much larger than our port). "Trivial" = same shape
-as the 8 shipped blocks; "risk" = new machinery.
 
-| Block          | Tag              | Port size | Risk / note |
-|----------------|------------------|-----------|-------------|
-| Callout        | `<Callout>`      | trivial (~120) | Prose `childrenField` body; mirrors existing pattern. |
-| Checklist      | `<Checklist>`    | trivial (~150) | Static list; trivial. |
-| Table          | `<Table>`        | small (~250) | Data rows; trivial-ish. |
-| Diff           | `<Diff>`         | medium (~400) | BuilderIO inline **LCS differ, no jsdiff dep** — port the differ + unified/split Read. Self-contained. |
-| Mermaid        | `<Mermaid>`      | medium (~150 + lazy dep) | **Lazy** `await import("mermaid")` only when a Mermaid block renders; heavy dep isolated, never in the base bundle. Confirmed lazy in source. |
-| OpenApi        | `<OpenApi>`      | medium–large (~500) | Rich spec renderer (998 LOC full); port a read subset. No new risk class, just volume. |
-| HtmlBlock      | `<HtmlBlock>`    | medium (~150) | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; ship as sandboxed-iframe + sanitiser. |
-| VisualQuestions| `<VisualQuestions>` | small (~150) | Variant of the shipped `<QuestionForm>`; near-trivial. |
-| Columns        | `<Columns>`      | **medium — new machinery** | **Container block**: nests child blocks (esp. Before/After wireframe pairs). |
-| Tabs           | `<Tabs>`         | **medium — new machinery** | **Container block**: tabbed child blocks. |
+- `Read`). Sizes are the ported Read+config subset (BuilderIO LOC in parens is
+  the full editor+spec source, much larger than our port). "Trivial" = same shape
+  as the 8 shipped blocks; "risk" = new machinery.
+
+| Block           | Tag                 | Port size                  | Risk / note                                                                                                                                                                                   |
+| --------------- | ------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Callout         | `<Callout>`         | trivial (~120)             | Prose `childrenField` body; mirrors existing pattern.                                                                                                                                         |
+| Checklist       | `<Checklist>`       | trivial (~150)             | Static list; trivial.                                                                                                                                                                         |
+| Table           | `<Table>`           | small (~250)               | Data rows; trivial-ish.                                                                                                                                                                       |
+| Diff            | `<Diff>`            | medium (~400)              | BuilderIO inline **LCS differ, no jsdiff dep** — port the differ + unified/split Read. Self-contained.                                                                                        |
+| Mermaid         | `<Mermaid>`         | medium (~150 + lazy dep)   | **Lazy** `await import("mermaid")` only when a Mermaid block renders; heavy dep isolated, never in the base bundle. Confirmed lazy in source.                                                 |
+| OpenApi         | `<OpenApi>`         | medium–large (~500)        | Rich spec renderer (998 LOC full); port a read subset. No new risk class, just volume.                                                                                                        |
+| HtmlBlock       | `<HtmlBlock>`       | medium (~150)              | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; ship as sandboxed-iframe + sanitiser. |
+| VisualQuestions | `<VisualQuestions>` | small (~150)               | Variant of the shipped `<QuestionForm>`; near-trivial.                                                                                                                                        |
+| Columns         | `<Columns>`         | **medium — new machinery** | **Container block**: nests child blocks (esp. Before/After wireframe pairs).                                                                                                                  |
+| Tabs            | `<Tabs>`            | **medium — new machinery** | **Container block**: tabbed child blocks.                                                                                                                                                     |
 
 **The one structural item:** `Columns`/`Tabs` are **container** blocks. BuilderIO
 dispatch children through a `ctx.renderBlock` block-dispatcher; our slim registry
@@ -295,8 +296,10 @@ Treat `Columns` as the block that de-risks nesting; do it before design-screens
 ## 7. Proofs (throwaway; `scratch-phase4-spike/`, not wired in, not committed)
 
 ### 7.1 Prototype sandbox isolation (`iframe-sandbox-proof.html`, real browser)
+
 Interactive prototype in `sandbox="allow-scripts allow-forms"` srcdoc iframe.
 On-load escape attempts, reported via the only open channel (postMessage):
+
 ```
 parentWindow: "BLOCKED: SecurityError"
 parentDom:    "BLOCKED: SecurityError"
@@ -306,7 +309,9 @@ button click → postMessage delivered to parent  (interactivity intact)
 ```
 
 ### 7.2 Wireframe-node-pin anchor round-trip (`wireframe-anchor-proof.html`, real browser)
+
 Additive `anchorKind:"wireframe"` branch over a rendered artboard:
+
 ```
 captured: {anchorKind:"wireframe", targetSelector:'[data-plan-block-id="wf-1"]',
            targetNodeId:"submit-btn", targetNodePath:"0/2"}
@@ -325,6 +330,7 @@ files; parallelise only disjoint files). Review gates marked ⛔ are where a
 separate reviewer thread + a human security sign-off belong.
 
 **Wave A — foundations (serial-ish, they touch shared renderer/contract):**
+
 - **A1. Widen anchor union** (`contracts/plan.ts` `anchorKind` +
   `anchoring.ts` `wireframe`/`canvas` branches + tests). Small; unblocks all
   annotation-bearing surfaces. Lands the §7.2 branch productionised.
@@ -333,6 +339,7 @@ separate reviewer thread + a human security sign-off belong.
   containers. Touches renderer + anchoring → sequence with A1 (same files).
 
 **Wave B — parallel document blocks (disjoint files, fully parallel after A):**
+
 - **B1.** Callout, Checklist, Table, VisualQuestions (trivial ports) — one thread.
 - **B2.** Diff (port LCS differ + Read) — one thread.
 - **B3.** OpenApi (read subset) — one thread.
@@ -344,6 +351,7 @@ separate reviewer thread + a human security sign-off belong.
   first. One thread.
 
 **Wave C — rich surfaces (serial by dependency; each is a review gate):**
+
 - **C1. ⛔ Wireframe artboard renderer** — port `sanitizeWireframeHtml`
   (security review), `<Screen>`/`<WireframeBlock>` block, surface presets,
   live-DOM injection, `data-wf-node` stamping (feeds A1's pin). rough overlay

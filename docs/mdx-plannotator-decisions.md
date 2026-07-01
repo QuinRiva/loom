@@ -188,11 +188,12 @@ opaque origin. Proven in a real browser: it cannot read the parent window, DOM,
 or cookies, yet stays interactive; its only channel is `postMessage`, treated as
 hostile. **Recommended (pending explicit user confirmation before C4 builds):**
 sandbox is the primary boundary + sanitise the prototype HTML as defence-in-depth
-+ **no remote script** (`script-src 'self'`/`'unsafe-inline'` only) unless a plan
-explicitly opts in; wire shape = a single `<Prototype html="…">` block. **v1
-annotation = whole-prototype (block-level `visual` anchor)**; in-prototype node
-pins need a postMessage geometry bridge and are a separate, gated follow-on
-(C5) — not v1. This is the one Phase-4 decision flagged for a human.
+
+- **no remote script** (`script-src 'self'`/`'unsafe-inline'` only) unless a plan
+  explicitly opts in; wire shape = a single `<Prototype html="…">` block. **v1
+  annotation = whole-prototype (block-level `visual` anchor)**; in-prototype node
+  pins need a postMessage geometry bridge and are a separate, gated follow-on
+  (C5) — not v1. This is the one Phase-4 decision flagged for a human.
 
 ## D10 — Extend the anchor union additively; recursion for container blocks
 

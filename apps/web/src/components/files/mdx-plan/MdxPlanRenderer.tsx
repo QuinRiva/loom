@@ -31,10 +31,12 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
  * bound the eval surface to our own trusted components.
  *
  * Annotation hook (Phase 2): the rendered output lives under one stable
- * container (`data-plan-root`, exposed via `containerRef`), and every top-level
- * block carries a stable `data-plan-block-id` — authored `id` when present, else
- * an assigned `plan-block-N`. That gives the annotation layer a Range root plus a
- * block-level fallback anchor without re-architecting this renderer.
+ * container (`data-plan-root`, exposed via `containerRef`), and every block —
+ * top-level or nested inside a container block (`Columns`/`Tabs`) — carries a
+ * stable `data-plan-block-id` (authored `id` when present, else an assigned
+ * unique `plan-block-N`; see {@link assignBlockIds}). That gives the annotation
+ * layer a Range root plus a block-level fallback anchor at any nesting depth
+ * without re-architecting this renderer.
  */
 
 const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
@@ -112,17 +114,29 @@ class PlanRenderErrorBoundary extends Component<
   }
 }
 
-/** Assign a stable `data-plan-block-id` to each top-level block missing one.
- * Exported for verification. */
+/** Assign a stable, unique `data-plan-block-id` to every block lacking one — both
+ * top-level children (headings, prose, blocks) AND blocks nested inside container
+ * blocks (`Columns`/`Tabs`, Wave B6). Authored ids are left untouched; the rest
+ * draw from a single document-wide counter so ids never collide across nesting
+ * depth. The walk is deterministic (same DOM → same ids), so anchors persist
+ * across re-renders. Nested non-block wrappers are skipped — only elements with a
+ * `data-plan-block-type` are stamped below the top level. Exported for verification. */
 export function assignBlockIds(root: HTMLElement): void {
-  let index = 0;
-  for (const child of Array.from(root.children)) {
-    if (!(child instanceof HTMLElement)) continue;
-    if (!child.hasAttribute("data-plan-block-id")) {
-      child.setAttribute("data-plan-block-id", `plan-block-${index}`);
+  let counter = 0;
+  const stamp = (el: HTMLElement) => {
+    if (!el.hasAttribute("data-plan-block-id")) {
+      el.setAttribute("data-plan-block-id", `plan-block-${counter}`);
     }
-    index += 1;
-  }
+    counter += 1;
+  };
+  const descend = (parent: HTMLElement, topLevel: boolean) => {
+    for (const child of Array.from(parent.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (topLevel || child.hasAttribute("data-plan-block-type")) stamp(child);
+      descend(child, false);
+    }
+  };
+  descend(root, true);
 }
 
 interface MdxPlanRendererProps {

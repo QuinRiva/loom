@@ -141,7 +141,11 @@ function asElement(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
 }
 
-/** The custom plan block ([data-plan-block-type]) enclosing a node, if any. */
+/** The custom plan block ([data-plan-block-type]) enclosing a node, if any. For a
+ * selection inside a block nested in a container (`Columns`/`Tabs`), `closest`
+ * returns the *nearest* block ancestor — the nested block, not the container — so
+ * whole-block anchoring keys on the nested block (which `assignBlockIds` gives a
+ * unique id). */
 export function enclosingBlock(node: Node): { element: Element; id: string; type: string } | null {
   const element = asElement(node)?.closest("[data-plan-block-type]");
   if (!element) return null;
@@ -152,10 +156,13 @@ export function enclosingBlock(node: Node): { element: Element; id: string; type
   };
 }
 
-/** Nearest preceding heading = the "section" a node belongs to. */
+/** Nearest preceding heading = the "section" a node belongs to. A nested block's
+ * section is still a *document-level* heading: the climb rises to the top-level
+ * child of the plan root (through any container) before scanning prior siblings,
+ * so nesting depth never changes which section a node reports. */
 function sectionFor(node: Node, root: Element): { id: string; title: string } | null {
   let el: Element | null = asElement(node);
-  // Climb to the top-level child of the plan root.
+  // Climb to the top-level child of the plan root (through any container block).
   while (el && el.parentElement && el.parentElement !== root) el = el.parentElement;
   // Walk backwards over previous siblings (incl. self) to the nearest heading.
   while (el) {

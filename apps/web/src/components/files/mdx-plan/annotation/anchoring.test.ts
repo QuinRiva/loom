@@ -8,6 +8,7 @@ import {
   anchorForCanvasPoint,
   anchorForWireframeNode,
   anchorFromRange,
+  enclosingBlock,
   resolveAnchor,
   resolveCanvasAnchor,
 } from "./anchoring";
@@ -115,6 +116,75 @@ describe("anchoring — un-id'd blocks get distinct anchors (S1)", () => {
     const resolved = resolveAnchor(second.anchor, planRoot);
     expect(resolved?.toString()).toContain("second block");
     expect(resolved?.toString()).not.toContain("first block");
+  });
+});
+
+/**
+ * Wave A2 — container blocks (`Columns`/`Tabs`) nest child blocks. Their renderers
+ * don't exist yet (Wave B6), so this uses a throwaway stub whose shape mirrors
+ * them: a `data-plan-block-type` container element whose children are themselves
+ * plan blocks. It proves id assignment recurses (every nested block gets a
+ * distinct id) and that whole-block/section resolution keys on the *nested* block
+ * — not the container and not the first matching block.
+ */
+describe("anchoring — nested blocks in container blocks (A2)", () => {
+  const NESTED_HTML = `<div data-plan-root>
+    <h2>Before / After</h2>
+    <div data-plan-block-type="columns">
+      <figure data-plan-block-type="code"><span>before code</span></figure>
+      <figure data-plan-block-type="code"><span>after code</span></figure>
+    </div>
+    <figure data-plan-block-type="diagram"><span>top diagram</span></figure>
+  </div>`;
+
+  function setup(): HTMLElement {
+    document.body.innerHTML = NESTED_HTML;
+    const nestedRoot = document.querySelector<HTMLElement>("[data-plan-root]")!;
+    assignBlockIds(nestedRoot);
+    return nestedRoot;
+  }
+
+  it("assigns a distinct id to every block at every nesting depth", () => {
+    const nestedRoot = setup();
+    const ids = Array.from(nestedRoot.querySelectorAll("[data-plan-block-type]"), (b) =>
+      b.getAttribute("data-plan-block-id"),
+    );
+    expect(ids.length).toBe(4); // container + 2 nested code + 1 top diagram
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length); // all distinct across nesting
+  });
+
+  it("enclosingBlock of a selection inside a nested block is the nested block, not the container", () => {
+    const nestedRoot = setup();
+    const span = nestedRoot
+      .querySelectorAll('[data-plan-block-type="code"]')[0]!
+      .querySelector("span")!;
+    const block = enclosingBlock(span.firstChild!);
+    expect(block?.type).toBe("code"); // nearest ancestor, NOT "columns"
+  });
+
+  it("a whole-block anchor on a nested block resolves to that block, not the container or first match", () => {
+    const nestedRoot = setup();
+    const afterCode = nestedRoot.querySelectorAll('[data-plan-block-type="code"]')[1]!;
+    const resolved = resolveAnchor(anchorForBlockElement(afterCode, nestedRoot).anchor, nestedRoot);
+    expect(resolved?.toString()).toContain("after code");
+    expect(resolved?.toString()).not.toContain("before code");
+  });
+
+  it("a selection inside a nested block yields a visual anchor for that block with the document-level section", () => {
+    const nestedRoot = setup();
+    const text = nestedRoot
+      .querySelectorAll('[data-plan-block-type="code"]')[1]!
+      .querySelector("span")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 5);
+    const res = anchorFromRange(range, nestedRoot);
+    expect(res?.anchor.anchorKind).toBe("visual");
+    expect(res?.anchor.sectionTitle).toBe("Before / After"); // document-level heading, not nesting-local
+    const resolved = resolveAnchor(res!.anchor, nestedRoot);
+    expect(resolved?.toString()).toContain("after code");
+    expect(resolved?.toString()).not.toContain("before code");
   });
 });
 
