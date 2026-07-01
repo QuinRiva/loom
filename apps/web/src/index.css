@@ -868,3 +868,358 @@ label:has(> select#reasoning-effort) select {
 .dark .model-picker-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan wireframe artboards (Wave C1)                                     */
+/* Author HTML is sanitised then injected into the live DOM; the renderer owns */
+/* the surface chrome, the light/dark theme, and the --wf-* colour tokens the  */
+/* fragment references. Scoped to the artboard so it never leaks to the app.   */
+/* rough.js sketch overlay + the hand-drawn font are deferred (D8).           */
+/* -------------------------------------------------------------------------- */
+[data-plan-block-type="wireframe"] {
+  --wf-ink: #1f2328;
+  --wf-muted: #6b7280;
+  --wf-line: #cfd4dc;
+  --wf-paper: #ffffff;
+  --wf-card: #f7f8fa;
+  --wf-accent: #4f46e5;
+  --wf-accent-fg: #ffffff;
+  --wf-accent-soft: #e0e7ff;
+  --wf-warn: #d97706;
+  --wf-ok: #059669;
+  --wf-radius: 8px;
+}
+.dark [data-plan-block-type="wireframe"] {
+  --wf-ink: #e6e8eb;
+  --wf-muted: #9aa3af;
+  --wf-line: #3a414d;
+  --wf-paper: #14171c;
+  --wf-card: #1b1f26;
+  --wf-accent: #818cf8;
+  --wf-accent-fg: #0b0d10;
+  --wf-accent-soft: #2b2f52;
+}
+
+.wf-artboard {
+  display: block;
+}
+.wf-surface {
+  box-sizing: border-box;
+  /* Real containment box (S1): position:relative makes it the containing block for
+     absolute/fixed descendants, and contain:layout paint clips + traps anything that
+     tries to escape the artboard to overlay host chrome (clickjacking) — robust
+     against CSS-comment/escape regex bypasses, unlike overflow:hidden on a
+     position:static box, which does NOT clip positioned descendants. */
+  position: relative;
+  contain: layout paint;
+  overflow: hidden;
+  border: 1.5px solid var(--wf-line);
+  background: var(--wf-paper);
+  color: var(--wf-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.wf-caption {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--wf-muted);
+}
+
+/* Bare semantic elements are auto-themed — no classes needed. */
+.wf-surface * {
+  box-sizing: border-box;
+}
+.wf-surface h1 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin: 0;
+}
+.wf-surface h2 {
+  font-size: 1.15rem;
+  font-weight: 620;
+  margin: 0;
+}
+.wf-surface h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.wf-surface p {
+  margin: 0;
+}
+.wf-surface small,
+.wf-surface .wf-muted {
+  color: var(--wf-muted);
+  font-size: 0.85em;
+}
+.wf-surface a {
+  color: var(--wf-accent);
+  text-decoration: none;
+}
+.wf-surface hr {
+  border: none;
+  border-top: 1.4px solid var(--wf-line);
+  margin: 0.5rem 0;
+}
+.wf-surface strong {
+  font-weight: 640;
+}
+
+.wf-surface input,
+.wf-surface select,
+.wf-surface textarea {
+  font: inherit;
+  color: var(--wf-ink);
+  background: var(--wf-paper);
+  border: 1.4px solid var(--wf-line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.wf-surface input[type="checkbox"],
+.wf-surface input[type="radio"] {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  accent-color: var(--wf-accent);
+}
+.wf-surface label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85em;
+  color: var(--wf-muted);
+}
+
+.wf-surface button,
+.wf-surface .wf-btn {
+  font: inherit;
+  cursor: default;
+  color: var(--wf-ink);
+  background: var(--wf-paper);
+  border: 1.4px solid var(--wf-line);
+  border-radius: 7px;
+  padding: 7px 12px;
+}
+.wf-surface button.primary,
+.wf-surface .wf-btn.primary,
+.wf-surface [data-primary] {
+  color: var(--wf-accent-fg);
+  background: var(--wf-accent);
+  border-color: var(--wf-accent);
+}
+
+/* Helper containers + tags. */
+.wf-surface .wf-card,
+.wf-surface .wf-box {
+  border: 1.4px solid var(--wf-line);
+  background: var(--wf-card);
+  border-radius: var(--wf-radius);
+  padding: 12px;
+}
+.wf-surface .wf-pill,
+.wf-surface .wf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1.4px solid var(--wf-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8em;
+  color: var(--wf-ink);
+}
+.wf-surface .wf-pill.accent,
+.wf-surface .wf-chip.accent {
+  color: var(--wf-accent-fg);
+  background: var(--wf-accent);
+  border-color: var(--wf-accent);
+}
+/* Icon markers (renderer icon replacement deferred): size the slot so an empty
+   marker doesn't collapse or blow out the row. */
+.wf-surface .wf-icon,
+.wf-surface [data-icon] {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan design-fidelity tier (Wave C3)                                     */
+/* The SAME sanitised-HTML-in-live-DOM renderer as the wireframe, with branded */
+/* theme classes preserved (no --wf token theming, no sketch chrome). It keeps */
+/* the S1 containment box (position:relative + contain) so a design fragment    */
+/* can't escape its artboard to overlay host chrome. Fragments bring their own  */
+/* styling (inline styles / preserved Tailwind classes).                       */
+/* -------------------------------------------------------------------------- */
+.plan-design-surface {
+  box-sizing: border-box;
+  position: relative;
+  contain: layout paint;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.plan-design-surface * {
+  box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan container blocks (Wave B6): Columns + Tabs                          */
+/* Containers render nested plan *blocks* as children (MDX-native nesting), so   */
+/* there is no untrusted-HTML surface here — only layout.                       */
+/* -------------------------------------------------------------------------- */
+.plan-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.plan-column {
+  min-width: 0;
+}
+.plan-column-label {
+  margin-bottom: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted-foreground);
+}
+.plan-column-body > :first-child {
+  margin-top: 0;
+}
+
+.plan-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.plan-tab {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.plan-tab:hover {
+  color: var(--foreground);
+}
+.plan-tab-active {
+  color: var(--foreground);
+  border-bottom-color: var(--primary, var(--foreground));
+}
+.plan-tab-panel {
+  padding-top: 0.75rem;
+}
+.plan-tab-panel > :first-child {
+  margin-top: 0;
+}
+.plan-tabs-vertical {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0 1rem;
+}
+.plan-tabs-vertical .plan-tablist {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+}
+.plan-tabs-vertical .plan-tab {
+  border-bottom: none;
+  border-right: 2px solid transparent;
+  margin-bottom: 0;
+  margin-right: -1px;
+  text-align: left;
+}
+.plan-tabs-vertical .plan-tab-active {
+  border-right-color: var(--primary, var(--foreground));
+}
+.plan-tabs-vertical .plan-tab-panel {
+  padding-top: 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan canvas (Wave C2)                                                   */
+/* A DesignBoard is a board-unit coordinate space; artboards/section frames/   */
+/* notes are absolutely positioned children of .plan-canvas-surface (the       */
+/* positioned reference the board→pixel transform maps into). Connectors draw   */
+/* between artboards in the same space.                                        */
+/* -------------------------------------------------------------------------- */
+.plan-canvas {
+  display: block;
+}
+.plan-canvas-title {
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.plan-canvas-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    )
+    0 0 / 22px 22px;
+  padding: 8px;
+}
+.plan-canvas-surface {
+  position: relative;
+  min-width: 100%;
+  min-height: 220px;
+}
+.plan-canvas-artboard {
+  z-index: 2;
+}
+.plan-canvas-section-frame {
+  z-index: 0;
+  border: 1.5px dashed color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  pointer-events: none;
+}
+.plan-canvas-section-label {
+  position: absolute;
+  top: -0.7rem;
+  left: 0.75rem;
+  padding: 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  background: var(--background);
+}
+.plan-canvas-connector {
+  z-index: 1;
+  pointer-events: none;
+}
+.plan-canvas-connector-svg {
+  overflow: visible;
+}
+.plan-canvas-connector-label {
+  font-size: 10px;
+}
+.plan-canvas-annotation {
+  z-index: 3;
+  max-width: 220px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--warn, #d97706) 12%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--warn, #d97706) 40%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}

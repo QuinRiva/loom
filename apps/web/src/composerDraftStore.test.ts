@@ -620,6 +620,7 @@ describe("composerDraftStore review comments", () => {
   const threadId = ThreadId.make("thread-review-comment");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
   const comment = {
+    kind: "line",
     id: "comment-1",
     sectionId: "file:src/app.ts",
     sectionTitle: "File comment",

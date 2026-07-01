@@ -1,31 +1,56 @@
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
+import { PlanCommentAnchor } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-export const ReviewCommentContextSchema = Schema.Struct({
+import { planCommentAnchorDetails } from "./planCommentAnchor";
+
+/**
+ * Injected review-comment evidence, as a discriminated union on `kind` (decision
+ * D6 — no dual-shape optional cruft):
+ *   - `line`: the original source/diff-review path (unchanged behaviour) — line
+ *     indices + a source/diff fence.
+ *   - `mdx-anchor`: rendered-MDX-plan annotation — a {@link PlanCommentAnchor}
+ *     (text-quote + section/block) plus the quoted passage as evidence.
+ *
+ * The Phase 1-Fan (server + injection) thread owns the authoritative
+ * agent-prompt serialisation/parse of the `mdx-anchor` variant; the format below
+ * is a correct first cut so the union is exhaustive today. Nothing constructs
+ * `mdx-anchor` yet (the Phase 2 annotation layer will).
+ */
+const reviewCommentBaseFields = {
   id: Schema.String,
   sectionId: Schema.String,
   sectionTitle: Schema.String,
   filePath: Schema.String,
-  startIndex: Schema.Number,
-  endIndex: Schema.Number,
   rangeLabel: Schema.String,
   text: Schema.String,
+};
+
+export const LineReviewCommentContextSchema = Schema.Struct({
+  kind: Schema.Literal("line"),
+  ...reviewCommentBaseFields,
+  startIndex: Schema.Number,
+  endIndex: Schema.Number,
   diff: Schema.String,
   fenceLanguage: Schema.optional(Schema.String),
 });
 
-export interface ReviewCommentContext {
-  readonly id: string;
-  readonly sectionId: string;
-  readonly sectionTitle: string;
-  readonly filePath: string;
-  readonly startIndex: number;
-  readonly endIndex: number;
-  readonly rangeLabel: string;
-  readonly text: string;
-  readonly diff: string;
-  readonly fenceLanguage?: string | undefined;
-}
+export const MdxAnchorReviewCommentContextSchema = Schema.Struct({
+  kind: Schema.Literal("mdx-anchor"),
+  ...reviewCommentBaseFields,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String,
+});
+
+export const ReviewCommentContextSchema = Schema.Union([
+  LineReviewCommentContextSchema,
+  MdxAnchorReviewCommentContextSchema,
+]);
+
+export type LineReviewCommentContext = typeof LineReviewCommentContextSchema.Type;
+export type MdxAnchorReviewCommentContext = typeof MdxAnchorReviewCommentContextSchema.Type;
+export type ReviewCommentContext = typeof ReviewCommentContextSchema.Type;
 
 interface DiffReviewLine {
   readonly change: "context" | "add" | "delete";
@@ -95,12 +120,55 @@ function extractReviewCommentBody(rawBody: string): {
   };
 }
 
+const decodePlanCommentAnchor = Schema.decodeUnknownOption(PlanCommentAnchor);
+
+function parseMdxAnchorReviewComment(
+  attributes: Record<string, string>,
+  rawBody: string,
+  index: number,
+): MdxAnchorReviewCommentContext | null {
+  const filePath = attributes.filePath?.trim();
+  const sectionId = attributes.sectionId?.trim();
+  const rawAnchor = attributes.anchor;
+  if (!filePath || !sectionId || !rawAnchor) {
+    return null;
+  }
+  let parsedAnchor: unknown;
+  try {
+    parsedAnchor = JSON.parse(rawAnchor);
+  } catch {
+    return null;
+  }
+  const decoded = decodePlanCommentAnchor(parsedAnchor);
+  if (Option.isNone(decoded)) {
+    return null;
+  }
+  // The agent-facing detail block is rendered after the quoted-passage fence and
+  // is derived from the anchor, so we recover the reviewer's text (before the
+  // fence) and the quoted passage (fence contents) and drop the trailing prose.
+  const body = extractReviewCommentBody(rawBody);
+  return {
+    kind: "mdx-anchor",
+    id: attributes.id?.trim() || `review-comment:${index}:${sectionId}:${filePath}`,
+    sectionId,
+    sectionTitle: attributes.sectionTitle?.trim() || "Review",
+    filePath,
+    rangeLabel: attributes.rangeLabel?.trim() || "annotation",
+    text: body.text,
+    anchor: decoded.value,
+    quotedText: body.contents,
+  };
+}
+
 function parseReviewCommentContext(
   rawAttributes: string,
   rawBody: string,
   index: number,
 ): ReviewCommentContext | null {
   const attributes = readReviewCommentAttributes(rawAttributes);
+  if (attributes.kind === "mdx-anchor") {
+    return parseMdxAnchorReviewComment(attributes, rawBody, index);
+  }
   const startIndex = readNonNegativeInteger(attributes.startIndex);
   const endIndex = readNonNegativeInteger(attributes.endIndex);
   const filePath = attributes.filePath?.trim();
@@ -111,6 +179,7 @@ function parseReviewCommentContext(
   const body = extractReviewCommentBody(rawBody);
 
   return {
+    kind: "line",
     id: `review-comment:${index}:${sectionId}:${filePath}:${startIndex}:${endIndex}`,
     sectionId,
     sectionTitle: attributes.sectionTitle?.trim() || "Review",
@@ -184,7 +253,51 @@ export function formatReviewCommentFence(language: string, contents: string): st
   return [`${fence}${language}`, contents.trimEnd(), fence].join("\n");
 }
 
+/**
+ * Serialise the `mdx-anchor` variant into the injected user turn. Layout (kept
+ * consistent with the line variant — attributes, reviewer text, then a fenced
+ * evidence block):
+ *   - Attributes carry the base fields plus the full {@link PlanCommentAnchor}
+ *     as an escaped-JSON `anchor="…"` value. That JSON is the machine round-trip
+ *     truth (lossless across every tier, so parse re-hydrates the exact anchor).
+ *   - The reviewer's request is the leading prose.
+ *   - The quoted passage is a fenced block — the concrete "which passage" the
+ *     comment targets (mirrors the diff fence of the line variant).
+ *   - A BuilderIO-style anchor detail block (section, block type, context,
+ *     ambiguity, expected resolver) follows the fence as agent-facing prose; it
+ *     is derived from the anchor and is ignored on parse (the JSON is the truth).
+ */
+function formatMdxAnchorReviewComment(comment: MdxAnchorReviewCommentContext): string {
+  const details = planCommentAnchorDetails(comment.anchor);
+  const fenceLanguage = inferReviewCommentFenceLanguage(comment.filePath);
+  const body = [
+    comment.text.trim(),
+    formatReviewCommentFence(fenceLanguage, comment.quotedText),
+    details.length > 0 ? details.join("\n") : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+  return [
+    [
+      "<review_comment",
+      ` kind="mdx-anchor"`,
+      ` id="${escapeReviewCommentAttribute(comment.id)}"`,
+      ` sectionId="${escapeReviewCommentAttribute(comment.sectionId)}"`,
+      ` sectionTitle="${escapeReviewCommentAttribute(comment.sectionTitle)}"`,
+      ` filePath="${escapeReviewCommentAttribute(comment.filePath)}"`,
+      ` rangeLabel="${escapeReviewCommentAttribute(comment.rangeLabel)}"`,
+      ` anchor="${escapeReviewCommentAttribute(JSON.stringify(comment.anchor))}"`,
+      ">",
+    ].join(""),
+    body,
+    "</review_comment>",
+  ].join("\n");
+}
+
 export function formatReviewCommentContext(comment: ReviewCommentContext): string {
+  if (comment.kind === "mdx-anchor") {
+    return formatMdxAnchorReviewComment(comment);
+  }
   return [
     [
       "<review_comment",
@@ -226,6 +339,7 @@ export function buildFileReviewComment(input: {
   const endLine = Math.max(startLine, Math.max(input.startLine, input.endLine));
   const selectedLines = input.contents.split("\n").slice(startLine - 1, endLine);
   return {
+    kind: "line",
     id: input.id,
     sectionId: `file:${input.filePath}`,
     sectionTitle: "File comment",
@@ -332,6 +446,7 @@ export function restoreDiffReviewCommentRange(
   fileDiff: FileDiffMetadata,
   comment: ReviewCommentContext,
 ): SelectedLineRange | null {
+  if (comment.kind !== "line") return null;
   const lines = buildDiffReviewLines(fileDiff);
   const startLine = lines[comment.startIndex];
   const endLine = lines[comment.endIndex];
@@ -421,6 +536,7 @@ export function buildDiffReviewComment(input: {
   const newRange = getDiffRange(selectedLines, "newLineNumber");
 
   return {
+    kind: "line",
     id: input.id,
     sectionId: input.sectionId,
     sectionTitle: input.sectionTitle,
@@ -438,6 +554,7 @@ export function buildDiffReviewComment(input: {
 }
 
 export function buildReviewCommentRenderablePatch(comment: ReviewCommentContext): string {
+  if (comment.kind !== "line") return "";
   if ((comment.fenceLanguage ?? "diff") !== "diff") {
     return "";
   }

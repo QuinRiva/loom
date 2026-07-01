@@ -1897,7 +1897,11 @@ function partializeComposerDraftStoreState(
         : {}),
       ...(draft.reviewComments.length > 0
         ? {
-            reviewComments: draft.reviewComments.map((comment) => ({ ...comment })),
+            // Cloned plain objects; the readonly-nested anchor arrays in the
+            // Schema type are structurally fine to persist as mutable.
+            reviewComments: draft.reviewComments.map((comment) => ({
+              ...comment,
+            })) as DeepMutable<ReviewCommentContext>[],
           }
         : {}),
       ...(hasModelData

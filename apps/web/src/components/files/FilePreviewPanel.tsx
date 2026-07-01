@@ -52,7 +52,8 @@ import { installFileEditorDismissal } from "./fileEditorDismissal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { isMarkdownPreviewFile, isMdxPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -557,15 +558,11 @@ function RenderedMarkdownSurface({
   relativePath,
   contents,
   threadRef,
+  composerDraftTarget,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
-  | "resolvedTheme"
-  | "composerDraftTarget"
-  | "revealLine"
-  | "revealRequestId"
-  | "wordWrap"
-  | "onPostRender"
+  "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
 }) {
@@ -575,6 +572,18 @@ function RenderedMarkdownSurface({
     relativePath,
     onPendingChange,
   });
+
+  if (isMdxPreviewFile(relativePath)) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        <MdxPlanAnnotationLayer
+          source={contents}
+          filePath={relativePath}
+          composerDraftTarget={composerDraftTarget}
+        />
+      </ScrollArea>
+    );
+  }
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -634,14 +643,20 @@ export default function FilePreviewPanel({
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const [markdownView, setMarkdownView] = useState<{
     path: string | null;
+    mode: "rendered" | "source";
     revealRequestId: number | null;
-  }>({ path: null, revealRequestId: null });
+  }>({ path: null, mode: "rendered", revealRequestId: null });
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
+  const isMdx = relativePath ? isMdxPreviewFile(relativePath) : false;
+  // MDX plans open in the annotatable rendered view by default; plain `.md`
+  // still opens as source (rendered on demand). Either way a reveal-to-line
+  // forces source unless the user's explicit choice matches this reveal.
+  const explicitView = markdownView.path === relativePath ? markdownView.mode : null;
   const renderMarkdown =
     isMarkdown &&
-    markdownView.path === relativePath &&
-    (revealLine === null || markdownView.revealRequestId === revealRequestId);
+    (revealLine === null || markdownView.revealRequestId === revealRequestId) &&
+    (explicitView ? explicitView === "rendered" : isMdx);
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
   const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
@@ -749,8 +764,9 @@ export default function FilePreviewPanel({
                     pressed={renderMarkdown}
                     onPressedChange={(pressed) => {
                       setMarkdownView({
-                        path: pressed ? relativePath : null,
-                        revealRequestId: pressed ? revealRequestId : null,
+                        path: relativePath,
+                        mode: pressed ? "rendered" : "source",
+                        revealRequestId,
                       });
                     }}
                     aria-label={renderMarkdown ? "Show markdown source" : "Show rendered markdown"}
@@ -833,6 +849,7 @@ export default function FilePreviewPanel({
                 cwd={cwd}
                 relativePath={relativePath}
                 threadRef={threadRef}
+                composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />

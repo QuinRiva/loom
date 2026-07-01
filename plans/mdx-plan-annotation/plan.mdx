@@ -1,0 +1,412 @@
+# First-party MDX plan annotation
+
+**Objective.** Let a coding agent hand back a plan as a rendered, annotatable
+`.mdx` document instead of chat-only prose, so a reviewer can select any span,
+leave an anchored comment, and have that comment injected back to the agent as a
+normal user turn. **Done** means: opening a `plans/<slug>/plan.mdx` file shows
+the rendered plan in the doc panel, selecting prose surfaces a **Comment**
+affordance, the comment becomes a composer chip, and on send it serialises into
+the user turn carrying the quoted passage and its section.
+
+This plan reuses the existing composer review-comment plumbing
+(`addReviewComment` → `appendReviewCommentsToPrompt`) rather than adding a new
+comment store; the genuinely new delta is the **MDX renderer** and the
+**rendered-DOM anchoring engine**. A few decisions remain open — see the form at
+the end.
+
+## What changes
+
+<FileTree
+  title="Files that change"
+  entries={[
+    {
+      path: "apps/web/src/components/files/FilePreviewPanel.tsx",
+      change: "modified",
+      note: "route .mdx to the annotation layer; open rendered by default",
+    },
+    {
+      path: "apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx",
+      change: "added",
+      note: "runtime evaluate() + closed block registry + remark guard",
+    },
+    {
+      path: "apps/web/src/components/files/mdx-plan/annotation/anchoring.ts",
+      change: "added",
+      note: "Range → PlanCommentAnchor and back; detached → null",
+    },
+    {
+      path: "apps/web/src/reviewCommentContext.ts",
+      change: "modified",
+      note: "ReviewCommentContext becomes a line | mdx-anchor union",
+    },
+    {
+      path: "packages/contracts/src/plan.ts",
+      change: "added",
+      note: "PlanCommentAnchor + PlanComment schemas (schema-only)",
+    },
+  ]}
+/>
+
+## Approach
+
+The renderer compiles MDX at runtime in the browser with `@mdx-js/mdx`
+`evaluate()` against a fixed component registry. A remark guard rejects
+`import`/`export` and raw `{expression}` bodies, and MDX's own unknown-component
+trap (caught by an error boundary) closes the surface — a stronger bound than the
+current tag allow-list. Each top-level block is rendered with a stable
+`data-plan-block-id`, and the whole document sits under one
+`[data-plan-root]` container that the annotation layer attaches to.
+
+<Code
+  filename="apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx"
+  language="ts"
+  code={"const { default: Content } = await evaluate(source, {\n  ...runtime,\n  remarkPlugins: [remarkPlanGuard, remarkGfm],\n  useMDXComponents: () => PLAN_BLOCK_COMPONENTS,\n});\n"}
+/>
+
+### The anchor model
+
+A comment stores a portable anchor, not a DOM offset, so it survives re-render.
+Prose selections become a text-quote anchor with surrounding context for
+disambiguation; a selection inside a non-prose block (code, diagram, table)
+falls back to a whole-block `visual` anchor keyed on the block id.
+
+<DataModel
+  entities={[
+    {
+      id: "planComment",
+      name: "PlanComment",
+      fields: [
+        { name: "id", type: "string", pk: true },
+        { name: "planPath", type: "string", note: "the .mdx path" },
+        { name: "anchor", type: "PlanCommentAnchor", nullable: true, note: "null once detached" },
+        { name: "quotedText", type: "string" },
+        { name: "text", type: "string", note: "the reviewer's comment" },
+        { name: "status", type: "open | resolved" },
+      ],
+    },
+    {
+      id: "anchor",
+      name: "PlanCommentAnchor",
+      change: "added",
+      fields: [
+        { name: "anchorKind", type: "text | visual | point" },
+        { name: "targetKind", type: "PlanCommentTargetKind" },
+        { name: "textQuote", type: "string", nullable: true },
+        { name: "contextBefore", type: "string", nullable: true },
+        { name: "contextAfter", type: "string", nullable: true },
+        { name: "targetSelector", type: "string", nullable: true, note: "visual anchors" },
+      ],
+    },
+  ]}
+  relations={[{ from: "planComment", to: "anchor", kind: "1-n", label: "anchor" }]}
+/>
+
+The resolver re-finds the quoted text on every layout change and re-binds an
+exact character `Range`; when the quote is gone the comment degrades to a clean
+"detached" card rather than being dropped.
+
+<AnnotatedCode
+  filename="apps/web/src/components/files/mdx-plan/annotation/anchoring.ts"
+  language="ts"
+  code={"const hits = [];\nfor (let i = text.indexOf(quote); i !== -1; i = text.indexOf(quote, i + 1)) hits.push(i);\nif (hits.length === 0) return null; // detached: quoted text is gone\nconst best = hits.reduce((a, b) => (score(b) > score(a) ? b : a), hits[0]);\n"}
+  annotations={[
+    { lines: "2", label: "find all", note: "every occurrence of the quoted passage" },
+    { lines: "3", note: "no hit → null → the comment renders as detached" },
+    { lines: "4", label: "disambiguate", note: "context before/after picks the right duplicate" },
+  ]}
+/>
+
+### Injection path
+
+On send, each mdx-anchor comment is formatted into the injected user turn
+alongside the section title and quoted passage — reusing
+`appendReviewCommentsToPrompt`, the same seam that already carries line-based
+code-review comments.
+
+<Diagram
+  caption="Selection → anchored comment → injected user turn"
+  data={{
+    nodes: [
+      { id: "sel", label: "Text selection", x: 12, y: 30 },
+      { id: "anchor", label: "PlanCommentAnchor", detail: "text-quote + context", x: 50, y: 30 },
+      { id: "store", label: "composer store", detail: "reviewComments", x: 50, y: 78 },
+      { id: "turn", label: "User turn", x: 88, y: 78 },
+    ],
+    edges: [
+      { from: "sel", to: "anchor", label: "anchorFromRange" },
+      { from: "anchor", to: "store", label: "addReviewComment" },
+      { from: "store", to: "turn", label: "on send" },
+    ],
+  }}
+/>
+
+The shape the agent receives for one comment:
+
+<Json
+  title="Injected mdx-anchor comment"
+  json={'{\n  "kind": "mdx-anchor",\n  "planPath": "plans/mdx-plan-annotation/plan.mdx",\n  "sectionTitle": "Injection path",\n  "quotedText": "reusing appendReviewCommentsToPrompt",\n  "text": "Confirm this reuses the code-review seam verbatim.",\n  "status": "open"\n}'}
+/>
+
+## Scope and non-goals
+
+In scope: the 8 document blocks, prose annotation, whole-block annotation, and
+composer-store injection. **Non-goals for this cut:** a `comments.json` sidecar
+for external-tool interop (deferred), and the rich visual surfaces (wireframe
+canvas, live prototype tabs, design-fidelity screens) — those are a later phase.
+A future sync endpoint, if the sidecar is ever wanted, would look like this — it
+is **not** built now:
+
+<Endpoint
+  method="PUT"
+  path="/api/plans/:slug/comments"
+  summary="(Deferred) persist plan comments to a comments.json sidecar"
+  params={[
+    { name: "slug", in: "path", type: "string", required: true },
+    { name: "comments", in: "body", type: "PlanComment[]", required: true },
+  ]}
+  responses={[
+    { status: "200", description: "Sidecar written" },
+    { status: "404", description: "Unknown plan slug" },
+  ]}
+>
+  Only needed if BuilderIO-style external tooling must consume our comments; the
+  first cut keeps comments in the composer store and never touches disk.
+</Endpoint>
+
+## Phase 4 block vocabulary
+
+Phase 4 ports the remaining BuilderIO document blocks so annotation works across
+the full vocabulary, not just prose. The blocks below are all rendered from the
+same `.mdx` and are individually annotatable.
+
+<Callout tone="risk">
+  The wireframe surface introduces a **second trust boundary** — the HTML arrives
+  as a passed-through string literal the MDX guard never reads, so it is sanitised
+  at the block render point (`sanitizeWireframeHtml`) before it is injected into
+  the live DOM. Wave C1 ships that sanitiser and the `<Screen>` artboard below.
+</Callout>
+
+<Checklist
+  items={[
+    { id: "differ", label: "Diff ships a self-contained LCS differ (no jsdiff dep)", checked: true },
+    { id: "mermaid", label: "Mermaid is lazy-imported, never in the base bundle", checked: true },
+    { id: "annot", label: "Annotation resolves across every new block type" },
+  ]}
+/>
+
+<Table
+  columns={["Block", "Port size", "Risk"]}
+  rows={[
+    ["Callout / Checklist / Table", "trivial", "mirror shipped pattern"],
+    ["Diff", "medium", "inline LCS differ, self-contained"],
+    ["OpenApi", "medium", "read subset of the spec renderer"],
+    ["Mermaid", "medium", "lazy dep, isolated from base bundle"],
+  ]}
+/>
+
+<Diff
+  filename="apps/web/src/components/files/mdx-plan/registry.tsx"
+  language="ts"
+  before={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n]\n"}
+  after={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n  calloutBlock,\n  diffBlock,\n  mermaidBlock,\n]\n"}
+  annotations={[{ side: "after", lines: "4-6", label: "Phase 4", note: "new document blocks registered" }]}
+/>
+
+<Mermaid
+  source={"flowchart LR\n  A[Author .mdx] --> B[Runtime MDX render]\n  B --> C[Select span]\n  C --> D[Anchored comment]\n  D --> E[Injected user turn]"}
+  caption="The annotation flow, now across every block type"
+/>
+
+<OpenApi
+  title="Plan comments (deferred sidecar)"
+  spec={'{\n  "openapi": "3.0.0",\n  "info": { "title": "Plan comments", "version": "0.1.0" },\n  "paths": {\n    "/api/plans/{slug}/comments": {\n      "put": {\n        "tags": ["comments"],\n        "summary": "Persist plan comments to a sidecar",\n        "responses": { "200": { "description": "Sidecar written" } }\n      }\n    }\n  }\n}'}
+/>
+
+## Container blocks
+
+Container blocks nest other plan blocks so a reviewer can compare or group
+surfaces. `<Columns>` lays child blocks side by side (the common case is a
+before/after pair); `<TabsBlock>` stacks child blocks behind a keyboard-accessible
+tab strip. Both are MDX-native — each slot's blocks are ordinary children — and
+each nested block stays independently annotatable.
+
+<Columns>
+  <Column label="Before">
+    <Code
+      filename="registry.tsx"
+      language="ts"
+      code={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n]\n"}
+    />
+  </Column>
+  <Column label="After">
+    <Code
+      filename="registry.tsx"
+      language="ts"
+      code={"const PLAN_BLOCKS = [\n  codeBlock,\n  endpointBlock,\n  columnsBlock,\n  tabsBlock,\n]\n"}
+    />
+  </Column>
+</Columns>
+
+<TabsBlock>
+  <Tab label="Overview">
+    <Callout tone="info">
+      Tabs keep every panel mounted (inactive ones hidden), so a comment anchored
+      inside any tab survives a re-render and resolves to its own nested block.
+    </Callout>
+  </Tab>
+  <Tab label="Blocks">
+    <Table
+      columns={["Container", "Slot", "Nesting"]}
+      rows={[
+        ["Columns", "Column", "side-by-side"],
+        ["TabsBlock", "Tab", "one panel per tab"],
+      ]}
+    />
+  </Tab>
+  <Tab label="Checklist">
+    <Checklist
+      items={[
+        { id: "nest", label: "Nested blocks get distinct ids", checked: true },
+        { id: "anchor", label: "Each resolves to itself, not the container", checked: true },
+      ]}
+    />
+  </Tab>
+</TabsBlock>
+
+## Wireframe surface
+
+A `<Screen>` renders a sanitised HTML mockup inside a surface-locked frame.
+Selecting any element inside the artboard pins a node-level comment (the
+`data-wf-node` contract), so a reviewer can annotate a specific control, not just
+the whole mockup.
+
+<Screen
+  surface="browser"
+  caption="Annotating a rendered plan — select a span, comment, inject as a user turn"
+  html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;justify-content:space-between'><h2>plan.mdx</h2><span class='wf-pill accent'>Rendered</span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><p>Select any span to surface a <span class='wf-pill'>Comment</span> affordance.</p><p class='wf-muted'>The comment becomes a composer chip, then injects as a normal user turn.</p></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong>Reviewer comment</strong><p class='wf-muted'>Confirm this reuses the code-review seam verbatim.</p><div style='display:flex;gap:8px;margin-top:4px'><button class='primary'>Send to agent</button><button>Dismiss</button></div></div></div>"}
+/>
+
+## Canvas — cross-screen flow
+
+The canvas positions several artboards in one board-unit space, so a reviewer can
+comment on any control, any whole screen, or the flow between screens. Connectors
+and free-floating gutter notes live in the **same** coordinate space as the
+annotation overlay (board units → pixels at ~2 units/px), so a canvas comment
+resolves through the shared transform.
+
+<DesignBoard title="Onboarding flow" width={2400} height={1040}>
+  <Section title="Sign-in journey" x={-60} y={-60} width={2560} height={1080} />
+  <Artboard
+    id="cv-signin"
+    x={0}
+    y={0}
+    surface="mobile"
+    caption="Sign in"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><h2>Sign in</h2><label>Email<input placeholder='you@example.com'/></label><label>Password<input type='password'/></label><button class='primary'>Continue</button></div>"}
+  />
+  <Artboard
+    id="cv-verify"
+    x={760}
+    y={0}
+    surface="mobile"
+    caption="Verify"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><h2>Verify</h2><p class='wf-muted'>Enter the 6-digit code we sent.</p><input placeholder='------'/><button class='primary'>Verify</button><button>Resend code</button></div>"}
+  />
+  <Artboard
+    id="cv-home"
+    x={1520}
+    y={0}
+    surface="mobile"
+    caption="Home"
+    html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px'><div style='display:flex;justify-content:space-between;align-items:center'><h2>Home</h2><span class='wf-pill accent'>Live</span></div><div class='wf-card'>Welcome back</div><div class='wf-card'>Recent activity</div></div>"}
+  />
+  <Connector from="cv-signin" to="cv-verify" label="submit" />
+  <Connector from="cv-verify" to="cv-home" label="verified" />
+  <Annotation targetId="cv-verify" placement="bottom">
+    Confirm the OTP resend timer copy matches the security policy.
+  </Annotation>
+</DesignBoard>
+
+## Design-fidelity screen
+
+The **design** tier is a fidelity flag over the same artboard renderer: the same
+sanitised HTML injected into the live DOM, but with branded theme classes
+**preserved** (no sketch treatment) and a clean neutral frame. It is HTML-only —
+there is deliberately no authored `css`/`style` field — and it carries
+`data-plan-block-type="design"`, so it is node-pin annotatable exactly like a
+wireframe.
+
+<Design
+  surface="browser"
+  caption="Branded dashboard (design fidelity)"
+  html={"<div style='font-family:system-ui'><div style='background:linear-gradient(90deg,#4f46e5,#7c3aed);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center'><strong style='font-size:16px'>Acme Studio</strong><span style='background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:999px;font-size:12px'>Pro</span></div><div style='padding:20px;display:flex;gap:16px'><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Revenue</div><div style='font-size:24px;font-weight:700;color:#111827'>$48,120</div></div><div style='flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:16px'><div style='color:#6b7280;font-size:12px'>Active users</div><div style='font-size:24px;font-weight:700;color:#111827'>2,304</div></div></div><div style='padding:0 20px 20px'><button style='background:#4f46e5;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-weight:600'>Create report</button></div></div>"}
+/>
+
+## Live prototype
+
+The **prototype** is a functional, operable mock that runs in a sandboxed
+iframe (`allow-scripts allow-forms`, opaque origin, no `allow-same-origin`) under
+a strict `srcdoc` CSP — it stays interactive but cannot reach the parent window,
+cookies, or app RPCs. It carries `data-plan-block-type="prototype"`, so the
+whole prototype is annotatable as one block (in-frame pins are a deferred tier).
+
+<Prototype
+  caption="Interactive counter (runs in the sandbox)"
+  height={180}
+  html={"<div style='padding:24px;text-align:center'><h2 style='margin:0 0 12px'>Counter</h2><output id='n' style='font-size:40px;font-weight:700'>0</output><div style='margin-top:16px;display:flex;gap:8px;justify-content:center'><button id='dec' style='padding:8px 16px'>-1</button><button id='inc' style='padding:8px 16px'>+1</button></div></div><script>let n=0;const o=document.getElementById('n');document.getElementById('inc').onclick=()=>o.textContent=++n;document.getElementById('dec').onclick=()=>o.textContent=--n;</script>"}
+/>
+
+## Embedded HTML
+
+An `<HtmlBlock>` shows arbitrary **static** HTML in a fully locked iframe
+(`sandbox=""` — no scripts run at all), so no sanitiser is needed on top of the
+sandbox. It carries `data-plan-block-type="html"` and is annotatable as one block.
+
+<HtmlBlock
+  caption="Static marketing snippet"
+  height={140}
+  html={"<div style='padding:20px;font-family:system-ui'><h3 style='margin:0 0 8px;color:#4f46e5'>Ship faster</h3><p style='margin:0;color:#374151'>A static HTML fragment rendered inside a locked-down sandbox — no scripts execute.</p></div>"}
+/>
+
+## Verification
+
+Build the web app, run `vp check` + `vp run typecheck`, then smoke the real
+journey: open this file in the doc panel → it renders → select the phrase
+"anchored comment" → click **Comment** → confirm a composer chip appears → send
+and confirm the turn carries the quoted passage and section.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "default-view",
+      title: "Should .mdx plans open in the rendered (annotatable) view by default?",
+      mode: "single",
+      options: [
+        {
+          id: "rendered",
+          label: "Rendered by default",
+          recommended: true,
+          detail: "The whole point is annotation; source is one toggle away.",
+        },
+        { id: "source", label: "Source by default", detail: "Matches plain .md behaviour." },
+      ],
+    },
+    {
+      id: "sidecar",
+      title: "Do we ever want the comments.json sidecar?",
+      mode: "single",
+      options: [
+        { id: "no", label: "No — composer store only", recommended: true },
+        { id: "yes", label: "Yes — add the sync endpoint above", detail: "External-tool interop." },
+      ],
+    },
+    {
+      id: "anything",
+      title: "Anything else the annotation layer must handle before ship?",
+      mode: "freeform",
+      placeholder: "e.g. overlapping highlights, comment threads…",
+    },
+  ]}
+/>
