@@ -1,12 +1,10 @@
-import { DiffsHighlighter, getSharedHighlighter, type SupportedLanguages } from "@pierre/diffs";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
-import { useTheme } from "~/hooks/useTheme";
-import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { useShikiHtml } from "../shiki";
 
 /**
  * The primitive `<Code>` block — one syntax-highlighted snippet. Reuses the
@@ -52,43 +50,9 @@ export const codeMdx: BlockMdxConfig<CodeData> = {
 };
 
 const DEFAULT_CODE_MAX_LINES = 30;
-const highlighterByLanguage = new Map<string, Promise<DiffsHighlighter>>();
-
-function highlighterFor(language: string): Promise<DiffsHighlighter> {
-  const cached = highlighterByLanguage.get(language);
-  if (cached) return cached;
-  const promise = getSharedHighlighter({
-    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
-    langs: [language as SupportedLanguages],
-    preferredHighlighter: "shiki-js",
-  }).catch((error) => {
-    highlighterByLanguage.delete(language);
-    if (language === "text") throw error;
-    return highlighterFor("text");
-  });
-  highlighterByLanguage.set(language, promise);
-  return promise;
-}
 
 function CodeBody({ code, language }: { code: string; language: string }) {
-  const { resolvedTheme } = useTheme();
-  const themeName = resolveDiffThemeName(resolvedTheme);
-  const [html, setHtml] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void highlighterFor(language).then((highlighter) => {
-      if (!active) return;
-      try {
-        setHtml(highlighter.codeToHtml(code, { lang: language, theme: themeName }));
-      } catch {
-        setHtml(highlighter.codeToHtml(code, { lang: "text", theme: themeName }));
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [code, language, themeName]);
+  const html = useShikiHtml(code, language);
 
   if (html === null) {
     return <pre className="overflow-x-auto p-3 font-mono text-xs">{code}</pre>;

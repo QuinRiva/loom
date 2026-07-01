@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import type { ZodType } from "zod";
 
 /**
@@ -61,6 +61,12 @@ export interface PlanBlockReadProps<TData> {
   data: TData;
   /** Stable per-top-level-block id, mirrored to `data-plan-block-id`. */
   blockId: string;
+  /**
+   * MDX prose rendered between the block's tags, already resolved to React
+   * nodes. Populated for blocks whose `mdx.childrenField` names a prose body
+   * (e.g. `<Endpoint>`'s description); `undefined` for self-closing blocks.
+   */
+  children?: ReactNode;
 }
 
 /** One registered plan block: data schema + MDX round-trip + read renderer. */

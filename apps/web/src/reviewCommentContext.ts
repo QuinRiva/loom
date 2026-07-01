@@ -1,5 +1,6 @@
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
 import { PlanCommentAnchor } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { planCommentAnchorDetails } from "./planCommentAnchor";
@@ -119,12 +120,55 @@ function extractReviewCommentBody(rawBody: string): {
   };
 }
 
+const decodePlanCommentAnchor = Schema.decodeUnknownOption(PlanCommentAnchor);
+
+function parseMdxAnchorReviewComment(
+  attributes: Record<string, string>,
+  rawBody: string,
+  index: number,
+): MdxAnchorReviewCommentContext | null {
+  const filePath = attributes.filePath?.trim();
+  const sectionId = attributes.sectionId?.trim();
+  const rawAnchor = attributes.anchor;
+  if (!filePath || !sectionId || !rawAnchor) {
+    return null;
+  }
+  let parsedAnchor: unknown;
+  try {
+    parsedAnchor = JSON.parse(rawAnchor);
+  } catch {
+    return null;
+  }
+  const decoded = decodePlanCommentAnchor(parsedAnchor);
+  if (Option.isNone(decoded)) {
+    return null;
+  }
+  // The agent-facing detail block is rendered after the quoted-passage fence and
+  // is derived from the anchor, so we recover the reviewer's text (before the
+  // fence) and the quoted passage (fence contents) and drop the trailing prose.
+  const body = extractReviewCommentBody(rawBody);
+  return {
+    kind: "mdx-anchor",
+    id: attributes.id?.trim() || `review-comment:${index}:${sectionId}:${filePath}`,
+    sectionId,
+    sectionTitle: attributes.sectionTitle?.trim() || "Review",
+    filePath,
+    rangeLabel: attributes.rangeLabel?.trim() || "annotation",
+    text: body.text,
+    anchor: decoded.value,
+    quotedText: body.contents,
+  };
+}
+
 function parseReviewCommentContext(
   rawAttributes: string,
   rawBody: string,
   index: number,
 ): ReviewCommentContext | null {
   const attributes = readReviewCommentAttributes(rawAttributes);
+  if (attributes.kind === "mdx-anchor") {
+    return parseMdxAnchorReviewComment(attributes, rawBody, index);
+  }
   const startIndex = readNonNegativeInteger(attributes.startIndex);
   const endIndex = readNonNegativeInteger(attributes.endIndex);
   const filePath = attributes.filePath?.trim();
@@ -209,24 +253,43 @@ export function formatReviewCommentFence(language: string, contents: string): st
   return [`${fence}${language}`, contents.trimEnd(), fence].join("\n");
 }
 
+/**
+ * Serialise the `mdx-anchor` variant into the injected user turn. Layout (kept
+ * consistent with the line variant — attributes, reviewer text, then a fenced
+ * evidence block):
+ *   - Attributes carry the base fields plus the full {@link PlanCommentAnchor}
+ *     as an escaped-JSON `anchor="…"` value. That JSON is the machine round-trip
+ *     truth (lossless across every tier, so parse re-hydrates the exact anchor).
+ *   - The reviewer's request is the leading prose.
+ *   - The quoted passage is a fenced block — the concrete "which passage" the
+ *     comment targets (mirrors the diff fence of the line variant).
+ *   - A BuilderIO-style anchor detail block (section, block type, context,
+ *     ambiguity, expected resolver) follows the fence as agent-facing prose; it
+ *     is derived from the anchor and is ignored on parse (the JSON is the truth).
+ */
 function formatMdxAnchorReviewComment(comment: MdxAnchorReviewCommentContext): string {
   const details = planCommentAnchorDetails(comment.anchor);
-  const body = [comment.text.trim(), details.length > 0 ? details.join("\n") : ""]
+  const fenceLanguage = inferReviewCommentFenceLanguage(comment.filePath);
+  const body = [
+    comment.text.trim(),
+    formatReviewCommentFence(fenceLanguage, comment.quotedText),
+    details.length > 0 ? details.join("\n") : "",
+  ]
     .filter((part) => part.length > 0)
     .join("\n\n");
-  const fenceLanguage = inferReviewCommentFenceLanguage(comment.filePath);
   return [
     [
       "<review_comment",
       ` kind="mdx-anchor"`,
+      ` id="${escapeReviewCommentAttribute(comment.id)}"`,
       ` sectionId="${escapeReviewCommentAttribute(comment.sectionId)}"`,
       ` sectionTitle="${escapeReviewCommentAttribute(comment.sectionTitle)}"`,
       ` filePath="${escapeReviewCommentAttribute(comment.filePath)}"`,
       ` rangeLabel="${escapeReviewCommentAttribute(comment.rangeLabel)}"`,
+      ` anchor="${escapeReviewCommentAttribute(JSON.stringify(comment.anchor))}"`,
       ">",
     ].join(""),
     body,
-    formatReviewCommentFence(fenceLanguage, comment.quotedText),
     "</review_comment>",
   ].join("\n");
 }

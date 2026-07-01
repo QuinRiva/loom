@@ -243,6 +243,49 @@ describe("review comment context parsing", () => {
     );
   });
 
+  it("round-trips the mdx-anchor variant through format and parse", () => {
+    const comment = {
+      kind: "mdx-anchor" as const,
+      id: "plan-comment:abc123",
+      sectionId: "section:data-model",
+      sectionTitle: "Data model",
+      filePath: "plans/auth.mdx",
+      rangeLabel: "annotation",
+      text: "Clarify how the secret rotates.\n\nWho triggers it?",
+      anchor: {
+        anchorKind: "text" as const,
+        textQuote: "rotating secret",
+        contextBefore: "uses a ",
+        contextAfter: " for auth",
+        sectionId: "section:data-model",
+        sectionTitle: "Data model",
+        blockType: "DataModel",
+        ambiguous: true,
+        resolutionTarget: "agent" as const,
+        mentions: [{ email: "a@b.co", label: "Ana", role: "pm" }],
+        x: 12,
+        y: 34,
+      },
+      quotedText: "the rotating secret used by the worker",
+    };
+
+    const serialized = formatReviewCommentContext(comment);
+    // Agent-facing framing: the reviewer request, the quoted passage as evidence,
+    // and a BuilderIO-style detail block.
+    expect(serialized).toContain('kind="mdx-anchor"');
+    expect(serialized).toContain("Clarify how the secret rotates.");
+    expect(serialized).toContain("the rotating secret used by the worker");
+    expect(serialized).toContain('Location: Data model: "rotating secret"');
+    expect(serialized).toContain("Block type: DataModel");
+    expect(serialized).toContain("Ambiguous:");
+    expect(serialized).toContain("Expected resolver: agent");
+
+    const [segment] = parseReviewCommentMessageSegments(serialized);
+    expect(segment?.kind).toBe("review-comment");
+    if (segment?.kind !== "review-comment") return;
+    expect(segment.comment).toEqual(comment);
+  });
+
   it("restores Pierre line selections from persisted diff comment row indexes", () => {
     const fileDiff = parsePatchFiles(
       [

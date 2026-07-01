@@ -12,8 +12,11 @@ import { PLAN_BLOCK_COMPONENTS, PLAN_BLOCKS, parsePlanBlock, serializePlanBlock 
  * it earns a test per AGENTS.md.
  */
 
-const codeEntry = PLAN_BLOCKS.find((entry) => entry.tag === "Code")!;
-const dataModelEntry = PLAN_BLOCKS.find((entry) => entry.tag === "DataModel")!;
+const entryFor = (tag: string) => PLAN_BLOCKS.find((entry) => entry.tag === tag)!;
+const codeEntry = entryFor("Code");
+const dataModelEntry = entryFor("DataModel");
+const roundTrip = (tag: string, data: unknown) =>
+  parsePlanBlock(entryFor(tag), serializePlanBlock(entryFor(tag), data));
 
 describe("mdx-plan block round-trip", () => {
   it("round-trips a Code block (multiline string attr)", () => {
@@ -42,6 +45,82 @@ describe("mdx-plan block round-trip", () => {
       relations: [{ from: "org", to: "user", kind: "1-n" as const, label: "members" }],
     };
     expect(parsePlanBlock(dataModelEntry, serializePlanBlock(dataModelEntry, data))).toEqual(data);
+  });
+
+  it("round-trips an Endpoint block (JSON array props; description is prose children, not an attr)", () => {
+    const data = {
+      method: "POST" as const,
+      path: "/api/auth/token",
+      summary: "Mint a token",
+      params: [{ name: "userId", in: "body" as const, type: "string", required: true }],
+      responses: [{ status: "201", description: "Created" }],
+    };
+    // description is serialized as prose children (dropped by the self-closing
+    // serializer), so the attr round-trip covers everything else.
+    expect(roundTrip("Endpoint", data)).toEqual({ ...data, method: "POST" });
+  });
+
+  it("round-trips a FileTree block", () => {
+    const data = {
+      title: "Changes",
+      entries: [
+        { path: "src/a.ts", change: "added" as const, note: "new" },
+        { path: "src/b.ts", change: "modified" as const, snippet: "const x = 1\n", language: "ts" },
+      ],
+    };
+    expect(roundTrip("FileTree", data)).toEqual(data);
+  });
+
+  it("round-trips an AnnotatedCode block (multiline code + line annotations)", () => {
+    const data = {
+      filename: "src/token.ts",
+      language: "ts",
+      code: "function mint() {\n  return sign(payload)\n}\n",
+      annotations: [
+        { lines: "2", label: "sign", note: "uses the KMS handle" },
+        { lines: "1-3", note: "whole body" },
+      ],
+    };
+    expect(roundTrip("AnnotatedCode", data)).toEqual(data);
+  });
+
+  it("round-trips a Diagram block (graph wrapped in a `data` attr)", () => {
+    const data = {
+      caption: "Flow",
+      nodes: [
+        { id: "a", label: "A", x: 10, y: 20 },
+        { id: "b", label: "B", detail: "detail", x: 80, y: 20 },
+      ],
+      edges: [{ from: "a", to: "b", label: "go" }],
+    };
+    expect(roundTrip("Diagram", data)).toEqual(data);
+  });
+
+  it("round-trips a QuestionForm block", () => {
+    const data = {
+      questions: [
+        {
+          id: "ttl",
+          title: "Default TTL?",
+          mode: "single" as const,
+          options: [
+            { id: "s", label: "1h", recommended: true },
+            { id: "l", label: "30d", detail: "larger blast radius" },
+          ],
+        },
+        { id: "free", title: "Anything else?", mode: "freeform" as const },
+      ],
+    };
+    expect(roundTrip("QuestionForm", data)).toEqual(data);
+  });
+
+  it("round-trips a Json block (json kept as a verbatim string)", () => {
+    const data = {
+      title: "Payload",
+      json: '{\n  "sub": "user_01",\n  "roles": ["member"]\n}',
+      collapsedDepth: 2,
+    };
+    expect(roundTrip("Json", data)).toEqual(data);
   });
 });
 

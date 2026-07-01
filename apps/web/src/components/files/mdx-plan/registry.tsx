@@ -1,9 +1,15 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 
 import type { MdxAttrValue, PlanBlock } from "./blockTypes";
 import { createAttrReader, parseFirstJsxBlock, serializeBlockElement } from "./mdxAttrs";
+import { annotatedCodeBlock } from "./blocks/annotatedCode";
 import { codeBlock } from "./blocks/code";
 import { dataModelBlock } from "./blocks/dataModel";
+import { diagramBlock } from "./blocks/diagram";
+import { endpointBlock } from "./blocks/endpoint";
+import { fileTreeBlock } from "./blocks/fileTree";
+import { jsonBlock } from "./blocks/json";
+import { questionFormBlock } from "./blocks/questionForm";
 
 /**
  * The closed plan-block registry: tag → block. This is the one place that lists
@@ -26,6 +32,12 @@ interface RegisteredBlock {
 export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: codeBlock.mdx.tag, type: "code", block: codeBlock },
   { tag: dataModelBlock.mdx.tag, type: "data-model", block: dataModelBlock },
+  { tag: endpointBlock.mdx.tag, type: "api-endpoint", block: endpointBlock },
+  { tag: fileTreeBlock.mdx.tag, type: "file-tree", block: fileTreeBlock },
+  { tag: annotatedCodeBlock.mdx.tag, type: "annotated-code", block: annotatedCodeBlock },
+  { tag: diagramBlock.mdx.tag, type: "diagram", block: diagramBlock },
+  { tag: questionFormBlock.mdx.tag, type: "question-form", block: questionFormBlock },
+  { tag: jsonBlock.mdx.tag, type: "json-explorer", block: jsonBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
@@ -43,19 +55,26 @@ function PlanBlockError({ tag, message }: { tag: string; message: string }) {
  * Wrap a block into the React component MDX resolves for its tag: MDX evaluates
  * the element's attributes to props, we validate them with the block's zod
  * schema, then hand clean `data` to its `Read` renderer. Unknown props (`id`,
- * `title`, …) are stripped by the schema. `id` becomes the block's stable
- * `data-plan-block-id` (the renderer fills a fallback id when absent).
+ * `title`, `children`, …) are stripped by the schema. `id` becomes the block's
+ * stable `data-plan-block-id` (the renderer fills a fallback id when absent).
+ * A block with a `childrenField` (e.g. `<Endpoint>`'s description) also receives
+ * the MDX prose between its tags as `children`, already resolved to React nodes.
  */
 function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>> {
   const { block } = entry;
   const Read = block.Read;
+  const passesChildren = Boolean(block.mdx.childrenField);
   return function PlanBlockComponent(props) {
     const blockId = typeof props.id === "string" && props.id.length > 0 ? props.id : "";
     const result = block.schema.safeParse(props);
     if (!result.success) {
       return <PlanBlockError tag={entry.tag} message={result.error.message} />;
     }
-    return <Read data={result.data} blockId={blockId} />;
+    return (
+      <Read data={result.data} blockId={blockId}>
+        {passesChildren ? (props.children as ReactNode) : undefined}
+      </Read>
+    );
   };
 }
 
