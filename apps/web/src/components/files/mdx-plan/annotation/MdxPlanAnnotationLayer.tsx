@@ -12,7 +12,7 @@ import {
 } from "~/reviewCommentContext";
 
 import { MdxPlanRenderer } from "../MdxPlanRenderer";
-import { anchorForBlockElement, anchorFromRange, resolveAnchor } from "./anchoring";
+import { anchorForBlockElement, anchorFromRange, blockSelector, resolveAnchor } from "./anchoring";
 
 /**
  * Annotation layer over a rendered MDX plan. Adds the reviewer experience the
@@ -123,12 +123,24 @@ export function MdxPlanAnnotationLayer({
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
+    const detachedOverlay = (comment: MdxAnchorReviewCommentContext): Overlay => ({
+      id: comment.id,
+      comment,
+      boxes: [],
+      badge: { top: 0, left: 0 },
+      detached: true,
+    });
     setOverlays(
       comments.map((comment) => {
-        const range = comment.anchor ? resolveAnchor(comment.anchor, root) : null;
-        if (!range) {
-          return { id: comment.id, comment, boxes: [], badge: { top: 0, left: 0 }, detached: true };
+        // Guard per comment: a single malformed anchor degrades to "detached"
+        // instead of throwing during render and taking down the whole layer.
+        let range: Range | null;
+        try {
+          range = comment.anchor ? resolveAnchor(comment.anchor, root) : null;
+        } catch {
+          return detachedOverlay(comment);
         }
+        if (!range) return detachedOverlay(comment);
         const boxes = Array.from(range.getClientRects(), (rect) => ({
           top: rect.top - wrapperRect.top,
           left: rect.left - wrapperRect.left,
@@ -234,7 +246,7 @@ export function MdxPlanAnnotationLayer({
 
   const openComposerForBlock = (blockId: string) => {
     if (!root) return;
-    const element = root.querySelector(`[data-plan-block-id="${blockId}"]`);
+    const element = root.querySelector(blockSelector(blockId));
     if (!element) return;
     const result = anchorForBlockElement(element, root);
     const wrapperRect = wrapperRectNow();
@@ -417,7 +429,7 @@ export function MdxPlanAnnotationLayer({
 
       {/* Detached annotations — anchors that no longer resolve to the plan. */}
       {detached.length > 0 ? (
-        <div className="pointer-events-auto absolute right-3 top-3 z-30 flex w-72 flex-col gap-2">
+        <div className="pointer-events-auto absolute right-3 top-3 z-40 flex w-72 flex-col gap-2">
           {detached.map((overlay) => (
             <div
               key={`detached-${overlay.id}`}

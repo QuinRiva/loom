@@ -21,6 +21,24 @@ import type { PlanCommentAnchor, PlanCommentTargetKind } from "@t3tools/contract
 const CTX = 32; // chars of context captured either side for disambiguation
 const BLOCK_SNIPPET_MAX = 280;
 
+/** Escape an id for a quoted attribute selector so a malformed authored id
+ * (quotes, brackets, backslashes) can never produce an invalid selector. Uses
+ * `CSS.escape` when available (browser), else a quote/backslash fallback (jsdom
+ * test env sometimes has no global `CSS`). */
+const escapeId = (id: string): string =>
+  typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+
+/** A whole-block anchor selector with the id safely escaped. */
+export const blockSelector = (id: string): string => `[data-plan-block-id="${escapeId(id)}"]`;
+
+/** Count non-overlapping occurrences of `needle` in `haystack`. */
+const countOccurrences = (haystack: string, needle: string): number => {
+  if (!needle) return 0;
+  let count = 0;
+  for (let i = haystack.indexOf(needle); i !== -1; i = haystack.indexOf(needle, i + 1)) count++;
+  return count;
+};
+
 /** Block types whose bodies are not prose — a selection inside these falls back
  * to a whole-block anchor rather than a text-quote (nothing sensible to quote). */
 export const NON_PROSE_BLOCK_TYPES = new Set([
@@ -152,7 +170,7 @@ export function anchorFromRange(
         anchorKind: "visual",
         targetKind: targetKindForBlock(block.type),
         blockType: block.type,
-        targetSelector: `[data-plan-block-id="${block.id}"]`,
+        targetSelector: blockSelector(block.id),
         snippet: quotedText || undefined,
         ...sectionFields,
       },
@@ -178,6 +196,7 @@ export function anchorFromRange(
       contextBefore: text.slice(Math.max(0, start - CTX), start),
       contextAfter: text.slice(end, end + CTX),
       blockType: block?.type,
+      ...(countOccurrences(text, textQuote) > 1 ? { ambiguous: true } : {}),
       ...sectionFields,
     },
     quotedText: textQuote,
@@ -200,7 +219,7 @@ export function anchorForBlockElement(
       anchorKind: "visual",
       targetKind: targetKindForBlock(type),
       blockType: type ?? undefined,
-      targetSelector: `[data-plan-block-id="${id}"]`,
+      targetSelector: blockSelector(id),
       snippet: quotedText || undefined,
       ...(section ? { sectionId: section.id, sectionTitle: section.title } : {}),
     },
@@ -212,7 +231,12 @@ export function anchorForBlockElement(
 export function resolveAnchor(anchor: PlanCommentAnchor, root: Element): Range | null {
   if (anchor.anchorKind === "visual" || (anchor.targetSelector && !anchor.textQuote)) {
     if (!anchor.targetSelector) return null;
-    const element = root.querySelector(anchor.targetSelector);
+    let element: Element | null;
+    try {
+      element = root.querySelector(anchor.targetSelector);
+    } catch {
+      return null; // malformed selector → treat as detached rather than throw
+    }
     if (!element) return null;
     const range = root.ownerDocument!.createRange();
     range.selectNode(element);

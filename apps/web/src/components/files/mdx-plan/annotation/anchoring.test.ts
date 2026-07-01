@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
+import { assignBlockIds } from "../MdxPlanRenderer";
 import { anchorForBlockElement, anchorFromRange, resolveAnchor } from "./anchoring";
 
 /**
@@ -83,6 +84,42 @@ describe("anchoring — per-block affordance", () => {
     const res = anchorForBlockElement(el, root);
     expect(res.anchor.anchorKind).toBe("visual");
     expect(resolveAnchor(res.anchor, root)).not.toBeNull();
+  });
+});
+
+describe("anchoring — un-id'd blocks get distinct anchors (S1)", () => {
+  it("assigns distinct ids so whole-block anchors resolve to the right block", () => {
+    // Two custom blocks with NO authored id (post-fix registry emits no attr).
+    document.body.innerHTML = `<div data-plan-root>
+      <figure data-plan-block-type="code"><span>first block</span></figure>
+      <figure data-plan-block-type="code"><span>second block</span></figure>
+    </div>`;
+    const planRoot = document.querySelector<HTMLElement>("[data-plan-root]")!;
+    assignBlockIds(planRoot);
+
+    const blocks = planRoot.querySelectorAll("[data-plan-block-type]");
+    const ids = Array.from(blocks, (b) => b.getAttribute("data-plan-block-id"));
+    expect(ids[0]).toBeTruthy();
+    expect(ids[1]).toBeTruthy();
+    expect(ids[0]).not.toBe(ids[1]); // distinct — no empty-attr collision
+
+    const second = anchorForBlockElement(blocks[1]!, planRoot);
+    const resolved = resolveAnchor(second.anchor, planRoot);
+    expect(resolved?.toString()).toContain("second block");
+    expect(resolved?.toString()).not.toContain("first block");
+  });
+});
+
+describe("anchoring — malformed id never throws (S2)", () => {
+  it("treats a block id with selector metacharacters as detached, not a crash", () => {
+    document.body.innerHTML = `<div data-plan-root><figure data-plan-block-type="code"><span>x</span></figure></div>`;
+    const planRoot = document.querySelector("[data-plan-root]")!;
+    const el = planRoot.querySelector("[data-plan-block-type]")!;
+    el.setAttribute("data-plan-block-id", 'weird"]id');
+    const res = anchorForBlockElement(el, planRoot);
+    // CSS.escape keeps the selector valid, so it resolves rather than throwing.
+    expect(() => resolveAnchor(res.anchor, planRoot)).not.toThrow();
+    expect(resolveAnchor(res.anchor, planRoot)).not.toBeNull();
   });
 });
 

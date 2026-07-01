@@ -65,7 +65,7 @@ export function serializeBlockElement(
 /* Parse                                                                      */
 /* -------------------------------------------------------------------------- */
 
-type MdxAttrExpression = { type: string; value: string; data?: unknown };
+export type MdxAttrExpression = { type: string; value: string; data?: unknown };
 export type MdxAttrNode = {
   type: string;
   name?: string;
@@ -166,6 +166,71 @@ function literalNodeValue(node: EstreeNode | undefined | null): unknown {
     if (node.name === "Infinity") return Infinity;
   }
   return undefined;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Render-path guard: reject non-literal attribute expressions                */
+/* -------------------------------------------------------------------------- */
+
+const attrExprError = (name: string) =>
+  new Error(
+    `Disallowed MDX attribute expression for "${name}": only literal values ` +
+      `(strings, numbers, booleans, arrays, objects) are permitted in plans, ` +
+      `not executable expressions.`,
+  );
+
+/** Throw unless `node` is a static JSON-literal estree node (the block wire
+ * format). Anything that can execute — calls, sequences, functions, member
+ * access, arbitrary identifiers — is rejected. */
+function assertLiteralNode(name: string, node: EstreeNode | null | undefined): void {
+  if (!node) return; // array holes / omitted values are inert
+  switch (node.type) {
+    case "Literal":
+      return;
+    case "TemplateLiteral":
+      if ((node.expressions?.length ?? 0) > 0) throw attrExprError(name);
+      return;
+    case "ArrayExpression":
+      for (const element of node.elements ?? []) assertLiteralNode(name, element);
+      return;
+    case "ObjectExpression":
+      for (const property of node.properties ?? []) {
+        if (property.type !== "Property" || property.computed) throw attrExprError(name);
+        const key = property.key;
+        if (key?.type !== "Identifier" && key?.type !== "Literal") throw attrExprError(name);
+        assertLiteralNode(name, property.value as EstreeNode | undefined);
+      }
+      return;
+    case "UnaryExpression":
+      if (node.operator === "-" || node.operator === "+" || node.operator === "!") {
+        assertLiteralNode(name, node.argument);
+        return;
+      }
+      throw attrExprError(name);
+    case "Identifier":
+      if (node.name === "undefined" || node.name === "NaN" || node.name === "Infinity") return;
+      throw attrExprError(name);
+    default:
+      throw attrExprError(name);
+  }
+}
+
+/**
+ * Compile-time guard for the render path: assert that an MDX attribute-value
+ * expression (`attr={…}`) is a static literal, not executable JS. Reuses the
+ * same estree literal shapes the parse path accepts, so the JSON-literal wire
+ * format (`entities={[…]}`, `data={{…}}`, `code={"…"}`, `={123}`, `={true}`)
+ * passes while `code={fetch(...)}`, sequence/IIFE tricks, etc. throw. Fails
+ * closed: an expression whose estree is missing or is not a single expression
+ * statement is rejected.
+ */
+export function assertLiteralAttributeExpression(name: string, value: MdxAttrExpression): void {
+  const body = (value.data as { estree?: EstreeNode } | undefined)?.estree?.body;
+  const statement = body?.[0];
+  if (!body || body.length !== 1 || statement?.type !== "ExpressionStatement") {
+    throw attrExprError(name);
+  }
+  assertLiteralNode(name, statement.expression);
 }
 
 /** Build a {@link BlockAttrReader} bound to one parsed JSX node. */

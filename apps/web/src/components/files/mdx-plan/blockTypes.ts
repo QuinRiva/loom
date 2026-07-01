@@ -59,8 +59,10 @@ export interface BlockMdxConfig<TData> {
 /** Props passed to a block's read-only renderer. */
 export interface PlanBlockReadProps<TData> {
   data: TData;
-  /** Stable per-top-level-block id, mirrored to `data-plan-block-id`. */
-  blockId: string;
+  /** Stable per-top-level-block id, mirrored to `data-plan-block-id`. `undefined`
+   * when the author omitted `id`, so the block emits no attribute and the
+   * renderer's `assignBlockIds` fallback can fill a unique `plan-block-N`. */
+  blockId: string | undefined;
   /**
    * MDX prose rendered between the block's tags, already resolved to React
    * nodes. Populated for blocks whose `mdx.childrenField` names a prose body

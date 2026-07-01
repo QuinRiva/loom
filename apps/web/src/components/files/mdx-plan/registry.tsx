@@ -56,7 +56,10 @@ function PlanBlockError({ tag, message }: { tag: string; message: string }) {
  * the element's attributes to props, we validate them with the block's zod
  * schema, then hand clean `data` to its `Read` renderer. Unknown props (`id`,
  * `title`, `children`, …) are stripped by the schema. `id` becomes the block's
- * stable `data-plan-block-id` (the renderer fills a fallback id when absent).
+ * stable `data-plan-block-id`; when absent we pass `undefined` so the block emits
+ * NO attribute and the renderer's `assignBlockIds` fallback fills a unique
+ * `plan-block-N` (emitting `data-plan-block-id=""` would collide every un-id'd
+ * block onto the first `[…=""]` match).
  * A block with a `childrenField` (e.g. `<Endpoint>`'s description) also receives
  * the MDX prose between its tags as `children`, already resolved to React nodes.
  */
@@ -65,7 +68,7 @@ function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>>
   const Read = block.Read;
   const passesChildren = Boolean(block.mdx.childrenField);
   return function PlanBlockComponent(props) {
-    const blockId = typeof props.id === "string" && props.id.length > 0 ? props.id : "";
+    const blockId = typeof props.id === "string" && props.id.length > 0 ? props.id : undefined;
     const result = block.schema.safeParse(props);
     if (!result.success) {
       return <PlanBlockError tag={entry.tag} message={result.error.message} />;

@@ -30,9 +30,8 @@ no forked ~12k-line app). Self-host+iframe (W2) remains a fallback.
 ## D2 — Runtime MDX via `@mdx-js/mdx` `evaluate()` in-browser; CSP **Option A**
 
 Compile+render MDX at runtime in the browser with a fixed component registry +
-a remark guard (reject `import`/`export` and raw `{expressions}`) replacing
-`rehype-sanitize`. This uses the `Function` constructor, which under a strict CSP
-needs `script-src 'unsafe-eval'`.
+a remark guard replacing `rehype-sanitize`. This uses the `Function` constructor,
+which under a strict CSP needs `script-src 'unsafe-eval'`.
 **Decision: Option A (accept `unsafe-eval` for the plan renderer) for the first
 cut.** Rationale: the app sets **no CSP today** (nothing breaks); the remark
 guard + closed registry bound the eval surface to our own trusted components — a
@@ -40,6 +39,26 @@ _stronger_ guarantee than the current tag allow-list. Option B (server-side
 `compile()` RPC + `blob:` module load, no `unsafe-eval`) is documented in the
 spike and is the escape hatch **if a strict CSP ever becomes a requirement**.
 Revisit before ship if a CSP is planned.
+
+**Correction (review B1 — the guard now actually bounds the eval surface).** The
+first cut of the guard only rejected `import`/`export` (`mdxjsEsm`) and raw
+`{expression}` bodies (`mdxFlow`/`TextExpression`) — it walked `node.children`
+only and never inspected **attribute-value expressions**
+(`mdxJsxAttributeValueExpression`, e.g. `code={…}`), which `evaluate()` compiles
+straight to executable JS. That falsified this decision's load-bearing premise:
+`<Code code={((globalThis.__pwned=true),"x")} />` and
+`code={fetch('/steal'+document.cookie)}` executed for **any `.mdx` opened in the
+preview panel**. The guard now also visits `node.attributes` and rejects any
+attribute-value expression that is **not a static literal** (reusing the estree
+literal shapes the parse path already accepts, via
+`assertLiteralAttributeExpression` in `mdxAttrs.ts`; it fails closed on a missing/
+non-single-expression estree). The JSON-literal wire format the blocks depend on
+— `entities={[…]}`, `data={{…}}`, `code={"…"}`, `={123}`, `={true}` — still
+compiles; calls, sequences, IIFEs, member access, and arbitrary identifiers throw
+at compile. Option A's rationale ("the guard + closed registry bound the eval
+surface to our own trusted components") is now true rather than aspirational.
+Regression tests in `mdxPlan.test.ts` pin both the rejected exploit shapes and
+the still-allowed legitimate block expressions.
 
 ## D3 — Port a curated block subset; do **not** depend on `@agent-native/core`
 

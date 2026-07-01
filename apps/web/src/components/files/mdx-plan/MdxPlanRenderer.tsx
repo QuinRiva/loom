@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { cn } from "~/lib/utils";
 
+import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 /**
@@ -17,9 +18,11 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
  *   1. Closed component registry — MDX resolves custom JSX names only from
  *      {@link PLAN_BLOCK_COMPONENTS}; nothing else is reachable.
  *   2. remark guard — rejects `import`/`export` (`mdxjsEsm`) and raw
- *      `{expression}` bodies (`mdxFlow/TextExpression`) at compile time, so plan
- *      source cannot smuggle arbitrary JS. (JSON literal *attribute* expressions
- *      — `entities={[…]}` — remain allowed; that is the block wire format.)
+ *      `{expression}` bodies (`mdxFlow/TextExpression`) at compile time, AND
+ *      rejects any *attribute*-value expression that is not a static literal
+ *      (`code={fetch(...)}`, sequence/IIFE tricks), so plan source cannot smuggle
+ *      executable JS. JSON-literal attribute expressions — `entities={[…]}`,
+ *      `data={{…}}`, `code={"…"}` — remain allowed; that is the block wire format.
  *   3. Unknown-component trap — MDX's own `_missingMdxReference` throws for any
  *      capitalized tag not supplied, surfaced by the error boundary.
  *
@@ -36,17 +39,34 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
 
-/** remark plugin: reject import/export + raw `{expression}` bodies at compile. */
+type GuardNode = {
+  type: string;
+  children?: unknown[];
+  attributes?: Array<{ type?: string; name?: string; value?: unknown }>;
+};
+
+/**
+ * remark plugin: at compile time reject import/export + raw `{expression}`
+ * bodies, and reject any attribute-value expression that is not a static literal.
+ * The last part is load-bearing for the security model: `code={…}` attribute
+ * expressions compile to executable JS and are NOT reached by the body-node walk,
+ * so without this an author could run arbitrary browser JS via any `.mdx`.
+ */
 function remarkRejectCodeEscapes() {
-  return (tree: { type: string; children?: unknown[] }) => {
-    const walk = (node: { type: string; children?: unknown[] }) => {
+  return (tree: GuardNode) => {
+    const walk = (node: GuardNode) => {
       if (DISALLOWED_MDX_NODES.has(node.type)) {
         throw new Error(
           `Disallowed MDX construct: ${node.type}. Imports and raw {expressions} are not permitted in plans.`,
         );
       }
+      for (const attr of node.attributes ?? []) {
+        if (attr?.type === "mdxJsxAttribute" && attr.value && typeof attr.value === "object") {
+          assertLiteralAttributeExpression(attr.name ?? "?", attr.value as MdxAttrExpression);
+        }
+      }
       for (const child of node.children ?? []) {
-        walk(child as { type: string; children?: unknown[] });
+        walk(child as GuardNode);
       }
     };
     walk(tree);
@@ -92,8 +112,9 @@ class PlanRenderErrorBoundary extends Component<
   }
 }
 
-/** Assign a stable `data-plan-block-id` to each top-level block missing one. */
-function assignBlockIds(root: HTMLElement): void {
+/** Assign a stable `data-plan-block-id` to each top-level block missing one.
+ * Exported for verification. */
+export function assignBlockIds(root: HTMLElement): void {
   let index = 0;
   for (const child of Array.from(root.children)) {
     if (!(child instanceof HTMLElement)) continue;
@@ -145,7 +166,7 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
 
   useEffect(() => {
     if (containerRef.current) assignBlockIds(containerRef.current);
-  });
+  }, [content]);
 
   if (error !== null) {
     return <PlanErrorNotice message={error} />;
