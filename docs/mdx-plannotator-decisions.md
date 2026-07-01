@@ -204,9 +204,19 @@ escalation. Posture:
   (no remote scripts by default).** Cheap, and justified now that untrusted
   content is in scope (stops a foreign prototype phoning home / pulling arbitrary
   libraries). Relaxable per-plan only on explicit user opt-in.
-- **KEEP — wireframe `sanitizeWireframeHtml` (D8)** and **HtmlBlock in a
-  locked-down iframe (no `allow-scripts`) + sanitise.** These render/allow raw
-  HTML, so they are genuine trust boundaries the MDX guard does not cover.
+- **KEEP — wireframe `sanitizeWireframeHtml` (D8)** — it injects into the **live
+  parent DOM**, so the sanitiser is the boundary.
+- **HtmlBlock + Prototype — sandboxed iframe is the whole boundary; NO sanitiser.**
+  _(Updated: D9 originally said "HtmlBlock … + sanitise"; the build correctly
+  dropped the sanitiser and an independent real-browser security review
+  RATIFIED the drop — `docs/mdx-iframe-surfaces-review.md`.)_ Unlike the
+  wireframe surface, HtmlBlock/Prototype content lives in a **separate
+  opaque-origin `srcdoc` document**, not the live DOM. HtmlBlock uses
+  `sandbox=""` (zero JS) + CSP with no `script-src`; Prototype uses
+  `sandbox="allow-scripts allow-forms"` (no `allow-same-origin`) + CSP
+  `default-src 'none'` (no remote script, no egress). A sanitiser would be pure
+  redundancy behind that. **Pending: one-line user ack of the sanitiser drop**
+  (the "+ sanitise" phrasing was user-confirmed).
 - **DROP — sanitising the prototype HTML _on top of_ the opaque-origin sandbox.**
   This was over-specified: the sandbox already fully isolates the prototype from
   the app session, so a second sanitise pass adds negligible session-safety and
