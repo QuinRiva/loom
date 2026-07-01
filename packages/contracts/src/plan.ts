@@ -21,7 +21,13 @@ export const PlanCommentMention = Schema.Struct({
 });
 export type PlanCommentMention = typeof PlanCommentMention.Type;
 
-export const PlanCommentAnchorKind = Schema.Literals(["text", "visual", "point"]);
+export const PlanCommentAnchorKind = Schema.Literals([
+  "text",
+  "visual",
+  "point",
+  "wireframe",
+  "canvas",
+]);
 export type PlanCommentAnchorKind = typeof PlanCommentAnchorKind.Type;
 
 /**

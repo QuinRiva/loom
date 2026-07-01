@@ -2,7 +2,15 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { assignBlockIds } from "../MdxPlanRenderer";
-import { anchorForBlockElement, anchorFromRange, resolveAnchor } from "./anchoring";
+import {
+  type CanvasTransform,
+  anchorForBlockElement,
+  anchorForCanvasPoint,
+  anchorForWireframeNode,
+  anchorFromRange,
+  resolveAnchor,
+  resolveCanvasAnchor,
+} from "./anchoring";
 
 /**
  * Anchoring is the highest-risk logic in the MDX-plan vertical: it serialises a
@@ -129,5 +137,116 @@ describe("anchoring — detached resolution", () => {
     document.body.innerHTML = `<div data-plan-root><p>totally different</p></div>`;
     const otherRoot = document.querySelector("[data-plan-root]")!;
     expect(resolveAnchor(res!.anchor, otherRoot)).toBeNull();
+  });
+});
+
+/**
+ * Wireframe/design artboards are positioned HTML in the live DOM, annotated by
+ * node pin: `targetSelector` = the artboard, `targetNodeId` = a stable
+ * `data-wf-node` id (renderer-stamped, a later wave), `targetNodePath` = a
+ * structural nth-child fallback. This mirrors the spike's proven round-trip
+ * (`wireframe-anchor-proof.html`, §7.2): capture → resolve exact node; survive a
+ * re-render that inserts an element above the target via id match; detach when
+ * the id is removed AND the path breaks.
+ */
+const WF_HTML = `<div data-plan-root>
+  <figure data-plan-block-id="wf-1" data-plan-block-type="wireframe">
+    <div>
+      <label>Email</label>
+      <button data-wf-node="submit-btn">Sign in</button>
+    </div>
+  </figure>
+</div>`;
+
+describe("anchoring — wireframe node pin", () => {
+  function captureButtonPin() {
+    document.body.innerHTML = WF_HTML;
+    const wfRoot = document.querySelector("[data-plan-root]")!;
+    const btn = wfRoot.querySelector('[data-wf-node="submit-btn"]')!;
+    return { wfRoot, pin: anchorForWireframeNode(btn, wfRoot)! };
+  }
+
+  it("captures a node pin and resolves it back to the exact element", () => {
+    const { wfRoot, pin } = captureButtonPin();
+    expect(pin.anchor.anchorKind).toBe("wireframe");
+    expect(pin.anchor.targetKind).toBe("wireframe");
+    expect(pin.anchor.targetSelector).toBe('[data-plan-block-id="wf-1"]');
+    expect(pin.anchor.targetNodeId).toBe("submit-btn");
+    expect(pin.anchor.targetNodePath).toBeTruthy();
+    expect(resolveAnchor(pin.anchor, wfRoot)?.toString()).toContain("Sign in");
+  });
+
+  it("survives a re-render that inserts a field above the target (id match)", () => {
+    const { wfRoot, pin } = captureButtonPin();
+    const btn = wfRoot.querySelector('[data-wf-node="submit-btn"]')!;
+    const inserted = document.createElement("label");
+    inserted.textContent = "Password";
+    btn.parentElement!.insertBefore(inserted, btn); // shifts the structural path
+    expect(resolveAnchor(pin.anchor, wfRoot)?.toString()).toContain("Sign in");
+  });
+
+  it("detaches (null) when the node id is removed AND the path is broken", () => {
+    const { wfRoot, pin } = captureButtonPin();
+    const artboard = wfRoot.querySelector('[data-plan-block-id="wf-1"]')!;
+    artboard.innerHTML = "<div></div>"; // id gone + captured path no longer valid
+    expect(resolveAnchor(pin.anchor, wfRoot)).toBeNull();
+  });
+
+  it("falls back to the structural path when no data-wf-node id exists", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <figure data-plan-block-id="wf-2" data-plan-block-type="design">
+        <div><span>alpha</span><span>beta</span></div>
+      </figure>
+    </div>`;
+    const wfRoot = document.querySelector("[data-plan-root]")!;
+    const beta = wfRoot.querySelectorAll("span")[1]!;
+    const pin = anchorForWireframeNode(beta, wfRoot)!;
+    expect(pin.anchor.targetNodeId).toBeUndefined();
+    expect(pin.anchor.targetNodePath).toBeTruthy();
+    expect(resolveAnchor(pin.anchor, wfRoot)?.toString()).toContain("beta");
+  });
+
+  it("a selection inside an artboard yields a wireframe pin, not a text-quote", () => {
+    document.body.innerHTML = WF_HTML;
+    const wfRoot = document.querySelector("[data-plan-root]")!;
+    const btnText = wfRoot.querySelector('[data-wf-node="submit-btn"]')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(btnText, 0);
+    range.setEnd(btnText, 4);
+    const res = anchorFromRange(range, wfRoot);
+    expect(res?.anchor.anchorKind).toBe("wireframe");
+    expect(res?.anchor.targetNodeId).toBe("submit-btn");
+  });
+});
+
+describe("anchoring — canvas board coordinate", () => {
+  const stub: CanvasTransform = {
+    boardToPixel: ({ x, y }) => ({ x: x / 2, y: y / 2 }),
+    boardScale: 0.5,
+  };
+
+  it("resolves a region anchor to a pixel box via the transform", () => {
+    const anchor = anchorForCanvasPoint({ x: 100, y: 200, width: 40, height: 20 });
+    expect(anchor.anchorKind).toBe("canvas");
+    expect(resolveCanvasAnchor(anchor, stub)).toEqual({ x: 50, y: 100, width: 20, height: 10 });
+  });
+
+  it("gives a point anchor (no size) a fallback footprint", () => {
+    expect(resolveCanvasAnchor(anchorForCanvasPoint({ x: 10, y: 20 }), stub)).toEqual({
+      x: 5,
+      y: 10,
+      width: 6,
+      height: 6,
+    });
+  });
+
+  it("returns null for a canvas anchor missing coordinates", () => {
+    expect(resolveCanvasAnchor({ anchorKind: "canvas" }, stub)).toBeNull();
+  });
+
+  it("resolveAnchor returns null for canvas anchors (no DOM Range)", () => {
+    document.body.innerHTML = `<div data-plan-root></div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    expect(resolveAnchor(anchorForCanvasPoint({ x: 1, y: 2 }), r)).toBeNull();
   });
 });
