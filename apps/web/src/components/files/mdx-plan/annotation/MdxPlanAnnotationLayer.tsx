@@ -1,10 +1,11 @@
 import type { PlanCommentAnchor } from "@t3tools/contracts";
-import { MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
+import { GripVertical, MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { annotationDraftKey, useMdxAnnotationDraftStore } from "~/mdxAnnotationDraftStore";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   type MdxAnchorReviewCommentContext,
@@ -54,11 +55,36 @@ interface ComposerState {
   anchor: PlanCommentAnchor;
   quotedText: string;
   initialText: string;
+  /** localStorage key the in-progress draft is cached under (issue 6). */
+  draftKey: string;
   top: number;
   left: number;
 }
 
 const CARD_WIDTH = 320;
+/** Estimated composer height, used only to keep the initial placement on-screen. */
+const COMPOSER_EST_HEIGHT = 220;
+const GAP = 12;
+
+/**
+ * Place the composer *beside* a target rect so it never covers the passage
+ * being annotated: prefer the right gutter, flip to the left when there isn't
+ * room, and only fall back to below the rect when neither side fits. All values
+ * are relative to the wrapper and clamped into view; the reviewer can still drag
+ * it anywhere afterwards. `rect`/`wrapper` are viewport rects.
+ */
+function placeBeside(rect: DOMRect, wrapper: DOMRect): { top: number; left: number } {
+  const relTop = rect.top - wrapper.top;
+  const clampTop = (top: number) =>
+    Math.max(8, Math.min(top, wrapper.height - COMPOSER_EST_HEIGHT - 8));
+  const rightLeft = rect.right - wrapper.left + GAP;
+  const leftLeft = rect.left - wrapper.left - CARD_WIDTH - GAP;
+  if (rightLeft + CARD_WIDTH <= wrapper.width - 8)
+    return { top: clampTop(relTop), left: rightLeft };
+  if (leftLeft >= 8) return { top: clampTop(relTop), left: leftLeft };
+  const below = Math.max(8, Math.min(rect.left - wrapper.left, wrapper.width - CARD_WIDTH - 8));
+  return { top: clampTop(rect.bottom - wrapper.top + GAP), left: below };
+}
 
 function fileNameOf(filePath: string): string {
   const normalized = filePath.replaceAll("\\", "/");
@@ -99,6 +125,9 @@ export function MdxPlanAnnotationLayer({
   const draft = useComposerDraftStore((store) => store.getComposerDraft(composerDraftTarget));
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
+  const getAnnotationDraft = useMdxAnnotationDraftStore((store) => store.getDraft);
+  const setAnnotationDraft = useMdxAnnotationDraftStore((store) => store.setDraft);
+  const clearAnnotationDraft = useMdxAnnotationDraftStore((store) => store.clearDraft);
   const comments = useMemo(
     () => (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath)),
     [draft?.reviewComments, filePath],
@@ -203,6 +232,11 @@ export function MdxPlanAnnotationLayer({
   const clampLeft = (left: number) =>
     Math.max(8, Math.min(left, wrapperRectNow().width - CARD_WIDTH - 8));
 
+  /** Close the composer, preserving its in-progress text as a cached draft so a
+   * later reopen of the same target restores it (issue 6). Only submit/discard
+   * clear the cache, so every dismissal path (Esc, click-away, Cancel) keeps. */
+  const dismissComposer = useCallback(() => setComposer(null), []);
+
   const handleMouseUp = useCallback(() => {
     requestAnimationFrame(() => {
       const selection = window.getSelection();
@@ -229,15 +263,16 @@ export function MdxPlanAnnotationLayer({
     if (!range || !root) return;
     const result = anchorFromRange(range, root);
     if (!result) return;
-    const wrapperRect = wrapperRectNow();
-    const rect = range.getBoundingClientRect();
+    const { top, left } = placeBeside(range.getBoundingClientRect(), wrapperRectNow());
+    const draftKey = annotationDraftKey(composerDraftTarget, { anchor: result.anchor });
     setComposer({
       id: newCommentId(),
       anchor: result.anchor,
       quotedText: result.quotedText,
-      initialText: "",
-      top: rect.bottom - wrapperRect.top + 8,
-      left: clampLeft(rect.left - wrapperRect.left),
+      initialText: getAnnotationDraft(draftKey) ?? "",
+      draftKey,
+      top,
+      left,
     });
     setSelectionAffordance(null);
     setOpenCardId(null);
@@ -249,15 +284,16 @@ export function MdxPlanAnnotationLayer({
     const element = root.querySelector(blockSelector(blockId));
     if (!element) return;
     const result = anchorForBlockElement(element, root);
-    const wrapperRect = wrapperRectNow();
-    const rect = element.getBoundingClientRect();
+    const { top, left } = placeBeside(element.getBoundingClientRect(), wrapperRectNow());
+    const draftKey = annotationDraftKey(composerDraftTarget, { anchor: result.anchor });
     setComposer({
       id: newCommentId(),
       anchor: result.anchor,
       quotedText: result.quotedText,
-      initialText: "",
-      top: rect.bottom - wrapperRect.top + 8,
-      left: clampLeft(rect.left - wrapperRect.left),
+      initialText: getAnnotationDraft(draftKey) ?? "",
+      draftKey,
+      top,
+      left,
     });
     setHoverBlock(null);
     setOpenCardId(null);
@@ -265,11 +301,13 @@ export function MdxPlanAnnotationLayer({
 
   const openComposerForEdit = (comment: MdxAnchorReviewCommentContext, overlay?: Overlay) => {
     const badge = overlay?.badge;
+    const draftKey = annotationDraftKey(composerDraftTarget, { commentId: comment.id });
     setComposer({
       id: comment.id,
       anchor: comment.anchor,
       quotedText: comment.quotedText,
-      initialText: comment.text,
+      initialText: getAnnotationDraft(draftKey) ?? comment.text,
+      draftKey,
       top: (badge?.top ?? 16) + 20,
       left: clampLeft(badge?.left ?? 16),
     });
@@ -296,13 +334,22 @@ export function MdxPlanAnnotationLayer({
       quotedText: composer.quotedText,
     };
     addReviewComment(composerDraftTarget, comment);
+    clearAnnotationDraft(composer.draftKey);
+    setComposer(null);
+  };
+
+  const discardComposer = () => {
+    if (composer) clearAnnotationDraft(composer.draftKey);
     setComposer(null);
   };
 
   const removeComment = (id: string) => {
     removeReviewComment(composerDraftTarget, id);
     setOpenCardId(null);
-    if (composer?.id === id) setComposer(null);
+    if (composer?.id === id) {
+      clearAnnotationDraft(composer.draftKey);
+      setComposer(null);
+    }
   };
 
   const detached = overlays.filter((overlay) => overlay.detached);
@@ -315,6 +362,11 @@ export function MdxPlanAnnotationLayer({
       onMouseMove={(event) => {
         if (!root) return;
         const target = event.target as Element;
+        // Keep the affordance shown while the pointer is over it — it renders as
+        // a wrapper sibling (not inside the block), so the block lookup below
+        // would otherwise clear the hover the instant the cursor reaches the
+        // button and it would vanish out from under the click (flicker, issue 3).
+        if (target.closest?.("[data-plan-comment-affordance]")) return;
         const block = target.closest?.("[data-plan-block-id]");
         if (!block || !root.contains(block)) {
           if (hoverBlockIdRef.current !== null) {
@@ -400,17 +452,21 @@ export function MdxPlanAnnotationLayer({
         </button>
       ) : null}
 
-      {/* Per-block "comment" affordance (covers non-selectable / non-prose blocks). */}
+      {/* Per-block "comment" affordance (covers non-selectable / non-prose blocks).
+          Stable anchored position (only recomputed when the hovered block
+          changes) + a generous hit target, and it stays shown while hovered —
+          no flicker, trivially clickable (issues 3/4). */}
       {hoverBlock && !composer && !selectionAffordance ? (
         <button
           type="button"
+          data-plan-comment-affordance=""
           aria-label="Comment on this block"
-          className="absolute z-20 grid size-6 place-items-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
           style={{ top: hoverBlock.top, left: hoverBlock.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openComposerForBlock(hoverBlock.id)}
         >
-          <MessageCircle className="size-3.5" />
+          <MessageCircle className="size-4" />
         </button>
       ) : null}
 
@@ -418,11 +474,14 @@ export function MdxPlanAnnotationLayer({
       {composer ? (
         <AnnotationComposer
           key={composer.id}
+          draftKey={composer.draftKey}
           top={composer.top}
           left={composer.left}
           quotedText={composer.quotedText}
           initialText={composer.initialText}
-          onCancel={() => setComposer(null)}
+          onCacheDraft={setAnnotationDraft}
+          onDismiss={dismissComposer}
+          onDiscard={discardComposer}
           onSubmit={submitComposer}
         />
       ) : null}
@@ -527,32 +586,92 @@ function AnnotationCard({
 }
 
 interface AnnotationComposerProps {
+  draftKey: string;
   top: number;
   left: number;
   quotedText: string;
   initialText: string;
-  onCancel: () => void;
+  onCacheDraft: (key: string, text: string) => void;
+  onDismiss: () => void;
+  onDiscard: () => void;
   onSubmit: (text: string) => void;
 }
 
 function AnnotationComposer({
+  draftKey,
   top,
   left,
   quotedText,
   initialText,
-  onCancel,
+  onCacheDraft,
+  onDismiss,
+  onDiscard,
   onSubmit,
 }: AnnotationComposerProps) {
   const [text, setText] = useState(initialText);
+  const [pos, setPos] = useState({ top, left });
+  const dragRef = useRef<{ startX: number; startY: number; top: number; left: number } | null>(
+    null,
+  );
+
+  // Persist the in-progress draft as it changes so dismiss→reopen and reloads
+  // both restore it (issue 6). Submit/discard clear it via the parent.
+  useEffect(() => {
+    onCacheDraft(draftKey, text);
+  }, [draftKey, text, onCacheDraft]);
+
+  const onDragMove = useCallback((event: PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setPos({
+      top: drag.top + (event.clientY - drag.startY),
+      left: drag.left + (event.clientX - drag.startX),
+    });
+  }, []);
+  const onDragEnd = useCallback(() => {
+    dragRef.current = null;
+    window.removeEventListener("pointermove", onDragMove);
+    window.removeEventListener("pointerup", onDragEnd);
+  }, [onDragMove]);
+
+  // Dismiss on click-away / Esc — no longer Cancel-only (issue 5). Pointerdown
+  // inside the composer is stopped below, so this only fires for outside clicks.
+  useEffect(() => {
+    const onPointerDown = () => onDismiss();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onDismiss]);
 
   return (
     <div
       className="absolute z-40 rounded-xl border border-border/70 bg-background p-3 shadow-lg"
-      style={{ top, left, width: CARD_WIDTH }}
+      style={{ top: pos.top, left: pos.left, width: CARD_WIDTH }}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="flex items-center gap-2">
-        <MessageCircle className="size-4 text-muted-foreground" />
+      {/* Grab handle — drag the composer off the passage it covers (issue 1). */}
+      <div
+        className="-m-1 flex cursor-grab touch-none select-none items-center gap-2 rounded-lg p-1 active:cursor-grabbing"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          dragRef.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            top: pos.top,
+            left: pos.left,
+          };
+          window.addEventListener("pointermove", onDragMove);
+          window.addEventListener("pointerup", onDragEnd);
+        }}
+      >
+        <GripVertical className="size-4 text-muted-foreground" />
         <span className="text-sm font-medium">Comment on plan</span>
       </div>
       {quotedText ? (
@@ -571,7 +690,7 @@ function AnnotationComposer({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            onCancel();
+            onDismiss();
           }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && text.trim()) {
             event.preventDefault();
@@ -579,9 +698,9 @@ function AnnotationComposer({
           }
         }}
       />
-      <div className="mt-3 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" disabled={!text.trim()} onClick={onDiscard}>
+          Discard
         </Button>
         <Button size="sm" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
           Comment
