@@ -53,7 +53,7 @@ import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, isMdxPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
-import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
+import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -558,15 +558,11 @@ function RenderedMarkdownSurface({
   relativePath,
   contents,
   threadRef,
+  composerDraftTarget,
   onPendingChange,
 }: Omit<
   EditableFileSurfaceProps,
-  | "resolvedTheme"
-  | "composerDraftTarget"
-  | "revealLine"
-  | "revealRequestId"
-  | "wordWrap"
-  | "onPostRender"
+  "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
 }) {
@@ -580,7 +576,11 @@ function RenderedMarkdownSurface({
   if (isMdxPreviewFile(relativePath)) {
     return (
       <ScrollArea className="min-h-0 flex-1">
-        <MdxPlanRenderer source={contents} />
+        <MdxPlanAnnotationLayer
+          source={contents}
+          filePath={relativePath}
+          composerDraftTarget={composerDraftTarget}
+        />
       </ScrollArea>
     );
   }
@@ -842,6 +842,7 @@ export default function FilePreviewPanel({
                 cwd={cwd}
                 relativePath={relativePath}
                 threadRef={threadRef}
+                composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />
