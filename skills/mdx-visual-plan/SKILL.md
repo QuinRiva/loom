@@ -93,6 +93,11 @@ Ground the plan in the real codebase, not from memory:
 - **Keep examples at the right altitude.** When the request is a broad framework
   or product change, separate the reusable core from the motivating example;
   label examples as examples unless they are the whole scope.
+- **Make the first read concrete.** For a broad, abstract, or strategic plan,
+  lead with one concrete product snapshot — a single `<Screen>` (or top
+  `<DesignBoard>` artboard) plus a sentence on what the user sees — _before_ dense
+  mode tables, manifests, or architecture, so a reviewer who was never in the
+  chat gets the idea before the mechanics.
 - **Clarify vs. assume.** Do not ask how to build it — explore and present the
   approach and options in the plan. Ask a clarifying question only when an
   ambiguity would change the design and you cannot resolve it from the code;
@@ -244,7 +249,10 @@ high-signal notes, not one per line.
 
 Use for real spatial relationships (layers, before/after, data flow) — not a
 default left-to-right chain. Simple form uses `data` with `nodes`/`edges`
-(`x`/`y` are 0–100 percentages); a `caption` labels it.
+(`x`/`y` are 0–100 percentages); a `caption` labels it. This is a constrained
+nodes/edges model with no HTML/CSS diagram mode — for a rich layered, matrix, or
+swimlane picture reach for `<Mermaid>` (auto-layout) or plain prose instead of
+forcing it here.
 
 ```mdx
 <Diagram
@@ -466,6 +474,13 @@ theme, and (for wireframes) the `--wf-*` design tokens and `.wf-*` helper classe
 (the [wireframe authoring contract](#wireframe-authoring-contract) below). The
 `html` is sanitised before it is injected.
 
+**Before authoring any wireframe, READ [`references/wireframe.md`](references/wireframe.md)** —
+the composition quality bar (surface choice, full-width chrome, pinned bottom
+bars, before/after comparability, modify-don't-redesign, keeping product screens
+pure) that separates a wireframe worth annotating from a mechanically-valid grey
+box. **Before authoring a canvas, READ [`references/canvas.md`](references/canvas.md)**
+for the board-unit spacing numbers that stop artboards overlapping.
+
 #### `<Screen>` — a low-fidelity wireframe artboard
 
 `surface` is `browser | desktop | mobile | popover | panel` (default `browser`);
@@ -482,10 +497,14 @@ neutral `--wf-*` tokens / `.wf-*` classes, not branded styling.
 
 #### `<Design>` — a design-fidelity artboard
 
-The same surface/html/caption shape as `<Screen>`, but branded styling classes
-are preserved and the sketch chrome is dropped — use it when you want to show
-real visual fidelity rather than a grey-box wireframe. Fidelity is implied by the
-tag; there is no `css`/`style` attribute (HTML only).
+The same surface/html/caption shape as `<Screen>`. The difference is theme-class
+handling, not a sketch effect (both tiers render a clean frame — there is no
+hand-drawn sketch overlay): `<Screen>` **strips** host/branded theme classes and
+applies the neutral `--wf-*` grey-box look, while `<Design>` **preserves** branded
+classes and inline styles and renders a clean neutral frame — reach for it when
+the actual branded look matters. The `--wf-*` theming does not apply inside a
+`<Design>`; the fragment brings its own styling. Fidelity is implied by the tag;
+there is no `css`/`style` attribute (HTML only).
 
 ```mdx
 <Design
@@ -542,13 +561,20 @@ Inside a `<Screen>` / `<Artboard>` the renderer auto-themes bare semantic
 elements — `h1`–`h3`, `p`, `a`, `small`, `hr`, `strong`, `button`, `input`,
 `select`, `textarea`, `label` all pick up the wireframe look with **no classes**.
 On top of that, a few helper classes and colour tokens are available; do not rely
-on any other framework classes (they are stripped by the sanitiser).
+on any other framework classes — the renderer ships no CSS for them (so an
+arbitrary class styles nothing), and the sanitiser actively strips Tailwind
+colour/shadow utilities (`bg-*`, `text-*`, `shadow-*`, `bg-[…]`) so host styling
+cannot leak in.
 
 - **Helper classes:** `.wf-card` / `.wf-box` (bordered container), `.wf-pill` /
   `.wf-chip` (rounded tag; add `.accent` to fill with the accent colour),
   `.wf-btn` (button look on a non-`<button>`), `.wf-muted` (muted text),
   `.wf-icon` (a 1em icon slot). Mark a primary button with `class="primary"` or
   `data-primary`.
+- **Icon markers render empty today.** `.wf-icon` / `[data-icon]` size a 1em
+  slot but the renderer's SVG icon replacement is deferred, so the slot renders
+  blank — for a visible glyph use a short text label or an inline `<svg>`, not
+  `<i data-icon="mail">`.
 - **Colour tokens (CSS vars, light/dark aware):** `--wf-ink` (text),
   `--wf-muted`, `--wf-line` (borders), `--wf-paper` (surface), `--wf-card`,
   `--wf-accent` / `--wf-accent-fg` / `--wf-accent-soft`, `--wf-warn`, `--wf-ok`,
@@ -615,3 +641,8 @@ the prose that needs it); **scope and non-goals**; a **verification** step; and
 a single `<QuestionForm>` at the very bottom for anything still open. For a
 complex plan, do a final pass: every meaningful decision is either settled in the
 plan with rationale or sits in that bottom form with a recommended default.
+
+This section is the summary; the depth lives in companion references. Before
+writing the prose body, read [`references/document-quality.md`](references/document-quality.md),
+and check your draft against the worked skeleton and named anti-patterns in
+[`references/exemplar.md`](references/exemplar.md).
