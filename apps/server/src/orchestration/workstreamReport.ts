@@ -3,9 +3,10 @@
  *
  * A sub-thread records a deliberate markdown handoff (not its whole transcript)
  * via the `workstream_report` tool. The markdown is stored as a file under the
- * durable per-thread reports directory (NOT the ephemeral worktree), and only a
- * tiny path pointer is event-sourced onto the thread record. The dispatcher
- * reads the file when composing the parent wake message.
+ * durable per-thread reports directory (NOT the ephemeral worktree), and the
+ * absolute path to that file is event-sourced onto the thread record so the
+ * parent orchestrator (whose CWD is its own worktree) can read it directly.
+ * The dispatcher reads the file when composing the parent wake message.
  *
  * @module workstreamReport
  */
@@ -22,9 +23,11 @@ export const workstreamReportFileName = (threadId: ThreadId): string =>
   `${threadId.replace(/[^A-Za-z0-9._-]/g, "_")}.md`;
 
 /**
- * Persist a sub-thread's completion report and return the stored pointer (the
- * report file name, resolved against the reports dir on read). Overwrites any
- * previous report for the thread — the latest handoff is the source of truth.
+ * Persist a sub-thread's completion report and return the absolute path to the
+ * stored file. The parent orchestrator runs with its CWD set to its own
+ * worktree, so the handed-back reference must be an absolute path it can read
+ * directly — a bare file name would not resolve there. Overwrites any previous
+ * report for the thread — the latest handoff is the source of truth.
  */
 export const writeWorkstreamReport = Effect.fn("writeWorkstreamReport")(function* (
   threadId: ThreadId,
@@ -33,10 +36,10 @@ export const writeWorkstreamReport = Effect.fn("writeWorkstreamReport")(function
   const config = yield* ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const fileName = workstreamReportFileName(threadId);
+  const filePath = path.join(config.workstreamReportsDir, workstreamReportFileName(threadId));
   yield* fs.makeDirectory(config.workstreamReportsDir, { recursive: true });
-  yield* fs.writeFileString(path.join(config.workstreamReportsDir, fileName), markdown);
-  return fileName;
+  yield* fs.writeFileString(filePath, markdown);
+  return filePath;
 });
 
 /** Read a thread's completion report markdown, if one exists. */
