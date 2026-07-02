@@ -203,8 +203,9 @@ export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
   `server:workstream-notify:wake:${parentId}:${generation}`;
 
 /**
- * Per-child wake (D-liveness §1e). Both forgot-to-finish (idle + non-terminal)
- * and `error` children wake their parent through THIS rail, not the generation
+ * Per-child wake (D-liveness §1e). All per-child kinds (`error`, paused
+ * `attention`, forgot-to-finish `idle`, `recovered`) wake the parent through
+ * THIS rail, not the generation
  * barrier (`selectJoinedGenerations` only fires when an *entire* generation is
  * terminal, so a single quiet/errored child among running siblings would never
  * wake the parent). The command id is keyed by `(childId, episode)` so each
