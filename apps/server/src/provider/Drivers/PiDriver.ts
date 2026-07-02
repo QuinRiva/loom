@@ -1157,6 +1157,7 @@ function makePiAdapter(input: {
                 void Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
             );
             process.child.once("exit", () => {
+              if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
               sessions.delete(startInput.threadId);
               void Effect.runPromise(
                 emit({
@@ -1213,6 +1214,15 @@ function makePiAdapter(input: {
                 issue: "Pi turns require text input or at least one image attachment.",
               });
             }
+            // A pending retry timer means we're in a T3 backoff window: the T3
+            // turn is open but pi is idle between attempts. Settle the retry
+            // (clears the timer so its dispatchTurnRetry can't double-prompt, and
+            // restores the pre-fallback model) and send this message as a fresh
+            // prompt on the still-open turn rather than a steer (pi isn't
+            // mid-run). An explicit modelSelection below still overrides.
+            const inBackoff =
+              session.retry?.timer !== undefined && session.activeTurnId !== undefined;
+            if (inBackoff) yield* settleRetry(session);
             if (turnInput.modelSelection) {
               const model = resolvePiModel(turnInput.modelSelection.model);
               if (model)
@@ -1268,7 +1278,9 @@ function makePiAdapter(input: {
                   type: "prompt",
                   message: text,
                   ...(images.length > 0 ? { images } : {}),
-                  ...(activeTurnId !== undefined ? { streamingBehavior: "steer" as const } : {}),
+                  ...(activeTurnId !== undefined && !inBackoff
+                    ? { streamingBehavior: "steer" as const }
+                    : {}),
                 }),
               catch: (cause) =>
                 new ProviderAdapterRequestError({
@@ -1334,7 +1346,12 @@ function makePiAdapter(input: {
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
           Effect.promise(() => session.process.stop()).pipe(
-            Effect.tap(() => Effect.sync(() => sessions.delete(threadId))),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                if (session.retry?.timer !== undefined) clearTimeout(session.retry.timer);
+                sessions.delete(threadId);
+              }),
+            ),
           ),
         ),
       ),
