@@ -262,7 +262,7 @@ high-signal notes, not one per line.
 ### `<Diagram>` — a 2-D architecture / data-flow diagram
 
 Use for real spatial relationships (layers, before/after, data flow) — not a
-default left-to-right chain. Simple form uses `data` with `nodes`/`edges`
+default left-to-right chain. Author it with flat `nodes`/`edges` props
 (`x`/`y` are 0–100 percentages); a `caption` labels it. This is a constrained
 nodes/edges model with no HTML/CSS diagram mode — for a rich layered, matrix, or
 swimlane picture reach for `<Mermaid>` (auto-layout) or plain prose instead of
@@ -271,17 +271,15 @@ forcing it here.
 ```mdx
 <Diagram
   caption="Comment injection path"
-  data={{
-    nodes: [
-      { id: "sel", label: "Selection", x: 10, y: 45 },
-      { id: "anchor", label: "text-quote anchor", x: 45, y: 45 },
-      { id: "turn", label: "user turn", x: 82, y: 45 },
-    ],
-    edges: [
-      { from: "sel", to: "anchor" },
-      { from: "anchor", to: "turn", label: "inject" },
-    ],
-  }}
+  nodes={[
+    { id: "sel", label: "Selection", x: 10, y: 45 },
+    { id: "anchor", label: "text-quote anchor", x: 45, y: 45 },
+    { id: "turn", label: "user turn", x: 82, y: 45 },
+  ]}
+  edges={[
+    { from: "sel", to: "anchor" },
+    { from: "anchor", to: "turn", label: "inject" },
+  ]}
 />
 ```
 
