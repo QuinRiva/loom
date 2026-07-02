@@ -689,7 +689,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
       const occurredAt = yield* nowIso;
-      return {
+      const metaUpdatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -711,6 +711,42 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      // Cascade UP: renaming the sole active thread of a goal renames the goal
+      // too, so the sidebar never strands a stale goal header. (Mirror of the
+      // last-active-thread archive cascade above.)
+      const goalId = thread.goalId ?? null;
+      if (command.title !== undefined && goalId !== null) {
+        const goal = findGoalById(readModel, goalId);
+        const goalHasOtherActiveThread = readModel.threads.some(
+          (other) =>
+            other.goalId === goalId &&
+            other.id !== thread.id &&
+            other.deletedAt === null &&
+            other.archivedAt === null,
+        );
+        if (
+          goal &&
+          goal.deletedAt === null &&
+          goal.archivedAt === null &&
+          !goalHasOtherActiveThread &&
+          goal.title !== command.title
+        ) {
+          return [
+            metaUpdatedEvent,
+            {
+              ...(yield* withEventBase({
+                aggregateKind: "goal",
+                aggregateId: goalId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "goal.meta-updated",
+              payload: { goalId, title: command.title, updatedAt: occurredAt },
+            },
+          ];
+        }
+      }
+      return metaUpdatedEvent;
     }
 
     case "thread.runtime-mode.set": {
