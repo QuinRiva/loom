@@ -136,6 +136,13 @@ Attributes follow one fixed encoding:
 
 ## Block vocabulary
 
+**For exact prop shapes and allowed enum values, consult
+[`references/block-schema.md`](references/block-schema.md) — do not guess props or
+enum values.** That file is generated from the live zod schemas (so it cannot
+drift) and lists, for every block, each prop's type, required/optional status,
+allowed enum values, and nested object/array sub-shapes. The examples below teach
+the common shape; the reference is the authority for anything an example omits.
+
 Each block is shown with a short, real example. Only the fields you need are
 required; omit the rest. The blocks fall into four groups: **document blocks**
 (prose-embedded structure — the default), **containers** (side-by-side / tabbed
@@ -147,21 +154,28 @@ layout), **visual surfaces** (wireframe / design / canvas, for UI work), and
 Entity cards with typed fields (PK/FK/nullable) and foreign-key relations.
 Field `change` and entity `change` accept `added|modified|removed|renamed`.
 
+The `fk` field is a **string** naming the FK target (`"Entity"` or
+`"Entity.field"`), never a boolean. Relation `kind` is one of
+`"1-1" | "1-n" | "n-n"` only — there is no `"n-1"`; model many-to-one as `"1-n"`
+from the "one" side to the "many" side. See
+[`references/block-schema.md`](references/block-schema.md) for the full
+field/relation shape.
+
 ```mdx
 <DataModel
   entities={[
     {
-      id: "planComment",
+      id: "comment",
       name: "PlanComment",
       fields: [
         { name: "id", type: "string", pk: true },
-        { name: "planPath", type: "string", note: "the .mdx path" },
+        { name: "planId", type: "string", fk: "Plan.id", note: "parent plan" },
         { name: "anchor", type: "PlanCommentAnchor", nullable: true },
         { name: "status", type: "open | resolved" },
       ],
     },
   ]}
-  relations={[{ from: "planComment", to: "planComment", kind: "1-n", label: "parentCommentId" }]}
+  relations={[{ from: "plan", to: "comment", kind: "1-n", label: "comments" }]}
 />
 ```
 
@@ -248,7 +262,7 @@ high-signal notes, not one per line.
 ### `<Diagram>` — a 2-D architecture / data-flow diagram
 
 Use for real spatial relationships (layers, before/after, data flow) — not a
-default left-to-right chain. Simple form uses `data` with `nodes`/`edges`
+default left-to-right chain. Author it with flat `nodes`/`edges` props
 (`x`/`y` are 0–100 percentages); a `caption` labels it. This is a constrained
 nodes/edges model with no HTML/CSS diagram mode — for a rich layered, matrix, or
 swimlane picture reach for `<Mermaid>` (auto-layout) or plain prose instead of
@@ -257,17 +271,15 @@ forcing it here.
 ```mdx
 <Diagram
   caption="Comment injection path"
-  data={{
-    nodes: [
-      { id: "sel", label: "Selection", x: 10, y: 45 },
-      { id: "anchor", label: "text-quote anchor", x: 45, y: 45 },
-      { id: "turn", label: "user turn", x: 82, y: 45 },
-    ],
-    edges: [
-      { from: "sel", to: "anchor" },
-      { from: "anchor", to: "turn", label: "inject" },
-    ],
-  }}
+  nodes={[
+    { id: "sel", label: "Selection", x: 10, y: 45 },
+    { id: "anchor", label: "text-quote anchor", x: 45, y: 45 },
+    { id: "turn", label: "user turn", x: 82, y: 45 },
+  ]}
+  edges={[
+    { from: "sel", to: "anchor" },
+    { from: "anchor", to: "turn", label: "inject" },
+  ]}
 />
 ```
 

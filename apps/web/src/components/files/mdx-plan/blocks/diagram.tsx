@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 
-import type { BlockMdxConfig, MdxAttrValue, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
  * The `<Diagram>` block — a simple positioned box-and-arrow renderer. Nodes carry
@@ -9,10 +9,11 @@ import type { BlockMdxConfig, MdxAttrValue, PlanBlock, PlanBlockReadProps } from
  * centres; notes are free-floating labels. No Mermaid / roughjs — this is the
  * lightweight positional graph.
  *
- * Wire contract (ported from `@agent-native/core` `diagram.config.ts`): the graph
- * travels inside a single `data={{ nodes, edges, notes }}` attribute plus a flat
- * `caption`. Internally the data is flat; `toAttrs` re-wraps into `data`,
- * `fromAttrs` spreads it back — so authored `<Diagram data={…} />` round-trips.
+ * Wire contract: the graph is authored as flat top-level attributes —
+ * `nodes`/`edges`/`notes` (JSON-literal array expressions) plus a `caption`
+ * string. `toAttrs`/`fromAttrs` are a straight flat map (no `data={…}` wrapper),
+ * so authored `<Diagram nodes={…} edges={…} />` round-trips byte-stably and
+ * matches the runtime `diagramSchema` shape.
  */
 
 export interface DiagramNode {
@@ -73,29 +74,21 @@ export const diagramSchema = z.object({
   notes: z.array(noteSchema).max(40).optional(),
 }) as unknown as z.ZodType<DiagramData>;
 
-function graphForAttr(data: DiagramData): MdxAttrValue | undefined {
-  const graph: Record<string, unknown> = {};
-  if (data.nodes?.length) graph.nodes = data.nodes;
-  if (data.edges?.length) graph.edges = data.edges;
-  if (data.notes?.length) graph.notes = data.notes;
-  return Object.keys(graph).length > 0 ? graph : undefined;
-}
-
 export const diagramMdx: BlockMdxConfig<DiagramData> = {
   tag: "Diagram",
   toAttrs: (data) => ({
-    data: graphForAttr(data),
     caption: data.caption,
+    nodes: data.nodes?.length ? data.nodes : undefined,
+    edges: data.edges?.length ? data.edges : undefined,
+    notes: data.notes?.length ? data.notes : undefined,
   }),
-  fromAttrs: (attrs) => {
-    const graph = attrs.object<Partial<DiagramData>>("data") ?? {};
-    return {
+  fromAttrs: (attrs) =>
+    ({
       caption: attrs.string("caption"),
-      nodes: graph.nodes,
-      edges: graph.edges,
-      notes: graph.notes,
-    } as DiagramData;
-  },
+      nodes: attrs.array<DiagramNode>("nodes"),
+      edges: attrs.array<DiagramEdge>("edges"),
+      notes: attrs.array<DiagramNote>("notes"),
+    }) as DiagramData,
 };
 
 /** Fill in coordinates for nodes missing them: spread evenly across a middle row. */

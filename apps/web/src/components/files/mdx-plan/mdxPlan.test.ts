@@ -84,7 +84,7 @@ describe("mdx-plan block round-trip", () => {
     expect(roundTrip("AnnotatedCode", data)).toEqual(data);
   });
 
-  it("round-trips a Diagram block (graph wrapped in a `data` attr)", () => {
+  it("round-trips a Diagram block (flat nodes/edges/caption attrs)", () => {
     const data = {
       caption: "Flow",
       nodes: [
@@ -281,7 +281,7 @@ describe("mdx-plan security model", () => {
     const source = [
       '<DataModel entities={[{ "id": "user", "name": "User", "fields": [{ "name": "id", "pk": true }] }]} />',
       "",
-      '<Diagram data={{ "nodes": [{ "id": "a", "label": "A" }], "edges": [] }} />',
+      '<Diagram nodes={[{ "id": "a", "label": "A" }]} edges={[]} />',
       "",
       '<Code language="ts" code={"export const x = 1"} maxLines={12} />',
       "",

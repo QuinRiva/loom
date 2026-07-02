@@ -125,19 +125,17 @@ code-review comments.
 
 <Diagram
   caption="Selection → anchored comment → injected user turn"
-  data={{
-    nodes: [
-      { id: "sel", label: "Text selection", x: 12, y: 30 },
-      { id: "anchor", label: "PlanCommentAnchor", detail: "text-quote + context", x: 50, y: 30 },
-      { id: "store", label: "composer store", detail: "reviewComments", x: 50, y: 78 },
-      { id: "turn", label: "User turn", x: 88, y: 78 },
-    ],
-    edges: [
-      { from: "sel", to: "anchor", label: "anchorFromRange" },
-      { from: "anchor", to: "store", label: "addReviewComment" },
-      { from: "store", to: "turn", label: "on send" },
-    ],
-  }}
+  nodes={[
+    { id: "sel", label: "Text selection", x: 12, y: 30 },
+    { id: "anchor", label: "PlanCommentAnchor", detail: "text-quote + context", x: 50, y: 30 },
+    { id: "store", label: "composer store", detail: "reviewComments", x: 50, y: 78 },
+    { id: "turn", label: "User turn", x: 88, y: 78 },
+  ]}
+  edges={[
+    { from: "sel", to: "anchor", label: "anchorFromRange" },
+    { from: "anchor", to: "store", label: "addReviewComment" },
+    { from: "store", to: "turn", label: "on send" },
+  ]}
 />
 
 The shape the agent receives for one comment:
