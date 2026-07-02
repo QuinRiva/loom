@@ -1,4 +1,5 @@
 import {
+  type AttentionReason,
   CommandId,
   EventId,
   MessageId,
@@ -148,23 +149,26 @@ const formatReportExcerpt = (report: string | null): string => {
 
 /**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
- * which children completed (role + id + terminal plan lane), for each a reference
- * to its on-disk report plus a BOUNDED excerpt (never the full report), and the
- * instruction to review, decide what needs human escalation vs. what it can act
- * on / accept on the human's behalf, and continue orchestrating (including
- * accepting children that are awaiting acceptance).
+ * which children reached a terminal plan lane (role + id + lane + any attention
+ * flags — the copy never claims a child "finished" beyond its actual lane), for
+ * each a reference to its on-disk report plus a BOUNDED excerpt (never the full
+ * report), and the instruction to review, decide what needs human escalation
+ * vs. what it can act on / accept on the human's behalf, and continue
+ * orchestrating (including accepting children that are awaiting acceptance).
  */
 export const buildParentWakeMessage = (
   children: ReadonlyArray<{
     readonly id: ThreadId;
     readonly role: string | null;
     readonly planLane: ThreadPlanLane;
+    readonly attention: ReadonlyArray<AttentionReason>;
     readonly reportPath: string | null;
     readonly report: string | null;
   }>,
 ): string => {
   const sections = children.map((child) => {
-    const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.planLane}`;
+    const flags = child.attention.length > 0 ? ` (attention: ${child.attention.join(", ")})` : "";
+    const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.planLane}${flags}`;
     const reference =
       child.reportPath !== null
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
@@ -174,7 +178,7 @@ export const buildParentWakeMessage = (
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    "A spawn generation of your Workstream sub-thread(s) has finished. Results:",
+    "A spawn generation of your Workstream sub-thread(s) has reached terminal plan lanes (done/cancelled). Results:",
     "",
     sections.join("\n\n"),
     "",
@@ -213,27 +217,34 @@ export const childWakeCommandId = (childId: ThreadId, episode: string): string =
   `server:workstream-liveness:child-wake:${childId}:${episode}`;
 
 /**
- * The three per-child wake kinds. `error`/`idle` are classified purely from
- * thread state by `classifyChildWake`; `recovered` (a child the parent was told
- * had `error`ed that later reached `done`) is decided in the dispatcher loop
- * because it needs a durable receipt lookup, not just current state.
+ * The per-child wake kinds. `error`/`attention`/`idle` are classified purely
+ * from thread state by `classifyChildWake`; `recovered` (a child the parent was
+ * told had `error`ed that later reached `done`) is decided in the dispatcher
+ * loop because it needs a durable receipt lookup, not just current state.
  */
-export type ChildWakeKind = "error" | "idle" | "recovered";
+export type ChildWakeKind = "error" | "attention" | "idle" | "recovered";
 
 /**
  * Pure per-child wake classification (§1e). Returns the wake kind for a child
  * that should wake its parent, or `null`:
  * - `error` — the liveness sweep raised the child's `error` attention flag
  *   (crash/stall/loop/cap).
+ * - `attention` — "paused, needs attention": the child carries a raised
+ *   attention flag (`needs_guidance`/`awaiting_acceptance` — a human stop, a
+ *   self-raise, a stall escalation), is not executing, and its plan lane is
+ *   still pre-terminal. Since the generation join is plan-lane-only, this rail
+ *   is the ONLY way the parent agent hears about a paused child; the copy is
+ *   honest ("paused", never "finished").
  * - `idle`  — "forgot to finish": the child ran (has a session now `ready`/
  *   `stopped`) and went idle, but its plan lane is still pre-terminal
- *   (`ready`/`in_progress`) AND it carries no attention flag (a flagged child is
- *   already surfaced as needing a human; a `done`/`cancelled` child is finished).
+ *   (`ready`/`in_progress`) AND it carries no attention flag (a `done`/
+ *   `cancelled` child is finished and joins its generation instead).
  *
  * Idleness reuses the shared `isThreadIdle` predicate (no pending turn-start,
  * session not `running`, no active turn) so a freshly-promoted child mid-kickoff
- * is never mistaken for forgot-to-finish. A never-started `planned` child has no
- * session and is excluded (it is waiting on deps/release, not stuck).
+ * — or a just-resumed paused child whose turn-start is pending — is never
+ * misclassified. A never-started `planned` child has no session and is excluded
+ * from the idle kind (it is waiting on deps/release, not stuck).
  */
 export const classifyChildWake = (
   child: OrchestrationThreadShell,
@@ -241,6 +252,14 @@ export const classifyChildWake = (
 ): ChildWakeKind | null => {
   if (child.parentThreadId === null) return null;
   if (child.attention.includes("error")) return "error";
+  if (
+    child.attention.length > 0 &&
+    child.planLane !== "done" &&
+    child.planLane !== "cancelled" &&
+    isThreadIdle(child, pendingTurnStartThreadIds)
+  ) {
+    return "attention";
+  }
   if (
     child.attention.length === 0 &&
     (child.planLane === "ready" || child.planLane === "in_progress") &&
@@ -315,14 +334,17 @@ export const idleWakeWithinGrace = (
 
 /**
  * Pure per-child wake-message builder. Tells the parent which child went
- * `error` / quiet, points at its on-disk report (with a bounded excerpt), and
- * instructs it to investigate (its report, or `consult_thread` for a Q&A) then
- * advance the child's plan lane (`done`/`cancelled`) or re-dispatch.
+ * `error` / paused / quiet, points at its on-disk report (with a bounded
+ * excerpt), and instructs it how to proceed. The `attention` copy is a PAUSE
+ * notice — it names the child's plan lane + attention flags and explicitly says
+ * the child has not finished.
  */
 export const buildChildWakeMessage = (
   child: {
     readonly id: ThreadId;
     readonly role: string | null;
+    readonly planLane: ThreadPlanLane;
+    readonly attention: ReadonlyArray<AttentionReason>;
     readonly reportPath: string | null;
   },
   kind: ChildWakeKind,
@@ -332,9 +354,11 @@ export const buildChildWakeMessage = (
   const lead =
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
-      : kind === "idle"
-        ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
-        : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
+      : kind === "attention"
+        ? `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
+        : kind === "idle"
+          ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
+          : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
   const reference =
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
@@ -342,7 +366,9 @@ export const buildChildWakeMessage = (
   const tail =
     kind === "recovered"
       ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
-      : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
+      : kind === "attention"
+        ? "Do not treat its work as complete. If it is `awaiting_acceptance`, review its report and either accept it (`workstream_set_lane` done, which releases its dependents) or escalate to the human. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
+        : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
@@ -472,6 +498,7 @@ const make = Effect.gen(function* () {
           id: child.id,
           role: child.role,
           planLane: child.planLane,
+          attention: child.attention,
           reportPath: child.reportPath,
           report: Option.getOrNull(report),
         })),
@@ -635,11 +662,11 @@ const make = Effect.gen(function* () {
     // halted non-terminal with no resumer, so raise its `needs_guidance` flag —
     // the board must SHOW it carries the flag, not merely generate a wake.
     // Idempotent (deterministic `server:` id, receipt-deduped) and raised BEFORE
-    // the wake so the flag lands even if the parent wake later defers. Raising it
-    // also makes the child terminal-for-join, so the generation-join rail wakes
-    // the parent even if this per-child wake is lost in a busy-parent race. The
-    // `error` kind already carries its flag and `recovered` reached `done`
-    // (terminal) — neither raises here.
+    // the wake so the flag lands even if the parent wake later defers — in that
+    // race the now-flagged child is picked up by the `attention` rail on the
+    // next pass, so the parent is still woken. The `error`/`attention` kinds
+    // already carry their flags and `recovered` reached `done` (terminal) —
+    // none of those raise here.
     if (kind === "idle") {
       yield* orchestrationEngine.dispatch({
         type: "thread.attention.raise",
@@ -669,12 +696,13 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
-  // Per-child wake pass (§1e): wake the parent of every `error`, forgot-to-finish,
-  // or recovered (`error`→`done`) child through the shared rail, so a single
-  // failed/quiet/recovered child is surfaced promptly (B1) even while its siblings
-  // still run — the generation barrier (`wakeEligibleParents`) only fires once a
-  // WHOLE generation is terminal, and is one-shot per generation so it never
-  // re-notifies on an `error`→`done` flip. Shares `wakeTimestamps` +
+  // Per-child wake pass (§1e): wake the parent of every `error`, paused
+  // (attention-flagged, non-executing), forgot-to-finish, or recovered
+  // (`error`→`done`) child through the shared rail, so a single
+  // failed/paused/quiet/recovered child is surfaced promptly (B1) even while its
+  // siblings still run — the generation barrier (`wakeEligibleParents`) only
+  // fires once a WHOLE generation is plan-terminal, and is one-shot per
+  // generation so it never re-notifies on an `error`→`done` flip. Shares `wakeTimestamps` +
   // `parkAndEscalate` so error/idle/recovery/generation-join wakes draw on ONE
   // rate budget per parent (C1).
   const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* () {
@@ -690,9 +718,12 @@ const make = Effect.gen(function* () {
       if (parent === undefined) continue;
 
       const now = yield* Clock.currentTimeMillis;
-      // Episode key (C3): `error` fires once; idle keys on the child's max
-      // activity sequence at idle onset (stable while idle → no re-nag; a
-      // resumed-then-quiet child advances the sequence → re-arms). The idle rail
+      // Episode key (C3): `error` fires once; `attention` keys on the latest
+      // turn at pause time (stable while paused → no re-nag every pass; a resume
+      // starts a new turn AND clears attention, so a later re-pause re-arms);
+      // idle keys on the child's max activity sequence at idle onset (stable
+      // while idle → no re-nag; a resumed-then-quiet child advances the sequence
+      // → re-arms). The idle rail
       // also applies an activity-freshness grace (reusing this SAME freshness
       // fetch) so a child that only briefly has no open turn between turns is not
       // mislabeled "forgot to finish"; the periodic re-pass re-evaluates it once
@@ -716,6 +747,19 @@ const make = Effect.gen(function* () {
         )
           continue;
         episode = `idle:${freshness.maxSequence ?? "none"}`;
+      } else if (kind === "attention") {
+        episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
+        // The idle backstop raises `needs_guidance` itself right before its
+        // "went quiet" wake, which would re-classify the same child as
+        // `attention` on the very next pass. If THIS quiet episode (same max
+        // activity sequence) was already surfaced by a delivered idle wake, the
+        // parent has been told once — don't notify again.
+        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
+        const idleWakeId = childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`);
+        if (handledChildWakes.has(idleWakeId) || (yield* hasAcceptedReceipt(idleWakeId))) {
+          handledChildWakes.add(childWakeCommandId(child.id, episode));
+          continue;
+        }
       } else if (child.planLane === "done") {
         const recoveryId = childWakeCommandId(child.id, "recovered");
         if (handledChildWakes.has(recoveryId)) continue;
