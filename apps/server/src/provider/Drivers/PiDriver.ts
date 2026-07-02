@@ -59,6 +59,7 @@ import {
   workstreamReleaseUrlFromMcpEndpoint,
   workstreamReportUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
+  workstreamPromptUrlFromMcpEndpoint,
   workstreamStopUrlFromMcpEndpoint,
 } from "../../mcp/WorkstreamSpawnHttp.ts";
 import type {
@@ -1093,6 +1094,9 @@ function makePiAdapter(input: {
                         mcpSession.endpoint,
                       ),
                       T3_WORKSTREAM_STOP_URL: workstreamStopUrlFromMcpEndpoint(mcpSession.endpoint),
+                      T3_WORKSTREAM_PROMPT_URL: workstreamPromptUrlFromMcpEndpoint(
+                        mcpSession.endpoint,
+                      ),
                       T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),

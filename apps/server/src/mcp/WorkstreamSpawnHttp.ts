@@ -1,6 +1,7 @@
 import {
   AttentionReason,
   CommandId,
+  MessageId,
   ModelSelection,
   ThreadId,
   ThreadPlanLane,
@@ -55,6 +56,11 @@ interface WorkstreamTargetRequest {
   readonly threadId?: unknown;
 }
 
+interface WorkstreamPromptRequest {
+  readonly threadId?: unknown;
+  readonly message?: unknown;
+}
+
 interface WorkstreamDependenciesRequest {
   readonly threadId?: unknown;
   readonly blockedBy?: unknown;
@@ -79,6 +85,7 @@ const LANE_PATH = "/provider-tools/workstream/lane";
 const ATTENTION_PATH = "/provider-tools/workstream/attention";
 const RELEASE_PATH = "/provider-tools/workstream/release";
 const STOP_PATH = "/provider-tools/workstream/stop";
+const PROMPT_PATH = "/provider-tools/workstream/prompt";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
 const REPORT_PATH = "/provider-tools/workstream/report";
 const LIST_PATH = "/provider-tools/workstream/list";
@@ -202,6 +209,9 @@ export const workstreamReleaseUrlFromMcpEndpoint = (mcpEndpoint: string): string
 
 export const workstreamStopUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, STOP_PATH);
+
+export const workstreamPromptUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, PROMPT_PATH);
 
 export const workstreamDependenciesUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, DEPENDENCIES_PATH);
@@ -514,6 +524,64 @@ const handleWorkstreamStop = Effect.gen(function* () {
   ),
 );
 
+// Orchestrator prompt to a direct child: dispatch a plain `thread.turn.start`
+// carrying the parent's markdown message. On an idle child this starts/resumes
+// a turn; on a child with an open turn PiDriver maps it to a queued steer
+// folded in between model rounds (no `requireIdle`, no `setInProgress` — the
+// same shape as the liveness nudge's steer).
+const handleWorkstreamPrompt = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamPromptRequest => ({})),
+  )) as WorkstreamPromptRequest;
+  const threadId = trimString(body.threadId);
+  const message =
+    typeof body.message === "string" && body.message.trim().length > 0 ? body.message : undefined;
+  if (!threadId) return jsonError(400, "threadId is required.");
+  if (!message) return jsonError(400, "message is required.");
+  const targetThreadId = ThreadId.make(threadId);
+  const denied = yield* authorizationError(scope.threadId, targetThreadId);
+  if (denied) return denied;
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const target = yield* projection.getThreadDetailById(targetThreadId);
+  if (Option.isNone(target)) return jsonError(404, "Target thread was not found.");
+
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  // Advisory only (the driver makes the authoritative steer-vs-start call from
+  // its live session state): whether the child had an open turn at dispatch.
+  const delivery = target.value.session?.activeTurnId ? "steer" : "turn";
+  yield* engine.dispatch({
+    type: "thread.turn.start",
+    commandId: CommandId.make(`server:workstream-prompt:${yield* crypto.randomUUIDv4}`),
+    threadId: targetThreadId,
+    message: {
+      messageId: MessageId.make(yield* crypto.randomUUIDv4),
+      role: "user",
+      text: message,
+      attachments: [],
+    },
+    runtimeMode: target.value.runtimeMode,
+    interactionMode: target.value.interactionMode,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, delivery });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to prompt the thread."),
+    ),
+  ),
+);
+
 const handleWorkstreamSetDependencies = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const scope = yield* resolveWorkstreamScope();
@@ -777,6 +845,11 @@ export const workstreamReleaseRouteLayer = HttpRouter.add(
   handleWorkstreamRelease,
 );
 export const workstreamStopRouteLayer = HttpRouter.add("POST", STOP_PATH, handleWorkstreamStop);
+export const workstreamPromptRouteLayer = HttpRouter.add(
+  "POST",
+  PROMPT_PATH,
+  handleWorkstreamPrompt,
+);
 export const workstreamDependenciesRouteLayer = HttpRouter.add(
   "POST",
   DEPENDENCIES_PATH,
@@ -805,6 +878,7 @@ export const layer = Layer.mergeAll(
   workstreamAttentionRouteLayer,
   workstreamReleaseRouteLayer,
   workstreamStopRouteLayer,
+  workstreamPromptRouteLayer,
   workstreamDependenciesRouteLayer,
   workstreamReportRouteLayer,
   workstreamListRouteLayer,

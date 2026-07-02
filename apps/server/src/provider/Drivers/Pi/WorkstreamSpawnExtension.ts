@@ -177,10 +177,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_stop",
     label: "Stop Workstream Child",
-    description: "Stop a direct child Workstream thread you spawned: interrupt its active turn and pause it, leaving its plan lane 'in_progress'. This is an ORCHESTRATOR pause — you own restarting it (send it a prompt to resume). No attention flag is raised, because you are the resumer; if you forget to resume, the idle backstop surfaces it for a human after a grace window.",
-    promptSnippet: "interrupt a direct child's active turn (orchestrator pause; you own the resume).",
+    description: "Stop a direct child Workstream thread you spawned: interrupt its active turn and pause it, leaving its plan lane 'in_progress'. This is an ORCHESTRATOR pause — you own restarting it (resume it with workstream_prompt). No attention flag is raised, because you are the resumer; if you forget to resume, the idle backstop surfaces it for a human after a grace window.",
+    promptSnippet: "interrupt a direct child's active turn (orchestrator pause; you own the resume via workstream_prompt).",
     promptGuidelines: [
-      "Use workstream_stop to pause a child you intend to redirect or resume yourself. To resume, just send it a prompt (the next turn continues).",
+      "Use workstream_stop to pause a child you intend to redirect or resume yourself. To resume, send it a message with workstream_prompt (the next turn continues).",
       "This is for direct children only. A human stop from the board raises needs_guidance instead, because no agent owns the resume."
     ],
     parameters: {
@@ -196,7 +196,40 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       if (!outcome.ok) return outcome.error;
       const threadId = outcome.result?.threadId ?? params.threadId;
       return {
-        content: [{ type: "text", text: "Stopped Workstream child " + threadId + " (paused, lane stays in_progress — resume by sending it a prompt)." }],
+        content: [{ type: "text", text: "Stopped Workstream child " + threadId + " (paused, lane stays in_progress — resume it with workstream_prompt)." }],
+        details: { ok: true, ...outcome.result }
+      };
+    }
+  });
+
+  pi.registerTool({
+    name: "workstream_prompt",
+    label: "Prompt Workstream Child",
+    description: "Send a markdown message to a DIRECT child Workstream thread you spawned. On an idle child (e.g. one you paused with workstream_stop) this starts the next turn with your message — the resume path. On a busy child with an open turn it becomes a queued steer, folded in between model rounds. A steer canNOT penetrate a blocked/hung tool call — if the child is stuck inside a tool call, workstream_stop it first, then workstream_prompt to restart it with guidance.",
+    promptSnippet: "send a message to a direct child: resumes an idle child or steers a busy one (a steer won't penetrate a hung tool call — stop first, then prompt).",
+    promptGuidelines: [
+      "Use workstream_prompt to resume a child you stopped, redirect a running child, or feed it new information. Idle child → your message starts its next turn; busy child → queued steer folded between model rounds.",
+      "A steer cannot interrupt a blocked/hung tool call. For a child stuck inside a tool call, call workstream_stop first, then workstream_prompt with guidance.",
+      "This is for direct children only, and it is a plain message send — it does not change the child's plan lane."
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Id of the direct child thread to prompt." },
+        message: { type: "string", description: "The markdown message to send to the child." }
+      },
+      required: ["threadId", "message"],
+      additionalProperties: false
+    },
+    async execute(_id, params, signal) {
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_PROMPT_URL, params, signal);
+      if (!outcome.ok) return outcome.error;
+      const threadId = outcome.result?.threadId ?? params.threadId;
+      const how = outcome.result?.delivery === "steer"
+        ? "queued as a steer into its open turn"
+        : "starting its next turn";
+      return {
+        content: [{ type: "text", text: "Sent prompt to Workstream child " + threadId + " (" + how + ")." }],
         details: { ok: true, ...outcome.result }
       };
     }
