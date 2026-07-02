@@ -78,6 +78,7 @@ const base = {
   session: session(),
   maxActivityCreatedAtMs: now,
   heartbeatMs: now,
+  hasInFlightTool: false,
   failureCount: 0,
   now,
   thresholds: DEFAULT_LIVENESS_THRESHOLDS,
@@ -150,6 +151,19 @@ describe("classifyLiveness", () => {
     expect(verdict).toBeNull();
   });
 
+  it("does NOT flag a stall while a tool call is in flight (class 2 — slow-but-alive)", () => {
+    // A quiet-but-running tool call is informational territory (the
+    // dispatcher's slow-tool notice rail), never a State-C fault: a steer
+    // cannot penetrate a blocked call and long calls are often legitimate.
+    const verdict = classifyLiveness({
+      ...base,
+      hasInFlightTool: true,
+      maxActivityCreatedAtMs: now - 25 * 60_000,
+      heartbeatMs: now - 25 * 60_000,
+    });
+    expect(verdict).toBeNull();
+  });
+
   it("tags the stalled verdict with the effective-activity episode key", () => {
     const frozenAt = now - 11 * 60_000;
     const verdict = classifyLiveness({
@@ -163,28 +177,57 @@ describe("classifyLiveness", () => {
 });
 
 describe("decideStallAction (escalation ladder)", () => {
+  const ladder = {
+    msSinceNudge: null as number | null,
+    nudgeGraceMs: DEFAULT_LIVENESS_THRESHOLDS.stallNudgeGraceMs,
+  };
+
   it("nudges on the first sweep of a stall episode (open turn)", () => {
-    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: true })).toBe(
-      "nudge",
-    );
+    expect(
+      decideStallAction({ ...ladder, priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: true }),
+    ).toBe("nudge");
   });
 
-  it("escalates when the same episode is still frozen after the nudge", () => {
-    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 100, hasOpenTurn: true })).toBe(
-      "escalate",
-    );
+  it("escalates when the same episode is still frozen after the nudge grace", () => {
+    expect(
+      decideStallAction({
+        ...ladder,
+        priorEpisodeMs: 100,
+        episodeMs: 100,
+        hasOpenTurn: true,
+        msSinceNudge: DEFAULT_LIVENESS_THRESHOLDS.stallNudgeGraceMs,
+      }),
+    ).toBe("escalate");
+  });
+
+  it("waits (neither re-nudges nor escalates) while the nudge is within its grace", () => {
+    expect(
+      decideStallAction({
+        ...ladder,
+        priorEpisodeMs: 100,
+        episodeMs: 100,
+        hasOpenTurn: true,
+        msSinceNudge: DEFAULT_LIVENESS_THRESHOLDS.stallNudgeGraceMs - 1,
+      }),
+    ).toBe("wait");
   });
 
   it("re-arms to nudge when the heartbeat advanced (new episode)", () => {
-    expect(decideStallAction({ priorEpisodeMs: 100, episodeMs: 250, hasOpenTurn: true })).toBe(
-      "nudge",
-    );
+    expect(
+      decideStallAction({
+        ...ladder,
+        priorEpisodeMs: 100,
+        episodeMs: 250,
+        hasOpenTurn: true,
+        msSinceNudge: 30_000,
+      }),
+    ).toBe("nudge");
   });
 
   it("escalates instead of nudging when there is no open turn to steer into", () => {
-    expect(decideStallAction({ priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: false })).toBe(
-      "escalate",
-    );
+    expect(
+      decideStallAction({ ...ladder, priorEpisodeMs: null, episodeMs: 100, hasOpenTurn: false }),
+    ).toBe("escalate");
   });
 });
 

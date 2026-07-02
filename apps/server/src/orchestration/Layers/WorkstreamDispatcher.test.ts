@@ -31,6 +31,7 @@ import {
   idleLastProgressMs,
   idleWakeWithinGrace,
   selectThreadsToDispatch,
+  slowToolNoticeIndex,
   WAKE_REPORT_EXCERPT_LIMIT,
   WorkstreamDispatcherLive,
   wakeRateGuardTrips,
@@ -467,6 +468,77 @@ describe("buildChildWakeMessage (attention pause notice)", () => {
     expect(text).toContain("NOT finished");
     expect(text).toContain("child-1.md");
     expect(text).toContain("stay gated");
+  });
+});
+
+describe("buildChildWakeMessage (frozen attention notice — stall escalation mid-turn)", () => {
+  it("names the flags, the frozen turn, and the stop-then-prompt recovery options", () => {
+    const text = buildChildWakeMessage(
+      {
+        id: "child-1" as ThreadId,
+        role: "coder",
+        planLane: "in_progress",
+        attention: ["needs_guidance"],
+        reportPath: null,
+      },
+      "attention",
+      null,
+      { quietMs: 12 * 60_000, frozen: true },
+    );
+    expect(text).toContain("frozen");
+    expect(text).toContain("needs_guidance");
+    expect(text).toContain("~12 min");
+    expect(text).toContain("NOT finished");
+    expect(text).toContain("workstream_stop");
+    expect(text).toContain("workstream_prompt");
+    expect(text).toContain("stay gated");
+  });
+});
+
+describe("buildChildWakeMessage (slow-tool informational notice)", () => {
+  it("names the tool + durations, raises no alarm, and lists the parent's options", () => {
+    const text = buildChildWakeMessage(
+      {
+        id: "child-1" as ThreadId,
+        role: "coder",
+        planLane: "in_progress",
+        attention: [],
+        reportPath: null,
+      },
+      "slow-tool",
+      null,
+      { quietMs: 6 * 60_000, toolName: "bash", inFlightMs: 7 * 60_000 },
+    );
+    expect(text).toContain("Informational notice");
+    expect(text).toContain("`bash`");
+    expect(text).toContain("~7 min");
+    expect(text).toContain("~6 min");
+    expect(text).toContain("will not interrupt");
+    expect(text).toContain("workstream_prompt");
+    expect(text).toContain("workstream_stop");
+    // Nothing failed: no fault language, no report boilerplate.
+    expect(text).not.toContain("error");
+    expect(text).not.toContain("No report was filed");
+  });
+});
+
+describe("slowToolNoticeIndex (escalating notice schedule)", () => {
+  const m = (mins: number) => mins * 60_000;
+  it("is -1 below the first step (no notice due)", () => {
+    expect(slowToolNoticeIndex(0)).toBe(-1);
+    expect(slowToolNoticeIndex(m(5) - 1)).toBe(-1);
+  });
+  it("steps 0/1/2 at 5/15/30 minutes of quiet", () => {
+    expect(slowToolNoticeIndex(m(5))).toBe(0);
+    expect(slowToolNoticeIndex(m(14))).toBe(0);
+    expect(slowToolNoticeIndex(m(15))).toBe(1);
+    expect(slowToolNoticeIndex(m(29))).toBe(1);
+    expect(slowToolNoticeIndex(m(30))).toBe(2);
+  });
+  it("repeats every 30 minutes past the last step", () => {
+    expect(slowToolNoticeIndex(m(59))).toBe(2);
+    expect(slowToolNoticeIndex(m(60))).toBe(3);
+    expect(slowToolNoticeIndex(m(90))).toBe(4);
   });
 });
 
@@ -1007,6 +1079,226 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
             yield* dispatcher.drain;
             expect(dispatched.length).toBe(0);
           }).pipe(Effect.provide(buildLayer(dispatched, { idleWakeReceiptExists: true })));
+        }),
+      ),
+  );
+});
+
+// Class-2 liveness (slow-but-alive tool call): an executing, unflagged child
+// whose in-flight tool call has gone quiet gets the parent an INFORMATIONAL
+// notice on the escalating schedule — no attention flag on the child, no
+// interruption, one notice per schedule step. Exercised through the assembled
+// dispatcher layer with the TestClock driving the scheduled re-pass.
+describe("slow-tool informational notice (TestClock, full dispatcher layer)", () => {
+  const PARENT_ID = "parent-slow" as ThreadId;
+  const CHILD_ID = "child-slow" as ThreadId;
+  const epochIso = "1970-01-01T00:00:00.000Z";
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  // Executing sub-thread: open turn started at epoch, session running. Its
+  // freshness (below) is fresh at t=0 and goes quiet as the clock advances.
+  const child = shell({
+    id: CHILD_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    planLane: "in_progress",
+    session: runningSession({
+      threadId: CHILD_ID,
+      status: "running",
+      activeTurnId: "turn-1" as TurnId,
+    }),
+    latestTurn: latestTurn({ startedAt: epochIso, completedAt: null, state: "running" }),
+  });
+
+  const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: [parent, child],
+          updatedAt: epochIso,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      // Heartbeat frozen at epoch: quiet time === TestClock time.
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: epochIso }),
+      // One tool call in flight since epoch, never completing.
+      getInFlightToolByThreadId: () =>
+        Effect.succeed({ toolName: "bash", startedAt: epochIso, activityId: "act-1" }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-slowtool-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect(
+    "notifies at the first quiet step, re-notifies at the next step, never flags the child",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+
+            // (1) t=0: the call just started, activity is fresh → no notice.
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(0);
+
+            // (2) Past the first step (5m) → exactly one informational notice,
+            // idempotent across further ticks within the same step.
+            yield* TestClock.adjust(Duration.millis(6 * 60_000));
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+            const first = dispatched[0]!;
+            if (first.type !== "thread.turn.start") {
+              throw new Error(`expected a thread.turn.start notice, got ${first.type}`);
+            }
+            expect(first.threadId).toBe(PARENT_ID);
+            expect(first.message.text).toContain("Informational notice");
+            expect(first.message.text).toContain("`bash`");
+
+            // (3) Past the second step (15m) → exactly one more notice.
+            yield* TestClock.adjust(Duration.millis(10 * 60_000));
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(2);
+
+            // The child was never attention-flagged and never interrupted: the
+            // ONLY commands are the two parent notices.
+            expect(
+              dispatched.every((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toBe(true);
+          }).pipe(Effect.provide(buildLayer(dispatched)));
+        }),
+      ),
+  );
+});
+
+// Frozen-attention notice: a stall escalation raises `needs_guidance` while the
+// child's turn is wedged OPEN, so the idle-gated attention rail can never fire.
+// The executing branch must surface it to the parent once the quiet grace
+// elapses — exactly once per pause episode.
+describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher layer)", () => {
+  const PARENT_ID = "parent-frozen" as ThreadId;
+  const CHILD_ID = "child-frozen" as ThreadId;
+  const epochIso = "1970-01-01T00:00:00.000Z";
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  // Stall-escalated sub-thread: flagged `needs_guidance`, turn still open and
+  // frozen since epoch.
+  const child = shell({
+    id: CHILD_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    planLane: "in_progress",
+    attention: ["needs_guidance"],
+    session: runningSession({
+      threadId: CHILD_ID,
+      status: "running",
+      activeTurnId: "turn-1" as TurnId,
+    }),
+    latestTurn: latestTurn({ startedAt: epochIso, completedAt: null, state: "running" }),
+  });
+
+  const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: [parent, child],
+          updatedAt: epochIso,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: epochIso }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-frozen-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect(
+    "delivers exactly one frozen pause notice once the quiet grace elapses, idempotent thereafter",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+
+            // Within the grace: flagged but recently active → no notice yet.
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(0);
+
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+            const wake = dispatched[0]!;
+            if (wake.type !== "thread.turn.start") {
+              throw new Error(`expected a thread.turn.start wake, got ${wake.type}`);
+            }
+            expect(wake.threadId).toBe(PARENT_ID);
+            expect(wake.message.text).toContain("frozen");
+            expect(wake.message.text).toContain("needs_guidance");
+            expect(wake.message.text).toContain("NOT finished");
+
+            // One notice per pause episode (keyed on the wedged turn id).
+            yield* TestClock.adjust(Duration.millis(IDLE_WAKE_REPASS_INTERVAL_MS * 5));
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+          }).pipe(Effect.provide(buildLayer(dispatched)));
         }),
       ),
   );

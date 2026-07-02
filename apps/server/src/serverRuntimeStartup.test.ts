@@ -103,6 +103,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+          getInFlightToolByThreadId: () => Effect.succeed(null),
         }),
         Effect.provideService(AnalyticsService.AnalyticsService, {
           record: () => Effect.void,
@@ -172,6 +173,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+        getInFlightToolByThreadId: () => Effect.succeed(null),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -221,6 +223,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+        getInFlightToolByThreadId: () => Effect.succeed(null),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -276,6 +279,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+        getInFlightToolByThreadId: () => Effect.succeed(null),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,

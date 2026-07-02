@@ -8,6 +8,7 @@
  */
 import type {
   CheckpointRef,
+  TurnId,
   OrchestrationCheckpointSummary,
   OrchestrationGoalShell,
   OrchestrationProject,
@@ -33,7 +34,9 @@ export interface ProjectionSnapshotCounts {
 
 /**
  * Freshness of a thread's activity timeline (D-liveness). `maxCreatedAt` is the
- * newest tool/task/token *row's* `createdAt`; `maxSequence` is the idle-wake
+ * newest tool/task/token *row's* `createdAt` (control-plane `workstream.%` rows
+ * — liveness nudges/markers — are excluded so the control plane can never reset
+ * the clocks it measures); `maxSequence` is the idle-wake
  * episode key (the per-child wake dedups on `(child.id, maxSequence-at-idle-
  * onset)` because `activeTurnId` is null when idle, so a turn-id key is
  * unusable). `heartbeatAt` is the persisted runtime heartbeat — the canonical
@@ -83,6 +86,22 @@ export interface ProjectionToolActivitySignal {
 export interface ProjectionThreadProgressSignal {
   readonly recentInputsSource: string | null;
   readonly checkpointSource: string | null;
+}
+
+/**
+ * The tool call currently in flight within a thread's active turn (class-2
+ * liveness): derived from the `tool.started` / `tool.completed` row-count
+ * differential, with the latest started row naming the tool. `null` when every
+ * started call has completed. Used to (a) exempt a running tool call from the
+ * stall ladder and the State-D spin fingerprint, and (b) build the
+ * informational slow-tool notice to the parent.
+ */
+export interface ProjectionInFlightTool {
+  readonly toolName: string;
+  /** The started row's `createdAt` — how long the call has been in flight. */
+  readonly startedAt: string;
+  /** The started row's id — the slow-tool notice episode key. */
+  readonly activityId: string;
 }
 
 export interface ProjectionSnapshotSequence {
@@ -242,6 +261,15 @@ export interface ProjectionSnapshotQueryShape {
   readonly getActivityFreshnessByThreadId: (
     threadId: ThreadId,
   ) => Effect.Effect<ProjectionActivityFreshness, ProjectionRepositoryError>;
+
+  /**
+   * Read the tool call currently in flight within a thread's turn, or null
+   * when no started call is pending completion.
+   */
+  readonly getInFlightToolByThreadId: (
+    threadId: ThreadId,
+    turnId: TurnId,
+  ) => Effect.Effect<ProjectionInFlightTool | null, ProjectionRepositoryError>;
 
   /**
    * Read the most-recent tool-activity rows for a thread (newest first, capped

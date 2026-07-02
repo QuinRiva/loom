@@ -660,8 +660,9 @@ const make = Effect.gen(function* () {
   const serverSettingsService = yield* ServerSettingsService;
 
   // Liveness heartbeat: advance a per-thread "last runtime activity at" on ANY
-  // runtime event (token/reasoning deltas, tool lifecycle, turn boundaries) so
-  // the stall rail sees a silently-reasoning child as alive. Debounced per
+  // runtime event (token/reasoning deltas, tool lifecycle, turn boundaries —
+  // but NOT inbound queue updates, see the call site) so the stall rail sees a
+  // silently-reasoning child as alive. Debounced per
   // thread so a token stream does not hammer the DB; the worker is serial so a
   // plain Map is safe. Out-of-order older events are skipped by the same gate,
   // keeping the persisted value monotonic.
@@ -1427,7 +1428,13 @@ const make = Effect.gen(function* () {
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 
-      yield* touchHeartbeat(thread.id, event.createdAt);
+      // A queue update is inbound bookkeeping (e.g. the liveness sweep's own
+      // recovery nudge being queued as a steer), not evidence the child is
+      // making progress — letting it advance the heartbeat would reset the very
+      // stall clock that triggered the nudge, making escalation unreachable.
+      if (event.type !== "thread.queue.updated") {
+        yield* touchHeartbeat(thread.id, event.createdAt);
+      }
 
       let loadedThreadDetail: OrchestrationThread | null | undefined;
       const getLoadedThreadDetail = () =>

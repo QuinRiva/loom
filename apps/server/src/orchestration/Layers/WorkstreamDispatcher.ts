@@ -204,8 +204,8 @@ export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
 
 /**
  * Per-child wake (D-liveness §1e). All per-child kinds (`error`, paused
- * `attention`, forgot-to-finish `idle`, `recovered`) wake the parent through
- * THIS rail, not the generation
+ * `attention`, forgot-to-finish `idle`, `recovered`, informational `slow-tool`)
+ * wake the parent through THIS rail, not the generation
  * barrier (`selectJoinedGenerations` only fires when an *entire* generation is
  * terminal, so a single quiet/errored child among running siblings would never
  * wake the parent). The command id is keyed by `(childId, episode)` so each
@@ -220,10 +220,52 @@ export const childWakeCommandId = (childId: ThreadId, episode: string): string =
 /**
  * The per-child wake kinds. `error`/`attention`/`idle` are classified purely
  * from thread state by `classifyChildWake`; `recovered` (a child the parent was
- * told had `error`ed that later reached `done`) is decided in the dispatcher
- * loop because it needs a durable receipt lookup, not just current state.
+ * told had `error`ed that later reached `done`) and `slow-tool` (an executing
+ * child whose in-flight tool call has gone quiet — informational only) are
+ * decided in the dispatcher loop because they need a durable receipt lookup /
+ * freshness + in-flight-tool queries, not just current shell state.
  */
-export type ChildWakeKind = "error" | "attention" | "idle" | "recovered";
+export type ChildWakeKind = "error" | "attention" | "idle" | "recovered" | "slow-tool";
+
+/**
+ * Extra evidence for wake kinds that carry runtime measurements: `slow-tool`
+ * always sets `toolName`/`inFlightMs`/`quietMs`; a frozen-executing `attention`
+ * wake (a stall-escalated child whose open turn is wedged, so the idle-gated
+ * rail would never fire) sets `frozen` + `quietMs`.
+ */
+export interface ChildWakeContext {
+  readonly quietMs: number;
+  readonly frozen?: boolean;
+  readonly toolName?: string;
+  readonly inFlightMs?: number;
+}
+
+/**
+ * Slow-tool notice schedule (class-2 liveness): informational per-child notices
+ * while a tool call is in flight and the child has emitted no runtime activity.
+ * First notice after 5 minutes of quiet, again at 15 and 30, then every 30
+ * minutes — each step keyed into the receipt-deduped wake command id so every
+ * step fires at most once per in-flight call. Purely informational: no
+ * attention flag is raised and the call is never interrupted — long tool calls
+ * are often legitimate, and only the parent agent has the judgement to
+ * intervene.
+ */
+export const SLOW_TOOL_NOTICE_STEPS_MS: ReadonlyArray<number> = [300_000, 900_000, 1_800_000];
+export const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
+
+/**
+ * Pure notice-step selector: the highest schedule step this quiet duration has
+ * crossed (0-based), continuing every `SLOW_TOOL_NOTICE_REPEAT_MS` past the
+ * last step; `-1` while below the first step (no notice due yet).
+ */
+export const slowToolNoticeIndex = (quietMs: number): number => {
+  const last = SLOW_TOOL_NOTICE_STEPS_MS[SLOW_TOOL_NOTICE_STEPS_MS.length - 1]!;
+  return quietMs >= last
+    ? SLOW_TOOL_NOTICE_STEPS_MS.length -
+        1 +
+        Math.floor((quietMs - last) / SLOW_TOOL_NOTICE_REPEAT_MS)
+    : SLOW_TOOL_NOTICE_STEPS_MS.filter((step) => quietMs >= step).length - 1;
+};
 
 /**
  * Pure per-child wake classification (§1e). Returns the wake kind for a child
@@ -350,13 +392,31 @@ export const buildChildWakeMessage = (
   },
   kind: ChildWakeKind,
   report: string | null,
+  context?: ChildWakeContext,
 ): string => {
   const who = `${child.role ?? "sub-thread"} \`${child.id}\``;
+  const mins = (ms: number) => Math.round(ms / 60_000);
+  if (kind === "slow-tool") {
+    // Informational only — nothing failed, no flag raised, no report expected.
+    return [
+      WORKSTREAM_CONTROL_PLANE_MARKER,
+      "",
+      `Informational notice: your Workstream sub-thread ${who} is still executing, but its current tool call \`${context?.toolName ?? "unknown"}\` has been in flight for ~${mins(context?.inFlightMs ?? 0)} min with no runtime activity for ~${mins(context?.quietMs ?? 0)} min.`,
+      "",
+      "Nothing has failed and no attention flag was raised. A long tool call is often legitimate (builds, installs, long pipelines) — but a quiet one can also be mis-scoped (e.g. an unscoped filesystem search). This needs your judgement; the control plane will not interrupt or kill it. Your options:",
+      "",
+      "- Let it run — you will be re-notified at increasing intervals while it stays quiet.",
+      "- `workstream_prompt` the child to queue a steer (it is only seen once the current tool call returns — it cannot penetrate a blocked call).",
+      "- `workstream_stop` the child to interrupt the stuck call, then `workstream_prompt` it to redirect.",
+    ].join("\n");
+  }
   const lead =
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : kind === "attention"
-        ? `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
+        ? context?.frozen
+          ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
+          : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
         : kind === "idle"
           ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
           : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
@@ -368,7 +428,9 @@ export const buildChildWakeMessage = (
     kind === "recovered"
       ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
       : kind === "attention"
-        ? "Do not treat its work as complete. If it is `awaiting_acceptance`, review its report and either accept it (`workstream_set_lane` done, which releases its dependents) or escalate to the human. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
+        ? context?.frozen
+          ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `workstream_stop` it to close the wedged turn, then `workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
+          : "Do not treat its work as complete. If it is `awaiting_acceptance`, review its report and either accept it (`workstream_set_lane` done, which releases its dependents) or escalate to the human. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
         : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
@@ -658,6 +720,7 @@ const make = Effect.gen(function* () {
     child: OrchestrationThreadShell,
     kind: ChildWakeKind,
     commandId: string,
+    context?: ChildWakeContext,
   ) {
     // No-silent-halt backstop (design §4.7/§6): a forgot-to-finish child is
     // halted non-terminal with no resumer, so raise its `needs_guidance` flag —
@@ -686,7 +749,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
-        text: buildChildWakeMessage(child, kind, report),
+        text: buildChildWakeMessage(child, kind, report, context),
         attachments: [],
       },
       titleSeed: parent.title,
@@ -698,8 +761,9 @@ const make = Effect.gen(function* () {
   });
 
   // Per-child wake pass (§1e): wake the parent of every `error`, paused
-  // (attention-flagged, non-executing), forgot-to-finish, or recovered
-  // (`error`→`done`) child through the shared rail, so a single
+  // (attention-flagged and halted — idle or frozen mid-turn), forgot-to-finish,
+  // recovered (`error`→`done`), or slow-tool (executing, in-flight tool call
+  // gone quiet — informational) child through the shared rail, so a single
   // failed/paused/quiet/recovered child is surfaced promptly (B1) even while its
   // siblings still run — the generation barrier (`wakeEligibleParents`) only
   // fires once a WHOLE generation is plan-terminal, and is one-shot per
@@ -735,6 +799,7 @@ const make = Effect.gen(function* () {
       // the command id without writing a receipt.
       let kind = classifyChildWake(child, pendingTurnStartThreadIds);
       let episode: string;
+      let context: ChildWakeContext | undefined;
       if (kind === "error") {
         episode = "error";
       } else if (kind === "idle") {
@@ -773,6 +838,60 @@ const make = Effect.gen(function* () {
         }
         kind = "recovered";
         episode = "recovered";
+      } else if (
+        child.session !== null &&
+        child.session.activeTurnId !== null &&
+        (child.planLane === "ready" || child.planLane === "in_progress")
+      ) {
+        // Executing child (class-2 liveness territory). Quiet time is measured
+        // against the runtime heartbeat + provider activity rows (control-plane
+        // rows are excluded by the freshness query) and the turn start.
+        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
+        const lastKnown = [
+          freshness.heartbeatAt,
+          freshness.maxCreatedAt,
+          child.latestTurn?.startedAt ?? child.latestTurn?.requestedAt ?? null,
+        ]
+          .map(parseIsoMs)
+          .filter((ms): ms is number => ms !== null);
+        if (lastKnown.length === 0) continue;
+        const quietMs = now - Math.max(...lastKnown);
+        if (child.attention.length > 0) {
+          // Flagged mid-turn AND frozen (e.g. the liveness sweep's stall
+          // escalation raised `needs_guidance` while the turn is wedged open):
+          // the idle-gated `attention` rail would never fire because the turn
+          // never closes, so this is the ONLY path that tells the parent agent.
+          // A mid-turn self-raise (e.g. `awaiting_acceptance` just before the
+          // turn ends) keeps emitting activity, stays within the grace, and is
+          // handled by the normal idle-gated rail moments later.
+          if (quietMs < DEFAULT_IDLE_WAKE_GRACE_MS) continue;
+          kind = "attention";
+          context = { quietMs, frozen: true };
+          // Same episode key as the idle-gated attention rail: one notice per
+          // pause episode regardless of which path observed it first.
+          episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
+        } else {
+          // Unflagged + executing + quiet: is a tool call in flight? If so this
+          // is a slow-but-alive call (class 2) — informational notice on an
+          // escalating schedule, NO attention flag, never interrupted. Quiet
+          // without an in-flight tool is State-C territory (the sweep's ladder).
+          const noticeIndex = slowToolNoticeIndex(quietMs);
+          if (noticeIndex < 0) continue;
+          const inFlight = yield* projectionSnapshotQuery.getInFlightToolByThreadId(
+            child.id,
+            child.session.activeTurnId,
+          );
+          if (inFlight === null) continue;
+          kind = "slow-tool";
+          context = {
+            quietMs,
+            toolName: inFlight.toolName,
+            inFlightMs: Math.max(0, now - (parseIsoMs(inFlight.startedAt) ?? now)),
+          };
+          // Keyed by the started row's id + schedule step: each step fires at
+          // most once per in-flight call, and a new call re-arms the episode.
+          episode = `slow-tool:${inFlight.activityId}:${noticeIndex}`;
+        }
       } else {
         continue;
       }
@@ -797,7 +916,7 @@ const make = Effect.gen(function* () {
       }
       // Catch the busy-parent race (C2) exactly like `deliverWake`: a deferred
       // command writes no receipt, so it is retried on the next idle drain.
-      const delivered = yield* deliverChildWake(parent, child, kind, commandId).pipe(
+      const delivered = yield* deliverChildWake(parent, child, kind, commandId, context).pipe(
         Effect.as(true),
         Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
       );

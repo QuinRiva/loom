@@ -223,6 +223,7 @@ describe("OrchestrationEngine", () => {
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+          getInFlightToolByThreadId: () => Effect.succeed(null),
         }),
       ),
       Layer.provide(

@@ -181,6 +181,17 @@ const RecentToolActivityInput = Schema.Struct({
   threadId: ThreadId,
   limit: NonNegativeInt,
 });
+const InFlightToolInput = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+});
+const InFlightToolRowSchema = Schema.Struct({
+  startedCount: NonNegativeInt,
+  completedCount: NonNegativeInt,
+  latestStartedActivityId: Schema.NullOr(Schema.String),
+  latestStartedSummary: Schema.NullOr(Schema.String),
+  latestStartedCreatedAt: Schema.NullOr(IsoDateTime),
+});
 const RecentToolActivityRowSchema = Schema.Struct({
   summary: Schema.String,
   payload: Schema.fromJsonString(Schema.Unknown),
@@ -1205,6 +1216,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ) AS "heartbeatAt"
         FROM projection_thread_activities
         WHERE thread_id = ${threadId}
+          -- Control-plane rows (liveness nudges/markers) are NOT child
+          -- activity: counting them let a recovery nudge reset the very stall
+          -- clock that triggered it, making escalation unreachable.
+          AND kind NOT LIKE 'workstream.%'
       `,
   });
 
@@ -1223,6 +1238,72 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           heartbeatAt: row.heartbeatAt,
         })),
       );
+
+  // In-flight tool detection (class-2 liveness): within one turn, more
+  // `tool.started` rows than `tool.completed` rows means a tool call is still
+  // running. The rows carry no per-call id, so the count differential is the
+  // in-flight signal and the LATEST started row names the tool (with parallel
+  // tool calls the latest started may not be the one still pending — an
+  // accepted approximation for an informational notice).
+  const getInFlightToolRow = SqlSchema.findOne({
+    Request: InFlightToolInput,
+    Result: InFlightToolRowSchema,
+    execute: ({ threadId, turnId }) =>
+      sql`
+        SELECT
+          (
+            SELECT COUNT(*)
+            FROM projection_thread_activities
+            WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.started'
+          ) AS "startedCount",
+          (
+            SELECT COUNT(*)
+            FROM projection_thread_activities
+            WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.completed'
+          ) AS "completedCount",
+          latest.activity_id AS "latestStartedActivityId",
+          latest.summary AS "latestStartedSummary",
+          latest.created_at AS "latestStartedCreatedAt"
+        FROM (SELECT 1) AS one
+        LEFT JOIN (
+          SELECT activity_id, summary, created_at
+          FROM projection_thread_activities
+          WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.started'
+          ORDER BY
+            CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
+            sequence DESC,
+            created_at DESC,
+            activity_id DESC
+          LIMIT 1
+        ) AS latest ON 1 = 1
+      `,
+  });
+
+  const getInFlightToolByThreadId: ProjectionSnapshotQueryShape["getInFlightToolByThreadId"] = (
+    threadId,
+    turnId,
+  ) =>
+    getInFlightToolRow({ threadId, turnId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getInFlightToolByThreadId:query",
+          "ProjectionSnapshotQuery.getInFlightToolByThreadId:decodeRow",
+        ),
+      ),
+      Effect.map((row) =>
+        row.startedCount > row.completedCount &&
+        row.latestStartedActivityId !== null &&
+        row.latestStartedSummary !== null &&
+        row.latestStartedCreatedAt !== null
+          ? {
+              // The ingestion summary is `${toolName} started`; recover the name.
+              toolName: row.latestStartedSummary.replace(/ started$/, ""),
+              startedAt: row.latestStartedCreatedAt,
+              activityId: row.latestStartedActivityId,
+            }
+          : null,
+      ),
+    );
 
   const listRecentToolActivityRows = SqlSchema.findAll({
     Request: RecentToolActivityInput,
@@ -2675,6 +2756,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadDetailById,
     getPendingTurnStartThreadIds,
     getActivityFreshnessByThreadId,
+    getInFlightToolByThreadId,
     getRecentToolActivityByThreadId,
     getThreadProgressSignal,
   } satisfies ProjectionSnapshotQueryShape;
