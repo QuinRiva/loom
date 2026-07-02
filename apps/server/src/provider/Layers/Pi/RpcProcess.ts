@@ -75,7 +75,28 @@ export interface PiRpcToolResult {
 
 export type PiRpcStdoutEvent =
   | { readonly type: "agent_start" }
-  | { readonly type: "agent_end" }
+  | {
+      readonly type: "agent_end";
+      // Full message array for the run; the last assistant message carries
+      // `stopReason` ("stop" | "error" | "aborted" | ...) and `errorMessage`.
+      readonly messages?: ReadonlyArray<Record<string, unknown>>;
+      // True when pi's built-in auto-retry will re-run the agent after this
+      // event — the run (and the T3 turn) is NOT over yet.
+      readonly willRetry?: boolean;
+    }
+  | {
+      readonly type: "auto_retry_start";
+      readonly attempt: number;
+      readonly maxAttempts: number;
+      readonly delayMs: number;
+      readonly errorMessage: string;
+    }
+  | {
+      readonly type: "auto_retry_end";
+      readonly success: boolean;
+      readonly attempt: number;
+      readonly finalError?: string;
+    }
   | { readonly type: "turn_start"; readonly turnIndex?: number; readonly timestamp?: number }
   | {
       readonly type: "turn_end";
