@@ -14,9 +14,20 @@ export interface RoleOverlay {
   /** Tool-name allowlist from frontmatter, passed to pi as `--tools`. CAVEAT: pi
    * applies the allowlist to extension-registered tools too, so a list that omits
    * the workstream tool names (workstream_report, workstream_set_lane, …) severs
-   * the thread from the workstream. Only use `tools` on a role that either lists
-   * those names or is deliberately cut off. */
+   * the thread from the workstream.
+   *
+   * RESOLUTION (chosen, NOT YET IMPLEMENTED): the server will auto-union the
+   * workstream + goal extension tool names (workstream_*, goal_task_*, …) into
+   * any role `tools:` allowlist, so a role can restrict tools without losing its
+   * lifeline to the workstream. UNTIL THAT LANDS: do not set `tools:` on a role,
+   * or its threads lose the workstream/goal tools. */
   readonly tools?: ReadonlyArray<string>;
+}
+
+export interface RoleSummary {
+  readonly name: string;
+  /** One-line summary derived from the role file's first non-empty body line. */
+  readonly summary: string;
 }
 
 /**
@@ -62,6 +73,47 @@ const parseRoleFile = (
  * free-string/unknown role whose file is absent yields `undefined` (permissive
  * spawning). Role is slugified to `[a-z0-9-]`, which also blocks path traversal.
  */
+/**
+ * Enumerate the defined roles (`roles/*.md`), each with a one-line summary
+ * derived from the file's first non-empty body line (after any frontmatter).
+ * Each role file opens with `You are a <role> sub-thread. <summary>` or `You are
+ * the orchestrator: <summary>`; the identity lead-in is trimmed and the
+ * substantive remainder used, degrading to the whole first line when the pattern
+ * doesn't match. orchestrator is listed first, the rest alphabetically. Reading
+ * fresh each call (no cache) mirrors `loadRoleOverlay`.
+ */
+export const listRoleOverlays = (input: {
+  readonly projectRoot: string;
+}): ReadonlyArray<RoleSummary> => {
+  const dir = NodePath.join(input.projectRoot, ROLE_OVERLAY_DIR);
+  let files: ReadonlyArray<string>;
+  try {
+    files = NodeFS.readdirSync(dir).filter((file) => file.endsWith(".md"));
+  } catch {
+    return []; // roles dir absent/unreadable → no catalogue
+  }
+  const summaries = files.flatMap((file) => {
+    let raw: string;
+    try {
+      raw = NodeFS.readFileSync(NodePath.join(dir, file), "utf8");
+    } catch {
+      return [];
+    }
+    const firstLine = parseRoleFile(raw)
+      .body.split(/\r?\n/)
+      .find((line) => line.trim().length > 0)
+      ?.trim();
+    if (!firstLine) return [];
+    // Strip the identity lead-in; `.replace` returns firstLine unchanged (the
+    // graceful fallback) when the pattern doesn't match.
+    const summary = firstLine.replace(/^You are (?:a|an|the) .*?(?:sub-thread\.|:)\s*/, "");
+    return [{ name: file.slice(0, -3), summary }];
+  });
+  return summaries.sort((a, b) =>
+    a.name === DEFAULT_ROLE ? -1 : b.name === DEFAULT_ROLE ? 1 : a.name.localeCompare(b.name),
+  );
+};
+
 export const loadRoleOverlay = (input: {
   readonly role: string | null;
   readonly projectRoot: string;

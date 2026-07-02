@@ -178,6 +178,10 @@ export interface PiRpcProcessOptions {
   // (`read,grep,find,ls`) so it physically cannot edit/run commands. NOTE: pi
   // applies the allowlist to extension-registered tools too — an allowlist that
   // omits the workstream tool names blocks them even when `extensions` load.
+  // RESOLUTION (chosen, NOT YET IMPLEMENTED): the server will auto-union the
+  // workstream + goal extension tool names into any role `tools:` allowlist.
+  // UNTIL THEN: don't set a role `tools:` allowlist or its threads lose the
+  // workstream/goal tools.
   readonly tools?: ReadonlyArray<string> | undefined;
   // Skill files/directories to load (repeated `--skill`), additive to pi's
   // normal skill discovery. Absolute paths.
