@@ -5,7 +5,7 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { loadRoleOverlay } from "./roleOverlay.ts";
+import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 
 const fixtureRoot = (extraFiles: Record<string, string> = {}): string => {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "role-overlay-"));
@@ -78,5 +78,34 @@ describe("loadRoleOverlay", () => {
   it("returns undefined for an empty file", () => {
     const root = fixtureRoot({ "empty.md": "   \n" });
     expect(loadRoleOverlay({ role: "empty", projectRoot: root })).toBeUndefined();
+  });
+});
+
+describe("listRoleOverlays", () => {
+  it("derives one-line summaries by trimming the identity lead-in; orchestrator first", () => {
+    const root = fixtureRoot({
+      "orchestrator.md": "You are the orchestrator: plan, delegate, review.\n\nmore body",
+      "coder.md": "You are a coder sub-thread. Produce working, verified code.\n\n- bullet",
+      "researcher.md":
+        "---\ntools: [read]\n---\nYou are a researcher sub-thread. Return the answer, not the path.",
+    });
+    expect(listRoleOverlays({ projectRoot: root })).toEqual([
+      { name: "orchestrator", summary: "plan, delegate, review." },
+      { name: "coder", summary: "Produce working, verified code." },
+      { name: "researcher", summary: "Return the answer, not the path." },
+    ]);
+  });
+
+  it("falls back to the whole first line when the lead-in pattern doesn't match", () => {
+    const root = fixtureRoot({ "weird.md": "Investigate deeply and report.\n\nrest" });
+    expect(listRoleOverlays({ projectRoot: root })).toContainEqual({
+      name: "weird",
+      summary: "Investigate deeply and report.",
+    });
+  });
+
+  it("returns [] when the roles dir is absent", () => {
+    const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "role-overlay-none-"));
+    expect(listRoleOverlays({ projectRoot: root })).toEqual([]);
   });
 });

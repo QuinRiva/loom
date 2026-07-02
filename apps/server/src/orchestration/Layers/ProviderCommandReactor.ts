@@ -46,7 +46,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { loadRoleOverlay } from "../roleOverlay.ts";
+import { listRoleOverlays, loadRoleOverlay } from "../roleOverlay.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -568,11 +568,19 @@ const make = Effect.gen(function* () {
         // work-model → role overlay → goal context. NOTE: if a non-workstream pi
         // mode is ever added, the `orchestrator` overlay must not ship without
         // the workstream tools behind it.
-        const roleOverlay = loadRoleOverlay({
-          role: thread.role,
-          projectRoot: effectiveCwd ?? process.cwd(),
-        });
-        const appendSystemPrompt = [roleOverlay?.prompt, goalSystemPrompt]
+        const roleProjectRoot = effectiveCwd ?? process.cwd();
+        const roleOverlay = loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
+        // The defined-roles catalogue: every thread sees it, since any thread may
+        // sub-delegate via workstream_spawn (whose `role` is free text).
+        const roleCatalogue = listRoleOverlays({ projectRoot: roleProjectRoot });
+        const rolesBlock =
+          roleCatalogue.length > 0
+            ? [
+                "Available roles for spawning children (defined in roles/). A free-text role may still be used when none fits:",
+                ...roleCatalogue.map((role) => `- ${role.name}: ${role.summary}`),
+              ].join("\n")
+            : undefined;
+        const appendSystemPrompt = [roleOverlay?.prompt, rolesBlock, goalSystemPrompt]
           .filter((part): part is string => !!part && part.trim().length > 0)
           .join("\n\n");
         return yield* providerService.startSession(threadId, {
