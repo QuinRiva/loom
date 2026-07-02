@@ -6209,6 +6209,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               };
             }),
         );
+        const setupCompletionGate = yield* Deferred.make<void>();
         const runForThread = vi.fn(
           (
             _: Parameters<
@@ -6221,6 +6222,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               scriptName: "Setup",
               terminalId: "setup-setup",
               cwd: "/tmp/bootstrap-worktree",
+              completion: Deferred.await(setupCompletionGate).pipe(
+                Effect.map(() => {
+                  bootstrapGitOperations.push("setup-completed");
+                  return { exitCode: 0 };
+                }),
+              ),
             }),
         );
 
@@ -6237,6 +6244,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             orchestrationEngine: {
               dispatch: (command) =>
                 Effect.sync(() => {
+                  if (command.type === "thread.turn.start") {
+                    bootstrapGitOperations.push("turn-start");
+                  }
                   dispatchedCommands.push(command);
                   return { sequence: dispatchedCommands.length };
                 }),
@@ -6289,6 +6299,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
+        // The turn start must not wait for setup completion: the gate is
+        // still closed when the dispatch response returns.
         assert.equal(response.sequence, 5);
         assert.deepEqual(
           dispatchedCommands.map((command) => command.type),
@@ -6320,6 +6332,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           "fetch",
           "resolve-remote-commit",
           "create-worktree",
+          "turn-start",
         ]);
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
           threadId: ThreadId.make("thread-bootstrap"),
@@ -6329,12 +6342,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         });
         assert.deepEqual(refreshStatus.mock.calls[0]?.[0], "/tmp/bootstrap-worktree");
 
-        const setupActivities = dispatchedCommands.filter(
-          (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-            command.type === "thread.activity.append",
-        );
+        const setupActivities = () =>
+          dispatchedCommands.filter(
+            (
+              command,
+            ): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+              command.type === "thread.activity.append",
+          );
         assert.deepEqual(
-          setupActivities.map((command) => command.activity.kind),
+          setupActivities().map((command) => command.activity.kind),
           ["setup-script.requested", "setup-script.started"],
         );
         const finalCommand = dispatchedCommands[4];
@@ -6342,7 +6358,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         if (finalCommand?.type === "thread.turn.start") {
           assert.equal(finalCommand.bootstrap, undefined);
         }
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+
+        // Releasing the gate records the completion activity asynchronously.
+        yield* Deferred.succeed(setupCompletionGate, undefined);
+        for (let attempt = 0; attempt < 500; attempt++) {
+          if (
+            setupActivities().some((command) => command.activity.kind === "setup-script.completed")
+          ) {
+            break;
+          }
+          yield* Effect.sleep(10);
+        }
+        assert.deepEqual(
+          setupActivities().map((command) => command.activity.kind),
+          ["setup-script.requested", "setup-script.started", "setup-script.completed"],
+        );
+        assert.deepEqual(bootstrapGitOperations.at(-1), "setup-completed");
+      }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   it.effect("records setup-script failures without aborting bootstrap turn start", () =>
@@ -6462,6 +6494,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           }),
       );
+      const setupCompletionGate = yield* Deferred.make<void>();
       const runForThread = vi.fn(
         (
           _: Parameters<
@@ -6474,6 +6507,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             scriptName: "Setup",
             terminalId: "setup-setup",
             cwd: "/tmp/bootstrap-worktree",
+            completion: Deferred.await(setupCompletionGate).pipe(
+              Effect.map(() => ({ exitCode: 0 })),
+            ),
           }),
       );
       let setupActivityAppendAttempt = 0;
@@ -6558,19 +6594,29 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         dispatchedCommands.map((command) => command.type),
         ["thread.create", "thread.meta.update", "thread.activity.append", "thread.turn.start"],
       );
-      const setupActivities = dispatchedCommands.filter(
-        (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
-          command.type === "thread.activity.append",
-      );
+      const setupActivities = () =>
+        dispatchedCommands.filter(
+          (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+            command.type === "thread.activity.append",
+        );
+      yield* Deferred.succeed(setupCompletionGate, undefined);
+      for (let attempt = 0; attempt < 500; attempt++) {
+        if (
+          setupActivities().some((command) => command.activity.kind === "setup-script.completed")
+        ) {
+          break;
+        }
+        yield* Effect.sleep(10);
+      }
       assert.deepEqual(
-        setupActivities.map((command) => command.activity.kind),
-        ["setup-script.requested"],
+        setupActivities().map((command) => command.activity.kind),
+        ["setup-script.requested", "setup-script.completed"],
       );
       assertTrue(
-        setupActivities.every((command) => command.activity.kind !== "setup-script.failed"),
+        setupActivities().every((command) => command.activity.kind !== "setup-script.failed"),
       );
       assertTrue(dispatchedCommands.every((command) => command.type !== "thread.delete"));
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   it.effect("cleans up created bootstrap threads when worktree creation defects", () =>
