@@ -1463,6 +1463,82 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(shellSnapshot.threads.length, 0);
     }),
   );
+
+  it.effect(
+    "activity freshness ignores control-plane workstream rows (liveness clock cannot self-reset)",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_thread_activities`;
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          )
+          VALUES
+            ('act-tool', 'thread-fresh', 'turn-1', 'tool', 'tool.started', 'bash started', '{}', 1, '2026-05-01T00:00:00.000Z'),
+            ('act-nudge', 'thread-fresh', NULL, 'error', 'workstream.liveness.stalled', 'Recovery nudge sent', '{}', 2, '2026-05-01T00:20:00.000Z')
+        `;
+
+        // The newest row is the control-plane nudge marker — it must NOT count
+        // as child activity, or every nudge would erase the stall episode.
+        const freshness = yield* snapshotQuery.getActivityFreshnessByThreadId(
+          ThreadId.make("thread-fresh"),
+        );
+        assert.equal(freshness.maxCreatedAt, "2026-05-01T00:00:00.000Z");
+        assert.equal(freshness.maxSequence, 1);
+      }),
+  );
+
+  it.effect(
+    "in-flight tool detection: started>completed within the turn names the latest started tool",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_thread_activities`;
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          )
+          VALUES
+            ('act-1', 'thread-t', 'turn-1', 'tool', 'tool.started', 'read started', '{}', 1, '2026-05-01T00:00:00.000Z'),
+            ('act-2', 'thread-t', 'turn-1', 'tool', 'tool.completed', 'read', '{}', 2, '2026-05-01T00:00:01.000Z'),
+            ('act-3', 'thread-t', 'turn-1', 'tool', 'tool.started', 'bash started', '{}', 3, '2026-05-01T00:00:02.000Z'),
+            ('act-old', 'thread-t', 'turn-0', 'tool', 'tool.started', 'stale started', '{}', 0, '2026-04-30T00:00:00.000Z')
+        `;
+
+        // turn-1 has 2 started vs 1 completed → the latest started call (bash)
+        // is in flight; rows from other turns never leak in.
+        const inFlight = yield* snapshotQuery.getInFlightToolByThreadId(
+          ThreadId.make("thread-t"),
+          asTurnId("turn-1"),
+        );
+        assert.deepStrictEqual(inFlight, {
+          toolName: "bash",
+          startedAt: "2026-05-01T00:00:02.000Z",
+          activityId: "act-3",
+        });
+
+        // Balance the counts → nothing in flight.
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          )
+          VALUES
+            ('act-4', 'thread-t', 'turn-1', 'tool', 'tool.completed', 'bash', '{}', 4, '2026-05-01T00:00:03.000Z')
+        `;
+        assert.equal(
+          yield* snapshotQuery.getInFlightToolByThreadId(
+            ThreadId.make("thread-t"),
+            asTurnId("turn-1"),
+          ),
+          null,
+        );
+      }),
+  );
 });
 
 it.effect(

@@ -29,20 +29,6 @@ export interface GraphThread extends GraphLineageNode {
 }
 
 /**
- * Runtime-executing projection (axis 2): a turn is literally turning right now.
- * Both `OrchestrationThread` and `OrchestrationThreadShell` carry `session` +
- * `latestTurn`, so this single predicate keeps the dispatcher join, the board,
- * and the terminal-for-join predicate in agreement on "is it executing?".
- */
-export interface RuntimeExecutingNode {
-  readonly session: { readonly status: string } | null;
-  readonly latestTurn: { readonly state: string } | null;
-}
-
-export const isExecuting = (node: RuntimeExecutingNode): boolean =>
-  node.session?.status === "running" || node.latestTurn?.state === "running";
-
-/**
  * The minimal lineage shape the structural walkers (root/descendants/subtree)
  * actually read: an id and its parent edge. Both the full `GraphThread` and the
  * leaner cost-rollup node satisfy it, so the same index/walk serves both.
@@ -153,27 +139,23 @@ export const subtreeCostOf = <T extends CostGraphNode>(
 ): number => subtreeOf(id, threads).reduce((sum, node) => sum + (node.cumulativeCostUsd ?? 0), 0);
 
 /**
- * A child is "terminal" for the join barrier (design §6) when its plan lane is
- * `done`/`cancelled`, OR it carries a raised attention flag and is not currently
- * executing ("won't progress without a human"). A node that is merely
- * `planned`/`ready`/`in_progress` with no attention is not terminal.
- *
- * An attention-flagged child still *joins* once the rest of its generation is
- * terminal, so it never strands its siblings' results forever. It is NOT the
- * wake mechanism: a flagged child among still-executing siblings won't fire this
- * barrier, so the parent is woken promptly through the per-child rail in
- * `WorkstreamDispatcher` instead. Only `done` releases dependents (that stays
- * done-only in `workstreamDependencies`).
+ * A child is "terminal" for the join barrier (design §6) ONLY when its plan
+ * lane is `done`/`cancelled`. Attention flags and runtime state never count:
+ * a flagged, non-executing child (a human stop, `awaiting_acceptance`, a stall
+ * escalation) means the generation is PAUSED, not finished — the parent hears
+ * about the pause promptly through the per-child notice rail in
+ * `WorkstreamDispatcher`, never by firing this barrier. Joining only on genuine
+ * plan terminality also keeps the one-shot generation wake from being consumed
+ * by a momentary pause, so a resumed child's real completion always wakes the
+ * parent. Only `done` releases dependents (that stays done-only in
+ * `workstreamDependencies`).
  */
-export interface TerminalForJoinNode extends RuntimeExecutingNode {
+export interface TerminalForJoinNode {
   readonly planLane: ThreadPlanLane;
-  readonly attention: ReadonlyArray<AttentionReason>;
 }
 
 export const isTerminalForJoin = (node: TerminalForJoinNode): boolean =>
-  node.planLane === "done" ||
-  node.planLane === "cancelled" ||
-  (node.attention.length > 0 && !isExecuting(node));
+  node.planLane === "done" || node.planLane === "cancelled";
 
 /** The fields the generation join reads. */
 type JoinGroupThread = {

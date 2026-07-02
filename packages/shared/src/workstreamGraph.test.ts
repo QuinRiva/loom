@@ -134,14 +134,11 @@ describe("isTerminalForJoin", () => {
     expect(isTerminalForJoin(joinNode({ planLane: "cancelled" }))).toBe(true);
   });
 
-  it("treats an attention-flagged, non-executing node as terminal (won't progress without a human)", () => {
+  it("does NOT treat an attention-flagged node as terminal — a pause is not a result", () => {
     expect(
       isTerminalForJoin(joinNode({ planLane: "in_progress", attention: ["needs_guidance"] })),
-    ).toBe(true);
-    expect(isTerminalForJoin(joinNode({ planLane: "ready", attention: ["error"] }))).toBe(true);
-  });
-
-  it("does NOT treat a flagged node that is still executing as terminal", () => {
+    ).toBe(false);
+    expect(isTerminalForJoin(joinNode({ planLane: "ready", attention: ["error"] }))).toBe(false);
     expect(
       isTerminalForJoin(
         joinNode({ planLane: "in_progress", attention: ["error"], executing: true }),
@@ -160,7 +157,7 @@ const genIds = (groups: ReadonlyArray<{ parentId: ThreadId; generation: string }
   groups.map((g) => `${g.parentId}::${g.generation}`).sort();
 
 describe("selectJoinedGenerations", () => {
-  it("joins a generation only once every member is terminal", () => {
+  it("joins a generation only once every member is plan-terminal", () => {
     expect(
       selectJoinedGenerations([
         joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
@@ -171,23 +168,42 @@ describe("selectJoinedGenerations", () => {
       genIds(
         selectJoinedGenerations([
           joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-          joinNode({
-            id: "b",
-            spawnGeneration: "gen-1",
-            planLane: "in_progress",
-            attention: ["awaiting_acceptance"],
-          }),
+          joinNode({ id: "b", spawnGeneration: "gen-1", planLane: "cancelled" }),
         ]),
       ),
     ).toEqual(["parent-1::gen-1"]);
   });
 
-  it("lets a generation containing an error child still join (barrier-unblock) once the rest are terminal", () => {
+  it("holds the join on a flagged, non-executing child until its lane goes terminal (a pause never joins)", () => {
+    // The parent hears about the pause through the per-child rail, never this
+    // barrier; the one-shot generation wake stays armed for the real completion.
+    expect(
+      selectJoinedGenerations([
+        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
+        joinNode({
+          id: "b",
+          spawnGeneration: "gen-1",
+          planLane: "in_progress",
+          attention: ["awaiting_acceptance"],
+        }),
+      ]),
+    ).toEqual([]);
+    expect(
+      selectJoinedGenerations([
+        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
+        joinNode({ id: "b", spawnGeneration: "gen-1", attention: ["error"] }),
+      ]),
+    ).toEqual([]);
     expect(
       genIds(
         selectJoinedGenerations([
           joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-          joinNode({ id: "b", spawnGeneration: "gen-1", attention: ["error"] }),
+          joinNode({
+            id: "b",
+            spawnGeneration: "gen-1",
+            planLane: "cancelled",
+            attention: ["error"],
+          }),
         ]),
       ),
     ).toEqual(["parent-1::gen-1"]);

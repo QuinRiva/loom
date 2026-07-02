@@ -61,6 +61,13 @@ export interface LivenessSweepThresholds {
   readonly staleActivityWindowMs: number;
   readonly failureCap: number;
   /**
+   * State C: how long after a recovery nudge the same frozen episode must still
+   * be frozen before escalating. Gives the nudge a real chance to unstick the
+   * child (a steer is folded in between model rounds) instead of escalating on
+   * the very next 60s sweep.
+   */
+  readonly stallNudgeGraceMs: number;
+  /**
    * State D: how long a busy thread's work-product fingerprint must stay flat
    * (while the heartbeat keeps advancing) before raising a possible-spin
    * advisory. Tunable assumption — starts generous at 10m to avoid firing on
@@ -80,6 +87,7 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   startupGraceMs: 120_000,
   staleActivityWindowMs: 600_000,
   failureCap: 3,
+  stallNudgeGraceMs: 120_000,
   noProgressWindowMs: 600_000,
   progressInputSampleSize: 16,
 };
@@ -111,6 +119,13 @@ export interface LivenessClassifyInput {
   readonly maxActivityCreatedAtMs: number | null;
   /** Persisted runtime heartbeat (ms), advanced on ANY runtime event. */
   readonly heartbeatMs: number | null;
+  /**
+   * A tool call is currently in flight (class 2): a quiet-but-running tool is
+   * NOT a stall — a steer cannot penetrate a blocked call and long calls are
+   * often legitimate. The dispatcher's informational slow-tool rail owns it,
+   * so State C never fires while this is true.
+   */
+  readonly hasInFlightTool: boolean;
   readonly failureCount: number;
   readonly now: number;
   readonly thresholds: LivenessSweepThresholds;
@@ -123,8 +138,16 @@ export interface LivenessClassifyInput {
  * session.
  */
 export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict | null => {
-  const { session, thread, maxActivityCreatedAtMs, heartbeatMs, failureCount, now, thresholds } =
-    input;
+  const {
+    session,
+    thread,
+    maxActivityCreatedAtMs,
+    heartbeatMs,
+    hasInFlightTool,
+    failureCount,
+    now,
+    thresholds,
+  } = input;
 
   // State B — waiting for input: a child with pending user input / approvals is
   // intentionally paused, not dead and not stalled. Never flag it a fault.
@@ -140,8 +163,10 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
   }
 
   // State C — stall: an open turn whose runtime heartbeat has frozen past the
-  // window. Gated by the startup grace so a slow first tool call is not a stall.
-  if (session.activeTurnId !== null) {
+  // window. Gated by the startup grace so a slow first tool call is not a stall,
+  // and suppressed entirely while a tool call is in flight (class 2 — the
+  // slow-but-alive case is informational, never a fault).
+  if (session.activeTurnId !== null && !hasInFlightTool) {
     const startedAtMs = turnStartMs(thread.latestTurn);
     const turnAgeMs = startedAtMs === null ? 0 : now - startedAtMs;
     if (turnAgeMs < thresholds.startupGraceMs) return null;
@@ -164,21 +189,32 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
   return null;
 };
 
-export type StallAction = "nudge" | "escalate";
+export type StallAction = "nudge" | "escalate" | "wait";
 
 /**
  * Pure stall escalation-ladder decision. `nudge` on the FIRST sweep of a stall
  * episode (drive one informed recovery steer); `escalate` when the same episode
- * is still frozen on a later sweep (the nudge did not unstick it) OR when there
- * is no open turn to steer into (a closed turn must never be turned into a fresh
- * §8 `start`). A changed `episodeMs` (heartbeat advanced) re-arms to `nudge`.
+ * is still frozen after the nudge grace elapsed (the nudge did not unstick it)
+ * OR when there is no open turn to steer into (a closed turn must never be
+ * turned into a fresh §8 `start`); `wait` while the same episode is frozen but
+ * the nudge is still within its grace (give the steer a chance to be folded
+ * in). A changed `episodeMs` (heartbeat advanced) re-arms to `nudge`.
  */
 export const decideStallAction = (input: {
   readonly priorEpisodeMs: number | null;
   readonly episodeMs: number;
   readonly hasOpenTurn: boolean;
+  /** ms since this episode was nudged; null when it never was. */
+  readonly msSinceNudge: number | null;
+  readonly nudgeGraceMs: number;
 }): StallAction =>
-  input.priorEpisodeMs === input.episodeMs ? "escalate" : input.hasOpenTurn ? "nudge" : "escalate";
+  input.priorEpisodeMs === input.episodeMs
+    ? input.msSinceNudge !== null && input.msSinceNudge < input.nudgeGraceMs
+      ? "wait"
+      : "escalate"
+    : input.hasOpenTurn
+      ? "nudge"
+      : "escalate";
 
 // ─── State D — possibly spinning (progress, not repetition) ──────────────────
 // Pure helpers + per-thread state shape for the busy-but-not-progressing
@@ -301,7 +337,11 @@ const makeWorkstreamLivenessSweep = (
     // second transcript read.
     const stallNudges = new Map<
       string,
-      { readonly episodeMs: number; readonly context: StallContext | null }
+      {
+        readonly episodeMs: number;
+        readonly nudgedAtMs: number;
+        readonly context: StallContext | null;
+      }
     >();
 
     // State D: per-thread work-product fingerprint bookkeeping (serial-safe,
@@ -398,6 +438,10 @@ const makeWorkstreamLivenessSweep = (
     // Raise attention `needs_guidance` (recoverable — a human/poke is needed,
     // NOT `error`) carrying the extracted context so the human sees *why*.
     // Episode-keyed ids allow a fresh escalation after a re-armed episode.
+    // The parent AGENT hears about it too: the dispatcher's frozen-attention
+    // rail notices a flagged child whose open turn stays quiet and delivers a
+    // per-child pause notice (the idle-gated rail alone would never fire while
+    // the wedged turn stays open).
     const escalateStall = Effect.fn("workstreamLiveness.escalateStall")(function* (
       thread: OrchestrationThreadShell,
       verdict: LivenessVerdict,
@@ -479,14 +523,11 @@ const makeWorkstreamLivenessSweep = (
       let actionedCount = 0;
 
       for (const thread of snapshot.threads) {
-        // Only sub-threads; never re-judge a plan-terminal thread, nor one that
-        // already carries an attention flag (already error-marked / paused on a
-        // human — left alone, mirroring the old terminal-status skip).
+        // Only sub-threads; never re-judge a plan-terminal thread.
         if (
           thread.parentThreadId === null ||
           thread.planLane === "done" ||
-          thread.planLane === "cancelled" ||
-          thread.attention.length > 0
+          thread.planLane === "cancelled"
         ) {
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
@@ -512,7 +553,48 @@ const makeWorkstreamLivenessSweep = (
         if (failureObserved) failureCounts.set(thread.id, failureCount);
         else failureCounts.delete(thread.id);
 
+        // An attention-flagged thread (error-marked, paused on a human, a stall
+        // escalation) is never nudged or advised again — but it can still DIE,
+        // so the State-A circuit breaker keeps judging it. (Previously the sweep
+        // skipped flagged threads wholesale, ending ALL liveness judgement the
+        // moment any flag was raised.)
+        if (thread.attention.length > 0) {
+          stallNudges.delete(thread.id);
+          progressLoop.delete(thread.id);
+          if (failureCount >= thresholds.failureCap && !thread.attention.includes("error")) {
+            const verdict: LivenessVerdict = {
+              kind: "dead",
+              reason: `Session repeatedly failed (${failureCount} consecutive sweeps in a failed/absent state); circuit breaker tripped.`,
+            };
+            yield* markDead(thread, verdict).pipe(
+              Effect.tap(() =>
+                Effect.logInfo("workstream.liveness.dead", {
+                  threadId: thread.id,
+                  kind: verdict.kind,
+                  reason: verdict.reason,
+                }),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("workstream.liveness.dead-failed", {
+                  threadId: thread.id,
+                  cause,
+                }),
+              ),
+            );
+            failureCounts.delete(thread.id);
+            actionedCount += 1;
+          }
+          continue;
+        }
+
         const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(thread.id);
+        const inFlightTool =
+          session.activeTurnId !== null
+            ? yield* projectionSnapshotQuery.getInFlightToolByThreadId(
+                thread.id,
+                session.activeTurnId,
+              )
+            : null;
 
         const verdict = classifyLiveness({
           thread,
@@ -521,6 +603,7 @@ const makeWorkstreamLivenessSweep = (
             ? Date.parse(freshness.maxCreatedAt)
             : null,
           heartbeatMs: freshness.heartbeatAt ? Date.parse(freshness.heartbeatAt) : null,
+          hasInFlightTool: inFlightTool !== null,
           failureCount,
           now,
           thresholds,
@@ -537,10 +620,15 @@ const makeWorkstreamLivenessSweep = (
           // the cheap work-product fingerprint stays flat across the window
           // while the agent keeps emitting runtime events, wake the parent ONCE
           // with evidence. Flip ENABLE_STATE_D=false (top of file) to remove.
+          // An in-flight tool call is exempt: the fingerprint only sees
+          // `tool.completed` rows, so ONE long call reads as flat by
+          // construction — that case belongs to the dispatcher's informational
+          // slow-tool rail, never to a "possibly spinning" advisory.
           const startedAtMs = turnStartMs(thread.latestTurn);
           const busy =
             ENABLE_STATE_D &&
             session.activeTurnId !== null &&
+            inFlightTool === null &&
             startedAtMs !== null &&
             now - startedAtMs >= thresholds.startupGraceMs;
           if (!busy) {
@@ -614,7 +702,10 @@ const makeWorkstreamLivenessSweep = (
           priorEpisodeMs: prior?.episodeMs ?? null,
           episodeMs,
           hasOpenTurn: session.activeTurnId !== null,
+          msSinceNudge: prior ? now - prior.nudgedAtMs : null,
+          nudgeGraceMs: thresholds.stallNudgeGraceMs,
         });
+        if (action === "wait") continue;
         if (action === "escalate") {
           // Still frozen since the nudge (recoverable, needs a human).
           yield* runAction(
@@ -631,7 +722,7 @@ const makeWorkstreamLivenessSweep = (
           "workstream.liveness.stall-nudge",
           nudgeStall(thread, verdict, context, episodeMs),
         );
-        stallNudges.set(thread.id, { episodeMs, context });
+        stallNudges.set(thread.id, { episodeMs, nudgedAtMs: now, context });
         actionedCount += 1;
       }
 

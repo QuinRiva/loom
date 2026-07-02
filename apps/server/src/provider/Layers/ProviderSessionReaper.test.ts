@@ -232,6 +232,7 @@ describe("ProviderSessionReaper", () => {
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+          getInFlightToolByThreadId: () => Effect.succeed(null),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),
