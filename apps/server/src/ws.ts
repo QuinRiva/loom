@@ -536,7 +536,11 @@ const makeWsRpcLayer = (
 
       const appendSetupScriptActivity = (input: {
         readonly threadId: ThreadId;
-        readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+        readonly kind:
+          | "setup-script.requested"
+          | "setup-script.started"
+          | "setup-script.completed"
+          | "setup-script.failed";
         readonly summary: string;
         readonly createdAt: string;
         readonly payload: Record<string, unknown>;
@@ -733,17 +737,17 @@ const makeWsRpcLayer = (
                 )
               : Effect.void;
 
-          const recordSetupScriptLaunchFailure = (input: {
+          const recordSetupScriptFailure = (input: {
             readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
-            readonly requestedAt: string;
+            readonly createdAt: string;
             readonly worktreePath: string;
           }) => {
             const detail = projectSetupScriptCompatibilityDetail(input.error);
             return appendSetupScriptActivity({
               threadId: command.threadId,
               kind: "setup-script.failed",
-              summary: "Setup script failed to start",
-              createdAt: input.requestedAt,
+              summary: "Setup script failed",
+              createdAt: input.createdAt,
               payload: {
                 detail,
                 worktreePath: input.worktreePath,
@@ -752,7 +756,7 @@ const makeWsRpcLayer = (
             }).pipe(
               Effect.ignoreCause({ log: false }),
               Effect.flatMap(() =>
-                Effect.logWarning("bootstrap turn start failed to launch setup script", {
+                Effect.logWarning("bootstrap turn start setup script failed", {
                   threadId: command.threadId,
                   worktreePath: input.worktreePath,
                   detail,
@@ -761,54 +765,42 @@ const makeWsRpcLayer = (
             );
           };
 
-          const recordSetupScriptStarted = (input: {
-            readonly requestedAt: string;
+          const recordSetupScriptActivity = (input: {
+            readonly kind:
+              | "setup-script.requested"
+              | "setup-script.started"
+              | "setup-script.completed";
+            readonly summary: string;
+            readonly createdAt: string;
             readonly worktreePath: string;
             readonly scriptId: string;
             readonly scriptName: string;
             readonly terminalId: string;
           }) =>
-            Effect.gen(function* () {
-              const startedAt = yield* nowIso;
-              const payload = {
+            appendSetupScriptActivity({
+              threadId: command.threadId,
+              kind: input.kind,
+              summary: input.summary,
+              createdAt: input.createdAt,
+              payload: {
                 scriptId: input.scriptId,
                 scriptName: input.scriptName,
                 terminalId: input.terminalId,
                 worktreePath: input.worktreePath,
-              };
-              yield* Effect.all([
-                appendSetupScriptActivity({
+              },
+              tone: "info",
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("bootstrap turn start failed to record setup activity", {
                   threadId: command.threadId,
-                  kind: "setup-script.requested",
-                  summary: "Starting setup script",
-                  createdAt: input.requestedAt,
-                  payload,
-                  tone: "info",
+                  worktreePath: input.worktreePath,
+                  scriptId: input.scriptId,
+                  terminalId: input.terminalId,
+                  kind: input.kind,
+                  detail: error.message,
                 }),
-                appendSetupScriptActivity({
-                  threadId: command.threadId,
-                  kind: "setup-script.started",
-                  summary: "Setup script started",
-                  createdAt: startedAt,
-                  payload,
-                  tone: "info",
-                }),
-              ]).pipe(
-                Effect.asVoid,
-                Effect.catch((error) =>
-                  Effect.logWarning(
-                    "bootstrap turn start launched setup script but failed to record setup activity",
-                    {
-                      threadId: command.threadId,
-                      worktreePath: input.worktreePath,
-                      scriptId: input.scriptId,
-                      terminalId: input.terminalId,
-                      detail: error.message,
-                    },
-                  ),
-                ),
-              );
-            });
+              ),
+            );
 
           const runSetupProgram = () =>
             Effect.gen(function* () {
@@ -827,21 +819,58 @@ const makeWsRpcLayer = (
                 .pipe(
                   Effect.matchEffect({
                     onFailure: (error) =>
-                      recordSetupScriptLaunchFailure({
+                      recordSetupScriptFailure({
                         error,
-                        requestedAt,
+                        createdAt: requestedAt,
                         worktreePath,
                       }),
                     onSuccess: (setupResult) => {
                       if (setupResult.status !== "started") {
                         return Effect.void;
                       }
-                      return recordSetupScriptStarted({
-                        requestedAt,
+                      const activityBase = {
                         worktreePath,
                         scriptId: setupResult.scriptId,
                         scriptName: setupResult.scriptName,
                         terminalId: setupResult.terminalId,
+                      };
+                      return Effect.gen(function* () {
+                        yield* recordSetupScriptActivity({
+                          ...activityBase,
+                          kind: "setup-script.requested",
+                          summary: "Starting setup script",
+                          createdAt: requestedAt,
+                        });
+                        yield* recordSetupScriptActivity({
+                          ...activityBase,
+                          kind: "setup-script.started",
+                          summary: "Setup script started",
+                          createdAt: yield* nowIso,
+                        });
+                        // Observe completion in a detached fiber so the
+                        // provider turn starts without waiting for setup.
+                        yield* setupResult.completion.pipe(
+                          Effect.matchEffect({
+                            onFailure: (error) =>
+                              nowIso.pipe(
+                                Effect.flatMap((createdAt) =>
+                                  recordSetupScriptFailure({ error, createdAt, worktreePath }),
+                                ),
+                              ),
+                            onSuccess: () =>
+                              nowIso.pipe(
+                                Effect.flatMap((createdAt) =>
+                                  recordSetupScriptActivity({
+                                    ...activityBase,
+                                    kind: "setup-script.completed",
+                                    summary: "Setup script completed",
+                                    createdAt,
+                                  }),
+                                ),
+                              ),
+                          }),
+                          Effect.forkDetach,
+                        );
                       });
                     },
                   }),
