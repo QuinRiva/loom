@@ -8,58 +8,12 @@
 
 ## Shipping changes (commit, PR, merge)
 
-Work happens on a feature branch (worktrees already start on one). Once the task
-is complete and the checks above pass, ship it via a PR rather than committing
-straight to `main`:
-
-```sh
-gh repo set-default QuinRiva/pi-frontend                  # one-time: target origin, not the upstream fork parent
-git add -A && git commit -m "<concise summary>"          # commit the work
-git fetch origin main && git rebase origin/main          # sync onto current main BEFORE pushing (see note)
-# if the rebase replayed any commits, re-run the checks against the new base
-git push -u origin HEAD                                   # push the branch + set upstream
-gh pr create --base main --fill                           # PR into main (--fill uses the commit msg; or pass --title/--body)
-gh pr merge --merge && \                                  # merge, then delete ONLY if the merge succeeded
-  git push origin --delete "$(git branch --show-current)" # delete the remote feature branch (worktree-safe)
-```
-
-Notes:
-
-- `git push -u origin HEAD` pushes the current branch under its own name without
-  having to type it — never push directly to `main`.
-- **Rebase onto `origin/main` before pushing.** With ~10 concurrent worktrees
-  sharing this clone, a branch routinely falls several commits behind `main`
-  between "checks passed" and "PR opened". Rebasing first surfaces conflicts
-  locally instead of at merge time, and — critically — lets you re-run
-  `vp check` / `vp run typecheck` against the **actual post-merge state** rather
-  than a stale base. If the rebase replayed commits, re-run the checks before
-  pushing. Doing this after the commit but before the first push means no force
-  push is needed (the branch isn't on the remote yet). `git rebase origin/main`
-  is worktree-safe: it replays onto the remote-tracking ref and never needs
-  `main` checked out here.
-- Use `--fill` to derive the PR title/body from commits; reach for
-  `--title`/`--body` only when the commits don't tell the whole story.
-- **Do not use `gh pr merge --delete-branch` here.** These checkouts are git
-  worktrees that share one clone with `main` checked out elsewhere
-  (e.g. `~/pi-frontend`). `--delete-branch` makes `gh` try to switch the local
-  checkout to `main` after merging, which fails with
-  `fatal: 'main' is already checked out at ...` — and the remote branch is then
-  left undeleted too. Merge without it, then delete the remote branch explicitly
-  with the `git push origin --delete` line above (worktree-safe).
-- **This clone has an `upstream` remote (`pingdotgg/t3code`).** Because the repo is a
-  GitHub fork, a bare `gh pr create --base main` makes `gh` resolve the PR's _base
-  repo_ to the parent (`pingdotgg`) and fails with `No commits between pingdotgg:main
-and ...`. Run `gh repo set-default QuinRiva/pi-frontend` once (it persists in git
-  config), or pass `--repo QuinRiva/pi-frontend --head "$(git branch --show-current)"`
-  to the `gh pr create`/`gh pr merge` commands, so the PR is created and merged on
-  `origin`. The same applies to `gh pr merge`/`gh pr view`.
-- **Confirm the merge before deleting the branch.** `gh pr merge` prints nothing on
-  success in a non-TTY (piped) shell — silence is success; errors go to stderr. The
-  `&&` above gates the delete on a successful merge so a failed merge never leaves the
-  PR closed-but-unmerged with its branch already gone. If unsure, check that
-  `gh pr view <n> --json state` reports `MERGED` before deleting.
-- Merges currently need no PR review/approval, so the merge step is not gated.
-- Do not run any of this until the user has approved shipping the change.
+Shipping is the `shipper` role's job — the canonical procedure (branch → commit →
+rebase → PR → merge → cleanup, plus this repo's fork/worktree gotchas) lives in
+`roles/shipper.md`. In a workstream, spawn a `shipper` child once the work is
+approved rather than running the release steps inline; outside a workstream,
+follow that file directly. Do not ship until the user has approved shipping the
+change.
 
 ## Project Snapshot
 
