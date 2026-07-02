@@ -136,6 +136,13 @@ Attributes follow one fixed encoding:
 
 ## Block vocabulary
 
+**For exact prop shapes and allowed enum values, consult
+[`references/block-schema.md`](references/block-schema.md) — do not guess props or
+enum values.** That file is generated from the live zod schemas (so it cannot
+drift) and lists, for every block, each prop's type, required/optional status,
+allowed enum values, and nested object/array sub-shapes. The examples below teach
+the common shape; the reference is the authority for anything an example omits.
+
 Each block is shown with a short, real example. Only the fields you need are
 required; omit the rest. The blocks fall into four groups: **document blocks**
 (prose-embedded structure — the default), **containers** (side-by-side / tabbed
@@ -147,21 +154,28 @@ layout), **visual surfaces** (wireframe / design / canvas, for UI work), and
 Entity cards with typed fields (PK/FK/nullable) and foreign-key relations.
 Field `change` and entity `change` accept `added|modified|removed|renamed`.
 
+The `fk` field is a **string** naming the FK target (`"Entity"` or
+`"Entity.field"`), never a boolean. Relation `kind` is one of
+`"1-1" | "1-n" | "n-n"` only — there is no `"n-1"`; model many-to-one as `"1-n"`
+from the "one" side to the "many" side. See
+[`references/block-schema.md`](references/block-schema.md) for the full
+field/relation shape.
+
 ```mdx
 <DataModel
   entities={[
     {
-      id: "planComment",
+      id: "comment",
       name: "PlanComment",
       fields: [
         { name: "id", type: "string", pk: true },
-        { name: "planPath", type: "string", note: "the .mdx path" },
+        { name: "planId", type: "string", fk: "Plan.id", note: "parent plan" },
         { name: "anchor", type: "PlanCommentAnchor", nullable: true },
         { name: "status", type: "open | resolved" },
       ],
     },
   ]}
-  relations={[{ from: "planComment", to: "planComment", kind: "1-n", label: "parentCommentId" }]}
+  relations={[{ from: "plan", to: "comment", kind: "1-n", label: "comments" }]}
 />
 ```
 
