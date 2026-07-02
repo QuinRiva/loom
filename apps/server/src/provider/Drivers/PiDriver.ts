@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalTimers:off
 // @effect-diagnostics globalDate:off
 // @effect-diagnostics runEffectInsideEffect:off
 // @effect-diagnostics preferSchemaOverJson:off
@@ -129,6 +130,20 @@ interface ActivePiSession {
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   unsubscribe: () => void;
   activeTurnId: TurnId | undefined;
+  // Turn id `turn.started` was last emitted for. pi re-emits `agent_start` per
+  // auto-retry attempt and per T3-level retry re-prompt within the SAME T3
+  // turn; a duplicate `turn.started` would re-run downstream turn-start logic.
+  turnStartedFor: TurnId | undefined;
+  // T3-level slow-tier retry state for the open turn (see T3_RETRY_DELAYS_MS).
+  // `originalModel` is set once the backend fallback engages so the model can
+  // be restored when the turn settles; `timer` is the pending re-dispatch.
+  retry:
+    | {
+        attempt: number;
+        timer: ReturnType<typeof setTimeout> | undefined;
+        originalModel: string | undefined;
+      }
+    | undefined;
   currentAssistantMessageId: string | undefined;
   // pi delivers tool input only on `tool_execution_start`/`update.args` and the
   // bare result on `tool_execution_end` — so we stash the args by toolCallId on
@@ -443,6 +458,93 @@ function resolvePiModel(model: string): { provider: string; modelId: string } | 
     : undefined;
 }
 
+// ── T3-level provider-error retry + backend fallback ───────────────────────
+// pi already auto-retries transient provider errors on a fast schedule
+// (~2s/4s/8s). Overload episodes often last minutes, so when pi's retries
+// exhaust we run a second, slower tier ON TOP: re-dispatch the turn on the
+// current backend per T3_RETRY_DELAYS_MS, then switch to the SAME model on
+// another backend (Anthropic-direct ↔ Vertex are distinct capacity pools) for
+// a brief allowance, then give up into the normal failed-turn path. The
+// fallback is per-turn only: the next sendTurn re-issues `set_model` from the
+// thread's stored selection.
+
+/** Slow-tier retry schedule on the turn's current backend. */
+export const T3_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 30_000, 45_000, 60_000, 90_000];
+/** Brief allowance on the fallback backend before giving up. */
+export const T3_FALLBACK_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 60_000];
+
+/**
+ * Transient (retry-worthy) provider errors — capacity/plumbing, not user
+ * fault. Mirrors the spirit of pi's own retryable-error regex: 529 overloaded,
+ * 429 rate limits, 5xx, and network-shaped failures. Auth/validation errors
+ * deliberately do NOT match and fail immediately.
+ */
+export const PI_TRANSIENT_PROVIDER_ERROR_RE =
+  /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?(error|refused|reset|lost)|socket hang up|fetch failed|terminated|stream ended before|timed?.?out|timeout/i;
+
+/** Preferred capacity-pool partner per provider namespace (checked first; the
+ * generic same-model-other-provider scan is the fallback). Both directions of
+ * the Anthropic-direct ↔ Vertex pair are known-good, authenticated pools. */
+const PI_BACKEND_PARTNERS: Record<string, string> = {
+  anthropic: "google-vertex-claude",
+  "google-vertex-claude": "anthropic",
+};
+
+/**
+ * Derive the same-model-different-backend fallback slug from pi's live
+ * catalogue: prefer the known partner pool, else the first other provider
+ * hosting the identical modelId. Undefined when no equivalent exists.
+ */
+export function piBackendFallbackModel(
+  currentModel: string | undefined,
+  availableModels: Iterable<string>,
+): string | undefined {
+  const current = currentModel === undefined ? undefined : resolvePiModel(currentModel);
+  if (!current) return undefined;
+  const slugs = [...availableModels];
+  const partner = PI_BACKEND_PARTNERS[current.provider];
+  if (partner !== undefined && slugs.includes(`${partner}/${current.modelId}`))
+    return `${partner}/${current.modelId}`;
+  return slugs.find((slug) => {
+    const parsed = resolvePiModel(slug);
+    return (
+      parsed !== undefined &&
+      parsed.modelId === current.modelId &&
+      parsed.provider !== current.provider
+    );
+  });
+}
+
+/**
+ * Outcome of a finished pi agent run: the last assistant message's
+ * `stopReason`/`errorMessage` from the `agent_end` messages array.
+ */
+export function piRunOutcome(messages: ReadonlyArray<Record<string, unknown>> | undefined): {
+  stopReason: string | undefined;
+  errorMessage: string | undefined;
+} {
+  for (let i = (messages?.length ?? 0) - 1; i >= 0; i -= 1) {
+    const message = messages![i]!;
+    if (message.role === "assistant") {
+      return {
+        stopReason: typeof message.stopReason === "string" ? message.stopReason : undefined,
+        errorMessage: typeof message.errorMessage === "string" ? message.errorMessage : undefined,
+      };
+    }
+  }
+  return { stopReason: undefined, errorMessage: undefined };
+}
+
+/** In-band control-plane framing for the retry re-prompt (the errored run left
+ * pi idle; a fresh prompt is the only way to resume it). */
+export const buildPiRetryPrompt = (errorMessage: string): string =>
+  [
+    "[T3 Code control plane — automated retry after a provider error; not a message from the user]",
+    "",
+    `Your previous response failed with a transient provider error (${errorMessage}); none of it was delivered.`,
+    "Continue the task from where you left off.",
+  ].join("\n");
+
 /**
  * Translate pi's per-message `Usage` into the generic context-window snapshot
  * the orchestration layer ingests. `usedTokens` mirrors pi's own
@@ -531,6 +633,195 @@ function makePiAdapter(input: {
     session.session = { ...session.session, ...patch, updatedAt: new Date().toISOString() };
     return session.session;
   };
+
+  // Event base for synthetic (non-pi-message) emissions: retry warnings, the
+  // reroute notice, and turn settlement from a timer callback.
+  const sessionBase = (session: ActivePiSession, raw?: ProviderRuntimeEvent["raw"]) =>
+    eventBase({
+      instanceId: input.instanceId,
+      threadId: session.session.threadId,
+      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+      raw: raw ?? { source: "pi.rpc.synthetic", payload: {} },
+    });
+
+  // Clear any pending T3 retry and, if the backend fallback engaged, restore
+  // the turn's original model (per-turn fallback: subsequent turns must run on
+  // the thread's selected model — sendTurn re-issues set_model anyway; this is
+  // belt-and-braces for non-orchestrated sends). Best-effort: a failed restore
+  // is ignored because the next sendTurn sets the model authoritatively.
+  const settleRetry = (session: ActivePiSession): Effect.Effect<void> => {
+    const retry = session.retry;
+    session.retry = undefined;
+    if (!retry) return Effect.void;
+    if (retry.timer !== undefined) clearTimeout(retry.timer);
+    if (retry.originalModel === undefined || retry.originalModel === session.session.model)
+      return Effect.void;
+    const model = resolvePiModel(retry.originalModel);
+    updateSession(session, { model: retry.originalModel });
+    return model
+      ? Effect.promise(() =>
+          session.process.request({
+            type: "set_model",
+            provider: model.provider,
+            modelId: model.modelId,
+          }),
+        ).pipe(Effect.ignore)
+      : Effect.void;
+  };
+
+  // Settle the open turn as completed/interrupted (events are built while the
+  // turn id is still set, then the id is cleared).
+  const completeTurn = (
+    session: ActivePiSession,
+    state: "completed" | "interrupted",
+    raw?: ProviderRuntimeEvent["raw"],
+  ): Effect.Effect<void> => {
+    const done = emit({ ...sessionBase(session, raw), type: "turn.completed", payload: { state } });
+    session.activeTurnId = undefined;
+    updateSession(session, { status: "ready", activeTurnId: undefined });
+    return settleRetry(session).pipe(Effect.andThen(done));
+  };
+
+  // Terminal failure path (mirrors ClaudeAdapter): a runtime.error with class
+  // provider_error plus turn.completed failed — ingestion turns these into
+  // session status "error" + lastError, the UI banner, and the workstream
+  // error wake.
+  const failTurn = (
+    session: ActivePiSession,
+    errorMessage: string,
+    raw?: ProviderRuntimeEvent["raw"],
+  ): Effect.Effect<void> => {
+    const events = emit({
+      ...sessionBase(session, raw),
+      type: "runtime.error",
+      payload: { message: errorMessage, class: "provider_error" },
+    }).pipe(
+      Effect.andThen(
+        emit({
+          ...sessionBase(session, raw),
+          type: "turn.completed",
+          payload: { state: "failed", errorMessage },
+        }),
+      ),
+    );
+    session.activeTurnId = undefined;
+    updateSession(session, { status: "error", activeTurnId: undefined });
+    return settleRetry(session).pipe(Effect.andThen(events));
+  };
+
+  // Timer callback body: re-dispatch the failed turn (optionally after the
+  // backend switch). Guards make a stale timer a no-op: the session was
+  // replaced/stopped, the turn was interrupted, or a newer schedule superseded
+  // this one. Any dispatch failure lands in the terminal failure path.
+  const dispatchTurnRetry = (
+    session: ActivePiSession,
+    attempt: number,
+    switchToModel: string | undefined,
+    errorMessage: string,
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      if (
+        sessions.get(session.session.threadId) !== session ||
+        session.activeTurnId === undefined ||
+        session.retry?.attempt !== attempt
+      )
+        return;
+      // Timer has fired: drop the handle so interruptTurn takes the abort path
+      // for the now in-flight prompt instead of settling a "pending" retry.
+      session.retry = { ...session.retry, timer: undefined };
+      if (switchToModel !== undefined) {
+        const model = resolvePiModel(switchToModel);
+        const fromModel = session.session.model ?? "unknown";
+        if (model) {
+          yield* Effect.tryPromise({
+            try: () =>
+              session.process.request({
+                type: "set_model",
+                provider: model.provider,
+                modelId: model.modelId,
+              }),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: DRIVER_KIND,
+                method: "set_model",
+                detail: detailFromCause(cause, "Failed to switch Pi fallback model."),
+                cause,
+              }),
+          });
+          updateSession(session, { model: switchToModel });
+          yield* emit({
+            ...sessionBase(session),
+            type: "model.rerouted",
+            payload: {
+              fromModel,
+              toModel: switchToModel,
+              reason: `Provider errors persisted through ${T3_RETRY_DELAYS_MS.length} retries; retrying this turn on the same model via another backend.`,
+            },
+          });
+        }
+      }
+      yield* Effect.tryPromise({
+        try: () =>
+          session.process.request({ type: "prompt", message: buildPiRetryPrompt(errorMessage) }),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: DRIVER_KIND,
+            method: "prompt",
+            detail: detailFromCause(cause, "Failed to dispatch Pi retry prompt."),
+            cause,
+          }),
+      });
+    }).pipe(
+      Effect.catch((error) =>
+        failTurn(session, `${errorMessage} (automatic retry failed: ${error.detail})`),
+      ),
+    );
+
+  // Schedule the next slow-tier retry for a transient provider failure.
+  // Returns undefined when the ladder is exhausted (or no fallback backend
+  // exists), which sends the caller to the terminal failure path.
+  const scheduleTurnRetry = (
+    session: ActivePiSession,
+    errorMessage: string,
+  ): Effect.Effect<void> | undefined => {
+    const attempt = (session.retry?.attempt ?? 0) + 1;
+    const primary = T3_RETRY_DELAYS_MS.length;
+    let delayMs: number;
+    let switchToModel: string | undefined;
+    if (attempt <= primary) {
+      delayMs = T3_RETRY_DELAYS_MS[attempt - 1]!;
+    } else {
+      const fallbackIndex = attempt - primary - 1;
+      if (fallbackIndex >= T3_FALLBACK_RETRY_DELAYS_MS.length) return undefined;
+      delayMs = T3_FALLBACK_RETRY_DELAYS_MS[fallbackIndex]!;
+      if (fallbackIndex === 0) {
+        switchToModel = piBackendFallbackModel(
+          session.session.model,
+          input.modelContextWindows.keys(),
+        );
+        if (switchToModel === undefined) return undefined;
+      }
+    }
+    const timer = setTimeout(() => {
+      void Effect.runPromise(
+        dispatchTurnRetry(session, attempt, switchToModel, errorMessage),
+      ).catch(() => undefined);
+    }, delayMs);
+    session.retry = {
+      attempt,
+      timer,
+      originalModel:
+        session.retry?.originalModel ?? (switchToModel ? session.session.model : undefined),
+    };
+    return emit({
+      ...sessionBase(session),
+      type: "runtime.warning",
+      payload: {
+        message: `Provider error — automatic retry ${attempt} in ${Math.round(delayMs / 1000)}s${switchToModel ? ` on fallback backend ${switchToModel}` : ""}: ${errorMessage}`,
+      },
+    });
+  };
+
   const handleMessage = (session: ActivePiSession, message: PiRpcStdoutMessage) => {
     const raw = rawPiMessage(message);
     const base = (extra?: { turnId?: TurnId; itemId?: string; requestId?: string }) =>
@@ -550,7 +841,11 @@ function makePiAdapter(input: {
       // agent_end so a mid-run send is detected as a steer (see sendTurn).
       case "agent_start":
         updateSession(session, { status: "running", activeTurnId: session.activeTurnId });
-        if (!session.activeTurnId) return Effect.void;
+        // pi re-emits agent_start per auto-retry attempt and per T3-level retry
+        // re-prompt; emit turn.started once per T3 turn.
+        if (!session.activeTurnId || session.turnStartedFor === session.activeTurnId)
+          return Effect.void;
+        session.turnStartedFor = session.activeTurnId;
         return emit({
           ...base(),
           type: "turn.started",
@@ -683,28 +978,61 @@ function makePiAdapter(input: {
       // completion is emitted separately by message_end.
       case "turn_end":
         return Effect.void;
-      // End of the pi agent run = end of the T3 turn. Emit turn.completed with
-      // the active turn id still set (base() reads it), then clear it.
+      // End of the pi agent run = end of the T3 turn — unless pi's auto-retry
+      // (willRetry) or the T3-level slow retry tier keeps the turn open.
       case "agent_end": {
         // Turn boundary: drop any tool-arg stashes whose `tool_execution_end`
         // never arrived (aborted/interrupted/never-completing tool). All of a
         // turn's tool calls resolve within the run and toolCallIds are unique,
         // so clearing the whole map here can never mis-merge a later call — pure
-        // memory hygiene. Cleared on BOTH return paths (abort can take either).
+        // memory hygiene. Cleared on ALL return paths (abort can take any).
         session.toolArgs.clear();
+        // pi will retry internally: the run (and the T3 turn) is not over.
+        // auto_retry_start surfaces the wait as a runtime.warning.
+        if (message.willRetry === true) return Effect.void;
         if (session.activeTurnId === undefined) {
           updateSession(session, { status: "ready", activeTurnId: undefined });
           return Effect.void;
         }
-        const completed = emit({
-          ...base(),
-          type: "turn.completed",
-          payload: { state: "completed" },
-        });
-        session.activeTurnId = undefined;
-        updateSession(session, { status: "ready", activeTurnId: undefined });
-        return completed;
+        const outcome = piRunOutcome(message.messages);
+        if (outcome.stopReason === "error") {
+          const errorMessage = outcome.errorMessage ?? "Pi turn failed.";
+          if (PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage)) {
+            const retry = scheduleTurnRetry(session, errorMessage);
+            if (retry) return retry; // turn stays open through the retry window
+          }
+          return failTurn(session, errorMessage, raw);
+        }
+        return completeTurn(
+          session,
+          outcome.stopReason === "aborted" ? "interrupted" : "completed",
+          raw,
+        );
       }
+      // pi's retry ladder ended. Success and exhaustion are both reported via
+      // agent_end; the ONE case only this event reports is a retry cancelled
+      // mid-sleep (abort during pi's backoff wait): that run already ended with
+      // an agent_end willRetry:true and no further agent_end will come, so
+      // settle the open turn as interrupted here. A pending T3-level retry
+      // timer means this event is instead the tail of the exhaustion path —
+      // leave the turn open for the scheduled re-dispatch.
+      case "auto_retry_end":
+        if (
+          !message.success &&
+          session.activeTurnId !== undefined &&
+          session.retry?.timer === undefined
+        )
+          return completeTurn(session, "interrupted");
+        return Effect.void;
+      // pi's built-in fast retry tier: surface each wait live in the timeline.
+      case "auto_retry_start":
+        return emit({
+          ...base(),
+          type: "runtime.warning",
+          payload: {
+            message: `Provider error — retry ${message.attempt}/${message.maxAttempts} in ${Math.round(message.delayMs / 1000)}s: ${message.errorMessage}`,
+          },
+        });
       default:
         return Effect.void;
     }
@@ -819,6 +1147,8 @@ function makePiAdapter(input: {
               turns: [],
               unsubscribe: () => undefined,
               activeTurnId: undefined,
+              turnStartedFor: undefined,
+              retry: undefined,
               currentAssistantMessageId: undefined,
               toolArgs: new Map(),
             };
@@ -955,16 +1285,21 @@ function makePiAdapter(input: {
     interruptTurn: (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
-          Effect.tryPromise({
-            try: () => session.process.write({ type: "abort" }),
-            catch: (cause) =>
-              new ProviderAdapterRequestError({
-                provider: DRIVER_KIND,
-                method: "abort",
-                detail: detailFromCause(cause, "Failed to interrupt Pi turn."),
-                cause,
+          // A pending T3-level retry means pi is idle between attempts: an
+          // abort would be a no-op that never emits agent_end, so settle the
+          // open turn as interrupted right here (cancels the timer too).
+          session.retry?.timer !== undefined && session.activeTurnId !== undefined
+            ? completeTurn(session, "interrupted")
+            : Effect.tryPromise({
+                try: () => session.process.write({ type: "abort" }),
+                catch: (cause) =>
+                  new ProviderAdapterRequestError({
+                    provider: DRIVER_KIND,
+                    method: "abort",
+                    detail: detailFromCause(cause, "Failed to interrupt Pi turn."),
+                    cause,
+                  }),
               }),
-          }),
         ),
       ),
     respondToRequest: () =>

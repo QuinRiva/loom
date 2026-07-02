@@ -389,6 +389,23 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "model.rerouted": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "model.rerouted",
+          summary: `Model rerouted: ${event.payload.fromModel} → ${event.payload.toModel}`,
+          payload: {
+            message: truncateDetail(event.payload.reason),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "turn.plan.updated": {
       return [
         {
