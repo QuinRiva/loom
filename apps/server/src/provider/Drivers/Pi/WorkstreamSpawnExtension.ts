@@ -210,7 +210,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     promptGuidelines: [
       "Use workstream_prompt to resume a child you stopped, redirect a running child, or feed it new information. Idle child → your message starts its next turn; busy child → queued steer folded between model rounds.",
       "A steer cannot interrupt a blocked/hung tool call. For a child stuck inside a tool call, call workstream_stop first, then workstream_prompt with guidance.",
-      "This is for direct children only, and it is a plain message send — it does not change the child's plan lane."
+      "This is for direct children only, and it is a plain message send — it does not change the child's plan lane. A done/cancelled child is rejected: re-open its lane with workstream_set_lane first, or spawn a new child."
     ],
     parameters: {
       type: "object",

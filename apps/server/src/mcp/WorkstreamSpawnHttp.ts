@@ -551,6 +551,17 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
   const projection = yield* ProjectionSnapshotQuery;
   const target = yield* projection.getThreadDetailById(targetThreadId);
   if (Option.isNone(target)) return jsonError(404, "Target thread was not found.");
+  // Sticky terminal (design §3.4/§6): the decider treats a turn-start on a
+  // `done`/`cancelled` thread as a silent re-engagement — runtime runs, lane
+  // and attention unchanged. Reject it here instead: a parent prompting a
+  // terminal child is almost always a mistake, and a deliberate re-open goes
+  // through workstream_set_lane (or a new spawn) first.
+  if (target.value.planLane === "done" || target.value.planLane === "cancelled") {
+    return jsonError(
+      409,
+      `Thread is ${target.value.planLane}; prompting would re-engage it without changing its lane. Re-open it with workstream_set_lane first, or spawn a new child.`,
+    );
+  }
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
