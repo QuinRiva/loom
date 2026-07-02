@@ -154,8 +154,13 @@ export interface PiRpcProcessOptions {
   readonly appendSystemPrompt?: string | undefined;
   readonly extensions?: ReadonlyArray<string> | undefined;
   // Allowlist of tool names (`--tools`). Used to launch a fork read-only
-  // (`read,grep,find,ls`) so it physically cannot edit/run commands.
+  // (`read,grep,find,ls`) so it physically cannot edit/run commands. NOTE: pi
+  // applies the allowlist to extension-registered tools too — an allowlist that
+  // omits the workstream tool names blocks them even when `extensions` load.
   readonly tools?: ReadonlyArray<string> | undefined;
+  // Skill files/directories to load (repeated `--skill`), additive to pi's
+  // normal skill discovery. Absolute paths.
+  readonly skills?: ReadonlyArray<string> | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
 }
 
@@ -231,6 +236,7 @@ export function buildPiRpcArgs(options: PiRpcProcessOptions): ReadonlyArray<stri
     ...(options.forkFrom ? ["--fork", options.forkFrom] : []),
     ...(options.sessionId ? ["--session-id", options.sessionId] : []),
     ...(options.tools && options.tools.length > 0 ? ["--tools", options.tools.join(",")] : []),
+    ...(options.skills ?? []).flatMap((skill) => ["--skill", skill]),
     ...(options.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),
     ...(options.extensions ?? []).flatMap((extension) => ["--extension", extension]),
   ];

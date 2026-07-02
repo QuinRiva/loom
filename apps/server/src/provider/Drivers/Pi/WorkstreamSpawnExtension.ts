@@ -271,10 +271,41 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     async execute(_id, params, signal) {
       const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LIST_URL, params ?? {}, signal);
       if (!outcome.ok) return outcome.error;
-      const nodes = Array.isArray(outcome.result?.nodes) ? outcome.result.nodes : [];
+      const view = outcome.result ?? {};
+      const nodes = Array.isArray(view.nodes) ? view.nodes : [];
+      // Render the whole graph into content: content is the ONLY surface the
+      // model can read (details is UI/debug), so the answer must live here.
+      const waitsOn = new Map();
+      for (const edge of Array.isArray(view.waitsOnEdges) ? view.waitsOnEdges : []) {
+        waitsOn.set(edge.from, [...(waitsOn.get(edge.from) ?? []), edge.to]);
+      }
+      const ids = new Set(nodes.map((node) => node.id));
+      const children = new Map();
+      const roots = [];
+      for (const node of nodes) {
+        if (node.parentThreadId !== null && ids.has(node.parentThreadId)) {
+          children.set(node.parentThreadId, [...(children.get(node.parentThreadId) ?? []), node]);
+        } else {
+          roots.push(node);
+        }
+      }
+      const lines = ["Workstream: " + nodes.length + " thread(s). Indentation shows lineage (parent above its children)."];
+      const emit = (node, depth) => {
+        const pad = "  ".repeat(depth);
+        const attention = Array.isArray(node.attention) && node.attention.length > 0 ? " attention=" + node.attention.join("+") : "";
+        const you = node.id === view.callerId ? " (you)" : "";
+        lines.push(pad + "- " + node.id + you + " [" + (node.role ?? "thread") + "] \"" + (node.title ?? "(untitled)") + "\" lane=" + node.planLane + attention);
+        if (node.lastActivityAt) lines.push(pad + "    last-activity: " + node.lastActivityAt + (node.lastActivitySummary ? " — " + node.lastActivitySummary : ""));
+        if (node.reportPath) lines.push(pad + "    report: " + node.reportPath);
+        if (node.sessionPath) lines.push(pad + "    session: " + node.sessionPath);
+        const deps = waitsOn.get(node.id);
+        if (deps && deps.length > 0) lines.push(pad + "    waits-on: " + deps.join(", "));
+        for (const child of children.get(node.id) ?? []) emit(child, depth + 1);
+      };
+      for (const root of roots) emit(root, 0);
       return {
-        content: [{ type: "text", text: "Your workstream has " + nodes.length + " thread(s). See details for the graph." }],
-        details: { ok: true, ...outcome.result }
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: { ok: true, ...view }
       };
     }
   });

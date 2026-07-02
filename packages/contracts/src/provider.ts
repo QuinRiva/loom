@@ -61,6 +61,10 @@ export const ProviderSessionStartInput = Schema.Struct({
   // Standing instruction appended to the session's system prompt once at
   // session spawn (e.g. the active-goal context). Not part of any turn input.
   appendSystemPrompt: Schema.optional(TrimmedNonEmptyString),
+  // Role-driven pi options: skill paths (absolute, repeated `--skill`) and a
+  // tool-name allowlist (`--tools`). Pi-only — other drivers drop them.
+  skills: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  tools: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,

@@ -108,8 +108,7 @@ const activeGoalContextInstruction = (
       goal.description.trim().length > 0
         ? `\nParent's objective (background only, NOT your task): ${goal.description.trim()}`
         : "",
-      `\n\nYour authoritative task is the spawn brief in your first message. This goal is provided only so your work aligns with the wider effort — do not execute it directly or treat its objective as your own assignment. If the brief and this goal appear to conflict, follow the brief.`,
-      `\n\nParent's current task tree (for orientation only; you do not manage it):\n${tasks}`,
+      `\n\nParent's current task tree (the orchestrator owns it, but you may mark your own task done and add discovered work):\n${tasks}`,
     ].join("");
   }
   return [
@@ -569,11 +568,11 @@ const make = Effect.gen(function* () {
         // work-model → role overlay → goal context. NOTE: if a non-workstream pi
         // mode is ever added, the `orchestrator` overlay must not ship without
         // the workstream tools behind it.
-        const roleSystemPrompt = loadRoleOverlay({
+        const roleOverlay = loadRoleOverlay({
           role: thread.role,
           projectRoot: effectiveCwd ?? process.cwd(),
         });
-        const appendSystemPrompt = [roleSystemPrompt, goalSystemPrompt]
+        const appendSystemPrompt = [roleOverlay?.prompt, goalSystemPrompt]
           .filter((part): part is string => !!part && part.trim().length > 0)
           .join("\n\n");
         return yield* providerService.startSession(threadId, {
@@ -584,6 +583,8 @@ const make = Effect.gen(function* () {
           modelSelection: desiredModelSelection,
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
           ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
+          ...(roleOverlay?.skills ? { skills: roleOverlay.skills } : {}),
+          ...(roleOverlay?.tools ? { tools: roleOverlay.tools } : {}),
           runtimeMode: desiredRuntimeMode,
         });
       });
