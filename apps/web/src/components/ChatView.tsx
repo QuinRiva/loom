@@ -109,6 +109,7 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
+import { useSustainedConnectionOutage } from "../hooks/useSustainedConnectionOutage";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteContext";
@@ -1460,8 +1461,22 @@ function ChatViewContent(props: ChatViewProps) {
   const activeEnvironment =
     activeThread == null ? null : (environmentById.get(activeThread.environmentId) ?? null);
   const activeEnvironmentConnectionPhase = activeEnvironment?.connection.phase ?? "available";
+  // Reconnect blips that self-heal within the grace window stay silent: the
+  // unavailable state (banner + composer lockout) only surfaces for transient
+  // phases once the outage has persisted. Non-transient phases (error,
+  // offline, available) surface immediately.
+  const activeEnvironmentOutageIsTransient =
+    activeEnvironmentConnectionPhase === "connecting" ||
+    activeEnvironmentConnectionPhase === "reconnecting";
+  const activeEnvironmentOutageSustained = useSustainedConnectionOutage(
+    activeEnvironment !== null && activeEnvironmentOutageIsTransient
+      ? activeEnvironment.environmentId
+      : null,
+  );
   const activeEnvironmentUnavailable =
-    activeEnvironment !== null && activeEnvironmentConnectionPhase !== "connected";
+    activeEnvironment !== null &&
+    activeEnvironmentConnectionPhase !== "connected" &&
+    (!activeEnvironmentOutageIsTransient || activeEnvironmentOutageSustained);
   const activeEnvironmentUnavailableLabel = activeEnvironment?.label ?? null;
   const activeEnvironmentUnavailableState = useMemo<EnvironmentUnavailableState | null>(() => {
     if (!activeEnvironmentUnavailable || !activeEnvironmentUnavailableLabel || !activeEnvironment) {
@@ -1688,6 +1703,11 @@ function ChatViewContent(props: ChatViewProps) {
       const connection = activeEnvironmentUnavailableState.connection;
       const isReconnecting =
         connection.phase === "connecting" || connection.phase === "reconnecting";
+      // A sign-in-blocked primary environment offers re-auth instead of a
+      // pointless reconnect (retrying without a valid session keeps failing).
+      const offerSignIn =
+        connection.needsSignIn === true &&
+        activeEnvironmentUnavailableState.environmentId === primaryEnvironmentId;
       items.push({
         id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
         variant: connection.phase === "error" ? "error" : "warning",
@@ -1698,17 +1718,23 @@ function ChatViewContent(props: ChatViewProps) {
           "Reconnect this environment before sending messages or running actions.",
         actions: (
           <>
-            <Button
-              size="xs"
-              disabled={isReconnecting}
-              onClick={() =>
-                void handleReconnectActiveEnvironment(
-                  activeEnvironmentUnavailableState.environmentId,
-                )
-              }
-            >
-              {isReconnecting ? "Reconnecting..." : "Reconnect"}
-            </Button>
+            {offerSignIn ? (
+              <Button size="xs" onClick={() => window.location.assign("/pair")}>
+                Sign in
+              </Button>
+            ) : (
+              <Button
+                size="xs"
+                disabled={isReconnecting}
+                onClick={() =>
+                  void handleReconnectActiveEnvironment(
+                    activeEnvironmentUnavailableState.environmentId,
+                  )
+                }
+              >
+                {isReconnecting ? "Reconnecting..." : "Reconnect"}
+              </Button>
+            )}
             <Button
               size="xs"
               variant="outline"
@@ -1744,6 +1770,7 @@ function ChatViewContent(props: ChatViewProps) {
     activeEnvironmentUnavailableState,
     handleReconnectActiveEnvironment,
     navigate,
+    primaryEnvironmentId,
     showVersionMismatchBanner,
     versionMismatch,
     versionMismatchDismissKey,

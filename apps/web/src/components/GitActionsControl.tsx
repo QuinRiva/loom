@@ -1033,13 +1033,15 @@ export default function GitActionsControl({
           return;
         }
 
-        const worktreePath = activeServerThread.worktreePath;
+        // Deliberately omit `worktreePath`: `thread.meta.update` patches only
+        // the fields provided, and echoing the client's (possibly stale) view of
+        // the binding here once erased a server-provisioned worktree binding
+        // mid-bootstrap. Branch sync owns the branch field, nothing else.
         void updateThreadMetadata({
           environmentId: activeThreadRef.environmentId,
           input: {
             threadId: activeThreadRef.threadId,
             branch,
-            worktreePath,
           },
         });
 
@@ -1122,13 +1124,24 @@ export default function GitActionsControl({
       return;
     }
 
-    // The observed git status is strictly cwd-keyed. Mid-bootstrap, the thread's
-    // worktreePath flips to the new checkout before gitCwd (and thus the status
-    // target) catches up, so the status still describes a foreign checkout (e.g.
-    // the project root on main). Syncing then would clobber the thread branch.
-    const threadCheckoutCwd =
-      activeServerThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null;
-    if (threadCheckoutCwd !== null && threadCheckoutCwd !== gitCwd) {
+    // Only ever "correct" the thread branch from git status that provably comes
+    // from the thread's own checkout. The observed status is strictly cwd-keyed,
+    // and for a server thread the only checkout that is provably its own is its
+    // bound worktree. When worktreePath is null the status describes the shared
+    // project root — either a local-mode thread (the toolbar reads live git
+    // status directly, so persisting the sync is cosmetic at best) or the
+    // bootstrap window in which the server has just provisioned a worktree the
+    // client hasn't learned about yet. Syncing in that window has corrupted
+    // thread state twice (58750e2a9 and the incident behind this guard), so the
+    // project root is never treated as authoritative for a server thread.
+    if (activeServerThread) {
+      if (activeServerThread.worktreePath === null || activeServerThread.worktreePath !== gitCwd) {
+        return;
+      }
+    } else if (
+      activeDraftThread?.worktreePath != null &&
+      activeDraftThread.worktreePath !== gitCwd
+    ) {
       return;
     }
 

@@ -654,6 +654,19 @@ const make = Effect.gen(function* () {
         return existingSessionThreadId;
       }
 
+      // A cwd-change restart driven by the workspaceRoot FALLBACK (worktreePath
+      // null) while the running session lives in some other checkout is the
+      // visible symptom of a lost worktree binding — make it loud.
+      if (cwdChanged && thread.worktreePath === null && activeSession?.cwd !== undefined) {
+        yield* Effect.logWarning(
+          "provider command reactor cwd restart falls back to project workspaceRoot; the previous session ran elsewhere — possible lost worktree binding",
+          {
+            threadId,
+            previousCwd: activeSession.cwd,
+            fallbackCwd: effectiveCwd,
+          },
+        );
+      }
       const resumeCursor = shouldRestartForModelChange
         ? undefined
         : (activeSession?.resumeCursor ?? undefined);

@@ -691,6 +691,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: thread.projectId,
         });
       }
+      // Clearing an existing worktree binding downgrades the thread's cwd to the
+      // project-root fallback on the next turn. Legitimate flows exist (the
+      // branch selector rebinding a thread to the project root), but a client
+      // echoing a stale null has silently erased a just-provisioned binding
+      // before — so binding loss must at least be loud.
+      if (command.worktreePath === null && thread.worktreePath !== null) {
+        yield* Effect.logWarning("thread.meta.update clears an existing worktree binding", {
+          threadId: command.threadId,
+          commandId: command.commandId,
+          previousWorktreePath: thread.worktreePath,
+          ...(command.branch !== undefined ? { requestedBranch: command.branch } : {}),
+        });
+      }
       const occurredAt = yield* nowIso;
       const metaUpdatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
