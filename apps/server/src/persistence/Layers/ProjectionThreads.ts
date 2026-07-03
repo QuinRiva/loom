@@ -14,13 +14,21 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadAttention, ThreadId } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  ThreadAttention,
+  ThreadId,
+  WorkOutcomeRecord,
+  WorkstreamRoute,
+} from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     attention: Schema.fromJsonString(ThreadAttention),
     blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
+    routes: Schema.fromJsonString(Schema.Array(WorkstreamRoute)),
+    lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -45,6 +53,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by,
           spawn_generation,
           report_path,
+          routes,
+          gate_rounds,
+          pending_rework,
+          last_outcome,
           title,
           model_selection_json,
           runtime_mode,
@@ -78,6 +90,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${JSON.stringify(row.blockedBy)},
           ${row.spawnGeneration},
           ${row.reportPath},
+          ${JSON.stringify(row.routes)},
+          ${row.gateRounds},
+          ${row.pendingRework},
+          ${row.lastOutcome === null ? null : JSON.stringify(row.lastOutcome)},
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -111,6 +127,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by = excluded.blocked_by,
           spawn_generation = excluded.spawn_generation,
           report_path = excluded.report_path,
+          routes = excluded.routes,
+          gate_rounds = excluded.gate_rounds,
+          pending_rework = excluded.pending_rework,
+          last_outcome = excluded.last_outcome,
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -151,6 +171,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           report_path AS "reportPath",
+          routes,
+          gate_rounds AS "gateRounds",
+          pending_rework AS "pendingRework",
+          last_outcome AS "lastOutcome",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -193,6 +217,10 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           report_path AS "reportPath",
+          routes,
+          gate_rounds AS "gateRounds",
+          pending_rework AS "pendingRework",
+          last_outcome AS "lastOutcome",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",

@@ -67,6 +67,10 @@ const readModel: OrchestrationReadModel = {
       blockedBy: [],
       spawnGeneration: null,
       reportPath: null,
+      routes: [],
+      gateRounds: 0,
+      pendingRework: false,
+      lastOutcome: null,
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -104,6 +108,10 @@ const readModel: OrchestrationReadModel = {
       blockedBy: [],
       spawnGeneration: null,
       reportPath: null,
+      routes: [],
+      gateRounds: 0,
+      pendingRework: false,
+      lastOutcome: null,
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

@@ -4,9 +4,14 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   childrenOf,
   descendantsOf,
+  type GateNode,
   graphViewFor,
   type GraphViewThread,
+  isMemberOfUnresolvedGate,
   isTerminalForJoin,
+  isWaitingInGate,
+  requiresSubmitToComplete,
+  routeWorkSubmit,
   selectJoinedGenerations,
   subtreeCostOf,
   subtreeOf,
@@ -289,5 +294,206 @@ describe("graphViewFor", () => {
     ];
     const view = graphViewFor(tid("reviewer"), withDeps);
     expect(view.waitsOnEdges).toEqual([{ from: tid("reviewer"), to: tid("coder") }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review gates (docs/design/workstream-review-gates.md §4–§6)
+// ---------------------------------------------------------------------------
+
+const gnode = (overrides: Omit<Partial<GateNode>, "id"> & { readonly id: string }): GateNode => ({
+  planLane: "in_progress" as ThreadPlanLane,
+  routes: [],
+  gateRounds: 0,
+  pendingRework: false,
+  lastOutcome: null,
+  ...overrides,
+  id: tid(overrides.id),
+});
+
+const loopRoutes = (to: string, maxRounds?: number): GateNode["routes"] => [
+  {
+    on: ["needs_rework"],
+    kind: "loop",
+    to: tid(to),
+    ...(maxRounds !== undefined ? { maxRounds } : {}),
+  },
+  { on: ["clean", "fixed_inline"], kind: "resolve" },
+];
+
+const byId = (threads: ReadonlyArray<GateNode>) => new Map(threads.map((t) => [t.id, t] as const));
+
+describe("routeWorkSubmit", () => {
+  it("routes plain done to terminal and unknown outcomes to yield (no routes anywhere)", () => {
+    const t = gnode({ id: "t" });
+    expect(routeWorkSubmit(t, [t], "done")).toMatchObject({ decision: "terminal", round: 0 });
+    expect(routeWorkSubmit(t, [t], "rework_approach")).toMatchObject({ decision: "yield" });
+  });
+
+  it("routes needs_human to attention even for a gate source (reserved token wins)", () => {
+    const coder = gnode({ id: "coder", planLane: "done" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_human")).toMatchObject({
+      decision: "attention",
+    });
+  });
+
+  it("loops needs_rework to the coder while rounds remain, advancing the round", () => {
+    const coder = gnode({ id: "coder", planLane: "done" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toEqual({
+      decision: "loop",
+      round: 1,
+      routeTo: tid("coder"),
+      resolveWith: null,
+    });
+  });
+
+  it("breaches at the cap: needs_rework with gateRounds === maxRounds yields as cap-breach", () => {
+    const coder = gnode({ id: "coder", planLane: "in_progress" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder", 2), gateRounds: 2 });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toMatchObject({
+      decision: "cap-breach",
+      round: 2,
+      routeTo: null,
+    });
+  });
+
+  it("R4: a cancelled (or missing) loop target degrades needs_rework to a yield", () => {
+    const coder = gnode({ id: "coder", planLane: "cancelled" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toMatchObject({
+      decision: "yield",
+    });
+    expect(routeWorkSubmit(reviewer, [reviewer], "needs_rework")).toMatchObject({
+      decision: "yield",
+    });
+  });
+
+  it("resolves clean/fixed_inline, completing a non-terminal counterpart alongside", () => {
+    const coder = gnode({ id: "coder", planLane: "in_progress" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
+      decision: "resolve",
+      resolveWith: tid("coder"),
+    });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "fixed_inline")).toMatchObject({
+      decision: "resolve",
+      resolveWith: tid("coder"),
+    });
+  });
+
+  it("resolve leaves an already-done counterpart alone (round 0, no loop ever taken)", () => {
+    const coder = gnode({ id: "coder", planLane: "done" });
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
+      decision: "resolve",
+      resolveWith: null,
+    });
+  });
+
+  it("intercepts the coder's done during an open rework round, routing back to the source", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({ id: "coder", pendingRework: true });
+    expect(routeWorkSubmit(coder, [reviewer, coder], "done")).toEqual({
+      decision: "loop",
+      round: 1,
+      routeTo: tid("reviewer"),
+      resolveWith: null,
+    });
+  });
+
+  it("does NOT intercept when the gate dissolved (source terminal) — done is plain terminal", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), planLane: "done" });
+    const coder = gnode({ id: "coder", pendingRework: true });
+    expect(routeWorkSubmit(coder, [reviewer, coder], "done")).toMatchObject({
+      decision: "terminal",
+    });
+  });
+
+  it("a non-done outcome from the coder mid-round yields (findings unimplementable etc.)", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({ id: "coder", pendingRework: true });
+    expect(routeWorkSubmit(coder, [reviewer, coder], "findings_unimplementable")).toMatchObject({
+      decision: "yield",
+    });
+  });
+});
+
+describe("isWaitingInGate", () => {
+  it("suppresses the source while its target holds an open rework round", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({ id: "coder", pendingRework: true });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
+  });
+
+  it("suppresses the routed-back target while the source owes the re-verify", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({
+      id: "coder",
+      pendingRework: false,
+      lastOutcome: { decision: "loop" },
+    });
+    expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(true);
+  });
+
+  it("R4: a cancelled counterpart never suppresses (the dead gate must surface)", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const coder = gnode({ id: "coder", planLane: "cancelled", pendingRework: true });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
+  });
+
+  it("does not suppress a source whose target has no open round (forgot-to-finish applies)", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    const coder = gnode({ id: "coder" });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
+  });
+
+  it("does not suppress a target once the gate resolved (source terminal)", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      planLane: "done",
+      gateRounds: 1,
+    });
+    const coder = gnode({ id: "coder", lastOutcome: { decision: "loop" } });
+    expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(false);
+  });
+});
+
+describe("isMemberOfUnresolvedGate (generation-join gating)", () => {
+  it("marks both parties while the source is non-terminal", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    const coder = gnode({ id: "coder", planLane: "done" });
+    const all = [reviewer, coder];
+    expect(isMemberOfUnresolvedGate(reviewer, all)).toBe(true);
+    expect(isMemberOfUnresolvedGate(coder, all)).toBe(true);
+  });
+
+  it("clears once the source is terminal (resolution or parent dissolution)", () => {
+    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), planLane: "done" });
+    const coder = gnode({ id: "coder", planLane: "done" });
+    const all = [reviewer, coder];
+    expect(isMemberOfUnresolvedGate(reviewer, all)).toBe(false);
+    expect(isMemberOfUnresolvedGate(coder, all)).toBe(false);
+  });
+
+  it("never marks gate-free threads", () => {
+    const solo = gnode({ id: "solo", planLane: "done" });
+    expect(isMemberOfUnresolvedGate(solo, [solo])).toBe(false);
+  });
+});
+
+describe("requiresSubmitToComplete (§5.3 bypass guard predicate)", () => {
+  it("blocks a self-done on an open rework round or an unresolved gate source", () => {
+    expect(requiresSubmitToComplete(gnode({ id: "c", pendingRework: true }))).toBe(true);
+    expect(requiresSubmitToComplete(gnode({ id: "r", routes: loopRoutes("c") }))).toBe(true);
+  });
+
+  it("allows terminal threads and gate-free threads", () => {
+    expect(
+      requiresSubmitToComplete(gnode({ id: "r", routes: loopRoutes("c"), planLane: "done" })),
+    ).toBe(false);
+    expect(requiresSubmitToComplete(gnode({ id: "plain" }))).toBe(false);
   });
 });

@@ -131,10 +131,15 @@ export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "defau
 // deliberately small. `in_progress` is control-plane-only (set by the
 // dispatcher at kickoff); agents/humans may set the others. `done` is the only
 // lane that releases dependents; `cancelled` is terminal but does not.
+// `yielded` (review-gates design §5) is control-plane-only too: a submit whose
+// outcome matched no route parks the thread turn-over, parent-woken — neither
+// terminal (the generation join does not count it) nor releasing. Any
+// turn-start on a `yielded` thread reverts it to `in_progress`.
 export const ThreadPlanLane = Schema.Literals([
   "planned",
   "ready",
   "in_progress",
+  "yielded",
   "done",
   "cancelled",
 ]);
@@ -160,6 +165,65 @@ export const AttentionReason = Schema.Literals([
 export type AttentionReason = typeof AttentionReason.Type;
 export const ThreadAttention = Schema.Array(AttentionReason);
 export type ThreadAttention = typeof ThreadAttention.Type;
+
+// ---------------------------------------------------------------------------
+// Review gates (docs/design/workstream-review-gates.md §4, §8).
+// ---------------------------------------------------------------------------
+
+/** Default loop-round cap for a review gate when the spawner sets none. */
+export const DEFAULT_GATE_MAX_ROUNDS = 2;
+
+/**
+ * An outcome-predicated route edge on the thread that EMITS the outcomes (the
+ * gate source, e.g. the reviewer). `loop` re-dispatches the counterpart named
+ * by `to` (round-capped); `resolve` completes the gate (both parties `done`).
+ * Outcomes matching no edge yield the thread to the live orchestrator.
+ */
+export const WorkstreamRoute = Schema.Struct({
+  // Outcome tokens this edge matches (open strings — the generic primitive).
+  on: Schema.Array(TrimmedNonEmptyString),
+  kind: Schema.Literals(["loop", "resolve"]),
+  // Loop target (required for kind=loop; unused for resolve).
+  to: Schema.optional(ThreadId),
+  // Loop only; defaults to DEFAULT_GATE_MAX_ROUNDS.
+  maxRounds: Schema.optional(NonNegativeInt),
+});
+export type WorkstreamRoute = typeof WorkstreamRoute.Type;
+
+/** The routing verdict the decider reached for a submitted outcome. */
+export const WorkOutcomeDecision = Schema.Literals([
+  "terminal",
+  "loop",
+  "resolve",
+  "yield",
+  "cap-breach",
+  "attention",
+]);
+export type WorkOutcomeDecision = typeof WorkOutcomeDecision.Type;
+
+/** Reviewer finding counts, opaque to routing — audit trail + UI verdict chip. */
+export const WorkOutcomeCounts = Schema.Struct({
+  mustFix: NonNegativeInt,
+  niceToHave: NonNegativeInt,
+});
+export type WorkOutcomeCounts = typeof WorkOutcomeCounts.Type;
+
+/**
+ * Projected record of a thread's most recent submitted outcome (`lastOutcome`).
+ * `recordedByEventId` is the id of the `thread.outcome-recorded` event that
+ * produced it — the durable per-yield-episode key the dispatcher's wake rail
+ * dedups on (design §6).
+ */
+export const WorkOutcomeRecord = Schema.Struct({
+  outcome: TrimmedNonEmptyString,
+  decision: WorkOutcomeDecision,
+  round: NonNegativeInt,
+  contested: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  counts: Schema.optional(WorkOutcomeCounts),
+  recordedByEventId: EventId,
+  at: IsoDateTime,
+});
+export type WorkOutcomeRecord = typeof WorkOutcomeRecord.Type;
 
 // Migration-only (design §9): the pre-three-axis stored status. Retained solely
 // so historical `thread.status-set` events still decode on replay and remap
@@ -437,6 +501,14 @@ export const OrchestrationThread = Schema.Struct({
   reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Review gates (design §8): outcome route edges + projected loop counters.
+  // All decode-defaulted so pre-gate snapshots load.
+  routes: Schema.Array(WorkstreamRoute).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  gateRounds: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  pendingRework: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  lastOutcome: Schema.NullOr(WorkOutcomeRecord).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -591,6 +663,13 @@ export const OrchestrationThreadShell = Schema.Struct({
   reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Review gates (design §8): see OrchestrationThread.
+  routes: Schema.Array(WorkstreamRoute).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  gateRounds: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  pendingRework: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  lastOutcome: Schema.NullOr(WorkOutcomeRecord).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -732,6 +811,9 @@ const ThreadCreateCommand = Schema.Struct({
   // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
   // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
+  // Review gates (design §4): outcome route edges declared at spawn (compiled
+  // from the spawn `gate` sugar). Omitted ⇒ no routes.
+  routes: Schema.optional(Schema.Array(WorkstreamRoute)),
   // Initial plan lane. Spawns pass `ready` (runs once deps clear) or `planned`
   // (staged/held for the review-the-graph flow). Omitted on root/manual
   // creation — defaults to `planned` via the read-model decode default.
@@ -905,6 +987,13 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // re-engagement activity). Never set by clients — normal user/agent
   // turn-starts must not flip the plan lane.
   setInProgress: Schema.optional(Schema.Boolean),
+  // Review gates (design §5.2): server-only flag set by the dispatcher's gate
+  // pass when it loops work back to a coder whose round-0 `done` must be
+  // reopened. The decider accepts it only on `server:`-prefixed command ids and
+  // only from `done` (never `cancelled`), atomically reverting the lane to
+  // `in_progress` in the same transaction. Contract-only until Phase 3 wires
+  // the gate pass; nothing sets it before then.
+  reopen: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -1181,13 +1270,20 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// D-notify: records the on-disk pointer to a sub-thread's completion report.
-// The markdown content lives on disk; only the pointer is event-sourced.
-const ThreadReportSetCommand = Schema.Struct({
-  type: Schema.Literal("thread.report.set"),
+// Review gates (design §3): the single terminal call. Carries the on-disk
+// report pointer (the HTTP handler wrote the markdown) plus a structured
+// outcome; the decider derives the report-set + outcome-recorded + lane events
+// in ONE transaction. REPLACES the old `thread.report.set` command (the
+// `thread.report-set` EVENT stays in the enum so history replays).
+const ThreadWorkSubmitCommand = Schema.Struct({
+  type: Schema.Literal("thread.work.submit"),
   commandId: CommandId,
   threadId: ThreadId,
   reportPath: TrimmedNonEmptyString,
+  // Omitted ⇒ "done" (plain completion, exactly the old two-call semantics).
+  outcome: Schema.optional(TrimmedNonEmptyString),
+  contested: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  counts: Schema.optional(WorkOutcomeCounts),
   createdAt: IsoDateTime,
 });
 
@@ -1213,7 +1309,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
-  ThreadReportSetCommand,
+  ThreadWorkSubmitCommand,
   ThreadTurnStartFailCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -1266,6 +1362,10 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-diff-completed",
   "thread.activity-appended",
   "thread.report-set",
+  // Review gates (design §3.2/§4.3): the structured outcome audit trail and the
+  // control-plane loop traversals.
+  "thread.outcome-recorded",
+  "thread.route-taken",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1369,6 +1469,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   planLane: Schema.optional(ThreadPlanLane),
   attention: Schema.optional(ThreadAttention),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
+  routes: Schema.optional(Schema.Array(WorkstreamRoute)),
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1568,6 +1669,28 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
 export const ThreadReportSetPayload = Schema.Struct({
   threadId: ThreadId,
   reportPath: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+
+// Review gates (design §3.2): one record per submit — the outcome token, the
+// routing verdict the decider reached, and the loop round it applies to.
+export const ThreadOutcomeRecordedPayload = Schema.Struct({
+  threadId: ThreadId,
+  outcome: TrimmedNonEmptyString,
+  decision: WorkOutcomeDecision,
+  round: NonNegativeInt,
+  contested: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  counts: Schema.optional(WorkOutcomeCounts),
+  updatedAt: IsoDateTime,
+});
+
+// Review gates (design §4.3): a control-plane loop traversal from `threadId`
+// (the routing source) to `to`. The dispatcher's gate pass reacts to it;
+// `gateRounds`/`pendingRework` are projected from it (Phase 3).
+export const ThreadRouteTakenPayload = Schema.Struct({
+  threadId: ThreadId,
+  to: ThreadId,
+  round: NonNegativeInt,
   updatedAt: IsoDateTime,
 });
 
@@ -1782,6 +1905,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.report-set"),
     payload: ThreadReportSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.outcome-recorded"),
+    payload: ThreadOutcomeRecordedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.route-taken"),
+    payload: ThreadRouteTakenPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

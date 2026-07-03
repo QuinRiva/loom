@@ -19,6 +19,8 @@ import {
   ThreadId,
   ThreadPlanLane,
   TurnId,
+  WorkOutcomeRecord,
+  WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -40,6 +42,12 @@ export const ProjectionThread = Schema.Struct({
   blockedBy: Schema.Array(ThreadId),
   spawnGeneration: Schema.NullOr(Schema.String),
   reportPath: Schema.NullOr(Schema.String),
+  // Review gates (design §8): route edges + projected loop counters.
+  // `pendingRework` is stored as 0/1 (SQLite has no boolean).
+  routes: Schema.Array(WorkstreamRoute),
+  gateRounds: NonNegativeInt,
+  pendingRework: NonNegativeInt,
+  lastOutcome: Schema.NullOr(WorkOutcomeRecord),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

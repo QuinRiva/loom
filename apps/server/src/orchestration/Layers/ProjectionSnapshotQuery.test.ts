@@ -295,6 +295,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           blockedBy: [],
           spawnGeneration: null,
           reportPath: null,
+          routes: [],
+          gateRounds: 0,
+          pendingRework: false,
+          lastOutcome: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -420,6 +424,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           blockedBy: [],
           spawnGeneration: null,
           reportPath: null,
+          routes: [],
+          gateRounds: 0,
+          pendingRework: false,
+          lastOutcome: null,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

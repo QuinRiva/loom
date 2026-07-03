@@ -25,11 +25,13 @@ import {
   formatRelativeAge,
   getActivity,
   getAttentionBadges,
+  getGateWaitLabel,
   getLastActivityAt,
   getPurpose,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
+  getVerdictChip,
   groupChildrenByColumn,
   hasRunningSignal,
   SETTABLE_LANES,
@@ -447,6 +449,11 @@ function WorkstreamCard({
   const isRunning = hasRunningSignal(thread);
   const isBlocked = status.column === "blocked";
   const badges = getAttentionBadges(thread);
+  // Review-gate overlays (design §10): the gate source's verdict chip from its
+  // last submitted outcome, and the "waiting in gate" badge on whichever party
+  // is idle-by-design while its counterpart holds the active leg.
+  const verdictChip = getVerdictChip(thread);
+  const gateWait = getGateWaitLabel(thread, childById);
   // Quiet metadata (model · spend · context) rides in the header next to the age
   // as muted text. Context% is a health signal, not a vanity stat: hidden below
   // 20% (a near-empty window says nothing actionable), shown muted 20-50%, red
@@ -539,7 +546,7 @@ function WorkstreamCard({
         </div>
       </button>
 
-      {badges.length > 0 ? (
+      {badges.length > 0 || verdictChip || gateWait ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {badges.map(({ reason, label }) => {
             const style = ATTENTION_STYLES[reason];
@@ -552,6 +559,22 @@ function WorkstreamCard({
               </span>
             );
           })}
+          {verdictChip ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
+              title="Latest review verdict submitted by this gate source"
+            >
+              {verdictChip.label}
+            </span>
+          ) : null}
+          {gateWait ? (
+            <span
+              className="rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/55"
+              title="Idle by design — the gate counterpart holds the active leg"
+            >
+              {gateWait}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -573,6 +596,13 @@ function WorkstreamCard({
               // value, but never user-assignable.
               <option disabled value="in_progress" className="bg-[#12171f] text-white/50">
                 {COLUMN_SHORT_LABELS.in_progress}
+              </option>
+            ) : null}
+            {thread.planLane === "yielded" ? (
+              // Control-plane-set (submit routing): shown so the select has a
+              // matching value, but never user-assignable — a message resumes it.
+              <option disabled value="yielded" className="bg-[#12171f] text-white/50">
+                {COLUMN_SHORT_LABELS.yielded}
               </option>
             ) : null}
           </select>

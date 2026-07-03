@@ -1,11 +1,13 @@
 import {
   AttentionReason,
   CommandId,
+  DEFAULT_GATE_MAX_ROUNDS,
   MessageId,
   ModelSelection,
   ThreadId,
   ThreadPlanLane,
   type OrchestrationCommand,
+  type WorkstreamRoute,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -15,7 +17,13 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import { graphViewFor, subtreeOf } from "@t3tools/shared/workstreamGraph";
+import {
+  gateLoopTargetOf,
+  graphViewFor,
+  requiresSubmitToComplete,
+  routeWorkSubmit,
+  subtreeOf,
+} from "@t3tools/shared/workstreamGraph";
 
 import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -40,6 +48,7 @@ interface WorkstreamSpawnRequest {
   readonly modelSelection?: unknown;
   readonly modelPreset?: unknown;
   readonly staged?: unknown;
+  readonly gate?: unknown;
 }
 
 interface WorkstreamLaneRequest {
@@ -66,8 +75,11 @@ interface WorkstreamDependenciesRequest {
   readonly blockedBy?: unknown;
 }
 
-interface WorkstreamReportRequest {
+interface WorkstreamSubmitRequest {
   readonly markdown?: unknown;
+  readonly outcome?: unknown;
+  readonly contested?: unknown;
+  readonly counts?: unknown;
 }
 
 interface WorkstreamConsultThreadRequest {
@@ -87,7 +99,7 @@ const RELEASE_PATH = "/provider-tools/workstream/release";
 const STOP_PATH = "/provider-tools/workstream/stop";
 const PROMPT_PATH = "/provider-tools/workstream/prompt";
 const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
-const REPORT_PATH = "/provider-tools/workstream/report";
+const SUBMIT_PATH = "/provider-tools/workstream/submit";
 const LIST_PATH = "/provider-tools/workstream/list";
 const CONSULT_THREAD_PATH = "/provider-tools/workstream/consult-thread";
 const SET_TITLE_PATH = "/provider-tools/thread/set-title";
@@ -216,8 +228,8 @@ export const workstreamPromptUrlFromMcpEndpoint = (mcpEndpoint: string): string 
 export const workstreamDependenciesUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, DEPENDENCIES_PATH);
 
-export const workstreamReportUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, REPORT_PATH);
+export const workstreamSubmitUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
+  workstreamUrlFromMcpEndpoint(mcpEndpoint, SUBMIT_PATH);
 
 export const workstreamListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
   workstreamUrlFromMcpEndpoint(mcpEndpoint, LIST_PATH);
@@ -268,6 +280,26 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   ) {
     return jsonError(400, "blockedBy must be an array of non-empty thread id strings.");
   }
+  // Review gates (design §4.2): the v1 gate sugar. Shape-validate here; the
+  // sibling rule is checked against the projection below.
+  const gate =
+    typeof body.gate === "object" && body.gate !== null && !Array.isArray(body.gate)
+      ? (body.gate as { readonly rework?: unknown; readonly maxRounds?: unknown })
+      : undefined;
+  const gateRework = gate === undefined ? undefined : trimString(gate.rework);
+  if (body.gate !== undefined) {
+    if (gate === undefined || !gateRework) {
+      return jsonError(400, "gate must be an object with a non-empty rework thread id.");
+    }
+    if (
+      gate.maxRounds !== undefined &&
+      (typeof gate.maxRounds !== "number" ||
+        !Number.isInteger(gate.maxRounds) ||
+        gate.maxRounds < 1)
+    ) {
+      return jsonError(400, "gate.maxRounds must be a positive integer.");
+    }
+  }
 
   const projection = yield* ProjectionSnapshotQuery;
   const parent = yield* projection.getThreadDetailById(scope.threadId);
@@ -275,6 +307,30 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     return jsonError(404, "Current provider thread was not found.");
   }
   const current = parent.value;
+
+  // Gate sibling rule (design §4.2, mirrors areDependenciesSatisfied): the loop
+  // target must be an existing thread the SPAWNER directly parents — the new
+  // reviewer and the coder become siblings, and the parent declaring the edge
+  // is the pre-authorisation for sibling→sibling report delivery.
+  let routes: ReadonlyArray<WorkstreamRoute> | undefined;
+  if (gateRework !== undefined) {
+    const reworkTarget = yield* projection.getThreadDetailById(ThreadId.make(gateRework));
+    if (Option.isNone(reworkTarget) || reworkTarget.value.parentThreadId !== scope.threadId) {
+      return jsonError(
+        400,
+        "gate.rework must name an existing sibling: a thread this thread directly parents.",
+      );
+    }
+    routes = [
+      {
+        on: ["needs_rework"],
+        kind: "loop",
+        to: reworkTarget.value.id,
+        maxRounds: (gate?.maxRounds as number | undefined) ?? DEFAULT_GATE_MAX_ROUNDS,
+      },
+      { on: ["clean", "fixed_inline"], kind: "resolve" },
+    ];
+  }
 
   // Model + thinking are intrinsic node config. Precedence:
   //   1. explicit `modelSelection` (decoded; invalid → 400),
@@ -336,6 +392,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     purpose,
     ...(brief !== undefined ? { brief } : {}),
     ...(blockedBy !== undefined ? { blockedBy } : {}),
+    ...(routes !== undefined ? { routes } : {}),
     planLane,
     spawnGeneration,
     title,
@@ -379,6 +436,22 @@ const handleWorkstreamSetLane = Effect.gen(function* () {
   const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
   const denied = yield* authorizationError(scope.threadId, targetThreadId);
   if (denied) return denied;
+
+  // Bypass guard (review-gates design §5.3), keyed off the ACTOR SCOPE: a gate
+  // party may not SELF-set `done` around the routing — with an open rework
+  // round or an unresolved gate as source, completion must go through
+  // workstream_submit so the outcome routes the gate. A parent-issued lane
+  // change (targetThreadId !== scope.threadId) deliberately bypasses this
+  // (decision 9: parent overrides dissolve gates).
+  if (planLane === "done" && targetThreadId === scope.threadId) {
+    const self = yield* (yield* ProjectionSnapshotQuery).getThreadDetailById(targetThreadId);
+    if (Option.isSome(self) && requiresSubmitToComplete(self.value)) {
+      return jsonError(
+        409,
+        "This thread is part of an active review gate; finish with workstream_submit (your outcome routes the gate) instead of setting your own lane to done.",
+      );
+    }
+  }
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
@@ -639,7 +712,10 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
   ),
 );
 
-const handleWorkstreamReport = Effect.gen(function* () {
+// Review gates (design §3): the single terminal call. Writes the report file
+// and dispatches `thread.work.submit`; the decider derives the report pointer,
+// the outcome record, and the lane/attention events in ONE transaction.
+const handleWorkstreamSubmit = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const scope = yield* resolveWorkstreamScope();
   if (!scope) {
@@ -647,36 +723,97 @@ const handleWorkstreamReport = Effect.gen(function* () {
   }
 
   const body = (yield* request.json.pipe(
-    Effect.orElseSucceed((): WorkstreamReportRequest => ({})),
-  )) as WorkstreamReportRequest;
+    Effect.orElseSucceed((): WorkstreamSubmitRequest => ({})),
+  )) as WorkstreamSubmitRequest;
   const markdown = typeof body.markdown === "string" ? body.markdown : undefined;
   if (markdown === undefined || markdown.trim().length === 0) {
     return jsonError(400, "markdown is required.");
   }
+  const outcome = body.outcome === undefined ? undefined : trimString(body.outcome);
+  if (body.outcome !== undefined && outcome === undefined) {
+    return jsonError(400, "outcome must be a non-empty string when present.");
+  }
+  if (
+    body.contested !== undefined &&
+    (!Array.isArray(body.contested) || !body.contested.every((entry) => trimString(entry)))
+  ) {
+    return jsonError(400, "contested must be an array of non-empty strings.");
+  }
+  const counts = body.counts as { mustFix?: unknown; niceToHave?: unknown } | undefined;
+  const isCount = (value: unknown) =>
+    typeof value === "number" && Number.isInteger(value) && value >= 0;
+  if (counts !== undefined && (!isCount(counts.mustFix) || !isCount(counts.niceToHave))) {
+    return jsonError(400, "counts must be { mustFix, niceToHave } with non-negative integers.");
+  }
 
-  // A child may upsert only its OWN report; the report is always keyed to the
-  // calling thread (no threadId override).
-  const reportPath = yield* writeWorkstreamReport(scope.threadId, markdown);
+  // Routing mirror (shared `routeWorkSubmit`, the same pure decision the
+  // decider makes): picks the per-round report file name for loop rounds
+  // (risk R2 — conserve every round's prose) and lets the tool response echo
+  // the routing decision (risk R5 — "you are not done yet" must be visible).
+  const effectiveOutcome = outcome ?? "done";
+  const snapshot = yield* (yield* ProjectionSnapshotQuery).getShellSnapshot();
+  const self = snapshot.threads.find((thread) => thread.id === scope.threadId);
+  const routing =
+    self === undefined ? undefined : routeWorkSubmit(self, snapshot.threads, effectiveOutcome);
+
+  // A child may submit only its OWN work; the report is always keyed to the
+  // calling thread (no threadId override). Loop rounds write
+  // `<threadId>.round-<n>.md`; round 0 / non-gate submits keep `<threadId>.md`.
+  const reportPath = yield* writeWorkstreamReport(
+    scope.threadId,
+    markdown,
+    routing?.decision === "loop" ? routing.round : null,
+  );
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
   const engine = yield* OrchestrationEngineService;
   yield* engine.dispatch({
-    type: "thread.report.set",
-    commandId: CommandId.make(`server:workstream-report:${yield* crypto.randomUUIDv4}`),
+    type: "thread.work.submit",
+    commandId: CommandId.make(`server:workstream-submit:${yield* crypto.randomUUIDv4}`),
     threadId: scope.threadId,
     reportPath,
+    ...(outcome !== undefined ? { outcome } : {}),
+    ...(Array.isArray(body.contested)
+      ? { contested: body.contested.map((entry) => (entry as string).trim()) }
+      : {}),
+    ...(counts !== undefined
+      ? { counts: { mustFix: counts.mustFix as number, niceToHave: counts.niceToHave as number } }
+      : {}),
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: scope.threadId, reportPath });
+  const decision = routing?.decision ?? (effectiveOutcome === "done" ? "terminal" : "yield");
+  const disposition =
+    decision === "terminal"
+      ? "done"
+      : decision === "attention"
+        ? "needs_human"
+        : decision === "loop"
+          ? "routed"
+          : decision === "resolve"
+            ? "resolved"
+            : "yielded";
+  return HttpServerResponse.jsonUnsafe({
+    threadId: scope.threadId,
+    reportPath,
+    outcome: effectiveOutcome,
+    disposition,
+    ...(routing !== undefined && decision === "loop"
+      ? {
+          routedTo: routing.routeTo,
+          round: routing.round,
+          // The source's findings route to the coder (rework); an intercepted
+          // target `done` routes back to the reviewer (reverify).
+          leg: gateLoopTargetOf(self!) === routing.routeTo ? "rework" : "reverify",
+        }
+      : {}),
+    ...(decision === "cap-breach" ? { reason: "cap-breach", round: routing?.round } : {}),
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
-      jsonError(
-        500,
-        error instanceof Error ? error.message : "Failed to record Workstream report.",
-      ),
+      jsonError(500, error instanceof Error ? error.message : "Failed to submit Workstream work."),
     ),
   ),
 );
@@ -866,10 +1003,10 @@ export const workstreamDependenciesRouteLayer = HttpRouter.add(
   DEPENDENCIES_PATH,
   handleWorkstreamSetDependencies,
 );
-export const workstreamReportRouteLayer = HttpRouter.add(
+export const workstreamSubmitRouteLayer = HttpRouter.add(
   "POST",
-  REPORT_PATH,
-  handleWorkstreamReport,
+  SUBMIT_PATH,
+  handleWorkstreamSubmit,
 );
 export const workstreamListRouteLayer = HttpRouter.add("POST", LIST_PATH, handleWorkstreamList);
 export const workstreamConsultThreadRouteLayer = HttpRouter.add(
@@ -891,7 +1028,7 @@ export const layer = Layer.mergeAll(
   workstreamStopRouteLayer,
   workstreamPromptRouteLayer,
   workstreamDependenciesRouteLayer,
-  workstreamReportRouteLayer,
+  workstreamSubmitRouteLayer,
   workstreamListRouteLayer,
   workstreamConsultThreadRouteLayer,
   setThreadTitleRouteLayer,

@@ -35,7 +35,8 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       "Name the work with three distinct fields: title is a short imperative label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
-      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run."
+      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run.",
+      "To put a coder under review, spawn the coder first, then spawn a reviewer with blockedBy: [coderId] AND gate: { rework: coderId }. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong)."
     ],
     parameters: {
       type: "object",
@@ -45,6 +46,16 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         brief: { type: "string", description: "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary." },
         title: { type: "string", description: "Short imperative label naming the work at a glance — the card's bold name, roughly ≤6 words (e.g. 'Fix spawn title fallback'). Distinct from purpose, which is the one-sentence why. Required." },
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
+        gate: {
+          type: "object",
+          description: "Declare a review gate on this child (typically a reviewer): rework names the sibling whose work it verifies. The child's workstream_submit outcomes then route in the control plane — 'needs_rework' loops that sibling for rework (round-capped), 'clean'/'fixed_inline' resolve the gate and complete both threads. Combine with blockedBy on the same sibling so the review starts after the work completes.",
+          properties: {
+            rework: { type: "string", description: "Thread id of the sibling this gate loops rework back to (the coder under review). Must be a thread you directly parent." },
+            maxRounds: { type: "number", description: "Maximum rework loops before the gate yields to you instead of looping again. Default 2." }
+          },
+          required: ["rework"],
+          additionalProperties: false
+        },
         staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a DAG for review before any tokens are spent; release it later with workstream_release." },
         modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
         modelSelection: {
@@ -93,7 +104,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     description: "Advance the PLAN of a T3 Code Workstream thread you own (this thread or one you directly spawned) along its lifecycle: planned (held) → ready (released) → done, or cancelled. 'done' is the only lane that releases dependents and lets the next thread start; 'cancelled' abandons the work and does NOT release dependents — and it CASCADES: cancelling a thread also cancels every non-terminal descendant (children, grandchildren, …) and interrupts any in-flight turn among them, so cancelling a runaway branch kills the whole chain beneath it (already-done descendants are left untouched). 'in_progress' is set automatically when a turn starts and is never settable here. This is the PLAN axis only — to flag that a human is needed, use workstream_request_attention instead.",
     promptSnippet: "advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'cancelled' cascades to the whole subtree and stops in-flight turns; 'in_progress' is automatic.",
     promptGuidelines: [
-      "Set 'done' when the work is genuinely complete — it releases any dependents/reviewers. Set 'cancelled' to abandon work (dependents stay blocked); cancelling cascades to the entire subtree below the target and interrupts any running turns, so one cancel kills a runaway branch.",
+      "Do NOT set 'done' to complete your own work — finish with workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output (on a gated reviewer it dissolves the gate). Set 'cancelled' to abandon work (dependents stay blocked); cancelling cascades to the entire subtree below the target and interrupts any running turns, so one cancel kills a runaway branch.",
       "Use 'ready'/'planned' to release or hold staged work. Omit threadId to advance your own plan; you may only set the lane on your own thread or threads you directly parent.",
       "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane — raise attention with workstream_request_attention."
     ],
@@ -236,29 +247,56 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   });
 
   pi.registerTool({
-    name: "workstream_report",
-    label: "Report Workstream Result",
-    description: "Record a deliberate markdown handoff of what this T3 Code Workstream sub-thread wants to communicate back to its parent orchestrator (not your whole transcript). The report is stored and shown to the parent when it is woken on your completion. Call this just before you advance your plan lane (e.g. to 'done') or raise attention.",
-    promptSnippet: "hand a concise markdown result back to your parent before you finish.",
+    name: "workstream_submit",
+    label: "Submit Workstream Work",
+    description: "THE single terminal call for a T3 Code Workstream sub-thread: submit your markdown report plus a structured outcome, and the control plane derives what happens next — you never set your own lane at completion. Omit outcome (or pass 'done') for plain completion: the report is recorded and your plan advances to done in one step, releasing dependents. Pass outcome 'needs_human' to record the report and raise the needs_guidance flag instead (a human is pulled in; your lane is unchanged). Any other outcome token (e.g. 'rework_approach', or review verdicts like 'needs_rework'/'clean'/'fixed_inline' when you are in a review gate) is routed by the control plane; an outcome with no matching route YIELDS you to your live parent orchestrator with your report — escalation is the safe default, and you are NOT done in that case.",
+    promptSnippet: "submit your report + outcome in one terminal call: plain completion → done; 'needs_human' → human flag; any other outcome → routed, unmatched outcomes yield you to your orchestrator.",
     promptGuidelines: [
-      "Write a self-contained markdown summary: what you did, key results/decisions, and anything the parent must act on.",
-      "Call workstream_report before you advance your plan lane (workstream_set_lane) or raise attention so the parent sees your report when it is woken.",
-      "Keep it a deliberate handoff, not a transcript dump."
+      "End your work with ONE call to workstream_submit: a self-contained markdown report (what you did, key results/decisions, anything the parent must act on — a deliberate handoff, not a transcript dump) plus an outcome. Do not call workstream_set_lane to finish.",
+      "Plain success → omit outcome. Cannot proceed without a human → outcome 'needs_human'. Concluded with something other than plain success (approach wrong, blocked on a decision) → a short outcome token explaining it; the control plane hands you to your orchestrator.",
+      "Read the tool result: it echoes the routing decision. 'yielded' or a rework route means you are NOT done yet."
     ],
     parameters: {
       type: "object",
       properties: {
-        markdown: { type: "string", description: "The markdown report to hand back to the parent orchestrator." }
+        markdown: { type: "string", description: "The markdown report to hand back — stored on disk and shown to whoever receives your work next (parent orchestrator, or the gate counterpart in a review loop)." },
+        outcome: { type: "string", description: "Structured outcome token. Omitted ⇒ 'done' (plain completion). Reserved: 'done', 'needs_human'. Review-gate verdicts (reviewers): 'clean', 'fixed_inline', 'needs_rework'. Any other token yields you to the orchestrator — use a short snake_case token like 'rework_approach'." },
+        contested: { type: "array", items: { type: "string" }, description: "Optional: findings you reject, verbatim-quotable — preserved on the audit trail (opaque to routing)." },
+        counts: {
+          type: "object",
+          description: "Optional reviewer finding counts for the verdict chip (opaque to routing).",
+          properties: {
+            mustFix: { type: "number", description: "Number of must-fix findings." },
+            niceToHave: { type: "number", description: "Number of nice-to-have findings." }
+          },
+          required: ["mustFix", "niceToHave"],
+          additionalProperties: false
+        }
       },
       required: ["markdown"],
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_REPORT_URL, params, signal);
+      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_SUBMIT_URL, params, signal);
       if (!outcome.ok) return outcome.error;
+      const result = outcome.result ?? {};
+      const submittedOutcome = result.outcome ?? params.outcome;
+      const text = result.disposition === "done"
+        ? "Work submitted: report recorded, plan advanced to done (dependents released)."
+        : result.disposition === "needs_human"
+          ? "Work submitted: report recorded and needs_guidance raised — a human has been flagged; your lane is unchanged."
+          : result.disposition === "resolved"
+            ? "Work submitted with outcome '" + submittedOutcome + "': the review gate RESOLVED — you and your gate counterpart are both done (dependents released)."
+            : result.disposition === "routed"
+              ? (result.leg === "reverify"
+                ? "Work submitted: routed to the reviewer for re-verification (round " + result.round + ") — you are NOT done yet; the control plane resumes you if further rework is needed."
+                : "Work submitted with outcome '" + submittedOutcome + "': findings routed to the coder for rework (round " + result.round + ") — you are NOT done; you will be resumed to re-verify the rework.")
+              : result.reason === "cap-breach"
+                ? "Work submitted with outcome '" + submittedOutcome + "': the review gate's round cap is exhausted, so you YIELDED to your parent orchestrator — you are NOT done; it decides what happens next."
+                : "Work submitted with outcome '" + submittedOutcome + "': no route matched, so you YIELDED to your parent orchestrator — you are NOT done; it will be woken with your report and decides what happens next.";
       return {
-        content: [{ type: "text", text: "Recorded Workstream report for the parent orchestrator." }],
-        details: { ok: true, ...outcome.result }
+        content: [{ type: "text", text }],
+        details: { ok: true, ...result }
       };
     }
   });

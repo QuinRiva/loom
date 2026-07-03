@@ -24,6 +24,7 @@ const ROW_GAP = 18; // between stacked members in a column
 const WAVE_GAP = 38; // between consecutive waves down the spine
 const NEST_INDENT = 26; // a sub-orchestrator's nested block, indented under its card
 const NEST_VGAP = 18; // card → its nested block
+const LOOP_ANCHOR_DROP = 16; // loop-edge anchors sit below card centre, under the waits-on edge
 
 export type Point = { readonly x: number; readonly y: number };
 export type ViewBox = {
@@ -56,10 +57,13 @@ export type LaidNode =
       readonly h: number;
     };
 
-export type EdgeKind = "spine" | "fork" | "blocked";
+export type EdgeKind = "spine" | "fork" | "blocked" | "loop";
 export interface LaidEdge {
   readonly kind: EdgeKind;
   readonly key: string;
+  /** Gate source thread (loop edges only) — the renderer resolves live
+   * `gateRounds`/`maxRounds` from it so round colour/badge track without re-layout. */
+  readonly sourceId?: ThreadId;
   x1: number;
   y1: number;
   x2: number;
@@ -225,6 +229,26 @@ function layoutOrchestrator(
           y1: source.y,
           x2: target.x,
           y2: target.y,
+        });
+      }
+    }
+    // Review-gate loop edges (review-gates design §10): a member carrying a
+    // loop route to a sibling in the same wave gets a reverse return arrow,
+    // anchored below the forward waits-on edge.
+    for (const member of members) {
+      const source = memberCardCenter.get(member.id)!;
+      for (const route of member.routes) {
+        if (route.kind !== "loop" || route.to === undefined || route.to === member.id) continue;
+        const loopTarget = memberIds.has(route.to) ? memberCardCenter.get(route.to) : undefined;
+        if (!loopTarget) continue;
+        edges.push({
+          kind: "loop",
+          key: `loop:${member.id}:${route.to}`,
+          sourceId: member.id,
+          x1: source.x,
+          y1: source.y + LOOP_ANCHOR_DROP,
+          x2: loopTarget.x + NODE_W,
+          y2: loopTarget.y + LOOP_ANCHOR_DROP,
         });
       }
     }

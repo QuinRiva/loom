@@ -817,6 +817,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,
             reportPath: null,
+            routes: event.payload.routes ?? [],
+            gateRounds: 0,
+            pendingRework: 0,
+            lastOutcome: null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -1029,6 +1033,69 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             reportPath: event.payload.reportPath,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // Review gates (design §3.2): record the submitted outcome + routing
+        // verdict; any recorded outcome closes an open rework round.
+        case "thread.outcome-recorded": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            lastOutcome: {
+              outcome: event.payload.outcome,
+              decision: event.payload.decision,
+              round: event.payload.round,
+              ...(event.payload.contested !== undefined
+                ? { contested: event.payload.contested }
+                : {}),
+              ...(event.payload.counts !== undefined ? { counts: event.payload.counts } : {}),
+              recordedByEventId: event.eventId,
+              at: event.payload.updatedAt,
+            },
+            pendingRework: 0,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // Review gates (design §4.3/§4.4): a loop-EDGE traversal (the source
+        // carries a loop route naming `to`) opens a rework round on the target
+        // and advances the source's round counter; a re-verify traversal
+        // advances neither. Mirrors the in-memory projector.
+        case "thread.route-taken": {
+          const fromRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(fromRow)) {
+            return;
+          }
+          const isLoopTraversal = fromRow.value.routes.some(
+            (route) => route.kind === "loop" && route.to === event.payload.to,
+          );
+          if (!isLoopTraversal) {
+            return;
+          }
+          const toRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.to,
+          });
+          if (Option.isSome(toRow)) {
+            yield* projectionThreadRepository.upsert({
+              ...toRow.value,
+              pendingRework: 1,
+              updatedAt: event.payload.updatedAt,
+            });
+          }
+          yield* projectionThreadRepository.upsert({
+            ...fromRow.value,
+            gateRounds: event.payload.round,
             updatedAt: event.payload.updatedAt,
           });
           return;

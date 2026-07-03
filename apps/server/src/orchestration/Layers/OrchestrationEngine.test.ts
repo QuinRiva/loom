@@ -144,6 +144,10 @@ describe("OrchestrationEngine", () => {
           blockedBy: [],
           spawnGeneration: null,
           reportPath: null,
+          routes: [],
+          gateRounds: 0,
+          pendingRework: false,
+          lastOutcome: null,
           title: "Bootstrap Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

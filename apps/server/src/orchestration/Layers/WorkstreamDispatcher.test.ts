@@ -21,7 +21,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildChildWakeMessage,
+  buildGateReverifyMessage,
+  buildGateReworkMessage,
   buildParentWakeMessage,
+  buildYieldWakeMessage,
+  gateCommandId,
+  yieldWakeCommandId,
   childWakeCommandId,
   classifyChildWake,
   classifyGenerationByReceipts,
@@ -69,6 +74,10 @@ const shell = (
     blockedBy: [],
     spawnGeneration: null,
     reportPath: null,
+    routes: [],
+    gateRounds: 0,
+    pendingRework: false,
+    lastOutcome: null,
     title: "Sub-thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
@@ -1301,5 +1310,814 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
           }).pipe(Effect.provide(buildLayer(dispatched)));
         }),
       ),
+  );
+});
+
+// Review gates Phase 2 (design §6): a child whose submit routed to `yielded`
+// wakes its parent exactly once per yield episode (keyed by the recording
+// outcome event id), through the shared receipt-deduped + idle-gated rail.
+// Exercised through the assembled dispatcher layer.
+describe("yield wake (yielded child hands its turn to the orchestrator), full dispatcher layer", () => {
+  const PARENT_ID = "parent-yield" as ThreadId;
+  const CHILD_ID = "child-yield" as ThreadId;
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const child = shell({
+    id: CHILD_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    planLane: "yielded",
+    session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
+    reportPath: "child-yield.md",
+    lastOutcome: {
+      outcome: "rework_approach",
+      decision: "yield",
+      round: 0,
+      recordedByEventId: "evt-outcome-1",
+      at: now,
+    } as unknown as OrchestrationThreadShell["lastOutcome"],
+  });
+
+  const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: [parent, child],
+          updatedAt: now,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-yield-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect(
+    "delivers exactly one yield wake per episode (deterministic command id), idempotent thereafter",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+            const wake = dispatched[0]!;
+            if (wake.type !== "thread.turn.start") {
+              throw new Error(`expected a thread.turn.start wake, got ${wake.type}`);
+            }
+            expect(wake.threadId).toBe(PARENT_ID);
+            expect(wake.commandId).toBe(yieldWakeCommandId(CHILD_ID, "evt-outcome-1"));
+            expect(wake.requireIdle).toBe(true);
+            expect(wake.message.text).toContain("YIELDED");
+            expect(wake.message.text).toContain("rework_approach");
+            expect(wake.message.text).toContain("child-yield.md");
+            expect(wake.message.text).toContain("NOT finished");
+            // A yielded child is neither idle-nagged nor generation-joined: the
+            // yield wake is the only dispatch, and further passes are no-ops.
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+          }).pipe(Effect.provide(buildLayer(dispatched)));
+        }),
+      ),
+  );
+});
+
+describe("buildYieldWakeMessage", () => {
+  it("marks the notice as control-plane, names the outcome, and lays out the decision menu", () => {
+    const text = buildYieldWakeMessage(
+      { id: "child-1" as ThreadId, role: "reviewer", reportPath: "child-1.md" },
+      "rework_approach",
+      "# Why\nThe approach is wrong.",
+    );
+    expect(text).toContain("[T3 Workstream control plane");
+    expect(text).toContain("`rework_approach`");
+    expect(text).toContain("child-1.md");
+    expect(text).toContain("The approach is wrong.");
+    expect(text).toContain("NOT finished");
+    expect(text).toContain("workstream_prompt");
+    expect(text).toContain("workstream_set_lane");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review gates Phase 3 (design §4.3/§6): the gate traversal pass, cap-breach
+// yield copy, idle-rail gate suppression, and generation-join gating.
+// ---------------------------------------------------------------------------
+
+describe("gate resume messages (pure builders)", () => {
+  it("gateCommandId is deterministic per (source, round, leg)", () => {
+    expect(gateCommandId("rev-1" as ThreadId, 2, "rework")).toBe(
+      "server:workstream-gate:rev-1:2:rework",
+    );
+    expect(gateCommandId("rev-1" as ThreadId, 2, "reverify")).toBe(
+      "server:workstream-gate:rev-1:2:reverify",
+    );
+  });
+
+  it("rework message carries marker, round, reference, adjudication rules, and routing visibility", () => {
+    const text = buildGateReworkMessage(
+      { id: "rev-1" as ThreadId, role: "reviewer", reportPath: "/reports/rev-1.round-1.md" },
+      1,
+      "## Findings\n1. Fix the null guard.",
+    );
+    expect(text).toContain("[T3 Workstream control plane");
+    expect(text).toContain("Review round 1");
+    expect(text).toContain("/reports/rev-1.round-1.md");
+    expect(text).toContain("Fix the null guard.");
+    expect(text).toContain("claims, not verdicts");
+    expect(text).toContain("routes back to the reviewer");
+    expect(text).toContain("NOT to done");
+  });
+
+  it("reverify message carries the delta-review discipline and the verdict routing", () => {
+    const text = buildGateReverifyMessage(
+      { id: "coder-1" as ThreadId, role: "coder", reportPath: "/reports/coder-1.round-1.md" },
+      1,
+      "## Round report\nImplemented finding 1; rejected finding 2 (reasons).",
+    );
+    expect(text).toContain("[T3 Workstream control plane");
+    expect(text).toContain("re-verification");
+    expect(text).toContain("DELTA review");
+    expect(text).toContain("rejected finding 2");
+    expect(text).toContain("`clean` or `fixed_inline` resolves the gate");
+    expect(text).toContain("`needs_rework` loops again");
+  });
+});
+
+describe("buildYieldWakeMessage (gate cap breach + copy)", () => {
+  it("does not duplicate 'sub-thread' when the child has no role", () => {
+    const text = buildYieldWakeMessage(
+      { id: "child-1" as ThreadId, role: null, reportPath: null },
+      "rework_approach",
+      null,
+    );
+    expect(text).not.toContain("sub-thread sub-thread");
+    expect(text).toContain("Your Workstream sub-thread `child-1`");
+  });
+
+  it("cap breach carries the round count and BOTH parties' reports", () => {
+    const text = buildYieldWakeMessage(
+      { id: "rev-1" as ThreadId, role: "reviewer", reportPath: "/reports/rev-1.md" },
+      "needs_rework",
+      "Still two must-fix findings.",
+      {
+        rounds: 2,
+        maxRounds: 2,
+        counterpart: {
+          id: "coder-1" as ThreadId,
+          role: "coder",
+          reportPath: "/reports/coder-1.round-2.md",
+          report: "Round 2: contested finding 3 again.",
+        },
+      },
+    );
+    expect(text).toContain("round cap is exhausted (2/2");
+    expect(text).toContain("Still two must-fix findings.");
+    expect(text).toContain("coder `coder-1`");
+    expect(text).toContain("/reports/coder-1.round-2.md");
+    expect(text).toContain("contested finding 3 again");
+    expect(text).toContain("dissolves the gate");
+    expect(text).toContain("NOT resolved");
+  });
+});
+
+// Layered gate-traversal coverage: the pass recomputes owed loop legs purely
+// from shell state and delivers them under deterministic, receipt-deduped
+// command ids — crash-safe across redrives.
+describe("routeGateTraversals (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-gate" as ThreadId;
+  const REVIEWER_ID = "reviewer-gate" as ThreadId;
+  const CODER_ID = "coder-gate" as ThreadId;
+  const epochIso = "1970-01-01T00:00:00.000Z";
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const gateRoutes = [
+    { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
+    { on: ["clean", "fixed_inline"], kind: "resolve" },
+  ] as unknown as OrchestrationThreadShell["routes"];
+
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    options: { readonly receiptIds?: ReadonlySet<string>; readonly prefix: string },
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: epochIso,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: null }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { commandId: string }) =>
+        Effect.succeed(
+          options.receiptIds?.has(commandId) ? Option.some({ commandId }) : Option.none(),
+        ),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: options.prefix }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  const run = (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    options: { readonly receiptIds?: ReadonlySet<string>; readonly prefix: string },
+    body: (args: {
+      readonly dispatched: Array<OrchestrationCommand>;
+      readonly dispatcher: { readonly drain: Effect.Effect<void> };
+    }) => Effect.Effect<void>,
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          yield* body({ dispatched, dispatcher });
+        }).pipe(Effect.provide(buildLayer(dispatched, threads, options)));
+      }),
+    );
+
+  effectIt.effect(
+    "rework leg: an open round resumes the done coder with reopen, exactly once (round-trip start)",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "reviewer",
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        reportPath: "/nonexistent/reviewer-gate.round-1.md",
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "coder",
+        planLane: "done",
+        pendingRework: true,
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-rework-" },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            expect(dispatched.length).toBe(1);
+            const resume = dispatched[0]!;
+            if (resume.type !== "thread.turn.start") {
+              throw new Error(`expected thread.turn.start, got ${resume.type}`);
+            }
+            expect(resume.threadId).toBe(CODER_ID);
+            expect(resume.commandId).toBe(gateCommandId(REVIEWER_ID, 1, "rework"));
+            expect(resume.reopen).toBe(true);
+            expect(resume.requireIdle).toBeUndefined();
+            expect(resume.message.text).toContain("Review round 1");
+            expect(resume.message.text).toContain("routes back to the reviewer");
+            // Idempotent across passes (in-memory handled set + receipts).
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(1);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "crash between route-taken and resume: a redrive with the receipt present never re-dispatches",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "done",
+        pendingRework: true,
+      });
+      return run(
+        [parent, reviewer, coder],
+        {
+          prefix: "t3-workstream-gate-redrive-",
+          receiptIds: new Set([gateCommandId(REVIEWER_ID, 1, "rework")]),
+        },
+        ({ dispatched }) =>
+          Effect.sync(() => {
+            expect(dispatched.length).toBe(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "reverify leg: a routed-back coder resumes the reviewer with the delta report, no reopen",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "reviewer",
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "coder",
+        planLane: "in_progress",
+        pendingRework: false,
+        lastOutcome: {
+          outcome: "done",
+          decision: "loop",
+          round: 1,
+          recordedByEventId: "evt-coder-loop",
+          at: now,
+        } as unknown as OrchestrationThreadShell["lastOutcome"],
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-reverify-" },
+        ({ dispatched }) =>
+          Effect.sync(() => {
+            expect(dispatched.length).toBe(1);
+            const resume = dispatched[0]!;
+            if (resume.type !== "thread.turn.start") {
+              throw new Error(`expected thread.turn.start, got ${resume.type}`);
+            }
+            expect(resume.threadId).toBe(REVIEWER_ID);
+            expect(resume.commandId).toBe(gateCommandId(REVIEWER_ID, 1, "reverify"));
+            expect(resume.reopen).toBeUndefined();
+            expect(resume.message.text).toContain("DELTA review");
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "parent dissolution: a done reviewer stops all traversal even with an open round",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "done",
+        routes: gateRoutes,
+        gateRounds: 1,
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "done",
+        pendingRework: true,
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-dissolved-" },
+        ({ dispatched }) =>
+          Effect.sync(() => {
+            // No gate traversal. (The pair joins its generation instead when
+            // one is stamped — none here, so nothing at all is dispatched.)
+            expect(dispatched.filter((c) => c.type === "thread.turn.start")).toHaveLength(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "R4: a cancelled coder gets no traversal, and the waiting reviewer's idle wake un-suppresses",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "reviewer",
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        session: runningSession({ threadId: REVIEWER_ID, status: "ready", activeTurnId: null }),
+        latestTurn: latestTurn({ completedAt: epochIso }),
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "cancelled",
+        pendingRework: true,
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-r4-" },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            // No gate traversal into the dead coder.
+            expect(dispatched.length).toBe(0);
+            // Once the idle grace elapses the reviewer is NOT gate-suppressed
+            // (cancelled counterpart): the forgot-to-finish rail flags it and
+            // wakes the parent.
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(dispatched.length).toBe(2);
+            const flag = dispatched[0]!;
+            if (flag.type !== "thread.attention.raise") {
+              throw new Error(`expected thread.attention.raise, got ${flag.type}`);
+            }
+            expect(flag.threadId).toBe(REVIEWER_ID);
+            const wake = dispatched[1]!;
+            if (wake.type !== "thread.turn.start") {
+              throw new Error(`expected thread.turn.start, got ${wake.type}`);
+            }
+            expect(wake.threadId).toBe(PARENT_ID);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "parent interrupt mid-loop: a stopped coder is never re-sent its rework resume; the idle backstop owns it",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+      });
+      // The coder was resumed for rework (receipt durable), then the parent
+      // stopped it mid-turn: in_progress, idle, round still open.
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        pendingRework: true,
+        session: runningSession({ threadId: CODER_ID, status: "stopped", activeTurnId: null }),
+        latestTurn: latestTurn({ completedAt: epochIso, state: "interrupted" }),
+      });
+      return run(
+        [parent, reviewer, coder],
+        {
+          prefix: "t3-workstream-gate-interrupt-",
+          receiptIds: new Set([gateCommandId(REVIEWER_ID, 1, "rework")]),
+        },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            // The gate pass never fights the parent's pause: the rework leg is
+            // receipt-deduped, so nothing is re-dispatched to the coder.
+            expect(dispatched).toHaveLength(0);
+            // …but the coder still owes a submit, so once the idle grace
+            // elapses the forgot-to-finish backstop surfaces it (needs_guidance
+            // flag + parent wake) — gate suppression does NOT apply to a party
+            // holding the open round.
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(
+              dispatched.filter(
+                (c) => c.type === "thread.attention.raise" && c.threadId === CODER_ID,
+              ),
+            ).toHaveLength(1);
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toHaveLength(1);
+            // Still no rework re-dispatch to the coder.
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === CODER_ID),
+            ).toHaveLength(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "suppression: a reviewer idling while the coder holds the open round is never idle-nagged",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        session: runningSession({ threadId: REVIEWER_ID, status: "ready", activeTurnId: null }),
+        latestTurn: latestTurn({ completedAt: epochIso }),
+      });
+      // The coder is mid-rework (in_progress with the open round) — resumed by
+      // an earlier pass whose rework receipt is durable.
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        pendingRework: true,
+        session: runningSession({
+          threadId: CODER_ID,
+          status: "running",
+          activeTurnId: "turn-rework" as TurnId,
+        }),
+      });
+      return run(
+        [parent, reviewer, coder],
+        {
+          prefix: "t3-workstream-gate-suppress-",
+          receiptIds: new Set([gateCommandId(REVIEWER_ID, 1, "rework")]),
+        },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            // No idle flag, no idle wake — the reviewer is waiting in the gate.
+            expect(dispatched.filter((c) => c.type === "thread.attention.raise")).toHaveLength(0);
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toHaveLength(0);
+          }),
+      );
+    },
+  );
+});
+
+// Generation-join gating (design §6): a joined generation containing a party of
+// an unresolved gate is held back; it releases once the gate source is terminal.
+describe("generation join is held back by an unresolved gate (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-join-gate" as ThreadId;
+  const REVIEWER_ID = "reviewer-join-gate" as ThreadId;
+  const CODER_ID = "coder-join-gate" as ThreadId;
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const gateRoutes = [
+    { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
+    { on: ["clean", "fixed_inline"], kind: "resolve" },
+  ] as unknown as OrchestrationThreadShell["routes"];
+
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    prefix: string,
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  const drainWith = (threads: ReadonlyArray<OrchestrationThreadShell>, prefix: string) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+        }).pipe(Effect.provide(buildLayer(dispatched, threads, prefix)));
+        return dispatched;
+      }),
+    );
+
+  effectIt.effect("holds the coder-only generation while the reviewer can still reopen it", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* drainWith(
+        [
+          parent,
+          shell({
+            id: CODER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            planLane: "done",
+            spawnGeneration: "gen-1",
+          }),
+          shell({
+            id: REVIEWER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            planLane: "in_progress",
+            routes: gateRoutes,
+            session: runningSession({
+              threadId: REVIEWER_ID,
+              status: "running",
+              activeTurnId: "turn-review" as TurnId,
+            }),
+          }),
+        ],
+        "t3-workstream-join-held-",
+      );
+      expect(
+        dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+      ).toHaveLength(0);
+    }),
+  );
+
+  effectIt.effect("releases the join once the gate source is terminal (resolution)", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* drainWith(
+        [
+          parent,
+          shell({
+            id: CODER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            planLane: "done",
+            spawnGeneration: "gen-1",
+          }),
+          shell({
+            id: REVIEWER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            planLane: "done",
+            routes: gateRoutes,
+            spawnGeneration: "gen-1",
+          }),
+        ],
+        "t3-workstream-join-released-",
+      );
+      const wakes = dispatched.filter(
+        (c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+      );
+      expect(wakes).toHaveLength(1);
+    }),
+  );
+});
+
+// Cap-breach yield wake (design §6): carries the round count and the
+// counterpart's latest round report alongside the yielding reviewer's.
+describe("cap-breach yield wake carries both reports (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-cap" as ThreadId;
+  const REVIEWER_ID = "reviewer-cap" as ThreadId;
+  const CODER_ID = "coder-cap" as ThreadId;
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const reviewer = shell({
+    id: REVIEWER_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    role: "reviewer",
+    planLane: "yielded",
+    routes: [
+      { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
+      { on: ["clean", "fixed_inline"], kind: "resolve" },
+    ] as unknown as OrchestrationThreadShell["routes"],
+    gateRounds: 2,
+    reportPath: "/nonexistent/reviewer-cap.md",
+    lastOutcome: {
+      outcome: "needs_rework",
+      decision: "cap-breach",
+      round: 2,
+      recordedByEventId: "evt-cap-1",
+      at: now,
+    } as unknown as OrchestrationThreadShell["lastOutcome"],
+  });
+  const coder = shell({
+    id: CODER_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    role: "coder",
+    planLane: "in_progress",
+    reportPath: "/nonexistent/coder-cap.round-2.md",
+  });
+
+  const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+    } as unknown as OrchestrationEngineShape;
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: [parent, reviewer, coder],
+          updatedAt: now,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-cap-breach-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect("the yield wake names the exhausted cap and references both reports", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          const wakes = dispatched.filter(
+            (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+              c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+          );
+          expect(wakes).toHaveLength(1);
+          const text = wakes[0]!.message.text;
+          expect(text).toContain("round cap is exhausted (2/2");
+          expect(text).toContain("/nonexistent/reviewer-cap.md");
+          expect(text).toContain("coder `coder-cap`");
+          expect(text).toContain("/nonexistent/coder-cap.round-2.md");
+        }).pipe(Effect.provide(buildLayer(dispatched)));
+      }),
+    ),
   );
 });

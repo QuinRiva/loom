@@ -30,6 +30,8 @@ import {
   ThreadRevertedPayload as ContractsThreadRevertedPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
   ThreadReportSetPayload as ContractsThreadReportSetPayloadSchema,
+  ThreadOutcomeRecordedPayload as ContractsThreadOutcomeRecordedPayloadSchema,
+  ThreadRouteTakenPayload as ContractsThreadRouteTakenPayloadSchema,
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
@@ -72,6 +74,8 @@ export const ThreadTurnDiffCompletedPayload = ContractsThreadTurnDiffCompletedPa
 export const ThreadRevertedPayload = ContractsThreadRevertedPayloadSchema;
 export const ThreadActivityAppendedPayload = ContractsThreadActivityAppendedPayloadSchema;
 export const ThreadReportSetPayload = ContractsThreadReportSetPayloadSchema;
+export const ThreadOutcomeRecordedPayload = ContractsThreadOutcomeRecordedPayloadSchema;
+export const ThreadRouteTakenPayload = ContractsThreadRouteTakenPayloadSchema;
 
 export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequestedPayloadSchema;
 export const ThreadTurnInterruptRequestedPayload =
