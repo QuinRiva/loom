@@ -128,6 +128,9 @@ import {
   ServerProcessResourceHistoryResult,
   ServerSignalProcessInput,
   ServerSignalProcessResult,
+  ServerUsageBreakdownError,
+  ServerUsageBreakdownInput,
+  ServerUsageBreakdownResult,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
@@ -215,6 +218,7 @@ export const WS_METHODS = {
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
+  serverGetUsageBreakdown: "server.getUsageBreakdown",
   serverSignalProcess: "server.signalProcess",
 
   // Cloud environment methods
@@ -323,6 +327,12 @@ export const WsServerGetProcessResourceHistoryRpc = Rpc.make(
     error: EnvironmentAuthorizationError,
   },
 );
+
+export const WsServerGetUsageBreakdownRpc = Rpc.make(WS_METHODS.serverGetUsageBreakdown, {
+  payload: ServerUsageBreakdownInput,
+  success: ServerUsageBreakdownResult,
+  error: Schema.Union([ServerUsageBreakdownError, EnvironmentAuthorizationError]),
+});
 
 export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   payload: ServerSignalProcessInput,
@@ -707,6 +717,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetProcessResourceHistoryRpc,
+  WsServerGetUsageBreakdownRpc,
   WsServerSignalProcessRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,

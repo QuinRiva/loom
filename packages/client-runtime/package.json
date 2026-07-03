@@ -7,6 +7,10 @@
       "types": "./src/accountUsage.ts",
       "default": "./src/accountUsage.ts"
     },
+    "./usageDashboard": {
+      "types": "./src/usageDashboard.ts",
+      "default": "./src/usageDashboard.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

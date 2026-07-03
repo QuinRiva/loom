@@ -34,6 +34,8 @@ import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionT
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadHeartbeatRepository } from "../../persistence/Services/ProjectionThreadHeartbeats.ts";
 import { ProjectionThreadHeartbeatRepositoryLive } from "../../persistence/Layers/ProjectionThreadHeartbeats.ts";
+import { ProjectionUsageLedgerRepository } from "../../persistence/Services/ProjectionUsageLedger.ts";
+import { ProjectionUsageLedgerRepositoryLive } from "../../persistence/Layers/ProjectionUsageLedger.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ReasoningStreamBus } from "../Services/ReasoningStreamBus.ts";
@@ -657,6 +659,7 @@ const make = Effect.gen(function* () {
   const accountUsageRegistry = yield* AccountUsageRegistry;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const heartbeatRepository = yield* ProjectionThreadHeartbeatRepository;
+  const usageLedgerRepository = yield* ProjectionUsageLedgerRepository;
   const serverSettingsService = yield* ServerSettingsService;
 
   // Liveness heartbeat: advance a per-thread "last runtime activity at" on ANY
@@ -1436,6 +1439,43 @@ const make = Effect.gen(function* () {
         yield* touchHeartbeat(thread.id, event.createdAt);
       }
 
+      // Usage ledger (docs/usage-dashboard-design.md §3 D1): one row per
+      // token-usage event — model attribution, the four token buckets, and the
+      // provider-authoritative cost delta. `event_id` PK + INSERT OR IGNORE
+      // makes re-ingestion a no-op, so replays never double-count. `inputTokens`
+      // keeps its context-window semantics (input + cacheRead + cacheWrite), so
+      // the pure-input bucket is derived by subtracting the cache buckets.
+      if (event.type === "thread.token-usage.updated" && event.payload.usage.usedTokens > 0) {
+        const usage = event.payload.usage;
+        const cacheRead = usage.cachedInputTokens ?? 0;
+        const cacheWrite = usage.cacheWriteTokens ?? 0;
+        yield* usageLedgerRepository
+          .insert({
+            eventId: event.eventId,
+            threadId: thread.id,
+            turnId: toTurnId(event.turnId) ?? null,
+            providerName: event.provider,
+            providerInstanceId: event.providerInstanceId ?? null,
+            requestedModel: usage.model ?? null,
+            resolvedModel: usage.resolvedModel ?? null,
+            inputTokens: Math.max(0, (usage.inputTokens ?? 0) - cacheRead - cacheWrite),
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            outputTokens: usage.outputTokens ?? 0,
+            costUsd: usage.costUsd ?? 0,
+            createdAt: event.createdAt,
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider runtime ingestion failed to write usage ledger row", {
+                eventId: event.eventId,
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+      }
+
       let loadedThreadDetail: OrchestrationThread | null | undefined;
       const getLoadedThreadDetail = () =>
         Effect.gen(function* () {
@@ -2042,4 +2082,5 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
 ).pipe(
   Layer.provide(ProjectionTurnRepositoryLive),
   Layer.provide(ProjectionThreadHeartbeatRepositoryLive),
+  Layer.provide(ProjectionUsageLedgerRepositoryLive),
 );

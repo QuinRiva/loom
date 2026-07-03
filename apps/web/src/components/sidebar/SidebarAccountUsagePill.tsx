@@ -24,10 +24,10 @@ const BAR_TONE_STYLES: Record<AccountUsageTone, string> = {
 
 function AccountUsagePill({
   view,
-  onOpenSettings,
+  onOpenDashboard,
 }: {
   view: AccountUsageView;
-  onOpenSettings: () => void;
+  onOpenDashboard: () => void;
 }) {
   const percent = Math.round(view.displayPercent);
   return (
@@ -39,7 +39,7 @@ function AccountUsagePill({
         render={
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={onOpenDashboard}
             aria-label={`${view.providerDisplayName} subscription usage ${percent}%`}
             className={cn(
               "flex min-w-0 flex-[1_1_calc(50%-0.5rem)] flex-col gap-1.5 rounded-md px-1 py-0.5 text-left outline-none transition-colors",
@@ -132,14 +132,16 @@ export function SidebarAccountUsagePill() {
     return null;
   }
 
-  const openProviderSettings = () => {
-    void navigate({ to: "/settings/providers" });
-  };
-
+  // Clicking a meter opens the /usage dashboard scoped to that meter
+  // (docs/usage-dashboard-design.md §D5); the hover popover stays as-is.
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-3 p-1">
       {views.map((view) => (
-        <AccountUsagePill key={view.key} view={view} onOpenSettings={openProviderSettings} />
+        <AccountUsagePill
+          key={view.key}
+          view={view}
+          onOpenDashboard={() => void navigate({ to: "/usage", search: { scope: view.key } })}
+        />
       ))}
     </div>
   );

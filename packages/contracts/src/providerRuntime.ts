@@ -332,6 +332,16 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   // it is replay-safe. Only pi carries a cost today; other adapters leave it
   // unset and no cost is shown for them.
   costUsd: Schema.optional(NonNegativeNumber),
+  // Model attribution for the usage ledger. `model` is the slug the request was
+  // made with; `resolvedModel` is the concrete inference model when the provider
+  // reports one (reserved for rerouting visibility — unset today on the
+  // anthropic/vertex paths).
+  model: Schema.optional(TrimmedNonEmptyStringSchema),
+  resolvedModel: Schema.optional(TrimmedNonEmptyStringSchema),
+  // Cache-write prompt tokens, split out because cache writes are billed at a
+  // premium and dominate cost in agent workloads. `inputTokens` keeps its
+  // existing context-window semantics (input + cacheRead + cacheWrite).
+  cacheWriteTokens: Schema.optional(NonNegativeInt),
   // Whether the provider billed this message via an OAuth/subscription plan
   // rather than metered API pricing. Pi derives this from its model registry
   // (`isUsingOAuth`), which is NOT exposed per-message over RPC, so this is left

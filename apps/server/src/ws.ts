@@ -50,6 +50,7 @@ import {
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
+  ServerUsageBreakdownError,
   ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalError,
@@ -69,6 +70,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -302,6 +304,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetTraceDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
+  [WS_METHODS.serverGetUsageBreakdown, AuthOrchestrationReadScope],
   [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
   [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
   [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
@@ -403,6 +406,7 @@ const makeWsRpcLayer = (
       const currentSessionId = currentSession.sessionId;
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+      const usageBreakdownQuery = yield* UsageBreakdownQuery.UsageBreakdownQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       const reasoningStreamBus = yield* ReasoningStreamBus.ReasoningStreamBus;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -1361,6 +1365,23 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
+          ),
+        [WS_METHODS.serverGetUsageBreakdown]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetUsageBreakdown,
+            usageBreakdownQuery.getBreakdown(input).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("usage breakdown query failed", { cause }),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new ServerUsageBreakdownError({
+                    message: "Failed to compute usage breakdown",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverSignalProcess]: (input) =>
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
