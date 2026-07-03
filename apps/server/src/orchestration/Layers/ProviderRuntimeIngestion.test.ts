@@ -30,6 +30,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -193,7 +194,10 @@ async function waitForThread(
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderRuntimeIngestionService | ProjectionSnapshotQuery,
+    | OrchestrationEngineService
+    | ProviderRuntimeIngestionService
+    | ProjectionSnapshotQuery
+    | SqlClient.SqlClient,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -314,12 +318,21 @@ describe("ProviderRuntimeIngestion", () => {
       updatedAt: createdAt,
     });
 
+    const activeRuntime = runtime;
     return {
       engine,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      queryUsageLedger: () =>
+        activeRuntime.runPromise(
+          Effect.flatMap(
+            Effect.service(SqlClient.SqlClient),
+            (sql) =>
+              sql<Record<string, unknown>>`SELECT * FROM projection_usage_ledger ORDER BY event_id`,
+          ),
+        ),
     };
   }
 
@@ -2725,6 +2738,57 @@ describe("ProviderRuntimeIngestion", () => {
       reasoningOutputTokens: 25,
       lastUsedTokens: 1075,
       compactsAutomatically: true,
+    });
+  });
+
+  it("writes a replay-safe usage-ledger row per token-usage event", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    const emitUsage = () =>
+      harness.emit({
+        type: "thread.token-usage.updated",
+        eventId: asEventId("evt-usage-ledger"),
+        provider: ProviderDriverKind.make("pi"),
+        providerInstanceId: ProviderInstanceId.make("pi-default"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-ledger"),
+        payload: {
+          usage: {
+            usedTokens: 1600,
+            // inputTokens keeps context-window semantics: input + cacheRead + cacheWrite.
+            inputTokens: 1500,
+            cachedInputTokens: 900,
+            cacheWriteTokens: 400,
+            outputTokens: 100,
+            costUsd: 0.0123,
+            model: "claude-fable-5",
+          },
+        },
+      });
+
+    emitUsage();
+    // Re-emitting the same event id (replay) must not double-count.
+    emitUsage();
+    await harness.drain();
+
+    const rows = await harness.queryUsageLedger();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      event_id: "evt-usage-ledger",
+      thread_id: "thread-1",
+      turn_id: "turn-ledger",
+      provider_name: "pi",
+      provider_instance_id: "pi-default",
+      requested_model: "claude-fable-5",
+      resolved_model: null,
+      input_tokens: 200,
+      cache_read_tokens: 900,
+      cache_write_tokens: 400,
+      output_tokens: 100,
+      cost_usd: 0.0123,
+      created_at: now,
     });
   });
 

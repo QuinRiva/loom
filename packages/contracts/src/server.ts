@@ -19,7 +19,7 @@ import {
 import { EditorId } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
-import { AccountUsageSnapshot } from "./providerRuntime.ts";
+import { AccountUsageSnapshot, AccountUsageWindowKind } from "./providerRuntime.ts";
 import { ServerSettings } from "./settings.ts";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -406,6 +406,110 @@ export const ServerSignalProcessResult = Schema.Struct({
   message: Schema.Option(TrimmedNonEmptyString),
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
+
+// Static meter → ledger-provider-name map (docs/usage-dashboard-design.md §D6).
+// A meter scope key is a gauge account key (`providerInstanceId ?? providerName`);
+// the poller emits "claudeAgent" for the Anthropic OAuth meter and "codex" for
+// Codex. Ledger rows carry the driver kind in `provider_name` ("pi" for the main
+// path), so each meter maps to the set of driver kinds that bill it. Drives both
+// the server-side scope row filter and the client-side "not counted in any
+// meter" badging — a single map so they cannot drift. Confirmed via
+// consult_manager (plan author, high confidence, 2026-07-03): filter by
+// provider_name, not instance ids. Caveat: pi rows served via Vertex
+// (fable/Opus) cannot be separated from OAuth-billed pi rows at provider level,
+// so they fall under the Anthropic meter here; model-level badging surfaces
+// that distinction.
+export const USAGE_METER_PROVIDER_NAMES: Record<string, ReadonlyArray<string>> = {
+  claudeAgent: ["pi", "anthropic", "claudeAgent"],
+  codex: ["codex"],
+};
+
+// ── /usage dashboard breakdown (docs/usage-dashboard-design.md §3 D3) ─────────
+// Pull RPC: aggregates the usage ledger over the selected provider window into
+// gauges (official %), a stacked burn-chart series, a per-model table, and a
+// per-thread consumers rollup. No push stream — the client refetches on a
+// timer.
+export const ServerUsageBreakdownInput = Schema.Struct({
+  window: AccountUsageWindowKind, // "primary" (5h) | "secondary" (weekly)
+  // Meter scope: a provider meter key (the gauge account key —
+  // `providerInstanceId ?? providerName`) or "all". A meter key both fixes the
+  // window boundaries and filters ledger rows to that meter's driver kinds via
+  // the static meter → provider-name map (§D6). "all" applies no row filter and
+  // uses the default provider's boundaries. Omitted ⇒ first provider with data.
+  scope: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerUsageBreakdownInput = typeof ServerUsageBreakdownInput.Type;
+
+export const ServerUsageBreakdownGauge = Schema.Struct({
+  providerName: TrimmedNonEmptyString,
+  providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  planType: Schema.NullOr(TrimmedNonEmptyString),
+  usedPercent: Schema.Number, // official, verbatim from the provider meter
+  resetsAt: Schema.NullOr(IsoDateTime),
+  windowDurationMins: Schema.NullOr(Schema.Number),
+  observedAt: IsoDateTime,
+  // Linear depletion projection from the official-% sample buffer; null when the
+  // guards fail (§D4: <3 samples, <10 min span, non-positive slope, stale
+  // samples, or the projected exhaustion lands after the reset).
+  projectedExhaustionAt: Schema.NullOr(IsoDateTime),
+});
+export type ServerUsageBreakdownGauge = typeof ServerUsageBreakdownGauge.Type;
+
+export const ServerUsageBreakdownSeriesBucket = Schema.Struct({
+  bucketStart: IsoDateTime,
+  byModel: Schema.Record(Schema.String, Schema.Number), // model → cost in bucket (USD)
+});
+export type ServerUsageBreakdownSeriesBucket = typeof ServerUsageBreakdownSeriesBucket.Type;
+
+export const ServerUsageBreakdownModel = Schema.Struct({
+  model: Schema.String, // requested slug; "unknown" when absent
+  providerName: TrimmedNonEmptyString,
+  inputTokens: Schema.Number,
+  cacheReadTokens: Schema.Number,
+  cacheWriteTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  costUsd: Schema.Number,
+  costShare: Schema.Number, // 0–1 of the scoped window cost
+});
+export type ServerUsageBreakdownModel = typeof ServerUsageBreakdownModel.Type;
+
+export const ServerUsageBreakdownConsumer = Schema.Struct({
+  // Flat rows; the client groups by rootThreadId and expands children.
+  threadId: ThreadId,
+  rootThreadId: ThreadId,
+  title: Schema.NullOr(Schema.String),
+  role: Schema.NullOr(Schema.String),
+  totalTokens: Schema.Number,
+  costUsd: Schema.Number,
+  turnCount: Schema.Number, // distinct turn_ids in window
+  lastActivityAt: IsoDateTime,
+});
+export type ServerUsageBreakdownConsumer = typeof ServerUsageBreakdownConsumer.Type;
+
+export class ServerUsageBreakdownError extends Schema.TaggedErrorClass<ServerUsageBreakdownError>()(
+  "ServerUsageBreakdownError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export const ServerUsageBreakdownResult = Schema.Struct({
+  window: AccountUsageWindowKind,
+  scope: TrimmedNonEmptyString, // resolved scope key ("all" or a meter key)
+  windowStart: IsoDateTime,
+  windowEnd: IsoDateTime, // reset time, or `now` in trailing mode
+  boundarySource: Schema.Literals(["provider", "trailing"]),
+  generatedAt: IsoDateTime,
+  gauges: Schema.Array(ServerUsageBreakdownGauge),
+  bucketMinutes: Schema.Number, // 5 for primary, 60 for secondary
+  series: Schema.Array(ServerUsageBreakdownSeriesBucket),
+  // Linear cost projection to the window end; null when elapsed < 15 min (§D4).
+  projectedCostAtReset: Schema.NullOr(Schema.Number),
+  models: Schema.Array(ServerUsageBreakdownModel),
+  consumers: Schema.Array(ServerUsageBreakdownConsumer),
+});
+export type ServerUsageBreakdownResult = typeof ServerUsageBreakdownResult.Type;
 
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,

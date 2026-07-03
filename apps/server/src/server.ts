@@ -91,6 +91,7 @@ import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import { UsageBreakdownQueryLive } from "./orchestration/Layers/UsageBreakdownQuery.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -299,8 +300,12 @@ const ProviderRuntimeLayerLive = Layer.mergeAll(
 ).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
-  // Core Services
-  Layer.provideMerge(CheckpointingLayerLive),
+  // Core Services. UsageBreakdownQueryLive (/usage dashboard aggregation, §D3)
+  // is merged here rather than as its own pipe step to stay under `.pipe`'s
+  // argument-count ceiling; its SqlClient + AccountUsageRegistry deps are
+  // satisfied by the later provideMerge steps. Exposes UsageBreakdownQuery for
+  // the ws RPC handler.
+  Layer.provideMerge(Layer.mergeAll(UsageBreakdownQueryLive, CheckpointingLayerLive)),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),

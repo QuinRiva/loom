@@ -58,6 +58,7 @@ import Migration0042 from "./Migrations/042_ProjectionThreadPlanLaneAndAttention
 import Migration0043 from "./Migrations/043_ProjectionThreadHeartbeats.ts";
 import Migration0044 from "./Migrations/044_ProjectionThreadContextMetrics.ts";
 import Migration0045 from "./Migrations/045_ProjectionThreadReviewGates.ts";
+import Migration0046 from "./Migrations/046_UsageLedger.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -115,6 +116,7 @@ export const migrationEntries = [
   [43, "ProjectionThreadHeartbeats", Migration0043],
   [44, "ProjectionThreadContextMetrics", Migration0044],
   [45, "ProjectionThreadReviewGates", Migration0045],
+  [46, "UsageLedger", Migration0046],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

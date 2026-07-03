@@ -82,6 +82,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
@@ -777,6 +778,26 @@ const buildAppUnderTest = (options?: {
           snapshot: Effect.succeed([]),
           update: () => Effect.void,
           streamChanges: Stream.empty,
+          usageSlopePerMinute: () => Effect.succeed(null),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(UsageBreakdownQuery.UsageBreakdownQuery)({
+          getBreakdown: (input) =>
+            Effect.succeed({
+              window: input.window,
+              scope: input.scope ?? "all",
+              windowStart: "1970-01-01T00:00:00.000Z",
+              windowEnd: "1970-01-01T00:00:00.000Z",
+              boundarySource: "trailing" as const,
+              generatedAt: "1970-01-01T00:00:00.000Z",
+              gauges: [],
+              bucketMinutes: input.window === "primary" ? 5 : 60,
+              series: [],
+              projectedCostAtReset: null,
+              models: [],
+              consumers: [],
+            }),
         }),
       ),
       Layer.provide(

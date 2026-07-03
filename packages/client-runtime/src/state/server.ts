@@ -173,6 +173,13 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
     }),
+    usageBreakdown: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-breakdown",
+      tag: WS_METHODS.serverGetUsageBreakdown,
+      // Matches the subscription-usage poller cadence (§D3): the dashboard
+      // refetches every 60 s while mounted.
+      refreshIntervalMs: 60_000,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",

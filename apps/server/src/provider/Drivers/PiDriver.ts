@@ -572,10 +572,14 @@ function normalizePiTokenUsage(
   const cost = record.cost;
   const costTotal =
     cost && typeof cost === "object" ? num((cost as Record<string, unknown>).total) : 0;
+  // `cacheWrite` is the total cache-creation bucket; `cacheWrite1h` is a
+  // SUBSET of it (Anthropic's 1h-retention split), so it must not be added.
+  const cacheWrite = num(record.cacheWrite);
   return {
     usedTokens,
     inputTokens: promptTokens,
     cachedInputTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
     outputTokens: output,
     lastUsedTokens: usedTokens,
     lastInputTokens: promptTokens,
@@ -903,10 +907,24 @@ function makePiAdapter(input: {
       case "message_end": {
         if (message.message.role !== "assistant") return Effect.void;
         const itemId = session.currentAssistantMessageId ?? `assistant-${NodeCrypto.randomUUID()}`;
-        const usage = normalizePiTokenUsage(
+        const normalized = normalizePiTokenUsage(
           message.message.usage,
           session.session.model ? input.modelContextWindows.get(session.session.model) : undefined,
         );
+        // Model attribution for the usage ledger: the message's own `model` is
+        // authoritative per message (survives mid-session model switches);
+        // `responseModel` is the concrete inference model when pi reports one.
+        const str = (value: unknown) =>
+          typeof value === "string" && value.trim() ? value : undefined;
+        const model = str(message.message.model) ?? str(session.session.model);
+        const resolvedModel = str(message.message.responseModel);
+        const usage = normalized
+          ? {
+              ...normalized,
+              ...(model ? { model } : {}),
+              ...(resolvedModel ? { resolvedModel } : {}),
+            }
+          : undefined;
         return emit({
           ...base({ itemId }),
           type: "item.completed",
