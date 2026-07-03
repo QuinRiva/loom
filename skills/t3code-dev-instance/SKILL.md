@@ -77,10 +77,10 @@ vp dev --port $WEB_PORT --host > "$T3CODE_HOME/web.out" 2>&1 &
 
 Readiness signals (approximate timings from a cold start):
 
-| Side | Ready when the log shows | ~Time |
-|------|--------------------------|-------|
-| Server | `Migrations ran successfully`, `Listening on http://127.0.0.1:$SERVER_PORT`, and a printed `pairingUrl` | ~15s |
-| Web | `Local: http://localhost:$WEB_PORT/` | ~12s |
+| Side   | Ready when the log shows                                                                                | ~Time |
+| ------ | ------------------------------------------------------------------------------------------------------- | ----- |
+| Server | `Migrations ran successfully`, `Listening on http://127.0.0.1:$SERVER_PORT`, and a printed `pairingUrl` | ~15s  |
+| Web    | `Local: http://localhost:$WEB_PORT/`                                                                    | ~12s  |
 
 ```sh
 grep -m1 pairingUrl "$T3CODE_HOME/server.out"   # or tail -f the *.out files
@@ -131,9 +131,9 @@ notes — never fall back to a broad `pkill`.
 
 ## Failure modes
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Page loads but API calls fail — `net::ERR_FAILED` on `/api/auth/session` | `localhost` vs `127.0.0.1` mismatch between page origin and configured URLs | Use ONE hostname everywhere; prefer `localhost` (Vite bound with `--host`). |
-| `Access-Control-Allow-Origin must not be wildcard when credentials mode is include` | **The key gotcha.** `VITE_DEV_SERVER_URL` missing on the **web** side (or server side) — client treats the backend as cross-origin/credentialless even after server CORS looks fixed | Set the **same** `VITE_DEV_SERVER_URL=$WEB_URL` on **both** server and web, then restart both. |
-| Stuck on `/pair`; retry says `Invalid pairing token` | Pairing tokens are **one-time**; a setup mistake already consumed it | Restart the scratch **server** to print a fresh `pairingUrl`; open that. |
-| HTTP 500 `fetch-session-state` on first load after manual seeding | Seed rows violate a projection schema | `projection_projects.scripts_json` must be `'[]'` not `'{}'`; `projection_threads.model_selection_json` must be non-null (see §5). Fix rows, reload. |
+| Symptom                                                                             | Cause                                                                                                                                                                                | Fix                                                                                                                                                  |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page loads but API calls fail — `net::ERR_FAILED` on `/api/auth/session`            | `localhost` vs `127.0.0.1` mismatch between page origin and configured URLs                                                                                                          | Use ONE hostname everywhere; prefer `localhost` (Vite bound with `--host`).                                                                          |
+| `Access-Control-Allow-Origin must not be wildcard when credentials mode is include` | **The key gotcha.** `VITE_DEV_SERVER_URL` missing on the **web** side (or server side) — client treats the backend as cross-origin/credentialless even after server CORS looks fixed | Set the **same** `VITE_DEV_SERVER_URL=$WEB_URL` on **both** server and web, then restart both.                                                       |
+| Stuck on `/pair`; retry says `Invalid pairing token`                                | Pairing tokens are **one-time**; a setup mistake already consumed it                                                                                                                 | Restart the scratch **server** to print a fresh `pairingUrl`; open that.                                                                             |
+| HTTP 500 `fetch-session-state` on first load after manual seeding                   | Seed rows violate a projection schema                                                                                                                                                | `projection_projects.scripts_json` must be `'[]'` not `'{}'`; `projection_threads.model_selection_json` must be non-null (see §5). Fix rows, reload. |
