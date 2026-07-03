@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import { BearerConnectionProfile, type ConnectionCatalogEntry } from "./catalog.ts";
 import {
   BearerConnectionTarget,
+  ConnectionBlockedError,
   ConnectionTransientError,
   type SupervisorConnectionState,
 } from "./model.ts";
@@ -115,6 +116,53 @@ describe("connection presentation", () => {
       phase: "reconnecting",
       error: "Relay connection timed out.",
       traceId: "trace-retry",
+    });
+  });
+
+  it("flags an authentication-blocked connection as needing sign-in", () => {
+    expect(
+      presentConnectionState(
+        supervisorState({
+          phase: "blocked",
+          stage: null,
+          lastFailure: new ConnectionBlockedError({
+            reason: "authentication",
+            detail: "Your Remote environment session has expired. Sign in again to reconnect.",
+          }),
+        }),
+      ),
+    ).toEqual({
+      phase: "error",
+      error: "Your Remote environment session has expired. Sign in again to reconnect.",
+      traceId: null,
+      needsSignIn: true,
+    });
+    expect(
+      connectionStatusText({
+        phase: "error",
+        error: "Your Remote environment session has expired. Sign in again to reconnect.",
+        traceId: null,
+        needsSignIn: true,
+      }),
+    ).toBe("Sign in required.");
+  });
+
+  it("keeps non-authentication blocked connections as plain errors", () => {
+    expect(
+      presentConnectionState(
+        supervisorState({
+          phase: "blocked",
+          stage: null,
+          lastFailure: new ConnectionBlockedError({
+            reason: "configuration",
+            detail: "Connection profile connection-1 is not a bearer connection.",
+          }),
+        }),
+      ),
+    ).toEqual({
+      phase: "error",
+      error: "Connection profile connection-1 is not a bearer connection.",
+      traceId: null,
     });
   });
 

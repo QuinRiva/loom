@@ -16,6 +16,8 @@ export interface EnvironmentConnectionPresentation {
   readonly phase: EnvironmentConnectionPhase;
   readonly error: string | null;
   readonly traceId: string | null;
+  /** Set when the connection is blocked pending re-authentication. */
+  readonly needsSignIn?: boolean;
 }
 
 export interface EnvironmentPresentation {
@@ -51,6 +53,10 @@ export function presentConnectionState(
         phase: "error",
         error: state.lastFailure?.message ?? null,
         traceId: state.lastFailure?.traceId ?? null,
+        ...(state.lastFailure?._tag === "ConnectionBlockedError" &&
+        state.lastFailure.reason === "authentication"
+          ? { needsSignIn: true }
+          : {}),
       };
   }
 }
@@ -70,6 +76,9 @@ export function connectionStatusText(connection: EnvironmentConnectionPresentati
     case "connected":
       return "Connected";
     case "error":
+      if (connection.needsSignIn) {
+        return "Sign in required.";
+      }
       return connection.error
         ? `Connection failed. Reason: ${connection.error}`
         : "Connection failed";
