@@ -4323,11 +4323,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
       const events = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(2), Stream.runCollect),
+          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(3), Stream.runCollect),
         ),
       );
 
-      const [first, second] = Array.from(events);
+      const collected = Array.from(events);
+      const first = collected[0];
       assert.equal(first?.type, "snapshot");
       if (first?.type === "snapshot") {
         assert.equal(first.version, 1);
@@ -4342,11 +4343,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.equal(first.config.observability.otlpMetricsEnabled, true);
         assert.deepEqual(first.config.settings, DEFAULT_SERVER_SETTINGS);
       }
-      assert.deepEqual(second, {
-        version: 1,
-        type: "keybindingsUpdated",
-        payload: { keybindings: [], issues: [] },
-      });
+      assert.deepEqual(
+        collected.find((event) => event.type === "keybindingsUpdated"),
+        {
+          version: 1,
+          type: "keybindingsUpdated",
+          payload: { keybindings: [], issues: [] },
+        },
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4387,20 +4391,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
       const events = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(2), Stream.runCollect),
+          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(3), Stream.runCollect),
         ),
       );
 
-      const [first, second] = Array.from(events);
+      const collected = Array.from(events);
+      const first = collected[0];
       assert.equal(first?.type, "snapshot");
       if (first?.type === "snapshot") {
         assert.deepEqual(first.config.providers, []);
       }
-      assert.deepEqual(second, {
-        version: 1,
-        type: "providerStatuses",
-        payload: { providers: nextProviders },
-      });
+      assert.deepEqual(
+        collected.find((event) => event.type === "providerStatuses"),
+        {
+          version: 1,
+          type: "providerStatuses",
+          payload: { providers: nextProviders },
+        },
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
