@@ -34,6 +34,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
+import { ProviderService } from "./provider/Services/ProviderService.ts";
 import { WorkstreamLivenessSweep } from "./orchestration/Services/WorkstreamLivenessSweep.ts";
 import { SubscriptionUsagePoller } from "./provider/Services/SubscriptionUsagePoller.ts";
 import {
@@ -290,6 +291,76 @@ const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>)
     Effect.withSpan(`server.startup.${phase}`),
   );
 
+const hasActiveProviderTurn = (
+  sessionsByThreadId: ReadonlyMap<ThreadId, { readonly activeTurnId?: unknown }>,
+  threadId: ThreadId,
+): boolean => sessionsByThreadId.get(threadId)?.activeTurnId != null;
+
+const startupReconcileCommandId = (threadId: ThreadId, marker: string) =>
+  CommandId.make(`server:startup-session-reconcile:${threadId}:${marker}`);
+
+export const reconcileStartupStaleSessionState = Effect.gen(function* () {
+  const providerService = yield* ProviderService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+  const activeProviderSessions = yield* providerService.listSessions();
+  const providerSessionsByThreadId = new Map(activeProviderSessions.map((s) => [s.threadId, s]));
+  const [readModel, pendingTurnStartThreadIds, now] = yield* Effect.all([
+    projectionSnapshotQuery.getCommandReadModel(),
+    projectionSnapshotQuery.getPendingTurnStartThreadIds(),
+    Effect.map(DateTime.now, DateTime.formatIso),
+  ]);
+  let reconciledSessions = 0;
+  let clearedPendingStarts = 0;
+
+  for (const thread of readModel.threads) {
+    if (hasActiveProviderTurn(providerSessionsByThreadId, thread.id)) continue;
+
+    if (pendingTurnStartThreadIds.has(thread.id)) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn-start.fail",
+        commandId: startupReconcileCommandId(
+          thread.id,
+          `pending-start:${thread.latestTurn?.requestedAt ?? thread.updatedAt}`,
+        ),
+        threadId: thread.id,
+        detail: "Startup reconciled stale pending turn-start with no live provider turn.",
+        createdAt: now,
+      });
+      clearedPendingStarts += 1;
+    }
+
+    const session = thread.session;
+    if (!session || (session.status !== "running" && session.activeTurnId === null)) continue;
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.session.set",
+      commandId: startupReconcileCommandId(
+        thread.id,
+        `${session.activeTurnId ?? session.status}:${session.updatedAt}`,
+      ),
+      threadId: thread.id,
+      session: {
+        ...session,
+        status: "ready",
+        activeTurnId: null,
+        lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
+        updatedAt: now,
+      },
+      createdAt: now,
+    });
+    reconciledSessions += 1;
+  }
+
+  if (reconciledSessions > 0 || clearedPendingStarts > 0) {
+    yield* Effect.logInfo("startup reconciled stale session lifecycle state", {
+      reconciledSessions,
+      clearedPendingStarts,
+    });
+  }
+});
+
 export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const keybindings = yield* Keybindings.Keybindings;
@@ -350,6 +421,21 @@ export const make = Effect.gen(function* () {
         yield* workstreamLivenessSweep.start().pipe(Scope.provide(reactorScope));
         yield* subscriptionUsagePoller.start().pipe(Scope.provide(reactorScope));
       }),
+    );
+
+    // Run after provider/runtime reactors have started but before command readiness:
+    // live provider sessions are visible, and no queued user command can start a
+    // new turn while stale lifecycle state is being reconciled.
+    yield* Effect.logDebug("startup phase: reconciling session lifecycle state");
+    yield* runStartupPhase(
+      "sessions.reconcile",
+      reconcileStartupStaleSessionState.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("startup session lifecycle reconciliation failed", {
+            cause,
+          }),
+        ),
+      ),
     );
 
     const welcomeBase = yield* resolveWelcomeBase;

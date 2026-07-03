@@ -2,10 +2,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
   type OrchestrationCommand,
+  type OrchestrationEvent,
   type OrchestrationLatestTurn,
+  type OrchestrationReadModel,
   type OrchestrationSession,
   type OrchestrationShellSnapshot,
   type OrchestrationThreadShell,
+  type ProviderSession,
   ProviderInstanceId,
   type ThreadId,
   type ThreadPlanLane,
@@ -15,6 +18,8 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vite-plus/test";
@@ -55,6 +60,8 @@ import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
 import { selectJoinedGenerations } from "@t3tools/shared/workstreamGraph";
 import { isThreadIdle } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
+import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { reconcileStartupStaleSessionState } from "../../serverRuntimeStartup.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
 
@@ -413,6 +420,165 @@ describe("deferred wake gates on parent idleness", () => {
     });
     expect(isThreadIdle(idleParent, new Set())).toBe(true);
   });
+});
+
+describe("startup stale session reconciliation", () => {
+  const PARENT_ID = "parent-startup-reconcile" as ThreadId;
+  const CHILD_ID = "child-startup-reconcile" as ThreadId;
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    providerSessions: ReadonlyArray<ProviderSession> = [],
+  ) =>
+    Layer.unwrap(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(new Set());
+        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          shell({
+            id: PARENT_ID,
+            parentThreadId: null,
+            session: runningSession({
+              threadId: PARENT_ID,
+              status: "running",
+              activeTurnId: "turn-lost-completion" as TurnId,
+            }),
+          }),
+          shell({
+            id: CHILD_ID,
+            parentThreadId: PARENT_ID,
+            spawnGeneration: "gen-startup",
+            planLane: "done",
+            latestUserMessageAt: now,
+            reportPath: "child-startup-reconcile.md",
+            session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
+          }),
+        ]);
+        const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: current,
+          updatedAt: now,
+        }));
+        const engine = {
+          readEvents: () => Stream.empty,
+          dispatch: (command: OrchestrationCommand) =>
+            Effect.gen(function* () {
+              if (command.type === "thread.session.set") {
+                yield* Ref.update(threads, (current) =>
+                  current.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, session: command.session }
+                      : thread,
+                  ),
+                );
+              }
+              if (command.type === "thread.turn-start.fail") {
+                yield* Ref.update(
+                  pendingTurnStarts,
+                  (ids) => new Set([...ids].filter((id) => id !== command.threadId)),
+                );
+              }
+              dispatched.push(command);
+              if (command.type === "thread.session.set") {
+                yield* PubSub.publish(events, { type: "thread.session-set" } as OrchestrationEvent);
+              }
+              return { sequence: dispatched.length };
+            }),
+          streamDomainEvents: Stream.fromPubSub(events),
+        } satisfies OrchestrationEngineShape;
+        const snapshotQuery = {
+          getCommandReadModel: () =>
+            Effect.map(
+              shellSnapshot,
+              (snapshot) =>
+                ({
+                  ...snapshot,
+                  threads: snapshot.threads as never,
+                }) satisfies OrchestrationReadModel,
+            ),
+          getShellSnapshot: () => shellSnapshot,
+          getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: 1, heartbeatAt: null }),
+        } as unknown as ProjectionSnapshotQueryShape;
+        const providerService = {
+          listSessions: () => Effect.succeed(providerSessions),
+        } as unknown as ProviderService["Service"];
+        const receipts = {
+          upsert: () => Effect.void,
+          getByCommandId: () => Effect.succeed(Option.none()),
+        };
+
+        const deps = Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          ServerConfig.layerTest(process.cwd(), {
+            prefix: "t3-workstream-startup-reconcile-",
+          }),
+        ).pipe(Layer.provideMerge(NodeServices.layer));
+        return Layer.mergeAll(
+          WorkstreamDispatcherLive.pipe(Layer.provide(deps)),
+          Layer.succeed(ProviderService, providerService),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationEngineService, engine),
+        );
+      }),
+    );
+
+  effectIt.effect(
+    "resets a stale running parent after restart and releases the deferred generation wake",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(dispatched).toEqual([]);
+
+            yield* reconcileStartupStaleSessionState;
+            yield* dispatcher.drain;
+
+            const reconcile = dispatched[0];
+            if (reconcile?.type !== "thread.session.set") {
+              throw new Error(`expected startup reconcile session-set, got ${reconcile?.type}`);
+            }
+            expect(reconcile.commandId.startsWith("server:startup-session-reconcile:")).toBe(true);
+            expect(reconcile.threadId).toBe(PARENT_ID);
+            expect(reconcile.session.status).toBe("ready");
+            expect(reconcile.session.activeTurnId).toBeNull();
+
+            const wake = dispatched.find(
+              (command) => command.type === "thread.turn.start" && command.threadId === PARENT_ID,
+            );
+            expect(wake).toBeDefined();
+            expect(wake?.type === "thread.turn.start" ? wake.requireIdle : false).toBe(true);
+          }).pipe(Effect.provide(buildLayer(dispatched)));
+        }),
+      ),
+  );
+
+  effectIt.effect("does not reset a thread that still has an active provider turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [
+              {
+                threadId: PARENT_ID,
+                activeTurnId: "turn-live" as TurnId,
+              } as ProviderSession,
+            ]),
+          ),
+        );
+        expect(dispatched).toEqual([]);
+      }),
+    ),
+  );
 });
 
 describe("kick-off prompt brief/purpose resolution", () => {

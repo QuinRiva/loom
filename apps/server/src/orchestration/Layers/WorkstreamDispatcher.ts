@@ -1319,6 +1319,9 @@ const make = Effect.gen(function* () {
         event.type === "thread.outcome-recorded" ||
         event.type === "thread.route-taken" ||
         event.type === "thread.dependencies-set" ||
+        // A failed/reconciled turn-start clears the durable pending-start row,
+        // which can be the only thing keeping an otherwise-idle parent busy.
+        event.type === "thread.turn-start-failed" ||
         // The parent going idle surfaces as a durable thread.session-set (no
         // turn-completion domain event exists); this drains deferred wakes.
         event.type === "thread.session-set"
