@@ -295,7 +295,8 @@ index a3161ebd4a0ef74bea2c2f3a4ec95b6dd89ace8f..74189ff81136112f2262f18afed7e303
      recievedPong = false;
 -    return writePing;
 +    return (hooks?.onPing ?? Effect.void).pipe(Effect.andThen(writePing));
-   }).pipe(Effect.delay("5 seconds"), Effect.ignore, Effect.forever, Effect.interruptible, Effect.forkScoped);
+-  }).pipe(Effect.delay("5 seconds"), Effect.ignore, Effect.forever, Effect.interruptible, Effect.forkScoped);
++  }).pipe(Effect.delay("45 seconds"), Effect.ignore, Effect.forever, Effect.interruptible, Effect.forkScoped);
    return {
      timeout: latch.await,
 @@ -820,6 +852,11 @@ export const makeProtocolWorker = options => Protocol.make(Effect.fnUntraced(fun

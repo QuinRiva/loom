@@ -18,13 +18,22 @@ type Loader = {
 };
 const defaultSqliteClientLoaders = {
   bun: () => import("@effect/sql-sqlite-bun/SqliteClient"),
-  node: () => import("../NodeSqliteClient.ts"),
+  // File-backed node databases run in a dedicated worker thread so long
+  // statements cannot stall the main event loop; :memory: databases (tests)
+  // stay on the fast in-process synchronous client.
+  node: () => import("../NodeSqliteWorkerClient.ts"),
+  nodeMemory: () => import("../NodeSqliteClient.ts"),
 } satisfies Record<string, () => Promise<Loader>>;
 
 const makeRuntimeSqliteLayer = Effect.fn("makeRuntimeSqliteLayer")(function* (
   config: RuntimeSqliteLayerConfig,
 ) {
-  const runtime = process.versions.bun !== undefined ? "bun" : "node";
+  const runtime =
+    process.versions.bun !== undefined
+      ? "bun"
+      : config.filename === ":memory:"
+        ? "nodeMemory"
+        : "node";
   const loader = defaultSqliteClientLoaders[runtime];
   const clientModule = yield* Effect.promise<Loader>(loader);
   return clientModule.layer(config);

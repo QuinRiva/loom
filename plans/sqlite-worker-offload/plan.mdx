@@ -1,0 +1,133 @@
+---
+manager_sessions:
+  - id: d9a15a06-a3a4-4aa9-89fc-243a1227a54b
+    role: plan
+    authored_at: 2026-07-03T03:37:06.572Z
+---
+
+# Move sqlite off the server main thread
+
+**Objective.** Long `node:sqlite` queries currently execute synchronously on the server's main event loop (`apps/server/src/persistence/NodeSqliteClient.ts`). Under multi-agent load, 10–40 s stalls starve WebSocket pong replies, the browser's Effect RpcClient (5 s pings, ~5–10 s budget) declares the socket dead, and Carl sees spurious "Reconnecting…" banners. **Done means:** the sqlite connection lives in a `worker_threads` worker behind the *unchanged* Effect `SqlClient` interface, main-thread event-loop delay stays sub-second during a heavy query/write burst while pongs keep flowing, and `vp check` + `vp run typecheck` pass.
+
+<Callout tone="decision">
+Recommendation: **one dedicated worker thread** hosting the `DatabaseSync` connection, driven over Effect's worker RPC protocol (`RpcClient.makeProtocolWorker` size 1 ↔ `RpcServer.layerProtocolWorkerRunner` + `NodeWorkerRunner`), wrapped so the existing `SqlClient` contract — including `withTransaction` — survives with **zero caller changes**. All ~20 repository/projection layers and 8 `withTransaction` call sites keep compiling untouched.
+</Callout>
+
+## Why the interface already survives
+
+The persistence layer is already fully async-shaped. `NodeSqliteClient.ts` is a port of `@effect/sql-sqlite-node`: it builds a low-level `Connection` (five methods — `execute`, `executeRaw`, `executeValues`, `executeUnprepared`, `executeStream` — all returning `Effect`) and hands it to `SqlClient.make` from `effect/unstable/sql/SqlClient`. No caller ever touches `node:sqlite` directly; migrations (`Migrations.ts` via `effect/unstable/sql/Migrator`), the WAL/pragma setup in `Layers/Sqlite.ts`, and every projection layer go through SQL statements on the client. Transactions are not synchronous callbacks either: `SqlClient.makeWithTransaction` issues `BEGIN`/`SAVEPOINT`/`COMMIT`/`ROLLBACK` as ordinary effects on a pinned connection, so they cross an async boundary correctly by construction.
+
+Only the `Connection` internals are synchronous. The change is therefore: move the `Connection` implementation (plus the `DatabaseSync` handle and prepared-statement cache) into a worker, and keep the outer `SqlClient.make` wrapper (compiler, span attributes, transaction machinery) on the main thread.
+
+<Mermaid
+  caption="Target shape — only the Connection hop changes"
+  source={"flowchart LR\n  subgraph main[main thread]\n    R[repositories / projections] --> C[SqlClient.make wrapper]\n    C --> P[worker-proxy Connection]\n  end\n  subgraph w[sqlite worker thread]\n    RN[NodeWorkerRunner + RpcServer] --> DB[(DatabaseSync + prepare cache)]\n  end\n  P -- \"postMessage (structured clone)\" --> RN\n"}
+/>
+
+## Options compared
+
+<Table
+  columns={["Option", "Liveness fix", "Complexity", "Verdict"]}
+  rows={[
+    ["A. Single worker thread (recommended)", "Yes — every statement leaves the main thread", "Low — proxy Connection + worker entry; caller contract unchanged", "Do this"],
+    ["B. Bounded worker pool (1 writer + N readers)", "Yes, plus read concurrency", "High — read/write statement classification, per-connection prepare caches, transaction pinning, pool lifecycle (upstream closed #1945 precisely for unbounded/no-lifecycle workers)", "Follow-up only if the single worker becomes a throughput bottleneck; RpcClient.makeProtocolWorker already supports minSize/maxSize/timeToLive so it is a config-plus-classification change later"],
+    ["C. Async driver (libsql / better-sqlite3 etc.)", "No — their promise APIs still execute synchronously on the calling thread for local files (napi, better-sqlite3 heritage)", "New native dependency, new failure modes", "Reject"],
+  ]}
+/>
+
+Option A intentionally preserves today's throughput profile (one statement at a time, WAL, single connection = single writer, no `SQLITE_BUSY` exposure). Queries that take 20 s still take 20 s — but the event loop, and therefore pongs, heartbeats, git status, and every other RPC, keep flowing. That is the actual bug.
+
+## Design details (Option A)
+
+**Effect APIs (all already in our dependency set — `effect` + `@effect/platform-node`):**
+
+- Worker side: `NodeWorkerRunner.layer` (`@effect/platform-node`) + `RpcServer.layerProtocolWorkerRunner` (`effect/unstable/rpc`) serving a small `RpcGroup` (~5 request shapes mirroring the `Connection` methods).
+- Main side: `NodeWorker.layerPlatform` + a spawner (`new worker_threads.Worker(new URL(...))`) + `RpcClient.makeProtocolWorker({ size: 1, concurrency: 1 })`. `concurrency: 1` keeps strict FIFO statement ordering; the protocol gives request correlation, `SqlError` propagation (it is a `Schema` tagged class, so it round-trips), interruption, and scope-driven shutdown (close signal → drain → `terminate()` fallback) for free.
+- Payloads declared with `Schema.Unknown`-shaped schemas so encoding is identity and structured clone does the actual transport. Rows are primitives / strings / `Uint8Array` / bigints — all clone-legal.
+
+**Per-request flags** replace fiber-context reads that currently happen next to the statement: the proxy reads `Client.SafeIntegers` from the fiber on the main thread and sends it as a request field (worker applies `setReadBigInts`); `executeValues` sends a `returnArrays` flag; `executeUnprepared` sends a `noCache` flag. `executeStream` keeps its current `Stream.die` (unsupported today; unchanged).
+
+**Transaction exclusivity — the one subtle contract point.** Today the semaphore in `NodeSqliteClient` releases its permit *before* a statement runs; synchronous execution makes the race window unobservable. With an async hop the window is real: a plain statement could pass the acquirer, yield, and land between another fiber's `BEGIN` and `COMMIT`, silently joining the transaction. Fix inside the client (no caller impact):
+
+<AnnotatedCode
+  filename="apps/server/src/persistence/NodeSqliteWorkerClient.ts (sketch)"
+  language="ts"
+  code={"// plain statements: permit held across the whole round trip\nconst lockedConnection = wrapConnection(proxy, (run) =>\n  semaphore.withPermits(1)(run),\n);\nconst acquirer = Effect.succeed(lockedConnection);\n\n// transactions: permit held for the transaction scope,\n// inner statements use the unlocked proxy (no re-acquire)\nconst transactionAcquirer = /* take(1) + Scope finalizer release, as today */\n  Effect.as(takePermitForScope, proxy);\n"}
+  annotations={[
+    { lines: "2-4", label: "hold, don't peek", note: "unlike today's acquirer, the permit spans execution — closes the async interleave window" },
+    { lines: "8-9", note: "transaction statements bypass the per-statement lock, so no deadlock; same semaphore ⇒ plain statements queue behind an open transaction, exactly as now" },
+  ]}
+/>
+
+**Serialisation cost.** Multi-MB event payloads (DB is 2.1 GB) get structured-cloned once per hop instead of returned by reference. Clone of a 5 MB string costs single-digit milliseconds on the main thread — bounded and proportional to result size, versus today's unbounded stall for the whole query duration. No transfer-list games needed in v1.
+
+**Startup, migrations, WAL.** Nothing moves: `Layers/Sqlite.ts` still runs `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON`, and `runMigrations()` through the `SqlClient`, so they simply execute in the worker. Startup gains one worker spawn (~30 ms). Open-failure errors surface at layer construction through the RPC protocol exactly like other `SqlError`s. The Node-version compat check stays on the main thread.
+
+**Runtime split.** The bun path (`@effect/sql-sqlite-bun` in the `Layers/Sqlite.ts` loader) is untouched. `:memory:` databases (all persistence tests use `layerMemory`) **stay on the in-process synchronous client** — tests keep their speed and vitest never needs the worker entry bundled. Only node + file-backed databases route to the worker client. The synchronous `Connection` factory is extracted and shared so the worker hosts the same code the in-process client uses — no logic duplication.
+
+## File-level change list
+
+<FileTree
+  title="Blast radius — persistence internals only; zero repository/projection changes"
+  entries={[
+    { path: "apps/server/src/persistence/NodeSqliteConnection.ts", change: "added", note: "extracted from NodeSqliteClient: DatabaseSync open + prepare cache + the five Connection ops (shared by in-process client and worker)" },
+    { path: "apps/server/src/persistence/NodeSqliteClient.ts", change: "modified", note: "slims to the in-process client (kept for :memory:/tests); re-uses NodeSqliteConnection" },
+    { path: "apps/server/src/persistence/NodeSqliteWorkerClient.ts", change: "added", note: "main-thread proxy Connection + SqlClient.make wrapper + revised semaphore semantics + NodeWorker spawner" },
+    { path: "apps/server/src/persistence/SqliteWorker.ts", change: "added", note: "worker entrypoint: NodeWorkerRunner + RpcServer serving NodeSqliteConnection" },
+    { path: "apps/server/src/persistence/Layers/Sqlite.ts", change: "modified", note: "node+file → worker client; :memory: → in-process; bun unchanged" },
+    { path: "apps/server/vite.config.ts", change: "modified", note: "pack.entry gains the worker entry so vp pack emits a sibling chunk in dist/" },
+    { path: "patches/effect@4.0.0-beta.78.patch", change: "modified", note: "secondary: makePinger interval 5 s → 45 s (client-side RpcClient pinger)" },
+  ]}
+/>
+
+## Risks
+
+- **`vp pack` worker entry resolution** is the main integration risk: dev runs `node src/bin.ts` (type stripping — the spawner can point at the `.ts` entry via `new URL(..., import.meta.url)`), but the published bundle must resolve the worker chunk beside `dist/bin.mjs`. Mitigation: make "worker spawns in both dev and packed builds" the *first* implementation step (spike), with a dev/prod path switch in one place if URL rewriting doesn't come free.
+- **Ordering/isolation regression** if the semaphore rework is wrong — mitigated by the design above plus the existing persistence test suite running against the worker client for at least one file-backed test (`NodeSqliteClient.test.ts` gains a file-DB + transaction-interleave case; the one place a test genuinely earns its keep).
+- **Latency per statement** gains a postMessage round trip (~0.1–0.3 ms). Chatty projection loops get marginally slower in exchange for liveness; acceptable, and the prepare cache still lives with the connection.
+- **Worker crash** (OOM in worker, sqlite corruption): the RPC protocol surfaces it as a defect failing in-flight requests; the layer scope tears down. v1 treats it as fatal (same as today's in-process crash) — no auto-respawn machinery.
+
+## Secondary items
+
+- **Ping-interval bump — in plan** (belt and braces, maintainer-endorsed upstream in #3500/#2885): edit the existing `makePinger` hunk in `patches/effect@4.0.0-beta.78.patch` to ping every 45 s. Covers stall sources the worker move does not fix (git scans, large snapshot sends).
+- **Trace-log volume / configurable verbosity — follow-up.** ~5 MB/min of ndjson is real IO load but a separate concern; file as its own task.
+- **Event-store write-burst backpressure — follow-up.** The worker move plus the existing statement serialisation already bounds main-thread impact; revisit only if the worker queue grows without bound under sustained bursts (then Option B's bounded pool and/or a queue-depth metric).
+
+## Verification
+
+1. `vp check` and `vp run typecheck` pass; `apps/server` test suite passes (memory client) plus the new file-backed worker test.
+2. **Liveness demonstration** — a throwaway script (not committed as a test) that provides the worker-backed layer against a copy of the real 2.1 GB DB, fires a burst of expensive reads/writes (e.g. large event-row scans concurrent with event appends), while `perf_hooks.monitorEventLoopDelay` samples the main thread. Pass: p99 event-loop delay < 250 ms during the burst (today: tens of seconds). Before/after numbers reported side by side.
+3. **Real-workflow smoke:** run the dev server against the copied DB, drive a few agent threads, and confirm via `server.trace.ndjson` that `sql.execute` spans may still be long while WebSocket connections show zero ping-timeout disconnects across the window.
+
+<QuestionForm
+  questions={[
+    {
+      id: "protocol",
+      title: "Worker plumbing: Effect Rpc worker protocol, or a minimal hand-rolled request/response over Worker.send/run?",
+      mode: "single",
+      options: [
+        { id: "rpc", label: "Rpc worker protocol (RpcClient.makeProtocolWorker + RpcServer.layerProtocolWorkerRunner)", recommended: true, detail: "Correlation, interruption, SqlError round-trip, lifecycle and future pool support for free; battle-tested in effect-smol." },
+        { id: "raw", label: "Hand-rolled (~80 lines: request-id map over Worker.send/run)", detail: "Slightly less machinery, but re-implements correlation/interruption/shutdown that Rpc already provides." },
+      ],
+    },
+    {
+      id: "ping",
+      title: "Client ping interval after the patch bump?",
+      mode: "single",
+      options: [
+        { id: "p45", label: "45 s", recommended: true, detail: "Matches upstream #3500 (beta.78 rebase of the maintainer-endorsed change)." },
+        { id: "p60", label: "60 s", detail: "Matches original #2885; slower dead-connection detection." },
+        { id: "p0", label: "Skip the bump entirely; rely on the worker move alone", detail: "Leaves git-scan and snapshot-send stall modes exposed." },
+      ],
+    },
+    {
+      id: "memorypath",
+      title: "Keep the in-process synchronous client for :memory:/test databases?",
+      mode: "single",
+      options: [
+        { id: "keep", label: "Yes — worker only for file-backed node runtime", recommended: true, detail: "Tests stay fast and vitest needs no worker bundling; the shared Connection factory avoids logic duplication." },
+        { id: "all", label: "No — route everything through the worker", detail: "One path, but every test spawns a worker and vitest must resolve the entry." },
+      ],
+    },
+  ]}
+/>

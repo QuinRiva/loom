@@ -1,9 +1,13 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as SqliteClient from "./NodeSqliteClient.ts";
+import * as SqliteWorkerClient from "./NodeSqliteWorkerClient.ts";
 
 const layer = it.layer(SqliteClient.layerMemory());
 
@@ -39,6 +43,44 @@ layer("NodeSqliteClient", (it) => {
     }),
   );
 });
+
+it.live("plain statements queue behind an open transaction on the worker client", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-sqlite-worker-" });
+    const dbPath = path.join(dir, "test.sqlite");
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`;
+
+      // A transaction that holds the connection open for a while, then rolls
+      // back. Guards the semaphore contract on the worker client: plain
+      // statements must queue behind the transaction's permit (else the
+      // interleaved plain write would be erased by the rollback) and
+      // transaction statements must not re-acquire it (else this deadlocks).
+      const rolledBack = sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO entries(name) VALUES (${"txn"})`;
+            yield* Effect.sleep(150);
+            return yield* Effect.fail("rollback" as const);
+          }),
+        )
+        .pipe(Effect.flip);
+
+      const plain = sql`INSERT INTO entries(name) VALUES (${"plain"})`.pipe(Effect.delay(30));
+
+      yield* Effect.all([rolledBack, plain], { concurrency: "unbounded" });
+
+      const rows = yield* sql<{ readonly name: string }>`SELECT name FROM entries`;
+      assert.deepEqual(
+        rows.map((row) => row.name),
+        ["plain"],
+      );
+    }).pipe(Effect.provide(SqliteWorkerClient.layer({ filename: dbPath })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
 
 it.effect("returns a typed failure when the database cannot be opened", () =>
   Effect.gen(function* () {
