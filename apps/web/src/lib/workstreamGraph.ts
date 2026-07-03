@@ -143,7 +143,7 @@ const isPlanTerminal = (t: SidebarThreadSummary): boolean =>
   t.planLane === "done" || t.planLane === "cancelled";
 
 /**
- * Collapse an orchestrator's whole descendant DAG into THREE independent
+ * Collapse an orchestrator's whole descendant graph into THREE independent
  * projections (design §5): plan (done vs incomplete), activity (any executing),
  * and attention (any needs-a-human). `graphState` is a representative summary
  * for the single sidebar badge glyph; the board renders the three axes

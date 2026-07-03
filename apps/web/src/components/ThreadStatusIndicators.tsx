@@ -85,7 +85,7 @@ const ACTION_REASON_DOT: Record<AttentionReason, string> = {
 };
 
 /**
- * Trailing badge summarising an orchestrator's whole sub-thread DAG: colour +
+ * Trailing badge summarising an orchestrator's whole sub-thread graph: colour +
  * glyph = rolled-up state, number = state-contextual count. Coexists with the
  * leading own-turn pill and the other trailing icons.
  *

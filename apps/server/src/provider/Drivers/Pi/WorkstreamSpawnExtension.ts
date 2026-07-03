@@ -35,7 +35,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       "Name the work with three distinct fields: title is a short imperative label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
-      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole DAG for review before any tokens are spent, then workstream_release the held subtree to let it run.",
+      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole graph for review before any tokens are spent, then workstream_release the held subtree to let it run.",
       "To put a coder under review, spawn the coder first, then spawn a reviewer with blockedBy: [coderId] AND gate: { rework: coderId }. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong)."
     ],
     parameters: {
@@ -56,7 +56,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
           required: ["rework"],
           additionalProperties: false
         },
-        staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a DAG for review before any tokens are spent; release it later with workstream_release." },
+        staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a graph for review before any tokens are spent; release it later with workstream_release." },
         modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
         modelSelection: {
           type: "object",
@@ -161,10 +161,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_release",
     label: "Release Workstream Subtree",
-    description: "Release a held (staged) Workstream subtree: flip every 'planned' node in the target thread's subtree to 'ready' so it runs once its dependencies clear. Use this after laying out a DAG with staged spawns and reviewing the work breakdown. The result names exactly which nodes were flipped so an intentional mixed-hold is not silently erased. Default target is your own subtree.",
+    description: "Release a held (staged) Workstream subtree: flip every 'planned' node in the target thread's subtree to 'ready' so it runs once its dependencies clear. Use this after laying out a graph with staged spawns and reviewing the work breakdown. The result names exactly which nodes were flipped so an intentional mixed-hold is not silently erased. Default target is your own subtree.",
     promptSnippet: "flip a held (planned) subtree to ready so it starts running; reports which nodes were released.",
     promptGuidelines: [
-      "Use workstream_release once you've reviewed a staged DAG and want it to run. Only 'planned' nodes in the subtree are flipped; already-released/running nodes are untouched.",
+      "Use workstream_release once you've reviewed a staged graph and want it to run. Only 'planned' nodes in the subtree are flipped; already-released/running nodes are untouched.",
       "Omit threadId to release your own subtree; you may only release your own thread or a thread you directly parent."
     ],
     parameters: {
