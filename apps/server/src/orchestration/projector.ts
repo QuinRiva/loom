@@ -38,6 +38,8 @@ import {
   ThreadAttentionClearedPayload,
   ThreadDependenciesSetPayload,
   ThreadReportSetPayload,
+  ThreadOutcomeRecordedPayload,
+  ThreadRouteTakenPayload,
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -509,6 +511,7 @@ export function projectEvent(
             planLane: payload.planLane ?? "planned",
             attention: payload.attention ?? [],
             blockedBy: payload.blockedBy ?? [],
+            routes: payload.routes ?? [],
             spawnGeneration: payload.spawnGeneration ?? null,
             reportPath: null,
             title: payload.title,
@@ -739,6 +742,61 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    // Review gates (design §3.2): record the submitted outcome + routing verdict
+    // on the thread. `recordedByEventId` keys the dispatcher's per-yield-episode
+    // wake dedup. Any recorded outcome also closes an open rework round on the
+    // thread (design §4.3: `pendingRework` cleared by the next submit).
+    case "thread.outcome-recorded":
+      return decodeForEvent(
+        ThreadOutcomeRecordedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            lastOutcome: {
+              outcome: payload.outcome,
+              decision: payload.decision,
+              round: payload.round,
+              ...(payload.contested !== undefined ? { contested: payload.contested } : {}),
+              ...(payload.counts !== undefined ? { counts: payload.counts } : {}),
+              recordedByEventId: event.eventId,
+              at: payload.updatedAt,
+            },
+            pendingRework: false,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    // Review gates (design §4.3/§4.4): a control-plane loop traversal. A
+    // loop-EDGE traversal (the source carries a loop route naming `to`) opens a
+    // rework round on the target and advances the source's round counter; the
+    // reverse (re-verify) traversal advances neither. Nothing emits this event
+    // until Phase 3 wires routing.
+    case "thread.route-taken":
+      return decodeForEvent(ThreadRouteTakenPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const from = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          const isLoopTraversal =
+            from?.routes.some((route) => route.kind === "loop" && route.to === payload.to) ?? false;
+          if (!isLoopTraversal) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(
+              updateThread(nextBase.threads, payload.to, {
+                pendingRework: true,
+                updatedAt: payload.updatedAt,
+              }),
+              payload.threadId,
+              { gateRounds: payload.round, updatedAt: payload.updatedAt },
+            ),
+          };
+        }),
       );
 
     case "thread.message-sent":

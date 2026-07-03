@@ -86,6 +86,10 @@ describe("orchestration projector", () => {
         blockedBy: [],
         spawnGeneration: null,
         reportPath: null,
+        routes: [],
+        gateRounds: 0,
+        pendingRework: false,
+        lastOutcome: null,
         title: "demo",
         modelSelection: {
           instanceId: "codex",

@@ -88,6 +88,10 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         blockedBy: [],
         spawnGeneration: null,
         reportPath: null,
+        routes: [],
+        gateRounds: 0,
+        pendingRework: 0,
+        lastOutcome: null,
         title: "Null options thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),

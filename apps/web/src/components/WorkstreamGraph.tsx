@@ -33,10 +33,14 @@ import {
   type ChildIndex,
   COLUMN_LABELS,
   COLUMN_ORDER,
+  getGateLoopCap,
+  getGateWaitLabel,
+  getLoopStroke,
   getPurpose,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
+  getVerdictChip,
   STATUS_STYLES,
   truncateLabel,
   WAITS_ON_STROKE,
@@ -59,12 +63,16 @@ export default function WorkstreamGraph({
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
   readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
 }) {
-  // Layout depends only on structure (lineage + generation + deps + order), so
-  // memoise on a structural key rather than re-running on every status tick.
+  // Layout depends only on structure (lineage + generation + deps + loop routes
+  // + order), so memoise on a structural key rather than re-running on every
+  // status tick. Loop ROUNDS are live-resolved at render, not part of the key.
   const structureKey = threads
     .map(
       (t) =>
-        `${t.id}>${t.parentThreadId ?? ""}@${t.spawnGeneration ?? ""}#${t.createdAt}:${t.blockedBy.join(",")}`,
+        `${t.id}>${t.parentThreadId ?? ""}@${t.spawnGeneration ?? ""}#${t.createdAt}:${t.blockedBy.join(",")}~${t.routes
+          .filter((route) => route.kind === "loop")
+          .map((route) => route.to ?? "")
+          .join(",")}`,
     )
     .join("|");
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,9 +195,19 @@ export default function WorkstreamGraph({
             >
               <path d="M0 0 L6 3 L0 6 z" fill={WAITS_ON_STROKE} />
             </marker>
+            <marker
+              id="workstream-loop-arrow"
+              markerHeight="8"
+              markerWidth="8"
+              orient="auto"
+              refX="6"
+              refY="3"
+            >
+              <path d="M0 0 L6 3 L0 6 z" fill={getLoopStroke(1)} />
+            </marker>
           </defs>
           {edges.map((edge) => (
-            <GraphEdge key={edge.key} edge={edge} />
+            <GraphEdge key={edge.key} edge={edge} threadById={threadById} />
           ))}
           {nodes.map((node) =>
             node.kind === "bridge" ? (
@@ -228,12 +246,66 @@ export default function WorkstreamGraph({
           />
           waits-on
         </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+          <span
+            className="inline-block h-0 w-4 border-t"
+            style={{ borderColor: getLoopStroke(1) }}
+          />
+          review loop ⟲
+        </span>
       </div>
     </div>
   );
 }
 
-function GraphEdge({ edge }: { readonly edge: LaidEdge }) {
+function GraphEdge({
+  edge,
+  threadById,
+}: {
+  readonly edge: LaidEdge;
+  readonly threadById: ChildIndex;
+}) {
+  if (edge.kind === "loop") {
+    // Return arrow of a review gate: reverse-direction, bowed BELOW the cards so
+    // it reads as a cycle against the forward waits-on edge. Stroke darkens with
+    // consumed rework rounds; the midpoint badge shows rounds vs cap. Rounds are
+    // resolved live from the gate source so the edge recolours without re-layout.
+    const source = edge.sourceId ? threadById.get(edge.sourceId) : undefined;
+    const rounds = source?.gateRounds ?? 0;
+    const cap = source ? getGateLoopCap(source) : rounds;
+    const stroke = getLoopStroke(rounds);
+    const midX = (edge.x1 + edge.x2) / 2;
+    const drop = 30;
+    // Cubic midpoint with both control points at +drop: avg(y) + 0.75 * drop.
+    const badgeY = (edge.y1 + edge.y2) / 2 + drop * 0.75;
+    return (
+      <g>
+        <path
+          d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1 + drop}, ${midX} ${edge.y2 + drop}, ${edge.x2} ${edge.y2}`}
+          fill="none"
+          markerEnd="url(#workstream-loop-arrow)"
+          stroke={stroke}
+          strokeWidth="1.4"
+        />
+        <g>
+          <title>{`Review loop — ${rounds} of ${cap} rework rounds used`}</title>
+          <rect
+            fill="#0d1117"
+            height={15}
+            rx="7"
+            stroke={stroke}
+            strokeWidth="1"
+            width={40}
+            x={midX - 20}
+            y={badgeY - 7.5}
+          />
+          <text fill={stroke} fontSize="9" textAnchor="middle" x={midX} y={badgeY + 3}>
+            {`⟲ ${rounds}/${cap}`}
+          </text>
+        </g>
+      </g>
+    );
+  }
   if (edge.kind === "spine") {
     return (
       <line
@@ -339,6 +411,8 @@ function GraphNode({
   // a lane/attention change wouldn't recolour the node until the graph re-lays.
   const thread = threadById.get(node.thread.id) ?? node.thread;
   const status = getThreadStatus(thread, threadById);
+  const verdictChip = getVerdictChip(thread);
+  const gateWait = getGateWaitLabel(thread, threadById);
   const open = () => onOpenThread(thread);
   return (
     <g
@@ -385,6 +459,60 @@ function GraphNode({
         y={node.y + 39}
       >
         {truncateLabel(getRoleLabel(thread), 13)} · {status.label}
+      </text>
+      {verdictChip ? (
+        <GatePill
+          fill={verdictChip.fill}
+          label={truncateLabel(verdictChip.label, 20)}
+          stroke={verdictChip.stroke}
+          xEnd={node.x + node.w - 6}
+          yCenter={node.y + node.h}
+        />
+      ) : null}
+      {gateWait ? (
+        // Straddles the TOP border so it never collides with the verdict chip
+        // (the pair can exceed the card width side by side).
+        <GatePill
+          fill="#0d1117"
+          label={gateWait}
+          stroke="rgba(255,255,255,0.4)"
+          xEnd={node.x + node.w - 6}
+          yCenter={node.y}
+        />
+      ) : null}
+    </g>
+  );
+}
+
+/** Small right-aligned pill straddling a card's bottom border (SVG). */
+function GatePill({
+  label,
+  stroke,
+  fill,
+  xEnd,
+  yCenter,
+}: {
+  readonly label: string;
+  readonly stroke: string;
+  readonly fill: string;
+  readonly xEnd: number;
+  readonly yCenter: number;
+}) {
+  const width = label.length * 4.6 + 10;
+  return (
+    <g>
+      <rect
+        fill={fill}
+        height={13}
+        rx="6.5"
+        stroke={stroke}
+        strokeWidth="1"
+        width={width}
+        x={xEnd - width}
+        y={yCenter - 6.5}
+      />
+      <text fill={stroke} fontSize="8" textAnchor="middle" x={xEnd - width / 2} y={yCenter + 2.5}>
+        {label}
       </text>
     </g>
   );

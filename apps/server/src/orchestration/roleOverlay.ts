@@ -13,7 +13,7 @@ export interface RoleOverlay {
   readonly skills?: ReadonlyArray<string>;
   /** Tool-name allowlist from frontmatter, passed to pi as `--tools`. CAVEAT: pi
    * applies the allowlist to extension-registered tools too, so a list that omits
-   * the workstream tool names (workstream_report, workstream_set_lane, …) severs
+   * the workstream tool names (workstream_submit, workstream_set_lane, …) severs
    * the thread from the workstream.
    *
    * RESOLUTION (chosen, NOT YET IMPLEMENTED): the server will auto-union the

@@ -57,7 +57,7 @@ import {
   workstreamLaneUrlFromMcpEndpoint,
   workstreamListUrlFromMcpEndpoint,
   workstreamReleaseUrlFromMcpEndpoint,
-  workstreamReportUrlFromMcpEndpoint,
+  workstreamSubmitUrlFromMcpEndpoint,
   workstreamSpawnUrlFromMcpEndpoint,
   workstreamPromptUrlFromMcpEndpoint,
   workstreamStopUrlFromMcpEndpoint,
@@ -1100,7 +1100,7 @@ function makePiAdapter(input: {
                       T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
-                      T3_WORKSTREAM_REPORT_URL: workstreamReportUrlFromMcpEndpoint(
+                      T3_WORKSTREAM_SUBMIT_URL: workstreamSubmitUrlFromMcpEndpoint(
                         mcpSession.endpoint,
                       ),
                       T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),

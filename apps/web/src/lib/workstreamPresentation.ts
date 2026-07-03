@@ -1,4 +1,6 @@
+import { DEFAULT_GATE_MAX_ROUNDS } from "@t3tools/contracts";
 import type { ModelSelection, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import { isWaitingInGate } from "@t3tools/shared/workstreamGraph";
 
 import type { SidebarThreadSummary } from "../types";
 import {
@@ -34,12 +36,14 @@ export interface WorkstreamStatus {
 
 // Board column order: the plan lanes in lifecycle order, with the derived
 // `blocked` (ready-but-waiting-on-upstream) sitting between `ready` and the
-// active `in_progress` phase, and `cancelled` last (abandoned).
+// active `in_progress` phase, `yielded` (turn over, needs the orchestrator)
+// between `in_progress` and `done`, and `cancelled` last (abandoned).
 export const COLUMN_ORDER: ReadonlyArray<WorkstreamColumnId> = [
   "planned",
   "ready",
   "blocked",
   "in_progress",
+  "yielded",
   "done",
   "cancelled",
 ];
@@ -60,6 +64,7 @@ export const COLUMN_LABELS = {
   ready: "Ready",
   blocked: "Blocked · on upstream",
   in_progress: "In progress",
+  yielded: "Yielded · needs orchestrator",
   done: "Done",
   cancelled: "Cancelled",
 } satisfies Record<WorkstreamColumnId, string>;
@@ -70,6 +75,7 @@ export const COLUMN_SHORT_LABELS = {
   ready: "Ready",
   blocked: "Blocked",
   in_progress: "In progress",
+  yielded: "Yielded",
   done: "Done",
   cancelled: "Cancelled",
 } satisfies Record<WorkstreamColumnId, string>;
@@ -110,6 +116,17 @@ export const STATUS_STYLES = {
     leftBorderClass: "border-l-sky-400",
     graphStroke: "#38bdf8",
     graphFill: "rgba(56, 189, 248, 0.16)",
+  },
+  // Violet family (review-gates design §10) — distinct from amber `blocked`
+  // and sky `in_progress`: the thread yielded its turn to the orchestrator.
+  yielded: {
+    textClass: "text-violet-300",
+    borderClass: "border-violet-400/40",
+    bgClass: "bg-violet-400/10",
+    dotClass: "bg-violet-400",
+    leftBorderClass: "border-l-violet-400",
+    graphStroke: "#a78bfa",
+    graphFill: "rgba(167, 139, 250, 0.16)",
   },
   done: {
     textClass: "text-emerald-300",
@@ -176,6 +193,93 @@ export const ATTENTION_STYLES = {
 } satisfies Record<AttentionReason, { textClass: string; borderClass: string; bgClass: string }>;
 
 export const WAITS_ON_STROKE = "#f59e0b";
+
+// ---------------------------------------------------------------------------
+// Review gates (docs/design/workstream-review-gates.md §10) — the loop-edge
+// palette, verdict chip, and gate-waiting badge shared by the board cards and
+// the SVG graph.
+// ---------------------------------------------------------------------------
+
+// Loop-edge stroke darkens with consumed rework rounds: violet-300 → violet-500.
+const LOOP_STROKES = ["#c4b5fd", "#a78bfa", "#8b5cf6"] as const;
+
+export function getLoopStroke(rounds: number): string {
+  return LOOP_STROKES[Math.min(Math.max(rounds, 0), LOOP_STROKES.length - 1)]!;
+}
+
+/** The loop-round cap declared on a gate source's loop route. */
+export function getGateLoopCap(thread: SidebarThreadSummary): number {
+  return thread.routes.find((route) => route.kind === "loop")?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS;
+}
+
+/** One verdict chip — Tailwind classes for the board card, hex for the SVG card. */
+export interface GateVerdictChip {
+  readonly label: string;
+  readonly textClass: string;
+  readonly borderClass: string;
+  readonly bgClass: string;
+  readonly stroke: string;
+  readonly fill: string;
+}
+
+const CHIP_EMERALD = {
+  textClass: "text-emerald-300",
+  borderClass: "border-emerald-400/45",
+  bgClass: "bg-emerald-400/15",
+  stroke: "#34d399",
+  fill: "#173533",
+};
+const CHIP_EMERALD_OUTLINE = {
+  textClass: "text-emerald-300",
+  borderClass: "border-emerald-400/60",
+  bgClass: "bg-transparent",
+  stroke: "#34d399",
+  fill: "#0d1117",
+};
+const CHIP_AMBER = {
+  textClass: "text-amber-300",
+  borderClass: "border-amber-400/45",
+  bgClass: "bg-amber-400/15",
+  stroke: "#f59e0b",
+  fill: "#362d1c",
+};
+const CHIP_VIOLET = {
+  textClass: "text-violet-300",
+  borderClass: "border-violet-400/45",
+  bgClass: "bg-violet-400/15",
+  stroke: "#a78bfa",
+  fill: "#2a2a42",
+};
+
+/**
+ * Verdict chip for a gate source's card, from its last submitted outcome:
+ * `clean` emerald / `fixed_inline` emerald-outline (reviewer-authored fixes are
+ * human-auditable) / `needs_rework ⟲n` amber / a yielded outcome violet.
+ * Null for non-gate threads and outcomes with no chip vocabulary.
+ */
+export function getVerdictChip(thread: SidebarThreadSummary): GateVerdictChip | null {
+  const last = thread.lastOutcome;
+  if (!last || !thread.routes.some((route) => route.kind === "loop")) return null;
+  if (last.decision === "yield" || last.decision === "cap-breach")
+    return { label: `${last.outcome.replaceAll("_", " ")} · yielded`, ...CHIP_VIOLET };
+  if (last.outcome === "clean") return { label: "clean", ...CHIP_EMERALD };
+  if (last.outcome === "fixed_inline") return { label: "fixed inline", ...CHIP_EMERALD_OUTLINE };
+  if (last.outcome === "needs_rework")
+    return { label: `needs rework ⟲${last.round}`, ...CHIP_AMBER };
+  return null;
+}
+
+/**
+ * Gate-waiting badge (shared `isWaitingInGate` — the same predicate that
+ * suppresses the dispatcher's idle nag): the gate source waits on the coder's
+ * rework; the target waits on the reviewer's re-verify.
+ */
+export function getGateWaitLabel(thread: SidebarThreadSummary, byId: ChildIndex): string | null {
+  if (!isWaitingInGate(thread, byId)) return null;
+  return thread.routes.some((route) => route.kind === "loop")
+    ? "waiting on rework"
+    : "awaiting re-review";
+}
 
 const ROLE_ICONS: Record<string, string> = {
   reviewer: "◎",
@@ -307,6 +411,7 @@ export function groupChildrenByColumn(
     ready: [],
     blocked: [],
     in_progress: [],
+    yielded: [],
     done: [],
     cancelled: [],
   };

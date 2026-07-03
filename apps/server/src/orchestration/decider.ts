@@ -33,6 +33,7 @@ import {
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -533,6 +534,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.blockedBy !== undefined
             ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
             : {}),
+          // Review gates (design §4): outcome route edges declared at spawn.
+          ...(command.routes !== undefined ? { routes: command.routes } : {}),
           ...(command.planLane !== undefined ? { planLane: command.planLane } : {}),
           ...(command.spawnGeneration !== undefined
             ? { spawnGeneration: command.spawnGeneration }
@@ -815,6 +818,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             "Plan lane 'in_progress' is control-plane-only — it is set by starting a turn, not assigned directly.",
         });
       }
+      // `yielded` is likewise control-plane-only (review-gates design §5.1): it
+      // is derived from a submit's routing decision (`thread.work.submit`),
+      // never assigned directly — the same `server:` guard as `in_progress`.
+      if (command.planLane === "yielded" && !command.commandId.startsWith("server:")) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Plan lane 'yielded' is control-plane-only — it is derived from a workstream_submit outcome, not assigned directly.",
+        });
+      }
       const occurredAt = yield* nowIso;
       // Cancellation cascades over the whole subtree (design: orchestrator-wide
       // descendant termination). Cancelling a thread cancels every non-terminal
@@ -1079,6 +1092,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
+      // Gate reopen (review-gates design §5.2): the SINGLE transition out of
+      // `done`. Server-only (the dispatcher's gate pass sets it when looping
+      // rework back to a round-0-completed coder) and only from `done` — a
+      // cancelled thread stays dead, mirroring the cancel side of sticky
+      // terminal. The lane flip lands atomically with the turn-start below.
+      if (command.reopen === true && !command.commandId.startsWith("server:")) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Turn-start flag 'reopen' is control-plane-only (gate rework re-dispatch).",
+        });
+      }
+      if (command.reopen === true && targetThread.planLane === "cancelled") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is cancelled and cannot be reopened — reopen applies only to 'done'.`,
+        });
+      }
+      const reopening = command.reopen === true && targetThread.planLane === "done";
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1155,7 +1186,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // leave the child with a started turn but a lane stuck at `ready`. Only the
       // dispatcher sets `setInProgress` (control-plane-only, design §8); normal
       // user/agent turn-starts and the requireIdle wake path never do.
-      if (command.setInProgress === true && !targetTerminal) {
+      //
+      // `yielded` is NOT sticky-terminal (review-gates design §5.1): ANY
+      // turn-start on a `yielded` thread — a parent workstream_prompt, a human
+      // send, a gate-pass resume — reverts it to `in_progress` in the same
+      // transaction, so a resumed thread never sits mislabelled as yielded.
+      //
+      // A gate `reopen` is the mirror image for `done`: the resume atomically
+      // reverts the round-0-completed coder to `in_progress` in the same
+      // transaction (review-gates design §5.2).
+      if (
+        (command.setInProgress === true && !targetTerminal) ||
+        targetThread.planLane === "yielded" ||
+        reopening
+      ) {
         trailingEvents.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -1171,6 +1215,48 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             updatedAt: command.createdAt,
           },
         });
+      }
+      // Reopen observability (design §5.2/R3): a STARTED dependent is never
+      // un-run, so a reopen that supersedes work a released dependent already
+      // consumed is surfaced as a warning activity on the parent — observable,
+      // never blocking (a hard block would deadlock the loop on a mis-wiring).
+      if (reopening && targetThread.parentThreadId !== null) {
+        const startedDependents = readModel.threads.filter(
+          (thread) =>
+            thread.deletedAt === null &&
+            thread.blockedBy.includes(command.threadId) &&
+            thread.messages.some((message) => message.role === "user"),
+        );
+        if (startedDependents.length > 0) {
+          const activityId = yield* Crypto.Crypto.pipe(
+            Effect.flatMap((crypto) => crypto.randomUUIDv4),
+          );
+          trailingEvents.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: targetThread.parentThreadId,
+              occurredAt: command.createdAt,
+              commandId: command.commandId,
+            })),
+            causationEventId: turnStartRequestedEvent.eventId,
+            type: "thread.activity-appended",
+            payload: {
+              threadId: targetThread.parentThreadId,
+              activity: {
+                id: EventId.make(activityId),
+                tone: "error",
+                kind: "workstream.gate.reopened-with-started-dependents",
+                summary: `Warning: review gate reopened '${targetThread.title}' (${command.threadId}) for rework while ${startedDependents.length} already-started dependent(s) may be running against its superseded output.`,
+                payload: {
+                  reopenedThreadId: command.threadId,
+                  startedDependentIds: startedDependents.map((thread) => thread.id),
+                },
+                turnId: null,
+                createdAt: command.createdAt,
+              },
+            },
+          });
+        }
       }
       return [userMessageEvent, turnStartRequestedEvent, ...trailingEvents];
     }
@@ -1495,14 +1581,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.report.set": {
-      yield* requireThread({
+    // Review gates (design §3/§4): the single terminal call. One transaction
+    // emits the report pointer, the structured outcome record, and the events
+    // the routing decision implies — lane changes, attention, or a gate
+    // traversal (`thread.route-taken`) the dispatcher's gate pass executes. The
+    // routing decision itself is the shared pure `routeWorkSubmit` (also
+    // mirrored by the submit endpoint for its response echo).
+    case "thread.work.submit": {
+      const submitThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      // Terminal-lane guard: a submit landing on a terminal thread never flips
+      // lanes — cancelled stays dead (mirroring reopen's never-from-cancelled)
+      // and a done thread has already completed.
+      if (submitThread.planLane === "done" || submitThread.planLane === "cancelled") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is ${submitThread.planLane}; workstream_submit cannot act on a terminal thread.`,
+        });
+      }
       const occurredAt = yield* nowIso;
-      return {
+      const outcome = command.outcome ?? "done";
+      const routing = routeWorkSubmit(
+        submitThread,
+        readModel.threads.filter((thread) => thread.deletedAt === null),
+        outcome,
+      );
+      const decision = routing.decision;
+      const reportSetEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1516,6 +1624,124 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      const outcomeRecordedEvent: PlannedOrchestrationEvent = {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        causationEventId: reportSetEvent.eventId,
+        type: "thread.outcome-recorded",
+        payload: {
+          threadId: command.threadId,
+          outcome,
+          decision,
+          round: routing.round,
+          ...(command.contested !== undefined ? { contested: command.contested } : {}),
+          ...(command.counts !== undefined ? { counts: command.counts } : {}),
+          updatedAt: occurredAt,
+        },
+      };
+      const events: PlannedOrchestrationEvent[] = [reportSetEvent, outcomeRecordedEvent];
+      // `done` lane + attention-clear pair for one party (the same invariant
+      // as a direct plan-lane.set done).
+      const completeParty = (threadId: typeof command.threadId, hadAttention: boolean) =>
+        Effect.gen(function* () {
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: threadId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            causationEventId: outcomeRecordedEvent.eventId,
+            type: "thread.plan-lane-set",
+            payload: { threadId, planLane: "done", updatedAt: occurredAt },
+          });
+          if (hadAttention) {
+            events.push({
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: threadId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              causationEventId: outcomeRecordedEvent.eventId,
+              type: "thread.attention-cleared",
+              payload: { threadId, updatedAt: occurredAt },
+            });
+          }
+        });
+      if (decision === "terminal") {
+        yield* completeParty(command.threadId, submitThread.attention.length > 0);
+      } else if (decision === "resolve") {
+        // Gate resolution (design §4.3): BOTH parties complete in one
+        // transaction (multi-aggregate, the cancel-cascade precedent). The
+        // counterpart is usually already `done` (round 0, no loop taken) — then
+        // only the source's lane event is emitted (`resolveWith` is null).
+        yield* completeParty(command.threadId, submitThread.attention.length > 0);
+        if (routing.resolveWith !== null) {
+          const counterpart = readModel.threads.find((thread) => thread.id === routing.resolveWith);
+          yield* completeParty(routing.resolveWith, (counterpart?.attention.length ?? 0) > 0);
+        }
+      } else if (decision === "loop") {
+        // Loop traversal (design §4.3): the submitter's lane is untouched — the
+        // source stays `in_progress` waiting in the gate, and an intercepted
+        // target `done` stays `in_progress` (it is NOT done while rework is
+        // routed). The dispatcher's gate pass reacts to the traversal.
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: outcomeRecordedEvent.eventId,
+          type: "thread.route-taken",
+          payload: {
+            threadId: command.threadId,
+            to: routing.routeTo!,
+            round: routing.round,
+            updatedAt: occurredAt,
+          },
+        });
+      } else if (decision === "attention") {
+        // `needs_human`: sugar for the existing human flag — lane untouched.
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: outcomeRecordedEvent.eventId,
+          type: "thread.attention-raised",
+          payload: {
+            threadId: command.threadId,
+            reason: "needs_guidance",
+            updatedAt: occurredAt,
+          },
+        });
+      } else {
+        // `yield` (unknown outcome / dead loop target, the load-bearing safe
+        // default, design §3.3) and `cap-breach` (rounds exhausted, design
+        // §4.3) both park the thread turn-over: lane `yielded`, neither
+        // terminal nor releasing. The dispatcher's yield rail wakes the parent
+        // (with both parties' reports on a cap breach).
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: outcomeRecordedEvent.eventId,
+          type: "thread.plan-lane-set",
+          payload: { threadId: command.threadId, planLane: "yielded", updatedAt: occurredAt },
+        });
+      }
+      return events;
     }
 
     case "thread.activity.append": {

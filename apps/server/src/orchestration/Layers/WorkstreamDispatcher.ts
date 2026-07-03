@@ -1,6 +1,7 @@
 import {
   type AttentionReason,
   CommandId,
+  DEFAULT_GATE_MAX_ROUNDS,
   EventId,
   MessageId,
   type OrchestrationCommand,
@@ -9,7 +10,13 @@ import {
   type ThreadId,
   type ThreadPlanLane,
 } from "@t3tools/contracts";
-import { selectJoinedGenerations, type JoinedGeneration } from "@t3tools/shared/workstreamGraph";
+import {
+  gateLoopTargetOf,
+  isMemberOfUnresolvedGate,
+  isWaitingInGate,
+  selectJoinedGenerations,
+  type JoinedGeneration,
+} from "@t3tools/shared/workstreamGraph";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -30,7 +37,7 @@ import {
   type WorkstreamDispatcherShape,
 } from "../Services/WorkstreamDispatcher.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
-import { readWorkstreamReport } from "../workstreamReport.ts";
+import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
 
@@ -216,6 +223,159 @@ export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
  */
 export const childWakeCommandId = (childId: ThreadId, episode: string): string =>
   `server:workstream-liveness:child-wake:${childId}:${episode}`;
+
+/**
+ * Yield wake (review-gates design §6): a child whose submit routed to `yielded`
+ * hands its turn to the live orchestrator. Keyed by the triggering
+ * `thread.outcome-recorded` event id (carried on the shell as
+ * `lastOutcome.recordedByEventId`), so each yield episode wakes the parent
+ * exactly once — a later resume + re-yield records a new outcome event and
+ * re-arms.
+ */
+export const yieldWakeCommandId = (childId: ThreadId, episode: string): string =>
+  `server:workstream-yield:wake:${childId}:${episode}`;
+
+/**
+ * Gate traversal (review-gates design §4.3/§6): the deterministic, receipt-
+ * deduped command id for one loop leg. Keyed by (gate source, round, leg) so a
+ * crash between the `thread.route-taken` event and the resume redelivers
+ * idempotently: `rework` resumes the loop target with the source's findings,
+ * `reverify` resumes the source with the target's rework.
+ */
+export const gateCommandId = (
+  sourceId: ThreadId,
+  round: number,
+  leg: "rework" | "reverify",
+): string => `server:workstream-gate:${sourceId}:${round}:${leg}`;
+
+/**
+ * Pure rework resume-message builder (design §4.3): delivered to the loop
+ * target (the coder) when the gate source routes findings back. Carries the
+ * control-plane marker, the round, a bounded report excerpt + on-disk
+ * reference, the adjudication protocol reminder, and explicit routing
+ * visibility (risk R5: the coder must know its next submit is NOT `done`).
+ */
+export const buildGateReworkMessage = (
+  reviewer: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+  },
+  round: number,
+  report: string | null,
+): string => {
+  const reference =
+    reviewer.reportPath !== null
+      ? `Report reference: \`${reviewer.reportPath}\` (read the full findings on demand).`
+      : "_No report file was found for the findings._";
+  return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    `Review round ${round}: the ${reviewer.role ?? "reviewer"} \`${reviewer.id}\` returned findings on your work — your review gate looped it back to you for rework.`,
+    "",
+    reference + formatReportExcerpt(report),
+    "",
+    "Reviewer findings are claims, not verdicts: adjudicate each one — implement what survives scrutiny, reject the rest WITH REASONS in your round report (rejecting without reasons and implementing without evaluating are both failures). If the same finding comes back contested a second time, stop looping on it and say so in your report; the reviewer escalates it.",
+    "",
+    "When you finish, end with one `workstream_submit` as usual. Routing notice: your next submit routes back to the reviewer for re-verification, NOT to done — write it as a round report (per finding: what you did, or why you rejected it).",
+  ].join("\n");
+};
+
+/**
+ * Pure re-verify resume-message builder (design §4.3): delivered to the gate
+ * source (the reviewer) when the loop target routes its rework back. Reminds
+ * the reviewer of delta-review discipline and of how each verdict routes.
+ */
+export const buildGateReverifyMessage = (
+  coder: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+  },
+  round: number,
+  report: string | null,
+): string => {
+  const reference =
+    coder.reportPath !== null
+      ? `Report reference: \`${coder.reportPath}\` (read the full round report on demand).`
+      : "_No report file was found for the rework._";
+  return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    `Review round ${round}: the ${coder.role ?? "coder"} \`${coder.id}\` returned its rework — your review gate routed it to you for re-verification.`,
+    "",
+    reference + formatReportExcerpt(report),
+    "",
+    "This is a DELTA review: scope to the changes plus your previously flagged items — raising brand-new findings on unchanged code in a rework round is a review failure unless the rework itself exposed them. Where the coder rejected a finding with reasons, adjudicate: contest it at most once; a twice-contested finding is escalated, never re-looped.",
+    "",
+    "Submit your verdict with `workstream_submit`: `clean` or `fixed_inline` resolves the gate (both threads complete), `needs_rework` loops again while rounds remain (then yields you to the orchestrator), any other outcome yields you to the orchestrator.",
+  ].join("\n");
+};
+
+/**
+ * Gate context for a cap-breach yield wake (design §6): the wake carries BOTH
+ * parties' latest reports plus the round count so the orchestrator can decide
+ * without spelunking.
+ */
+export interface YieldGateContext {
+  readonly rounds: number;
+  readonly maxRounds: number;
+  readonly counterpart: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+    readonly report: string | null;
+  } | null;
+}
+
+/**
+ * Pure yield wake-message builder. Tells the parent the child yielded (turn
+ * over, NOT done, dependents still gated), why (unknown outcome, or a review
+ * gate's exhausted round cap — then with the counterpart's report too), points
+ * at the report(s) with bounded excerpts, and lays out the decision menu.
+ */
+export const buildYieldWakeMessage = (
+  child: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+  },
+  outcome: string,
+  report: string | null,
+  gate?: YieldGateContext,
+): string => {
+  const who = child.role === null ? `\`${child.id}\`` : `${child.role} \`${child.id}\``;
+  const reference =
+    child.reportPath !== null
+      ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
+      : "_No report was filed._";
+  const lead = gate
+    ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. Its plan lane is \`yielded\` — the gate is NOT resolved and dependents stay gated.`
+    : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. Its plan lane is \`yielded\` — it has NOT finished and its dependents stay gated.`;
+  const counterpartSection =
+    gate?.counterpart != null
+      ? [
+          "",
+          `Gate counterpart ${gate.counterpart.role === null ? `\`${gate.counterpart.id}\`` : `${gate.counterpart.role} \`${gate.counterpart.id}\``} — latest round report:`,
+          "",
+          (gate.counterpart.reportPath !== null
+            ? `Report reference: \`${gate.counterpart.reportPath}\` (read the full report on demand).`
+            : "_No report was filed._") + formatReportExcerpt(gate.counterpart.report),
+        ]
+      : [];
+  return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    lead,
+    "",
+    reference + formatReportExcerpt(report),
+    ...counterpartSection,
+    "",
+    "The decision is yours: resume it with guidance (`workstream_prompt` — any turn-start clears `yielded` back to `in_progress`), accept its work as-is (`workstream_set_lane` done, which releases dependents" +
+      (gate ? " and dissolves the gate" : "") +
+      "), re-plan around it (spawn a replacement and `workstream_set_lane` cancelled on it), or escalate to the human.",
+  ].join("\n");
+};
 
 /**
  * The per-child wake kinds. `error`/`attention`/`idle` are classified purely
@@ -493,7 +653,8 @@ const make = Effect.gen(function* () {
   const wakeTimestamps = new Map<string, number[]>();
   // Per-child wake dedup (§1e), keyed by the deterministic child-wake command
   // id `(childId, episode)`. A cache only: a miss falls through to the durable
-  // receipt store, so a fresh process recomputes the true delivered set.
+  // receipt store, so a fresh process recomputes the true delivered set. The
+  // yield rail's command ids share this set (they are disjoint by prefix).
   const handledChildWakes = new Set<string>();
 
   // Does a command id have an accepted receipt? Backs the durable handled-check,
@@ -508,6 +669,15 @@ const make = Effect.gen(function* () {
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`server:workstream-dispatcher:${tag}:${uuid}`)),
     );
+
+  // Latest-report read that honours the event-sourced pointer: inside a gate
+  // loop the latest report lives in a per-round file (risk R2) the fixed-name
+  // read would miss. Falls back to the by-id read when no pointer exists.
+  const readReportFor = (thread: { readonly id: ThreadId; readonly reportPath: string | null }) =>
+    (thread.reportPath !== null
+      ? readWorkstreamReportAt(thread.reportPath)
+      : readWorkstreamReport(thread.id)
+    ).pipe(Effect.map(Option.getOrNull));
 
   const promoteThread = Effect.fn("promoteThread")(function* (thread: OrchestrationThreadShell) {
     const { role, purpose, brief } = thread;
@@ -556,14 +726,14 @@ const make = Effect.gen(function* () {
     generation: JoinedGeneration<OrchestrationThreadShell>,
   ) {
     const children = yield* Effect.forEach(generation.children, (child) =>
-      readWorkstreamReport(child.id).pipe(
+      readReportFor(child).pipe(
         Effect.map((report) => ({
           id: child.id,
           role: child.role,
           planLane: child.planLane,
           attention: child.attention,
           reportPath: child.reportPath,
-          report: Option.getOrNull(report),
+          report,
         })),
       ),
     );
@@ -640,7 +810,14 @@ const make = Effect.gen(function* () {
   const wakeEligibleParents = Effect.fn("wakeEligibleParents")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
-    const joined = selectJoinedGenerations(snapshot.threads);
+    // Generation-join gating (review-gates design §6): hold back any joined
+    // generation containing a party of an unresolved gate. A coder's round-0
+    // `done` must not join its generation while its reviewer can still reopen
+    // it — the join fires once at gate resolution, with both reports.
+    const joined = selectJoinedGenerations(snapshot.threads).filter(
+      (generation) =>
+        !generation.children.some((member) => isMemberOfUnresolvedGate(member, snapshot.threads)),
+    );
     if (joined.length === 0) return;
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
 
@@ -740,7 +917,7 @@ const make = Effect.gen(function* () {
         createdAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso)),
       } satisfies OrchestrationCommand);
     }
-    const report = yield* readWorkstreamReport(child.id).pipe(Effect.map(Option.getOrNull));
+    const report = yield* readReportFor(child);
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
@@ -798,6 +975,12 @@ const make = Effect.gen(function* () {
       // receipt — NOT `handledChildWakes`, which the park path poisons by adding
       // the command id without writing a receipt.
       let kind = classifyChildWake(child, pendingTurnStartThreadIds);
+      // Gate-waiting is not "forgot to finish" (review-gates design §6): a gate
+      // party idling while its counterpart holds the active leg (the source
+      // awaiting rework, or the routed-back target awaiting re-verify) is
+      // exactly where the protocol parks it — no idle nag. A cancelled
+      // counterpart un-suppresses (risk R4) so the dead gate surfaces.
+      if (kind === "idle" && isWaitingInGate(child, threadsById)) continue;
       let episode: string;
       let context: ChildWakeContext | undefined;
       if (kind === "error") {
@@ -927,9 +1110,188 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Gate traversal pass (review-gates design §4.3/§6): execute the loop legs
+  // the decider's routing decided. Recomputed purely from shell state — an open
+  // rework round (`target.pendingRework`) owes the target a rework resume with
+  // the source's findings; a routed-back target (`lastOutcome.decision ===
+  // "loop"`, round open on the source) owes the source a re-verify resume with
+  // the target's round report. Deterministic command ids make redelivery
+  // idempotent across crashes/restarts (the receipt is the durable "this leg
+  // was resumed" marker). No `requireIdle`: the gate serialises its parties by
+  // construction (exactly one is ever active), and a mid-loop parent prompt is
+  // the parent's prerogative (last-write-wins, as with any steer).
+  const routeGateTraversals = Effect.fn("routeGateTraversals")(function* () {
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+
+    for (const source of snapshot.threads) {
+      const loopTo = gateLoopTargetOf(source);
+      if (loopTo === null) continue;
+      // A terminal source resolves/dissolves the gate (derived, not stored):
+      // parent set_lane done/cancelled on the reviewer stops all traversal.
+      if (source.planLane === "done" || source.planLane === "cancelled") continue;
+      const target = threadsById.get(loopTo);
+      // R4: a cancelled (or missing) loop target gets no traversal — the
+      // waiting source's un-suppressed idle wake surfaces the dead gate.
+      if (target === undefined || target.planLane === "cancelled") continue;
+
+      if (target.pendingRework) {
+        // Rework leg: deliver the source's findings to the target, reopening a
+        // round-0-completed (`done`) target atomically in the same transaction.
+        const commandId = gateCommandId(source.id, source.gateRounds, "rework");
+        if (handledChildWakes.has(commandId)) continue;
+        if (yield* hasAcceptedReceipt(commandId)) {
+          handledChildWakes.add(commandId);
+          continue;
+        }
+        const report = yield* readReportFor(source);
+        const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(commandId),
+          threadId: target.id,
+          message: {
+            messageId: MessageId.make(yield* crypto.randomUUIDv4),
+            role: "user",
+            text: buildGateReworkMessage(source, source.gateRounds, report),
+            attachments: [],
+          },
+          titleSeed: target.title,
+          runtimeMode: target.runtimeMode,
+          interactionMode: target.interactionMode,
+          ...(target.planLane === "done" ? { reopen: true } : {}),
+          createdAt: now,
+        } satisfies OrchestrationCommand);
+        handledChildWakes.add(commandId);
+      } else if (source.gateRounds > 0 && target.lastOutcome?.decision === "loop") {
+        // Re-verify leg: the target routed its rework back; resume the source
+        // (in_progress-idle, so a plain turn-start resumes it — no reopen).
+        const commandId = gateCommandId(source.id, source.gateRounds, "reverify");
+        if (handledChildWakes.has(commandId)) continue;
+        if (yield* hasAcceptedReceipt(commandId)) {
+          handledChildWakes.add(commandId);
+          continue;
+        }
+        const report = yield* readReportFor(target);
+        const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(commandId),
+          threadId: source.id,
+          message: {
+            messageId: MessageId.make(yield* crypto.randomUUIDv4),
+            role: "user",
+            text: buildGateReverifyMessage(target, source.gateRounds, report),
+            attachments: [],
+          },
+          titleSeed: source.title,
+          runtimeMode: source.runtimeMode,
+          interactionMode: source.interactionMode,
+          createdAt: now,
+        } satisfies OrchestrationCommand);
+        handledChildWakes.add(commandId);
+      }
+    }
+  });
+
+  // Yield rail (review-gates design §6): wake the parent of every `yielded`
+  // child once per yield episode. Mirrors the per-child rail: deterministic
+  // command id (receipt-deduped across restarts), `requireIdle`, and the shared
+  // per-parent wake-rate budget. The child's lane is left untouched — clearing
+  // `yielded` is the resume's job (any turn-start reverts it to `in_progress`).
+  const wakeYieldedChildren = Effect.fn("wakeYieldedChildren")(function* () {
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+
+    for (const child of snapshot.threads) {
+      if (child.parentThreadId === null || child.planLane !== "yielded") continue;
+      // The lane is only ever set by a submit's routing decision, whose
+      // transaction also records the outcome — so a yielded child always
+      // carries `lastOutcome`. Guard anyway rather than crash the pass.
+      if (child.lastOutcome == null) continue;
+      const parent = threadsById.get(child.parentThreadId);
+      if (parent === undefined) continue;
+
+      const commandId = yieldWakeCommandId(child.id, child.lastOutcome.recordedByEventId);
+      if (handledChildWakes.has(commandId)) continue;
+      if (yield* hasAcceptedReceipt(commandId)) {
+        handledChildWakes.add(commandId);
+        continue;
+      }
+
+      // Busy parent → defer; a later thread.session-set re-triggers this pass.
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+
+      const now = yield* Clock.currentTimeMillis;
+      const history = wakeTimestamps.get(parent.id) ?? [];
+      if (wakeRateGuardTrips(history, now)) {
+        yield* parkAndEscalate(parent, `child-yield:${child.id}`);
+        handledChildWakes.add(commandId);
+        continue;
+      }
+      const report = yield* readReportFor(child);
+      // Cap breach (design §4.3): the wake carries BOTH parties' latest reports
+      // and the round count — the orchestrator decides without spelunking.
+      let gateContext: YieldGateContext | undefined;
+      if (child.lastOutcome.decision === "cap-breach") {
+        const loopRoute = child.routes.find(
+          (route) => route.kind === "loop" && route.to !== undefined,
+        );
+        const counterpart =
+          loopRoute?.to !== undefined ? (threadsById.get(loopRoute.to) ?? null) : null;
+        gateContext = {
+          rounds: child.gateRounds,
+          maxRounds: loopRoute?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
+          counterpart:
+            counterpart === null
+              ? null
+              : {
+                  id: counterpart.id,
+                  role: counterpart.role,
+                  reportPath: counterpart.reportPath,
+                  report: yield* readReportFor(counterpart),
+                },
+        };
+      }
+      const nowIso = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      const delivered = yield* orchestrationEngine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(commandId),
+          threadId: parent.id,
+          message: {
+            messageId: MessageId.make(yield* crypto.randomUUIDv4),
+            role: "user",
+            text: buildYieldWakeMessage(child, child.lastOutcome.outcome, report, gateContext),
+            attachments: [],
+          },
+          titleSeed: parent.title,
+          runtimeMode: parent.runtimeMode,
+          interactionMode: parent.interactionMode,
+          requireIdle: true,
+          createdAt: nowIso,
+        } satisfies OrchestrationCommand)
+        .pipe(
+          Effect.as(true),
+          Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+        );
+      if (delivered) {
+        wakeTimestamps.set(parent.id, [...history, now]);
+        handledChildWakes.add(commandId);
+      }
+    }
+  });
+
   const runPassSafely = Effect.andThen(
-    Effect.andThen(promoteReadyThreads(), wakeEligibleParents()),
-    wakeIdleAndErroredChildren(),
+    Effect.andThen(
+      Effect.andThen(
+        Effect.andThen(promoteReadyThreads(), routeGateTraversals()),
+        wakeEligibleParents(),
+      ),
+      wakeIdleAndErroredChildren(),
+    ),
+    wakeYieldedChildren(),
   ).pipe(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) {
@@ -952,6 +1314,10 @@ const make = Effect.gen(function* () {
         // raised) surfaces a child needing a human. Both must re-run the pass.
         event.type === "thread.plan-lane-set" ||
         event.type === "thread.attention-raised" ||
+        // A submit's routing decision (review gates): drives the yield rail
+        // (and, in Phase 3, the gate-traversal pass).
+        event.type === "thread.outcome-recorded" ||
+        event.type === "thread.route-taken" ||
         event.type === "thread.dependencies-set" ||
         // The parent going idle surfaces as a durable thread.session-set (no
         // turn-completion domain event exists); this drains deferred wakes.

@@ -1,4 +1,11 @@
-import type { AttentionReason, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import {
+  DEFAULT_GATE_MAX_ROUNDS,
+  type AttentionReason,
+  type ThreadId,
+  type ThreadPlanLane,
+  type WorkOutcomeDecision,
+  type WorkstreamRoute,
+} from "@t3tools/contracts";
 
 /**
  * workstreamGraph - the single pure source of truth for the workstream graph:
@@ -198,6 +205,182 @@ export const selectJoinedGenerations = <T extends JoinGroupThread>(
   return [...groups.values()].filter((group) =>
     group.children.every((child) => isTerminalForJoin(child)),
   );
+};
+
+// ---------------------------------------------------------------------------
+// Review gates (docs/design/workstream-review-gates.md §4–§6) — the pure gate
+// predicates + the submit routing decision, shared by the decider (authoritative
+// routing), the dispatcher (traversal/suppression), the submit endpoint
+// (response echo + per-round report naming), and the web board (waiting badges).
+// ---------------------------------------------------------------------------
+
+const isTerminalLane = (lane: ThreadPlanLane): boolean => lane === "done" || lane === "cancelled";
+
+/**
+ * The minimal gate-party shape. Both `OrchestrationThread` (read model) and
+ * `OrchestrationThreadShell` satisfy it. A GATE is not stored: it is the
+ * derived pair (source = the thread carrying a loop route, target = that
+ * route's `to`), unresolved while the source is non-terminal.
+ */
+export interface GateNode {
+  readonly id: ThreadId;
+  readonly planLane: ThreadPlanLane;
+  readonly routes: ReadonlyArray<WorkstreamRoute>;
+  readonly gateRounds: number;
+  readonly pendingRework: boolean;
+  readonly lastOutcome: { readonly decision: WorkOutcomeDecision } | null;
+}
+
+/** The loop-edge target a gate source routes rework to, or null when none. */
+export const gateLoopTargetOf = (thread: {
+  readonly routes: ReadonlyArray<WorkstreamRoute>;
+}): ThreadId | null =>
+  thread.routes.find((route) => route.kind === "loop" && route.to !== undefined)?.to ?? null;
+
+/** The non-terminal gate source whose loop route names `threadId`, or null. */
+export const gateSourceFor = <T extends GateNode>(
+  threadId: ThreadId,
+  threads: ReadonlyArray<T>,
+): T | null =>
+  threads.find(
+    (thread) =>
+      !isTerminalLane(thread.planLane) &&
+      thread.routes.some((route) => route.kind === "loop" && route.to === threadId),
+  ) ?? null;
+
+/**
+ * Gate-waiting is not "forgot to finish" (design §6): true when the thread
+ * participates in an unresolved gate and its COUNTERPART holds the active leg
+ * — the source waiting on the target's open rework round, or the target that
+ * routed back and awaits the source's re-verify. A cancelled counterpart never
+ * suppresses (risk R4: the waiting party's idle wake un-suppresses so the
+ * orchestrator hears about the dead gate).
+ */
+export const isWaitingInGate = (
+  thread: GateNode,
+  threadsById: ReadonlyMap<ThreadId, GateNode>,
+): boolean => {
+  if (isTerminalLane(thread.planLane)) return false;
+  // Source waiting: its loop target holds an open rework round.
+  const loopTo = gateLoopTargetOf(thread);
+  if (loopTo !== null) {
+    const target = threadsById.get(loopTo);
+    if (target !== undefined && target.planLane !== "cancelled" && target.pendingRework) {
+      return true;
+    }
+  }
+  // Target waiting: it routed its rework back (its last outcome was the
+  // intercepted `loop`) and the non-terminal source owes the re-verify.
+  if (!thread.pendingRework && thread.lastOutcome?.decision === "loop") {
+    for (const other of threadsById.values()) {
+      if (
+        other.id !== thread.id &&
+        !isTerminalLane(other.planLane) &&
+        other.routes.some((route) => route.kind === "loop" && route.to === thread.id)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+/**
+ * Generation-join gating (design §6): true when the thread is a party of an
+ * unresolved gate — a non-terminal loop-route source, or the target of a loop
+ * route whose source is non-terminal. The dispatcher holds back any joined
+ * generation containing such a member so a coder-only generation never joins
+ * mid-loop (its round-0 `done` is reopenable until the gate resolves).
+ */
+export const isMemberOfUnresolvedGate = (
+  thread: Pick<GateNode, "id" | "planLane" | "routes">,
+  threads: ReadonlyArray<Pick<GateNode, "id" | "planLane" | "routes">>,
+): boolean =>
+  (!isTerminalLane(thread.planLane) && gateLoopTargetOf(thread) !== null) ||
+  threads.some(
+    (other) =>
+      !isTerminalLane(other.planLane) &&
+      other.routes.some((route) => route.kind === "loop" && route.to === thread.id),
+  );
+
+/**
+ * Bypass guard (design §5.3): a gate party may not SELF-set `done` around the
+ * routing — an open rework round or an unresolved gate as source must complete
+ * through `workstream_submit`. Applies only to self-sets at the lane endpoint;
+ * parent/human overrides deliberately bypass it (decision 9).
+ */
+export const requiresSubmitToComplete = (
+  thread: Pick<GateNode, "planLane" | "routes" | "pendingRework">,
+): boolean =>
+  !isTerminalLane(thread.planLane) && (thread.pendingRework || gateLoopTargetOf(thread) !== null);
+
+/** The routing verdict for one `thread.work.submit`, decided purely (§4.3). */
+export interface WorkSubmitRouting {
+  readonly decision: WorkOutcomeDecision;
+  /** Round recorded on the outcome; advances only on a source loop traversal. */
+  readonly round: number;
+  /** Recipient of the `thread.route-taken` traversal (loop decisions only). */
+  readonly routeTo: ThreadId | null;
+  /** Gate counterpart to complete alongside (resolve only; null when none or already terminal). */
+  readonly resolveWith: ThreadId | null;
+}
+
+/**
+ * The single routing decision for a submitted outcome (design §4.3), consulted
+ * by the decider (authoritative — the emitted events follow it) and mirrored by
+ * the submit endpoint (response echo, per-round report naming):
+ *
+ * - `needs_human` → `attention` (the reserved human flag; lane untouched).
+ * - A source outcome matching a loop route → `loop` while rounds remain
+ *   (round = gateRounds + 1), `cap-breach` at the cap; a cancelled/missing
+ *   loop target degrades to `yield` (risk R4 — never route into a dead thread).
+ * - A source outcome matching a resolve route → `resolve`, completing the
+ *   non-terminal counterpart alongside.
+ * - `done` from a target with an open rework round → intercepted `loop` back to
+ *   the source (round = the source's open round). Any other target outcome
+ *   falls through to the generic rule.
+ * - Otherwise: `done` → `terminal`, anything else → `yield` (escalation is the
+ *   safe default — no outcome can silently become done).
+ */
+export const routeWorkSubmit = <T extends GateNode>(
+  thread: T,
+  threads: ReadonlyArray<T>,
+  outcome: string,
+): WorkSubmitRouting => {
+  const base = { round: thread.gateRounds, routeTo: null, resolveWith: null };
+  if (outcome === "needs_human") return { ...base, decision: "attention" };
+  if (outcome !== "done") {
+    const route = thread.routes.find((entry) => entry.on.includes(outcome));
+    if (route?.kind === "loop" && route.to !== undefined) {
+      const target = threads.find((entry) => entry.id === route.to);
+      if (target === undefined || target.planLane === "cancelled") {
+        return { ...base, decision: "yield" };
+      }
+      return thread.gateRounds < (route.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS)
+        ? { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo: route.to }
+        : { ...base, decision: "cap-breach" };
+    }
+    if (route?.kind === "resolve") {
+      const loopTo = gateLoopTargetOf(thread);
+      const counterpart =
+        loopTo === null ? undefined : threads.find((entry) => entry.id === loopTo);
+      return {
+        ...base,
+        decision: "resolve",
+        resolveWith:
+          counterpart !== undefined && !isTerminalLane(counterpart.planLane)
+            ? counterpart.id
+            : null,
+      };
+    }
+  }
+  if (thread.pendingRework) {
+    const source = gateSourceFor(thread.id, threads);
+    if (source !== null && outcome === "done") {
+      return { ...base, decision: "loop", round: source.gateRounds, routeTo: source.id };
+    }
+  }
+  return { ...base, decision: outcome === "done" ? "terminal" : "yield" };
 };
 
 /** The richer node shape the discovery view needs (lineage + report + waits-on). */

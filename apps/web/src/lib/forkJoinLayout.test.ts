@@ -15,6 +15,7 @@ function thread(props: {
   createdAt: string;
   blockedBy?: string[];
   title?: string;
+  loopTo?: string;
 }): SidebarThreadSummary {
   return {
     id: tid(props.id),
@@ -23,6 +24,7 @@ function thread(props: {
     blockedBy: (props.blockedBy ?? []).map(tid),
     createdAt: props.createdAt,
     title: props.title ?? props.id,
+    routes: props.loopTo ? [{ on: ["needs_rework"], kind: "loop", to: tid(props.loopTo) }] : [],
   } as unknown as SidebarThreadSummary;
 }
 
@@ -43,6 +45,7 @@ describe("computeForkJoinLayout", () => {
       spawnGeneration: "g1",
       createdAt: "3",
       blockedBy: ["coderA"],
+      loopTo: "coderA",
     }),
     thread({ id: "coderB", parentThreadId: "R", spawnGeneration: "g1", createdAt: "4" }),
   ];
@@ -92,6 +95,18 @@ describe("computeForkJoinLayout", () => {
     expect(blockedEdge?.key).toContain("coderA");
     // reviewer depends on coder, so it sits one dependency column to the right.
     expect(byId(nodes, "reviewerA")!.x).toBeGreaterThan(byId(nodes, "coderA")!.x);
+  });
+
+  it("emits a reverse loop edge for a same-wave review gate pair", () => {
+    const loop = edges.find((e) => e.kind === "loop");
+    expect(loop?.key).toBe("loop:reviewerA:coderA");
+    expect(loop?.sourceId).toBe(tid("reviewerA"));
+    // Reverse direction: from the reviewer's left edge back to the coder's right edge.
+    expect(loop!.x1).toBeGreaterThan(loop!.x2);
+    // Anchored below the forward waits-on cross-edge so the cycle reads visually.
+    const blocked = edges.find((e) => e.kind === "blocked")!;
+    expect(loop!.y1).toBeGreaterThan(blocked.y2);
+    expect(loop!.y2).toBeGreaterThan(blocked.y1);
   });
 
   it("draws a solid spine connecting consecutive orchestrator bridges", () => {
