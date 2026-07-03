@@ -361,7 +361,7 @@ interface SidebarThreadRowProps {
   cancelRename: () => void;
   attemptArchiveThread: (threadRef: ScopedThreadRef) => Promise<void>;
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
-  // Rolled-up workstream state for this thread's hidden sub-thread DAG. Absent
+  // Rolled-up workstream state for this thread's hidden sub-thread graph. Absent
   // for leaf threads (no descendants), which render no badge.
   graphRollup?: GraphRollup;
   // When a goal collapses to a single thread, the row stands in for the goal and
@@ -1362,7 +1362,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [sidebarThreads],
   );
   // Rollups are computed from the UNFILTERED shells (which still carry the hidden
-  // children) so each root's badge can summarise its whole sub-thread DAG.
+  // children) so each root's badge can summarise its whole sub-thread graph.
   const graphRollupByThreadKey = useMemo(
     () => buildGraphRollupByThreadKey(sidebarThreads),
     [sidebarThreads],
