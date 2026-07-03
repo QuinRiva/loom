@@ -178,6 +178,7 @@ describe("parsePersistedState", () => {
           "turn-1": false,
         },
       },
+      scrollRequest: null,
     });
   });
 
