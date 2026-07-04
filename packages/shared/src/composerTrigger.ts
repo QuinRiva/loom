@@ -41,7 +41,7 @@ export function serializeComposerFileLink(path: string): string {
 }
 
 /**
- * Serialize a thread @-mention into the `[<title>](thread://<id>)` markdown form
+ * Serialize a thread mention into the `[<title>](thread://<id>)` markdown form
  * the agent resolves via the `consult_thread` tool. Whitespace (including
  * newlines) in the title is collapsed so the link stays on one line, then `[`,
  * `]`, and `\` are escaped to round-trip through the file-link label parser.
