@@ -209,6 +209,7 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { shouldShowStagedKickoff, StagedKickoffCard } from "./chat/StagedKickoffCard";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -1064,6 +1065,11 @@ function ChatViewContent(props: ChatViewProps) {
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  // Subscribed prompt value — drives the staged-kickoff card's visibility so the
+  // offer hides the moment the human seeds the composer (Edit first / typing).
+  const composerDraftPrompt = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.prompt ?? "",
+  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
@@ -4322,6 +4328,34 @@ function ChatViewContent(props: ChatViewProps) {
     }
   };
 
+  // Launch a staged handoff: seed the composer with the stored brief — the
+  // composer editor is controlled by the persisted draft prompt, and promptRef
+  // is what onSend reads — then send it as the first message through the exact
+  // same path as any composer send, so worktree bootstrap, optimistic message
+  // handling and lane movement behave identically. No parallel send path.
+  const onLaunchStagedKickoff = () => {
+    const brief = activeThread?.brief;
+    if (!brief) return;
+    promptRef.current = brief;
+    setComposerDraftPrompt(composerDraftTarget, brief);
+    void onSend();
+  };
+
+  // Edit first: drop the brief into the composer as an ordinary persisted draft
+  // and hand control to the human. The draft record now owns the text, so the
+  // card never returns for this thread (its visibility keys off an empty draft),
+  // surviving reloads.
+  const onEditStagedKickoff = () => {
+    const brief = activeThread?.brief;
+    if (!brief) return;
+    promptRef.current = brief;
+    setComposerDraftPrompt(composerDraftTarget, brief);
+    // Focus after the controlled editor has synced the brief in — focusing while
+    // the editor is still empty fires onChange("") which, against the now-brief
+    // promptRef, would clear the draft straight back out.
+    requestAnimationFrame(() => composerRef.current?.focusAtEnd());
+  };
+
   const onInterrupt = async () => {
     if (!activeThread) return;
     const result = await interruptThreadTurn({
@@ -5197,6 +5231,24 @@ function ChatViewContent(props: ChatViewProps) {
                 onIsAtEndChange={onIsAtEndChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
               />
+
+              {/* Staged kickoff offer for a not-yet-launched handoff root. */}
+              {activeThread.brief &&
+              shouldShowStagedKickoff({
+                parentThreadId: activeThread.parentThreadId,
+                brief: activeThread.brief,
+                messageCount: activeThread.messages.length,
+                composerDraftPrompt,
+              }) ? (
+                <StagedKickoffCard
+                  brief={activeThread.brief}
+                  markdownCwd={gitCwd ?? undefined}
+                  launchDisabled={isSendBusy || isConnecting || activeEnvironmentUnavailable}
+                  bottomInset={composerOverlayHeight}
+                  onLaunch={onLaunchStagedKickoff}
+                  onEditFirst={onEditStagedKickoff}
+                />
+              ) : null}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
