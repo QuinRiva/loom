@@ -4235,6 +4235,7 @@ function ChatViewContent(props: ChatViewProps) {
                       interactionMode,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
+                      goalId: activeThread.goalId ?? null,
                       createdAt: activeThread.createdAt,
                     },
                   }
@@ -4759,6 +4760,7 @@ function ChatViewContent(props: ChatViewProps) {
         interactionMode: "default",
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
+        goalId: activeThread.goalId ?? null,
         createdAt,
       },
     });

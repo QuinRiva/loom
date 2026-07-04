@@ -12,6 +12,7 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
+  goalDraftBucketKey,
   markPromotedDraftThreadByRef,
   type DraftThreadEnvMode,
   type DraftThreadState,
@@ -49,6 +50,18 @@ export function useNewThreadHandler() {
         goalId?: GoalId | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
+        /**
+         * How context fields apply to a reused draft.
+         *
+         * - `"overwrite"` (default): the provided fields replace the reused
+         *   draft's context — explicit context pushes such as "new thread
+         *   from current context".
+         * - `"seed"`: the provided fields only initialise a fresh draft;
+         *   re-clicking an entry point resumes the existing draft with its
+         *   context tweaks intact. Exception: reusing the goal bucket for a
+         *   *different* goal re-seeds the context (typed text survives).
+         */
+        contextMode?: "overwrite" | "seed";
       },
     ): Promise<void> => {
       const {
@@ -70,12 +83,26 @@ export function useNewThreadHandler() {
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
+      // Goal-level and project-level entry points use separate draft buckets
+      // per logical project so their drafts never leak into each other.
+      const draftBucketKey =
+        options?.goalId != null ? goalDraftBucketKey(logicalProjectKey) : logicalProjectKey;
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasGoalIdOption = options?.goalId !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
       const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
-      const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
+      const hasContextOption =
+        hasBranchOption ||
+        hasWorktreePathOption ||
+        hasGoalIdOption ||
+        hasEnvModeOption ||
+        hasStartFromOriginOption;
+      const shouldApplyContext = (existingGoalId: GoalId | null): boolean =>
+        hasContextOption &&
+        (options?.contextMode !== "seed" ||
+          (options.goalId != null && existingGoalId !== options.goalId));
+      const storedDraftThread = getDraftSessionByLogicalProjectKey(draftBucketKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
         : null;
@@ -93,13 +120,7 @@ export function useNewThreadHandler() {
         : null;
       if (reusableStoredDraftThread) {
         return (async () => {
-          if (
-            hasBranchOption ||
-            hasWorktreePathOption ||
-            hasGoalIdOption ||
-            hasEnvModeOption ||
-            hasStartFromOriginOption
-          ) {
+          if (shouldApplyContext(reusableStoredDraftThread.goalId)) {
             setDraftThreadContext(reusableStoredDraftThread.draftId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
@@ -109,7 +130,7 @@ export function useNewThreadHandler() {
             });
           }
           setLogicalProjectDraftThreadId(
-            logicalProjectKey,
+            draftBucketKey,
             projectRef,
             reusableStoredDraftThread.draftId,
             {
@@ -132,16 +153,11 @@ export function useNewThreadHandler() {
       if (
         latestActiveDraftThread &&
         currentRouteTarget?.kind === "draft" &&
-        latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
+        latestActiveDraftThread.logicalProjectKey === draftBucketKey &&
         latestActiveDraftThread.promotedTo == null
       ) {
-        if (
-          hasBranchOption ||
-          hasWorktreePathOption ||
-          hasGoalIdOption ||
-          hasEnvModeOption ||
-          hasStartFromOriginOption
-        ) {
+        const applyContext = shouldApplyContext(latestActiveDraftThread.goalId);
+        if (applyContext) {
           setDraftThreadContext(currentRouteTarget.draftId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
@@ -150,16 +166,20 @@ export function useNewThreadHandler() {
             ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
           });
         }
-        setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, currentRouteTarget.draftId, {
+        setLogicalProjectDraftThreadId(draftBucketKey, projectRef, currentRouteTarget.draftId, {
           threadId: latestActiveDraftThread.threadId,
           createdAt: latestActiveDraftThread.createdAt,
           runtimeMode: latestActiveDraftThread.runtimeMode,
           interactionMode: latestActiveDraftThread.interactionMode,
-          ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-          ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-          ...(hasGoalIdOption ? { goalId: options?.goalId ?? null } : {}),
-          ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
-          ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+          ...(applyContext
+            ? {
+                ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
+                ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+                ...(hasGoalIdOption ? { goalId: options?.goalId ?? null } : {}),
+                ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+                ...(hasStartFromOriginOption ? { startFromOrigin: options?.startFromOrigin } : {}),
+              }
+            : {}),
         });
         return Promise.resolve();
       }
@@ -169,7 +189,7 @@ export function useNewThreadHandler() {
       const createdAt = new Date().toISOString();
       const initialEnvMode = options?.envMode ?? environmentSettings.defaultThreadEnvMode;
       return (async () => {
-        setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
+        setLogicalProjectDraftThreadId(draftBucketKey, projectRef, draftId, {
           threadId,
           createdAt,
           branch: options?.branch ?? null,
