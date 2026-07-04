@@ -1,7 +1,7 @@
 import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "skill";
+export type ComposerTriggerKind = "path" | "thread" | "slash-command" | "skill";
 export type ComposerSlashCommand = "model" | "plan" | "default";
 
 export interface ComposerTrigger {
@@ -41,6 +41,23 @@ function tokenStartForCursor(text: string, cursor: number): number {
     index -= 1;
   }
   return index + 1;
+}
+
+/**
+ * Locate the `#` that opens the active thread mention the cursor sits inside, or
+ * null if there is none. Unlike `@`/`$` (single whitespace-delimited tokens), a
+ * thread query spans spaces — titles are multi-word — so we scan the current
+ * line back to the nearest `#` that starts a token (line start or preceded by
+ * whitespace). Everything from there to the cursor is the live query; callers
+ * close the menu once that query matches no thread, so a stray `#` in prose
+ * never leaves a menu hanging.
+ */
+function threadMentionStart(text: string, lineStart: number, cursor: number): number | null {
+  for (let index = cursor - 1; index >= lineStart; index -= 1) {
+    if (text[index] !== "#") continue;
+    if (index === lineStart || isWhitespace(text[index - 1] ?? "")) return index;
+  }
+  return null;
 }
 
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
@@ -246,16 +263,26 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeEnd: cursor,
     };
   }
-  if (!token.startsWith("@")) {
-    return null;
+  if (token.startsWith("@")) {
+    return {
+      kind: "path",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
   }
 
-  return {
-    kind: "path",
-    query: token.slice(1),
-    rangeStart: tokenStart,
-    rangeEnd: cursor,
-  };
+  const threadStart = threadMentionStart(text, lineStart, cursor);
+  if (threadStart !== null) {
+    return {
+      kind: "thread",
+      query: text.slice(threadStart + 1, cursor),
+      rangeStart: threadStart,
+      rangeEnd: cursor,
+    };
+  }
+
+  return null;
 }
 
 export function parseStandaloneComposerSlashCommand(

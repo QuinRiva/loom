@@ -4,7 +4,7 @@ import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu
 import type { SidebarThreadSummary } from "../types";
 import { basenameOfPath } from "../pierre-icons";
 
-/** Max thread suggestions surfaced in the `@` menu (titles are non-unique). */
+/** Max thread suggestions surfaced in the `#` menu (titles are non-unique). */
 export const THREAD_MENTION_MATCH_LIMIT = 8;
 
 /**

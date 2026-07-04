@@ -955,17 +955,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
-      return [
-        ...workspaceEntries.entries.map((entry) => ({
-          id: `path:${entry.kind}:${entry.path}`,
-          type: "path" as const,
-          path: entry.path,
-          pathKind: entry.kind,
-          label: basenameOfPath(entry.path),
-          description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
-        })),
-        ...matchThreadMentionItems(threadShells, composerTrigger.query, activeThreadId),
-      ];
+      return workspaceEntries.entries.map((entry) => ({
+        id: `path:${entry.kind}:${entry.path}`,
+        type: "path" as const,
+        path: entry.path,
+        pathKind: entry.kind,
+        label: basenameOfPath(entry.path),
+        description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+      }));
+    }
+    if (composerTrigger.kind === "thread") {
+      return matchThreadMentionItems(threadShells, composerTrigger.query, activeThreadId);
     }
     if (composerTrigger.kind === "slash-command") {
       const builtInSlashCommandItems = [
@@ -1033,7 +1033,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     workspaceEntries.entries,
   ]);
 
-  const composerMenuOpen = Boolean(composerTrigger);
+  // A `#` thread trigger only opens when the query matches a thread; an empty
+  // query lists all threads, so a stray `#` in prose closes the menu rather than
+  // leaving it hanging. Other triggers keep their own empty-state affordance.
+  const composerMenuOpen =
+    Boolean(composerTrigger) &&
+    (composerTrigger?.kind !== "thread" || composerMenuItems.length > 0);
   const composerMenuSearchKey = composerTrigger
     ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;

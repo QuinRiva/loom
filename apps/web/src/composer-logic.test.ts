@@ -119,6 +119,44 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects a # thread trigger and spans spaces in the query", () => {
+    const text = "see #thread ref";
+    const trigger = detectComposerTrigger(text, text.length);
+    expect(trigger).toEqual({
+      kind: "thread",
+      query: "thread ref",
+      rangeStart: "see ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("opens a # thread trigger with an empty query", () => {
+    const text = "ask #";
+    const trigger = detectComposerTrigger(text, text.length);
+    expect(trigger).toEqual({
+      kind: "thread",
+      query: "",
+      rangeStart: "ask ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("does not treat a mid-word # as a thread trigger", () => {
+    const text = "issue#5";
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
+  });
+
+  it("tracks the nearest token-start # when several are present", () => {
+    const text = "#one two #three";
+    const trigger = detectComposerTrigger(text, text.length);
+    expect(trigger).toEqual({
+      kind: "thread",
+      query: "three",
+      rangeStart: "#one two ".length,
+      rangeEnd: text.length,
+    });
+  });
+
   it("detects trigger with true cursor even when regex-based mention detection would false-match", () => {
     // MENTION_TOKEN_REGEX can false-match plain text like "@in" as a mention.
     // The fix bypasses it by computing the expanded cursor from the Lexical node tree.

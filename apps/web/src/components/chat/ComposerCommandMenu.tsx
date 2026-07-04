@@ -94,15 +94,10 @@ function groupCommandItems(
   if (triggerKind === "skill") {
     return items.length > 0 ? [{ id: "skills", label: "Skills", items }] : [];
   }
+  if (triggerKind === "thread") {
+    return items.length > 0 ? [{ id: "threads", label: "Threads", items }] : [];
+  }
   if (triggerKind === "path") {
-    const fileItems = items.filter((item) => item.type === "path");
-    const threadItems = items.filter((item) => item.type === "thread");
-    if (fileItems.length > 0 && threadItems.length > 0) {
-      return [
-        { id: "files", label: "Files", items: fileItems },
-        { id: "threads", label: "Threads", items: threadItems },
-      ];
-    }
     return [{ id: "default", label: null, items }];
   }
   if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
@@ -208,7 +203,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
                   : (props.emptyStateText ??
                     (props.triggerKind === "path"
                       ? "No matching files or folders."
-                      : "No matching command."))}
+                      : props.triggerKind === "thread"
+                        ? "No matching threads."
+                        : "No matching command."))}
               </p>
             )}
           </div>
