@@ -362,11 +362,28 @@ server-only `reopen: true` flag (§4.3). Consequences, stated honestly:
   observable, not blocking.
 - **Generation join one-shot is compatible.** If C's round-0 `done` completed
   a generation on its own (C spawned in a different turn than R), that wake
-  was already delivered and receipt-marked; the reopen and later re-done never
-  re-fire it (the handled-set is keyed by `(parent, generation)`, not by lane
-  history). The reviewer's own generation join delivers the resolution wake.
-  Spawning the pair in one turn (the guided pattern) collapses this to a
-  single wake at gate resolution.
+  was already delivered and receipt-marked; a GATE reopen and its later
+  re-done never re-fire it (the handled-set is keyed by
+  `(parent, generation)`, not by lane history). The reviewer's own generation
+  join delivers the resolution wake. Spawning the pair in one turn (the
+  guided pattern) collapses this to a single wake at gate resolution.
+- **Parent-driven reopen is the exception: the re-engagement epoch.** The
+  "never re-fires" property above is safe only because a gate reopen has the
+  reviewer's generation to carry the resolution. A PARENT reopen (the
+  tool-recommended `workstream_set_lane ready` → `workstream_prompt` loop) has
+  no second generation — with an immutable `spawnGeneration` the re-run's
+  completion would be deduped forever by the first completion's receipt and
+  the parent would never hear the resubmit. So a lane-set that takes a
+  terminal sub-thread (`done`/`cancelled`) back to `ready`/`planned` stamps a
+  fresh `spawnGeneration` (the lane-set event's own id) in the same event: the
+  re-run is a new episode that detaches from its original sibling join group
+  and, on completion, joins a fresh generation whose wake id has no receipt —
+  one fresh, receipt-deduped wake per reopen episode, with no dispatcher
+  changes. Gate reopens do NOT pass through this path (they flow through
+  `thread.turn.start reopen`), so §5.2 gate semantics are untouched. A
+  turn-start on a `ready` thread also flips it to `in_progress` (same rule as
+  `yielded`), so a reopened-and-prompted child never runs mislabelled `ready`
+  and cannot race the idle liveness rail.
 
 ### 5.3 Bypass guard
 

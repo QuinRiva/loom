@@ -9,8 +9,12 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationThreadShell,
   type ProviderSession,
+  CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  EventId,
+  ProjectId,
   ProviderInstanceId,
-  type ThreadId,
+  ThreadId,
   type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
@@ -26,6 +30,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildChildWakeMessage,
+  wakeCommandId,
   buildGateReverifyMessage,
   buildGateReworkMessage,
   buildParentWakeMessage,
@@ -58,6 +63,8 @@ import {
 } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
 import { selectJoinedGenerations } from "@t3tools/shared/workstreamGraph";
+import { decideOrchestrationCommand } from "../decider.ts";
+import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { isThreadIdle } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -2285,5 +2292,174 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
         }).pipe(Effect.provide(buildLayer(dispatched)));
       }),
     ),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Re-engagement epoch regression (parent reopen of a done child).
+//
+// Incident: child submits → done → generation wake delivered (durable receipt)
+// → parent reopens the child (`workstream_set_lane` ready) and prompts it →
+// child submits again → done, but the second completion's wake was keyed by the
+// SAME (parent, spawnGeneration) and deduped forever by the first receipt — the
+// parent was never woken. The fix stamps a fresh spawnGeneration on the
+// lane-set reopen, so the re-run's completion joins a fresh generation whose
+// wake id has no receipt. This drives the REAL decider + projector through the
+// full episode loop and checks the wake keying at each step.
+// ---------------------------------------------------------------------------
+effectIt.layer(NodeServices.layer)("re-engagement epoch (reopened child re-wakes parent)", (it) => {
+  const t = "2026-01-01T00:00:00.000Z";
+  const PARENT = ThreadId.make("parent-epoch");
+  const CHILD = ThreadId.make("child-epoch");
+
+  const applyEvents = (
+    readModel: OrchestrationReadModel,
+    events: ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+    seqStart: number,
+  ) =>
+    Effect.gen(function* () {
+      let model = readModel;
+      for (const [index, event] of events.entries()) {
+        model = yield* projectEvent(model, {
+          ...event,
+          sequence: seqStart + index,
+        } as OrchestrationEvent);
+      }
+      return model;
+    });
+
+  const threadCreated = (threadId: ThreadId, parent: ThreadId | null) =>
+    ({
+      eventId: EventId.make(`evt-${threadId}`),
+      aggregateKind: "thread",
+      aggregateId: threadId,
+      type: "thread.created",
+      occurredAt: t,
+      commandId: CommandId.make(`cmd-${threadId}`),
+      causationEventId: null,
+      correlationId: CommandId.make(`cmd-${threadId}`),
+      metadata: {},
+      payload: {
+        threadId,
+        projectId: ProjectId.make("project-epoch"),
+        ...(parent !== null
+          ? {
+              parentThreadId: parent,
+              role: "coder",
+              purpose: "do the thing",
+              planLane: "ready",
+              spawnGeneration: "gen-epoch-0",
+            }
+          : {}),
+        title: `Thread ${threadId}`,
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: t,
+        updatedAt: t,
+      },
+    }) as Omit<OrchestrationEvent, "sequence">;
+
+  it.effect(
+    "second completion after a lane-set reopen joins a FRESH generation whose wake id carries no receipt",
+    () =>
+      Effect.gen(function* () {
+        let model = createEmptyReadModel(t);
+        model = yield* projectEvent(model, {
+          sequence: 1,
+          eventId: EventId.make("evt-project-epoch"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-epoch"),
+          type: "project.created",
+          occurredAt: t,
+          commandId: CommandId.make("cmd-project-epoch"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-project-epoch"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-epoch"),
+            title: "Project",
+            workspaceRoot: "/tmp/project-epoch",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: t,
+            updatedAt: t,
+          },
+        });
+        model = yield* applyEvents(model, [threadCreated(PARENT, null)], 2);
+        model = yield* applyEvents(model, [threadCreated(CHILD, PARENT)], 3);
+
+        const decide = (command: OrchestrationCommand) =>
+          decideOrchestrationCommand({ command, readModel: model }).pipe(
+            Effect.map((decided) => (Array.isArray(decided) ? decided : [decided])),
+          );
+
+        // Episode 1: submit → done. The generation joins and its wake id is
+        // delivered + durably receipted (simulated receipt set).
+        model = yield* applyEvents(
+          model,
+          yield* decide({
+            type: "thread.work.submit",
+            commandId: CommandId.make("server:workstream-submit:episode-1"),
+            threadId: CHILD,
+            reportPath: "/reports/child-epoch.md",
+            createdAt: t,
+          }),
+          10,
+        );
+        const joined1 = selectJoinedGenerations(model.threads);
+        expect(joined1.map((g) => `${g.parentId}::${g.generation}`)).toEqual([
+          `${PARENT}::gen-epoch-0`,
+        ]);
+        const wakeId1 = wakeCommandId(PARENT, joined1[0]!.generation);
+        const receipts = new Set([wakeId1]);
+
+        // Parent reopens via the lane-set path (bare/client commandId — the
+        // workstream_set_lane tool): the SAME event stamps a fresh generation.
+        model = yield* applyEvents(
+          model,
+          yield* decide({
+            type: "thread.plan-lane.set",
+            commandId: CommandId.make("11111111-2222-3333-4444-555555555555"),
+            threadId: CHILD,
+            planLane: "ready",
+            createdAt: t,
+          }),
+          20,
+        );
+        const reopened = model.threads.find((thread) => thread.id === CHILD)!;
+        expect(reopened.spawnGeneration).not.toBe("gen-epoch-0");
+        expect(reopened.spawnGeneration).not.toBeNull();
+        // The fresh epoch is not terminal yet → nothing joins (no premature wake).
+        expect(selectJoinedGenerations(model.threads)).toEqual([]);
+
+        // Episode 2: the re-run submits again → done joins the FRESH generation.
+        model = yield* applyEvents(
+          model,
+          yield* decide({
+            type: "thread.work.submit",
+            commandId: CommandId.make("server:workstream-submit:episode-2"),
+            threadId: CHILD,
+            reportPath: "/reports/child-epoch.round-2.md",
+            createdAt: t,
+          }),
+          30,
+        );
+        const joined2 = selectJoinedGenerations(model.threads);
+        expect(joined2).toHaveLength(1);
+        const wakeId2 = wakeCommandId(PARENT, joined2[0]!.generation);
+        // The regression: with an immutable generation these ids were EQUAL and
+        // episode 2 classified as already-woken (silently dropped).
+        expect(wakeId2).not.toBe(wakeId1);
+        expect(
+          classifyGenerationByReceipts({
+            wakeDelivered: receipts.has(wakeId2),
+            parkBlocked: false,
+            parkMarkerPresent: false,
+          }),
+        ).toEqual({ kind: "deliverable" });
+      }),
   );
 });

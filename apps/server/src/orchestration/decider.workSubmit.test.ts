@@ -25,6 +25,7 @@ import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
 const now = "2026-01-01T00:00:00.000Z";
 const THREAD = ThreadId.make("thread-1");
+const CHILD = ThreadId.make("thread-child-1");
 
 const seedReadModel = Effect.gen(function* () {
   const withProject = yield* projectEvent(createEmptyReadModel(now), {
@@ -73,6 +74,59 @@ const seedReadModel = Effect.gen(function* () {
     },
   });
 });
+
+/** Seed a sub-thread of THREAD carrying a spawn generation. */
+const withChild = (readModel: OrchestrationReadModel) =>
+  projectEvent(readModel, {
+    sequence: 3,
+    eventId: EventId.make("evt-child"),
+    aggregateKind: "thread",
+    aggregateId: CHILD,
+    type: "thread.created",
+    occurredAt: now,
+    commandId: CommandId.make("cmd-child"),
+    causationEventId: null,
+    correlationId: CommandId.make("cmd-child"),
+    metadata: {},
+    payload: {
+      threadId: CHILD,
+      projectId: ProjectId.make("project-1"),
+      parentThreadId: THREAD,
+      role: "coder",
+      purpose: "do the thing",
+      planLane: "ready",
+      spawnGeneration: "gen-epoch-0",
+      title: "Child",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      branch: null,
+      worktreePath: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+
+/** Apply a plan lane onto a thread (as prior lifecycle events would). */
+const withLane = (
+  readModel: OrchestrationReadModel,
+  threadId: ThreadId,
+  planLane: "planned" | "ready" | "in_progress" | "done" | "cancelled",
+  sequence: number,
+) =>
+  projectEvent(readModel, {
+    sequence,
+    eventId: EventId.make(`evt-lane-${sequence}`),
+    aggregateKind: "thread",
+    aggregateId: threadId,
+    type: "thread.plan-lane-set",
+    occurredAt: now,
+    commandId: CommandId.make("server:test"),
+    causationEventId: null,
+    correlationId: CommandId.make("server:test"),
+    metadata: {},
+    payload: { threadId, planLane, updatedAt: now },
+  });
 
 /** Apply a `yielded` lane onto the seeded model (as a submit's routing would). */
 const withYieldedLane = (readModel: OrchestrationReadModel) =>
@@ -214,6 +268,127 @@ it.layer(NodeServices.layer)("decider review-gate invariants (Phases 1–2)", (i
         decision: "yield",
       });
       expect(events[2]?.payload).toMatchObject({ planLane: "yielded" });
+    }),
+  );
+});
+
+// Re-engagement epoch (design §5.2 exception): a parent/human reopening a
+// terminal sub-thread via the lane-set path stamps a fresh spawnGeneration so
+// the re-run's completion fires a fresh (receipt-deduped) parent wake instead
+// of being swallowed by the first completion's receipt.
+it.layer(NodeServices.layer)("decider re-engagement epoch (parent reopen)", (it) => {
+  const laneSet = (
+    planLane: "planned" | "ready" | "done",
+    threadId: ThreadId = CHILD,
+  ): OrchestrationCommand => ({
+    type: "thread.plan-lane.set",
+    commandId: CommandId.make("11111111-2222-3333"),
+    threadId,
+    planLane,
+    createdAt: now,
+  });
+
+  it.effect("reopening a done sub-thread to `ready` stamps a fresh spawnGeneration", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, withChild).pipe(
+        Effect.flatMap((model) => withLane(model, CHILD, "done", 4)),
+      );
+      const events = yield* decide(laneSet("ready"), readModel);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe("thread.plan-lane-set");
+      const payload = events[0]?.payload as { spawnGeneration?: string };
+      expect(payload.spawnGeneration).toBeDefined();
+      expect(payload.spawnGeneration).not.toBe("gen-epoch-0");
+    }),
+  );
+
+  it.effect("reopening a cancelled sub-thread to `planned` also stamps a fresh generation", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, withChild).pipe(
+        Effect.flatMap((model) => withLane(model, CHILD, "cancelled", 4)),
+      );
+      const events = yield* decide(laneSet("planned"), readModel);
+      const payload = events[0]?.payload as { spawnGeneration?: string };
+      expect(payload.spawnGeneration).toBeDefined();
+      expect(payload.spawnGeneration).not.toBe("gen-epoch-0");
+    }),
+  );
+
+  it.effect("a non-reopen lane-set (planned → ready release) does NOT stamp a generation", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, withChild).pipe(
+        Effect.flatMap((model) => withLane(model, CHILD, "planned", 4)),
+      );
+      const events = yield* decide(laneSet("ready"), readModel);
+      expect((events[0]!.payload as { spawnGeneration?: string }).spawnGeneration).toBeUndefined();
+    }),
+  );
+
+  it.effect("reopening a done ROOT thread does not stamp (no parent to wake)", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, (model) =>
+        withLane(model, THREAD, "done", 3),
+      );
+      const events = yield* decide(laneSet("ready", THREAD), readModel);
+      expect((events[0]!.payload as { spawnGeneration?: string }).spawnGeneration).toBeUndefined();
+    }),
+  );
+
+  it.effect("a turn-start on a `ready` thread flips it to `in_progress` (reopened child)", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, withChild);
+      const events = yield* decide(
+        {
+          type: "thread.turn.start",
+          commandId: CommandId.make("44444444-5555-6666"),
+          threadId: CHILD,
+          message: {
+            messageId: MessageId.make("msg-ready"),
+            role: "user",
+            text: "resume",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now,
+        },
+        readModel,
+      );
+      const laneEvents = events.filter((event) => event.type === "thread.plan-lane-set");
+      expect(laneEvents).toHaveLength(1);
+      expect(laneEvents[0]?.payload).toMatchObject({ planLane: "in_progress" });
+    }),
+  );
+
+  it.effect("a gate `reopen` turn-start does NOT refresh the generation (§5.2 semantics)", () =>
+    Effect.gen(function* () {
+      const readModel = yield* Effect.flatMap(seedReadModel, withChild).pipe(
+        Effect.flatMap((model) => withLane(model, CHILD, "done", 4)),
+      );
+      const events = yield* decide(
+        {
+          type: "thread.turn.start",
+          commandId: CommandId.make("server:workstream-gate:test"),
+          threadId: CHILD,
+          reopen: true,
+          message: {
+            messageId: MessageId.make("msg-rework"),
+            role: "user",
+            text: "rework findings",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now,
+        },
+        readModel,
+      );
+      const laneEvents = events.filter((event) => event.type === "thread.plan-lane-set");
+      expect(laneEvents).toHaveLength(1);
+      expect(laneEvents[0]?.payload).toMatchObject({ planLane: "in_progress" });
+      expect(
+        (laneEvents[0]!.payload as { spawnGeneration?: string }).spawnGeneration,
+      ).toBeUndefined();
     }),
   );
 });
