@@ -188,6 +188,31 @@ export interface GitRemoteStatusOptions {
   readonly refreshUpstream?: boolean;
 }
 
+export interface GitCommitAllResult {
+  /** False when the working tree was already clean (nothing to commit). */
+  readonly committed: boolean;
+  readonly commitSha: string | null;
+}
+
+export interface GitMergeWorktreeBranchInput {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly subject: string;
+}
+
+export interface GitMergeWorktreeBranchResult {
+  // `merged` = a --no-ff merge commit was created; `up-to-date` = nothing to
+  // merge (branch already contained); `conflict` = merge aborted, paths listed.
+  readonly status: "merged" | "up-to-date" | "conflict";
+  readonly conflictPaths: ReadonlyArray<string>;
+}
+
+export interface GitDeleteBranchInput {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly force?: boolean;
+}
+
 export class GitVcsDriver extends Context.Service<
   GitVcsDriver,
   {
@@ -209,6 +234,20 @@ export class GitVcsDriver extends Context.Service<
       body: string,
       options?: GitCommitOptions,
     ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
+    // Worktree isolation (design §3): stage every change and commit it, or
+    // report the tree was already clean. Used for the fan-in wip snapshots.
+    readonly commitAll: (
+      cwd: string,
+      subject: string,
+      body: string,
+    ) => Effect.Effect<GitCommitAllResult, GitCommandError>;
+    // Worktree isolation (design §3): merge a child branch back into the branch
+    // checked out in `cwd` with `--no-ff`, aborting (and listing conflict
+    // paths) rather than leaving a conflicted tree behind.
+    readonly mergeWorktreeBranch: (
+      input: GitMergeWorktreeBranchInput,
+    ) => Effect.Effect<GitMergeWorktreeBranchResult, GitCommandError>;
+    readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
     readonly pushCurrentBranch: (
       cwd: string,
       fallbackBranch: string | null,

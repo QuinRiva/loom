@@ -61,6 +61,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
           additionalProperties: false
         },
         staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a graph for review before any tokens are spent; release it later with workstream_release." },
+        isolation: { type: "string", enum: ["isolated", "shared"], description: "Worktree isolation for the child. Omit to take the role default (writers — coder/planner/free-text — are 'isolated'; readers — researcher/reviewer/shipper — are 'shared'). 'isolated' gives the child its own worktree + branch that is merged back into this thread's branch on completion, so its diffs are exactly its own edits and a dependent starts from a tree already containing its output; 'shared' runs the child in this thread's worktree (no fan-in). A gated reviewer always joins the coder's worktree regardless." },
         modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
         modelSelection: {
           type: "object",

@@ -15,12 +15,16 @@ const node = (
     readonly parentThreadId?: ThreadId | null;
     readonly blockedBy?: ReadonlyArray<ThreadId>;
     readonly planLane?: ThreadPlanLane;
+    readonly isolation?: DependencyGateThread["isolation"];
+    readonly fanInState?: DependencyGateThread["fanInState"];
   } = {},
 ): DependencyGateThread => ({
   id: id as ThreadId,
   parentThreadId: overrides.parentThreadId === undefined ? parent : overrides.parentThreadId,
   blockedBy: overrides.blockedBy ?? [],
   planLane: overrides.planLane ?? "planned",
+  isolation: overrides.isolation ?? "shared",
+  fanInState: overrides.fanInState ?? "none",
 });
 
 const index = (nodes: ReadonlyArray<DependencyGateThread>) =>
@@ -74,5 +78,31 @@ describe("areDependenciesSatisfied", () => {
     const b = node("dep-b", { planLane: "in_progress" });
     const thread = node("child", { blockedBy: [a.id, b.id] });
     expect(areDependenciesSatisfied(thread, index([a, b, thread]))).toBe(false);
+  });
+
+  // Worktree isolation (design §3): an isolated dependency must fan in cleanly
+  // before dependents release — `done` alone does not.
+  it("gates an isolated dependency that is done but has not fanned in", () => {
+    const dep = node("dep", { planLane: "done", isolation: "isolated", fanInState: "none" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(false);
+  });
+
+  it("releases an isolated dependency once its fan-in completed", () => {
+    const dep = node("dep", { planLane: "done", isolation: "isolated", fanInState: "completed" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(true);
+  });
+
+  it("keeps dependents blocked when an isolated dependency's fan-in conflicted", () => {
+    const dep = node("dep", { planLane: "done", isolation: "isolated", fanInState: "conflicted" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(false);
+  });
+
+  it("releases a shared dependency on done regardless of fan-in state", () => {
+    const dep = node("dep", { planLane: "done", isolation: "shared", fanInState: "none" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(true);
   });
 });

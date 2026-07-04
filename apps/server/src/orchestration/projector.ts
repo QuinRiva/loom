@@ -37,6 +37,7 @@ import {
   ThreadAttentionRaisedPayload,
   ThreadAttentionClearedPayload,
   ThreadDependenciesSetPayload,
+  ThreadFanInSetPayload,
   ThreadReportSetPayload,
   ThreadOutcomeRecordedPayload,
   ThreadRouteTakenPayload,
@@ -512,6 +513,8 @@ export function projectEvent(
             attention: payload.attention ?? [],
             blockedBy: payload.blockedBy ?? [],
             routes: payload.routes ?? [],
+            isolation: payload.isolation ?? "shared",
+            fanInState: "none",
             spawnGeneration: payload.spawnGeneration ?? null,
             reportPath: null,
             title: payload.title,
@@ -644,6 +647,15 @@ export function projectEvent(
             // separately and unaffected.
             ...(payload.planLane === "done" || payload.planLane === "cancelled"
               ? { attention: [] }
+              : {}),
+            // Worktree isolation (design §3 step 5): fan-in settlement only
+            // applies while the thread is `done`. Leaving `done` for a
+            // non-terminal lane (a gate reopen, or an orchestrator re-opening a
+            // `conflicted` child to resolve + resubmit) clears `fanInState` back
+            // to `none`, so the resubmit's `done` re-arms the fan-in sweep
+            // instead of the child staying wedged as a permanent `conflicted`.
+            ...(payload.planLane !== "done" && payload.planLane !== "cancelled"
+              ? { fanInState: "none" as const }
               : {}),
             updatedAt: payload.updatedAt,
           }),
@@ -804,6 +816,19 @@ export function projectEvent(
             ),
           };
         }),
+      );
+
+    // Worktree isolation (design §3): the projected fan-in settlement for an
+    // isolated child after its branch is merged back into the parent branch.
+    case "thread.fanin-set":
+      return decodeForEvent(ThreadFanInSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            fanInState: payload.fanInState,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
       );
 
     case "thread.message-sent":

@@ -106,6 +106,8 @@ function makeReadModel(
       gateRounds: 0,
       pendingRework: false,
       lastOutcome: null,
+      isolation: "shared" as const,
+      fanInState: "none" as const,
       title: `Thread ${thread.id}`,
       modelSelection: defaultModelSelection,
       interactionMode: "default" as const,

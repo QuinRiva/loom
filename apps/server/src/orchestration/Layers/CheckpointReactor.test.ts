@@ -53,7 +53,10 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
+import {
+  checkpointBaselineRefForThreadTurn,
+  checkpointRefForThreadTurn,
+} from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
 import * as WorkspacePaths from "../../workspace/WorkspacePaths.ts";
@@ -139,30 +142,31 @@ function createProviderServiceHarness(
   };
 }
 
+type WaitForThreadSnapshot = {
+  latestTurn: { turnId: string } | null;
+  checkpoints: ReadonlyArray<{
+    checkpointTurnCount: number;
+    files: ReadonlyArray<{ path: string }>;
+  }>;
+  activities: ReadonlyArray<{ kind: string }>;
+};
+
 async function waitForThread(
   readModel: () => Promise<{
-    readonly threads: ReadonlyArray<{
-      readonly id: ThreadId;
-      readonly latestTurn: { readonly turnId: string } | null;
-      readonly checkpoints: ReadonlyArray<{ readonly checkpointTurnCount: number }>;
-      readonly activities: ReadonlyArray<{ readonly kind: string }>;
-    }>;
+    readonly threads: ReadonlyArray<
+      WaitForThreadSnapshot & {
+        readonly id: ThreadId;
+      }
+    >;
   }>,
-  predicate: (thread: {
-    latestTurn: { turnId: string } | null;
-    checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
-    activities: ReadonlyArray<{ kind: string }>;
-  }) => boolean,
+  predicate: (thread: WaitForThreadSnapshot) => boolean,
+  threadId = ThreadId.make("thread-1"),
   timeoutMs = 15_000,
 ) {
   const deadline = (await Effect.runPromise(Clock.currentTimeMillis)) + timeoutMs;
-  const poll = async (): Promise<{
-    latestTurn: { turnId: string } | null;
-    checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
-    activities: ReadonlyArray<{ kind: string }>;
-  }> => {
+  const poll = async (): Promise<WaitForThreadSnapshot> => {
     const snapshot = await readModel();
-    const thread = snapshot.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const thread = snapshot.threads.find((entry) => entry.id === threadId);
     if (thread && predicate(thread)) {
       return thread;
     }
@@ -344,6 +348,7 @@ describe("CheckpointReactor", () => {
     );
 
     runtime = ManagedRuntime.make(layer);
+    const managedRuntime = runtime;
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const reactor = await runtime.runPromise(Effect.service(CheckpointReactor));
@@ -413,6 +418,8 @@ describe("CheckpointReactor", () => {
 
     return {
       engine,
+      dispatch: (command: Parameters<OrchestrationEngineShape["dispatch"]>[0]) =>
+        managedRuntime.runPromise(engine.dispatch(command)),
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       provider,
       cwd,
@@ -1153,5 +1160,194 @@ describe("CheckpointReactor", () => {
       true,
     );
     expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a thread's turn diff scoped to its own edits when a sibling writes between its turns", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const threadA = ThreadId.make("thread-1");
+    const threadB = ThreadId.make("thread-b");
+
+    // Second thread sharing thread A's worktree.
+    await harness.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("cmd-thread-create-b"),
+      threadId: threadB,
+      projectId: asProjectId("project-1"),
+      title: "Thread B",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      branch: null,
+      worktreePath: harness.cwd,
+      createdAt,
+    });
+
+    // Thread A turn 1: writes a.txt.
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-two-writers-a1-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadA,
+      turnId: asTurnId("turn-a1"),
+    });
+    await waitForGitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(threadA, 1));
+    NodeFS.writeFileSync(NodePath.join(harness.cwd, "a.txt"), "a1\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-two-writers-a1-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadA,
+      turnId: asTurnId("turn-a1"),
+      payload: { state: "completed" },
+    });
+    await waitForThread(harness.readModel, (entry) => entry.checkpoints.length === 1, threadA);
+
+    // Thread B turn 1, between A's turns: writes b.txt.
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-two-writers-b1-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadB,
+      turnId: asTurnId("turn-b1"),
+    });
+    await waitForGitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(threadB, 1));
+    NodeFS.writeFileSync(NodePath.join(harness.cwd, "b.txt"), "b1\n", "utf8");
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-two-writers-b1-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadB,
+      turnId: asTurnId("turn-b1"),
+      payload: { state: "completed" },
+    });
+    const threadBState = await waitForThread(
+      harness.readModel,
+      (entry) => entry.checkpoints.length === 1,
+      threadB,
+    );
+
+    // Thread A turn 2: no edits.
+    harness.provider.emit({
+      type: "turn.started",
+      eventId: EventId.make("evt-two-writers-a2-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadA,
+      turnId: asTurnId("turn-a2"),
+    });
+    await waitForGitRefExists(harness.cwd, checkpointBaselineRefForThreadTurn(threadA, 2));
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-two-writers-a2-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt,
+      threadId: threadA,
+      turnId: asTurnId("turn-a2"),
+      payload: { state: "completed" },
+    });
+    const threadAState = await waitForThread(
+      harness.readModel,
+      (entry) => entry.checkpoints.length === 2,
+      threadA,
+    );
+
+    // A's first turn contains its own edit; B's turn contains only B's edit
+    // even though A's a.txt landed first; A's second turn diff is empty even
+    // though B wrote b.txt between A's turns.
+    expect(threadAState.checkpoints[0]?.files.map((file) => file.path)).toEqual(["a.txt"]);
+    expect(threadBState.checkpoints[0]?.files.map((file) => file.path)).toEqual(["b.txt"]);
+    expect(threadAState.checkpoints[1]?.files).toEqual([]);
+  });
+
+  it("refuses revert while another live thread occupies the same worktree", async () => {
+    const harness = await createHarness();
+    const createdAt = "2026-01-01T00:00:00.000Z";
+
+    await harness.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("cmd-thread-create-occupant"),
+      threadId: ThreadId.make("thread-occupant"),
+      projectId: asProjectId("project-1"),
+      title: "Occupant",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      branch: null,
+      worktreePath: harness.cwd,
+      createdAt,
+    });
+
+    await harness.dispatch({
+      type: "thread.session.set",
+      commandId: CommandId.make("cmd-session-set-occupancy"),
+      threadId: ThreadId.make("thread-1"),
+      session: {
+        threadId: ThreadId.make("thread-1"),
+        status: "ready",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
+        updatedAt: createdAt,
+      },
+      createdAt,
+    });
+
+    await harness.dispatch({
+      type: "thread.turn.diff.complete",
+      commandId: CommandId.make("cmd-occupancy-diff-1"),
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-1"),
+      completedAt: createdAt,
+      checkpointRef: checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1),
+      status: "ready",
+      files: [],
+      checkpointTurnCount: 1,
+      createdAt,
+    });
+    await harness.dispatch({
+      type: "thread.turn.diff.complete",
+      commandId: CommandId.make("cmd-occupancy-diff-2"),
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-2"),
+      completedAt: createdAt,
+      checkpointRef: checkpointRefForThreadTurn(ThreadId.make("thread-1"), 2),
+      status: "ready",
+      files: [],
+      checkpointTurnCount: 2,
+      createdAt,
+    });
+
+    await harness.dispatch({
+      type: "thread.checkpoint.revert",
+      commandId: CommandId.make("cmd-revert-refused-occupancy"),
+      threadId: ThreadId.make("thread-1"),
+      turnCount: 1,
+      createdAt,
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+    );
+
+    // Refused: no rollback, no filesystem restore, no ref deletion.
+    expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+    expect(thread.checkpoints).toHaveLength(2);
+    expect(NodeFS.readFileSync(NodePath.join(harness.cwd, "README.md"), "utf8")).toBe("v3\n");
+    expect(
+      gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 2)),
+    ).toBe(true);
   });
 });

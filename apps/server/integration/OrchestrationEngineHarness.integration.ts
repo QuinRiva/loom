@@ -62,6 +62,7 @@ import {
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
 import { ThreadDeletionReactor } from "../src/orchestration/Services/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcher } from "../src/orchestration/Services/WorkstreamDispatcher.ts";
+import { WorkstreamFanInReactor } from "../src/orchestration/Services/WorkstreamFanInReactor.ts";
 import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
@@ -372,6 +373,12 @@ export const makeOrchestrationIntegrationHarness = (
       ),
       Layer.provideMerge(
         Layer.succeed(WorkstreamDispatcher, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(WorkstreamFanInReactor, {
           start: () => Effect.void,
           drain: Effect.void,
         }),

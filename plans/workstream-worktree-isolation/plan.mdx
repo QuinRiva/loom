@@ -1,0 +1,236 @@
+---
+manager_sessions:
+  - id: 9c24c07d-65fd-4439-be77-972fdc1e2d34
+    role: plan
+    authored_at: 2026-07-04T06:28:54.903Z
+---
+
+# Workstream worktree isolation & honest per-thread diffs
+
+**Objective.** Make a workstream thread's diffs mean "what this thread changed" and make revert safe, by (1) refreshing checkpoint baselines at turn start and (2) giving writer children their own worktree + branch with an automatic merge-back (fan-in) into the parent branch when they complete.
+
+**Done means:** a coder child's turn diffs and full-thread diff contain only its own edits; the orchestrator's wake-turn diff no longer absorbs children's changesets; reverting a thread can never destroy a co-resident sibling's uncommitted work; and a dependent child starts from a tree that already contains its dependency's merged output.
+
+The evidence base lives in four research reports (code traces, measurements, prior art): [native diff intent](/home/Carl/.t3/cockpit/userdata/workstream-reports/abeeee52-9c5a-4bb5-b3ac-9fc097bc92ab.md), [failure diagnosis](/home/Carl/.t3/cockpit/userdata/workstream-reports/d15c07b8-c31f-4425-be9e-420d64847041.md), [feasibility probe](/home/Carl/.t3/cockpit/userdata/workstream-reports/25e15575-ead9-40b6-be68-458a7f331fec.md), [industry survey](/home/Carl/.t3/cockpit/userdata/workstream-reports/812df0fb-cdba-4492-bc6d-6a7a37a33298.md). A few decisions are still open — see the form at the end.
+
+## Problem in one paragraph
+
+The diff system snapshots the **whole worktree** per thread-turn (`refs/t3/checkpoints/<b64(threadId)>/turn/<n>`) and attributes everything that changed between a thread's two snapshots to that thread. `WorkstreamSpawnHttp.ts` spawns every child with the parent's `branch`/`worktreePath` verbatim, so many concurrent threads write into one tree. Two compounding defects follow: the pre-turn baseline is only captured **if missing** (`ensurePreTurnBaseline*` in `CheckpointReactor.ts`), so a thread's baseline is its *own last completion* — everything siblings did in between lands in its next turn diff; and `handleRevertRequested` restores the whole tree + `git clean -fd`, silently destroying siblings' uncommitted work. The industry survey found no sound shared-workspace attribution scheme under concurrency; every credible peer converged on one workspace per agent.
+
+<Mermaid
+  caption="Target topology: writer children get a worktree + branch; completion merges back into the parent branch; readers stay in the shared tree"
+  source={"flowchart LR\n  subgraph parentWT [Parent worktree — parent branch]\n    ORCH[orchestrator]\n    RES[researcher - shared]\n    SHIP[shipper - shared]\n  end\n  subgraph wtA [Child worktree A — ws branch]\n    CODER[coder]\n    REV[gate reviewer - attached]\n  end\n  subgraph wtB [Child worktree B — ws branch]\n    PLANNER[planner]\n  end\n  CODER -- \"fan-in: merge --no-ff\" --> parentWT\n  PLANNER -- fan-in --> parentWT\n"}
+/>
+
+## Decisions at a glance
+
+<Callout tone="decision">
+Provision **at promotion time** (when the dispatcher starts the child), not at spawn. Fan-in is **automatic on completion**, merges the child branch into the parent branch in the parent worktree, and **escalates conflicts to the orchestrator** instead of resolving heuristically. The baseline fix uses a **separate `baseline/<n>` ref namespace** — existing `turn/<n>` refs are never overwritten, so historical turn diffs stay stable. Revert is **refused while the target worktree has any other live occupant**.
+</Callout>
+
+---
+
+## 1 · Isolation policy by role
+
+One knob: `isolation: "isolated" | "shared"`, recorded on the thread at spawn. Role defaults below; a spawn-time `isolation` parameter on `workstream_spawn` overrides them. A third mode ("bare worktree, no setup") was considered and dropped: setup is already fire-and-forget behind the `t3code-setup-state.json` breadcrumb, so skipping it saves only background CPU while adding a policy dimension.
+
+<Table
+  columns={["Role", "Default", "Rationale"]}
+  rows={[
+    ["coder", "isolated", "The archetypal writer; isolation is the whole point."],
+    ["planner", "isolated", "Writes plan/doc files into the repo; cheap to isolate, keeps its diff honest. (Open question 3 offers the shared alternative.)"],
+    ["researcher", "shared", "Read-only; zero cost. Residual: its own turn diffs may show sibling noise during its turns — cosmetic on a thread that claims no changes."],
+    ["reviewer (gated)", "attached", "Joins the gate target's worktree — see §4. Never fans in itself."],
+    ["reviewer (ungated)", "shared", "Reads the parent tree state it is asked to assess."],
+    ["shipper", "shared", "Must operate on the goal branch in the parent worktree by definition."],
+    ["free-text roles", "isolated", "Safe default: an unexpected writer corrupts attribution; an unexpected reader merely costs 1.3 s + ~128 MB."],
+  ]}
+/>
+
+Costs are measured and small on this repo: `git worktree add` 1.3 s, warm `pnpm install` 16 s (async, non-blocking), ~128 MB real disk per worktree (pnpm hardlinks). Heavier projects are already handled by the breadcrumb-poll model — the child works while setup runs.
+
+## 2 · Provisioning: when, where, what
+
+<Callout tone="decision">
+Worktrees are created by the **WorkstreamDispatcher at promotion time**, not by the spawn HTTP handler.
+</Callout>
+
+Why promotion, not spawn: (a) spawn is a synchronous HTTP call inside the parent's tool call — it stays fast and unchanged; (b) staged (`planned`) and `blockedBy` children may be cancelled before ever running — no worktree is wasted; (c) a **dependent child must branch from the parent branch *after* its dependency has fanned in** — only promotion time sees that state; (d) a gate reviewer attaches to the coder's worktree, which only exists after the coder was promoted. One uniform rule covers all four.
+
+Mechanics, mirroring the existing root bootstrap (`dispatchBootstrapTurnStart` in `ws.ts`): the provisioning logic (createWorktree → `thread.meta.update` → setup runner → activity records) is extracted into a new shared service — `apps/server/src/project/WorktreeProvisioner.ts` — used by both the root bootstrap and the dispatcher, per the repo's no-duplication rule. `promoteThread` in `WorkstreamDispatcher.ts` calls it just before dispatching the kick-off `thread.turn.start`, so the child's provider session resolves its cwd (`resolveThreadWorkspaceCwd`) to the new worktree from its very first turn.
+
+- **Branch name:** `ws/<parentBranch>/<sanitisedRole>-<first8(childThreadId)>`. The `ws/` prefix namespaces workstream-managed branches for humans and for the future reaper. `gitWorkflow.createWorktree` already derives the path as `worktreesDir/<repo>/<branch-with-slashes-flattened>`.
+- **Base commit:** the child must see the goal's *current* state, which may be **uncommitted** in the parent worktree (the workstream works uncommitted until the shipper). At provisioning, if the parent worktree is dirty, the provisioner auto-commits it onto the parent branch (`wip: workstream snapshot`) and branches the child from the new HEAD. This keeps history linear and makes the fan-in merge-base exact. (Open question 1 weighs the alternatives.)
+- `thread.create` at spawn keeps carrying the parent's `branch`/`worktreePath` as provisional values; promotion overwrites them via `thread.meta.update` for isolated children. The only contract addition is the `isolation` field.
+- **Uniqueness guard:** the UUID suffix makes same-branch-in-two-worktrees (a hard git error) unreachable; the provisioner still checks ref existence and regenerates on collision.
+
+<AnnotatedCode
+  filename="apps/server/src/mcp/WorkstreamSpawnHttp.ts"
+  language="ts"
+  code={"  yield* engine.dispatch({\n    type: \"thread.create\",\n    // ...\n    role,\n    isolation,            // NEW: override ?? roleDefaultIsolation(role)\n    branch: current.branch,\n    worktreePath: current.worktreePath,\n    createdAt: now,\n  } satisfies OrchestrationCommand);\n"}
+  annotations={[
+    { lines: "5", label: "new field", note: "resolved from the spawn body's optional `isolation` param, else the role-default table in §1; persisted on the thread shell" },
+    { lines: "6-7", note: "unchanged at spawn — provisional; the dispatcher repoints them at promotion for isolated children" },
+  ]}
+/>
+
+**Setup failure in a child worktree** reuses the existing policy verbatim: the breadcrumb flips to `failed`, a `setup-script.failed` activity lands on the child thread, and the child (already instructed by its system prompt to poll the breadcrumb) reports or escalates. No new machinery.
+
+## 3 · Fan-in: child branch → parent branch
+
+<Callout tone="decision">
+Fan-in is **automatic and control-plane-owned**: a new `WorkstreamFanInReactor` reacts to an isolated child's plan lane reaching `done`, commits both sides, and runs `git merge --no-ff <childBranch>` in the parent worktree. On conflict it aborts the merge and escalates to the orchestrator; it never auto-resolves.
+</Callout>
+
+Sequence for the happy path and the conflict path:
+
+<Mermaid
+  caption="Fan-in lifecycle"
+  source={"sequenceDiagram\n  participant C as Child (coder)\n  participant D as Decider/Dispatcher\n  participant F as FanInReactor\n  participant P as Parent worktree\n  C->>D: workstream_submit (done / gate resolve)\n  D->>D: plan-lane-set done\n  D-->>F: done event (isolation=isolated)\n  F->>C: commit child worktree onto child branch\n  F->>P: commit dirty parent state (wip)\n  F->>P: git merge --no-ff ws/...\n  alt clean merge\n    F->>D: thread.fanin.completed\n    F->>C: remove worktree, delete branch, repoint meta to parent\n    D->>D: release dependents + parent wake\n  else conflict\n    F->>P: git merge --abort\n    F->>D: thread.fanin.conflicted (worktree kept)\n    D->>D: parent wake carries conflict notice; dependents stay blocked\n  end\n"}
+/>
+
+**Trigger.** The reactor fires on `thread.plan-lane-set → done` for threads with `isolation: "isolated"`, **but skips a thread that is still a member of an unresolved gate** (`isMemberOfUnresolvedGate`). This uniformly covers plain submit completion, gate resolution (the decider's `resolve` decision sets both parties `done` in one transaction, which re-arms the trigger), and a parent accepting/dissolving via `workstream_set_lane done`.
+
+> **Erratum (2026-07-04, review round 1).** An earlier draft claimed "gate `loop` traversals leave the coder's lane untouched, so rework rounds never trigger a premature merge." That is wrong: a gated coder's **round-0** submit routes to `terminal` (`routeWorkSubmit` — `pendingRework` is false at round 0) and emits a real `plan-lane-set done`, which without a gate guard would fan the *unreviewed* work into the parent branch, remove the coder's worktree, and force the reviewer to rework in the shared parent tree — exactly the corruption §4 forbids. The implementation therefore gates the trigger on `isMemberOfUnresolvedGate`, and the gate reviewer (`attached`, released on the coder's `done` alone — see §5) works in the coder's live pre-merge worktree; fan-in fires exactly once, at resolution.
+
+**Mechanics** (a new `gitWorkflow` helper, e.g. `mergeWorktreeBranch`, since no intra-workstream merge primitive exists today):
+
+1. In the child worktree: `git add -A && git commit` (`wip(<role>): <child title>`) if dirty — the child's uncommitted work becomes real history on its branch.
+2. In the parent worktree: same auto-commit of any dirty state onto the parent branch (`wip: workstream snapshot`). The shipper squashes at PR time anyway, so intermediate wip commits are free; `roles/shipper.md` gets a one-line note.
+3. `git merge --no-ff <childBranch>` in the parent worktree. `--no-ff` preserves which changes arrived from which child — provenance in plain git history.
+4. On success: dispatch `thread.fanin.completed`, `gitWorkflow.removeWorktree` the child worktree, delete the (fully merged) child branch, and `thread.meta.update` the child's `branch`/`worktreePath` back to the parent's values. Repointing keeps the done child's historical turn diffs renderable — checkpoint refs live in the git *common* dir, visible from the parent worktree — and means a human reopening the thread lands safely in the shared tree. **Removal is occupancy-gated**: if any live thread still resides in the child's worktree (a `shared`/`attached` descendant) or targets its branch for fan-in (an isolated descendant), the merge and meta-repoint proceed but worktree removal and branch deletion are deferred until the last such occupant reaches a terminal lane (the same occupancy predicate as the revert guard, §7).
+5. On conflict: `git merge --abort`, dispatch `thread.fanin.conflicted` with the conflicting paths, keep the child worktree and branch intact. The parent wake message names the conflict; the orchestrator resolves it by re-opening/prompting the child ("merge the parent branch into your worktree, resolve, resubmit" — the child still has its live worktree), by spawning a fixer, or by escalating to the human. This mirrors the shipper's stop-and-report escalation pattern.
+
+**Sequencing guarantee.** `done` alone no longer releases downstream work for isolated children: the shared `areDependenciesSatisfied` predicate (`packages/shared/src/workstreamDependencies.ts`) and the dispatcher's generation-join for parent wakes additionally require the child's fan-in state to be settled (`completed`, or `conflicted` — a conflicted child still wakes the parent, with the notice, but keeps dependents blocked until resolved). A small `fanInState` field on the thread shell, projected from the `thread.fanin.*` events, carries this; `none` for shared/attached threads.
+
+**Cancelled child** (including cascade-cancel): auto-commit whatever is in its worktree onto the child branch (`wip: cancelled`), remove the worktree, **keep the branch** — the abandoned work stays recoverable with plain git, at the cost of one cheap ref. No merge, no dependent release (cancel already doesn't release).
+
+## 4 · Reviewers in a gate
+
+<Callout tone="decision">
+A gated reviewer is spawned **into the coder's worktree** (`isolation: "attached"`): at the reviewer's promotion the dispatcher copies the gate target's `branch`/`worktreePath` instead of provisioning.
+</Callout>
+
+The gate protocol already serialises the two parties — the coder is done/looped while the reviewer runs, and resumes only after the reviewer submits — so single-writer-per-turn-window holds by construction, and the fresh-baseline fix (§6) makes both parties' turn diffs honest across the alternation. The reviewer sees the coder's *uncommitted* work directly, with zero extra machinery. `fixed_inline` edits land in the same worktree and ride the same fan-in. The alternatives lose on cost: a fresh worktree off the coder's branch requires committing at every submit and doubles worktrees per gate; merging to parent before review pollutes the goal branch with unapproved work.
+
+## 5 · Dependent children (blockedBy chains)
+
+A dependent child branches **from the parent branch at its own promotion time**. Because promotion now waits for the dependency's fan-in (§3), the dependent's worktree automatically contains the upstream work — this delivers the practical benefit of stacked branches with none of the plumbing. True stacking (branch child B off child A's branch, restack on rework) is explicitly out of scope; the promotion-time provisioning hook is the single place it would later slot in, so nothing in this design forecloses it.
+
+**Attached exception (dependency gate).** A gated reviewer is `attached` and `blockedBy` its coder, but it must join the coder's *pre-merge* worktree — and the coder's fan-in is deliberately deferred until gate resolution (§3 trigger), which the reviewer itself drives. So `areDependenciesSatisfied` releases an **`attached`** dependent on its dependency's `done` alone, without the fan-in-settled requirement that governs dependents provisioned off the parent branch. Requiring fan-in for an attached reviewer would deadlock the gate.
+
+## 5a · Recursion: children spawning sub-threads
+
+Every mechanism above is **edge-relative** — "parent" always means the spawning thread, never the workstream root — so the model applies unchanged at every depth. When an isolated child C spawns its own children: their provisional `branch`/`worktreePath` are C's values; an isolated grandchild is provisioned off **C's** `ws/...` branch at promotion (auto-committing C's dirty tree, same as §2) and fans back into C's branch in C's worktree; a shared grandchild resides in C's worktree, which is exactly the single-writer arrangement C's orchestration is responsible for partitioning. Attribution and fan-in therefore compose level by level: C's eventual fan-in to its own parent carries its whole subtree's merged work as one branch. Branch names nest (`ws/ws/<goal>/coder-a1b2c3d4/researcher-…`) — harmless, and the `ws/` prefix test still identifies workstream-managed branches. Two rules make recursion safe rather than merely possible: promotion-gating means C cannot normally go `done` while a live isolated grandchild has an unsettled fan-in (the dispatcher's generation-join holds C's wake), and the occupancy-gated removal (§3 step 4) prevents C's fan-in from deleting a worktree that live descendants still occupy or target.
+
+## 6 · Fresh-baseline fix (ships regardless of the rest)
+
+<Callout tone="decision">
+Baselines move to their own ref namespace — `refs/t3/checkpoints/<b64(threadId)>/baseline/<n>` = "tree state when this thread's turn *n* began". Existing `turn/<n>` refs are **never overwritten**: they are diff *anchors* whose patch bodies are recomputed on demand, so rewriting one would silently rewrite history the UI already showed.
+</Callout>
+
+Scoped changes, all in the checkpointing layer:
+
+- `apps/server/src/checkpointing/Utils.ts`: add `checkpointBaselineRefForThreadTurn(threadId, n)`.
+- `CheckpointReactor.ts` — `ensurePreTurnBaselineFromTurnStart` and `ensurePreTurnBaselineFromDomainTurnStart`: capture to `baseline/<currentMax + 1>` (the turn count the upcoming completion will get). The existing skip-if-ref-exists check is kept but now applies to a ref that is *new each turn* — it degrades from "never refresh" to exactly "once per turn" idempotence (the domain and runtime start events can both fire; first capture wins, which is the earlier and therefore more correct snapshot).
+- `CheckpointReactor.ts` — `captureAndDispatchCheckpoint`: diff from `baseline/<turnCount>` when that ref exists, falling back to `turn/<turnCount − 1>` (pre-migration threads, missed baselines). Same rule in `captureCheckpointFromPlaceholder`'s path via the shared tail.
+- `CheckpointDiffQuery.ts` — `getTurnDiff`: when asked for the adjacent pair (`fromTurnCount === toTurnCount − 1`), prefer `baseline/<to>` as the from-ref if present. Arbitrary ranges and `getFullThreadDiff` (turn 0 → N) keep using `turn/<n>` anchors unchanged.
+- `handleRevertRequested`: delete stale `baseline/*` refs alongside the stale `turn/*` refs (count > target). Restore semantics are untouched — revert restores `turn/<n>`, the thread's own completion state.
+
+Semantics after the fix: changes made in a shared tree **between** a thread's turns (siblings, humans, setup scripts) fall into the gap between `turn/<n>` and `baseline/<n+1>` and are attributed to *nobody* — unattributed beats misattributed. One residual is accepted and documented: `getFullThreadDiff` for a thread that stays in a shared tree (orchestrator, opt-out children) remains tree-scoped over its whole life, because turn 0 → N spans everything; for isolated children it becomes exactly their contribution. No migration is needed: old threads simply have no baseline refs and fall back to today's behaviour.
+
+## 7 · Revert safety under co-occupancy
+
+<Callout tone="decision">
+`handleRevertRequested` refuses when any **other** live thread occupies the same worktree — a hard block with an explanatory activity, no override in v1.
+</Callout>
+
+Occupancy check (cheap, read-model only): another non-deleted, non-cancelled thread whose resolved cwd equals the reverting thread's, and which is not terminal. This makes shared-tree reverts (orchestrator with resident children, done children repointed after fan-in) fail loudly instead of destroying uncommitted sibling work — and it is precisely the *isolated* children, where revert matters most (undo a bad turn mid-work), that regain a safe, sole-occupant revert. The repoint-after-fan-in rule (§3) doubles as protection here: a done child's revert would otherwise target the parent tree with snapshots taken in a different worktree; the occupancy guard blocks it.
+
+## 8 · UI impact (v1: nearly free)
+
+`DiffPanel.tsx` already keys its branch/unstaged views on `activeThread.worktreePath ?? workspaceRoot` — with per-child worktrees those views become correctly thread-scoped **with no change**. Turn-diff rendering flows from `thread.checkpoints` unchanged. v1 ships no required UI work beyond surfacing the child's branch name on the thread header/card (small, optional). What this unblocks, deliberately deferred: honest per-child lines-of-diff card metrics (the exact metric `docs/plans/sub-agent-card-metrics.md` rejected under shared worktrees), a fan-in status chip, and a merged-vs-pending indicator on child cards.
+
+## 9 · Change map
+
+<FileTree
+  title="All changes by file"
+  entries={[
+    { "path": "packages/contracts/src/orchestration.ts", "change": "modified", "note": "thread `isolation` + `fanInState` fields; `thread.fanin.*` events" },
+    { "path": "packages/shared/src/workstreamDependencies.ts", "change": "modified", "note": "dep satisfied = done AND fan-in settled" },
+    { "path": "apps/server/src/mcp/WorkstreamSpawnHttp.ts", "change": "modified", "note": "isolation param + role defaults; record on thread.create" },
+    { "path": "apps/server/src/provider/Drivers/Pi/WorkstreamSpawnExtension.ts", "change": "modified", "note": "expose isolation on the spawn tool" },
+    { "path": "apps/server/src/project/WorktreeProvisioner.ts", "change": "added", "note": "extracted provisioning: createWorktree → meta.update → setup runner → activities" },
+    { "path": "apps/server/src/ws.ts", "change": "modified", "note": "root bootstrap delegates to WorktreeProvisioner" },
+    { "path": "apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts", "change": "modified", "note": "promotion-time provisioning / gate-attach; wake gating on fan-in" },
+    { "path": "apps/server/src/orchestration/Layers/WorkstreamFanInReactor.ts", "change": "added", "note": "merge-back on done; cancel disposition; conflict escalation" },
+    { "path": "apps/server/src/orchestration/decider.ts", "change": "modified", "note": "handle thread.fanin.* commands/events" },
+    { "path": "apps/server/src/vcs/GitVcsDriver.ts", "change": "modified", "note": "commit-all + merge --no-ff + branch-delete primitives (via GitWorkflowService)" },
+    { "path": "apps/server/src/orchestration/Layers/CheckpointReactor.ts", "change": "modified", "note": "baseline/<n> refresh; revert occupancy guard; stale baseline cleanup" },
+    { "path": "apps/server/src/checkpointing/Utils.ts", "change": "modified", "note": "baseline ref helper" },
+    { "path": "apps/server/src/checkpointing/CheckpointDiffQuery.ts", "change": "modified", "note": "prefer baseline from-ref for adjacent turn diffs" },
+    { "path": "roles/shipper.md", "change": "modified", "note": "note: wip commits from fan-in are expected; squash at PR" },
+  ]}
+/>
+
+## 10 · Phasing
+
+**Phase 1 — honest baselines + safe revert** (shippable alone, no workstream changes): the §6 baseline fix and the §7 revert guard. Immediately stops the orchestrator's wake-turn absorption and the revert data-loss hazard for every existing workstream, even with everything still sharing one tree.
+
+**Phase 2 — writer isolation + automatic fan-in**: §§1–5. The contracts fields, spawn param, `WorktreeProvisioner` extraction, dispatcher provisioning, fan-in reactor, and dependency/wake gating.
+
+**Phase 3 — hygiene and visibility**: a worktree/branch reaper (sweep `worktreesDir` and `ws/**` branches whose threads are terminal or deleted — 18 orphaned worktrees already accumulate today with no reaper), plus the child-card metrics and fan-in status UI unblocked by phase 2.
+
+**Sketched, explicitly out of scope**: stacked branches for dependency chains (§5 names the slot-in point), overlayfs/CoW views for zero-bootstrap short-lived children (ext4 host rules it out today; the provisioner is the seam if the host FS ever changes), warm worktree pools (saves only the 16 s async install on this repo — not worth the pool GC complexity until a measured project needs it).
+
+## 11 · Verification
+
+Phase 1: extend `CheckpointReactor.test.ts` with the two-writers-one-worktree scenario (thread B edits between thread A's turns; assert A's next turn diff is empty). End-to-end: run a real workstream on this repo with a shared-tree child, confirm the parent's wake-turn diff no longer contains the child's files, and confirm a revert attempt on the parent is refused with the occupancy activity while children exist.
+
+Phase 2 (the real journey, on this repo): orchestrator spawns an isolated coder, a shared researcher, and a dependent coder blocked on the first. Assert: the coder's worktree appears under `worktreesDir` on branch `ws/...` with the setup breadcrumb progressing; the coder's turn diffs contain only its edits; on submit, the parent branch gains a `--no-ff` merge commit and the child worktree is gone; the dependent's worktree contains the first coder's output; a gate (coder + reviewer, one forced `needs_rework` round) keeps both parties in one worktree and fans in exactly once at resolution. Force a conflict (parent-side edit to the same line) and confirm the abort + parent-wake escalation with dependents held. `vp check` and `vp run typecheck` pass throughout.
+
+<Callout tone="decision">
+**All four questions below are resolved** (Carl, 2026-07-04): the recommended option in each case — auto-commit `wip` onto the parent branch; remove worktree + delete branch immediately after a clean fan-in (deferred only while occupied, §3 step 4); planners default isolated; `--no-ff` merge commits. The form is retained for the record.
+</Callout>
+
+<QuestionForm
+  questions={[
+    {
+      "id": "parent-dirty",
+      "title": "Parent worktree has uncommitted state at provisioning/fan-in — what do we do with it?",
+      "mode": "single",
+      "options": [
+        { "id": "autocommit", "label": "Auto-commit wip onto the parent branch", "recommended": true, "detail": "Linear history, exact merge-bases, shipper squashes anyway. Side effect: parent git status becomes clean at those moments." },
+        { "id": "snapshot", "label": "Off-branch snapshot commit (parent branch never advances)", "detail": "No visible effect on parent status, but dangling snapshot commits and fuzzier merge-bases." },
+        { "id": "refuse", "label": "Refuse and escalate when the parent tree is dirty", "detail": "Strictest, but blocks routine spawns whenever the root thread did any pre-workstream work uncommitted." }
+      ]
+    },
+    {
+      "id": "retention",
+      "title": "Child worktree + branch after a successful fan-in?",
+      "mode": "single",
+      "options": [
+        { "id": "remove", "label": "Remove worktree, delete branch immediately", "recommended": true, "detail": "History survives in the --no-ff merge commit; checkpoint refs survive in the common dir; the occupancy guard already blocks post-merge reverts either way." },
+        { "id": "keep-goal", "label": "Keep both until the goal completes, reap then", "detail": "Allows post-hoc inspection of the child's exact tree at the cost of ~128 MB per child and a mandatory phase-2 reaper." }
+      ]
+    },
+    {
+      "id": "planner-isolation",
+      "title": "Default isolation for planner children?",
+      "mode": "single",
+      "options": [
+        { "id": "isolated", "label": "Isolated (uniform writer treatment)", "recommended": true, "detail": "Plan files are repo writes; isolation keeps their diffs attributable and conflict-free." },
+        { "id": "shared", "label": "Shared (plans rarely conflict; saves a worktree per planning pass)" }
+      ]
+    },
+    {
+      "id": "merge-style",
+      "title": "Fan-in merge style on the parent branch?",
+      "mode": "single",
+      "options": [
+        { "id": "no-ff", "label": "git merge --no-ff (merge commit per child)", "recommended": true, "detail": "Per-child provenance in plain git history; rework rounds merge incrementally for free." },
+        { "id": "squash", "label": "git merge --squash, left staged/uncommitted in the parent worktree", "detail": "Preserves today's uncommitted-until-shipper feel, but re-merging after gate rework rounds re-applies old hunks (no recorded merge-base) — fragile." }
+      ]
+    }
+  ]}
+/>

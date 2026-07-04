@@ -23,7 +23,6 @@ import {
   AuthSessionId,
   CommandId,
   type DiscoveredLocalServerList,
-  EventId,
   GoalId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
@@ -95,7 +94,7 @@ import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
-import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import { WorktreeProvisioner } from "./project/WorktreeProvisioner.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -123,19 +122,6 @@ const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
 function unexpectedCompatibilityError(error: never): never {
   throw new Error(`Unhandled compatibility error: ${String(error)}`);
-}
-
-/** Preserve the setup runner's broader pre-refactor message normalization. */
-function legacySetupFailureDescription(cause: unknown): string {
-  if (
-    typeof cause === "object" &&
-    cause !== null &&
-    "message" in cause &&
-    typeof cause.message === "string"
-  ) {
-    return cause.message;
-  }
-  return String(cause);
 }
 
 function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesError): {
@@ -237,19 +223,6 @@ function projectFileFailureContext(
       return { failure: "path_not_file", resolvedPath: error.resolvedPath };
     case "WorkspaceBinaryFileError":
       return { failure: "binary_file", resolvedPath: error.resolvedPath };
-    default:
-      return unexpectedCompatibilityError(error);
-  }
-}
-
-function projectSetupScriptCompatibilityDetail(
-  error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError,
-): string {
-  switch (error._tag) {
-    case "ProjectSetupScriptOperationError":
-      return legacySetupFailureDescription(error.cause);
-    case "ProjectSetupScriptProjectNotFoundError":
-      return "Project was not found for setup script execution.";
     default:
       return unexpectedCompatibilityError(error);
   }
@@ -428,7 +401,7 @@ const makeWsRpcLayer = (
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const worktreeProvisioner = yield* WorktreeProvisioner;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -521,7 +494,6 @@ const makeWsRpcLayer = (
           toDispatchCommandError(cause, "Failed to generate orchestration command identifier."),
         ),
       );
-      const serverEventId = randomUUID.pipe(Effect.map(EventId.make));
       const serverCommandId = (tag: string) =>
         randomUUID.pipe(Effect.map((uuid) => CommandId.make(`server:${tag}:${uuid}`)));
 
@@ -535,41 +507,6 @@ const makeWsRpcLayer = (
               new AuthAccessStreamError({
                 message: error.message,
               }),
-          ),
-        );
-
-      const appendSetupScriptActivity = (input: {
-        readonly threadId: ThreadId;
-        readonly kind:
-          | "setup-script.requested"
-          | "setup-script.started"
-          | "setup-script.completed"
-          | "setup-script.failed";
-        readonly summary: string;
-        readonly createdAt: string;
-        readonly payload: Record<string, unknown>;
-        readonly tone: "info" | "error";
-      }) =>
-        Effect.all({
-          commandId: serverCommandId("setup-script-activity"),
-          activityId: serverEventId,
-        }).pipe(
-          Effect.flatMap(({ commandId, activityId }) =>
-            orchestrationEngine.dispatch({
-              type: "thread.activity.append",
-              commandId,
-              threadId: input.threadId,
-              activity: {
-                id: activityId,
-                tone: input.tone,
-                kind: input.kind,
-                summary: input.summary,
-                payload: input.payload,
-                turnId: null,
-                createdAt: input.createdAt,
-              },
-              createdAt: input.createdAt,
-            }),
           ),
         );
 
@@ -741,146 +678,6 @@ const makeWsRpcLayer = (
                 )
               : Effect.void;
 
-          const recordSetupScriptFailure = (input: {
-            readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
-            readonly createdAt: string;
-            readonly worktreePath: string;
-          }) => {
-            const detail = projectSetupScriptCompatibilityDetail(input.error);
-            return appendSetupScriptActivity({
-              threadId: command.threadId,
-              kind: "setup-script.failed",
-              summary: "Setup script failed",
-              createdAt: input.createdAt,
-              payload: {
-                detail,
-                worktreePath: input.worktreePath,
-              },
-              tone: "error",
-            }).pipe(
-              Effect.ignoreCause({ log: false }),
-              Effect.flatMap(() =>
-                Effect.logWarning("bootstrap turn start setup script failed", {
-                  threadId: command.threadId,
-                  worktreePath: input.worktreePath,
-                  detail,
-                }),
-              ),
-            );
-          };
-
-          const recordSetupScriptActivity = (input: {
-            readonly kind:
-              | "setup-script.requested"
-              | "setup-script.started"
-              | "setup-script.completed";
-            readonly summary: string;
-            readonly createdAt: string;
-            readonly worktreePath: string;
-            readonly scriptId: string;
-            readonly scriptName: string;
-            readonly terminalId: string;
-          }) =>
-            appendSetupScriptActivity({
-              threadId: command.threadId,
-              kind: input.kind,
-              summary: input.summary,
-              createdAt: input.createdAt,
-              payload: {
-                scriptId: input.scriptId,
-                scriptName: input.scriptName,
-                terminalId: input.terminalId,
-                worktreePath: input.worktreePath,
-              },
-              tone: "info",
-            }).pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("bootstrap turn start failed to record setup activity", {
-                  threadId: command.threadId,
-                  worktreePath: input.worktreePath,
-                  scriptId: input.scriptId,
-                  terminalId: input.terminalId,
-                  kind: input.kind,
-                  detail: error.message,
-                }),
-              ),
-            );
-
-          const runSetupProgram = () =>
-            Effect.gen(function* () {
-              if (!bootstrap?.runSetupScript || !targetWorktreePath) {
-                return;
-              }
-              const worktreePath = targetWorktreePath;
-              const requestedAt = yield* nowIso;
-              yield* projectSetupScriptRunner
-                .runForThread({
-                  threadId: command.threadId,
-                  ...(targetProjectId ? { projectId: targetProjectId } : {}),
-                  ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
-                  worktreePath,
-                })
-                .pipe(
-                  Effect.matchEffect({
-                    onFailure: (error) =>
-                      recordSetupScriptFailure({
-                        error,
-                        createdAt: requestedAt,
-                        worktreePath,
-                      }),
-                    onSuccess: (setupResult) => {
-                      if (setupResult.status !== "started") {
-                        return Effect.void;
-                      }
-                      const activityBase = {
-                        worktreePath,
-                        scriptId: setupResult.scriptId,
-                        scriptName: setupResult.scriptName,
-                        terminalId: setupResult.terminalId,
-                      };
-                      return Effect.gen(function* () {
-                        yield* recordSetupScriptActivity({
-                          ...activityBase,
-                          kind: "setup-script.requested",
-                          summary: "Starting setup script",
-                          createdAt: requestedAt,
-                        });
-                        yield* recordSetupScriptActivity({
-                          ...activityBase,
-                          kind: "setup-script.started",
-                          summary: "Setup script started",
-                          createdAt: yield* nowIso,
-                        });
-                        // Observe completion in a detached fiber so the
-                        // provider turn starts without waiting for setup.
-                        yield* setupResult.completion.pipe(
-                          Effect.matchEffect({
-                            onFailure: (error) =>
-                              nowIso.pipe(
-                                Effect.flatMap((createdAt) =>
-                                  recordSetupScriptFailure({ error, createdAt, worktreePath }),
-                                ),
-                              ),
-                            onSuccess: () =>
-                              nowIso.pipe(
-                                Effect.flatMap((createdAt) =>
-                                  recordSetupScriptActivity({
-                                    ...activityBase,
-                                    kind: "setup-script.completed",
-                                    summary: "Setup script completed",
-                                    createdAt,
-                                  }),
-                                ),
-                              ),
-                          }),
-                          Effect.forkDetach,
-                        );
-                      });
-                    },
-                  }),
-                );
-            });
-
           const bootstrapProgram = Effect.gen(function* () {
             if (bootstrap?.createThread) {
               yield* orchestrationEngine.dispatch({
@@ -905,38 +702,27 @@ const makeWsRpcLayer = (
             }
 
             if (bootstrap?.prepareWorktree) {
-              let worktreeBaseRef = bootstrap.prepareWorktree.baseBranch;
-              if (bootstrap.prepareWorktree.startFromOrigin) {
-                yield* gitWorkflow.fetchRemote({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  remoteName: "origin",
-                });
-                const resolvedRemoteBase = yield* gitWorkflow.resolveRemoteTrackingCommit({
-                  cwd: bootstrap.prepareWorktree.projectCwd,
-                  refName: bootstrap.prepareWorktree.baseBranch,
-                  fallbackRemoteName: "origin",
-                });
-                worktreeBaseRef = resolvedRemoteBase.commitSha;
-              }
-              const worktree = yield* gitWorkflow.createWorktree({
-                cwd: bootstrap.prepareWorktree.projectCwd,
-                refName: worktreeBaseRef,
-                newRefName: bootstrap.prepareWorktree.branch,
-                baseRefName: bootstrap.prepareWorktree.baseBranch,
-                path: null,
-              });
-              targetWorktreePath = worktree.worktree.path;
-              yield* orchestrationEngine.dispatch({
-                type: "thread.meta.update",
-                commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
+              const provisioned = yield* worktreeProvisioner.provisionWorktree({
                 threadId: command.threadId,
-                branch: worktree.worktree.refName,
-                worktreePath: targetWorktreePath,
+                ...(targetProjectId ? { projectId: targetProjectId } : {}),
+                projectCwd: bootstrap.prepareWorktree.projectCwd,
+                baseBranch: bootstrap.prepareWorktree.baseBranch,
+                ...(bootstrap.prepareWorktree.branch
+                  ? { branch: bootstrap.prepareWorktree.branch }
+                  : {}),
+                ...(bootstrap.prepareWorktree.startFromOrigin ? { startFromOrigin: true } : {}),
               });
-              yield* refreshGitStatus(targetWorktreePath);
+              targetWorktreePath = provisioned.worktreePath;
             }
 
-            yield* runSetupProgram();
+            if (bootstrap?.runSetupScript && targetWorktreePath) {
+              yield* worktreeProvisioner.runSetup({
+                threadId: command.threadId,
+                ...(targetProjectId ? { projectId: targetProjectId } : {}),
+                ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+                worktreePath: targetWorktreePath,
+              });
+            }
 
             return yield* orchestrationEngine.dispatch(finalTurnStartCommand);
           });

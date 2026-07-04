@@ -55,6 +55,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcherLive } from "./orchestration/Layers/WorkstreamDispatcher.ts";
+import { WorkstreamFanInReactorLive } from "./orchestration/Layers/WorkstreamFanInReactor.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -77,6 +78,8 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
+import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import { authHttpApiLayer, environmentAuthenticatedAuthLayer } from "./auth/http.ts";
@@ -172,6 +175,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(WorkstreamDispatcherLive),
+  Layer.provideMerge(WorkstreamFanInReactorLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
   // Transient reasoning channel shared by the ingestion producer and ws
@@ -304,9 +308,20 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // is merged here rather than as its own pipe step to stay under `.pipe`'s
   // argument-count ceiling; its SqlClient + AccountUsageRegistry deps are
   // satisfied by the later provideMerge steps. Exposes UsageBreakdownQuery for
-  // the ws RPC handler.
-  Layer.provideMerge(Layer.mergeAll(UsageBreakdownQueryLive, CheckpointingLayerLive)),
-  Layer.provideMerge(SourceControlProviderRegistryLayerLive),
+  // the ws RPC handler. WorktreeProvisionerLive (worktree-isolation plan §2:
+  // the shared provisioner for root bootstrap + dispatcher promotion) rides the
+  // same mergeAll for the same ceiling reason; its git/setup/orchestration deps
+  // come from the later provideMerge steps.
+  Layer.provideMerge(
+    Layer.mergeAll(UsageBreakdownQueryLive, CheckpointingLayerLive, WorktreeProvisionerLive),
+  ),
+  // Per-worktree mutation lock shared by the provisioner and the fan-in reactor
+  // so parent-worktree git ops never race (review finding 3). Provided in a
+  // later step (dependency-free) so it feeds both the provisioner mergeAll above
+  // and the fan-in reactor in the reactor layer.
+  Layer.provideMerge(
+    Layer.mergeAll(SourceControlProviderRegistryLayerLive, WorktreeMutationLockLive),
+  ),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),

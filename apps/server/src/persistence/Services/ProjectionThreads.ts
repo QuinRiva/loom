@@ -16,7 +16,9 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadAttention,
+  ThreadFanInState,
   ThreadId,
+  ThreadIsolation,
   ThreadPlanLane,
   TurnId,
   WorkOutcomeRecord,
@@ -48,6 +50,10 @@ export const ProjectionThread = Schema.Struct({
   gateRounds: NonNegativeInt,
   pendingRework: NonNegativeInt,
   lastOutcome: Schema.NullOr(WorkOutcomeRecord),
+  // Worktree isolation (design §1/§3): the isolation policy + fan-in
+  // settlement of an isolated child.
+  isolation: ThreadIsolation,
+  fanInState: ThreadFanInState,
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

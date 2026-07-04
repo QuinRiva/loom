@@ -536,6 +536,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           // Review gates (design §4): outcome route edges declared at spawn.
           ...(command.routes !== undefined ? { routes: command.routes } : {}),
+          // Worktree isolation (design §1): propagate the spawn-resolved policy.
+          ...(command.isolation !== undefined ? { isolation: command.isolation } : {}),
           ...(command.planLane !== undefined ? { planLane: command.planLane } : {}),
           ...(command.spawnGeneration !== undefined
             ? { spawnGeneration: command.spawnGeneration }
@@ -1808,6 +1810,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    // Worktree isolation (design §3): record an isolated child's fan-in
+    // settlement. Emitted by the WorkstreamFanInReactor after merging the
+    // child branch back into the parent branch. Pure passthrough — the
+    // projector maps it onto `fanInState`; the dependency/wake gates read it.
+    case "thread.fanin.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.fanin-set",
+        payload: {
+          threadId: command.threadId,
+          fanInState: command.fanInState,
+          updatedAt: command.createdAt,
         },
       };
     }

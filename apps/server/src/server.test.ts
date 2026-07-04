@@ -73,6 +73,8 @@ const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 import * as ServerConfig from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
+import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
+import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
@@ -173,6 +175,8 @@ const makeDefaultOrchestrationReadModel = () => {
         gateRounds: 0,
         pendingRework: false,
         lastOutcome: null,
+        isolation: "shared" as const,
+        fanInState: "none" as const,
         toolUses: null,
         usedTokens: null,
         maxTokens: null,
@@ -218,6 +222,8 @@ const makeDefaultOrchestrationThreadShell = (
     gateRounds: 0,
     pendingRework: false,
     lastOutcome: null,
+    isolation: "shared" as const,
+    fanInState: "none" as const,
     title: "Default Thread",
     modelSelection: defaultModelSelection,
     runtimeMode: "full-access",
@@ -560,19 +566,47 @@ const buildAppUnderTest = (options?: {
         })
       : VcsStatusBroadcaster.layer.pipe(Layer.provide(gitWorkflowLayer));
 
+    // Worktree isolation: the ws bootstrap path resolves the shared provisioner.
+    // Wire it to the SAME git/status/setup/engine test doubles (the spies are
+    // shared by reference via the options overrides) so the bootstrap
+    // setup-script tests still observe worktree + setup + activity dispatch.
+    const worktreeProvisionerLayer = WorktreeProvisionerLive.pipe(
+      Layer.provide(gitWorkflowLayer),
+      Layer.provide(vcsStatusBroadcasterLayer),
+      Layer.provide(
+        Layer.mock(ProjectSetupScriptRunner.ProjectSetupScriptRunner)({
+          runForThread: () => Effect.succeed({ status: "no-script" as const }),
+          ...options?.layers?.projectSetupScriptRunner,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+          readEvents: () => Stream.empty,
+          dispatch: () => Effect.succeed({ sequence: 0 }),
+          streamDomainEvents: Stream.empty,
+          ...options?.layers?.orchestrationEngine,
+        }),
+      ),
+      Layer.provide(WorktreeMutationLockLive),
+      Layer.provide(NodeServices.layer),
+    );
+
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
       Layer.provide(
-        Layer.mock(Keybindings.Keybindings)({
-          loadConfigState: Effect.succeed({
-            keybindings: [],
-            issues: [],
+        Layer.mergeAll(
+          worktreeProvisionerLayer,
+          Layer.mock(Keybindings.Keybindings)({
+            loadConfigState: Effect.succeed({
+              keybindings: [],
+              issues: [],
+            }),
+            streamChanges: Stream.empty,
+            ...options?.layers?.keybindings,
           }),
-          streamChanges: Stream.empty,
-          ...options?.layers?.keybindings,
-        }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ProviderRegistry.ProviderRegistry)({
@@ -5584,6 +5618,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             gateRounds: 0,
             pendingRework: false,
             lastOutcome: null,
+            isolation: "shared" as const,
+            fanInState: "none" as const,
             toolUses: null,
             usedTokens: null,
             maxTokens: null,

@@ -1368,6 +1368,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(settledRows, [
         { state: "completed", completedAt: "2026-01-01T00:01:00.000Z" },
       ]);
+
+      // §B2 regression: the idle session-set (activeTurnId: null) must not
+      // clobber latest_turn_id — the fan-in quiescence predicate joins on it
+      // to see the completed turn, and wiping it wedged fan-in permanently.
+      const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
+        SELECT latest_turn_id AS "latestTurnId"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(threadRows, [{ latestTurnId: turnId }]);
     }),
   );
 
@@ -2401,6 +2411,163 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         },
       ]);
     }),
+  );
+
+  it.effect(
+    "preserves latest_turn_id through session-set running → idle (SQL projector §B2 regression test)",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = "2026-01-01T00:00:00.000Z";
+        const projectId = ProjectId.make("project-sql-b2");
+        const threadId = ThreadId.make("thread-sql-b2");
+        const turnId = TurnId.make("turn-sql-b2");
+        const messageId = MessageId.make("message-sql-b2");
+
+        // Append events to event store (not projecting yet).
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.make("evt-sql-b2-1"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-sql-b2-1"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-sql-b2-1"),
+          metadata: {},
+          payload: {
+            projectId,
+            title: "SQL B2 Regression Project",
+            workspaceRoot: "/tmp/project-sql-b2",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-sql-b2-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-sql-b2-2"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-sql-b2-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId,
+            title: "SQL B2 Test Thread",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        // Session running with a turn active (activeTurnId set).
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-sql-b2-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-sql-b2-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-sql-b2-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: turnId, // <-- Session running with active turn
+              lastError: null,
+              queuedMessages: { steering: [], followUp: [] },
+              updatedAt: now,
+            },
+          },
+        });
+
+        // Complete the turn via turn-diff-completed (sets latest_turn_id in the projection).
+        yield* eventStore.append({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.make("evt-sql-b2-4"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make("cmd-sql-b2-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-sql-b2-4"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId,
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.make("refs/t3/checkpoints/thread-sql-b2/turn/1"),
+            status: "ready",
+            files: [],
+            assistantMessageId: messageId,
+            completedAt: now,
+          },
+        });
+
+        // Session goes idle: activeTurnId becomes null (the critical moment where the old bug struck).
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-sql-b2-5"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:01.000Z",
+          commandId: CommandId.make("cmd-sql-b2-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-sql-b2-5"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: null,
+              runtimeMode: "full-access",
+              activeTurnId: null, // <-- Session idle: old bug would wipe latest_turn_id here
+              lastError: null,
+              queuedMessages: { steering: [], followUp: [] },
+              updatedAt: "2026-01-01T00:00:01.000Z",
+            },
+          },
+        });
+
+        // Bootstrap projection with all events.
+        yield* projectionPipeline.bootstrap;
+
+        // Verify latest_turn_id is PRESERVED after session-set idle (this is the fix).
+        // Before the fix: latest_turn_id would be NULL here (test would fail).
+        // After the fix: latest_turn_id is preserved and the turn is still visible as completed.
+        const rows = yield* sql<{
+          readonly latestTurnId: string | null;
+        }>`
+          SELECT latest_turn_id AS "latestTurnId"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+        assert.deepEqual(
+          rows,
+          [{ latestTurnId: turnId }],
+          "latest_turn_id must be preserved after session goes idle (SQL path, fan-in predicate requirement, §B2)",
+        );
+      }),
   );
 });
 

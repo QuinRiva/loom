@@ -127,6 +127,25 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
+
+// Worktree isolation policy for a workstream sub-thread (worktree-isolation
+// design §1). `isolated` = own worktree + `ws/…` branch, merged back on
+// completion (fan-in); `shared` = runs in the parent's worktree (today's
+// behaviour, no fan-in); `attached` = a gated reviewer that joins its gate
+// target's worktree (never fans in itself). Decode-defaults to `shared` so
+// root/pre-isolation threads keep today's behaviour.
+export const ThreadIsolation = Schema.Literals(["isolated", "shared", "attached"]);
+export type ThreadIsolation = typeof ThreadIsolation.Type;
+export const DEFAULT_THREAD_ISOLATION: ThreadIsolation = "shared";
+
+// Fan-in settlement of an isolated child's branch back into the parent branch
+// (design §3). `none` = not applicable (shared/attached/root, or an isolated
+// child that has not yet fanned in); `completed` = merged cleanly (releases
+// dependents); `conflicted` = merge aborted, dependents stay blocked, the
+// parent is woken with the notice. Projected from `thread.fanin-set` events.
+export const ThreadFanInState = Schema.Literals(["none", "completed", "conflicted"]);
+export type ThreadFanInState = typeof ThreadFanInState.Type;
+export const DEFAULT_THREAD_FAN_IN_STATE: ThreadFanInState = "none";
 // Axis 1 — plan lane (intent; the kanban board). The only "lifecycle" axis,
 // deliberately small. `in_progress` is control-plane-only (set by the
 // dispatcher at kickoff); agents/humans may set the others. `done` is the only
@@ -515,6 +534,15 @@ export const OrchestrationThread = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  // Worktree isolation policy (design §1) + fan-in settlement (design §3).
+  // Additive, decode-defaulted so pre-isolation snapshots load as today's
+  // shared/no-fan-in behaviour.
+  isolation: ThreadIsolation.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_ISOLATION)),
+  ),
+  fanInState: ThreadFanInState.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_FAN_IN_STATE)),
+  ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -676,6 +704,13 @@ export const OrchestrationThreadShell = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  // Worktree isolation policy + fan-in settlement. See OrchestrationThread.
+  isolation: ThreadIsolation.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_ISOLATION)),
+  ),
+  fanInState: ThreadFanInState.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_FAN_IN_STATE)),
+  ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -814,6 +849,10 @@ const ThreadCreateCommand = Schema.Struct({
   // Review gates (design §4): outcome route edges declared at spawn (compiled
   // from the spawn `gate` sugar). Omitted ⇒ no routes.
   routes: Schema.optional(Schema.Array(WorkstreamRoute)),
+  // Worktree isolation policy (design §1). Set by the spawn path from the
+  // optional `isolation` param or the role-default table; omitted on
+  // root/manual creation — defaults to `shared` via the read-model decode.
+  isolation: Schema.optional(ThreadIsolation),
   // Initial plan lane. Spawns pass `ready` (runs once deps clear) or `planned`
   // (staged/held for the review-the-graph flow). Omitted on root/manual
   // creation — defaults to `planned` via the read-model decode default.
@@ -1300,8 +1339,22 @@ const ThreadTurnStartFailCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// Worktree isolation fan-in (design §3): the reactor records an isolated
+// child's fan-in settlement after merging its branch back into the parent
+// branch. `completed` releases dependents; `conflicted` keeps them blocked and
+// wakes the parent. Conflict paths ride the child's activity log, not this
+// command (the typed thread field stays minimal).
+const ThreadFanInSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.fanin.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  fanInState: ThreadFanInState,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
+  ThreadFanInSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadMessageReasoningCompleteCommand,
@@ -1366,6 +1419,8 @@ export const OrchestrationEventType = Schema.Literals([
   // control-plane loop traversals.
   "thread.outcome-recorded",
   "thread.route-taken",
+  // Worktree isolation (design §3): an isolated child's fan-in settlement.
+  "thread.fanin-set",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1470,6 +1525,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   attention: Schema.optional(ThreadAttention),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
   routes: Schema.optional(Schema.Array(WorkstreamRoute)),
+  isolation: Schema.optional(ThreadIsolation),
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1700,6 +1756,14 @@ export const ThreadRouteTakenPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// Worktree isolation (design §3): the projected fan-in settlement for an
+// isolated child. The projector sets `fanInState` from this.
+export const ThreadFanInSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  fanInState: ThreadFanInState,
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -1921,6 +1985,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.route-taken"),
     payload: ThreadRouteTakenPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.fanin-set"),
+    payload: ThreadFanInSetPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

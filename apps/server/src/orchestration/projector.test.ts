@@ -91,6 +91,8 @@ describe("orchestration projector", () => {
         gateRounds: 0,
         pendingRework: false,
         lastOutcome: null,
+        isolation: "shared" as const,
+        fanInState: "none" as const,
         title: "demo",
         modelSelection: {
           instanceId: "codex",
@@ -1048,4 +1050,191 @@ describe("orchestration projector", () => {
     expect(thread?.checkpoints[0]?.turnId).toBe("turn-100");
     expect(thread?.checkpoints.at(-1)?.turnId).toBe("turn-599");
   });
+
+  // Worktree isolation (design §3 step 5, review round 2): fan-in settlement is
+  // only meaningful while a thread is `done`. Re-opening a `conflicted` child
+  // (done → non-terminal, to resolve + resubmit) must clear `fanInState` so the
+  // resubmit's `done` re-arms the fan-in sweep instead of wedging dependents on
+  // a permanent `conflicted`. A terminal lane leaves the settlement intact.
+  effectIt.effect("clears fanInState when a thread leaves `done`, keeps it on terminal lanes", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const created = yield* projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "coder",
+            isolation: "isolated",
+            modelSelection: { instanceId: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: "ws/main/coder-abc",
+            worktreePath: "/wt/child",
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      const laneEvent = (sequence: number, commandId: string, planLane: string) =>
+        makeEvent({
+          sequence,
+          type: "thread.plan-lane-set",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId,
+          payload: { threadId: "thread-1", planLane, updatedAt: now },
+        });
+      const settled = yield* projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.fanin-set",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-fanin",
+          payload: { threadId: "thread-1", fanInState: "conflicted", updatedAt: now },
+        }),
+      );
+      // Settled + transitioning to `done`: unchanged.
+      const doneConflicted = yield* projectEvent(settled, laneEvent(3, "cmd-done", "done"));
+      expect(doneConflicted.threads[0]?.fanInState).toBe("conflicted");
+
+      // Re-open (done → ready): the settlement clears so the resubmit can re-fan-in.
+      const reopened = yield* projectEvent(doneConflicted, laneEvent(4, "cmd-reopen", "ready"));
+      expect(reopened.threads[0]?.fanInState).toBe("none");
+    }),
+  );
+
+  effectIt(
+    "preserves latestTurn through turn-diff-completed → session-set idle (§B2 regression test)",
+    () =>
+      Effect.gen(function* () {
+        const now = "2026-01-01T00:00:00.000Z";
+        const projectIdStr = "project-projector-b2";
+        const threadIdStr = "thread-projector-b2";
+        const turnId = "turn-b2-projector";
+        const messageId = "message-b2-projector";
+
+        const created = createEmptyReadModel(now);
+
+        // Create project and thread.
+        const withProject = yield* projectEvent(
+          created,
+          makeEvent({
+            sequence: 1,
+            type: "project.created",
+            aggregateKind: "project",
+            aggregateId: projectIdStr,
+            occurredAt: now,
+            commandId: "cmd-project-create",
+            payload: {
+              projectId: projectIdStr,
+              title: "B2 Regression Project",
+              workspaceRoot: "/tmp/project-b2",
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+          }),
+        );
+
+        const withThread = yield* projectEvent(
+          withProject,
+          makeEvent({
+            sequence: 2,
+            type: "thread.created",
+            aggregateKind: "thread",
+            aggregateId: threadIdStr,
+            occurredAt: now,
+            commandId: "cmd-thread-create",
+            payload: {
+              threadId: threadIdStr,
+              projectId: projectIdStr,
+              title: "B2 Test Thread",
+              modelSelection: {
+                instanceId: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "full-access",
+              branch: null,
+              worktreePath: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          }),
+        );
+
+        // Complete a turn via turn-diff-completed (sets latestTurn).
+        const withTurnCompleted = yield* projectEvent(
+          withThread,
+          makeEvent({
+            sequence: 3,
+            type: "thread.turn-diff-completed",
+            aggregateKind: "thread",
+            aggregateId: threadIdStr,
+            occurredAt: now,
+            commandId: "cmd-turn-completed",
+            payload: {
+              threadId: threadIdStr,
+              turnId,
+              checkpointTurnCount: 1,
+              checkpointRef: `refs/t3/checkpoints/thread-projector-b2/turn/1`,
+              status: "ready",
+              files: [],
+              assistantMessageId: messageId,
+              completedAt: now,
+            },
+          }),
+        );
+
+        // Verify latestTurn was set by turn-diff-completed.
+        const threadBeforeIdle = withTurnCompleted.threads.find((t) => t.id === threadIdStr);
+        expect(threadBeforeIdle?.latestTurn?.turnId).toBe(turnId);
+        expect(threadBeforeIdle?.latestTurn?.state).toBe("completed");
+
+        // Session goes idle: activeTurnId becomes null (the critical moment where the old bug struck).
+        const afterSessionIdle = yield* projectEvent(
+          withTurnCompleted,
+          makeEvent({
+            sequence: 4,
+            type: "thread.session-set",
+            aggregateKind: "thread",
+            aggregateId: threadIdStr,
+            occurredAt: "2026-01-01T00:00:01.000Z",
+            commandId: "cmd-session-idle",
+            payload: {
+              threadId: threadIdStr,
+              session: {
+                threadId: threadIdStr,
+                status: "ready",
+                providerName: null,
+                runtimeMode: "full-access",
+                activeTurnId: null, // <-- Session idle, would wipe latestTurn in the old bug
+                lastError: null,
+                queuedMessages: { steering: [], followUp: [] },
+                updatedAt: "2026-01-01T00:00:01.000Z",
+              },
+            },
+          }),
+        );
+
+        // Verify latestTurn is PRESERVED after session-set idle (this is the fix).
+        // The in-memory projector already had the correct semantics — this test verifies it.
+        const threadAfterIdle = afterSessionIdle.threads.find((t) => t.id === threadIdStr);
+        // Verify latestTurn is PRESERVED after session-set idle (this is the fix).
+        // The in-memory projector already had the correct semantics — this test verifies it.
+        expect(threadAfterIdle?.latestTurn?.turnId).toBe(turnId);
+        expect(threadAfterIdle?.latestTurn?.state).toBe("completed");
+      }),
+  );
 });

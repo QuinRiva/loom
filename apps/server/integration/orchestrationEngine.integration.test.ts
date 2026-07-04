@@ -30,7 +30,10 @@ import {
   makeOrchestrationIntegrationHarness,
   type OrchestrationIntegrationHarness,
 } from "./OrchestrationEngineHarness.integration.ts";
-import { checkpointRefForThreadTurn } from "../src/checkpointing/Utils.ts";
+import {
+  checkpointBaselineRefForThreadTurn,
+  checkpointRefForThreadTurn,
+} from "../src/checkpointing/Utils.ts";
 import type {
   CheckpointDiffFinalizedReceipt,
   TurnProcessingQuiescedReceipt,
@@ -407,10 +410,21 @@ it.live("runs multi-turn file edits and persists checkpoint diffs", () =>
             status: "completed",
           },
         ],
+        // Real agents write files well after their turn has started; the
+        // fixture would otherwise race ahead of the reactor's async
+        // start-of-turn baseline capture and land its edit inside the baseline.
         mutateWorkspace: ({ cwd }) =>
-          Effect.sync(() => {
-            NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v2\n", "utf8");
-          }),
+          waitForSync(
+            () => gitRefExists(cwd, checkpointBaselineRefForThreadTurn(THREAD_ID, 1)),
+            (exists) => exists,
+            "turn 1 baseline ref before workspace mutation",
+          ).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v2\n", "utf8");
+              }),
+            ),
+          ),
       });
 
       yield* startTurn({
@@ -455,9 +469,17 @@ it.live("runs multi-turn file edits and persists checkpoint diffs", () =>
           },
         ],
         mutateWorkspace: ({ cwd }) =>
-          Effect.sync(() => {
-            NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v3\n", "utf8");
-          }),
+          waitForSync(
+            () => gitRefExists(cwd, checkpointBaselineRefForThreadTurn(THREAD_ID, 2)),
+            (exists) => exists,
+            "turn 2 baseline ref before workspace mutation",
+          ).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                NodeFS.writeFileSync(NodePath.join(cwd, "README.md"), "v3\n", "utf8");
+              }),
+            ),
+          ),
       });
 
       yield* startTurn({

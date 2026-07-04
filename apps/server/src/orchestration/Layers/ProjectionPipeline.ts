@@ -818,6 +818,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             spawnGeneration: event.payload.spawnGeneration ?? null,
             reportPath: null,
             routes: event.payload.routes ?? [],
+            isolation: event.payload.isolation ?? "shared",
+            fanInState: "none",
             gateRounds: 0,
             pendingRework: 0,
             lastOutcome: null,
@@ -944,6 +946,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             // by the first completion's receipt. Mirrors the in-memory projector.
             ...(event.payload.spawnGeneration !== undefined
               ? { spawnGeneration: event.payload.spawnGeneration }
+              : {}),
+            // Worktree isolation (design §3 step 5): fan-in settlement only
+            // applies while `done`; leaving `done` (a gate reopen, or an
+            // orchestrator re-opening a `conflicted` child to resolve+resubmit)
+            // clears it so the resubmit's `done` re-arms the fan-in sweep.
+            ...(event.payload.planLane !== "done" && event.payload.planLane !== "cancelled"
+              ? { fanInState: "none" as const }
               : {}),
             updatedAt: event.payload.updatedAt,
           });
@@ -1108,6 +1117,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        // Worktree isolation (design §3): an isolated child's fan-in settlement.
+        case "thread.fanin-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            fanInState: event.payload.fanInState,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
         case "thread.deleted": {
           attachmentSideEffects.deletedThreadIds.add(event.payload.threadId);
           const existingRow = yield* projectionThreadRepository.getById({
@@ -1157,7 +1182,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            latestTurnId: event.payload.session.activeTurnId,
+            // Only update latestTurnId when activeTurnId is non-null (session running).
+            // When the session goes idle, preserve the last-known turn so the fan-in
+            // predicate and other consumers can still see the completed turn (§B2).
+            latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);

@@ -48,6 +48,8 @@ function makeThread(
     gateRounds: 0,
     pendingRework: false,
     lastOutcome: null,
+    isolation: "shared" as const,
+    fanInState: "none" as const,
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
     interactionMode: "default",

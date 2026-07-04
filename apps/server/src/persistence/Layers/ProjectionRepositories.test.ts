@@ -92,6 +92,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         gateRounds: 0,
         pendingRework: 0,
         lastOutcome: null,
+        isolation: "shared" as const,
+        fanInState: "none" as const,
         title: "Null options thread",
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
