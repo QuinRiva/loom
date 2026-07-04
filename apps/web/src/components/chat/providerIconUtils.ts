@@ -26,6 +26,8 @@ export type ModelEsque = {
   name: string;
   shortName?: string | undefined;
   subProvider?: string | undefined;
+  /** Excluded by the instance's model preferences — see `AppModelOption.excluded`. */
+  excluded?: boolean | undefined;
 };
 
 function escapeRegExp(value: string): string {

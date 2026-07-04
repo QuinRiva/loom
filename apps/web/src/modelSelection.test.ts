@@ -144,7 +144,7 @@ describe("instance-scoped model selection", () => {
     ).not.toContain("openai/gpt-5.5");
   });
 
-  it("hides server models from the instance option list", () => {
+  it("flags hidden server models as excluded in the instance option list", () => {
     const providers = [
       provider({
         instanceId: "claudeAgent",
@@ -157,6 +157,8 @@ describe("instance-scoped model selection", () => {
         [ProviderInstanceId.make("claudeAgent")]: {
           hiddenModels: ["claude-opus-4-6"],
           modelOrder: [],
+          selectedModels: [],
+          showOnlySelectedModels: false,
         },
       },
     };
@@ -164,9 +166,45 @@ describe("instance-scoped model selection", () => {
       (entry) => entry.instanceId === "claudeAgent",
     )!;
 
-    expect(getAppModelOptionsForInstance(settings, stock).map((option) => option.slug)).toEqual([
-      "claude-sonnet-4-6",
+    expect(
+      getAppModelOptionsForInstance(settings, stock).map((option) => [
+        option.slug,
+        option.excluded ?? false,
+      ]),
+    ).toEqual([
+      ["claude-opus-4-6", true],
+      ["claude-sonnet-4-6", false],
     ]);
+  });
+
+  it("excludes everything but the allow-list when show-only-selected is on", () => {
+    const providers = [
+      provider({
+        instanceId: "claudeAgent",
+        models: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [ProviderInstanceId.make("claudeAgent")]: {
+          hiddenModels: ["claude-sonnet-4-6"],
+          modelOrder: [],
+          selectedModels: ["claude-sonnet-4-6"],
+          showOnlySelectedModels: true,
+        },
+      },
+    };
+    const stock = deriveProviderInstanceEntries(providers).find(
+      (entry) => entry.instanceId === "claudeAgent",
+    )!;
+
+    // Allow-list mode ignores the hide-list entirely.
+    expect(
+      getAppModelOptionsForInstance(settings, stock)
+        .filter((option) => !option.excluded)
+        .map((option) => option.slug),
+    ).toEqual(["claude-sonnet-4-6"]);
   });
 
   it("applies persisted per-instance model ordering", () => {
@@ -182,6 +220,8 @@ describe("instance-scoped model selection", () => {
         [ProviderInstanceId.make("claudeAgent")]: {
           hiddenModels: [],
           modelOrder: ["claude-haiku-4-5", "claude-opus-4-6"],
+          selectedModels: [],
+          showOnlySelectedModels: false,
         },
       },
     };
@@ -196,7 +236,7 @@ describe("instance-scoped model selection", () => {
     ]);
   });
 
-  it("falls back when the selected model is hidden", () => {
+  it("keeps an explicitly selected hidden model but defaults to a visible one", () => {
     const providers = [
       provider({
         instanceId: "claudeAgent",
@@ -209,16 +249,29 @@ describe("instance-scoped model selection", () => {
         [ProviderInstanceId.make("claudeAgent")]: {
           hiddenModels: ["claude-opus-4-6"],
           modelOrder: [],
+          selectedModels: [],
+          showOnlySelectedModels: false,
         },
       },
     };
 
+    // Hidden models stay resolvable when explicitly chosen (the picker's
+    // search escape hatch selects them by slug)…
     expect(
       resolveAppModelSelectionForInstance(
         ProviderInstanceId.make("claudeAgent"),
         settings,
         providers,
         "claude-opus-4-6",
+      ),
+    ).toBe("claude-opus-4-6");
+    // …but the no-selection default skips excluded options.
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claudeAgent"),
+        settings,
+        providers,
+        null,
       ),
     ).toBe("claude-sonnet-4-6");
   });

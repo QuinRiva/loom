@@ -75,6 +75,21 @@ export interface AppModelOption {
   shortName?: string;
   subProvider?: string;
   isCustom: boolean;
+  /**
+   * Excluded from casual browsing by the instance's model preferences
+   * (hide-list, or not selected while allow-list mode is on). Excluded
+   * options stay in the list so an explicit selection (picker search
+   * escape hatch, persisted thread model) still resolves; the picker
+   * simply keeps them out of the default views.
+   */
+  excluded?: boolean;
+}
+
+interface InstanceModelPreferences {
+  readonly hiddenModels: ReadonlyArray<string>;
+  readonly modelOrder: ReadonlyArray<string>;
+  readonly selectedModels: ReadonlyArray<string>;
+  readonly showOnlySelectedModels: boolean;
 }
 
 function toAppModelOption(model: ServerProvider["models"][number]): AppModelOption {
@@ -91,25 +106,30 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
 function readInstanceModelPreferences(
   settings: UnifiedSettings,
   instanceId: ProviderInstanceId,
-): { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> } {
+): InstanceModelPreferences {
   return (
     settings.providerModelPreferences?.[instanceId] ?? {
       hiddenModels: [],
       modelOrder: [],
+      selectedModels: [],
+      showOnlySelectedModels: false,
     }
   );
 }
 
 function applyInstanceModelPreferences(
   options: ReadonlyArray<AppModelOption>,
-  preferences: {
-    readonly hiddenModels: ReadonlyArray<string>;
-    readonly modelOrder: ReadonlyArray<string>;
-  },
+  preferences: InstanceModelPreferences,
 ): AppModelOption[] {
   const hiddenModels = new Set(preferences.hiddenModels);
+  const selectedModels = new Set(preferences.selectedModels);
+  const isExcluded = (option: AppModelOption) =>
+    !option.isCustom &&
+    (preferences.showOnlySelectedModels
+      ? !selectedModels.has(option.slug)
+      : hiddenModels.has(option.slug));
   return sortModelsForProviderInstance(
-    options.filter((option) => option.isCustom || !hiddenModels.has(option.slug)),
+    options.map((option) => (isExcluded(option) ? { ...option, excluded: true } : option)),
     { modelOrder: preferences.modelOrder },
   );
 }
@@ -249,6 +269,7 @@ export function resolveAppModelSelectionForInstance(
   const options = getAppModelOptionsForInstance(settings, entry);
   return (
     resolveSelectableModel(entry.driverKind, selectedModel, options) ??
+    options.find((option) => !option.excluded)?.slug ??
     options[0]?.slug ??
     entry.models[0]?.slug ??
     null

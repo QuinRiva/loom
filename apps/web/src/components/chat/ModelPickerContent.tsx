@@ -34,6 +34,13 @@ type ModelPickerItem = {
   name: string;
   shortName?: string;
   subProvider?: string;
+  /**
+   * Excluded by the instance's model preferences (hidden, or unselected in
+   * allow-list mode). Kept out of the default views but still reachable via
+   * search, where excluded matches render in a separated "All models"
+   * section below the curated results.
+   */
+  excluded?: boolean;
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
   instanceDisplayName: string;
@@ -207,6 +214,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           name: model.name,
           ...(model.shortName ? { shortName: model.shortName } : {}),
           ...(model.subProvider ? { subProvider: model.subProvider } : {}),
+          ...(model.excluded ? { excluded: true } : {}),
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
@@ -299,29 +307,19 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       // When searching, we only respect locked provider (by driver kind),
       // ignoring sidebar selection so account-scoped searches can find a
       // model before the user chooses a specific instance rail item.
-      if (props.lockedProvider !== null) {
-        const lockedProviderMatches: Array<(typeof rankedMatches)[number]> = [];
-        for (const rankedModel of rankedMatches) {
-          if (matchesLockedProvider(rankedModel.model)) {
-            lockedProviderMatches.push(rankedModel);
-          }
-        }
-        return lockedProviderMatches
-          .toSorted((a, b) => {
-            const scoreDelta = a.score - b.score;
-            if (scoreDelta !== 0) {
-              return scoreDelta;
-            }
-            if (a.isFavorite !== b.isFavorite) {
-              return a.isFavorite ? -1 : 1;
-            }
-            return a.tieBreaker.localeCompare(b.tieBreaker);
-          })
-          .map((rankedModel) => rankedModel.model);
-      }
-
-      return rankedMatches
+      // Excluded models (hidden / unselected in allow-list mode) still match
+      // a search, but always rank as a separated block below the curated
+      // results — the settings-free escape hatch for one-off model use.
+      const matches =
+        props.lockedProvider !== null
+          ? rankedMatches.filter((rankedModel) => matchesLockedProvider(rankedModel.model))
+          : rankedMatches;
+      return matches
         .toSorted((a, b) => {
+          const excludedA = a.model.excluded === true;
+          if (excludedA !== (b.model.excluded === true)) {
+            return excludedA ? 1 : -1;
+          }
           const scoreDelta = a.score - b.score;
           if (scoreDelta !== 0) {
             return scoreDelta;
@@ -333,6 +331,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         })
         .map((rankedModel) => rankedModel.model);
     }
+
+    // Outside search, excluded models never surface.
+    result = result.filter((m) => !m.excluded);
 
     if (props.lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));
@@ -436,6 +437,15 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       new Map(filteredModels.map((model) => [`${model.instanceId}:${model.slug}`, model] as const)),
     [filteredModels],
   );
+  // First excluded row in the search results — renders the "All models"
+  // section divider above itself so the escape-hatch block reads separately.
+  const firstExcludedModelKey = useMemo((): string | null => {
+    if (!isSearching) {
+      return null;
+    }
+    const first = filteredModels.find((model) => model.excluded);
+    return first ? `${first.instanceId}:${first.slug}` : null;
+  }, [filteredModels, isSearching]);
   const updateModelListScrollFades = useCallback(() => {
     const scrollElement = modelListRef.current?.getScrollableNode();
     if (!(scrollElement instanceof HTMLElement)) {
@@ -632,7 +642,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     }
                     const disabledReason =
                       getModelDisabledReason?.(model.instanceId, model.slug) ?? null;
-                    return (
+                    const row = (
                       <ModelListRow
                         key={modelKey}
                         index={index}
@@ -651,6 +661,17 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                         disabledReason={disabledReason}
                         onToggleFavorite={() => toggleFavorite(model.instanceId, model.slug)}
                       />
+                    );
+                    if (modelKey !== firstExcludedModelKey) {
+                      return row;
+                    }
+                    return (
+                      <div key={modelKey}>
+                        <div className="mx-2 mb-1 mt-2 border-t border-border/60 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                          All models
+                        </div>
+                        {row}
+                      </div>
                     );
                   }}
                   estimatedItemSize={60}

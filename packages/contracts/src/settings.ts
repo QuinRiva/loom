@@ -77,6 +77,15 @@ export const ClientSettingsSchema = Schema.Struct({
         Schema.withDecodingDefault(Effect.succeed([])),
       ),
       modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+      // Allow-list mode: when `showOnlySelectedModels` is on, only slugs in
+      // `selectedModels` (plus custom models) surface in the model picker;
+      // `hiddenModels` is ignored while the mode is active.
+      selectedModels: Schema.Array(Schema.String).pipe(
+        Schema.withDecodingDefault(Effect.succeed([])),
+      ),
+      showOnlySelectedModels: Schema.Boolean.pipe(
+        Schema.withDecodingDefault(Effect.succeed(false)),
+      ),
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
@@ -608,6 +617,12 @@ export const ClientSettingsPatch = Schema.Struct({
         ),
         modelOrder: Schema.Array(Schema.String).pipe(
           Schema.withDecodingDefault(Effect.succeed([])),
+        ),
+        selectedModels: Schema.Array(Schema.String).pipe(
+          Schema.withDecodingDefault(Effect.succeed([])),
+        ),
+        showOnlySelectedModels: Schema.Boolean.pipe(
+          Schema.withDecodingDefault(Effect.succeed(false)),
         ),
       }),
     ),

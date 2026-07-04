@@ -23,6 +23,7 @@ import { sortModelsForProviderInstance } from "../../modelOrdering";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
@@ -62,6 +63,10 @@ interface ProviderModelsSectionProps {
   readonly favoriteModels: ReadonlyArray<string>;
   /** Explicit user-authored model ordering for this provider instance. */
   readonly modelOrder: ReadonlyArray<string>;
+  /** Allow-list of model slugs shown when `showOnlySelectedModels` is on. */
+  readonly selectedModels: ReadonlyArray<string>;
+  /** Allow-list mode: only `selectedModels` (plus custom) reach the picker. */
+  readonly showOnlySelectedModels: boolean;
   /**
    * Commit the new custom-model list. Caller is responsible for routing the
    * write to the correct storage (legacy `settings.providers[kind]` vs.
@@ -71,6 +76,8 @@ interface ProviderModelsSectionProps {
   readonly onHiddenModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onFavoriteModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onModelOrderChange: (next: ReadonlyArray<string>) => void;
+  readonly onSelectedModelsChange: (next: ReadonlyArray<string>) => void;
+  readonly onShowOnlySelectedModelsChange: (next: boolean) => void;
 }
 
 /**
@@ -92,15 +99,20 @@ export function ProviderModelsSection({
   hiddenModels,
   favoriteModels,
   modelOrder,
+  selectedModels,
+  showOnlySelectedModels,
   onChange,
   onHiddenModelsChange,
   onFavoriteModelsChange,
   onModelOrderChange,
+  onSelectedModelsChange,
+  onShowOnlySelectedModelsChange,
 }: ProviderModelsSectionProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const hiddenModelSet = useMemo(() => new Set(hiddenModels), [hiddenModels]);
+  const selectedModelSet = useMemo(() => new Set(selectedModels), [selectedModels]);
   const favoriteModelSet = useMemo(() => new Set(favoriteModels), [favoriteModels]);
   const orderedModels = useMemo(() => {
     return sortModelsForProviderInstance(models, {
@@ -156,13 +168,32 @@ export function ProviderModelsSection({
     setError(null);
   };
 
+  // In allow-list mode the eye toggles membership of the selected set;
+  // otherwise it toggles the hide-list. Either way the eye means "visible
+  // in the picker".
   const handleToggleHidden = (slug: string) => {
+    if (showOnlySelectedModels) {
+      onSelectedModelsChange(
+        selectedModelSet.has(slug)
+          ? selectedModels.filter((model) => model !== slug)
+          : [...selectedModels, slug],
+      );
+      return;
+    }
     if (hiddenModelSet.has(slug)) {
       onHiddenModelsChange(hiddenModels.filter((model) => model !== slug));
       return;
     }
     onHiddenModelsChange([...hiddenModels, slug]);
   };
+
+  const builtInSlugs = models.filter((model) => !model.isCustom).map((model) => model.slug);
+  // Bulk curation: flip the whole built-in catalogue in whichever list the
+  // current mode reads from.
+  const handleShowAll = () =>
+    showOnlySelectedModels ? onSelectedModelsChange(builtInSlugs) : onHiddenModelsChange([]);
+  const handleHideAll = () =>
+    showOnlySelectedModels ? onSelectedModelsChange([]) : onHiddenModelsChange(builtInSlugs);
 
   const handleToggleFavorite = (slug: string) => {
     if (favoriteModelSet.has(slug)) {
@@ -187,14 +218,48 @@ export function ProviderModelsSection({
   return (
     <div className="border-t border-border/60 px-4 py-3 sm:px-5">
       <div className="text-xs font-medium text-foreground">Models</div>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {models.length} model{models.length === 1 ? "" : "s"} available.
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground">
+          {models.length} model{models.length === 1 ? "" : "s"} available.
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={handleShowAll}
+          >
+            {showOnlySelectedModels ? "Select all" : "Show all"}
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={handleHideAll}
+          >
+            {showOnlySelectedModels ? "Select none" : "Hide all"}
+          </Button>
+        </div>
       </div>
+      <label className="mt-2 flex cursor-pointer items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          Show only selected models in the picker
+        </span>
+        <Switch
+          checked={showOnlySelectedModels}
+          onCheckedChange={(checked) => onShowOnlySelectedModelsChange(Boolean(checked))}
+          aria-label="Show only selected models in the picker"
+        />
+      </label>
       <div ref={listRef} className="mt-2 max-h-40 overflow-y-auto pb-1">
         {orderedModels.map((model, index) => {
           const caps = model.capabilities;
           const capLabels: string[] = [];
-          const isHidden = !model.isCustom && hiddenModelSet.has(model.slug);
+          const isHidden =
+            !model.isCustom &&
+            (showOnlySelectedModels
+              ? !selectedModelSet.has(model.slug)
+              : hiddenModelSet.has(model.slug));
           const isFavorite = favoriteModelSet.has(model.slug);
           const previousModel = orderedModels[index - 1];
           const nextModel = orderedModels[index + 1];
@@ -355,7 +420,13 @@ export function ProviderModelsSection({
                       )}
                     </TooltipTrigger>
                     <TooltipPopup side="top">
-                      {isHidden ? "Show in picker" : "Hide from picker"}
+                      {showOnlySelectedModels
+                        ? isHidden
+                          ? "Select for picker"
+                          : "Deselect from picker"
+                        : isHidden
+                          ? "Show in picker"
+                          : "Hide from picker"}
                     </TooltipPopup>
                   </Tooltip>
                 ) : null}

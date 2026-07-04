@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { PiSettings } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+
 import {
   PI_TRANSIENT_PROVIDER_ERROR_RE,
   piBackendFallbackModel,
+  piBackendLabel,
+  piCatalogModels,
   piRunOutcome,
   piToolItemPayload,
 } from "./PiDriver.ts";
@@ -121,5 +126,43 @@ describe("piRunOutcome", () => {
       errorMessage: undefined,
     });
     expect(piRunOutcome(undefined)).toEqual({ stopReason: undefined, errorMessage: undefined });
+  });
+});
+
+const decodePiSettings = Schema.decodeSync(PiSettings);
+
+describe("piCatalogModels backend disambiguation", () => {
+  const settings = decodePiSettings({});
+  const model = (provider: string, id: string, name: string) => ({
+    id,
+    name,
+    provider,
+    contextWindow: 200_000,
+  });
+
+  it("suffixes only colliding display names with the backend label", () => {
+    const models = piCatalogModels(
+      [
+        model("openai", "gpt-5.5", "GPT-5.5"),
+        model("openai-codex", "gpt-5.5", "GPT-5.5"),
+        model("anthropic", "claude-opus-4-8", "Claude Opus 4.8"),
+        model("google-vertex-claude", "claude-opus-4-8", "Claude Opus 4.8 (Vertex)"),
+      ],
+      settings,
+    );
+    expect(models.map((entry) => [entry.slug, entry.name, entry.subProvider])).toEqual([
+      // Curated shortlist entries sort first (default model, then GPT-5.5).
+      ["google-vertex-claude/claude-opus-4-8", "Claude Opus 4.8 (Vertex)", "Vertex"],
+      ["openai-codex/gpt-5.5", "GPT-5.5 (Codex)", "Codex"],
+      ["openai/gpt-5.5", "GPT-5.5 (OpenAI)", "OpenAI"],
+      // Unique names stay clean (pi already suffixes its Vertex Claude names).
+      ["anthropic/claude-opus-4-8", "Claude Opus 4.8", "Anthropic"],
+    ]);
+  });
+
+  it("derives regional Bedrock labels and falls back to raw provider ids", () => {
+    expect(piBackendLabel("bedrock", "au.anthropic.claude-opus-4-8-v1")).toBe("Bedrock AU");
+    expect(piBackendLabel("bedrock", "anthropic.claude-opus-4-8-v1")).toBe("Bedrock");
+    expect(piBackendLabel("some-new-backend", "whatever")).toBe("some-new-backend");
   });
 });
