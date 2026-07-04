@@ -192,6 +192,7 @@ import {
   isStagedHandoffThread,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
+  resolveGoalWorktreeSeed,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarStageBadgeLabel,
@@ -1610,8 +1611,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         return result;
       }
       const draftStore = useComposerDraftStore.getState();
-      const projectDraftThread = draftStore.getDraftThreadByProjectRef(memberProjectRef);
-      if (projectDraftThread) {
+      // A logical project can hold one draft per entry-point bucket
+      // (project-level and goal-level); clear them all.
+      for (
+        let projectDraftThread = draftStore.getDraftThreadByProjectRef(memberProjectRef);
+        projectDraftThread;
+        projectDraftThread = draftStore.getDraftThreadByProjectRef(memberProjectRef)
+      ) {
         draftStore.clearDraftThread(projectDraftThread.draftId);
       }
       draftStore.clearProjectDraftThreadId(memberProjectRef);
@@ -2012,13 +2018,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           : currentRouteTarget?.kind === "draft"
             ? (draftStore.getDraftSession(currentRouteTarget.draftId) ?? null)
             : null;
+      const environmentSettings =
+        serverConfigs.get(member.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
       const seedContext = resolveSidebarNewThreadSeedContext({
         projectId: member.id,
         defaultEnvMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode:
-            serverConfigs.get(member.environmentId)?.settings.defaultThreadEnvMode ??
-            DEFAULT_SERVER_SETTINGS.defaultThreadEnvMode,
+          defaultEnvMode: environmentSettings.defaultThreadEnvMode,
         }),
+        newWorktreesStartFromOrigin: environmentSettings.newWorktreesStartFromOrigin,
+        goalWorktree: threadOptions?.goalId
+          ? resolveGoalWorktreeSeed({ goalId: threadOptions.goalId, threads: sidebarThreads })
+          : null,
         activeThread:
           currentActiveThread && currentActiveThread.projectId === member.id
             ? {
@@ -2044,15 +2054,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       void (async () => {
         const result = await settlePromise(() =>
           handleNewThread(scopeProjectRef(member.environmentId, member.id), {
-            ...(seedContext.branch !== undefined ? { branch: seedContext.branch } : {}),
-            ...(seedContext.worktreePath !== undefined
-              ? { worktreePath: seedContext.worktreePath }
-              : {}),
+            branch: seedContext.branch,
+            worktreePath: seedContext.worktreePath,
             envMode: seedContext.envMode,
-            ...(seedContext.startFromOrigin !== undefined
-              ? { startFromOrigin: seedContext.startFromOrigin }
-              : {}),
-            ...(threadOptions?.goalId ? { goalId: threadOptions.goalId } : {}),
+            startFromOrigin: seedContext.startFromOrigin,
+            goalId: threadOptions?.goalId ?? null,
+            // Entry-point clicks resume their own draft bucket (project-level
+            // vs goal-level drafts are stored separately), so these fields
+            // only seed a fresh draft — or re-seed the goal bucket when a
+            // different goal is clicked.
+            contextMode: "seed",
           }),
         );
         if (result._tag === "Failure") {
@@ -2067,7 +2078,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         }
       })();
     },
-    [handleNewThread, isMobile, router, serverConfigs, setOpenMobile],
+    [handleNewThread, isMobile, router, serverConfigs, setOpenMobile, sidebarThreads],
   );
 
   const createGoalSession = useCallback(

@@ -47,6 +47,7 @@ describe("chatThreadActions", () => {
           projectId: PROJECT_ID,
           branch: "feature/refactor",
           worktreePath: "/tmp/worktree",
+          goalId: null,
           envMode: "worktree",
           startFromOrigin: true,
         },
@@ -76,6 +77,7 @@ describe("chatThreadActions", () => {
           projectId: PROJECT_ID,
           branch: "feature/refactor",
           worktreePath: "/tmp/worktree",
+          goalId: null,
           envMode: "worktree",
           startFromOrigin: true,
         },
@@ -87,6 +89,7 @@ describe("chatThreadActions", () => {
     expect(handleNewThread).toHaveBeenCalledWith(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), {
       branch: "feature/refactor",
       worktreePath: "/tmp/worktree",
+      goalId: null,
       envMode: "worktree",
       startFromOrigin: true,
     });
@@ -102,6 +105,7 @@ describe("chatThreadActions", () => {
           projectId: PROJECT_ID,
           branch: "feature/refactor",
           worktreePath: "/tmp/worktree",
+          goalId: null,
           envMode: "worktree",
           startFromOrigin: false,
         },
@@ -112,6 +116,7 @@ describe("chatThreadActions", () => {
     expect(handleNewThread).toHaveBeenCalledWith(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), {
       branch: "feature/refactor",
       worktreePath: "/tmp/worktree",
+      goalId: null,
       envMode: "worktree",
       startFromOrigin: false,
     });

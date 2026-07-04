@@ -261,11 +261,33 @@ describe("resolveSidebarNewThreadEnvMode", () => {
 });
 
 describe("resolveSidebarNewThreadSeedContext", () => {
+  it("prefers the goal's living worktree over every other seed source", () => {
+    expect(
+      resolveSidebarNewThreadSeedContext({
+        projectId: "project-1",
+        defaultEnvMode: "worktree",
+        newWorktreesStartFromOrigin: true,
+        goalWorktree: {
+          branch: "feature/goal",
+          worktreePath: "/repo/.t3/worktrees/goal",
+        },
+        activeThread: null,
+        activeDraftThread: null,
+      }),
+    ).toEqual({
+      branch: "feature/goal",
+      worktreePath: "/repo/.t3/worktrees/goal",
+      envMode: "worktree",
+      startFromOrigin: false,
+    });
+  });
+
   it("prefers the default worktree mode over active thread context", () => {
     expect(
       resolveSidebarNewThreadSeedContext({
         projectId: "project-1",
         defaultEnvMode: "worktree",
+        newWorktreesStartFromOrigin: true,
         activeThread: {
           projectId: "project-1",
           branch: "feature/existing",
@@ -280,7 +302,10 @@ describe("resolveSidebarNewThreadSeedContext", () => {
         },
       }),
     ).toEqual({
+      branch: null,
+      worktreePath: null,
       envMode: "worktree",
+      startFromOrigin: true,
     });
   });
 
@@ -289,6 +314,7 @@ describe("resolveSidebarNewThreadSeedContext", () => {
       resolveSidebarNewThreadSeedContext({
         projectId: "project-1",
         defaultEnvMode: "local",
+        newWorktreesStartFromOrigin: false,
         activeThread: {
           projectId: "project-1",
           branch: "effect-atom",
@@ -300,6 +326,7 @@ describe("resolveSidebarNewThreadSeedContext", () => {
       branch: "effect-atom",
       worktreePath: null,
       envMode: "local",
+      startFromOrigin: false,
     });
   });
 
@@ -308,6 +335,7 @@ describe("resolveSidebarNewThreadSeedContext", () => {
       resolveSidebarNewThreadSeedContext({
         projectId: "project-1",
         defaultEnvMode: "local",
+        newWorktreesStartFromOrigin: false,
         activeThread: {
           projectId: "project-1",
           branch: "effect-atom",
@@ -333,7 +361,8 @@ describe("resolveSidebarNewThreadSeedContext", () => {
     expect(
       resolveSidebarNewThreadSeedContext({
         projectId: "project-2",
-        defaultEnvMode: "worktree",
+        defaultEnvMode: "local",
+        newWorktreesStartFromOrigin: true,
         activeThread: {
           projectId: "project-1",
           branch: "effect-atom",
@@ -342,7 +371,10 @@ describe("resolveSidebarNewThreadSeedContext", () => {
         activeDraftThread: null,
       }),
     ).toEqual({
-      envMode: "worktree",
+      branch: null,
+      worktreePath: null,
+      envMode: "local",
+      startFromOrigin: false,
     });
   });
 });

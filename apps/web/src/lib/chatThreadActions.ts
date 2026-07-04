@@ -1,5 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
+import type { EnvironmentId, GoalId, ProjectId, ScopedProjectRef } from "@t3tools/contracts";
 import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 interface ThreadContextLike {
@@ -7,6 +7,7 @@ interface ThreadContextLike {
   projectId: ProjectId;
   branch: string | null;
   worktreePath: string | null;
+  goalId: GoalId | null;
 }
 
 interface DraftThreadContextLike extends ThreadContextLike {
@@ -20,6 +21,7 @@ interface NewThreadHandler {
     options?: {
       branch?: string | null;
       worktreePath?: string | null;
+      goalId?: GoalId | null;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
     },
@@ -62,6 +64,7 @@ function buildContextualThreadOptions(context: ChatThreadActionContext): NewThre
     branch: context.activeThread?.branch ?? context.activeDraftThread?.branch ?? null,
     worktreePath:
       context.activeThread?.worktreePath ?? context.activeDraftThread?.worktreePath ?? null,
+    goalId: context.activeThread?.goalId ?? context.activeDraftThread?.goalId ?? null,
     envMode:
       context.activeDraftThread?.envMode ??
       (context.activeThread?.worktreePath ? "worktree" : "local"),

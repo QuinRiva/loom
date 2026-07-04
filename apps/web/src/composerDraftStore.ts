@@ -1194,6 +1194,26 @@ function logicalProjectDraftKey(logicalProjectKey: string): string {
   return logicalProjectKey.trim();
 }
 
+const GOAL_DRAFT_BUCKET_SUFFIX = "::goal-draft";
+
+/**
+ * Draft-session bucket key for the goal-level "new thread" entry point. Each
+ * logical project keeps two independent draft sessions — the project-level
+ * bucket (keyed by the logical project key itself) and one shared goal-level
+ * bucket — so the two entry points never leak context into each other's draft.
+ */
+export function goalDraftBucketKey(logicalProjectKey: string): string {
+  return `${logicalProjectKey}${GOAL_DRAFT_BUCKET_SUFFIX}`;
+}
+
+function isGoalDraftBucketKey(key: string): boolean {
+  return key.endsWith(GOAL_DRAFT_BUCKET_SUFFIX);
+}
+
+function stripGoalDraftBucketSuffix(key: string): string {
+  return isGoalDraftBucketKey(key) ? key.slice(0, -GOAL_DRAFT_BUCKET_SUFFIX.length) : key;
+}
+
 /**
  * Runtime composer storage key for app-facing identities only.
  *
@@ -1465,7 +1485,7 @@ function normalizePersistedDraftThreads(
       if (typeof threadId !== "string" || threadId.length === 0) {
         continue;
       }
-      const projectRef = parseScopedProjectKey(projectKey);
+      const projectRef = parseScopedProjectKey(stripGoalDraftBucketSuffix(projectKey));
       if (!projectRef) {
         continue;
       }
@@ -1528,17 +1548,18 @@ function normalizePersistedDraftThreads(
         continue;
       }
       const normalizedEnvironmentId = environmentId as EnvironmentId;
+      const logicalProjectKey =
+        typeof candidateDraftThread.logicalProjectKey === "string" &&
+        candidateDraftThread.logicalProjectKey.length > 0
+          ? candidateDraftThread.logicalProjectKey
+          : parsedThreadRef
+            ? projectDraftKey(scopeProjectRef(normalizedEnvironmentId, projectId as ProjectId))
+            : threadKeyOrId;
       draftThreadsByThreadKey[threadKey] = {
         threadId,
         environmentId: normalizedEnvironmentId,
         projectId: projectId as ProjectId,
-        logicalProjectKey:
-          typeof candidateDraftThread.logicalProjectKey === "string" &&
-          candidateDraftThread.logicalProjectKey.length > 0
-            ? candidateDraftThread.logicalProjectKey
-            : parsedThreadRef
-              ? projectDraftKey(scopeProjectRef(normalizedEnvironmentId, projectId as ProjectId))
-              : threadKeyOrId,
+        logicalProjectKey,
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
@@ -1553,6 +1574,12 @@ function normalizePersistedDraftThreads(
             : DEFAULT_INTERACTION_MODE,
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
+        // Only the goal-level draft bucket carries a goal; a stale goalId on a
+        // project-level draft (from before bucketed drafts) is dropped.
+        goalId:
+          typeof candidateDraftThread.goalId === "string" && isGoalDraftBucketKey(logicalProjectKey)
+            ? (candidateDraftThread.goalId as GoalId)
+            : null,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
         promotedTo,
@@ -1571,7 +1598,7 @@ function normalizePersistedDraftThreads(
       if (typeof threadKeyOrId !== "string" || threadKeyOrId.length === 0) {
         continue;
       }
-      const projectRef = parseScopedProjectKey(logicalProjectKey);
+      const projectRef = parseScopedProjectKey(stripGoalDraftBucketSuffix(logicalProjectKey));
       const parsedThreadRef = parseScopedThreadKey(threadKeyOrId);
       const threadKey = normalizeLegacyComposerStorageKey(threadKeyOrId);
       logicalProjectDraftThreadKeyByLogicalProjectKey[logicalProjectKey] = threadKey;

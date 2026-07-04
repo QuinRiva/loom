@@ -184,9 +184,43 @@ export function resolveSidebarNewThreadEnvMode(input: {
   return input.requestedEnvMode ?? input.defaultEnvMode;
 }
 
+/**
+ * Picks the goal's canonical worktree to join when creating a new thread under
+ * an existing goal: the most recently updated, non-archived goal thread that
+ * still has a worktree. Returns null when the goal has no living worktree.
+ */
+export function resolveGoalWorktreeSeed(input: {
+  goalId: string;
+  threads: ReadonlyArray<{
+    goalId: string | null;
+    branch: string | null;
+    worktreePath: string | null;
+    archivedAt: string | null;
+    updatedAt: string;
+  }>;
+}): { branch: string | null; worktreePath: string } | null {
+  const canonical = input.threads
+    .filter(
+      (thread) =>
+        thread.goalId === input.goalId &&
+        thread.worktreePath !== null &&
+        thread.archivedAt === null,
+    )
+    .reduce<(typeof input.threads)[number] | null>(
+      (best, thread) =>
+        best === null || Date.parse(thread.updatedAt) > Date.parse(best.updatedAt) ? thread : best,
+      null,
+    );
+  return canonical?.worktreePath
+    ? { branch: canonical.branch, worktreePath: canonical.worktreePath }
+    : null;
+}
+
 export function resolveSidebarNewThreadSeedContext(input: {
   projectId: string;
   defaultEnvMode: SidebarNewThreadEnvMode;
+  newWorktreesStartFromOrigin: boolean;
+  goalWorktree?: { branch: string | null; worktreePath: string } | null;
   activeThread?: {
     projectId: string;
     branch: string | null;
@@ -200,14 +234,29 @@ export function resolveSidebarNewThreadSeedContext(input: {
     startFromOrigin: boolean;
   } | null;
 }): {
-  branch?: string | null;
-  worktreePath?: string | null;
+  branch: string | null;
+  worktreePath: string | null;
   envMode: SidebarNewThreadEnvMode;
-  startFromOrigin?: boolean;
+  startFromOrigin: boolean;
 } {
+  // A goal with a living worktree wins: new threads under the goal join it.
+  if (input.goalWorktree) {
+    return {
+      branch: input.goalWorktree.branch,
+      worktreePath: input.goalWorktree.worktreePath,
+      envMode: "worktree",
+      startFromOrigin: false,
+    };
+  }
+
+  // Every branch returns all four fields so a fresh draft (or a goal-bucket
+  // re-seed) gets a complete, deterministic seed.
   if (input.defaultEnvMode === "worktree") {
     return {
+      branch: null,
+      worktreePath: null,
       envMode: "worktree",
+      startFromOrigin: input.newWorktreesStartFromOrigin,
     };
   }
 
@@ -225,11 +274,16 @@ export function resolveSidebarNewThreadSeedContext(input: {
       branch: input.activeThread.branch,
       worktreePath: input.activeThread.worktreePath,
       envMode: input.activeThread.worktreePath ? "worktree" : "local",
+      startFromOrigin: false,
     };
   }
 
+  // defaultEnvMode is "local" here (the "worktree" default returned above).
   return {
+    branch: null,
+    worktreePath: null,
     envMode: input.defaultEnvMode,
+    startFromOrigin: false,
   };
 }
 
