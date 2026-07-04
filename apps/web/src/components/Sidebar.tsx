@@ -189,6 +189,7 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
+  isStagedHandoffThread,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
@@ -481,6 +482,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       lastVisitedAt,
     },
   });
+  const isStagedHandoff = isStagedHandoffThread(thread);
   const pr = resolveThreadPr(thread.branch, gitStatus.data);
   const prStatus = prStatusIndicator(pr, gitStatus.data?.sourceControlProvider);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
@@ -752,6 +754,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                 {thread.title}
               </TooltipPopup>
             </Tooltip>
+          )}
+          {isStagedHandoff && (
+            <span className="shrink-0 rounded-sm bg-muted px-1 py-0 font-medium text-[9px] text-muted-foreground uppercase tracking-wide">
+              Staged
+            </span>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">

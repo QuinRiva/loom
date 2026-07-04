@@ -357,6 +357,22 @@ export function resolveThreadRowClassName(input: {
   return cn(baseClassName, "text-muted-foreground hover:bg-accent hover:text-foreground");
 }
 
+/**
+ * A parent-less handoff root that carries a kickoff brief and has not been
+ * launched yet (still held at `planned`, no turn started). Distinguishes a
+ * staged handoff from a normal idle root so the sidebar can flag it.
+ */
+export function isStagedHandoffThread(
+  thread: Pick<SidebarThreadSummary, "parentThreadId" | "planLane" | "brief" | "latestTurn">,
+): boolean {
+  return (
+    thread.parentThreadId === null &&
+    thread.planLane === "planned" &&
+    (thread.brief?.trim().length ?? 0) > 0 &&
+    thread.latestTurn === null
+  );
+}
+
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
