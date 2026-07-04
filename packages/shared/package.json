@@ -91,6 +91,10 @@
       "types": "./src/workstreamDependencies.ts",
       "import": "./src/workstreamDependencies.ts"
     },
+    "./workstreamIsolation": {
+      "types": "./src/workstreamIsolation.ts",
+      "import": "./src/workstreamIsolation.ts"
+    },
     "./workstreamGraph": {
       "types": "./src/workstreamGraph.ts",
       "import": "./src/workstreamGraph.ts"

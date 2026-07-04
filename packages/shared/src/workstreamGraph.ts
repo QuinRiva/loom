@@ -1,6 +1,7 @@
 import {
   DEFAULT_GATE_MAX_ROUNDS,
   type AttentionReason,
+  type ThreadFanInState,
   type ThreadId,
   type ThreadPlanLane,
   type WorkOutcomeDecision,
@@ -391,6 +392,8 @@ export interface GraphViewThread extends GraphThread {
   readonly lastActivityAt: string | null;
   /** One-line preview of the most recent activity (full detail lives in the jsonl). */
   readonly lastActivitySummary: string | null;
+  /** Worktree isolation fan-in settlement state (plan §3): "none", "completed", or "conflicted". */
+  readonly fanInState: ThreadFanInState;
 }
 
 export interface GraphViewNode {
@@ -410,6 +413,8 @@ export interface GraphViewNode {
   readonly lastActivityAt: string | null;
   /** One-line preview of the most recent activity. */
   readonly lastActivitySummary: string | null;
+  /** Worktree isolation fan-in settlement state (plan §3): "none" (no fan-in pending or not isolated), "completed" (merged cleanly), or "conflicted" (merge aborted, awaiting resolution). */
+  readonly fanInState: ThreadFanInState;
 }
 
 export interface GraphEdge {
@@ -455,6 +460,7 @@ export const graphViewFor = <T extends GraphViewThread>(
     sessionPath: sessionPathFor ? sessionPathFor(thread.id) : null,
     lastActivityAt: thread.lastActivityAt,
     lastActivitySummary: thread.lastActivitySummary,
+    fanInState: thread.fanInState,
   }));
   const lineageEdges = members.flatMap((thread) =>
     thread.parentThreadId !== null && memberIds.has(thread.parentThreadId)

@@ -299,6 +299,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           gateRounds: 0,
           pendingRework: false,
           lastOutcome: null,
+          isolation: "shared" as const,
+          fanInState: "none" as const,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
@@ -428,6 +430,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           gateRounds: 0,
           pendingRework: false,
           lastOutcome: null,
+          isolation: "shared" as const,
+          fanInState: "none" as const,
           title: "Thread 1",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

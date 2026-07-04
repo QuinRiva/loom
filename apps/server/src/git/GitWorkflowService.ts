@@ -65,6 +65,18 @@ export class GitWorkflowService extends Context.Service<
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
+    // Worktree isolation (design §3): fan-in git primitives.
+    readonly commitAll: (
+      cwd: string,
+      subject: string,
+      body: string,
+    ) => Effect.Effect<GitVcsDriver.GitCommitAllResult, GitCommandError>;
+    readonly mergeWorktreeBranch: (
+      input: GitVcsDriver.GitMergeWorktreeBranchInput,
+    ) => Effect.Effect<GitVcsDriver.GitMergeWorktreeBranchResult, GitCommandError>;
+    readonly deleteBranch: (
+      input: GitVcsDriver.GitDeleteBranchInput,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly fetchRemote: (input: {
       readonly cwd: string;
       readonly remoteName: string;
@@ -298,6 +310,18 @@ export const make = Effect.gen(function* () {
     createWorktree: (input) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
         Effect.andThen(git.createWorktree(input)),
+      ),
+    commitAll: (cwd, subject, body) =>
+      ensureGitCommand("GitWorkflowService.commitAll", cwd).pipe(
+        Effect.andThen(git.commitAll(cwd, subject, body)),
+      ),
+    mergeWorktreeBranch: (input) =>
+      ensureGitCommand("GitWorkflowService.mergeWorktreeBranch", input.cwd).pipe(
+        Effect.andThen(git.mergeWorktreeBranch(input)),
+      ),
+    deleteBranch: (input) =>
+      ensureGitCommand("GitWorkflowService.deleteBranch", input.cwd).pipe(
+        Effect.andThen(git.deleteBranch(input)),
       ),
     fetchRemote: (input) =>
       ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(

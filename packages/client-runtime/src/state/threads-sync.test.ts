@@ -57,6 +57,8 @@ const BASE_THREAD: OrchestrationThread = {
   gateRounds: 0,
   pendingRework: false,
   lastOutcome: null,
+  isolation: "shared" as const,
+  fanInState: "none" as const,
   toolUses: null,
   usedTokens: null,
   maxTokens: null,

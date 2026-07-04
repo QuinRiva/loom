@@ -71,6 +71,8 @@ const readModel: OrchestrationReadModel = {
       gateRounds: 0,
       pendingRework: false,
       lastOutcome: null,
+      isolation: "shared" as const,
+      fanInState: "none" as const,
       title: "Thread A",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),
@@ -112,6 +114,8 @@ const readModel: OrchestrationReadModel = {
       gateRounds: 0,
       pendingRework: false,
       lastOutcome: null,
+      isolation: "shared" as const,
+      fanInState: "none" as const,
       title: "Thread B",
       modelSelection: {
         instanceId: ProviderInstanceId.make("codex"),

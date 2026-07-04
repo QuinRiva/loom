@@ -6,7 +6,7 @@ import * as Option from "effect/Option";
 import { describe, expect } from "vite-plus/test";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { checkpointRefForThreadTurn } from "./Utils.ts";
+import { checkpointBaselineRefForThreadTurn, checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointDiffQuery from "./CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
 import { CheckpointThreadNotFoundError } from "./Errors.ts";
@@ -145,11 +145,12 @@ describe("CheckpointDiffQuery.layer", () => {
     }),
   );
 
-  it.effect("computes diffs using canonical turn-0 checkpoint refs", () =>
+  it.effect("prefers the adjacent-turn baseline ref and falls back to canonical turn refs", () =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project-1");
       const threadId = ThreadId.make("thread-1");
       const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+      let baselinePresent = false;
       const diffCheckpointsCalls: Array<{
         readonly fromCheckpointRef: CheckpointRef;
         readonly toCheckpointRef: CheckpointRef;
@@ -169,7 +170,7 @@ describe("CheckpointDiffQuery.layer", () => {
       const checkpointStore: CheckpointStore.CheckpointStore["Service"] = {
         isGitRepository: () => Effect.succeed(true),
         captureCheckpoint: () => Effect.void,
-        hasCheckpointRef: () => Effect.succeed(true),
+        hasCheckpointRef: () => Effect.sync(() => baselinePresent),
         restoreCheckpoint: () => Effect.succeed(true),
         diffCheckpoints: ({ fromCheckpointRef, toCheckpointRef, cwd, ignoreWhitespace }) =>
           Effect.sync(() => {
@@ -215,7 +216,7 @@ describe("CheckpointDiffQuery.layer", () => {
         ),
       );
 
-      const result = yield* Effect.gen(function* () {
+      const runQuery = Effect.gen(function* () {
         const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
         return yield* query.getTurnDiff({
           threadId,
@@ -225,11 +226,22 @@ describe("CheckpointDiffQuery.layer", () => {
         });
       }).pipe(Effect.provide(layer));
 
-      const expectedFromRef = checkpointRefForThreadTurn(threadId, 0);
+      // Pre-baseline thread: falls back to the canonical turn-0 anchor.
+      const result = yield* runQuery;
+      // Baseline present: the adjacent-turn diff prefers the baseline ref.
+      baselinePresent = true;
+      yield* runQuery;
+
       expect(diffCheckpointsCalls).toEqual([
         {
           cwd: "/tmp/workspace",
-          fromCheckpointRef: expectedFromRef,
+          fromCheckpointRef: checkpointRefForThreadTurn(threadId, 0),
+          toCheckpointRef,
+          ignoreWhitespace: true,
+        },
+        {
+          cwd: "/tmp/workspace",
+          fromCheckpointRef: checkpointBaselineRefForThreadTurn(threadId, 1),
           toCheckpointRef,
           ignoreWhitespace: true,
         },
@@ -316,7 +328,7 @@ describe("CheckpointDiffQuery.layer", () => {
     }),
   );
 
-  it.effect("does not preflight checkpoint refs before diffing", () =>
+  it.effect("probes only the adjacent baseline ref before diffing", () =>
     Effect.gen(function* () {
       const projectId = ProjectId.make("project-no-preflight");
       const threadId = ThreadId.make("thread-no-preflight");
@@ -386,7 +398,9 @@ describe("CheckpointDiffQuery.layer", () => {
         });
       }).pipe(Effect.provide(layer));
 
-      expect(hasCheckpointRefCallCount).toBe(0);
+      // Exactly one probe: the adjacent-turn baseline preference check. The
+      // from/to turn refs themselves are never preflighted.
+      expect(hasCheckpointRefCallCount).toBe(1);
     }),
   );
 

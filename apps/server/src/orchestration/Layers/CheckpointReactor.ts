@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+
 import {
   CommandId,
   type CheckpointRef,
@@ -21,6 +24,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {
+  checkpointBaselineRefForThreadTurn,
   checkpointRefForThreadTurn,
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
@@ -232,19 +236,35 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
   }) {
     const fromTurnCount = Math.max(0, input.turnCount - 1);
-    const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
     const targetCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.turnCount);
 
-    const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
+    // Prefer this turn's start-of-turn baseline so the diff covers exactly what
+    // the turn changed; fall back to the previous completion snapshot for
+    // threads with no baseline (pre-baseline history, missed turn starts).
+    const baselineCheckpointRef = checkpointBaselineRefForThreadTurn(
+      input.threadId,
+      input.turnCount,
+    );
+    const baselineExists = yield* checkpointStore.hasCheckpointRef({
       cwd: input.cwd,
-      checkpointRef: fromCheckpointRef,
+      checkpointRef: baselineCheckpointRef,
     });
-    if (!fromCheckpointExists) {
-      yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
-        threadId: input.threadId,
-        turnId: input.turnId,
-        fromTurnCount,
+    const fromCheckpointRef = baselineExists
+      ? baselineCheckpointRef
+      : checkpointRefForThreadTurn(input.threadId, fromTurnCount);
+
+    if (!baselineExists) {
+      const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
+        cwd: input.cwd,
+        checkpointRef: fromCheckpointRef,
       });
+      if (!fromCheckpointExists) {
+        yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
+          threadId: input.threadId,
+          turnId: input.turnId,
+          fromTurnCount,
+        });
+      }
     }
 
     yield* checkpointStore.captureCheckpoint({
@@ -476,55 +496,88 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const ensurePreTurnBaselineFromTurnStart = Effect.fn("ensurePreTurnBaselineFromTurnStart")(
-    function* (event: Extract<ProviderRuntimeEvent, { type: "turn.started" }>) {
-      const turnId = toTurnId(event.turnId);
-      if (!turnId) {
-        return;
-      }
+  // Captures the start-of-turn baseline for the upcoming turn into the
+  // `baseline/<n>` ref namespace (n = the turn count the upcoming completion
+  // will get). Refreshed each turn, so sibling edits made in a shared worktree
+  // between this thread's turns fall into the unattributed gap between
+  // `turn/<n>` and `baseline/<n+1>` instead of landing in this thread's next
+  // turn diff. Completed `turn/<n>` refs are never overwritten.
+  const capturePreTurnBaseline = Effect.fn("capturePreTurnBaseline")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly createdAt: string;
+  }) {
+    const thread = yield* resolveThreadDetail(input.threadId);
+    if (!thread) {
+      return;
+    }
 
-      const thread = yield* resolveThreadDetail(event.threadId);
-      if (!thread) {
-        return;
-      }
+    const projects = yield* resolveThreadProjects(thread.projectId);
+    const checkpointCwd = yield* resolveCheckpointCwd({
+      threadId: input.threadId,
+      thread,
+      projects,
+      preferSessionRuntime: false,
+    });
+    if (!checkpointCwd) {
+      return;
+    }
 
-      const projects = yield* resolveThreadProjects(thread.projectId);
-      const checkpointCwd = yield* resolveCheckpointCwd({
-        threadId: thread.id,
-        thread,
-        projects,
-        preferSessionRuntime: false,
-      });
-      if (!checkpointCwd) {
-        return;
-      }
-
-      const currentTurnCount = thread.checkpoints.reduce(
+    const upcomingTurnCount =
+      thread.checkpoints.reduce(
         (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
         0,
-      );
-      const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
-      const baselineExists = yield* checkpointStore.hasCheckpointRef({
-        cwd: checkpointCwd,
-        checkpointRef: baselineCheckpointRef,
-      });
-      if (baselineExists) {
-        return;
-      }
+      ) + 1;
+    const baselineCheckpointRef = checkpointBaselineRefForThreadTurn(
+      input.threadId,
+      upcomingTurnCount,
+    );
+    // The ref is new each turn, so this skip is once-per-turn idempotence: the
+    // domain and runtime start events can both fire, and the first capture
+    // wins as the earlier (more correct) snapshot.
+    const baselineExists = yield* checkpointStore.hasCheckpointRef({
+      cwd: checkpointCwd,
+      checkpointRef: baselineCheckpointRef,
+    });
+    if (baselineExists) {
+      return;
+    }
 
-      yield* checkpointStore.captureCheckpoint({
+    yield* checkpointStore.captureCheckpoint({
+      cwd: checkpointCwd,
+      checkpointRef: baselineCheckpointRef,
+    });
+
+    // The turn-0 anchor (full-thread diffs, revert-to-start) stays a turn ref;
+    // capture it once when the thread's very first turn begins.
+    if (upcomingTurnCount === 1) {
+      const turnZeroCheckpointRef = checkpointRefForThreadTurn(input.threadId, 0);
+      const turnZeroExists = yield* checkpointStore.hasCheckpointRef({
         cwd: checkpointCwd,
-        checkpointRef: baselineCheckpointRef,
+        checkpointRef: turnZeroCheckpointRef,
       });
-      yield* receiptBus.publish({
-        type: "checkpoint.baseline.captured",
-        threadId: thread.id,
-        checkpointTurnCount: currentTurnCount,
-        checkpointRef: baselineCheckpointRef,
-        createdAt: event.createdAt,
-      });
-    },
-  );
+      if (!turnZeroExists) {
+        yield* checkpointStore.captureCheckpoint({
+          cwd: checkpointCwd,
+          checkpointRef: turnZeroCheckpointRef,
+        });
+      }
+    }
+
+    yield* receiptBus.publish({
+      type: "checkpoint.baseline.captured",
+      threadId: input.threadId,
+      checkpointTurnCount: upcomingTurnCount,
+      checkpointRef: baselineCheckpointRef,
+      createdAt: input.createdAt,
+    });
+  });
+
+  const ensurePreTurnBaselineFromTurnStart = (
+    event: Extract<ProviderRuntimeEvent, { type: "turn.started" }>,
+  ) =>
+    toTurnId(event.turnId) === null
+      ? Effect.void
+      : capturePreTurnBaseline({ threadId: event.threadId, createdAt: event.createdAt });
 
   const refreshLocalGitStatusFromTurnCompletion = Effect.fn(
     "refreshLocalGitStatusFromTurnCompletion",
@@ -546,66 +599,19 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const ensurePreTurnBaselineFromDomainTurnStart = Effect.fn(
-    "ensurePreTurnBaselineFromDomainTurnStart",
-  )(function* (
+  const ensurePreTurnBaselineFromDomainTurnStart = (
     event: Extract<
       OrchestrationEvent,
       { type: "thread.turn-start-requested" | "thread.message-sent" }
     >,
-  ) {
-    if (event.type === "thread.message-sent") {
-      if (
-        event.payload.role !== "user" ||
-        event.payload.streaming ||
-        event.payload.turnId !== null
-      ) {
-        return;
-      }
-    }
-
-    const threadId = event.payload.threadId;
-    const thread = yield* resolveThreadDetail(threadId);
-    if (!thread) {
-      return;
-    }
-
-    const projects = yield* resolveThreadProjects(thread.projectId);
-    const checkpointCwd = yield* resolveCheckpointCwd({
-      threadId,
-      thread,
-      projects,
-      preferSessionRuntime: false,
-    });
-    if (!checkpointCwd) {
-      return;
-    }
-
-    const currentTurnCount = thread.checkpoints.reduce(
-      (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
-      0,
-    );
-    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
-    const baselineExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
-    if (baselineExists) {
-      return;
-    }
-
-    yield* checkpointStore.captureCheckpoint({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
-    yield* receiptBus.publish({
-      type: "checkpoint.baseline.captured",
-      threadId,
-      checkpointTurnCount: currentTurnCount,
-      checkpointRef: baselineCheckpointRef,
-      createdAt: event.occurredAt,
-    });
-  });
+  ) =>
+    event.type === "thread.message-sent" &&
+    (event.payload.role !== "user" || event.payload.streaming || event.payload.turnId !== null)
+      ? Effect.void
+      : capturePreTurnBaseline({
+          threadId: event.payload.threadId,
+          createdAt: event.occurredAt,
+        });
 
   const handleRevertRequested = Effect.fn("handleRevertRequested")(function* (
     event: Extract<OrchestrationEvent, { type: "thread.checkpoint-revert-requested" }>,
@@ -638,6 +644,37 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         turnCount: event.payload.turnCount,
         detail: "Checkpoints are unavailable because this project is not a git repository.",
+        createdAt: now,
+      }).pipe(Effect.catch(() => Effect.void));
+      return;
+    }
+
+    // Refuse to revert while any other live thread occupies this worktree —
+    // restoring a whole-tree snapshot (plus clean) would destroy their
+    // uncommitted work. Cheap read-model check; no locking.
+    const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const revertCwd = NodePath.resolve(sessionRuntime.value.cwd);
+    const occupants = shellSnapshot.threads.filter((occupant) => {
+      if (
+        occupant.id === event.payload.threadId ||
+        occupant.planLane === "done" ||
+        occupant.planLane === "cancelled"
+      ) {
+        return false;
+      }
+      const occupantCwd = resolveThreadWorkspaceCwd({
+        thread: occupant,
+        projects: shellSnapshot.projects,
+      });
+      return occupantCwd !== undefined && NodePath.resolve(occupantCwd) === revertCwd;
+    });
+    if (occupants.length > 0) {
+      yield* appendRevertFailureActivity({
+        threadId: event.payload.threadId,
+        turnCount: event.payload.turnCount,
+        detail: `Revert refused: ${occupants.length} other live thread(s) share this worktree (${occupants
+          .map((occupant) => occupant.title)
+          .join(", ")}); reverting would destroy their uncommitted work.`,
         createdAt: now,
       }).pipe(Effect.catch(() => Effect.void));
       return;
@@ -707,6 +744,19 @@ const make = Effect.gen(function* () {
       if (checkpoint.checkpointTurnCount > event.payload.turnCount) {
         staleCheckpointRefs.push(checkpoint.checkpointRef);
       }
+    }
+    // Reverted turns' baselines must go too: a surviving stale baseline would
+    // win the once-per-turn capture check at the next turn start and anchor the
+    // next diff to a pre-revert tree. `+ 1` covers a baseline captured for a
+    // turn that never completed; deletion tolerates missing refs.
+    for (
+      let staleTurnCount = event.payload.turnCount + 1;
+      staleTurnCount <= currentTurnCount + 1;
+      staleTurnCount += 1
+    ) {
+      staleCheckpointRefs.push(
+        checkpointBaselineRefForThreadTurn(event.payload.threadId, staleTurnCount),
+      );
     }
 
     if (staleCheckpointRefs.length > 0) {

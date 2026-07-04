@@ -148,6 +148,8 @@ describe("OrchestrationEngine", () => {
           gateRounds: 0,
           pendingRework: false,
           lastOutcome: null,
+          isolation: "shared" as const,
+          fanInState: "none" as const,
           title: "Bootstrap Thread",
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),

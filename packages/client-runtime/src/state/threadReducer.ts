@@ -155,6 +155,8 @@ export function applyThreadDetailEvent(
           gateRounds: 0,
           pendingRework: false,
           lastOutcome: null,
+          isolation: event.payload.isolation ?? "shared",
+          fanInState: "none",
           title: event.payload.title,
           modelSelection: event.payload.modelSelection,
           runtimeMode: event.payload.runtimeMode,

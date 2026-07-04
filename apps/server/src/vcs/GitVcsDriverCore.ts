@@ -2529,6 +2529,103 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
+  // Worktree isolation (design §3): stage everything and commit, or report the
+  // tree was already clean. `git diff --cached --quiet` exits 1 when the index
+  // holds changes; that is our "something to commit" signal.
+  // True when the worktree is mid-merge (a `MERGE_HEAD` ref exists) — e.g. a
+  // fan-in merge that conflicted and crashed before `merge --abort`.
+  const hasMergeHead = (cwd: string) =>
+    executeGit(
+      "GitVcsDriver.hasMergeHead",
+      cwd,
+      ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
+      { allowNonZeroExit: true },
+    ).pipe(Effect.map((result) => result.exitCode === 0));
+
+  const commitAll: GitVcsDriver.GitVcsDriver["Service"]["commitAll"] = Effect.fn("commitAll")(
+    function* (cwd, subject, body) {
+      // Refuse to commit over an in-progress merge: `add -A && commit` would
+      // silently conclude a conflicted merge with conflict markers committed
+      // (review finding 3). The caller (fan-in/provisioner) must resolve first.
+      if (yield* hasMergeHead(cwd)) {
+        return yield* new GitCommandError({
+          ...gitCommandContext({ operation: "GitVcsDriver.commitAll", cwd, args: ["commit"] }),
+          detail:
+            "Refusing to commit: the worktree is mid-merge (MERGE_HEAD present). Resolve or abort the merge first.",
+        });
+      }
+      yield* runGit("GitVcsDriver.commitAll.addAll", cwd, ["add", "-A"]);
+      // `git diff --cached --quiet` exits 1 (a "failure" to git) precisely when
+      // there ARE staged changes — that is our signal, not an error.
+      const staged = yield* executeGit(
+        "GitVcsDriver.commitAll.hasStaged",
+        cwd,
+        ["diff", "--cached", "--quiet"],
+        { allowNonZeroExit: true },
+      );
+      if (staged.exitCode === 0) {
+        return { committed: false, commitSha: null };
+      }
+      const { commitSha } = yield* commit(cwd, subject, body);
+      return { committed: true, commitSha };
+    },
+  );
+
+  // Worktree isolation (design §3): merge a child branch into the branch checked
+  // out in `cwd` with `--no-ff` (a merge commit per child = provenance). On
+  // conflict, collect the unmerged paths and `git merge --abort` so the parent
+  // worktree is never left mid-merge; the orchestrator resolves out of band.
+  const mergeWorktreeBranch: GitVcsDriver.GitVcsDriver["Service"]["mergeWorktreeBranch"] =
+    Effect.fn("mergeWorktreeBranch")(function* (input) {
+      // Clear a stale merge left by a prior crash before starting a fresh one,
+      // so we never build on a half-applied conflicted state (review finding 3).
+      if (yield* hasMergeHead(input.cwd)) {
+        yield* runGit(
+          "GitVcsDriver.mergeWorktreeBranch.abortStale",
+          input.cwd,
+          ["merge", "--abort"],
+          true,
+        );
+      }
+      const result = yield* executeGit(
+        "GitVcsDriver.mergeWorktreeBranch",
+        input.cwd,
+        ["merge", "--no-ff", "--no-edit", "-m", input.subject, input.branch],
+        { allowNonZeroExit: true },
+      );
+      if (result.exitCode === 0) {
+        const upToDate = /already up[ -]to[ -]date/i.test(result.stdout);
+        return { status: upToDate ? "up-to-date" : "merged", conflictPaths: [] } as const;
+      }
+      const conflicts = yield* runGitStdout(
+        "GitVcsDriver.mergeWorktreeBranch.conflicts",
+        input.cwd,
+        ["diff", "--name-only", "--diff-filter=U"],
+        true,
+      ).pipe(
+        Effect.map((stdout) =>
+          stdout
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0),
+        ),
+      );
+      yield* runGit(
+        "GitVcsDriver.mergeWorktreeBranch.abort",
+        input.cwd,
+        ["merge", "--abort"],
+        true,
+      );
+      return { status: "conflict", conflictPaths: conflicts } as const;
+    });
+
+  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = (input) =>
+    runGit("GitVcsDriver.deleteBranch", input.cwd, [
+      "branch",
+      input.force === false ? "-d" : "-D",
+      input.branch,
+    ]);
+
   return GitVcsDriver.GitVcsDriver.of({
     execute,
     status,
@@ -2537,6 +2634,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetailsRemote,
     prepareCommitContext,
     commit,
+    commitAll,
+    mergeWorktreeBranch,
+    deleteBranch,
     pushCurrentBranch,
     pullCurrentBranch,
     readRangeContext,

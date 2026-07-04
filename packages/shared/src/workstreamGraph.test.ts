@@ -32,6 +32,7 @@ const node = (
   blockedBy: [],
   lastActivityAt: null,
   lastActivitySummary: null,
+  fanInState: "none",
   ...overrides,
   id: tid(overrides.id),
 });

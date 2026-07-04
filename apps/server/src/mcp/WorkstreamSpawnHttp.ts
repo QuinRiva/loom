@@ -5,10 +5,12 @@ import {
   MessageId,
   ModelSelection,
   ThreadId,
+  ThreadIsolation,
   ThreadPlanLane,
   type OrchestrationCommand,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
+import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -49,6 +51,7 @@ interface WorkstreamSpawnRequest {
   readonly modelPreset?: unknown;
   readonly staged?: unknown;
   readonly gate?: unknown;
+  readonly isolation?: unknown;
 }
 
 interface WorkstreamLaneRequest {
@@ -117,6 +120,10 @@ const CONSULT_CANDIDATE_LIMIT = 8;
 // rejects an agent `in_progress`.
 const SETTABLE_LANES: ReadonlyArray<ThreadPlanLane> = ["planned", "ready", "done", "cancelled"];
 const VALID_LANES = new Set<ThreadPlanLane>(SETTABLE_LANES);
+// Worktree isolation (design §1): spawn-overridable policy. `attached` is not
+// directly settable — it is the control-plane default for a gated reviewer.
+const SPAWN_ISOLATIONS: ReadonlyArray<ThreadIsolation> = ["isolated", "shared"];
+const VALID_SPAWN_ISOLATIONS = new Set<ThreadIsolation>(SPAWN_ISOLATIONS);
 // Attention reasons an agent may raise. `error` is server-only and the two
 // `awaiting_*` request reasons are derived from open requests — the decider
 // rejects all three; this mirrors that set at the boundary.
@@ -287,6 +294,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
       ? (body.gate as { readonly rework?: unknown; readonly maxRounds?: unknown })
       : undefined;
   const gateRework = gate === undefined ? undefined : trimString(gate.rework);
+  const isolationOverride = trimString(body.isolation);
+  if (
+    isolationOverride !== undefined &&
+    !VALID_SPAWN_ISOLATIONS.has(isolationOverride as ThreadIsolation)
+  ) {
+    return jsonError(400, `isolation must be one of: ${SPAWN_ISOLATIONS.join(", ")}.`);
+  }
   if (body.gate !== undefined) {
     if (gate === undefined || !gateRework) {
       return jsonError(400, "gate must be an object with a non-empty rework thread id.");
@@ -376,6 +390,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // would merge an out-of-turn spawn into a stale, already-joined generation.
   const spawnGeneration = current.session?.activeTurnId ?? childThreadId;
 
+  // Worktree isolation (design §1): explicit override wins; a gated reviewer
+  // (declares a `gate.rework` loop) defaults to `attached` (it joins its gate
+  // target's worktree at promotion, §4); everything else takes the role default.
+  const isolation: ThreadIsolation =
+    (isolationOverride as ThreadIsolation | undefined) ??
+    (gateRework !== undefined ? "attached" : roleDefaultIsolation(role));
+
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
   const engine = yield* OrchestrationEngineService;
@@ -393,6 +414,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     ...(brief !== undefined ? { brief } : {}),
     ...(blockedBy !== undefined ? { blockedBy } : {}),
     ...(routes !== undefined ? { routes } : {}),
+    isolation,
     planLane,
     spawnGeneration,
     title,

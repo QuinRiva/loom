@@ -51,6 +51,7 @@ import {
   WorkstreamDispatcherLive,
   wakeRateGuardTrips,
 } from "./WorkstreamDispatcher.ts";
+import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import {
@@ -92,6 +93,8 @@ const shell = (
     gateRounds: 0,
     pendingRework: false,
     lastOutcome: null,
+    isolation: "shared" as const,
+    fanInState: "none" as const,
     title: "Sub-thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
@@ -112,6 +115,14 @@ const shell = (
   }) as OrchestrationThreadShell;
 
 const ids = (threads: ReadonlyArray<OrchestrationThreadShell>) => threads.map((t) => t.id).sort();
+
+// Worktree isolation: dispatcher-selection tests use only `shared` threads, so
+// the provisioner is never invoked — a no-op stub satisfies the layer.
+const WorktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
+  provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
+  provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
+  runSetup: () => Effect.void,
+} as never);
 
 describe("selectThreadsToDispatch", () => {
   it("promotes an un-started sub-thread with no dependencies", () => {
@@ -521,6 +532,7 @@ describe("startup stale session reconciliation", () => {
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), {
             prefix: "t3-workstream-startup-reconcile-",
           }),
@@ -972,6 +984,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-repass-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1100,6 +1113,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-recovery-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1214,6 +1228,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-pause-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1331,6 +1346,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-slowtool-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1442,6 +1458,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-frozen-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1545,6 +1562,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-yield-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -1741,6 +1759,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: options.prefix }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -2117,6 +2136,7 @@ describe("generation join is held back by an unresolved gate (full dispatcher la
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -2265,6 +2285,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-cap-breach-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
@@ -2461,5 +2482,92 @@ effectIt.layer(NodeServices.layer)("re-engagement epoch (reopened child re-wakes
           }),
         ).toEqual({ kind: "deliverable" });
       }),
+  );
+});
+
+describe("fan-in settlement releases dependents", () => {
+  const DEP_ID = "dep-coder" as ThreadId;
+  const DEPENDENT_ID = "dependent-coder" as ThreadId;
+
+  // Review finding 2: the dispatcher must re-run its promote pass on a
+  // `thread.fanin-set` event. A dependent blocked on an isolated dep that is
+  // `done` but not yet fanned in stays gated; once the reactor settles the dep
+  // to `completed` (a `thread.fanin-set` event), the dependent is promoted
+  // without waiting for the periodic tick.
+  effectIt.effect("promotes a dependent once its isolated dependency's fan-in completes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          shell({
+            id: DEP_ID,
+            parentThreadId: "parent-1" as ThreadId,
+            isolation: "isolated",
+            planLane: "done",
+            fanInState: "none",
+          }),
+          shell({
+            id: DEPENDENT_ID,
+            parentThreadId: "parent-1" as ThreadId,
+            isolation: "isolated",
+            planLane: "ready",
+            blockedBy: [DEP_ID],
+          }),
+        ]);
+        const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads: current,
+          updatedAt: now,
+        }));
+        const engine = {
+          readEvents: () => Stream.empty,
+          dispatch: (command: OrchestrationCommand) =>
+            Effect.sync(() => {
+              dispatched.push(command);
+              return { sequence: dispatched.length };
+            }),
+          streamDomainEvents: Stream.fromPubSub(events),
+        } satisfies OrchestrationEngineShape;
+        const snapshotQuery = {
+          getShellSnapshot: () => shellSnapshot,
+          getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, maxSequence: 1, heartbeatAt: null }),
+        } as unknown as ProjectionSnapshotQueryShape;
+        const receipts = {
+          upsert: () => Effect.void,
+          getByCommandId: () => Effect.succeed(Option.none()),
+        };
+        const deps = Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-fanin-release-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer));
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          // Blocked: the dep is done but its isolated fan-in has not settled.
+          expect(
+            dispatched.some((c) => c.type === "thread.turn.start" && c.threadId === DEPENDENT_ID),
+          ).toBe(false);
+          // The reactor settles the fan-in → a `thread.fanin-set` event re-runs the
+          // dispatcher pass → the dependent is promoted.
+          yield* Ref.update(threads, (current) =>
+            current.map((t) => (t.id === DEP_ID ? { ...t, fanInState: "completed" as const } : t)),
+          );
+          yield* PubSub.publish(events, { type: "thread.fanin-set" } as OrchestrationEvent);
+          yield* dispatcher.drain;
+          expect(
+            dispatched.some((c) => c.type === "thread.turn.start" && c.threadId === DEPENDENT_ID),
+          ).toBe(true);
+        }).pipe(Effect.provide(WorkstreamDispatcherLive.pipe(Layer.provide(deps))));
+      }),
+    ),
   );
 });

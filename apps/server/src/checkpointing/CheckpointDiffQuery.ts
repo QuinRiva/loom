@@ -30,7 +30,7 @@ import {
   CheckpointWorkspacePathMissingError,
 } from "./Errors.ts";
 import type { CheckpointServiceError } from "./Errors.ts";
-import { checkpointRefForThreadTurn } from "./Utils.ts";
+import { checkpointBaselineRefForThreadTurn, checkpointRefForThreadTurn } from "./Utils.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
 
 /** Service tag for checkpoint diff queries. */
@@ -137,8 +137,24 @@ export const make = Effect.gen(function* () {
         });
       }
 
-      const fromCheckpointRef =
-        input.fromTurnCount === 0
+      // Adjacent-turn diffs prefer the turn's start-of-turn baseline ref so
+      // the result covers exactly what the turn changed — sibling edits made in
+      // a shared worktree between turns fall in the unattributed gap. Wider
+      // ranges and pre-baseline threads keep the `turn/<n>` anchors.
+      const baselineCheckpointRef =
+        input.fromTurnCount === input.toTurnCount - 1
+          ? checkpointBaselineRefForThreadTurn(input.threadId, input.toTurnCount)
+          : null;
+      const baselineExists =
+        baselineCheckpointRef !== null &&
+        (yield* checkpointStore.hasCheckpointRef({
+          cwd: workspaceCwd,
+          checkpointRef: baselineCheckpointRef,
+        }));
+
+      const fromCheckpointRef = baselineExists
+        ? baselineCheckpointRef
+        : input.fromTurnCount === 0
           ? checkpointRefForThreadTurn(input.threadId, 0)
           : threadContext.value.checkpoints.find(
               (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,

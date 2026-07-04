@@ -18,6 +18,7 @@ import {
   type JoinedGeneration,
 } from "@t3tools/shared/workstreamGraph";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { isFanInPending } from "@t3tools/shared/workstreamIsolation";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -40,6 +41,10 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
+import {
+  WorktreeProvisioner,
+  isProvisionedChildBranch,
+} from "../../project/WorktreeProvisioner.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -162,6 +167,9 @@ const formatReportExcerpt = (report: string | null): string => {
  * report), and the instruction to review, decide what needs human escalation
  * vs. what it can act on / accept on the human's behalf, and continue
  * orchestrating (including accepting children that are awaiting acceptance).
+ *
+ * For conflicted fan-in (isolated child with merge abort), the message names
+ * the conflict prominently and includes recovery instructions (plan §3 / B3).
  */
 export const buildParentWakeMessage = (
   children: ReadonlyArray<{
@@ -171,6 +179,8 @@ export const buildParentWakeMessage = (
     readonly attention: ReadonlyArray<AttentionReason>;
     readonly reportPath: string | null;
     readonly report: string | null;
+    readonly fanInState?: string | null;
+    readonly conflictPaths?: ReadonlyArray<string> | undefined;
   }>,
 ): string => {
   const sections = children.map((child) => {
@@ -180,7 +190,24 @@ export const buildParentWakeMessage = (
       child.reportPath !== null
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
         : "_No report was filed; status is the trigger, the report is best-effort context._";
-    return `${header}\n\n${reference}${formatReportExcerpt(child.report)}`;
+
+    // Plan §3 / B3: if this child's fan-in is conflicted, name it prominently
+    // and include recovery instructions (re-open, merge parent branch, resolve, resubmit).
+    const conflictNotice =
+      child.fanInState === "conflicted"
+        ? [
+            "",
+            "⚠️  **Fan-in merge conflict detected.** The merge of this child's branch into the parent failed due to conflicting edits:",
+            "",
+            child.conflictPaths && child.conflictPaths.length > 0
+              ? child.conflictPaths.map((path) => `- \`${path}\``).join("\n")
+              : "- (conflict paths not yet available)",
+            "",
+            '**Recovery:** Re-open this child with `workstream_set_lane(threadId, "ready")`, prompt it to merge the parent branch into its worktree and resolve the conflicts manually, then resubmit. Dependents are blocked until this merge succeeds.',
+          ].join("\n")
+        : "";
+
+    return `${header}\n\n${reference}${formatReportExcerpt(child.report)}${conflictNotice}`;
   });
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
@@ -642,6 +669,12 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
+  const worktreeProvisioner = yield* WorktreeProvisioner;
+
+  // Worktree-provisioning failures are surfaced once per process (activity +
+  // needs_guidance flag) then this thread is skipped, so a git error does not
+  // spin the promote loop. A restart retries once.
+  const failedProvisions = new Set<ThreadId>();
 
   // In-memory caches of the recomputable durable state (decision 4): the
   // handled-generation set caches the receipt-backed wake/park markers, and the
@@ -679,10 +712,97 @@ const make = Effect.gen(function* () {
       : readWorkstreamReport(thread.id)
     ).pipe(Effect.map(Option.getOrNull));
 
+  const raiseProvisionFailure = Effect.fn("raiseProvisionFailure")(function* (
+    threadId: ThreadId,
+    detail: string,
+  ) {
+    failedProvisions.add(threadId);
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.activity.append",
+        commandId: yield* serverCommandId("provision-failed"),
+        threadId,
+        activity: {
+          id: EventId.make(yield* crypto.randomUUIDv4),
+          tone: "error",
+          kind: "workstream.provision.failed",
+          summary: "Worktree provisioning failed",
+          payload: { detail },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(Effect.ignoreCause({ log: true }));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.attention.raise",
+        commandId: yield* serverCommandId("provision-failed-flag"),
+        threadId,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(Effect.ignoreCause({ log: true }));
+  });
+
+  // Provision the child's workspace at promotion (plan §2/§4). Isolated children
+  // get their own worktree + `ws/…` branch (parent dirty state auto-committed
+  // first); an attached gated reviewer copies its gate target's worktree/branch;
+  // shared children keep the parent's provisional values (today's behaviour).
+  // Returns false when provisioning failed (skip the kick-off turn this pass).
+  const provisionWorkspace = Effect.fn("provisionWorkspace")(function* (
+    thread: OrchestrationThreadShell,
+    role: string,
+  ) {
+    if (thread.isolation === "isolated") {
+      if (thread.branch === null || thread.worktreePath === null) return true;
+      // Idempotence: a crash between provisioning's meta.update and this kickoff
+      // leaves the child already on its `ws/…` branch; re-provisioning would nest
+      // `ws/ws/…` and orphan a worktree. Skip — the worktree already exists.
+      if (isProvisionedChildBranch(thread.branch, thread.id)) return true;
+      return yield* worktreeProvisioner
+        .provisionIsolatedChild({
+          threadId: thread.id,
+          role,
+          projectId: thread.projectId,
+          parentCwd: thread.worktreePath,
+          parentBranch: thread.branch,
+        })
+        .pipe(
+          Effect.as(true),
+          Effect.catchCause((cause) =>
+            raiseProvisionFailure(thread.id, Cause.pretty(cause)).pipe(Effect.as(false)),
+          ),
+        );
+    }
+    if (thread.isolation === "attached") {
+      const targetId = gateLoopTargetOf(thread);
+      if (targetId === null) return true;
+      const target = yield* projectionSnapshotQuery
+        .getThreadDetailById(targetId)
+        .pipe(Effect.map(Option.getOrUndefined));
+      if (target === undefined) return true;
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: yield* serverCommandId("attach-meta-update"),
+        threadId: thread.id,
+        branch: target.branch,
+        worktreePath: target.worktreePath,
+      } satisfies OrchestrationCommand);
+      return true;
+    }
+    return true;
+  });
+
   const promoteThread = Effect.fn("promoteThread")(function* (thread: OrchestrationThreadShell) {
     const { role, purpose, brief } = thread;
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null) return;
+    if (failedProvisions.has(thread.id)) return;
+    // Provision the workspace before the kick-off turn so the child's provider
+    // session resolves its cwd to the new worktree from its first turn.
+    if (!(yield* provisionWorkspace(thread, role))) return;
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     // Atomic kickoff: `setInProgress` makes the decider emit the `in_progress`
     // plan-lane-set in the SAME command as the turn-start, so both events are
@@ -734,6 +854,14 @@ const make = Effect.gen(function* () {
           attention: child.attention,
           reportPath: child.reportPath,
           report,
+          fanInState: child.fanInState,
+          // Conflict paths are recorded in the workstream.fanin.conflicted activity
+          // payload. We don't extract them here (that would require a full activity
+          // lookup), so the wake message will note the conflict but the paths will
+          // say "not yet available" — this is acceptable per plan §3 / B3 (deliver
+          // the conflict prominently; full details are in the activity and the child's
+          // working state).
+          conflictPaths: undefined,
         })),
       ),
     );
@@ -816,7 +944,12 @@ const make = Effect.gen(function* () {
     // it — the join fires once at gate resolution, with both reports.
     const joined = selectJoinedGenerations(snapshot.threads).filter(
       (generation) =>
-        !generation.children.some((member) => isMemberOfUnresolvedGate(member, snapshot.threads)),
+        !generation.children.some((member) => isMemberOfUnresolvedGate(member, snapshot.threads)) &&
+        // Worktree isolation (plan §3): hold a generation whose `done` isolated
+        // member has not settled its fan-in yet (still merging). A `conflicted`
+        // fan-in is settled-for-wake — the wake carries the conflict so the
+        // orchestrator can resolve it; only an in-flight (`none`) fan-in waits.
+        !generation.children.some((member) => isFanInPending(member)),
     );
     if (joined.length === 0) return;
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
@@ -1318,6 +1451,10 @@ const make = Effect.gen(function* () {
         // (and, in Phase 3, the gate-traversal pass).
         event.type === "thread.outcome-recorded" ||
         event.type === "thread.route-taken" ||
+        // A settled fan-in (`completed`/`conflicted`) can release dependents and
+        // a held generation wake — re-run the pass immediately instead of
+        // waiting for the periodic tick (review finding 2).
+        event.type === "thread.fanin-set" ||
         event.type === "thread.dependencies-set" ||
         // A failed/reconciled turn-start clears the durable pending-start row,
         // which can be the only thing keeping an otherwise-idle parent busy.
