@@ -203,10 +203,22 @@ function withInstanceIdentity(input: {
  * the plain `openai` one. The remaining catalogue (fetched live via
  * `get_available_models`, see {@link enrichPiSnapshot}) follows in pi's own order.
  */
-const CURATED_PI_MODELS: ReadonlyArray<{ readonly slug: string; readonly name: string }> = [
-  { slug: PI_DEFAULT_MODEL, name: "Claude Opus 4.8 (Vertex)" },
-  { slug: "openai-codex/gpt-5.5", name: "GPT-5.5" },
-  { slug: "google-vertex/gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview (Vertex)" },
+const CURATED_PI_MODELS: ReadonlyArray<{
+  readonly slug: string;
+  readonly name: string;
+  readonly subProvider: string;
+}> = [
+  // Names mirror what `piCatalogModels` derives from the live catalogue so
+  // the placeholder and enriched snapshots agree: pi's own names already
+  // carry "(Vertex)" for google-vertex-claude, and "GPT-5.5" collides across
+  // the openai/openai-codex backends (hence the "(Codex)" suffix).
+  { slug: PI_DEFAULT_MODEL, name: "Claude Opus 4.8 (Vertex)", subProvider: "Vertex" },
+  { slug: "openai-codex/gpt-5.5", name: "GPT-5.5 (Codex)", subProvider: "Codex" },
+  {
+    slug: "google-vertex/gemini-3.1-pro-preview",
+    name: "Gemini 3.1 Pro Preview",
+    subProvider: "Vertex",
+  },
 ];
 const curatedRank = (slug: string): number => {
   const index = CURATED_PI_MODELS.findIndex((model) => model.slug === slug);
@@ -218,6 +230,29 @@ interface PiAvailableModel {
   readonly name: string;
   readonly provider: string;
   readonly contextWindow: number;
+}
+
+/** Human backend labels for pi's provider ids (slug prefixes). */
+const PI_BACKEND_LABELS: Record<string, string> = {
+  anthropic: "Anthropic",
+  bedrock: "Bedrock",
+  "google-vertex": "Vertex",
+  "google-vertex-claude": "Vertex",
+  openai: "OpenAI",
+  "openai-codex": "Codex",
+};
+
+/**
+ * Backend label for a catalogue model. Bedrock ids carry a region routing
+ * prefix (e.g. `au.anthropic.claude-…`) which is surfaced as "Bedrock AU";
+ * unknown provider ids fall back to the raw id so the backend is never
+ * silently ambiguous.
+ */
+export function piBackendLabel(provider: string, modelId: string): string {
+  const base = PI_BACKEND_LABELS[provider] ?? provider;
+  if (provider !== "bedrock") return base;
+  const region = /^([a-z]{2,5})\./.exec(modelId)?.[1];
+  return region ? `${base} ${region.toUpperCase()}` : base;
 }
 
 function piCustomModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
@@ -235,6 +270,7 @@ function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
     ...CURATED_PI_MODELS.map((model) => ({
       slug: model.slug,
       name: model.name,
+      subProvider: model.subProvider,
       isCustom: false,
       capabilities: PI_CAPABILITIES,
     })),
@@ -242,18 +278,32 @@ function piModels(settings: PiSettings): ReadonlyArray<ServerProviderModel> {
   ];
 }
 
-/** Full pi catalogue, curated shortlist first, then pi's own order, then custom. */
-function piCatalogModels(
+/**
+ * Full pi catalogue, curated shortlist first, then pi's own order, then
+ * custom. Every model carries its backend label as `subProvider` (shown as
+ * secondary text in the picker), and models whose display names collide
+ * across backends (e.g. "GPT-5.5" on both openai and openai-codex) get the
+ * label appended to the name so identical rows stay distinguishable.
+ */
+export function piCatalogModels(
   available: ReadonlyArray<PiAvailableModel>,
   settings: PiSettings,
 ): ReadonlyArray<ServerProviderModel> {
+  const nameCounts = new Map<string, number>();
+  for (const model of available) {
+    nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1);
+  }
   const builtIn = available
-    .map((model) => ({
-      slug: `${model.provider}/${model.id}`,
-      name: model.name,
-      isCustom: false as const,
-      capabilities: PI_CAPABILITIES,
-    }))
+    .map((model) => {
+      const label = piBackendLabel(model.provider, model.id);
+      return {
+        slug: `${model.provider}/${model.id}`,
+        name: (nameCounts.get(model.name) ?? 0) > 1 ? `${model.name} (${label})` : model.name,
+        subProvider: label,
+        isCustom: false as const,
+        capabilities: PI_CAPABILITIES,
+      };
+    })
     .sort((a, b) => curatedRank(a.slug) - curatedRank(b.slug));
   return [...builtIn, ...piCustomModels(settings)];
 }

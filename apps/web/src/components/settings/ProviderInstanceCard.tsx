@@ -344,9 +344,13 @@ interface ProviderInstanceCardProps {
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
+  readonly selectedModels: ReadonlyArray<string>;
+  readonly showOnlySelectedModels: boolean;
   readonly onHiddenModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onFavoriteModelsChange: (next: ReadonlyArray<string>) => void;
   readonly onModelOrderChange: (next: ReadonlyArray<string>) => void;
+  readonly onSelectedModelsChange: (next: ReadonlyArray<string>) => void;
+  readonly onShowOnlySelectedModelsChange: (next: boolean) => void;
   readonly onRunUpdate?: (() => void) | undefined;
   readonly isUpdating?: boolean | undefined;
 }
@@ -388,9 +392,13 @@ export function ProviderInstanceCard({
   hiddenModels,
   favoriteModels,
   modelOrder,
+  selectedModels,
+  showOnlySelectedModels,
   onHiddenModelsChange,
   onFavoriteModelsChange,
   onModelOrderChange,
+  onSelectedModelsChange,
+  onShowOnlySelectedModelsChange,
   onRunUpdate,
   isUpdating = false,
 }: ProviderInstanceCardProps) {
@@ -783,10 +791,14 @@ export function ProviderInstanceCard({
                 hiddenModels={hiddenModels}
                 favoriteModels={favoriteModels}
                 modelOrder={modelOrder}
+                selectedModels={selectedModels}
+                showOnlySelectedModels={showOnlySelectedModels}
                 onChange={updateCustomModels}
                 onHiddenModelsChange={onHiddenModelsChange}
                 onFavoriteModelsChange={onFavoriteModelsChange}
                 onModelOrderChange={onModelOrderChange}
+                onSelectedModelsChange={onSelectedModelsChange}
+                onShowOnlySelectedModelsChange={onShowOnlySelectedModelsChange}
               />
             ) : (
               <div className="border-t border-border/60 px-4 py-3 sm:px-5">

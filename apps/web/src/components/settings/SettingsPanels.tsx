@@ -1255,22 +1255,34 @@ export function ProviderSettingsPanel() {
     next: {
       readonly hiddenModels: ReadonlyArray<string>;
       readonly modelOrder: ReadonlyArray<string>;
+      readonly selectedModels: ReadonlyArray<string>;
+      readonly showOnlySelectedModels: boolean;
     },
   ) => {
-    const hiddenModels = [...new Set(next.hiddenModels.filter((slug) => slug.trim().length > 0))];
-    const modelOrder = [...new Set(next.modelOrder.filter((slug) => slug.trim().length > 0))];
+    const dedupe = (slugs: ReadonlyArray<string>) => [
+      ...new Set(slugs.filter((slug) => slug.trim().length > 0)),
+    ];
+    const hiddenModels = dedupe(next.hiddenModels);
+    const modelOrder = dedupe(next.modelOrder);
+    const selectedModels = dedupe(next.selectedModels);
     const rest = withoutProviderInstanceKey(settings.providerModelPreferences, instanceId);
+    const isDefault =
+      hiddenModels.length === 0 &&
+      modelOrder.length === 0 &&
+      selectedModels.length === 0 &&
+      !next.showOnlySelectedModels;
     updateSettings({
-      providerModelPreferences:
-        hiddenModels.length === 0 && modelOrder.length === 0
-          ? rest
-          : {
-              ...rest,
-              [instanceId]: {
-                hiddenModels,
-                modelOrder,
-              },
+      providerModelPreferences: isDefault
+        ? rest
+        : {
+            ...rest,
+            [instanceId]: {
+              hiddenModels,
+              modelOrder,
+              selectedModels,
+              showOnlySelectedModels: next.showOnlySelectedModels,
             },
+          },
     });
   };
 
@@ -1389,6 +1401,8 @@ export function ProviderSettingsPanel() {
           const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
             hiddenModels: [],
             modelOrder: [],
+            selectedModels: [],
+            showOnlySelectedModels: false,
           };
           const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
             favorite.provider === row.instanceId ? Result.succeed(favorite.model) : Result.failVoid,
@@ -1433,6 +1447,8 @@ export function ProviderSettingsPanel() {
               hiddenModels={modelPreferences.hiddenModels}
               favoriteModels={favoriteModels}
               modelOrder={modelPreferences.modelOrder}
+              selectedModels={modelPreferences.selectedModels}
+              showOnlySelectedModels={modelPreferences.showOnlySelectedModels}
               onHiddenModelsChange={(hiddenModels) =>
                 updateProviderModelPreferences(row.instanceId, {
                   ...modelPreferences,
@@ -1446,6 +1462,18 @@ export function ProviderSettingsPanel() {
                 updateProviderModelPreferences(row.instanceId, {
                   ...modelPreferences,
                   modelOrder,
+                })
+              }
+              onSelectedModelsChange={(selectedModels) =>
+                updateProviderModelPreferences(row.instanceId, {
+                  ...modelPreferences,
+                  selectedModels,
+                })
+              }
+              onShowOnlySelectedModelsChange={(showOnlySelectedModels) =>
+                updateProviderModelPreferences(row.instanceId, {
+                  ...modelPreferences,
+                  showOnlySelectedModels,
                 })
               }
               onRunUpdate={
