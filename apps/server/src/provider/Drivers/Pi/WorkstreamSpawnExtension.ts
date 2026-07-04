@@ -5,10 +5,15 @@ import * as NodePath from "node:path";
 const EXTENSION_FILE = "t3-workstream-spawn-extension.mjs";
 
 const EXTENSION_SOURCE = String.raw`export default function(pi) {
+  // Control-plane rejections MUST surface as real tool errors. In pi, a tool
+  // error is signalled by THROWING from execute (a returned value is always
+  // rendered as success, checkmark and all) — so a decider invariant rejection
+  // (e.g. submitting on a terminal thread) reaches the model as a genuine
+  // failed tool call it can react to, not as normal-looking prose.
   const callWorkstreamEndpoint = async (endpoint, params, signal) => {
     const authorization = process.env.T3_WORKSTREAM_AUTHORIZATION;
     if (!endpoint || !authorization) {
-      return { ok: false, error: { content: [{ type: "text", text: "T3 Workstream tools are not available in this session." }], details: { ok: false, reason: "missing_endpoint" } } };
+      throw new Error("T3 Workstream tools are not available in this session.");
     }
     const response = await fetch(endpoint, {
       method: "POST",
@@ -20,10 +25,9 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     let result;
     try { result = text ? JSON.parse(text) : null; } catch { result = null; }
     if (!response.ok) {
-      const message = result?.message ?? text ?? ("T3 Workstream request failed (" + response.status + ").");
-      return { ok: false, error: { content: [{ type: "text", text: message }], details: { ok: false, status: response.status, response: result ?? text } } };
+      throw new Error(result?.message ?? (text || ("T3 Workstream request failed (" + response.status + ").")));
     }
-    return { ok: true, result };
+    return result;
   };
 
   pi.registerTool({
@@ -86,9 +90,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_SPAWN_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const result = outcome.result;
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_SPAWN_URL, params, signal);
       const childThreadId = result?.childThreadId ?? "unknown";
       const title = result?.title ?? params.title;
       return {
@@ -118,12 +120,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LANE_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LANE_URL, params, signal);
+      const threadId = result?.threadId ?? params.threadId ?? "this thread";
       return {
         content: [{ type: "text", text: "Set Workstream thread " + threadId + " plan lane to " + params.planLane + "." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });
@@ -148,12 +149,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_ATTENTION_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_ATTENTION_URL, params, signal);
+      const threadId = result?.threadId ?? params.threadId ?? "this thread";
       return {
         content: [{ type: "text", text: "Flagged Workstream thread " + threadId + " for attention: " + params.reason + "." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });
@@ -175,13 +175,12 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_RELEASE_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const released = Array.isArray(outcome.result?.released) ? outcome.result.released : [];
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_RELEASE_URL, params, signal);
+      const released = Array.isArray(result?.released) ? result.released : [];
       const text = released.length > 0
         ? "Released " + released.length + " held sub-thread(s): " + released.join(", ") + "."
         : "No held (planned) sub-threads to release in that subtree.";
-      return { content: [{ type: "text", text }], details: { ok: true, ...outcome.result } };
+      return { content: [{ type: "text", text }], details: { ok: true, ...result } };
     }
   });
 
@@ -203,12 +202,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_STOP_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const threadId = outcome.result?.threadId ?? params.threadId;
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_STOP_URL, params, signal);
+      const threadId = result?.threadId ?? params.threadId;
       return {
         content: [{ type: "text", text: "Stopped Workstream child " + threadId + " (paused, lane stays in_progress — resume it with workstream_prompt)." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });
@@ -233,15 +231,14 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_PROMPT_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const threadId = outcome.result?.threadId ?? params.threadId;
-      const how = outcome.result?.delivery === "steer"
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_PROMPT_URL, params, signal);
+      const threadId = result?.threadId ?? params.threadId;
+      const how = result?.delivery === "steer"
         ? "queued as a steer into its open turn"
         : "starting its next turn";
       return {
         content: [{ type: "text", text: "Sent prompt to Workstream child " + threadId + " (" + how + ")." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });
@@ -277,9 +274,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_SUBMIT_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const result = outcome.result ?? {};
+      const result = (await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_SUBMIT_URL, params, signal)) ?? {};
       const submittedOutcome = result.outcome ?? params.outcome;
       const text = result.disposition === "done"
         ? "Work submitted: report recorded, plan advanced to done (dependents released)."
@@ -319,13 +314,12 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_DEPENDENCIES_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
+      const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_DEPENDENCIES_URL, params, signal);
       const count = Array.isArray(params.blockedBy) ? params.blockedBy.length : 0;
-      const threadId = outcome.result?.threadId ?? params.threadId ?? "this thread";
+      const threadId = result?.threadId ?? params.threadId ?? "this thread";
       return {
         content: [{ type: "text", text: "Set Workstream thread " + threadId + " dependencies (" + count + " waits-on)." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });
@@ -340,9 +334,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     ],
     parameters: { type: "object", properties: {}, additionalProperties: false },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LIST_URL, params ?? {}, signal);
-      if (!outcome.ok) return outcome.error;
-      const view = outcome.result ?? {};
+      const view = (await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LIST_URL, params ?? {}, signal)) ?? {};
       const nodes = Array.isArray(view.nodes) ? view.nodes : [];
       // Render the whole graph into content: content is the ONLY surface the
       // model can read (details is UI/debug), so the answer must live here.
@@ -401,9 +393,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_CONSULT_THREAD_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const result = outcome.result ?? {};
+      const result = (await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_CONSULT_THREAD_URL, params, signal)) ?? {};
       if (result.resolved === false) {
         const candidates = Array.isArray(result.candidates) ? result.candidates : [];
         const lines = candidates.map((candidate) =>
@@ -441,12 +431,11 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       additionalProperties: false
     },
     async execute(_id, params, signal) {
-      const outcome = await callWorkstreamEndpoint(process.env.T3_SET_THREAD_TITLE_URL, params, signal);
-      if (!outcome.ok) return outcome.error;
-      const title = outcome.result?.title ?? params.title;
+      const result = await callWorkstreamEndpoint(process.env.T3_SET_THREAD_TITLE_URL, params, signal);
+      const title = result?.title ?? params.title;
       return {
         content: [{ type: "text", text: "Set this thread's title to \"" + title + "\"." }],
-        details: { ok: true, ...outcome.result }
+        details: { ok: true, ...result }
       };
     }
   });

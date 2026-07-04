@@ -921,17 +921,34 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         }
         return events;
       }
+      // Re-engagement epoch (review-gates design §5.2 exception): a parent or
+      // human reopening a terminal thread via the lane-set path (done/cancelled
+      // → ready/planned) stamps a FRESH spawnGeneration in the same event. The
+      // parent's one-shot generation wake is keyed (parentId, spawnGeneration)
+      // with durable receipts, so without a new epoch the re-run's completion
+      // would be deduped forever by the first completion's receipt. The fresh
+      // generation makes the re-run a new episode: it detaches from its original
+      // sibling join group and its completion fires a fresh, receipt-deduped
+      // wake. A gate `reopen` deliberately does NOT pass here — it flows through
+      // `thread.turn.start` + `reopen` and relies on the reviewer's generation
+      // carrying the resolution wake.
+      const laneSetBase = yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: command.threadId,
+        occurredAt,
+        commandId: command.commandId,
+      });
+      const reengaging =
+        laneThread.parentThreadId !== null &&
+        (laneThread.planLane === "done" || laneThread.planLane === "cancelled") &&
+        (command.planLane === "ready" || command.planLane === "planned");
       const planLaneSetEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
+        ...laneSetBase,
         type: "thread.plan-lane-set",
         payload: {
           threadId: command.threadId,
           planLane: command.planLane,
+          ...(reengaging ? { spawnGeneration: laneSetBase.eventId } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -1208,9 +1225,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // A gate `reopen` is the mirror image for `done`: the resume atomically
       // reverts the round-0-completed coder to `in_progress` in the same
       // transaction (review-gates design §5.2).
+      //
+      // A turn-start on a `ready` thread likewise flips it to `in_progress`: a
+      // reopened child (lane-set back to `ready`, then prompted) would otherwise
+      // run mislabelled and race the idle "forgot to finish" liveness rail. The
+      // dispatcher kickoff already covers its own case via `setInProgress`; this
+      // extends the same truth (a running turn IS in progress) to human/parent
+      // turn-starts. `planned` stays untouched — it is a deliberate hold.
       if (
         (command.setInProgress === true && !targetTerminal) ||
         targetThread.planLane === "yielded" ||
+        targetThread.planLane === "ready" ||
         reopening
       ) {
         trailingEvents.push({

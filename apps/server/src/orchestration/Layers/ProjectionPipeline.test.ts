@@ -1,6 +1,7 @@
 import {
   CheckpointRef,
   CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
   CorrelationId,
   EventId,
   MessageId,
@@ -2644,6 +2645,108 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           defaultModelSelection: '{"instanceId":"codex","model":"gpt-5"}',
         },
       ]);
+    }),
+  );
+
+  // Re-engagement epoch: a lane-set reopen (done → ready) of a sub-thread
+  // stamps a fresh spawn_generation on the SQL projection row (kept in sync
+  // with the in-memory projector — a previous incident fixed one but not the
+  // other), so the re-run's completion can fire a fresh parent wake.
+  it.effect("refreshes spawn_generation on a lane-set reopen of a done sub-thread", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const modelSelection = {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+      };
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-epoch-project"),
+        projectId: ProjectId.make("project-epoch"),
+        title: "Epoch Project",
+        workspaceRoot: "/tmp/project-epoch",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-epoch-parent"),
+        threadId: ThreadId.make("thread-epoch-parent"),
+        projectId: ProjectId.make("project-epoch"),
+        title: "Parent",
+        modelSelection,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-epoch-child"),
+        threadId: ThreadId.make("thread-epoch-child"),
+        projectId: ProjectId.make("project-epoch"),
+        parentThreadId: ThreadId.make("thread-epoch-parent"),
+        role: "coder",
+        purpose: "do the thing",
+        planLane: "ready",
+        spawnGeneration: "gen-epoch-0",
+        title: "Child",
+        modelSelection,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+
+      const spawnGenerationOf = () =>
+        sql<{ readonly spawnGeneration: string | null; readonly planLane: string }>`
+          SELECT
+            spawn_generation AS "spawnGeneration",
+            plan_lane AS "planLane"
+          FROM projection_threads
+          WHERE thread_id = 'thread-epoch-child'
+        `;
+
+      // Episode 1: submit → done, generation unchanged.
+      yield* engine.dispatch({
+        type: "thread.work.submit",
+        commandId: CommandId.make("server:workstream-submit:epoch-1"),
+        threadId: ThreadId.make("thread-epoch-child"),
+        reportPath: "/reports/thread-epoch-child.md",
+        createdAt,
+      });
+      const afterSubmit = yield* spawnGenerationOf();
+      assert.deepEqual(afterSubmit, [{ spawnGeneration: "gen-epoch-0", planLane: "done" }]);
+
+      // Parent reopen via the lane-set path → fresh epoch on the SQL row.
+      yield* engine.dispatch({
+        type: "thread.plan-lane.set",
+        commandId: CommandId.make("cmd-epoch-reopen"),
+        threadId: ThreadId.make("thread-epoch-child"),
+        planLane: "ready",
+        createdAt,
+      });
+      const afterReopen = yield* spawnGenerationOf();
+      assert.equal(afterReopen[0]?.planLane, "ready");
+      assert.isString(afterReopen[0]?.spawnGeneration);
+      assert.notEqual(afterReopen[0]?.spawnGeneration, "gen-epoch-0");
+
+      // Episode 2: re-done keeps the fresh epoch (a fresh generation join).
+      yield* engine.dispatch({
+        type: "thread.work.submit",
+        commandId: CommandId.make("server:workstream-submit:epoch-2"),
+        threadId: ThreadId.make("thread-epoch-child"),
+        reportPath: "/reports/thread-epoch-child.round-2.md",
+        createdAt,
+      });
+      const afterResubmit = yield* spawnGenerationOf();
+      assert.equal(afterResubmit[0]?.planLane, "done");
+      assert.equal(afterResubmit[0]?.spawnGeneration, afterReopen[0]?.spawnGeneration);
     }),
   );
 });

@@ -6,6 +6,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
+import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -411,6 +412,84 @@ describe("orchestration projector", () => {
     expect(afterUpdate.threads[0]?.runtimeMode).toBe("approval-required");
     expect(afterUpdate.threads[0]?.updatedAt).toBe(updatedAt);
   });
+
+  effectIt.effect(
+    "applies a re-engagement spawnGeneration from thread.plan-lane-set (and leaves it alone when absent)",
+    () =>
+      Effect.gen(function* () {
+        const createdAt = "2026-02-23T08:00:00.000Z";
+        const updatedAt = "2026-02-23T08:00:05.000Z";
+
+        const afterCreate = yield* projectEvent(
+          createEmptyReadModel(createdAt),
+          makeEvent({
+            sequence: 1,
+            type: "thread.created",
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            occurredAt: createdAt,
+            commandId: "cmd-create",
+            payload: {
+              threadId: "thread-1",
+              projectId: "project-1",
+              parentThreadId: "thread-parent",
+              spawnGeneration: "gen-epoch-0",
+              title: "demo",
+              modelSelection: {
+                provider: ProviderDriverKind.make("codex"),
+                model: "gpt-5.3-codex",
+              },
+              runtimeMode: "full-access",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          }),
+        );
+
+        // A reopen lane-set carries the fresh epoch → the projection adopts it.
+        const afterReopen = yield* projectEvent(
+          afterCreate,
+          makeEvent({
+            sequence: 2,
+            type: "thread.plan-lane-set",
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            occurredAt: updatedAt,
+            commandId: "cmd-reopen",
+            payload: {
+              threadId: "thread-1",
+              planLane: "ready",
+              spawnGeneration: "gen-epoch-1",
+              updatedAt,
+            },
+          }),
+        );
+        expect(afterReopen.threads[0]?.planLane).toBe("ready");
+        expect(afterReopen.threads[0]?.spawnGeneration).toBe("gen-epoch-1");
+
+        // An ordinary lane-set (no spawnGeneration) leaves the epoch untouched.
+        const afterDone = yield* projectEvent(
+          afterReopen,
+          makeEvent({
+            sequence: 3,
+            type: "thread.plan-lane-set",
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            occurredAt: updatedAt,
+            commandId: "cmd-done",
+            payload: {
+              threadId: "thread-1",
+              planLane: "done",
+              updatedAt,
+            },
+          }),
+        );
+        expect(afterDone.threads[0]?.planLane).toBe("done");
+        expect(afterDone.threads[0]?.spawnGeneration).toBe("gen-epoch-1");
+      }),
+  );
 
   it("marks assistant messages completed with non-streaming updates", async () => {
     const createdAt = "2026-02-23T09:00:00.000Z";

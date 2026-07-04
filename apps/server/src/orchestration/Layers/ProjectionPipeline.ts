@@ -938,6 +938,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             planLane: event.payload.planLane,
+            // Re-engagement epoch: a terminal→ready/planned reopen carries a
+            // fresh spawnGeneration so the re-run's completion joins a new
+            // generation (and fires a new parent wake) instead of being deduped
+            // by the first completion's receipt. Mirrors the in-memory projector.
+            ...(event.payload.spawnGeneration !== undefined
+              ? { spawnGeneration: event.payload.spawnGeneration }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;

@@ -627,6 +627,13 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             planLane: payload.planLane,
+            // Re-engagement epoch: a terminal→ready/planned reopen carries a
+            // fresh spawnGeneration so the re-run's completion joins a new
+            // generation (and fires a new parent wake) instead of being deduped
+            // by the first completion's receipt.
+            ...(payload.spawnGeneration !== undefined
+              ? { spawnGeneration: payload.spawnGeneration }
+              : {}),
             // Design §3 state invariant, enforced structurally: a terminal lane
             // (`done`/`cancelled`) carries no stored attention. The decider emits
             // an explicit `attention-cleared` on new terminal transitions, but

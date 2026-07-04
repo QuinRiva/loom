@@ -1528,6 +1528,12 @@ export const ThreadInteractionModeSetPayload = Schema.Struct({
 export const ThreadPlanLaneSetPayload = Schema.Struct({
   threadId: ThreadId,
   planLane: ThreadPlanLane,
+  // Re-engagement epoch (review-gates design §5.2 exception): present only
+  // when a terminal thread (done/cancelled) is reopened to ready/planned via
+  // the lane-set path. The parent's one-shot generation wake is keyed
+  // (parentId, spawnGeneration) with durable receipts, so the reopened re-run
+  // must join a FRESH generation for its completion to fire a fresh wake.
+  spawnGeneration: Schema.optional(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
 });
 
