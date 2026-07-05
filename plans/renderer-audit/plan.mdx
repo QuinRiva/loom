@@ -1,0 +1,339 @@
+# Renderer audit — kitchen sink
+
+**Purpose.** Exercise every MDX plan block (and edge cases) for the renderer audit.
+This file is a durable test fixture: `plans/renderer-audit/plan.mdx`.
+
+## Prose & GFM
+
+Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://example.com).
+
+- [ ] task list item
+- [x] done item
+
+| md col A | md col B |
+| -------- | -------- |
+| one      | two      |
+
+## Code
+
+<Code
+  id="code-basic"
+  code={"export function greet(name: string): string {\n  return `hello ${name}`;\n}"}
+  language="typescript"
+  filename="src/greet.ts"
+  caption="Basic code block"
+/>
+
+<Code id="code-empty" code="" language="python" caption="Edge: empty code string" />
+
+## Data model
+
+<DataModel
+  id="dm-basic"
+  entities={[
+    {
+      "id": "user",
+      "name": "User",
+      "note": "Core account row",
+      "fields": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "email", "type": "text", "nullable": false, "change": "added" },
+        { "name": "team_id", "type": "uuid", "fk": "Team.id", "nullable": true }
+      ]
+    },
+    {
+      "id": "team",
+      "name": "Team",
+      "change": "modified",
+      "fields": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "name", "type": "text", "was": "title", "change": "renamed" }
+      ]
+    }
+  ]}
+  relations={[{ "from": "team", "to": "user", "kind": "1-n", "label": "members" }]}
+/>
+
+## Endpoint
+
+<Endpoint
+  id="ep-basic"
+  method="POST"
+  path="/api/v1/teams/{teamId}/members"
+  summary="Add a member"
+  auth="Bearer"
+  params={[
+    { "name": "teamId", "in": "path", "type": "uuid", "required": true },
+    { "name": "role", "in": "body", "type": "string", "description": "member | admin" }
+  ]}
+  request={{ "contentType": "application/json", "example": "{ \"email\": \"a@b.co\" }" }}
+  responses={[
+    { "status": "201", "description": "Created", "example": "{ \"id\": \"…\" }" },
+    { "status": "409", "description": "Already a member", "change": "added" }
+  ]}
+>
+  Adds a user to a team. Prose **description** between the tags.
+</Endpoint>
+
+## File tree
+
+<FileTree
+  id="ft-basic"
+  title="Touched files"
+  entries={[
+    { "path": "apps/web/src/a.ts", "change": "added", "note": "new module" },
+    { "path": "apps/web/src/b.ts", "change": "modified", "snippet": "const x = 1;", "language": "typescript" },
+    { "path": "apps/web/src/veryveryveryveryveryveryveryveryveryverylongfilename-that-should-wrap-or-truncate.tsx", "change": "removed" }
+  ]}
+/>
+
+## Annotated code
+
+<AnnotatedCode
+  id="ac-basic"
+  code={"function add(a, b) {\n  // TODO: validate\n  return a + b;\n}\n"}
+  language="javascript"
+  filename="add.js"
+  annotations={[
+    { "lines": "1", "label": "signature", "note": "untyped params" },
+    { "lines": "2-3", "note": "validation missing & <special chars> \"quoted\"" }
+  ]}
+/>
+
+## Diagram (built-in)
+
+<Diagram
+  id="diag-basic"
+  caption="Simple flow"
+  nodes={[
+    { "id": "a", "label": "Client", "detail": "browser" },
+    { "id": "b", "label": "Server" },
+    { "id": "c", "label": "DB with a very long label that keeps going and going and going" }
+  ]}
+  edges={[
+    { "from": "a", "to": "b", "label": "ws" },
+    { "from": "b", "to": "c", "label": "sql" }
+  ]}
+  notes={[{ "id": "n1", "text": "note text" }]}
+/>
+
+## Mermaid
+
+<Mermaid
+  id="mm-flow"
+  source={"flowchart TD\n  A[Start here] --> B{Is text visible?}\n  B -->|yes| C[Great]\n  B -->|no| D[Bug confirmed]\n  D --> E[\"Label with quotes and ampersand\"]"}
+  caption="Flowchart — labels are the reported bug"
+/>
+
+<Mermaid
+  id="mm-seq"
+  source={"sequenceDiagram\n  participant W as Web app\n  participant S as Server\n  W->>S: request plan\n  S-->>W: plan.mdx contents"}
+  caption="Sequence diagram"
+/>
+
+<Mermaid
+  id="mm-state"
+  source={"stateDiagram-v2\n  [*] --> Planned\n  Planned --> InProgress: release\n  InProgress --> Done"}
+  caption="State diagram"
+/>
+
+<Mermaid id="mm-invalid" source={"flowchart TD\n  A --> ==>> broken"} caption="Edge: invalid mermaid source" />
+
+<Mermaid id="mm-empty" source="" caption="Edge: empty source" />
+
+## JSON explorer
+
+<Json
+  id="json-basic"
+  title="Sample payload"
+  json={"{ \"user\": { \"id\": 1, \"tags\": [\"a\", \"b\"], \"nested\": { \"deep\": { \"deeper\": true } } } }"}
+  collapsedDepth={1}
+/>
+
+<Json id="json-bad" title="Edge: invalid JSON string" json="{ not json" />
+
+## Callouts
+
+<Callout id="co-info" tone="info">Info callout body with `code` and **bold**.</Callout>
+<Callout id="co-decision" tone="decision">Decision callout.</Callout>
+<Callout id="co-risk" tone="risk">Risk callout.</Callout>
+<Callout id="co-bad-tone" tone="banana">Edge: invalid tone enum.</Callout>
+
+## Checklist
+
+<Checklist
+  id="cl-basic"
+  items={[
+    { "id": "one", "label": "First item", "checked": true },
+    { "id": "two", "label": "Second item with note", "note": "extra detail" },
+    { "id": "three", "label": "Unicode ✓ émoji 🎉 <tags> & \"quotes\"" }
+  ]}
+/>
+
+## Table
+
+<Table
+  id="tb-basic"
+  columns={["Name", "Type", "Notes"]}
+  rows={[
+    ["alpha", "string", "plain"],
+    ["beta", "number", "row with a much longer cell value to check wrapping behaviour in narrow panels"],
+    ["gamma", "bool", ""]
+  ]}
+  density="compact"
+/>
+
+<Table id="tb-ragged" columns={["A", "B"]} rows={[["only one cell"], ["x", "y", "extra cell"]]} />
+
+## Diff
+
+<Diff
+  id="df-basic"
+  filename="src/math.ts"
+  language="typescript"
+  before={"export function add(a, b) {\n  return a + b;\n}"}
+  after={"export function add(a: number, b: number): number {\n  return a + b;\n}"}
+  mode="unified"
+  annotations={[{ "side": "after", "lines": "1", "note": "typed now" }]}
+/>
+
+## OpenAPI
+
+<OpenApi
+  id="oa-basic"
+  title="Tiny spec"
+  spec={"openapi: 3.0.0\ninfo:\n  title: Demo\n  version: 1.0.0\npaths:\n  /ping:\n    get:\n      summary: Ping\n      responses:\n        \"200\":\n          description: pong"}
+/>
+
+## Wireframes
+
+<Screen
+  id="sc-basic"
+  surface="browser"
+  caption="Simple wireframe"
+  html={"<div style=\"padding:16px;font-family:sans-serif\"><h2>Settings</h2><button>Save</button></div>"}
+/>
+
+<Design
+  id="ds-basic"
+  surface="mobile"
+  caption="Design-fidelity surface"
+  html={"<div style=\"padding:12px\"><strong>Mobile card</strong><p>body text</p></div>"}
+/>
+
+## Canvas
+
+<DesignBoard id="board-1" title="Audit board" width={1200} height={500}>
+  <Section title="Left region" x={0} y={0} width={400} height={400}>
+    <Artboard x={20} y={40} surface="panel" html={"<div><em>artboard content</em></div>"} caption="inner artboard" />
+  </Section>
+  <Section title="Right region" x={450} y={0} width={400} height={400}>
+    <Annotation targetId="board-note" placement="right" x={60} y={60}>Canvas annotation text</Annotation>
+  </Section>
+  <Connector from="Left region" to="Right region" label="flow" />
+</DesignBoard>
+
+## Columns
+
+<Columns id="cols-1">
+  <Column label="Left">
+    <Callout tone="info">Left column callout.</Callout>
+  </Column>
+  <Column label="Right">
+    <Code code={"const nested = true;"} language="ts" />
+  </Column>
+</Columns>
+
+## Tabs
+
+<TabsBlock id="tabs-1">
+  <Tab label="First tab">
+    <Callout tone="success">Tab one content.</Callout>
+  </Tab>
+  <Tab label="Second tab">
+    <Table columns={["k", "v"]} rows={[["nested", "table"]]} />
+  </Tab>
+</TabsBlock>
+
+## Sandboxed frames
+
+<Prototype
+  id="proto-1"
+  caption="Prototype frame"
+  height={160}
+  html={"<!doctype html><html><body style=\"font-family:sans-serif\"><button onclick=\"this.textContent='clicked'\">Click me</button></body></html>"}
+/>
+
+<HtmlBlock
+  id="html-1"
+  caption="Html frame"
+  height={120}
+  html={"<div style=\"color:rebeccapurple\">static html block</div>"}
+/>
+
+## Invalid props (should degrade to error cards, not crash)
+
+<Code id="bad-code" language="ts" caption="Edge: missing required `code` prop" />
+
+<Endpoint id="bad-endpoint" method="YEET" path="/nope" />
+
+<DataModel id="bad-dm" entities={[{ "id": "x", "name": "X", "fields": [{ "name": "f", "fk": true }] }]} />
+
+## Open questions
+
+<VisualQuestions
+  id="vq-1"
+  questions={[
+    {
+      "id": "vq-q1",
+      "title": "VisualQuestions variant: can you select this?",
+      "mode": "single",
+      "options": [
+        { "id": "a", "label": "Option A", "recommended": true },
+        { "id": "b", "label": "Option B" }
+      ]
+    }
+  ]}
+/>
+
+<QuestionForm
+  id="qf-1"
+  submitLabel="Send answers"
+  questions={[
+    {
+      "id": "q-single",
+      "title": "Single-select: which approach?",
+      "subtitle": "Pick exactly one",
+      "mode": "single",
+      "required": true,
+      "options": [
+        { "id": "opt-a", "label": "Approach A", "detail": "the recommended one", "recommended": true },
+        { "id": "opt-b", "label": "Approach B with a much longer label that runs on and on to test wrapping behaviour in the option row" },
+        { "id": "opt-c", "label": "Approach C — unicode ✓ & \"quotes\" <angle>" }
+      ]
+    },
+    {
+      "id": "q-multi",
+      "title": "Multi-select: which blocks failed?",
+      "mode": "multi",
+      "allowOther": true,
+      "options": [
+        { "id": "m1", "label": "Mermaid" },
+        { "id": "m2", "label": "Questions" },
+        { "id": "m3", "label": "None" }
+      ]
+    },
+    {
+      "id": "q-free",
+      "title": "Freeform: anything else?",
+      "mode": "freeform",
+      "placeholder": "Type here…"
+    },
+    {
+      "id": "q-empty-opts",
+      "title": "Edge: single mode with zero options",
+      "mode": "single",
+      "options": []
+    }
+  ]}
+/>
