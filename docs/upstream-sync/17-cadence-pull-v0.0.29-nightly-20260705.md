@@ -13,7 +13,7 @@ Second steady-state pull. Mobile-dominated window. Australian English.
   thread-shell construction sites did not satisfy loom's extended
   `OrchestrationThreadShell` contract. Fixed in two files (see below).
 - All gates green after the fix; live boot smoke test against a DB copy passed.
-  Merge commit `d8e50bc83`, with `upstream/main` correctly preserved as the
+  Merge commit `4c7877268`, with `upstream/main` correctly preserved as the
   second parent (`HEAD^2 == 600972084`).
 
 ## The 9 upstream commits
