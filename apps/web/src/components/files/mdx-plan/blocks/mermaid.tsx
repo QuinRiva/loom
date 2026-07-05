@@ -15,9 +15,11 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  *
  * This is a deliberately slimmer port than BuilderIO's: we drop the optional
  * Excalidraw "sketch" conversion (two extra heavy deps) and render with
- * Mermaid's own `handDrawn` look + `securityLevel: "strict"`. The rendered SVG
- * is sanitised (scripts, `foreignObject`, event handlers, and `javascript:`
- * URLs stripped) before injection, matching BuilderIO's `sanitizeSvgMarkup`.
+ * Mermaid's own `handDrawn` look + `securityLevel: "strict"` and
+ * `htmlLabels: false` (labels come out as SVG `<text>`, which survives the
+ * foreignObject strip below). The rendered SVG is sanitised (scripts,
+ * `foreignObject`, event handlers, and `javascript:` URLs stripped) before
+ * injection, matching BuilderIO's `sanitizeSvgMarkup`.
  */
 
 export interface MermaidData {
@@ -44,9 +46,12 @@ export const mermaidMdx: BlockMdxConfig<MermaidData> = {
  * Strip scripts / event handlers / javascript: URLs from rendered SVG markup.
  *
  * NOTE: this is deliberately DEFENCE-IN-DEPTH, not the primary trust boundary.
- * Mermaid `securityLevel: "strict"` (set in `renderMermaidSvg`) is the real
- * boundary — it disables `%%{init}%%` directives, HTML labels, and click/JS
- * interaction, so the SVG we receive is already benign. This pass is therefore
+ * Mermaid's own DOMPurify pass over its output (active at `securityLevel:
+ * "strict"`, which also disables click/JS interaction) is the real boundary.
+ * Beware: in mermaid 11 strict mode does NOT disable `%%{init}%%` directives or
+ * HTML labels — we pass `htmlLabels: false` in `renderMermaidSvg` explicitly,
+ * because labels rendered as HTML live in `<foreignObject>` and the strip below
+ * would delete them (empty boxes). This pass is therefore
  * intentionally lighter than `sanitizeWireframeHtml` (no CSS escape/entity
  * decoding, no `<style>`/containment/viewport handling): the wireframe surface
  * injects raw author HTML with no upstream guard, whereas here Mermaid's own
@@ -72,7 +77,14 @@ function sanitizeSvgMarkup(svg: string): string {
   return doc.documentElement.outerHTML;
 }
 
-async function renderMermaidSvg(source: string, id: string, isDark: boolean): Promise<string> {
+/** Unique id per render invocation. `mermaid.render` deletes any existing DOM
+ * elements carrying its id (both its temp body-level container and a previously
+ * injected svg), so any id reuse across in-flight renders — two un-id'd blocks,
+ * React StrictMode's doubled effects, a theme flip mid-render — makes one
+ * render destroy the other's containers and yield an empty/blank diagram. */
+let renderSeq = 0;
+
+async function renderMermaidSvg(source: string, isDark: boolean): Promise<string> {
   const mermaid = (
     (await import("mermaid")) as {
       default: {
@@ -84,10 +96,17 @@ async function renderMermaidSvg(source: string, id: string, isDark: boolean): Pr
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
+    // SVG <text> labels, NOT <foreignObject> HTML — see sanitizeSvgMarkup note.
+    htmlLabels: false,
+    flowchart: { htmlLabels: false },
+    // On a draw error mermaid otherwise appends an error graphic + orphaned
+    // temp div to document.body (user-visible, accumulating). We render our
+    // own error card instead.
+    suppressErrorRendering: true,
     look: "handDrawn",
     theme: isDark ? "dark" : "neutral",
   });
-  const { svg } = await mermaid.render(id, source);
+  const { svg } = await mermaid.render(`mermaid-render-${++renderSeq}`, source);
   return sanitizeSvgMarkup(svg);
 }
 
@@ -96,18 +115,16 @@ export function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) 
   const isDark = resolvedTheme === "dark";
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const source = data.source.trim();
 
   useEffect(() => {
     let active = true;
-    const source = data.source.trim();
     if (!source) {
       setSvg(null);
       setError(null);
       return;
     }
-    // A DOM-id-safe render id (mermaid requires a valid CSS id).
-    const renderId = `mermaid-${(blockId ?? "block").replace(/[^a-zA-Z0-9_-]/g, "-")}-${isDark ? "d" : "l"}`;
-    void renderMermaidSvg(source, renderId, isDark)
+    void renderMermaidSvg(source, isDark)
       .then((rendered) => {
         if (!active) return;
         setSvg(rendered);
@@ -121,7 +138,7 @@ export function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) 
     return () => {
       active = false;
     };
-  }, [data.source, blockId, isDark]);
+  }, [source, isDark]);
 
   return (
     <figure
@@ -144,7 +161,7 @@ export function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) 
         />
       ) : (
         <div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground">
-          Rendering diagram…
+          {source ? "Rendering diagram…" : "Empty diagram"}
         </div>
       )}
       {data.caption && (

@@ -57,6 +57,26 @@ shown as ordinary markdown. After writing it, tell the user the path and ask
 them to open, review, and annotate it — do not ask a separate "does this look
 good?" question on top of that.
 
+## Validate before presenting (mandatory)
+
+A stray `<`/`{` in prose kills the ENTIRE rendered document (MDX compile
+error); an unknown tag or invalid props show error cards in place; and several
+mistakes (dangling canvas ids, ragged tables, sanitiser-stripped HTML) degrade
+silently. **Always run the
+plan validator on your `.mdx` file and fix every finding BEFORE telling the
+user the plan is ready:**
+
+```
+node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx
+```
+
+It exercises the real renderer pipeline (compile gate, block registry, zod
+schemas, mermaid parser, wireframe sanitiser) and reports `file:line` findings.
+Fix all `error` findings (the render would break or degrade); read each
+`warning` (something will silently disappear or render wrong) and fix it unless
+the degradation is genuinely intended. Exit code 0 with no findings means the
+plan will render.
+
 ## Research before you draft
 
 Ground the plan in the real codebase, not from memory:
@@ -373,8 +393,10 @@ A Redoc-style reference rendered from a whole OpenAPI 3 / Swagger 2 document.
 ### `<Mermaid>` — a Mermaid diagram
 
 Renders a Mermaid diagram from its text `source` (multiline string attr), with an
-optional `caption`. Runs in Mermaid's `strict` security mode (no `%%{init}%%`
-directives, HTML labels, or click JS). Use `<Diagram>` for a hand-placed spatial
+optional `caption`. Runs in Mermaid's `strict` security mode (sanitised output, no
+click JS) with HTML labels disabled — labels render as plain SVG text. (Strict mode
+alone does NOT disable `%%{init}%%` directives or HTML labels in mermaid 11.)
+Use `<Diagram>` for a hand-placed spatial
 layout; use `<Mermaid>` when Mermaid's auto-layout of a flow/sequence/ER graph is
 enough.
 
@@ -412,7 +434,13 @@ that already has one.
 
 The single place for unresolved decisions. Each question has a `mode` of
 `single | multi | freeform`; mark the option you would choose `recommended: true`.
-A write-in field always renders, so never add an "Other" option yourself.
+The rendered block is answerable in place: the reviewer clicks options (one for
+`single`, any number for `multi`) and each answer is attached to their next
+review message as a structured "Q: … → chose: …" comment. A write-in field
+renders only for `mode: "freeform"` or when the question sets
+`allowOther: true` — never add an "Other" option yourself; set `allowOther`
+instead. `submitLabel` is accepted for the wire round-trip but not rendered:
+answers ride the review turn per question, so there is no submit button.
 
 ```mdx
 <QuestionForm

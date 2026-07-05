@@ -37,6 +37,17 @@ export function annotationDraftKey(
   return `${draftTargetKey(target)}\u0000${suffix}`;
 }
 
+/** Composite localStorage key for one target's structured answer draft to one
+ * plan question (see `questionAnswers.ts` — the value is the JSON-encoded
+ * `PlanQuestionAnswer`; the paired review comment gates whether it counts). */
+export function questionAnswerDraftKey(
+  target: ScopedThreadRef | DraftId,
+  filePath: string,
+  questionId: string,
+): string {
+  return `${draftTargetKey(target)}\u0000question\u0000${filePath}\u0000${questionId}`;
+}
+
 export const useMdxAnnotationDraftStore = create<MdxAnnotationDraftStoreState>()(
   persist(
     (set, get) => ({
