@@ -751,6 +751,12 @@ const make = Effect.gen(function* () {
               .sessionModelSwitch;
     const requestedModelSelection =
       input.modelSelection ?? threadModelSelections.get(input.threadId) ?? thread.modelSelection;
+    // A turn without an explicit override must still run the thread's stored
+    // selection: in-session-switch drivers get it as the turn's modelSelection
+    // (control-plane turns — kick-offs, prompts, wakes, gate rework — carry no
+    // explicit pick, and drivers like pi would otherwise keep whatever model
+    // the session happened to start on), while no-switch drivers pin the turn
+    // to the active session's model.
     const modelForTurn =
       sessionModelSwitch === "unsupported" && input.modelSelection === undefined
         ? activeSession?.model !== undefined
@@ -759,7 +765,7 @@ const make = Effect.gen(function* () {
               model: activeSession.model,
             }
           : requestedModelSelection
-        : input.modelSelection;
+        : requestedModelSelection;
 
     return {
       threadId: input.threadId,
