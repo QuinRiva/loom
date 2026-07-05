@@ -3666,7 +3666,7 @@ function ChatViewContent(props: ChatViewProps) {
     !envLocked,
   );
   const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? settings.defaultThreadEnvMode)
     : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
