@@ -13,6 +13,7 @@
 import type { OrchestrationCommand, OrchestrationEvent } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import type * as Stream from "effect/Stream";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
@@ -51,6 +52,23 @@ export interface OrchestrationEngineShape {
    * This is a hot runtime stream (new events only), not a historical replay.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+
+  /**
+   * Acquire a scoped hot domain-event stream whose PubSub subscription is
+   * established eagerly when this effect runs — before the caller does any
+   * further async work. Unlike `streamDomainEvents` (a plain `Stream` value
+   * that only subscribes when it is first pulled, e.g. after a preceding
+   * `Stream.concat` element), running this effect attaches the subscription
+   * up front so events emitted during a subsequent snapshot fetch are buffered
+   * in the subscription queue rather than dropped. Callers dedup against their
+   * snapshot via `event.sequence`. This closes the connect-gap on first view of
+   * an actively-streaming thread (mirrors the reasoning bus pre-subscribe).
+   */
+  readonly subscribeDomainEvents: Effect.Effect<
+    Stream.Stream<OrchestrationEvent>,
+    never,
+    Scope.Scope
+  >;
 }
 
 /**

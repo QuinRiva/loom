@@ -990,8 +990,30 @@ const makeWsRpcLayer = (
                   // until the durable finalization event.
                   const reasoningSubscription = yield* reasoningStreamBus.subscribe;
 
-                  const [threadDetail, snapshotSequence] = yield* Effect.all([
-                    projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
+                  // Same pre-subscribe treatment for the DURABLE domain-event
+                  // stream: attach the PubSub subscription BEFORE the snapshot
+                  // fetch so events emitted during the fetch window buffer in
+                  // the subscription queue instead of being dropped in the
+                  // connect-gap. (`streamDomainEvents` would only subscribe
+                  // lazily after the snapshot element via `Stream.concat`,
+                  // which is exactly the window that loses early messages on
+                  // first view of an actively-streaming thread.) The
+                  // `event.sequence > snapshotSequence` filter below dedups
+                  // events already baked into the snapshot.
+                  const domainEventStream = yield* orchestrationEngine.subscribeDomainEvents;
+
+                  // One consistent read: the thread detail AND its
+                  // `snapshotSequence` come from the SAME projection read
+                  // transaction. Reading them as two independent snapshots
+                  // (`getThreadDetailById` + `getSnapshotSequence`) leaves a
+                  // narrowed connect-gap: an event committed between the two
+                  // reads could be observed by `snapshotSequence` but not by
+                  // the detail, so the `event.sequence > snapshotSequence`
+                  // filter below would drop it even though the detail never
+                  // reflected it. Tying both to one transaction closes that.
+                  const threadDetail = yield* projectionSnapshotQuery
+                    .getThreadDetailSnapshotById(input.threadId)
+                    .pipe(
                       Effect.mapError(
                         (cause) =>
                           new OrchestrationGetSnapshotError({
@@ -999,18 +1021,7 @@ const makeWsRpcLayer = (
                             cause,
                           }),
                       ),
-                    ),
-                    projectionSnapshotQuery.getSnapshotSequence().pipe(
-                      Effect.map(({ snapshotSequence }) => snapshotSequence),
-                      Effect.mapError(
-                        (cause) =>
-                          new OrchestrationGetSnapshotError({
-                            message: "Failed to load orchestration snapshot sequence",
-                            cause,
-                          }),
-                      ),
-                    ),
-                  ]);
+                    );
 
                   if (Option.isNone(threadDetail)) {
                     return Stream.fail(
@@ -1021,11 +1032,14 @@ const makeWsRpcLayer = (
                     );
                   }
 
-                  const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+                  const snapshotSequence = threadDetail.value.snapshotSequence;
+
+                  const liveStream = domainEventStream.pipe(
                     Stream.filter(
                       (event) =>
                         event.aggregateKind === "thread" &&
                         event.aggregateId === input.threadId &&
+                        event.sequence > snapshotSequence &&
                         isThreadDetailEvent(event),
                     ),
                     Stream.map((event) => ({
@@ -1052,7 +1066,7 @@ const makeWsRpcLayer = (
                       kind: "snapshot" as const,
                       snapshot: {
                         snapshotSequence,
-                        thread: threadDetail.value,
+                        thread: threadDetail.value.thread,
                       },
                     }),
                     Stream.merge(liveStream, reasoningStream),

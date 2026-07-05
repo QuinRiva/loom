@@ -83,6 +83,7 @@ const runReactor = (scenario: Scenario) =>
     const engineLayer = Layer.succeed(OrchestrationEngineService, {
       readEvents: () => Stream.empty,
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
       dispatch: (command: OrchestrationCommand) =>
         Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
     } as never);
@@ -94,6 +95,7 @@ const runReactor = (scenario: Scenario) =>
             ? Option.some(scenario.child as unknown as OrchestrationThread)
             : Option.none(),
         ),
+      getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
       getShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 0,
@@ -370,6 +372,7 @@ describe("WorkstreamFanInReactor", () => {
           const engineLayer = Layer.succeed(OrchestrationEngineService, {
             readEvents: () => Stream.empty,
             streamDomainEvents: Stream.fromPubSub(events),
+            subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
             dispatch: (command: OrchestrationCommand) =>
               Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
           } as never);
@@ -465,6 +468,7 @@ describe("WorkstreamFanInReactor", () => {
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.fromPubSub(events),
+        subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
         dispatch: (command: OrchestrationCommand) =>
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);

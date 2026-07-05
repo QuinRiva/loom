@@ -55,6 +55,9 @@ const EMPTY_PROPOSED_PLANS_ATOM = Atom.make(EMPTY_PROPOSED_PLANS).pipe(
 const EMPTY_SESSION_ATOM = Atom.make<OrchestrationSession | null>(null).pipe(
   Atom.withLabel("web-thread-session:empty"),
 );
+const EMPTY_SYNC_ERROR_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("web-thread-sync-error:empty"),
+);
 
 export const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
   Atom.keepAlive,
@@ -169,6 +172,13 @@ export function useThreadProposedPlans(
 export function useThreadSession(ref: ScopedThreadRef | null): OrchestrationSession | null {
   return useAtomValue(
     ref === null ? EMPTY_SESSION_ATOM : environmentThreadDetails.sessionAtom(ref),
+  );
+}
+
+/** Last error reported by the thread's detail subscription (null while healthy). */
+export function useThreadSyncError(ref: ScopedThreadRef | null): string | null {
+  return useAtomValue(
+    ref === null ? EMPTY_SYNC_ERROR_ATOM : environmentThreadDetails.errorAtom(ref),
   );
 }
 

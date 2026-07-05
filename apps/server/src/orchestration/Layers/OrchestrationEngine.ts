@@ -372,6 +372,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
       return Stream.fromPubSub(eventPubSub);
     },
+    // Eager, scoped subscription: attaches to `eventPubSub` the moment the
+    // effect runs so events published during a subsequent snapshot fetch are
+    // buffered in the subscription queue instead of being lost in the
+    // connect-gap. Returns a Stream over that already-attached subscription.
+    subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+      Stream.fromSubscription(subscription),
+    ),
   } satisfies OrchestrationEngineShape;
 });
 

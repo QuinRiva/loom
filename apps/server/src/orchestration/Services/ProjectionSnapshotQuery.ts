@@ -108,6 +108,11 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
+export interface ProjectionThreadDetailSnapshot {
+  readonly thread: OrchestrationThread;
+  readonly snapshotSequence: number;
+}
+
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
@@ -239,6 +244,18 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread detail snapshot together with the projection
+   * `snapshotSequence` derived from the SAME read transaction. Callers use this
+   * one consistent sequence both as the snapshot cursor and as the live-stream
+   * dedup boundary (`event.sequence > snapshotSequence`), so no event committed
+   * between the detail read and the sequence read can be dropped — the failure
+   * mode when the two are read as independent snapshots.
+   */
+  readonly getThreadDetailSnapshotById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<ProjectionThreadDetailSnapshot>, ProjectionRepositoryError>;
 
   /**
    * Read the set of thread ids that currently have a pending turn-start (a

@@ -223,6 +223,7 @@ describe("OrchestrationEngine", () => {
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
+          getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
