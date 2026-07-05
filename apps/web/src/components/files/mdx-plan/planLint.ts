@@ -166,7 +166,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           severity: "error",
           ...at(node),
           message:
-            `Unknown tag <${name}> — one unknown tag prevents the ENTIRE plan from rendering. ` +
+            `Unknown tag <${name}> — it renders as an inline error card in the plan. ` +
             (suggestion
               ? `Did you mean <${suggestion}>?`
               : `Known tags: ${KNOWN_TAGS.join(", ")}.`),
@@ -388,7 +388,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Mermaid> has an empty source — it renders a permanent "Rendering diagram…" placeholder.`,
+          message: `<Mermaid> has an empty source — it renders an "Empty diagram" note.`,
         });
       } else {
         mermaidChecks.push({ source: data.source, node });
