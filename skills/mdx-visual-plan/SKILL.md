@@ -433,7 +433,13 @@ that already has one.
 
 The single place for unresolved decisions. Each question has a `mode` of
 `single | multi | freeform`; mark the option you would choose `recommended: true`.
-A write-in field always renders, so never add an "Other" option yourself.
+The rendered block is answerable in place: the reviewer clicks options (one for
+`single`, any number for `multi`) and each answer is attached to their next
+review message as a structured "Q: … → chose: …" comment. A write-in field
+renders only for `mode: "freeform"` or when the question sets
+`allowOther: true` — never add an "Other" option yourself; set `allowOther`
+instead. `submitLabel` is accepted for the wire round-trip but not rendered:
+answers ride the review turn per question, so there is no submit button.
 
 ```mdx
 <QuestionForm

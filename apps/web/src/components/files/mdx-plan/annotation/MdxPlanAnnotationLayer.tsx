@@ -5,7 +5,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
-import { annotationDraftKey, useMdxAnnotationDraftStore } from "~/mdxAnnotationDraftStore";
+import {
+  annotationDraftKey,
+  questionAnswerDraftKey,
+  useMdxAnnotationDraftStore,
+} from "~/mdxAnnotationDraftStore";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import {
   type MdxAnchorReviewCommentContext,
@@ -13,6 +17,16 @@ import {
 } from "~/reviewCommentContext";
 
 import { MdxPlanRenderer } from "../MdxPlanRenderer";
+import {
+  EMPTY_QUESTION_ANSWER,
+  formatQuestionAnswerText,
+  isEmptyQuestionAnswer,
+  isQuestionAnswerCommentId,
+  parseQuestionAnswerDraft,
+  PlanQuestionAnswersContext,
+  type PlanQuestionAnswersApi,
+  questionAnswerCommentId,
+} from "../questionAnswers";
 import { anchorForBlockElement, anchorFromRange, blockSelector, resolveAnchor } from "./anchoring";
 
 /**
@@ -21,6 +35,11 @@ import { anchorForBlockElement, anchorFromRange, blockSelector, resolveAnchor } 
  * portable {@link PlanCommentAnchor} → compose a comment → it flows through the
  * existing composer review-comment plumbing (`addReviewComment` →
  * `appendReviewCommentsToPrompt`) as the injected user turn on send.
+ *
+ * It also hosts the interactive answer surface for question blocks
+ * (`PlanQuestionAnswersContext`): option clicks / write-ins in
+ * `<QuestionForm>`/`<VisualQuestions>` upsert per-question review comments that
+ * ride the same channel (see `../questionAnswers.ts`).
  *
  * Pending comments are re-resolved against the live DOM every layout change so
  * highlights track the text; when an anchor no longer resolves (the plan text
@@ -128,9 +147,74 @@ export function MdxPlanAnnotationLayer({
   const getAnnotationDraft = useMdxAnnotationDraftStore((store) => store.getDraft);
   const setAnnotationDraft = useMdxAnnotationDraftStore((store) => store.setDraft);
   const clearAnnotationDraft = useMdxAnnotationDraftStore((store) => store.clearDraft);
-  const comments = useMemo(
+  const annotationDrafts = useMdxAnnotationDraftStore((store) => store.drafts);
+  const fileComments = useMemo(
     () => (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath)),
     [draft?.reviewComments, filePath],
+  );
+  // Question-answer comments are shown by the question blocks themselves (and as
+  // composer chips), not as highlight overlays/badges — only freeform annotation
+  // comments feed the overlay pipeline below.
+  const comments = useMemo(
+    () => fileComments.filter((c) => !isQuestionAnswerCommentId(c.id)),
+    [fileComments],
+  );
+
+  // Interactive answer surface for `<QuestionForm>`/`<VisualQuestions>` blocks:
+  // answers upsert a deterministic-id review comment (the wire truth — removing
+  // the composer chip un-answers the question) while the structured option ids
+  // persist in the annotation draft store.
+  const questionAnswers = useMemo<PlanQuestionAnswersApi>(
+    () => ({
+      getAnswer: (questionId) => {
+        if (!fileComments.some((c) => c.id === questionAnswerCommentId(filePath, questionId))) {
+          return EMPTY_QUESTION_ANSWER;
+        }
+        return parseQuestionAnswerDraft(
+          annotationDrafts[questionAnswerDraftKey(composerDraftTarget, filePath, questionId)] ??
+            null,
+        );
+      },
+      setAnswer: (question, blockElement, answer) => {
+        const draftKey = questionAnswerDraftKey(composerDraftTarget, filePath, question.id);
+        const commentId = questionAnswerCommentId(filePath, question.id);
+        if (isEmptyQuestionAnswer(answer)) {
+          clearAnnotationDraft(draftKey);
+          removeReviewComment(composerDraftTarget, commentId);
+          return;
+        }
+        setAnnotationDraft(draftKey, JSON.stringify(answer));
+        const anchored =
+          blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
+        const anchor: PlanCommentAnchor = anchored?.anchor ?? {
+          anchorKind: "visual",
+          targetKind: "control",
+          blockType: "question-form",
+        };
+        addReviewComment(composerDraftTarget, {
+          kind: "mdx-anchor",
+          id: commentId,
+          filePath,
+          sectionId: anchor.sectionId ?? `file:${filePath}`,
+          sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
+          rangeLabel: `answer: ${question.id}`,
+          text: formatQuestionAnswerText(question, answer),
+          anchor,
+          quotedText: question.title,
+        });
+      },
+    }),
+    [
+      fileComments,
+      annotationDrafts,
+      composerDraftTarget,
+      filePath,
+      root,
+      addReviewComment,
+      removeReviewComment,
+      setAnnotationDraft,
+      clearAnnotationDraft,
+    ],
   );
 
   // Track the rendered plan root (a direct child of the wrapper) as it appears
@@ -391,7 +475,9 @@ export function MdxPlanAnnotationLayer({
         setHoverBlock(null);
       }}
     >
-      <MdxPlanRenderer source={source} />
+      <PlanQuestionAnswersContext.Provider value={questionAnswers}>
+        <MdxPlanRenderer source={source} />
+      </PlanQuestionAnswersContext.Provider>
 
       {/* Highlight overlays for each pending annotation (non-interactive). */}
       <div className="pointer-events-none absolute inset-0 z-10">
