@@ -8,6 +8,7 @@
     "build": "vp build",
     "preview": "vp preview",
     "typecheck": "tsgo --noEmit",
+    "lint:plan": "node scripts/lint-plan.mjs",
     "test": "vp test run --passWithNoTests --project unit"
   },
   "dependencies": {

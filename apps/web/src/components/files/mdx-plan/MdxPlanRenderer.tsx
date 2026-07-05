@@ -63,6 +63,13 @@ function remarkRejectCodeEscapes() {
         );
       }
       for (const attr of node.attributes ?? []) {
+        // A spread attribute ({...expr}) is an arbitrary expression too — without
+        // this it compiles straight into the JSX call and executes at render.
+        if (attr?.type === "mdxJsxExpressionAttribute") {
+          throw new Error(
+            "Disallowed MDX spread attribute: {...expression} is not permitted in plans.",
+          );
+        }
         if (attr?.type === "mdxJsxAttribute" && attr.value && typeof attr.value === "object") {
           assertLiteralAttributeExpression(attr.name ?? "?", attr.value as MdxAttrExpression);
         }

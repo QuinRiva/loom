@@ -1,0 +1,64 @@
+# Renderer audit — deliberate edge cases
+
+**Purpose.** Deliberately-broken blocks split out of `plan.mdx` so the kitchen
+sink lints clean. Every block below MUST be flagged by the plan validator
+(`node apps/web/scripts/lint-plan.mjs plans/renderer-audit/edge-cases.mdx`),
+and in the renderer each degrades to a per-block error card or silent
+degradation — never a whole-document crash.
+
+## Invalid props (per-block error cards)
+
+<Code id="bad-code" language="ts" caption="Edge: missing required `code` prop" />
+
+<Endpoint id="bad-endpoint" method="YEET" path="/nope" />
+
+<DataModel id="bad-dm" entities={[{ "id": "x", "name": "X", "fields": [{ "name": "f", "fk": true }] }]} />
+
+<Callout id="co-bad-tone" tone="banana">Edge: invalid tone enum.</Callout>
+
+## Must-parse string props
+
+<Mermaid id="mm-invalid" source={"flowchart TD\n  A --> ==>> broken"} caption="Edge: invalid mermaid source" />
+
+<Mermaid id="mm-empty" source="" caption="Edge: empty source (permanent placeholder)" />
+
+<Json id="json-bad" title="Edge: invalid JSON string" json="{ not json" />
+
+<OpenApi
+  id="oa-yaml"
+  title="Edge: YAML spec (JSON only)"
+  spec={"openapi: 3.0.0\ninfo:\n  title: Demo\n  version: 1.0.0\npaths: {}"}
+/>
+
+## Silent degradation
+
+<Table id="tb-ragged" columns={["A", "B"]} rows={[["only one cell"], ["x", "y", "extra cell"]]} />
+
+<Screen
+  id="sc-stripped"
+  caption="Edge: sanitiser strips positioning + handlers"
+  html={"<div style=\"position:absolute;top:0;padding:8px\"><button onclick=\"alert(1)\" class=\"bg-red-500\">Save</button></div>"}
+/>
+
+## Dangling canvas references
+
+<DesignBoard id="bad-board" title="Edge: dangling ids" width={1200} height={400}>
+  <Artboard id="only-artboard" x={20} y={40} surface="panel" html={"<div>content</div>"} />
+  <Connector from="only-artboard" to="nowhere" label="dangling" />
+  <Annotation targetId="also-nowhere" placement="right">Edge: no x/y fallback — invisible forever.</Annotation>
+</DesignBoard>
+
+## Diagram dangling edge
+
+<Diagram
+  id="dg-dangling"
+  caption="Edge: edge endpoint matches no node"
+  nodes={[{ "id": "a", "label": "A", "x": 20, "y": 50 }]}
+  edges={[{ "from": "a", "to": "ghost" }]}
+/>
+
+## Misplaced slot tags
+
+<Tab label="Orphan tab">
+  <Callout tone="info">Edge: Tab outside TabsBlock.</Callout>
+</Tab>

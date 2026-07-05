@@ -137,9 +137,6 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
   caption="State diagram"
 />
 
-<Mermaid id="mm-invalid" source={"flowchart TD\n  A --> ==>> broken"} caption="Edge: invalid mermaid source" />
-
-<Mermaid id="mm-empty" source="" caption="Edge: empty source" />
 
 ## JSON explorer
 
@@ -150,14 +147,12 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
   collapsedDepth={1}
 />
 
-<Json id="json-bad" title="Edge: invalid JSON string" json="{ not json" />
 
 ## Callouts
 
 <Callout id="co-info" tone="info">Info callout body with `code` and **bold**.</Callout>
 <Callout id="co-decision" tone="decision">Decision callout.</Callout>
 <Callout id="co-risk" tone="risk">Risk callout.</Callout>
-<Callout id="co-bad-tone" tone="banana">Edge: invalid tone enum.</Callout>
 
 ## Checklist
 
@@ -183,7 +178,6 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
   density="compact"
 />
 
-<Table id="tb-ragged" columns={["A", "B"]} rows={[["only one cell"], ["x", "y", "extra cell"]]} />
 
 ## Diff
 
@@ -202,7 +196,7 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
 <OpenApi
   id="oa-basic"
   title="Tiny spec"
-  spec={"openapi: 3.0.0\ninfo:\n  title: Demo\n  version: 1.0.0\npaths:\n  /ping:\n    get:\n      summary: Ping\n      responses:\n        \"200\":\n          description: pong"}
+  spec={"{\n  \"openapi\": \"3.0.0\",\n  \"info\": { \"title\": \"Demo\", \"version\": \"1.0.0\" },\n  \"paths\": {\n    \"/ping\": {\n      \"get\": { \"summary\": \"Ping\", \"responses\": { \"200\": { \"description\": \"pong\" } } }\n    }\n  }\n}"}
 />
 
 ## Wireframes
@@ -225,12 +219,13 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
 
 <DesignBoard id="board-1" title="Audit board" width={1200} height={500}>
   <Section title="Left region" x={0} y={0} width={400} height={400}>
-    <Artboard x={20} y={40} surface="panel" html={"<div><em>artboard content</em></div>"} caption="inner artboard" />
+    <Artboard id="ab-left" x={20} y={40} surface="panel" html={"<div><em>artboard content</em></div>"} caption="inner artboard" />
   </Section>
   <Section title="Right region" x={450} y={0} width={400} height={400}>
-    <Annotation targetId="board-note" placement="right" x={60} y={60}>Canvas annotation text</Annotation>
+    <Artboard id="ab-right" x={470} y={40} surface="panel" html={"<div><strong>right artboard</strong></div>"} caption="right artboard" />
   </Section>
-  <Connector from="Left region" to="Right region" label="flow" />
+  <Annotation targetId="ab-right" placement="right">Canvas annotation text</Annotation>
+  <Connector from="ab-left" to="ab-right" label="flow" />
 </DesignBoard>
 
 ## Columns
@@ -270,14 +265,6 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
   height={120}
   html={"<div style=\"color:rebeccapurple\">static html block</div>"}
 />
-
-## Invalid props (should degrade to error cards, not crash)
-
-<Code id="bad-code" language="ts" caption="Edge: missing required `code` prop" />
-
-<Endpoint id="bad-endpoint" method="YEET" path="/nope" />
-
-<DataModel id="bad-dm" entities={[{ "id": "x", "name": "X", "fields": [{ "name": "f", "fk": true }] }]} />
 
 ## Open questions
 

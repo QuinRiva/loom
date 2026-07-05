@@ -57,6 +57,25 @@ shown as ordinary markdown. After writing it, tell the user the path and ask
 them to open, review, and annotate it — do not ask a separate "does this look
 good?" question on top of that.
 
+## Validate before presenting (mandatory)
+
+A single unknown tag or stray `<`/`{` in prose kills the ENTIRE rendered
+document, invalid props show error cards, and several mistakes (dangling canvas
+ids, ragged tables, sanitiser-stripped HTML) degrade silently. **Always run the
+plan validator on your `.mdx` file and fix every finding BEFORE telling the
+user the plan is ready:**
+
+```
+node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx
+```
+
+It exercises the real renderer pipeline (compile gate, block registry, zod
+schemas, mermaid parser, wireframe sanitiser) and reports `file:line` findings.
+Fix all `error` findings (the render would break or degrade); read each
+`warning` (something will silently disappear or render wrong) and fix it unless
+the degradation is genuinely intended. Exit code 0 with no findings means the
+plan will render.
+
 ## Research before you draft
 
 Ground the plan in the real codebase, not from memory:

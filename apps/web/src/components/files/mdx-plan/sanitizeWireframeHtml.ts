@@ -154,6 +154,10 @@ function isDangerousStyle(value: string): boolean {
 
 type SanitizeElementOptions = {
   stripWireframeThemeClasses?: boolean;
+  /** Lint hook: called once per stripped element/attribute with a human-readable
+   * reason. Render callers omit it; the plan validator uses it for a dry-run
+   * report of what would silently disappear. */
+  onStrip?: (message: string) => void;
 };
 
 const TAILWIND_THEME_COLORS =
@@ -234,25 +238,43 @@ function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
 function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOptions) {
   root.querySelectorAll<HTMLElement>("*").forEach((el) => {
     if (BLOCKED_LOCAL_NAMES.has(el.localName.toLowerCase())) {
+      options?.onStrip?.(`<${el.localName}> element removed (blocked tag)`);
       el.remove();
       return;
     }
     for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
       if (name.startsWith("on") || RESERVED_ANNOTATION_ATTRS.has(name)) {
+        options?.onStrip?.(
+          `"${name}" attribute removed (${name.startsWith("on") ? "event handlers never run in wireframe HTML" : "renderer-owned annotation attribute"})`,
+        );
         el.removeAttribute(attr.name);
         continue;
       }
       if (URL_ATTRS.has(name) && !isSafeUrl(attr.value)) {
+        options?.onStrip?.(`"${name}" attribute removed (unsafe URL scheme)`);
         el.removeAttribute(attr.name);
         continue;
       }
       if (name === "style" && isDangerousStyle(attr.value)) {
+        const viewport =
+          DANGEROUS_VIEWPORT_CSS.test(attr.value) ||
+          DANGEROUS_VIEWPORT_CSS.test(cssSafetyText(attr.value));
+        options?.onStrip?.(
+          viewport
+            ? `entire style attribute removed — position:absolute/fixed/sticky and huge z-index are not allowed (ALL declarations in that attribute are lost; use static layout)`
+            : `entire style attribute removed (dangerous CSS)`,
+        );
         el.removeAttribute(attr.name);
         continue;
       }
       if (name === "class" && options?.stripWireframeThemeClasses) {
         const next = stripThemeClasses(attr.value);
+        for (const cls of attr.value.split(/\s+/).filter(Boolean).filter(isWireframeThemeClass)) {
+          options?.onStrip?.(
+            `class "${cls}" stripped (Tailwind theme classes carry no CSS in plans)`,
+          );
+        }
         if (next) {
           el.setAttribute(attr.name, next);
         } else {
@@ -274,7 +296,7 @@ function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOp
  */
 export function sanitizeWireframeHtml(
   html: string | undefined,
-  options?: { preserveThemeClasses?: boolean },
+  options?: { preserveThemeClasses?: boolean; onStrip?: (message: string) => void },
 ): string {
   if (!html) return "";
   const stripWireframeThemeClasses = !options?.preserveThemeClasses;
@@ -282,7 +304,13 @@ export function sanitizeWireframeHtml(
     return fallbackStrip(html, { stripWireframeThemeClasses });
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.querySelectorAll(BLOCKED_TAGS).forEach((el) => el.remove());
-  sanitizeElementAttributes(doc.body, { stripWireframeThemeClasses });
+  doc.querySelectorAll(BLOCKED_TAGS).forEach((el) => {
+    options?.onStrip?.(`<${el.localName}> element removed (blocked tag)`);
+    el.remove();
+  });
+  sanitizeElementAttributes(doc.body, {
+    stripWireframeThemeClasses,
+    ...(options?.onStrip ? { onStrip: options.onStrip } : {}),
+  });
   return doc.body.innerHTML;
 }
