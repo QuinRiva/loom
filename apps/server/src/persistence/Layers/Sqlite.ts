@@ -43,6 +43,13 @@ const setup = Layer.effectDiscard(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
+    // The server holds a long-lived connection while workstream mutations run
+    // as separate short-lived CLI processes (cli/orchestrationMutation, goal,
+    // project) against this same file. SQLite permits one writer at a time, so
+    // without a busy timeout any overlap — e.g. a CLI mutation landing during
+    // the server's high-frequency token-usage writes — fails instantly with
+    // "database is locked". Wait for the lock instead of failing on contention.
+    yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
     yield* runMigrations();
   }),
