@@ -19,6 +19,7 @@ import {
   TurnId,
   type ChatAttachment,
   type ModelCapabilities,
+  type ModelSelection,
   type PiThinkingLevel,
   type ProviderRuntimeEvent,
   type ProviderSession,
@@ -135,6 +136,10 @@ interface ActivePiSession {
   // auto-retry attempt and per T3-level retry re-prompt within the SAME T3
   // turn; a duplicate `turn.started` would re-run downstream turn-start logic.
   turnStartedFor: TurnId | undefined;
+  // Last thinking level applied via set_thinking_level (session.model plays the
+  // same role for set_model): every turn re-asserts the thread's stored
+  // selection, so these let applyModelSelection skip no-op RPCs.
+  thinkingLevel: PiThinkingLevel | undefined;
   // T3-level slow-tier retry state for the open turn (see T3_RETRY_DELAYS_MS).
   // `originalModel` is set once the backend fallback engages so the model can
   // be restored when the turn settles; `timer` is the pending re-dispatch.
@@ -703,26 +708,70 @@ function makePiAdapter(input: {
   // the turn's original model (per-turn fallback: subsequent turns must run on
   // the thread's selected model — sendTurn re-issues set_model anyway; this is
   // belt-and-braces for non-orchestrated sends). Best-effort: a failed restore
-  // is ignored because the next sendTurn sets the model authoritatively.
+  // is ignored — session.model then still names the fallback slug, so the next
+  // applyModelSelection won't dedupe-skip the authoritative set_model.
   const settleRetry = (session: ActivePiSession): Effect.Effect<void> => {
     const retry = session.retry;
     session.retry = undefined;
     if (!retry) return Effect.void;
     if (retry.timer !== undefined) clearTimeout(retry.timer);
-    if (retry.originalModel === undefined || retry.originalModel === session.session.model)
-      return Effect.void;
-    const model = resolvePiModel(retry.originalModel);
-    updateSession(session, { model: retry.originalModel });
+    const originalModel = retry.originalModel;
+    if (originalModel === undefined || originalModel === session.session.model) return Effect.void;
+    const model = resolvePiModel(originalModel);
     return model
       ? Effect.promise(() =>
-          session.process.request({
-            type: "set_model",
-            provider: model.provider,
-            modelId: model.modelId,
-          }),
+          session.process
+            .request({ type: "set_model", provider: model.provider, modelId: model.modelId })
+            .then(() => void updateSession(session, { model: originalModel })),
         ).pipe(Effect.ignore)
       : Effect.void;
   };
+
+  // Tell the live pi process which model/thinking level to run, skipping RPCs
+  // whose value already matches what this adapter last applied. Called at
+  // session start (pi would otherwise silently run the user's global default)
+  // and on every turn that carries a selection.
+  const applyModelSelection = (
+    session: ActivePiSession,
+    selection: ModelSelection,
+  ): Effect.Effect<void, ProviderAdapterRequestError> =>
+    Effect.gen(function* () {
+      const model = resolvePiModel(selection.model);
+      if (model && selection.model !== session.session.model) {
+        yield* Effect.tryPromise({
+          try: () =>
+            session.process.request({
+              type: "set_model",
+              provider: model.provider,
+              modelId: model.modelId,
+            }),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: DRIVER_KIND,
+              method: "set_model",
+              detail: detailFromCause(cause, "Failed to set Pi model."),
+              cause,
+            }),
+        });
+        updateSession(session, { model: selection.model });
+      }
+      const thinkingLevel = getModelSelectionStringOptionValue(selection, "thinkingLevel") as
+        | PiThinkingLevel
+        | undefined;
+      if (thinkingLevel && thinkingLevel !== session.thinkingLevel) {
+        yield* Effect.tryPromise({
+          try: () => session.process.request({ type: "set_thinking_level", level: thinkingLevel }),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: DRIVER_KIND,
+              method: "set_thinking_level",
+              detail: detailFromCause(cause, "Failed to set Pi thinking level."),
+              cause,
+            }),
+        });
+        session.thinkingLevel = thinkingLevel;
+      }
+    });
 
   // Settle the open turn as completed/interrupted (events are built while the
   // turn id is still set, then the id is cleared).
@@ -966,7 +1015,13 @@ function makePiAdapter(input: {
         // `responseModel` is the concrete inference model when pi reports one.
         const str = (value: unknown) =>
           typeof value === "string" && value.trim() ? value : undefined;
-        const model = str(message.message.model) ?? str(session.session.model);
+        // The session-state fallback holds a T3 slug ("anthropic/claude-x")
+        // while pi's message.model is a bare id ("claude-x"); strip the
+        // provider prefix so one model can't split into two ledger labels.
+        const sessionModel = str(session.session.model);
+        const model =
+          str(message.message.model) ??
+          (sessionModel ? (resolvePiModel(sessionModel)?.modelId ?? sessionModel) : undefined);
         const resolvedModel = str(message.message.responseModel);
         const usage = normalized
           ? {
@@ -1214,7 +1269,6 @@ function makePiAdapter(input: {
               status: "ready",
               runtimeMode: startInput.runtimeMode,
               cwd: startInput.cwd ?? input.serverConfig.cwd,
-              ...(startInput.modelSelection ? { model: startInput.modelSelection.model } : {}),
               threadId: startInput.threadId,
               createdAt,
               updatedAt: createdAt,
@@ -1226,6 +1280,7 @@ function makePiAdapter(input: {
               unsubscribe: () => undefined,
               activeTurnId: undefined,
               turnStartedFor: undefined,
+              thinkingLevel: undefined,
               retry: undefined,
               currentAssistantMessageId: undefined,
               toolArgs: new Map(),
@@ -1254,6 +1309,14 @@ function makePiAdapter(input: {
               ).catch(() => undefined);
             });
             sessions.set(startInput.threadId, active);
+            // Pin the session to its assigned model from birth — pi otherwise
+            // runs whatever defaultModel is in the user's global pi settings.
+            // On failure the process is stopped, which routes cleanup through
+            // the normal exit handler.
+            if (startInput.modelSelection)
+              yield* applyModelSelection(active, startInput.modelSelection).pipe(
+                Effect.tapError(() => Effect.promise(() => process.stop()).pipe(Effect.ignore)),
+              );
             yield* emit({
               ...eventBase({
                 instanceId: input.instanceId,
@@ -1272,7 +1335,7 @@ function makePiAdapter(input: {
               type: "thread.started",
               payload: {},
             });
-            return session;
+            return active.session;
           }),
         ),
       ),
@@ -1301,42 +1364,8 @@ function makePiAdapter(input: {
             const inBackoff =
               session.retry?.timer !== undefined && session.activeTurnId !== undefined;
             if (inBackoff) yield* settleRetry(session);
-            if (turnInput.modelSelection) {
-              const model = resolvePiModel(turnInput.modelSelection.model);
-              if (model)
-                yield* Effect.tryPromise({
-                  try: () =>
-                    session.process.request({
-                      type: "set_model",
-                      provider: model.provider,
-                      modelId: model.modelId,
-                    }),
-                  catch: (cause) =>
-                    new ProviderAdapterRequestError({
-                      provider: DRIVER_KIND,
-                      method: "set_model",
-                      detail: detailFromCause(cause, "Failed to set Pi model."),
-                      cause,
-                    }),
-                });
-              const thinkingLevel = getModelSelectionStringOptionValue(
-                turnInput.modelSelection,
-                "thinkingLevel",
-              ) as PiThinkingLevel | undefined;
-              if (thinkingLevel)
-                yield* Effect.tryPromise({
-                  try: () =>
-                    session.process.request({ type: "set_thinking_level", level: thinkingLevel }),
-                  catch: (cause) =>
-                    new ProviderAdapterRequestError({
-                      provider: DRIVER_KIND,
-                      method: "set_thinking_level",
-                      detail: detailFromCause(cause, "Failed to set Pi thinking level."),
-                      cause,
-                    }),
-                });
-              updateSession(session, { model: turnInput.modelSelection.model });
-            }
+            if (turnInput.modelSelection)
+              yield* applyModelSelection(session, turnInput.modelSelection);
             // A send while a turn is already running is a steer: pi folds the
             // message into the live agent loop and continues the SAME turn, so
             // we keep the existing turn id and don't re-emit lifecycle state
