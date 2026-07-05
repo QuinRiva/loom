@@ -23,8 +23,10 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
  *      (`code={fetch(...)}`, sequence/IIFE tricks), so plan source cannot smuggle
  *      executable JS. JSON-literal attribute expressions — `entities={[…]}`,
  *      `data={{…}}`, `code={"…"}` — remain allowed; that is the block wire format.
- *   3. Unknown-component trap — MDX's own `_missingMdxReference` throws for any
- *      capitalized tag not supplied, surfaced by the error boundary.
+ *   3. Unknown-component fallback — a remark pass rewrites any capitalized JSX
+ *      tag not in the registry to the inline `UnknownPlanBlock` error card
+ *      (attrs/children dropped), so one bad tag cannot reach MDX's
+ *      `_missingMdxReference` throw and kill the whole document.
  *
  * Per decision D2 this accepts `unsafe-eval` (the `Function` constructor) under a
  * strict CSP; the app sets no CSP today. The remark guard + closed registry
@@ -43,6 +45,7 @@ const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextE
 
 type GuardNode = {
   type: string;
+  name?: string | null;
   children?: unknown[];
   attributes?: Array<{ type?: string; name?: string; value?: unknown }>;
 };
@@ -82,11 +85,41 @@ function remarkRejectCodeEscapes() {
   };
 }
 
+const MDX_JSX_NODE_TYPES = new Set(["mdxJsxFlowElement", "mdxJsxTextElement"]);
+
+/**
+ * remark plugin: rewrite any capitalized JSX tag that is not in the closed
+ * registry to the `UnknownPlanBlock` error card (original tag preserved as its
+ * `tag` attr; other attrs and children dropped). Runs AFTER the code-escape
+ * guard, so smuggled attribute expressions are still rejected doc-wide rather
+ * than silently discarded here. Lowercase (HTML) tags are left to MDX.
+ */
+function remarkUnknownBlockFallback() {
+  return (tree: GuardNode) => {
+    const walk = (node: GuardNode) => {
+      for (const child of node.children ?? []) {
+        walk(child as GuardNode);
+      }
+      if (
+        MDX_JSX_NODE_TYPES.has(node.type) &&
+        node.name &&
+        /^[A-Z]/.test(node.name) &&
+        !(node.name in PLAN_BLOCK_COMPONENTS)
+      ) {
+        node.attributes = [{ type: "mdxJsxAttribute", name: "tag", value: node.name }];
+        node.name = "UnknownPlanBlock";
+        node.children = [];
+      }
+    };
+    walk(tree);
+  };
+}
+
 type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
 
 const evaluateOptions = {
   ...runtime,
-  remarkPlugins: [remarkGfm, remarkRejectCodeEscapes],
+  remarkPlugins: [remarkGfm, remarkRejectCodeEscapes, remarkUnknownBlockFallback],
   development: false,
 } as unknown as EvaluateOptions;
 

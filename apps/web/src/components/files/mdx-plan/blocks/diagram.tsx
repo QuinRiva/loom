@@ -91,13 +91,23 @@ export const diagramMdx: BlockMdxConfig<DiagramData> = {
     }) as DiagramData,
 };
 
-/** Fill in coordinates for nodes missing them: spread evenly across a middle row. */
+/** Fill in coordinates for nodes missing them: lay auto-placed nodes out on an
+ * evenly spaced grid (≈square) so they never stack on top of each other. */
 function positioned(nodes: DiagramNode[]): (DiagramNode & { x: number; y: number })[] {
-  return nodes.map((node, index) => ({
-    ...node,
-    x: node.x ?? ((index + 1) / (nodes.length + 1)) * 100,
-    y: node.y ?? 50,
-  }));
+  const autoCount = nodes.filter((node) => node.x === undefined || node.y === undefined).length;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(autoCount)));
+  const rows = Math.max(1, Math.ceil(autoCount / cols));
+  let placed = 0;
+  return nodes.map((node) => {
+    if (node.x !== undefined && node.y !== undefined)
+      return node as DiagramNode & { x: number; y: number };
+    const index = placed++;
+    return {
+      ...node,
+      x: node.x ?? (((index % cols) + 0.5) / cols) * 100,
+      y: node.y ?? ((Math.floor(index / cols) + 0.5) / rows) * 100,
+    };
+  });
 }
 
 export function DiagramRead({ data, blockId }: PlanBlockReadProps<DiagramData>) {

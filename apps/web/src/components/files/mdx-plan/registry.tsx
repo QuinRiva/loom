@@ -80,6 +80,19 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
 
+/** Error card for a PascalCase tag that is not in the registry. The renderer's
+ * remark pass rewrites such elements to this component (attrs/children dropped)
+ * so ONE bad tag degrades to an inline card instead of `_missingMdxReference`
+ * killing the whole document at the top-level error boundary. */
+export function UnknownPlanBlock({ tag }: { tag?: unknown }) {
+  return (
+    <PlanBlockError
+      tag={typeof tag === "string" ? tag : "?"}
+      message={`Unknown block — available blocks: ${PLAN_BLOCKS.map((entry) => entry.tag).join(", ")}`}
+    />
+  );
+}
+
 function PlanBlockError({ tag, message }: { tag: string; message: string }) {
   return (
     <div className="my-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
@@ -119,11 +132,12 @@ function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>>
   };
 }
 
-/** MDX component map — the exact set of custom tags the renderer will resolve. */
-export const PLAN_BLOCK_COMPONENTS: Record<
-  string,
-  FC<Record<string, unknown>>
-> = Object.fromEntries(PLAN_BLOCKS.map((entry) => [entry.tag, makeBlockComponent(entry)]));
+/** MDX component map — the exact set of custom tags the renderer will resolve
+ * (registry blocks + the internal unknown-tag error card). */
+export const PLAN_BLOCK_COMPONENTS: Record<string, FC<Record<string, unknown>>> = {
+  ...Object.fromEntries(PLAN_BLOCKS.map((entry) => [entry.tag, makeBlockComponent(entry)])),
+  UnknownPlanBlock,
+};
 
 /* -------------------------------------------------------------------------- */
 /* Byte-stable MDX round-trip (authoring / import contract)                   */

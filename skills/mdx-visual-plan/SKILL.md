@@ -392,8 +392,10 @@ A Redoc-style reference rendered from a whole OpenAPI 3 / Swagger 2 document.
 ### `<Mermaid>` — a Mermaid diagram
 
 Renders a Mermaid diagram from its text `source` (multiline string attr), with an
-optional `caption`. Runs in Mermaid's `strict` security mode (no `%%{init}%%`
-directives, HTML labels, or click JS). Use `<Diagram>` for a hand-placed spatial
+optional `caption`. Runs in Mermaid's `strict` security mode (sanitised output, no
+click JS) with HTML labels disabled — labels render as plain SVG text. (Strict mode
+alone does NOT disable `%%{init}%%` directives or HTML labels in mermaid 11.)
+Use `<Diagram>` for a hand-placed spatial
 layout; use `<Mermaid>` when Mermaid's auto-layout of a flow/sequence/ER graph is
 enough.
 

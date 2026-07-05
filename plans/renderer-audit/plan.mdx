@@ -138,6 +138,10 @@ Regular paragraph with **bold**, *italic*, `inline code`, and a [link](https://e
 />
 
 
+<Mermaid source={"flowchart LR\n  P[First un-id'd] --> Q[renders]"} caption="Edge: un-id'd block 1 (concurrent render ids)" />
+
+<Mermaid source={"flowchart LR\n  R[Second un-id'd] --> S[also renders]"} caption="Edge: un-id'd block 2 (concurrent render ids)" />
+
 ## JSON explorer
 
 <Json

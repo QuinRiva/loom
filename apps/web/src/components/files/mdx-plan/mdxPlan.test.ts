@@ -296,11 +296,21 @@ describe("mdx-plan security model", () => {
     expect(html).toContain("export const x = 1");
   });
 
-  it("rejects unknown components (not in the closed registry)", async () => {
-    const Content = await compilePlanMdx("<Malicious onClick={1} />");
-    expect(() =>
-      renderToStaticMarkup(createElement(Content, { components: PLAN_BLOCK_COMPONENTS })),
-    ).toThrow();
+  it("renders unknown components as an inline error card, keeping the rest of the doc", async () => {
+    const Content = await compilePlanMdx(
+      "# Title\n\n<Malicious onClick={1}>secret</Malicious>\n\nAfter.",
+    );
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    // The unknown tag degrades to the error card (attrs/children dropped)…
+    expect(html).toContain("Malicious");
+    expect(html).toContain("Unknown block");
+    expect(html).not.toContain("secret");
+    expect(html).not.toContain("onClick");
+    // …while the surrounding document still renders.
+    expect(html).toContain("Title");
+    expect(html).toContain("After.");
   });
 
   // S1 regression: an un-id'd block must NOT emit `data-plan-block-id=""` — the
