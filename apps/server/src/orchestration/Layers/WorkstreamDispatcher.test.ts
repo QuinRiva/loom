@@ -504,6 +504,7 @@ describe("startup stale session reconciliation", () => {
               return { sequence: dispatched.length };
             }),
           streamDomainEvents: Stream.fromPubSub(events),
+          subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getCommandReadModel: () =>
@@ -954,6 +955,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
       // No domain events: the ONLY thing that can re-run a pass is the forked
       // schedule, so any wake delivered after t=0 is proof the re-pass fired.
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1078,6 +1080,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1196,6 +1199,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1315,6 +1319,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1430,6 +1435,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1535,6 +1541,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -1728,6 +1735,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -2111,6 +2119,7 @@ describe("generation join is held back by an unresolved gate (full dispatcher la
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -2260,6 +2269,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -2530,6 +2540,7 @@ describe("fan-in settlement releases dependents", () => {
               return { sequence: dispatched.length };
             }),
           streamDomainEvents: Stream.fromPubSub(events),
+          subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getShellSnapshot: () => shellSnapshot,

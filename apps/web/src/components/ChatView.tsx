@@ -202,7 +202,9 @@ import {
   useThread,
   useThreadProposedPlans,
   useThreadRefs,
+  useThreadShell,
   useThreadShells,
+  useThreadSyncError,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -213,7 +215,7 @@ import { shouldShowStagedKickoff, StagedKickoffCard } from "./chat/StagedKickoff
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { NoActiveThreadState } from "./NoActiveThreadState";
+import { NoActiveThreadState, ThreadHydratingState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
@@ -1042,6 +1044,8 @@ function ChatViewContent(props: ChatViewProps) {
   const composerDraftTarget: ScopedThreadRef | DraftId =
     routeKind === "server" ? routeThreadRef : props.draftId;
   const serverThread = useThread(routeKind === "server" ? routeThreadRef : null);
+  const routeThreadShell = useThreadShell(routeKind === "server" ? routeThreadRef : null);
+  const routeThreadSyncError = useThreadSyncError(routeKind === "server" ? routeThreadRef : null);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     routeKind === "server" ? store.threadLastVisitedAtById[routeThreadKey] : undefined,
@@ -5029,8 +5033,16 @@ function ChatViewContent(props: ChatViewProps) {
     void onRevertToTurnCountRef.current(targetTurnCount);
   }, []);
 
-  // Empty state: no active thread
+  // Empty state: no active thread. When the thread is known to exist (its
+  // shell is already in the environment snapshot — e.g. a freshly spawned
+  // sub-thread opened from the workstream graph) but the per-thread detail
+  // subscription has not delivered its first snapshot yet, show a loading
+  // state instead of an empty screen; the detail stream (with its retry loop)
+  // fills the view in place once it hydrates.
   if (!activeThread) {
+    if (routeThreadShell !== null) {
+      return <ThreadHydratingState title={routeThreadShell.title} error={routeThreadSyncError} />;
+    }
     return <NoActiveThreadState />;
   }
 
