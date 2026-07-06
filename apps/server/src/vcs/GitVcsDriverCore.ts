@@ -1569,6 +1569,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     if (trimmedBody.length > 0) {
       args.push("-m", trimmedBody);
     }
+    // Machine-generated commits must not run repo hooks: a formatting/lint hook
+    // can exit non-zero (e.g. `vp fmt` fails when the staged set has zero
+    // formattable files) and break thread launch, and a rewriting hook would
+    // corrupt a snapshot that is supposed to be a faithful checkpoint.
+    if (options?.noVerify === true) {
+      args.push("--no-verify");
+    }
     const progress =
       options?.progress?.onOutputLine === undefined
         ? options?.progress
@@ -2566,7 +2573,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       if (staged.exitCode === 0) {
         return { committed: false, commitSha: null };
       }
-      const { commitSha } = yield* commit(cwd, subject, body);
+      const { commitSha } = yield* commit(cwd, subject, body, { noVerify: true });
       return { committed: true, commitSha };
     },
   );
@@ -2590,7 +2597,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const result = yield* executeGit(
         "GitVcsDriver.mergeWorktreeBranch",
         input.cwd,
-        ["merge", "--no-ff", "--no-edit", "-m", input.subject, input.branch],
+        // `--no-verify` skips pre-merge-commit/commit-msg hooks: fan-in merges
+        // are machine-generated (design §3) and must not run repo hooks.
+        ["merge", "--no-verify", "--no-ff", "--no-edit", "-m", input.subject, input.branch],
         { allowNonZeroExit: true },
       );
       if (result.exitCode === 0) {

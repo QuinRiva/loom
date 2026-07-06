@@ -111,6 +111,8 @@ export interface GitCommitProgress {
 export interface GitCommitOptions {
   readonly timeoutMs?: number;
   readonly progress?: GitCommitProgress;
+  /** Pass `--no-verify` to skip pre-commit/commit-msg hooks (machine-generated commits). */
+  readonly noVerify?: boolean;
 }
 
 export interface GitPushResult {
