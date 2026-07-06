@@ -2,6 +2,10 @@
 
 Status: COMPLETE — all phases done; typecheck + lint:mobile pass; goal CLI round-trip validated. vp check has only pre-existing lint debt (untouched ProviderRuntimeIngestion.test.ts).
 
+## DB lane D3 consults
+
+- 2026-07-06: consulted plan author `9eb90884-ecb2-4f0e-970b-926ad1ae06bb` via `docs/plans/db-lane-reader-writer-split.md` about the CLI token path ambiguity. **Confidence: high.** Decision: use `ServerSecretStore` with secret name `cli-token` (actual file follows store convention: `cli-token.bin`) rather than bypassing the store for an extensionless path.
+
 ## Plan phases
 
 - [x] Phase 1: Contracts + decider + invariants + in-memory projector + goalTaskTree helper.

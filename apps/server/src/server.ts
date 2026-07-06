@@ -92,6 +92,7 @@ import { serverRelayBrokerTracingLayer } from "./cloud/relayTracing.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as CloudCliState from "./cloud/CliState.ts";
+import { provisionCliToken } from "./cli/cliToken.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
@@ -432,6 +433,7 @@ export const makeServerLayer = Layer.unwrap(
             return;
           }
 
+          yield* provisionCliToken();
           const state = yield* makePersistedServerRuntimeState({
             config,
             port: address.port,
