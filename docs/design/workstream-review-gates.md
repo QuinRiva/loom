@@ -276,16 +276,13 @@ routed-back submits — projected as a small `pendingRework: boolean` on C
 (set by `route-taken`, cleared by C's next `outcome-recorded`). While
 `pendingRework`:
 
-- outcome `done` is **intercepted**: decision `loop`, C's lane stays
-  `in_progress`, `route-taken { from: C, to: R, round }` is emitted, and the
-  gate pass resumes R with C's delta report (command id
+- any non-`needs_human` outcome is **intercepted**: decision `loop`, C's lane
+  stays `in_progress`, `route-taken { from: C, to: R, round }` is emitted, and
+  the gate pass resumes R with C's delta report (command id
   `server:workstream-gate:<R>:<round>:reverify`; R is `in_progress`-idle, so a
   plain turn-start resumes it — no reopen needed). The resume message tells R
   it is a delta review: scope to the delta plus previously flagged items.
 - outcome `needs_human` behaves as always (flag, halt).
-- any other outcome from C yields C (generic rule) — e.g. a coder that
-  concludes the findings are unimplementable-as-specified escalates rather
-  than looping forever.
 
 Crucially, C's **round-0** submit (before any `route-taken` exists) is a plain
 `done` — that is what releases R through the ordinary dependency edge. The
@@ -471,8 +468,7 @@ stateDiagram-v2
     ReviewerWorking --> YieldedToOrch : submit rework_approach /\nunknown outcome → reviewer yielded
     ReviewerWorking --> YieldedToOrch : submit needs_rework at cap\n→ reviewer yielded, wake carries\nBOTH reports + round count
     ReviewerWorking --> HumanFlagged : submit needs_human\n→ needs_guidance (after wraith consult)
-    CoderRework --> ReviewerWorking : coder submit done (intercepted:\nstays in_progress), reviewer resumed\nwith delta (delta-review discipline)
-    CoderRework --> YieldedToOrch : coder submits non-done outcome\n(e.g. findings unimplementable)
+    CoderRework --> ReviewerWorking : coder submits any non-needs_human outcome\n(intercepted: stays in_progress), reviewer resumed\nwith delta (delta-review discipline)
     CoderRework --> HumanFlagged : coder submit needs_human
     YieldedToOrch --> CoderRework : orchestrator resumes coder\n(workstream_prompt clears yielded on reviewer\nvia its own next resume, or orchestrator\nre-points the gate)
     YieldedToOrch --> Resolved : orchestrator accepts as-is\n(set_lane done on reviewer dissolves gate)
@@ -609,9 +605,8 @@ Renderer-facing: `SidebarThreadSummary` (`apps/web/src/types.ts` /
 >   failures. If the same finding is contested a second time, stop looping on
 >   it — say so in your report; the reviewer escalates it.
 > - If the findings reveal the _approach_ is wrong (not just the code), don't
->   grind the loop: submit a non-done outcome explaining why (the control
->   plane escalates to the orchestrator), or `needs_human` if it needs the
->   human.
+>   grind the loop: say so with reasons in your round report so the reviewer can
+>   escalate, or use `needs_human` if only a human can unblock it.
 
 Also updated in passing: `workstreamChildPrompt.ts`'s protocol paragraph
 (replace report-then-set-lane with submit; keep the attention paragraph), the

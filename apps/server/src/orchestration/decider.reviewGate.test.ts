@@ -329,14 +329,19 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
     }),
   );
 
-  it.effect("coder mid-round non-done outcome yields it (generic rule, not interception)", () =>
+  it.effect("coder mid-round non-done outcome routes back for re-verification", () =>
     Effect.gen(function* () {
       let model = yield* seedGateModel;
       model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
       model = yield* applyDecided(model, yield* decide(turnStart(CODER, { reopen: true }), model));
-      const events = yield* decide(submit(CODER, "findings_unimplementable"), model);
-      expect(events[1]?.payload).toMatchObject({ decision: "yield" });
-      expect(events[2]?.payload).toMatchObject({ threadId: CODER, planLane: "yielded" });
+      const events = yield* decide(submit(CODER, "fixed"), model);
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.report-set",
+        "thread.outcome-recorded",
+        "thread.route-taken",
+      ]);
+      expect(events[1]?.payload).toMatchObject({ outcome: "fixed", decision: "loop", round: 1 });
+      expect(events[2]?.payload).toMatchObject({ threadId: CODER, to: REVIEWER, round: 1 });
     }),
   );
 

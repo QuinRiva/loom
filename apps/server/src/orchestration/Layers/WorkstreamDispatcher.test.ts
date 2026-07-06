@@ -2091,6 +2091,112 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
       );
     },
   );
+
+  effectIt.effect(
+    "suppression: a reviewer with an open loop verdict is not idle-nagged after the coder stops holding rework",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        session: runningSession({ threadId: REVIEWER_ID, status: "ready", activeTurnId: null }),
+        latestTurn: latestTurn({ completedAt: epochIso }),
+        lastOutcome: {
+          outcome: "needs_rework",
+          decision: "loop",
+          round: 1,
+          recordedByEventId: "evt-reviewer-loop",
+          at: now,
+        } as unknown as OrchestrationThreadShell["lastOutcome"],
+      });
+      // This is the previously-bad gap: the target no longer has pendingRework,
+      // but the source's loop round remains unresolved and should stay parked
+      // while the non-terminal target has its own wake rail.
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        pendingRework: false,
+        session: runningSession({
+          threadId: CODER_ID,
+          status: "running",
+          activeTurnId: "turn-after-rework" as TurnId,
+        }),
+      });
+      return run(
+        [parent, reviewer, coder],
+        {
+          prefix: "t3-workstream-gate-suppress-loop-source-",
+          receiptIds: new Set([gateCommandId(REVIEWER_ID, 1, "rework")]),
+        },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(
+              dispatched.filter(
+                (c) => c.type === "thread.attention.raise" && c.threadId === REVIEWER_ID,
+              ),
+            ).toHaveLength(0);
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toHaveLength(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "suppression: a reviewer with a plain-done target is idle-nagged so a dead gate surfaces",
+    () => {
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        session: runningSession({ threadId: REVIEWER_ID, status: "ready", activeTurnId: null }),
+        latestTurn: latestTurn({ completedAt: epochIso }),
+        lastOutcome: {
+          outcome: "needs_rework",
+          decision: "loop",
+          round: 1,
+          recordedByEventId: "evt-reviewer-loop-dead",
+          at: now,
+        } as unknown as OrchestrationThreadShell["lastOutcome"],
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        planLane: "done",
+        pendingRework: false,
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-unsuppress-done-target-" },
+        ({ dispatched, dispatcher }) =>
+          Effect.gen(function* () {
+            expect(dispatched).toHaveLength(0);
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(
+              dispatched.filter(
+                (c) => c.type === "thread.attention.raise" && c.threadId === REVIEWER_ID,
+              ),
+            ).toHaveLength(1);
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toHaveLength(1);
+          }),
+      );
+    },
+  );
 });
 
 // Generation-join gating (design §6): a joined generation containing a party of
