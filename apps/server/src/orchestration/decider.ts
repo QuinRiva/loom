@@ -35,7 +35,7 @@ import {
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
 import {
-  areDependenciesSatisfied,
+  describeUnsatisfiedDependency,
   findDependencyCycle,
 } from "@t3tools/shared/workstreamDependencies";
 import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
@@ -1255,17 +1255,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // every subsequent turn are unaffected. Keying purely off current
       // dep-satisfaction preserves the override path: clearing a child's deps
       // lets the dispatcher auto-promote it.
-      if (
+      const dependencyBlocker =
         targetThread.parentThreadId !== null &&
-        !targetThread.messages.some((message) => message.role === "user") &&
-        !areDependenciesSatisfied(
-          targetThread,
-          new Map(readModel.threads.map((thread) => [thread.id, thread] as const)),
-        )
-      ) {
+        !targetThread.messages.some((message) => message.role === "user")
+          ? describeUnsatisfiedDependency(
+              targetThread,
+              new Map(readModel.threads.map((thread) => [thread.id, thread] as const)),
+            )
+          : null;
+      if (dependencyBlocker !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Sub-thread '${command.threadId}' cannot start its first turn until every dependency is done.`,
+          detail: `Sub-thread '${command.threadId}' cannot start its first turn: ${dependencyBlocker}.`,
         });
       }
       const sourceProposedPlan = command.sourceProposedPlan;

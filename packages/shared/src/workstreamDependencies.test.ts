@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   areDependenciesSatisfied,
+  describeUnsatisfiedDependency,
   findDependencyCycle,
   type DependencyGateThread,
 } from "./workstreamDependencies.ts";
@@ -175,6 +176,50 @@ describe("areDependenciesSatisfied", () => {
     });
     const downstream = node("downstream", { blockedBy: [reviewer.id], isolation: "isolated" });
     expect(areDependenciesSatisfied(downstream, index([coder, reviewer, downstream]))).toBe(false);
+  });
+});
+
+describe("describeUnsatisfiedDependency (turn.start diagnosability)", () => {
+  it("returns null when all dependencies are satisfied", () => {
+    const dep = node("dep", { planLane: "done" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(describeUnsatisfiedDependency(thread, index([dep, thread]))).toBeNull();
+  });
+
+  it("names a not-done dependency and its lane", () => {
+    const dep = node("dep", { planLane: "in_progress" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(describeUnsatisfiedDependency(thread, index([dep, thread]))).toBe(
+      "dependency 'dep' is not done yet (lane: in_progress)",
+    );
+  });
+
+  // The incident's misleading rejection: every listed dep reads `done`, but the
+  // real block is a gated coder's unsettled fan-in two hops away. The message
+  // must name that coder and its fan-in state, not "until every dependency is done".
+  it("names the reviewed coder whose fan-in has not completed (two hops away)", () => {
+    const coder = node("coder-ab244688", {
+      planLane: "done",
+      isolation: "isolated",
+      fanInState: "conflicted",
+    });
+    const reviewer = node("reviewer", {
+      blockedBy: [coder.id],
+      planLane: "done",
+      isolation: "attached",
+    });
+    const downstream = node("downstream", { blockedBy: [reviewer.id], isolation: "isolated" });
+    expect(describeUnsatisfiedDependency(downstream, index([coder, reviewer, downstream]))).toBe(
+      "reviewer 'reviewer' is done, but the coder 'coder-ab244688' it gates has not completed fan-in (fanInState: conflicted)",
+    );
+  });
+
+  it("names an isolated dependency whose own fan-in has not completed", () => {
+    const dep = node("dep", { planLane: "done", isolation: "isolated", fanInState: "conflicted" });
+    const thread = node("child", { blockedBy: [dep.id] });
+    expect(describeUnsatisfiedDependency(thread, index([dep, thread]))).toBe(
+      "dependency 'dep' is done, but its fan-in has not completed (fanInState: conflicted)",
+    );
   });
 });
 
