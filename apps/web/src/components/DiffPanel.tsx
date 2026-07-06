@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId, TurnId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -17,6 +17,7 @@ import {
   SearchIcon,
   TextWrapIcon,
 } from "lucide-react";
+import { Atom } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { type DraftId } from "../composerDraftStore";
@@ -33,7 +34,7 @@ import {
   resolveFileDiffPath,
 } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { useProject, useThread } from "../state/entities";
+import { useProject, useThread, useThreadShells } from "../state/entities";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
@@ -54,6 +55,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -65,10 +68,25 @@ import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
+import { inferCheckpointTurnCountByTurnId } from "../session-logic";
+import { environmentThreadDetails } from "../state/threads";
+import type { ThreadShell, TurnDiffSummary } from "../types";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
+const EMPTY_CODER_CHECKPOINTS_BY_ID: ReadonlyMap<
+  ThreadId,
+  ReadonlyArray<TurnDiffSummary>
+> = new Map();
+
+interface CoderDiffOption {
+  readonly thread: ThreadShell;
+  readonly orderedCheckpoints: ReadonlyArray<TurnDiffSummary>;
+  readonly inferredCheckpointTurnCountByTurnId: Record<string, number>;
+  readonly additions: number;
+  readonly deletions: number;
+}
 
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;
@@ -175,6 +193,66 @@ const DIFF_PANEL_UNSAFE_CSS = `
 }
 `;
 
+function orderTurnDiffSummaries(
+  summaries: ReadonlyArray<TurnDiffSummary>,
+  inferredCheckpointTurnCountByTurnId: Record<string, number>,
+): ReadonlyArray<TurnDiffSummary> {
+  return [...summaries].toSorted((left, right) => {
+    const leftTurnCount =
+      left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
+    const rightTurnCount =
+      right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
+    if (leftTurnCount !== rightTurnCount) {
+      return rightTurnCount - leftTurnCount;
+    }
+    return right.completedAt.localeCompare(left.completedAt);
+  });
+}
+
+function collectCoderDescendants(
+  threads: ReadonlyArray<ThreadShell>,
+  rootThreadId: ThreadId | null,
+): ReadonlyArray<ThreadShell> {
+  if (rootThreadId === null) return [];
+  const childrenByParent = new Map<ThreadId, ThreadShell[]>();
+  for (const thread of threads) {
+    if (!thread.parentThreadId) continue;
+    childrenByParent.set(thread.parentThreadId, [
+      ...(childrenByParent.get(thread.parentThreadId) ?? []),
+      thread,
+    ]);
+  }
+
+  const coders: ThreadShell[] = [];
+  const queue = [...(childrenByParent.get(rootThreadId) ?? [])];
+  for (const thread of queue) {
+    if (thread.role === "coder") coders.push(thread);
+    queue.push(...(childrenByParent.get(thread.id) ?? []));
+  }
+  return coders.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <span className="min-w-0 truncate">{option.thread.title}</span>
+      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        +{option.additions} -{option.deletions}
+      </span>
+      {option.thread.isolation === "shared" && <DiffScopeBadge>approximate</DiffScopeBadge>}
+      {option.thread.planLane === "cancelled" && <DiffScopeBadge>not merged</DiffScopeBadge>}
+    </div>
+  );
+}
+
+function DiffScopeBadge({ children }: { readonly children: string }) {
+  return (
+    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
 interface DiffPanelProps {
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
@@ -230,21 +308,82 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       : null,
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const threadShells = useThreadShells();
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
-    () =>
-      [...turnDiffSummaries].toSorted((left, right) => {
-        const leftTurnCount =
-          left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
-        const rightTurnCount =
-          right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
-        if (leftTurnCount !== rightTurnCount) {
-          return rightTurnCount - leftTurnCount;
-        }
-        return right.completedAt.localeCompare(left.completedAt);
-      }),
+    () => orderTurnDiffSummaries(turnDiffSummaries, inferredCheckpointTurnCountByTurnId),
     [inferredCheckpointTurnCountByTurnId, turnDiffSummaries],
+  );
+  const coderDescendants = useMemo(
+    () =>
+      collectCoderDescendants(
+        threadShells.filter(
+          (thread) =>
+            thread.environmentId === routeThreadRef?.environmentId &&
+            thread.projectId === activeProjectId,
+        ),
+        activeThreadId,
+      ),
+    [activeProjectId, activeThreadId, routeThreadRef?.environmentId, threadShells],
+  );
+  const coderCheckpointsAtom = useMemo(
+    () =>
+      coderDescendants.length === 0
+        ? Atom.make(EMPTY_CODER_CHECKPOINTS_BY_ID).pipe(
+            Atom.withLabel("diff-panel-coder-checkpoints:empty"),
+          )
+        : Atom.make(
+            (get) =>
+              new Map(
+                coderDescendants.map(
+                  (thread) =>
+                    [
+                      thread.id,
+                      get(
+                        environmentThreadDetails.checkpointsAtom({
+                          environmentId: thread.environmentId,
+                          threadId: thread.id,
+                        }),
+                      ),
+                    ] as const,
+                ),
+              ),
+          ).pipe(Atom.withLabel(`diff-panel-coder-checkpoints:${activeThreadId ?? "none"}`)),
+    [activeThreadId, coderDescendants],
+  );
+  const coderCheckpointsById = useAtomValue(coderCheckpointsAtom);
+  const coderDiffOptions = useMemo<ReadonlyArray<CoderDiffOption>>(
+    () =>
+      coderDescendants.flatMap((thread) => {
+        const checkpoints = coderCheckpointsById.get(thread.id) ?? [];
+        if (checkpoints.length === 0) return [];
+        const inferred = inferCheckpointTurnCountByTurnId(checkpoints);
+        const additions =
+          thread.diffAdditions ??
+          checkpoints.reduce(
+            (total, checkpoint) =>
+              total + checkpoint.files.reduce((sum, file) => sum + file.additions, 0),
+            0,
+          );
+        const deletions =
+          thread.diffDeletions ??
+          checkpoints.reduce(
+            (total, checkpoint) =>
+              total + checkpoint.files.reduce((sum, file) => sum + file.deletions, 0),
+            0,
+          );
+        return [
+          {
+            thread,
+            orderedCheckpoints: orderTurnDiffSummaries(checkpoints, inferred),
+            inferredCheckpointTurnCountByTurnId: inferred,
+            additions,
+            deletions,
+          },
+        ];
+      }),
+    [coderCheckpointsById, coderDescendants],
   );
 
   useEffect(() => {
@@ -253,32 +392,76 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       routeThreadRef,
       orderedTurnDiffSummaries.map((summary) => summary.turnId),
     );
-  }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
+  }, [diffSelection.kind, orderedTurnDiffSummaries, routeThreadRef]);
+  useEffect(() => {
+    if (!routeThreadRef || diffSelection.kind !== "coder") return;
+    useDiffPanelStore.getState().reconcileCoderSelection(
+      routeThreadRef,
+      coderDescendants.map((thread) => {
+        const option = coderDiffOptions.find((candidate) => candidate.thread.id === thread.id);
+        return {
+          threadId: thread.id,
+          turnIds: option?.orderedCheckpoints.map((summary) => summary.turnId) ?? [],
+          checkpointsLoaded: option !== undefined,
+        };
+      }),
+    );
+  }, [coderDescendants, coderDiffOptions, diffSelection.kind, routeThreadRef]);
 
-  const selectedTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
+  const isGitSelection = diffSelection.kind === "branch" || diffSelection.kind === "unstaged";
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
     diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
+  const selectedRouteTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedTurn =
-    selectedTurnId === null
+    selectedRouteTurnId === null
       ? undefined
-      : (orderedTurnDiffSummaries.find((summary) => summary.turnId === selectedTurnId) ??
+      : (orderedTurnDiffSummaries.find((summary) => summary.turnId === selectedRouteTurnId) ??
         orderedTurnDiffSummaries[0]);
+  const selectedCoderOption =
+    diffSelection.kind === "coder"
+      ? coderDiffOptions.find((option) => option.thread.id === diffSelection.threadId)
+      : undefined;
+  const selectedCoderTurn =
+    diffSelection.kind === "coder" && diffSelection.turnId !== null
+      ? selectedCoderOption?.orderedCheckpoints.find(
+          (summary) => summary.turnId === diffSelection.turnId,
+        )
+      : undefined;
+  const selectedCheckpointThreadId = selectedCoderOption?.thread.id ?? activeThreadId;
+  const selectedCheckpoint = selectedCoderTurn ?? selectedTurn;
   const selectedCheckpointTurnCount =
-    selectedTurn &&
-    (selectedTurn.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[selectedTurn.turnId]);
+    selectedCheckpoint &&
+    (selectedCheckpoint.checkpointTurnCount ??
+      (selectedCoderOption?.inferredCheckpointTurnCountByTurnId ??
+        inferredCheckpointTurnCountByTurnId)[selectedCheckpoint.turnId]);
   const latestTurn = orderedTurnDiffSummaries[0];
-  const selectedScopeLabel =
-    selectedTurnId === null
+  const latestCoderTurnCount =
+    selectedCoderOption &&
+    (selectedCoderOption.orderedCheckpoints[0]?.checkpointTurnCount ??
+      selectedCoderOption.inferredCheckpointTurnCountByTurnId[
+        selectedCoderOption.orderedCheckpoints[0]?.turnId ?? ""
+      ]);
+  const selectedScopeLabel = selectedCoderOption
+    ? selectedCoderTurn
+      ? `${selectedCoderOption.thread.title} · Turn ${selectedCheckpointTurnCount ?? "?"}`
+      : selectedCoderOption.thread.title
+    : selectedRouteTurnId === null
       ? selectedGitScope === "unstaged"
         ? "Working tree"
         : "Branch changes"
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
-  const reviewSectionId = selectedTurn ? `turn:${selectedTurn.turnId}` : selectedGitScope;
+  const reviewSectionId = selectedCoderOption
+    ? selectedCoderTurn
+      ? `coder:${selectedCoderOption.thread.id}:turn:${selectedCoderTurn.turnId}`
+      : `coder:${selectedCoderOption.thread.id}:all`
+    : selectedTurn
+      ? `turn:${selectedTurn.turnId}`
+      : selectedGitScope;
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
@@ -286,34 +469,45 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     collapsedDiffFiles.scopeKey === collapseScopeKey
       ? collapsedDiffFiles.fileKeys
       : EMPTY_COLLAPSED_DIFF_FILE_KEYS;
-  const reviewSectionTitle = selectedTurn
-    ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
-    : selectedGitScope === "unstaged"
-      ? "Working tree"
-      : "Branch changes";
-  const selectedCheckpointRange = useMemo(
-    () =>
-      typeof selectedCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
-            toTurnCount: selectedCheckpointTurnCount,
-          }
-        : null,
-    [selectedCheckpointTurnCount],
-  );
+  const reviewSectionTitle = selectedCoderOption
+    ? selectedCoderTurn
+      ? `${selectedCoderOption.thread.title} · Turn ${selectedCheckpointTurnCount ?? "?"}`
+      : selectedCoderOption.thread.title
+    : selectedTurn
+      ? `Turn ${selectedCheckpointTurnCount ?? "?"}`
+      : selectedGitScope === "unstaged"
+        ? "Working tree"
+        : "Branch changes";
+  const selectedCheckpointRange = useMemo(() => {
+    if (selectedCoderOption && selectedCoderTurn === undefined) {
+      return typeof latestCoderTurnCount === "number"
+        ? { fromTurnCount: 0, toTurnCount: latestCoderTurnCount }
+        : null;
+    }
+    return typeof selectedCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
+          toTurnCount: selectedCheckpointTurnCount,
+        }
+      : null;
+  }, [latestCoderTurnCount, selectedCheckpointTurnCount, selectedCoderOption, selectedCoderTurn]);
   const activeCheckpointDiff = useCheckpointDiff(
     {
       environmentId: activeThread?.environmentId ?? null,
-      threadId: activeThreadId,
+      threadId: selectedCheckpointThreadId,
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
-      cacheScope: selectedTurn ? `turn:${selectedTurn.turnId}` : null,
+      cacheScope: selectedCoderOption
+        ? `coder:${selectedCoderOption.thread.id}:${selectedCoderTurn?.turnId ?? "all"}`
+        : selectedTurn
+          ? `turn:${selectedTurn.turnId}`
+          : null,
     },
-    { enabled: isGitRepo && selectedTurn !== undefined },
+    { enabled: isGitRepo && (selectedTurn !== undefined || selectedCoderOption !== undefined) },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    selectedTurnId === null && activeThread && activeCwd
+    isGitSelection && activeThread && activeCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
           input: {
@@ -325,7 +519,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       : null,
   );
   const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedTurnId === null &&
+    isGitSelection &&
     primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
     serverConfig?.cwd !== undefined &&
     serverConfig.cwd !== activeCwd;
@@ -348,10 +542,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
   const localBranchRefs = useEnvironmentQuery(
-    selectedTurnId === null &&
-      selectedGitScope === "branch" &&
-      activeThread &&
-      branchDiffPreview.data?.cwd
+    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
@@ -365,10 +556,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
       : null,
   );
   const remoteBranchRefs = useEnvironmentQuery(
-    selectedTurnId === null &&
-      selectedGitScope === "branch" &&
-      activeThread &&
-      branchDiffPreview.data?.cwd
+    isGitSelection && selectedGitScope === "branch" && activeThread && branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
           environmentId: activeThread.environmentId,
           input: {
@@ -396,21 +584,24 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     ...matchingBaseRefChoices.map(valueForBaseRefChoice),
   ];
   const gitDiff = selectedGitSource?.diff;
+  const isCheckpointSelection = selectedTurn !== undefined || selectedCoderOption !== undefined;
 
-  const selectedPatch = selectedTurn ? activeCheckpointDiff.data?.diff : gitDiff;
-  const isSelectedPatchTruncated = !selectedTurn && selectedGitSource?.truncated === true;
-  const isLoadingSelectedPatch = selectedTurn
+  const selectedPatch = isCheckpointSelection ? activeCheckpointDiff.data?.diff : gitDiff;
+  const isSelectedPatchTruncated = !isCheckpointSelection && selectedGitSource?.truncated === true;
+  const isLoadingSelectedPatch = isCheckpointSelection
     ? activeCheckpointDiff.isPending
     : branchDiffPreview.isPending;
-  const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
+  const selectedPatchError = isCheckpointSelection
+    ? activeCheckpointDiff.error
+    : branchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   const renderablePatch = useMemo(
     () =>
       getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
-        compactPartialHunkOffsets: selectedTurnId === null,
+        compactPartialHunkOffsets: isGitSelection,
       }),
-    [resolvedTheme, selectedPatch, selectedTurnId],
+    [isGitSelection, resolvedTheme, selectedPatch],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -444,22 +635,27 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     codeViewRef.current?.scrollTo({ type: "item", id: file.fileKey, align: "start" });
   }, [codeViewFiles, selectedFilePath, selectedFileRevealRequestId]);
 
+  const selectedDiffThreadRef =
+    routeThreadRef && selectedCoderOption
+      ? { environmentId: routeThreadRef.environmentId, threadId: selectedCoderOption.thread.id }
+      : routeThreadRef;
+  const selectedDiffCwd = selectedCoderOption?.thread.worktreePath ?? activeCwd;
   const openDiffFile = useCallback(
     (filePath: string) => {
       openDiffFilePrimaryAction({
-        threadRef: routeThreadRef,
+        threadRef: selectedDiffThreadRef,
         filePath,
-        activeCwd,
+        activeCwd: selectedDiffCwd,
         openInEditor: (targetPath) => {
           void (async () => {
             const result = await openInPreferredEditor(targetPath);
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
               console.warn("Failed to open diff file in editor.", {
                 operation: "open-diff-file",
-                ...(routeThreadRef
+                ...(selectedDiffThreadRef
                   ? {
-                      environmentId: routeThreadRef.environmentId,
-                      threadId: routeThreadRef.threadId,
+                      environmentId: selectedDiffThreadRef.environmentId,
+                      threadId: selectedDiffThreadRef.threadId,
                     }
                   : {}),
                 ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
@@ -469,7 +665,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         },
       });
     },
-    [activeCwd, openInPreferredEditor, routeThreadRef],
+    [openInPreferredEditor, selectedDiffCwd, selectedDiffThreadRef],
   );
   const toggleDiffFileCollapsed = useCallback(
     (fileKey: string) => {
@@ -498,6 +694,10 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
+  const selectCoder = (threadId: ThreadId, turnId: TurnId | null = null) => {
+    if (!routeThreadRef) return;
+    useDiffPanelStore.getState().selectCoder(routeThreadRef, threadId, turnId);
+  };
 
   const headerRow = (
     <>
@@ -510,18 +710,16 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
             <span className="truncate">{selectedScopeLabel}</span>
             <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-60">
+          <DropdownMenuContent align="start" className="w-72">
             <DropdownMenuItem onClick={() => selectGitScope("unstaged")}>
               <span>Working tree</span>
-              {selectedTurnId === null && selectedGitScope === "unstaged" && (
+              {isGitSelection && selectedGitScope === "unstaged" && (
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => selectGitScope("branch")}>
               <span>Branch changes</span>
-              {selectedTurnId === null && selectedGitScope === "branch" && (
-                <CheckIcon className="ml-auto" />
-              )}
+              {isGitSelection && selectedGitScope === "branch" && <CheckIcon className="ml-auto" />}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
@@ -529,7 +727,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
               }}
             >
               <span>Latest turn</span>
-              {selectedTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId && (
+              {selectedRouteTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId && (
                 <CheckIcon className="ml-auto" />
               )}
             </DropdownMenuItem>
@@ -556,9 +754,65 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
                 })}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {coderDiffOptions.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>By coder</DropdownMenuLabel>
+                {coderDiffOptions.map((option) =>
+                  option.orderedCheckpoints.length > 1 ? (
+                    <DropdownMenuSub key={option.thread.id}>
+                      <DropdownMenuSubTrigger>
+                        <CoderDiffLabel option={option} />
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-72">
+                        <DropdownMenuItem onClick={() => selectCoder(option.thread.id)}>
+                          <span>All turns</span>
+                          {selectedCoderOption?.thread.id === option.thread.id &&
+                            selectedCoderTurn === undefined && <CheckIcon className="ml-auto" />}
+                        </DropdownMenuItem>
+                        {option.orderedCheckpoints.map((summary) => {
+                          const turnCount =
+                            summary.checkpointTurnCount ??
+                            option.inferredCheckpointTurnCountByTurnId[summary.turnId] ??
+                            "?";
+                          return (
+                            <DropdownMenuItem
+                              key={summary.turnId}
+                              onClick={() => selectCoder(option.thread.id, summary.turnId)}
+                            >
+                              <span>Turn {turnCount}</span>
+                              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                                {formatShortTimestamp(
+                                  summary.completedAt,
+                                  settings.timestampFormat,
+                                )}
+                              </span>
+                              {selectedCoderOption?.thread.id === option.thread.id &&
+                                selectedCoderTurn?.turnId === summary.turnId && (
+                                  <CheckIcon className="ml-1" />
+                                )}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : (
+                    <DropdownMenuItem
+                      key={option.thread.id}
+                      onClick={() => selectCoder(option.thread.id)}
+                    >
+                      <CoderDiffLabel option={option} />
+                      {selectedCoderOption?.thread.id === option.thread.id && (
+                        <CheckIcon className="ml-auto" />
+                      )}
+                    </DropdownMenuItem>
+                  ),
+                )}
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {selectedTurnId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
+        {isGitSelection && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
           <div
             className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
             title={`${selectedGitSource.headRef ?? "HEAD"} → ${selectedGitSource.baseRef}`}
@@ -748,7 +1002,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
-      ) : selectedTurnId !== null && orderedTurnDiffSummaries.length === 0 ? (
+      ) : selectedRouteTurnId !== null && orderedTurnDiffSummaries.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           No completed turns yet.
         </div>
@@ -770,7 +1024,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
               isLoadingSelectedPatch ? (
                 <DiffPanelLoadingState
                   label={
-                    selectedTurn
+                    isCheckpointSelection
                       ? "Loading checkpoint diff..."
                       : selectedGitScope === "unstaged"
                         ? "Loading working tree diff..."
