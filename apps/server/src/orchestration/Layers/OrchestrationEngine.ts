@@ -319,6 +319,41 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               ),
             );
 
+            // Idempotent project.create (invariant: at most one active project
+            // per workspace_root). If the create failed but an active project now
+            // exists for this path, resolve it to a benign success that reuses the
+            // existing project instead of surfacing a dispatch failure to the
+            // caller. This covers both a cross-engine race (another engine won and
+            // the partial unique index rolled our duplicate back) and a same-engine
+            // duplicate (the in-memory decider guard rejected it). Either way the
+            // failed transaction already rolled back, so no duplicate event was
+            // committed, and the reconcile above has synced the winning project
+            // into commandReadModel so subsequent commands resolve it.
+            if (envelope.command.type === "project.create") {
+              const command = envelope.command;
+              const existingProject = commandReadModel.projects.find(
+                (project) =>
+                  project.deletedAt === null && project.workspaceRoot === command.workspaceRoot,
+              );
+              if (existingProject !== undefined) {
+                yield* commandReceiptRepository
+                  .upsert({
+                    commandId: command.commandId,
+                    aggregateKind: "project",
+                    aggregateId: existingProject.id,
+                    acceptedAt: yield* nowIso,
+                    resultSequence: commandReadModel.snapshotSequence,
+                    status: "accepted",
+                    error: null,
+                  })
+                  .pipe(Effect.catch(() => Effect.void));
+                yield* Deferred.succeed(envelope.result, {
+                  sequence: commandReadModel.snapshotSequence,
+                });
+                return;
+              }
+            }
+
             if (isOrchestrationCommandInvariantError(error)) {
               yield* commandReceiptRepository
                 .upsert({

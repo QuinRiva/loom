@@ -325,6 +325,51 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("resolves a second same-workspace_root create to an idempotent success with one active row", async () => {
+    const createdAt = now();
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const modelSelection = {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5-codex",
+    };
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-dup-create-1"),
+        projectId: asProjectId("project-dup-1"),
+        title: "Project Dup 1",
+        workspaceRoot: "/tmp/project-dup",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      }),
+    );
+
+    // A second create for the SAME workspace_root under a different projectId
+    // must not fail the caller and must not duplicate the row — the engine
+    // resolves it to a benign idempotent success reusing the existing project.
+    const secondResult = await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-dup-create-2"),
+        projectId: asProjectId("project-dup-2"),
+        title: "Project Dup 2",
+        workspaceRoot: "/tmp/project-dup",
+        defaultModelSelection: modelSelection,
+        createdAt,
+      }),
+    );
+    expect(typeof secondResult.sequence).toBe("number");
+
+    const readModel = await system.readModel();
+    const activeForPath = readModel.projects.filter(
+      (project) => project.deletedAt === null && project.workspaceRoot === "/tmp/project-dup",
+    );
+    expect(activeForPath.map((project) => project.id)).toEqual([asProjectId("project-dup-1")]);
+    await system.dispose();
+  });
+
   it("archives and unarchives threads through orchestration commands", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
