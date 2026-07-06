@@ -671,6 +671,21 @@ export const OrchestrationProjectShell = Schema.Struct({
 });
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
+// consult_thread observability: an aggregated consult EDGE on the asker's
+// shell — one entry per distinct target this thread has consulted. Lets the
+// workstream graph draw consult edges from thread shells alone; the full
+// question + answer of each individual consult lives on the
+// `thread.consult-recorded` event, not here. `lastQuestionPreview` is a
+// bounded shell-level preview (the full text is on the event).
+export const OrchestrationThreadConsultSummary = Schema.Struct({
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  count: NonNegativeInt,
+  lastConsultAt: IsoDateTime,
+  lastQuestionPreview: Schema.String,
+});
+export type OrchestrationThreadConsultSummary = typeof OrchestrationThreadConsultSummary.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -740,6 +755,11 @@ export const OrchestrationThreadShell = Schema.Struct({
    */
   lastActivityPreview: Schema.NullOr(Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // consult_thread observability: consult edges from THIS (asker) thread,
+  // deduped by target. Additive, decode-defaulted so older snapshots load.
+  consults: Schema.Array(OrchestrationThreadConsultSummary).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
@@ -1305,6 +1325,25 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// consult_thread observability: the server chokepoint records one resolved
+// consult (asker → target). Aggregate = the asker thread; the decider derives
+// the `thread.consult-recorded` event. `answer` is the FULL answer (no
+// truncation/pointer); `forkSessionPath` points at the retained fork jsonl when
+// retention succeeded.
+const ThreadConsultRecordCommand = Schema.Struct({
+  type: Schema.Literal("thread.consult.record"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  targetThreadId: ThreadId,
+  targetTitle: TrimmedNonEmptyString,
+  question: TrimmedNonEmptyString,
+  answer: Schema.String,
+  resolved: Schema.Boolean,
+  durationMs: NonNegativeInt,
+  forkSessionPath: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
 const ThreadRevertCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.revert.complete"),
   commandId: CommandId,
@@ -1365,6 +1404,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
+  ThreadConsultRecordCommand,
   ThreadRevertCompleteCommand,
   ThreadWorkSubmitCommand,
   ThreadTurnStartFailCommand,
@@ -1418,6 +1458,9 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  // consult_thread observability: one resolved consult (asker → target). Full
+  // question + answer live in the payload; the asker shell aggregates edges.
+  "thread.consult-recorded",
   "thread.report-set",
   // Review gates (design §3.2/§4.3): the structured outcome audit trail and the
   // control-plane loop traversals.
@@ -1738,6 +1781,22 @@ export const ThreadReportSetPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// consult_thread observability: one resolved consult recorded on the asker
+// thread. `answer` is the FULL answer (no truncation/pointer scheme).
+// `forkSessionPath` is present when the read-only fork's jsonl was retained to
+// userdata for deep inspection; absent when retention failed (best-effort).
+export const ThreadConsultRecordedPayload = Schema.Struct({
+  askerThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  question: Schema.String,
+  answer: Schema.String,
+  resolved: Schema.Boolean,
+  durationMs: NonNegativeInt,
+  forkSessionPath: Schema.optional(Schema.String),
+  createdAt: IsoDateTime,
+});
+
 // Review gates (design §3.2): one record per submit — the outcome token, the
 // routing verdict the decider reached, and the loop round it applies to.
 export const ThreadOutcomeRecordedPayload = Schema.Struct({
@@ -1974,6 +2033,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.consult-recorded"),
+    payload: ThreadConsultRecordedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

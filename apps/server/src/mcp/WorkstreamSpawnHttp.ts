@@ -1154,27 +1154,63 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const settings = yield* serverSettings.getSettings;
   const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
   const threads = yield* collectGraphThreads();
 
   // Resolve the target to its absolute session path (bare id fallback) so the
-  // read-only fork locates it regardless of which worktree/project it lives in.
-  const askShell = (shell: (typeof threads)[number], freshSessionId: string) => {
-    const sessionId = piSessionIdForThread(shell.id);
-    return askWorkstreamThread({
-      binaryPath: settings.providers.pi.binaryPath,
-      targetSessionId: resolveSessionFilePath(sessionId) ?? sessionId,
-      freshSessionId,
-      cwd: shell.worktreePath ?? config.cwd,
-      question,
-      timeoutMs: ASK_TIMEOUT_MS,
+  // read-only fork locates it regardless of which worktree/project it lives in;
+  // retain the fork jsonl under userdata for deep inspection; and record the
+  // resolved consult as a durable `thread.consult-recorded` event on the ASKER
+  // (best-effort — a recording failure must never fail the consult response).
+  const consult = (shell: (typeof threads)[number]) =>
+    Effect.gen(function* () {
+      const freshSessionId = yield* crypto.randomUUIDv4;
+      const sessionId = piSessionIdForThread(shell.id);
+      const startedAt = yield* DateTime.now;
+      const { answer, forkSessionPath } = yield* askWorkstreamThread({
+        binaryPath: settings.providers.pi.binaryPath,
+        targetSessionId: resolveSessionFilePath(sessionId) ?? sessionId,
+        freshSessionId,
+        cwd: shell.worktreePath ?? config.cwd,
+        question,
+        timeoutMs: ASK_TIMEOUT_MS,
+        forkRetentionDir: config.workstreamConsultsDir,
+      });
+      const finishedAt = yield* DateTime.now;
+      yield* engine
+        .dispatch({
+          type: "thread.consult.record",
+          commandId: CommandId.make(`server:consult-thread:${freshSessionId}`),
+          threadId: scope.threadId,
+          targetThreadId: shell.id,
+          targetTitle: shell.title,
+          question,
+          answer,
+          resolved: true,
+          durationMs: Math.max(
+            0,
+            DateTime.toEpochMillis(finishedAt) - DateTime.toEpochMillis(startedAt),
+          ),
+          ...(forkSessionPath !== undefined ? { forkSessionPath } : {}),
+          createdAt: DateTime.formatIso(finishedAt),
+        } satisfies OrchestrationCommand)
+        .pipe(
+          Effect.catch((cause: unknown) =>
+            Effect.logWarning("failed to record consult_thread event", {
+              askerThreadId: scope.threadId,
+              targetThreadId: shell.id,
+              cause,
+            }),
+          ),
+        );
+      return answer;
     });
-  };
 
   if (threadId) {
     const target = ThreadId.make(threadId);
     const shell = threads.find((thread) => thread.id === target);
     if (shell === undefined) return jsonError(404, "Target thread was not found.");
-    const answer = yield* askShell(shell, yield* crypto.randomUUIDv4);
+    const answer = yield* consult(shell);
     return HttpServerResponse.jsonUnsafe({
       resolved: true,
       threadId: target,
@@ -1189,7 +1225,7 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
   }
   if (isUnambiguousMatch(ranked)) {
     const shell = ranked[0]!.thread;
-    const answer = yield* askShell(shell, yield* crypto.randomUUIDv4);
+    const answer = yield* consult(shell);
     return HttpServerResponse.jsonUnsafe({
       resolved: true,
       threadId: shell.id,

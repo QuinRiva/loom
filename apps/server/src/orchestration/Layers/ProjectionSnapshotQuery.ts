@@ -21,6 +21,7 @@ import {
   type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationThreadActivity,
+  type OrchestrationThreadConsultSummary,
   type OrchestrationThreadShell,
   type ToolLifecycleItemType,
   ModelSelection,
@@ -209,6 +210,15 @@ const ProjectionLatestAssistantMessageRowSchema = Schema.Struct({
   threadId: ThreadId,
   text: Schema.String,
 });
+// consult_thread observability: one aggregated consult edge (asker→target).
+const ProjectionThreadConsultSummaryRowSchema = Schema.Struct({
+  askerThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  count: NonNegativeInt,
+  lastConsultAt: IsoDateTime,
+  lastQuestionPreview: Schema.String,
+});
 const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -257,6 +267,26 @@ function normalizeActivityPreview(text: string): string | null {
   return normalized.length > ACTIVITY_PREVIEW_MAX_LENGTH
     ? `${normalized.slice(0, ACTIVITY_PREVIEW_MAX_LENGTH - 1).trimEnd()}\u2026`
     : normalized;
+}
+
+// consult_thread observability: group aggregated consult-edge rows by asker,
+// dropping the grouping key to match the shell's `consults` shape.
+function groupConsultSummaries(
+  rows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionThreadConsultSummaryRowSchema>>,
+): Map<ThreadId, OrchestrationThreadConsultSummary[]> {
+  const byThread = new Map<ThreadId, OrchestrationThreadConsultSummary[]>();
+  for (const row of rows) {
+    const list = byThread.get(row.askerThreadId) ?? [];
+    list.push({
+      targetThreadId: row.targetThreadId,
+      targetTitle: row.targetTitle,
+      count: row.count,
+      lastConsultAt: row.lastConsultAt,
+      lastQuestionPreview: row.lastQuestionPreview,
+    });
+    byThread.set(row.askerThreadId, list);
+  }
+  return byThread;
 }
 
 function computeSnapshotSequence(
@@ -846,6 +876,46 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  // consult_thread observability: aggregate consult edges per asker→target for
+  // ACTIVE (non-deleted, non-archived) askers. Latest target title / question
+  // preview + total count per pair; the shell groups these by asker.
+  const listActiveThreadConsultRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadConsultSummaryRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          "askerThreadId",
+          "targetThreadId",
+          "targetTitle",
+          count,
+          "lastConsultAt",
+          "lastQuestionPreview"
+        FROM (
+          SELECT
+            consults.asker_thread_id AS "askerThreadId",
+            consults.target_thread_id AS "targetThreadId",
+            consults.target_title AS "targetTitle",
+            consults.question_preview AS "lastQuestionPreview",
+            consults.created_at AS "lastConsultAt",
+            COUNT(*) OVER (
+              PARTITION BY consults.asker_thread_id, consults.target_thread_id
+            ) AS count,
+            ROW_NUMBER() OVER (
+              PARTITION BY consults.asker_thread_id, consults.target_thread_id
+              ORDER BY consults.created_at DESC, consults.event_id DESC
+            ) AS rn
+          FROM projection_thread_consults consults
+          INNER JOIN projection_threads threads
+            ON threads.thread_id = consults.asker_thread_id
+          WHERE threads.deleted_at IS NULL
+            AND threads.archived_at IS NULL
+        )
+        WHERE rn = 1
+        ORDER BY "askerThreadId" ASC, "lastConsultAt" DESC
+      `,
+  });
+
   const listArchivedLatestTurnRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionLatestTurnDbRowSchema,
@@ -1151,6 +1221,39 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND TRIM(text) <> ''
         ORDER BY created_at DESC, message_id DESC
         LIMIT 1
+      `,
+  });
+
+  // consult_thread observability: aggregate consult edges for a single asker.
+  const listThreadConsultRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadConsultSummaryRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          "askerThreadId",
+          "targetThreadId",
+          "targetTitle",
+          count,
+          "lastConsultAt",
+          "lastQuestionPreview"
+        FROM (
+          SELECT
+            asker_thread_id AS "askerThreadId",
+            target_thread_id AS "targetThreadId",
+            target_title AS "targetTitle",
+            question_preview AS "lastQuestionPreview",
+            created_at AS "lastConsultAt",
+            COUNT(*) OVER (PARTITION BY target_thread_id) AS count,
+            ROW_NUMBER() OVER (
+              PARTITION BY target_thread_id
+              ORDER BY created_at DESC, event_id DESC
+            ) AS rn
+          FROM projection_thread_consults
+          WHERE asker_thread_id = ${threadId}
+        )
+        WHERE rn = 1
+        ORDER BY "lastConsultAt" DESC
       `,
   });
 
@@ -2133,6 +2236,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     : Result.succeed([row.threadId, preview] as const);
                 }),
               );
+              const consultRows = yield* listActiveThreadConsultRows().pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getShellSnapshot:listConsults:query",
+                    "ProjectionSnapshotQuery.getShellSnapshot:listConsults:decodeRows",
+                  ),
+                ),
+              );
+              const consultsByThread = groupConsultSummaries(consultRows);
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -2185,6 +2297,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         hasPendingUserInput: row.pendingUserInputCount > 0,
                         hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                         lastActivityPreview: lastActivityPreviewByThread.get(row.threadId) ?? null,
+                        consults: consultsByThread.get(row.threadId) ?? [],
                       } satisfies OrchestrationThreadShell)
                     : Result.failVoid,
                 ),
@@ -2343,6 +2456,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   // Archived threads aren't actively triaged on the board; the
                   // live activity preview is an active-thread concern only.
                   lastActivityPreview: null,
+                  // Consult edges are a live-graph concern; the archived board
+                  // does not draw them.
+                  consults: [],
                 }),
               ),
               updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
@@ -2558,40 +2674,49 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow, latestAssistantMessageRow] = yield* Effect.all([
-        getActiveThreadRowById({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
+      const [threadRow, latestTurnRow, sessionRow, latestAssistantMessageRow, consultRows] =
+        yield* Effect.all([
+          getActiveThreadRowById({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
+              ),
             ),
           ),
-        ),
-        getLatestTurnRowByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
+          getLatestTurnRowByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
+              ),
             ),
           ),
-        ),
-        getThreadSessionRowByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
+          getThreadSessionRowByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
+              ),
             ),
           ),
-        ),
-        getLatestAssistantMessageRowByThread({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:query",
-              "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:decodeRow",
+          getLatestAssistantMessageRowByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:query",
+                "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:decodeRow",
+              ),
             ),
           ),
-        ),
-      ]);
+          listThreadConsultRowsByThread({ threadId }).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getThreadShellById:listConsults:query",
+                "ProjectionSnapshotQuery.getThreadShellById:listConsults:decodeRows",
+              ),
+            ),
+          ),
+        ]);
 
       if (Option.isNone(threadRow)) {
         return Option.none<OrchestrationThreadShell>();
@@ -2638,6 +2763,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         lastActivityPreview: Option.isSome(latestAssistantMessageRow)
           ? normalizeActivityPreview(latestAssistantMessageRow.value.text)
           : null,
+        consults: groupConsultSummaries(consultRows).get(threadRow.value.threadId) ?? [],
       } satisfies OrchestrationThreadShell);
     });
 

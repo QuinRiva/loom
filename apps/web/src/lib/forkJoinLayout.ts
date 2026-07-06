@@ -337,6 +337,83 @@ export function computeForkJoinLayout(threads: ReadonlyArray<SidebarThreadSummar
   return layoutOrchestrator(root.id, root.title, childrenByParent);
 }
 
+// ---------------------------------------------------------------------------
+// consult_thread observability: cross-edges + out-of-tree annotations derived
+// from thread shells' consult summaries. Kept OUT of the memoised structural
+// layout (consults change at runtime and are additive) and resolved live from
+// the laid-out node positions — the same live-overlay pattern the renderer uses
+// for loop-edge rounds.
+// ---------------------------------------------------------------------------
+
+/** A directed asker→target consult edge whose endpoints are both in the graph. */
+export interface ConsultEdge {
+  readonly key: string;
+  readonly askerId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  /** Latest consult timestamp — the anchor for a click-through into the asker's chat. */
+  readonly anchorAtIso: string;
+  readonly count: number;
+  readonly preview: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/** Aggregate of an asker's consults to targets NOT present in this graph. */
+export interface ExternalConsult {
+  readonly count: number;
+  readonly targetTitles: ReadonlyArray<string>;
+}
+
+/**
+ * Consults are global — a target may live outside this workstream's graph. For
+ * in-graph targets draw a directed edge (entering the target's near side); for
+ * out-of-tree targets return a per-asker annotation instead of inventing a
+ * phantom node.
+ */
+export function deriveConsultOverlay(
+  nodes: ReadonlyArray<LaidNode>,
+  threadById: ReadonlyMap<ThreadId, SidebarThreadSummary>,
+): { edges: ConsultEdge[]; externalByAskerId: Map<ThreadId, ExternalConsult> } {
+  const centerById = new Map<ThreadId, Extract<LaidNode, { kind: "thread" }>>();
+  for (const node of nodes) {
+    if (node.kind === "thread") centerById.set(node.thread.id, node);
+  }
+  const edges: ConsultEdge[] = [];
+  const externalByAskerId = new Map<ThreadId, ExternalConsult>();
+  for (const node of nodes) {
+    if (node.kind !== "thread") continue;
+    const asker = threadById.get(node.thread.id) ?? node.thread;
+    for (const consult of asker.consults) {
+      if (consult.targetThreadId === asker.id) continue;
+      const target = centerById.get(consult.targetThreadId);
+      if (target) {
+        const rightward = target.x >= node.x;
+        edges.push({
+          key: `consult:${asker.id}:${consult.targetThreadId}`,
+          askerId: asker.id,
+          targetThreadId: consult.targetThreadId,
+          anchorAtIso: consult.lastConsultAt,
+          count: consult.count,
+          preview: consult.lastQuestionPreview,
+          x1: rightward ? node.x + node.w : node.x,
+          y1: node.y + node.h / 2,
+          x2: rightward ? target.x : target.x + target.w,
+          y2: target.y + target.h / 2,
+        });
+      } else {
+        const prior = externalByAskerId.get(asker.id);
+        externalByAskerId.set(asker.id, {
+          count: (prior?.count ?? 0) + consult.count,
+          targetTitles: [...(prior?.targetTitles ?? []), consult.targetTitle],
+        });
+      }
+    }
+  }
+  return { edges, externalByAskerId };
+}
+
 export function computeForkJoinViewBox(nodes: ReadonlyArray<LaidNode>): ViewBox {
   const pad = 32;
   if (nodes.length === 0) return { x: 0, y: 0, w: 320, h: 240 };

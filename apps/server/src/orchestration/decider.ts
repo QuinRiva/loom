@@ -1967,6 +1967,40 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    // consult_thread observability: record one resolved consult on the asker
+    // thread. Pure passthrough — the SQL projection aggregates edges onto the
+    // asker shell and the full question/answer streams to thread-detail
+    // subscribers. The target thread's records are deliberately untouched.
+    case "thread.consult.record": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.consult-recorded",
+        payload: {
+          askerThreadId: command.threadId,
+          targetThreadId: command.targetThreadId,
+          targetTitle: command.targetTitle,
+          question: command.question,
+          answer: command.answer,
+          resolved: command.resolved,
+          durationMs: command.durationMs,
+          ...(command.forkSessionPath !== undefined
+            ? { forkSessionPath: command.forkSessionPath }
+            : {}),
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     // Worktree isolation (design §3): record an isolated child's fan-in
     // settlement. Emitted by the WorkstreamFanInReactor after merging the
     // child branch back into the parent branch. Pure passthrough — the

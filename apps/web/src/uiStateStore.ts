@@ -52,8 +52,20 @@ export interface ScrollToDispatchRequest {
   anchorAtIso: string;
 }
 
+/**
+ * A one-shot request to reveal (open + expand) the consult card(s) in an asker's
+ * chat that consulted `targetThreadId`. Set alongside a `ScrollToDispatchRequest`
+ * when a Workstream consult edge is clicked; consumed once by the matching
+ * `ConsultCard`, which latches its own expanded state and clears this. Ephemeral.
+ */
+export interface ConsultRevealRequest {
+  threadId: string;
+  targetThreadId: string;
+}
+
 export interface UiScrollState {
   scrollRequest: ScrollToDispatchRequest | null;
+  consultReveal: ConsultRevealRequest | null;
 }
 
 export interface UiState extends UiProjectState, UiThreadState, UiEndpointState, UiScrollState {}
@@ -65,6 +77,7 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   scrollRequest: null,
+  consultReveal: null,
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -149,6 +162,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         ? parsed.defaultAdvertisedEndpointKey
         : null,
     scrollRequest: null,
+    consultReveal: null,
   };
 }
 
@@ -429,8 +443,13 @@ export function reorderProjects(
 }
 
 interface UiStateStore extends UiState {
-  requestScrollToDispatch: (threadId: string, anchorAtIso: string) => void;
+  requestScrollToDispatch: (
+    threadId: string,
+    anchorAtIso: string,
+    expandConsultTargetId?: string,
+  ) => void;
   clearScrollRequest: () => void;
+  clearConsultReveal: () => void;
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
@@ -445,9 +464,15 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
-  requestScrollToDispatch: (threadId, anchorAtIso) =>
-    set({ scrollRequest: { threadId, anchorAtIso } }),
+  requestScrollToDispatch: (threadId, anchorAtIso, expandConsultTargetId) =>
+    set({
+      scrollRequest: { threadId, anchorAtIso },
+      consultReveal: expandConsultTargetId
+        ? { threadId, targetThreadId: expandConsultTargetId }
+        : null,
+    }),
   clearScrollRequest: () => set((state) => (state.scrollRequest ? { scrollRequest: null } : state)),
+  clearConsultReveal: () => set((state) => (state.consultReveal ? { consultReveal: null } : state)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>

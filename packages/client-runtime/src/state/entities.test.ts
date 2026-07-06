@@ -121,6 +121,7 @@ const THREAD_SHELL = {
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
   lastActivityPreview: null,
+  consults: [],
 } as const;
 
 const SNAPSHOT: OrchestrationShellSnapshot = {

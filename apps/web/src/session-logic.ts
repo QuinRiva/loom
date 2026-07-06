@@ -84,6 +84,21 @@ export interface WorkLogEntry {
    * timeline can render a grouped, clickable spawn card.
    */
   spawnedChild?: { childThreadId: ThreadId; title: string | null };
+  /**
+   * Present only for `consult_thread` tool results: the read-only consult made
+   * by this entry. Surfaced from the dynamic tool result `details` + `rawInput`
+   * so the timeline can render a dedicated, digestible consult card instead of a
+   * raw tool dump. `targetThreadId`/`title`/`answer` are set on a resolved
+   * consult; an ambiguous (unresolved) consult carries only `candidateCount`.
+   */
+  consult?: {
+    targetThreadId: ThreadId | null;
+    title: string | null;
+    question: string | null;
+    answer: string | null;
+    resolved: boolean;
+    candidateCount: number | null;
+  };
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -751,12 +766,34 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   // from `details` so the timeline can render a clickable spawn card. The
   // `childThreadId` field uniquely discriminates spawn results from the sibling
   // workstream tools (status/dependencies return `threadId`).
-  const spawnDetails = asRecord(asRecord(payload?.data)?.details);
+  const data = asRecord(payload?.data);
+  const spawnDetails = asRecord(data?.details);
   const spawnedChildThreadId = asTrimmedString(spawnDetails?.childThreadId);
   if (spawnedChildThreadId) {
     entry.spawnedChild = {
       childThreadId: spawnedChildThreadId as ThreadId,
       title: asTrimmedString(spawnDetails?.title),
+    };
+  }
+  // `consult_thread` is a dynamic tool call too. Its result `details` carry a
+  // boolean `resolved` plus either an `answer` (resolved: the target's oracle
+  // reply) or a `candidates` list (ambiguous name). That pair uniquely
+  // discriminates it from sibling workstream tools (spawn/status/dependencies),
+  // none of which return an `answer`+`resolved` shape. The question lives on the
+  // tool's `rawInput`, not `details`.
+  const consultResolved = spawnDetails?.resolved;
+  const consultAnswer = typeof spawnDetails?.answer === "string" ? spawnDetails.answer : null;
+  const consultCandidates = Array.isArray(spawnDetails?.candidates)
+    ? spawnDetails.candidates
+    : null;
+  if (typeof consultResolved === "boolean" && (consultAnswer !== null || consultCandidates)) {
+    entry.consult = {
+      targetThreadId: (asTrimmedString(spawnDetails?.threadId) as ThreadId | null) ?? null,
+      title: asTrimmedString(spawnDetails?.title),
+      question: asTrimmedString(asRecord(data?.rawInput)?.question),
+      answer: consultResolved ? consultAnswer : null,
+      resolved: consultResolved,
+      candidateCount: consultCandidates ? consultCandidates.length : null,
     };
   }
   if (itemType) {
