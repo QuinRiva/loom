@@ -2,6 +2,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
+  MessageId,
   ProjectId,
   ThreadId,
   type ThreadPlanLane,
@@ -31,6 +32,7 @@ const seedThread = (
   id: string,
   parentThreadId: string | null,
   planLane: ThreadPlanLane,
+  blockedBy: ReadonlyArray<string> = [],
 ) =>
   projectEvent(readModel, {
     sequence,
@@ -48,12 +50,43 @@ const seedThread = (
       projectId,
       parentThreadId: parentThreadId === null ? null : asThreadId(parentThreadId),
       planLane,
+      blockedBy: blockedBy.map(asThreadId),
       title: `Thread ${id}`,
       modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
       branch: null,
       worktreePath: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+
+// Seed a user message so a thread reads as "started" (its kickoff turn ran).
+const seedUserMessage = (
+  readModel: Parameters<typeof projectEvent>[0],
+  sequence: number,
+  id: string,
+) =>
+  projectEvent(readModel, {
+    sequence,
+    eventId: asEventId(`evt-msg-${id}`),
+    aggregateKind: "thread",
+    aggregateId: asThreadId(id),
+    type: "thread.message-sent",
+    occurredAt: now,
+    commandId: asCommandId(`cmd-msg-${id}`),
+    causationEventId: null,
+    correlationId: asCommandId(`cmd-msg-${id}`),
+    metadata: {},
+    payload: {
+      threadId: asThreadId(id),
+      messageId: MessageId.make(`msg-${id}`),
+      role: "user",
+      text: "kickoff",
+      attachments: [],
+      turnId: null,
+      streaming: false,
       createdAt: now,
       updatedAt: now,
     },
@@ -167,6 +200,55 @@ it.layer(NodeServices.layer)("decider cancel cascade", (it) => {
         expect(laneOf("gcRunning")).toBe("cancelled");
         expect(laneOf("childB")).toBe("done");
         projected.threads.forEach((thread) => expect(thread.attention).toEqual([]));
+      }),
+  );
+
+  // M4 scan: cancelling a mid-tree thread wedges its un-started, non-terminal,
+  // outside-subtree dependents forever (cancelled never releases), so each is
+  // flagged needs_guidance in the same decide pass — but only those that truly
+  // qualify (not started, not terminal, not inside the cancelled subtree).
+  it.effect(
+    "raises needs_guidance on wedged outside-subtree dependents of a cancelled thread",
+    () =>
+      Effect.gen(function* () {
+        let readModel = yield* seedReadModel;
+        // root already has childA(in_progress)/childB(done); add a coder to cancel
+        // plus a spread of dependents that gate on it.
+        readModel = yield* seedThread(readModel, 8, "coder", "root", "in_progress");
+        readModel = yield* seedThread(readModel, 9, "reviewer", "root", "planned", ["coder"]);
+        readModel = yield* seedThread(readModel, 10, "startedRev", "root", "ready", ["coder"]);
+        readModel = yield* seedUserMessage(readModel, 11, "startedRev");
+        readModel = yield* seedThread(readModel, 12, "doneDep", "root", "done", ["coder"]);
+        // Subtree members of coder: gc2 would qualify but is inside the cancelled set.
+        readModel = yield* seedThread(readModel, 13, "gc1", "coder", "planned");
+        readModel = yield* seedThread(readModel, 14, "gc2", "coder", "planned", ["gc1"]);
+
+        const decided = yield* decideOrchestrationCommand({
+          command: {
+            type: "thread.plan-lane.set",
+            commandId: asCommandId("cmd-cancel-coder"),
+            threadId: asThreadId("coder"),
+            planLane: "cancelled",
+            createdAt: now,
+          },
+          readModel,
+        });
+        const events = Array.isArray(decided) ? decided : [decided];
+
+        const raisedIds = events
+          .filter((event) => event.type === "thread.attention-raised")
+          .map((event) => event.payload as { threadId: ThreadId; reason: string });
+        // Only the un-started, planned/ready, outside-subtree dependent is flagged.
+        expect(raisedIds.map((payload) => payload.threadId)).toEqual([asThreadId("reviewer")]);
+        expect(raisedIds[0]?.reason).toBe("needs_guidance");
+
+        // The cancel itself still succeeds over the whole coder subtree.
+        const cancelledIds = new Set(
+          events
+            .filter((event) => event.type === "thread.plan-lane-set")
+            .map((event) => (event.payload as { threadId: ThreadId }).threadId),
+        );
+        expect(cancelledIds).toEqual(new Set(["coder", "gc1", "gc2"].map(asThreadId)));
       }),
   );
 });

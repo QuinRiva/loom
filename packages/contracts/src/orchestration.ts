@@ -192,6 +192,9 @@ export type ThreadAttention = typeof ThreadAttention.Type;
 /** Default loop-round cap for a review gate when the spawner sets none. */
 export const DEFAULT_GATE_MAX_ROUNDS = 2;
 
+/** Maximum accepted loop-round cap for a review gate. */
+export const MAX_GATE_MAX_ROUNDS = 10;
+
 /**
  * An outcome-predicated route edge on the thread that EMITS the outcomes (the
  * gate source, e.g. the reviewer). `loop` re-dispatches the counterpart named
@@ -843,8 +846,9 @@ const ThreadCreateCommand = Schema.Struct({
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // Intrinsic run-condition carried at node creation: the dispatcher defers the
-  // kick-off turn until every blockedBy thread is `done`. Self-refs are dropped
-  // and dangling/unknown ids tolerated permissively (mirrors dependencies.set).
+  // kick-off turn until every blockedBy thread is `done`. A dependency-bearing
+  // create is validated at the decider boundary (self/root/dangling/cycle
+  // rejected); only the runtime predicate stays permissive as a backstop.
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
   // Review gates (design §4): outcome route edges declared at spawn (compiled
   // from the spawn `gate` sugar). Omitted ⇒ no routes.

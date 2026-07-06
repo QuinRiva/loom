@@ -1,7 +1,11 @@
 import { type ThreadId, type ThreadPlanLane } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { areDependenciesSatisfied, type DependencyGateThread } from "./workstreamDependencies.ts";
+import {
+  areDependenciesSatisfied,
+  findDependencyCycle,
+  type DependencyGateThread,
+} from "./workstreamDependencies.ts";
 
 // The shared predicate consumed by BOTH the decider's first-turn invariant and
 // the dispatcher's promote-ready pass, so execution gating and the client board
@@ -60,6 +64,8 @@ describe("areDependenciesSatisfied", () => {
   });
 
   it("ignores a dangling/unknown dependency id", () => {
+    // Submission-boundary validators reject this; the runtime predicate stays
+    // permissive as a backstop for pre-existing or non-MCP data.
     const thread = node("child", { blockedBy: ["ghost" as ThreadId] });
     expect(areDependenciesSatisfied(thread, index([thread]))).toBe(true);
   });
@@ -104,5 +110,54 @@ describe("areDependenciesSatisfied", () => {
     const dep = node("dep", { planLane: "done", isolation: "shared", fanInState: "none" });
     const thread = node("child", { blockedBy: [dep.id] });
     expect(areDependenciesSatisfied(thread, index([dep, thread]))).toBe(true);
+  });
+
+  it("documents the gated-reviewer deadlock that attached isolation avoids", () => {
+    const coder = node("coder", {
+      planLane: "done",
+      isolation: "isolated",
+      fanInState: "none",
+    });
+    const sharedReviewer = node("reviewer-shared", {
+      blockedBy: [coder.id],
+      isolation: "shared",
+    });
+    const attachedReviewer = node("reviewer-attached", {
+      blockedBy: [coder.id],
+      isolation: "attached",
+    });
+    expect(areDependenciesSatisfied(sharedReviewer, index([coder, sharedReviewer]))).toBe(false);
+    expect(areDependenciesSatisfied(attachedReviewer, index([coder, attachedReviewer]))).toBe(true);
+  });
+});
+
+describe("findDependencyCycle", () => {
+  it("detects a 2-cycle with the repeated first node last", () => {
+    const a = node("a", { blockedBy: ["b" as ThreadId] });
+    const b = node("b", { blockedBy: ["a" as ThreadId] });
+    expect(findDependencyCycle([a, b])).toEqual(["a", "b", "a"]);
+  });
+
+  it("detects a 3-cycle", () => {
+    const a = node("a", { blockedBy: ["b" as ThreadId] });
+    const b = node("b", { blockedBy: ["c" as ThreadId] });
+    const c = node("c", { blockedBy: ["a" as ThreadId] });
+    expect(findDependencyCycle([a, b, c])).toEqual(["a", "b", "c", "a"]);
+  });
+
+  it("does not report a diamond as cyclic", () => {
+    const a = node("a", { blockedBy: ["b" as ThreadId, "c" as ThreadId] });
+    const b = node("b", { blockedBy: ["c" as ThreadId] });
+    const c = node("c");
+    expect(findDependencyCycle([a, b, c])).toBeNull();
+  });
+
+  it("ignores cross-parent edges", () => {
+    const a = node("a", { blockedBy: ["b" as ThreadId] });
+    const b = node("b", {
+      parentThreadId: "other-parent" as ThreadId,
+      blockedBy: ["a" as ThreadId],
+    });
+    expect(findDependencyCycle([a, b])).toBeNull();
   });
 });

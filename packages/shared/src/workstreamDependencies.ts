@@ -57,3 +57,51 @@ export const areDependenciesSatisfied = <T extends DependencyGateThread>(
     if (thread.isolation === "attached") return true;
     return dep.isolation !== "isolated" || dep.fanInState === "completed";
   });
+
+/**
+ * Detects a dependency cycle across the same sibling-scoped edges that can
+ * actually gate execution. Unknown ids, self-references, and cross-parent ids
+ * are ignored to match `areDependenciesSatisfied` exactly.
+ */
+export const findDependencyCycle = (
+  threads: ReadonlyArray<{
+    readonly id: ThreadId;
+    readonly parentThreadId: ThreadId | null;
+    readonly blockedBy: ReadonlyArray<ThreadId>;
+  }>,
+): ReadonlyArray<ThreadId> | null => {
+  const byId = new Map(threads.map((thread) => [thread.id, thread] as const));
+  const visiting = new Map<ThreadId, number>();
+  const visited = new Set<ThreadId>();
+  const stack: Array<ThreadId> = [];
+
+  const visit = (thread: (typeof threads)[number]): ReadonlyArray<ThreadId> | null => {
+    if (visited.has(thread.id)) return null;
+    const index = visiting.get(thread.id);
+    if (index !== undefined) return [...stack.slice(index), thread.id];
+
+    visiting.set(thread.id, stack.length);
+    stack.push(thread.id);
+    for (const depId of thread.blockedBy) {
+      const dep = byId.get(depId);
+      if (
+        depId !== thread.id &&
+        dep !== undefined &&
+        dep.parentThreadId === thread.parentThreadId
+      ) {
+        const cycle = visit(dep);
+        if (cycle !== null) return cycle;
+      }
+    }
+    stack.pop();
+    visiting.delete(thread.id);
+    visited.add(thread.id);
+    return null;
+  };
+
+  for (const thread of threads) {
+    const cycle = visit(thread);
+    if (cycle !== null) return cycle;
+  }
+  return null;
+};
