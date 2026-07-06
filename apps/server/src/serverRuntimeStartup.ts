@@ -204,6 +204,15 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
         nextProjectId = ProjectId.make(yield* randomUUID);
         const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
         nextProjectDefaultModelSelection = getAutoBootstrapDefaultModelSelection();
+        // A concurrent engine (another server process, a CLI running its own
+        // engine, or a restart storm) can create a project for this same cwd
+        // between our pre-check and this dispatch. The engine resolves a losing
+        // same-workspace_root create to an idempotent success (reusing the
+        // winner) rather than a failure, so the dispatch returns cleanly — but it
+        // returns only a sequence, not the winner's id. Re-resolve the project
+        // authoritatively below so the welcome thread is created under the winning
+        // project id instead of the id whose create never committed. This makes
+        // auto-bootstrap idempotent per workspace_root.
         yield* orchestrationEngine.dispatch({
           type: "project.create",
           commandId: CommandId.make(yield* randomUUID),
@@ -213,6 +222,14 @@ export const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
           defaultModelSelection: nextProjectDefaultModelSelection,
           createdAt,
         });
+        const resolvedProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
+          serverConfig.cwd,
+        );
+        if (Option.isSome(resolvedProject)) {
+          nextProjectId = resolvedProject.value.id;
+          nextProjectDefaultModelSelection =
+            resolvedProject.value.defaultModelSelection ?? nextProjectDefaultModelSelection;
+        }
       } else {
         nextProjectId = existingProject.value.id;
         nextProjectDefaultModelSelection =

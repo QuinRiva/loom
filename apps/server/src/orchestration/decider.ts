@@ -23,6 +23,7 @@ import {
   requireGoalParentTask,
   requireGoalTask,
   requireGoalTaskAbsent,
+  requireActiveWorkspaceRootAvailable,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -178,6 +179,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         projectId: command.projectId,
+      });
+      // Invariant: at most one ACTIVE project per workspace_root. Commands are
+      // decided serially against a synchronously-updated read model, so a second
+      // same-path create in THIS engine sees the first's project.created here and
+      // is rejected. Cross-process races (a CLI running its own OrchestrationEngine,
+      // a restart storm) each have a private read model and can both pass this
+      // check — they are caught structurally by the partial unique index on
+      // projection_projects(workspace_root) WHERE deleted_at IS NULL (migration
+      // 049), which rolls back the losing create's transaction. A soft-deleted
+      // project for the path does not block re-creation.
+      yield* requireActiveWorkspaceRootAvailable({
+        readModel,
+        command,
+        workspaceRoot: command.workspaceRoot,
       });
 
       return {
