@@ -237,6 +237,8 @@ export const makeRawConnection = Effect.fnUntraced(function* (
 export interface SqliteWorkerData {
   readonly filename: string;
   readonly readonly: boolean;
+  readonly queryOnly: boolean;
+  readonly busyTimeoutMillis?: number | undefined;
   readonly allowExtension: boolean;
   readonly prepareCacheSize?: number | undefined;
   readonly prepareCacheTTLMillis?: number | undefined;

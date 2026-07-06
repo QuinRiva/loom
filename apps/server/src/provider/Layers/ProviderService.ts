@@ -25,6 +25,7 @@ import {
   type ProviderSession,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
+import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -510,7 +511,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                   Effect.logWarning("provider.session.stop-stale-failed", {
                     threadId: input.threadId,
                     provider: adapter.provider,
-                    cause,
+                    cause: Cause.pretty(cause),
                   }),
                 ),
               );

@@ -7,6 +7,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -48,7 +49,18 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
-const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
+// A dry-run fetch of a large repo (e.g. fathom-platform) already takes ~3.5s, so
+// a real fetch over a loaded host/network routinely crossed the old 5s cap and
+// was killed mid-flight — the tracking refs never updated, leaving perpetually
+// stale divergence plus a wasted subprocess every cycle. This bounds the lifetime
+// of the *detached background* fetch fiber; a status read never blocks on it for
+// longer than STATUS_UPSTREAM_REFRESH_AWAIT (below).
+const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(20);
+// How long a status read waits for an in-flight upstream fetch before computing
+// from the current refs. Kept at the original 5s so status latency is unchanged;
+// a slower fetch keeps running in the background and warms the dedup cache for the
+// next read rather than blocking (or being cancelled and re-spawned every cycle).
+const STATUS_UPSTREAM_REFRESH_AWAIT = Duration.seconds(5);
 
 const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
@@ -943,7 +955,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       "rev-parse",
       "--git-common-dir",
     ]).pipe(Effect.map((stdout) => stdout.trim()));
-    return path.isAbsolute(gitCommonDir) ? gitCommonDir : path.resolve(cwd, gitCommonDir);
+    const absoluteGitCommonDir = path.isAbsolute(gitCommonDir)
+      ? gitCommonDir
+      : path.resolve(cwd, gitCommonDir);
+    // Canonicalise via realpath so the dedup cache key ({gitCommonDir, remoteName})
+    // collapses to a single entry per physical repo. Without this, two worktrees
+    // reaching the same repo through different symlinked/relative paths produce
+    // distinct keys and slip past single-flight, spawning concurrent fetches.
+    return yield* fileSystem
+      .realPath(absoluteGitCommonDir)
+      .pipe(Effect.orElseSucceed(() => absoluteGitCommonDir));
   });
 
   const refreshStatusRemoteCacheEntry = Effect.fn("refreshStatusRemoteCacheEntry")(function* (
@@ -968,12 +989,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const upstream = yield* resolveCurrentUpstream(cwd);
     if (!upstream) return;
     const gitCommonDir = yield* resolveGitCommonDir(cwd);
-    yield* Cache.get(
+    // Detach the single-flighted fetch so a slow one never blocks status for the
+    // full fetch timeout, then wait only briefly for it: a quick fetch refreshes
+    // the tracking refs before status is read, while a slower one keeps running in
+    // the background (up to STATUS_UPSTREAM_REFRESH_TIMEOUT) and warms the cache for
+    // the next read. Interrupting the timed join only detaches the observer — it
+    // does not cancel the detached fetch — so large-repo fetches still complete.
+    const fetchFiber = yield* Cache.get(
       statusRemoteRefreshCache,
       new StatusRemoteRefreshCacheKey({
         gitCommonDir,
         remoteName: upstream.remoteName,
       }),
+    ).pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
+    yield* Fiber.join(fetchFiber).pipe(
+      Effect.timeout(STATUS_UPSTREAM_REFRESH_AWAIT),
+      Effect.ignore,
     );
   });
 

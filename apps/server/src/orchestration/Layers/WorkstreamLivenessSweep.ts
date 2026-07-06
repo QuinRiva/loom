@@ -8,6 +8,7 @@ import {
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
 
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -577,7 +578,7 @@ const makeWorkstreamLivenessSweep = (
               Effect.catchCause((cause) =>
                 Effect.logWarning("workstream.liveness.dead-failed", {
                   threadId: thread.id,
-                  cause,
+                  cause: Cause.pretty(cause),
                 }),
               ),
             );
@@ -658,7 +659,7 @@ const makeWorkstreamLivenessSweep = (
               Effect.catchCause((cause) =>
                 Effect.logWarning("workstream.liveness.progress-loop-failed", {
                   threadId: thread.id,
-                  cause,
+                  cause: Cause.pretty(cause),
                 }),
               ),
             );
@@ -680,7 +681,10 @@ const makeWorkstreamLivenessSweep = (
               }),
             ),
             Effect.catchCause((cause) =>
-              Effect.logWarning(`${label}-failed`, { threadId: thread.id, cause }),
+              Effect.logWarning(`${label}-failed`, {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }),
             ),
           );
 

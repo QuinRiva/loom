@@ -39,6 +39,20 @@ const HandlersLive = SqliteWorkerRpcs.toLayer(
             : undefined,
       },
     );
+    if (config.busyTimeoutMillis !== undefined) {
+      yield* connection.execute(`PRAGMA busy_timeout = ${config.busyTimeoutMillis};`, [], {
+        safeIntegers: false,
+        raw: false,
+        noCache: true,
+      });
+    }
+    if (config.queryOnly) {
+      yield* connection.execute("PRAGMA query_only = ON;", [], {
+        safeIntegers: false,
+        raw: false,
+        noCache: true,
+      });
+    }
     return SqliteWorkerRpcs.of({
       Execute: (request) => connection.execute(request.sql, request.params, request),
       ExecuteValues: (request) => connection.executeValues(request.sql, request.params, request),

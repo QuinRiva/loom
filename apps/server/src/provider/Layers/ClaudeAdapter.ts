@@ -3121,7 +3121,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           Effect.catchCause((cause) =>
             Effect.logWarning("claude.session.replace.stop-failed", {
               threadId: input.threadId,
-              cause,
+              cause: Cause.pretty(cause),
             }),
           ),
         );

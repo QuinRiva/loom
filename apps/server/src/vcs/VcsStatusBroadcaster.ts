@@ -7,6 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
@@ -25,6 +26,11 @@ import { mergeGitStatusParts } from "@t3tools/shared/git";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+// Spread the steady-state poll cadence so pollers for different worktrees whose
+// timers align (e.g. after a reconnect opens many sessions at once) don't fire a
+// synchronised burst of git subprocesses. Applied to the success delay only;
+// failure backoff (remoteRefreshFailureDelay) stays deterministic.
+const STATUS_REFRESH_JITTER_FRACTION = 0.2;
 const VCS_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
 const VCS_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 const MAX_FAILURE_DIAGNOSTIC_VALUES = 8;
@@ -136,6 +142,15 @@ interface ActiveRemotePoller {
 interface StreamStatusOptions {
   readonly automaticRemoteRefreshInterval?: Effect.Effect<Duration.Duration, never>;
 }
+
+const withRefreshJitter = (interval: Duration.Duration): Effect.Effect<Duration.Duration> =>
+  Random.next.pipe(
+    Effect.map((factor) =>
+      Duration.millis(
+        Math.round(Duration.toMillis(interval) * (1 + factor * STATUS_REFRESH_JITTER_FRACTION)),
+      ),
+    ),
+  );
 
 export function remoteRefreshFailureDelay(
   consecutiveFailures: number,
@@ -401,7 +416,7 @@ export const make = Effect.gen(function* () {
         if (Exit.isSuccess(exit)) {
           yield* Ref.set(needsInitialRefreshRef, false);
           yield* Ref.set(consecutiveFailuresRef, 0);
-          return activeInterval;
+          return yield* withRefreshJitter(activeInterval);
         }
 
         const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);

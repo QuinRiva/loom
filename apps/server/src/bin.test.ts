@@ -20,6 +20,7 @@ import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/unstable/cli";
 
 import { cli, makeCli } from "./bin.ts";
+import { provisionCliToken } from "./cli/cliToken.ts";
 import * as ServerConfig from "./config.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
@@ -122,6 +123,7 @@ const withLiveProjectCliServer = <A, E, R>(baseDir: string, run: () => Effect.Ef
           Layer.provide(ServerSecretStore.layer),
         ),
       ),
+      Layer.provideMerge(ServerSecretStore.layer),
       Layer.provideMerge(makeProjectPersistenceLayer(config)),
       Layer.provideMerge(
         NodeHttpServer.layer(NodeHttp.createServer, {
@@ -140,6 +142,7 @@ const withLiveProjectCliServer = <A, E, R>(baseDir: string, run: () => Effect.Ef
         if (typeof address === "string" || !("port" in address)) {
           assert.fail(`Expected TCP address, got ${address}`);
         }
+        yield* provisionCliToken();
         yield* persistServerRuntimeState({
           path: config.serverRuntimeStatePath,
           state: yield* makePersistedServerRuntimeState({

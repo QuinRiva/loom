@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -449,7 +450,7 @@ export const make = Effect.gen(function* () {
       reconcileStartupStaleSessionState.pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("startup session lifecycle reconciliation failed", {
-            cause,
+            cause: Cause.pretty(cause),
           }),
         ),
       ),
@@ -532,7 +533,9 @@ export const make = Effect.gen(function* () {
           port: serverConfig.port,
           cause: startupExit.cause,
         });
-        yield* Effect.logError("server runtime startup failed", { cause: startupExit.cause });
+        yield* Effect.logError("server runtime startup failed", {
+          cause: Cause.pretty(startupExit.cause),
+        });
         yield* commandGate.failCommandReady(error);
         return;
       }

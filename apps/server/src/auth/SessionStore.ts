@@ -7,6 +7,7 @@ import {
   type AuthEnvironmentScope,
   type ServerAuthSessionMethod,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -534,7 +535,7 @@ export const make = Effect.gen(function* () {
         Effect.logError("Failed to publish connected-session auth update.").pipe(
           Effect.annotateLogs({
             sessionId,
-            cause,
+            cause: Cause.pretty(cause),
           }),
         ),
       ),
@@ -560,7 +561,7 @@ export const make = Effect.gen(function* () {
         Effect.logError("Failed to publish disconnected-session auth update.").pipe(
           Effect.annotateLogs({
             sessionId,
-            cause,
+            cause: Cause.pretty(cause),
           }),
         ),
       ),
