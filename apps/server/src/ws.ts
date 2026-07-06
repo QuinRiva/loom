@@ -851,7 +851,7 @@ const makeWsRpcLayer = (
                     Effect.catchCause((cause) =>
                       Effect.logWarning("failed to stop provider session during archive", {
                         threadId: normalizedCommand.threadId,
-                        cause,
+                        cause: Cause.pretty(cause),
                       }),
                     ),
                   );

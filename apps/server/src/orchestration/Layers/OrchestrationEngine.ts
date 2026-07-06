@@ -53,6 +53,17 @@ const isOrchestrationCommandPreviouslyRejectedError = Schema.is(
 );
 const isOrchestrationCommandInvariantError = Schema.is(OrchestrationCommandInvariantError);
 
+/**
+ * Slow-command telemetry threshold. The command worker is a single serial fiber
+ * (`Effect.forever(Queue.take >>= processEnvelope)`), so a slow command at the
+ * head of the queue stalls every other thread's commands behind it. The web UI
+ * observed `orchestration.dispatchCommand` waits >15s with zero server-side
+ * trace; warn-logging any command whose total handling crosses this threshold
+ * (splitting queue-wait from processing time) surfaces those stalls and gives
+ * the structural DB-lane work the queue-wait-vs-processing evidence it needs.
+ */
+const SLOW_COMMAND_LOG_THRESHOLD_MS = 3_000;
+
 interface CommandEnvelope {
   command: OrchestrationCommand;
   result: Deferred.Deferred<{ sequence: number }, OrchestrationDispatchError>;
@@ -298,6 +309,22 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             ),
             1,
           );
+
+          const finishedAtMs = yield* Clock.currentTimeMillis;
+          const queueWaitMs = Math.max(0, processingStartedAtMs - envelope.startedAtMs);
+          const totalMs = Math.max(0, finishedAtMs - envelope.startedAtMs);
+          if (totalMs >= SLOW_COMMAND_LOG_THRESHOLD_MS) {
+            yield* Effect.logWarning("orchestration command slow", {
+              commandType: envelope.command.type,
+              commandId: envelope.command.commandId,
+              aggregateKind: aggregateRef.aggregateKind,
+              aggregateId: aggregateRef.aggregateId,
+              outcome,
+              queueWaitMs,
+              processingMs: Math.max(0, finishedAtMs - processingStartedAtMs),
+              totalMs,
+            });
+          }
 
           if (Exit.isSuccess(exit)) {
             yield* Deferred.succeed(envelope.result, exit.value);

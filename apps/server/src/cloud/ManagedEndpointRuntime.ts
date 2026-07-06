@@ -1,5 +1,6 @@
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -145,7 +146,9 @@ export const make = Effect.gen(function* () {
         }),
       );
     }).pipe(
-      Effect.catchCause((cause) => Effect.logWarning("Relay client supervisor failed", { cause })),
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Relay client supervisor failed", { cause: Cause.pretty(cause) }),
+      ),
     );
 
   const observeConnectorOutput = (connector: ActiveConnector) =>
@@ -173,7 +176,7 @@ export const make = Effect.gen(function* () {
       }),
       Effect.catchCause((cause) =>
         Effect.logWarning("Relay client output observer failed", {
-          cause,
+          cause: Cause.pretty(cause),
           pid: Number(connector.child.pid),
           tunnelId: connector.config.tunnelId,
           tunnelName: connector.config.tunnelName,

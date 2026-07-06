@@ -47,6 +47,7 @@ import {
   type ProviderInstanceConfigMap,
   ServerSettings,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -120,13 +121,13 @@ const SettingsWatcherLive = Layer.effectDiscard(
     const serverSettings = yield* ServerSettingsService;
     yield* serverSettings.streamChanges.pipe(
       Stream.runForEach((next) =>
-        mutator
-          .reconcile(deriveProviderInstanceConfigMap(next))
-          .pipe(
-            Effect.catchCause((cause) =>
-              Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
-            ),
+        mutator.reconcile(deriveProviderInstanceConfigMap(next)).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("ProviderInstanceRegistry reconcile failed", {
+              cause: Cause.pretty(cause),
+            }),
           ),
+        ),
       ),
       Effect.forkScoped,
     );

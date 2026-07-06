@@ -3,6 +3,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as NodeCrypto from "node:crypto";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -167,7 +168,7 @@ const writeWorktreeSetupState = (
       Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
         worktreePath,
         status: state.status,
-        cause,
+        cause: Cause.pretty(cause),
       }),
     ),
   );

@@ -12,6 +12,7 @@ import {
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -454,7 +455,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
       }).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Failed to write native Grok notification log.", {
-            cause,
+            cause: Cause.pretty(cause),
             threadId,
             method,
           }),
