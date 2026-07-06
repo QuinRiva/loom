@@ -35,6 +35,8 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionThreadConsultRepository } from "../../persistence/Services/ProjectionThreadConsults.ts";
+import { ProjectionThreadConsultRepositoryLive } from "../../persistence/Layers/ProjectionThreadConsults.ts";
 import { ProjectionGoalRepository } from "../../persistence/Services/ProjectionGoals.ts";
 import { ProjectionGoalRepositoryLive } from "../../persistence/Layers/ProjectionGoals.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
@@ -57,6 +59,11 @@ import {
   parseThreadSegmentFromAttachmentId,
   toSafeThreadAttachmentSegment,
 } from "../../attachmentStore.ts";
+
+// consult_thread observability: shell-level question preview length. The full
+// question lives on the `thread.consult-recorded` event; only this bounded
+// preview is aggregated onto the asker shell.
+const CONSULT_QUESTION_PREVIEW_MAX_LENGTH = 140;
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
@@ -541,6 +548,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionGoalRepository = yield* ProjectionGoalRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
+    const projectionThreadConsultRepository = yield* ProjectionThreadConsultRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -1243,6 +1251,27 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
+          return;
+        }
+
+        // consult_thread observability: record the consult edge on the asker
+        // thread. Idempotent by event id so replay never double-counts. The
+        // shell aggregates count / latest preview per asker→target at query
+        // time; the full question + answer stay on the event.
+        case "thread.consult-recorded": {
+          const question = event.payload.question.replace(/\s+/g, " ").trim();
+          yield* projectionThreadConsultRepository.insert({
+            eventId: event.eventId,
+            askerThreadId: event.payload.askerThreadId,
+            targetThreadId: event.payload.targetThreadId,
+            targetTitle: event.payload.targetTitle,
+            questionPreview:
+              question.length > CONSULT_QUESTION_PREVIEW_MAX_LENGTH
+                ? `${question.slice(0, CONSULT_QUESTION_PREVIEW_MAX_LENGTH - 1).trimEnd()}\u2026`
+                : question,
+            createdAt: event.payload.createdAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.askerThreadId);
           return;
         }
 
@@ -2082,6 +2111,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
+  Layer.provideMerge(ProjectionThreadConsultRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),

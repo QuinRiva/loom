@@ -236,6 +236,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.message-reasoning"
       | "thread.proposed-plan-upserted"
       | "thread.activity-appended"
+      | "thread.consult-recorded"
       | "thread.turn-diff-completed"
       | "thread.reverted"
       | "thread.session-set";
@@ -246,6 +247,7 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.message-reasoning" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
+    event.type === "thread.consult-recorded" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
     event.type === "thread.session-set"

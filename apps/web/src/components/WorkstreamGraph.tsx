@@ -25,6 +25,9 @@ import {
 import {
   computeForkJoinLayout,
   computeForkJoinViewBox,
+  deriveConsultOverlay,
+  type ConsultEdge,
+  type ExternalConsult,
   type LaidEdge,
   type LaidNode,
   type ViewBox,
@@ -41,6 +44,7 @@ import {
   getRoleLabel,
   getThreadStatus,
   getVerdictChip,
+  CONSULT_STROKE,
   STATUS_STYLES,
   truncateLabel,
   WAITS_ON_STROKE,
@@ -61,7 +65,11 @@ export default function WorkstreamGraph({
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
+  readonly onOpenDispatch: (
+    threadId: ThreadId,
+    anchorAtIso: string,
+    expandConsultTargetId?: ThreadId,
+  ) => void;
 }) {
   // Layout depends only on structure (lineage + generation + deps + loop routes
   // + order), so memoise on a structural key rather than re-running on every
@@ -80,6 +88,14 @@ export default function WorkstreamGraph({
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const base = useMemo(() => computeForkJoinViewBox(nodes), [structureKey]);
+
+  // Consult overlay is derived live (not part of the memoised structural layout)
+  // so newly-recorded consults appear without a re-layout — mirroring how loop
+  // rounds are resolved at render time.
+  const consultOverlay = useMemo(
+    () => deriveConsultOverlay(nodes, threadById),
+    [nodes, threadById],
+  );
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; vb: ViewBox } | null>(null);
@@ -122,7 +138,7 @@ export default function WorkstreamGraph({
   }, [base]);
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if ((event.target as Element).closest(".ws-graph-node")) return;
+    if ((event.target as Element).closest(".ws-graph-node, .ws-graph-consult-edge")) return;
     dragRef.current = { x: event.clientX, y: event.clientY, vb: viewBox };
     setAdjusted(true);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -205,9 +221,22 @@ export default function WorkstreamGraph({
             >
               <path d="M0 0 L6 3 L0 6 z" fill={getLoopStroke(1)} />
             </marker>
+            <marker
+              id="workstream-consult-arrow"
+              markerHeight="8"
+              markerWidth="8"
+              orient="auto"
+              refX="6"
+              refY="3"
+            >
+              <path d="M0 0 L6 3 L0 6 z" fill={CONSULT_STROKE} />
+            </marker>
           </defs>
           {edges.map((edge) => (
             <GraphEdge key={edge.key} edge={edge} threadById={threadById} />
+          ))}
+          {consultOverlay.edges.map((edge) => (
+            <ConsultGraphEdge key={edge.key} edge={edge} onOpenDispatch={onOpenDispatch} />
           ))}
           {nodes.map((node) =>
             node.kind === "bridge" ? (
@@ -218,6 +247,7 @@ export default function WorkstreamGraph({
                 node={node}
                 threadById={threadById}
                 onOpenThread={onOpenThread}
+                externalConsult={consultOverlay.externalByAskerId.get(node.thread.id)}
               />
             ),
           )}
@@ -252,6 +282,13 @@ export default function WorkstreamGraph({
             style={{ borderColor: getLoopStroke(1) }}
           />
           review loop ⟲
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+          <span
+            className="inline-block h-0 w-4 border-t border-dotted"
+            style={{ borderColor: CONSULT_STROKE }}
+          />
+          consult
         </span>
       </div>
     </div>
@@ -343,6 +380,73 @@ function GraphEdge({
   );
 }
 
+// Directed consult cross-edge (dotted teal): the asker consulted the target's
+// frozen session. Clickable — reuses the dispatch-scroll mechanism to land on
+// the consult site in the asker's chat. A midpoint badge counts repeat consults.
+function ConsultGraphEdge({
+  edge,
+  onOpenDispatch,
+}: {
+  readonly edge: ConsultEdge;
+  readonly onOpenDispatch: (
+    threadId: ThreadId,
+    anchorAtIso: string,
+    expandConsultTargetId?: ThreadId,
+  ) => void;
+}) {
+  const midX = (edge.x1 + edge.x2) / 2;
+  const midY = (edge.y1 + edge.y2) / 2;
+  const open = () => onOpenDispatch(edge.askerId, edge.anchorAtIso, edge.targetThreadId);
+  return (
+    <g
+      className="ws-graph-consult-edge cursor-pointer outline-none"
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <title>{`Consulted: ${edge.preview}`}</title>
+      {/* Invisible fat hit-target so the thin dotted line is easy to click. */}
+      <path
+        d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+        fill="none"
+        stroke="transparent"
+        strokeWidth="10"
+      />
+      <path
+        d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+        fill="none"
+        markerEnd="url(#workstream-consult-arrow)"
+        stroke={CONSULT_STROKE}
+        strokeDasharray="1.5 3"
+        strokeWidth="1.3"
+      />
+      {edge.count > 1 ? (
+        <g>
+          <rect
+            fill="#0d1117"
+            height={15}
+            rx="7"
+            stroke={CONSULT_STROKE}
+            strokeWidth="1"
+            width={34}
+            x={midX - 17}
+            y={midY - 7.5}
+          />
+          <text fill={CONSULT_STROKE} fontSize="9" textAnchor="middle" x={midX} y={midY + 3}>
+            {`×${edge.count}`}
+          </text>
+        </g>
+      ) : null}
+    </g>
+  );
+}
+
 function BridgeNode({
   node,
   onOpenDispatch,
@@ -401,10 +505,12 @@ function GraphNode({
   node,
   threadById,
   onOpenThread,
+  externalConsult,
 }: {
   readonly node: Extract<LaidNode, { kind: "thread" }>;
   readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly externalConsult: ExternalConsult | undefined;
 }) {
   // The laid-out node carries a STRUCTURAL snapshot (layout is memoised on a key
   // that excludes status), so resolve the live summary for status/labels — else
@@ -479,6 +585,30 @@ function GraphNode({
           xEnd={node.x + node.w - 6}
           yCenter={node.y}
         />
+      ) : null}
+      {externalConsult ? (
+        // Out-of-tree consults have no node to point at, so annotate the asker
+        // with a teal consult glyph + count; the hover names the external targets.
+        <g>
+          <title>{`Consulted outside this graph: ${externalConsult.targetTitles.join(", ")}`}</title>
+          <circle
+            cx={node.x + node.w - 12}
+            cy={node.y + 12}
+            fill="#0d1117"
+            r="8"
+            stroke={CONSULT_STROKE}
+            strokeWidth="1"
+          />
+          <text
+            fill={CONSULT_STROKE}
+            fontSize="9"
+            textAnchor="middle"
+            x={node.x + node.w - 12}
+            y={node.y + 15}
+          >
+            {externalConsult.count > 9 ? "9+" : externalConsult.count}
+          </text>
+        </g>
       ) : null}
     </g>
   );

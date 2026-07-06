@@ -228,7 +228,9 @@ describe("ProviderSessionReaper", () => {
           getThreadShellById: (threadId) => {
             const found = input.readModel.threads.find((thread) => thread.id === threadId);
             return Effect.succeed(
-              found ? Option.some({ ...found, lastActivityPreview: null }) : Option.none(),
+              found
+                ? Option.some({ ...found, lastActivityPreview: null, consults: [] })
+                : Option.none(),
             );
           },
           getThreadDetailById: () => Effect.die("unused"),

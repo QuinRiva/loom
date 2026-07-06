@@ -60,6 +60,7 @@ function makeThread(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     lastActivityPreview: null,
+    consults: [],
     ...input,
   };
 }

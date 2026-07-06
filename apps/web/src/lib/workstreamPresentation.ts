@@ -194,6 +194,11 @@ export const ATTENTION_STYLES = {
 
 export const WAITS_ON_STROKE = "#f59e0b";
 
+// consult_thread observability: the neutral/informational tint shared by the
+// in-chat consult card and the graph's dotted consult cross-edge. Teal is
+// deliberately distinct from the spawn/gate violet and the amber waits-on edge.
+export const CONSULT_STROKE = "#2dd4bf";
+
 // ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §10) — the loop-edge
 // palette, verdict chip, and gate-waiting badge shared by the board cards and

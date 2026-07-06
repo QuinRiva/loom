@@ -243,6 +243,7 @@ const makeDefaultOrchestrationThreadShell = (
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     lastActivityPreview: null,
+    consults: [],
     ...overrides,
   };
 };

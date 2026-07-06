@@ -25,6 +25,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     scrollRequest: null,
+    consultReveal: null,
     ...overrides,
   };
 }
@@ -179,6 +180,7 @@ describe("parsePersistedState", () => {
         },
       },
       scrollRequest: null,
+      consultReveal: null,
     });
   });
 

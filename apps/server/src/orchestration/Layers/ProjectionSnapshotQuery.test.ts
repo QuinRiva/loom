@@ -471,6 +471,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
           lastActivityPreview: "hello from projection",
+          consults: [],
           toolUses: null,
           usedTokens: null,
           maxTokens: null,

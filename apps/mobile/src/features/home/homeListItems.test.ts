@@ -72,6 +72,7 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    consults: [],
   };
 }
 

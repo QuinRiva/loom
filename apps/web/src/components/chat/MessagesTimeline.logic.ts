@@ -109,6 +109,13 @@ export type MessagesTimelineRow =
       entries: WorkLogEntry[];
     }
   | {
+      kind: "consult";
+      id: string;
+      createdAt: string;
+      turnId: TurnId | null;
+      entries: WorkLogEntry[];
+    }
+  | {
       kind: "work-toggle";
       id: string;
       createdAt: string;
@@ -176,6 +183,11 @@ export function normalizeCompactToolLabel(value: string): string {
 /** `workstream_spawn` results carry a spawned-child payload; they render as a grouped spawn card. */
 function isSpawnWorkEntry(entry: WorkLogEntry): boolean {
   return entry.spawnedChild !== undefined;
+}
+
+/** `consult_thread` results carry a consult payload; they render as dedicated consult cards. */
+function isConsultWorkEntry(entry: WorkLogEntry): boolean {
+  return entry.consult !== undefined;
 }
 
 export function resolveAssistantMessageCopyState({
@@ -466,6 +478,39 @@ export function deriveMessagesTimelineRows(input: {
         continue;
       }
 
+      // Consult cards mirror spawn cards: a per-turn group lifted out of the
+      // ordinary tool-row machinery so each consult keeps its own digestible
+      // question/answer card rather than a buried tool dump.
+      if (isConsultWorkEntry(timelineEntry.entry)) {
+        const groupTurnId = timelineEntry.entry.turnId ?? null;
+        const groupedConsultEntries = [timelineEntry.entry];
+        let consultCursor = index + 1;
+        while (consultCursor < input.timelineEntries.length) {
+          const nextEntry = input.timelineEntries[consultCursor];
+          if (
+            !nextEntry ||
+            nextEntry.kind !== "work" ||
+            collapsedEntryIds.has(nextEntry.id) ||
+            foldsByAnchorEntryId.has(nextEntry.id) ||
+            !isConsultWorkEntry(nextEntry.entry) ||
+            (nextEntry.entry.turnId ?? null) !== groupTurnId
+          ) {
+            break;
+          }
+          groupedConsultEntries.push(nextEntry.entry);
+          consultCursor += 1;
+        }
+        nextRows.push({
+          kind: "consult",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          turnId: groupTurnId,
+          entries: groupedConsultEntries,
+        });
+        index = consultCursor - 1;
+        continue;
+      }
+
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -475,7 +520,8 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.kind !== "work" ||
           collapsedEntryIds.has(nextEntry.id) ||
           foldsByAnchorEntryId.has(nextEntry.id) ||
-          isSpawnWorkEntry(nextEntry.entry)
+          isSpawnWorkEntry(nextEntry.entry) ||
+          isConsultWorkEntry(nextEntry.entry)
         ) {
           break;
         }
@@ -620,7 +666,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "work":
       return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);
 
-    case "spawn": {
+    case "spawn":
+    case "consult": {
       const bs = b as typeof a;
       return a.turnId === bs.turnId && Equal.equals(a.entries, bs.entries);
     }

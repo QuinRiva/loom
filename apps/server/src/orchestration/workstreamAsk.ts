@@ -25,6 +25,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
 import * as NodeFSP from "node:fs/promises";
+import * as NodePath from "node:path";
 
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -65,6 +66,21 @@ export interface AskWorkstreamThreadInput {
   readonly cwd: string;
   readonly question: string;
   readonly timeoutMs: number;
+  /**
+   * Durable directory to move the read-only fork's session jsonl into when the
+   * turn completes (filename `<freshSessionId>.jsonl`), retaining it for deep
+   * inspection instead of deleting it. Omit to keep the original
+   * delete-on-release behaviour. Retention is best-effort: on any move failure
+   * the fork file is deleted and no path is returned.
+   */
+  readonly forkRetentionDir?: string;
+}
+
+export interface AskWorkstreamThreadResult {
+  /** The fork's single-turn assistant answer (trimmed). */
+  readonly answer: string;
+  /** Retained fork session jsonl path, when retention succeeded. */
+  readonly forkSessionPath?: string;
 }
 
 /** Strip any `T3_WORKSTREAM_*` keys so the fork cannot reach orchestration. */
@@ -144,9 +160,12 @@ export const askWorkstreamThread = Effect.fn("askWorkstreamThread")(function* (
   input: AskWorkstreamThreadInput,
 ) {
   const platform = yield* HostProcessPlatform;
-  // Captured in `use`, read in `release` so the fork file is always deleted.
+  // Captured in `use`, read in `release` so the fork file is always retained or
+  // deleted. `retainedForkPath` is set in `release` (which completes before the
+  // overall effect resolves) so the caller can event-source the pointer.
   let forkSessionFile: string | undefined;
-  return yield* Effect.acquireUseRelease(
+  let retainedForkPath: string | undefined;
+  const answer = yield* Effect.acquireUseRelease(
     Effect.tryPromise({
       try: () =>
         createPiRpcProcess({
@@ -176,7 +195,43 @@ export const askWorkstreamThread = Effect.fn("askWorkstreamThread")(function* (
     (proc) =>
       Effect.promise(async () => {
         await proc.stop().catch(() => undefined);
-        if (forkSessionFile) await NodeFSP.unlink(forkSessionFile).catch(() => undefined);
+        if (!forkSessionFile) return;
+        if (input.forkRetentionDir) {
+          const destination = NodePath.join(
+            input.forkRetentionDir,
+            `${input.freshSessionId}.jsonl`,
+          );
+          if (await retainForkSession(forkSessionFile, destination)) {
+            retainedForkPath = destination;
+            return;
+          }
+        }
+        await NodeFSP.unlink(forkSessionFile).catch(() => undefined);
       }),
   );
+  return {
+    answer,
+    ...(retainedForkPath !== undefined ? { forkSessionPath: retainedForkPath } : {}),
+  } satisfies AskWorkstreamThreadResult;
 });
+
+/**
+ * Move the fork's session jsonl to a durable location. Handles cross-device
+ * moves (rename → copy+unlink fallback). Best-effort: returns false on any
+ * failure so the caller deletes the original instead.
+ */
+const retainForkSession = async (source: string, destination: string): Promise<boolean> => {
+  try {
+    await NodeFSP.mkdir(NodePath.dirname(destination), { recursive: true });
+    await NodeFSP.rename(source, destination);
+    return true;
+  } catch {
+    try {
+      await NodeFSP.copyFile(source, destination);
+      await NodeFSP.unlink(source).catch(() => undefined);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};

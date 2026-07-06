@@ -149,11 +149,15 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
 
   // Clicking an orchestrator (bridge) node: route to the dispatching orchestrator
   // thread, then ask its timeline to scroll to the turn that spawned the wave.
-  const openDispatch = (orchestratorId: ThreadId, anchorAtIso: string) => {
-    requestScrollToDispatch(orchestratorId, anchorAtIso);
+  const openDispatch = (
+    threadId: ThreadId,
+    anchorAtIso: string,
+    expandConsultTargetId?: ThreadId,
+  ) => {
+    requestScrollToDispatch(threadId, anchorAtIso, expandConsultTargetId);
     void navigate({
       to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(environmentId, orchestratorId)),
+      params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
     });
   };
 
