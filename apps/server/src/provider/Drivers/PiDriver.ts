@@ -98,6 +98,14 @@ import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const decodePiSettings = Schema.decodeSync(PiSettings);
 const SNAPSHOT_REFRESH_INTERVAL = Duration.minutes(2);
+// `pi --mode rpc` attaches its stdin command reader only after the session has
+// fully booted (node cold start, auth, extension/skill loading) and emits no
+// readiness signal, so `get_available_models` cannot be answered until boot
+// completes. Under host load that can exceed the 30s default request timeout,
+// tripping a needless enrichment failure. This is a throwaway, self-healing,
+// 2-min-cadence refresh, so we wait out a slow boot (well under the refresh
+// interval, which interrupts the fiber anyway) rather than burn the spawn.
+const PI_ENRICHMENT_REQUEST_TIMEOUT_MS = 90_000;
 const PI_MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
   provider: DRIVER_KIND,
   packageName: "@earendil-works/pi-coding-agent",
@@ -344,9 +352,10 @@ function enrichPiSnapshot(input: {
       ),
       (proc) =>
         Effect.promise(() =>
-          proc.request<{ readonly models: ReadonlyArray<PiAvailableModel> }>({
-            type: "get_available_models",
-          }),
+          proc.request<{ readonly models: ReadonlyArray<PiAvailableModel> }>(
+            { type: "get_available_models" },
+            PI_ENRICHMENT_REQUEST_TIMEOUT_MS,
+          ),
         ),
       (proc) => Effect.promise(() => proc.stop()),
     );
