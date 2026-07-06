@@ -11,6 +11,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactor } from "../Services/WorkstreamFanInReactor.ts";
+import { WorktreeReaper } from "../Services/WorktreeReaper.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 import * as AgentAwarenessRelay from "../../relay/AgentAwarenessRelay.ts";
@@ -85,6 +86,16 @@ describe("OrchestrationReactor", () => {
           }),
         ),
         Layer.provideMerge(
+          Layer.succeed(WorktreeReaper, {
+            start: () => {
+              started.push("worktree-reaper");
+              return Effect.void;
+            },
+            classifyWorktrees: () => Effect.succeed([]),
+            drain: Effect.void,
+          }),
+        ),
+        Layer.provideMerge(
           Layer.succeed(AgentAwarenessRelay.AgentAwarenessRelay, {
             publishThread: () => Effect.void,
             start: () => {
@@ -107,6 +118,7 @@ describe("OrchestrationReactor", () => {
       "thread-deletion-reactor",
       "workstream-dispatcher",
       "workstream-fanin-reactor",
+      "worktree-reaper",
       "agent-awareness-relay",
     ]);
 

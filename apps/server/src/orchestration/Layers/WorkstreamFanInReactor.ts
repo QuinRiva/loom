@@ -4,6 +4,7 @@ import * as NodePath from "node:path";
 import {
   CommandId,
   EventId,
+  MessageId,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationThreadShell,
@@ -26,6 +27,7 @@ import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
 import {
   WorkstreamFanInReactor,
   type WorkstreamFanInReactorShape,
@@ -60,6 +62,54 @@ const make = Effect.gen(function* () {
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`server:workstream-fanin:${tag}:${uuid}`)),
+    );
+
+  // Item 3 (phase 3): resolved-conflict wake. A fan-in that first CONFLICTED and
+  // later merged cleanly (child reopened → conflicts resolved → resubmitted)
+  // otherwise fires no wake — the generation wake already fired once carrying the
+  // conflict notice, and the clean resubmit does not re-notify (observed in e2e:
+  // the orchestrator had to poll). Track the children whose fan-in conflicted so
+  // the conflicted→completed transition can dispatch ONE lightweight parent
+  // notice. Process-scoped: a resolution spanning a restart simply forgoes the
+  // extra notice (the conflict itself is re-surfaced by generation reconciliation).
+  const conflictedChildren = new Set<ThreadId>();
+
+  const deliverResolutionWake = (
+    child: OrchestrationThreadShell,
+    parent: OrchestrationThreadShell,
+  ) =>
+    Effect.gen(function* () {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn.start",
+        // Deterministic id → receipt-deduped: at-most-once even if the pass
+        // re-runs after delivery.
+        commandId: CommandId.make(`server:workstream-fanin:resolved:${child.id}`),
+        threadId: parent.id,
+        message: {
+          messageId: MessageId.make(yield* crypto.randomUUIDv4),
+          role: "user",
+          text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` resolved its fan-in merge conflict: its branch has now been merged cleanly into your branch, and its dependents are released. Fold its result into your orchestration and continue.`,
+          attachments: [],
+        },
+        titleSeed: parent.title,
+        runtimeMode: parent.runtimeMode,
+        interactionMode: parent.interactionMode,
+        // Busy parent → defer atomically at the command boundary; a later
+        // session-set / fanin-set re-arm retries while the child is still tracked.
+        requireIdle: true,
+        createdAt: yield* nowIso,
+      } satisfies OrchestrationCommand);
+      return true;
+    }).pipe(
+      Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("resolved-conflict wake failed", {
+              child: child.id,
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(false)),
+      ),
     );
 
   const setFanInState = (threadId: ThreadId, fanInState: ThreadFanInState) =>
@@ -217,6 +267,22 @@ const make = Effect.gen(function* () {
     parent.session.status === "running" &&
     parent.session.activeTurnId !== null;
 
+  // Cancel-race hardening (phase 3, task A): the cancel cascade emits
+  // `thread.turn-interrupt-requested`, but the provider process winds down
+  // asynchronously and can still be writing files after `plan-lane-set
+  // cancelled` lands. Committing `wip: cancelled` + removing the worktree at
+  // that instant races those writes. Same wait-for-quiescence principle as the
+  // done path above: defer the cancel disposition until the child's session has
+  // left "running"/"starting" (leaving "running" is the authoritative turn-end
+  // signal — see the projector's session-set handling) and its latest turn is
+  // no longer running. Re-armed by session-set / turn-diff-completed events and
+  // the periodic reconciliation tick, so a missed wake-up still converges.
+  const isCancelledChildQuiescent = (child: OrchestrationThreadShell): boolean =>
+    !(
+      child.session !== null &&
+      (child.session.status === "running" || child.session.status === "starting")
+    ) && !(child.latestTurn !== null && child.latestTurn.state === "running");
+
   // Merge an isolated child's branch back into the parent branch and settle its
   // fan-in state. Gate-guarded by the caller. Parent-worktree mutations run
   // under the per-worktree lock so a concurrent sibling provisioning cannot race
@@ -256,6 +322,7 @@ const make = Effect.gen(function* () {
             tone: "error",
           });
           yield* setFanInState(child.id, "conflicted");
+          conflictedChildren.add(child.id);
           return;
         }
         yield* setFanInState(child.id, "completed");
@@ -337,6 +404,17 @@ const make = Effect.gen(function* () {
       const parentCwd = parent ? resolveCwd(parent, projects) : undefined;
 
       const handle = Effect.gen(function* () {
+        // Resolved-conflict wake (item 3): a tracked child whose fan-in has now
+        // settled `completed` merged cleanly after an earlier conflict — notify
+        // the parent once, then stop tracking. A tracked child that was instead
+        // cancelled will never merge; drop it so the set does not leak.
+        if (conflictedChildren.has(child.id)) {
+          if (child.fanInState === "completed" && parent !== undefined) {
+            if (yield* deliverResolutionWake(child, parent)) conflictedChildren.delete(child.id);
+          } else if (child.planLane === "cancelled") {
+            conflictedChildren.delete(child.id);
+          }
+        }
         if (child.planLane === "done" && child.fanInState === "none") {
           // Gate members fan in exactly once, at resolution: skip while the gate
           // is unresolved (plan §3/§4, review finding 1). The both-parties `done`
@@ -369,6 +447,7 @@ const make = Effect.gen(function* () {
           ) {
             return;
           }
+          if (!isCancelledChildQuiescent(child)) return;
           yield* doCancelled(child, parent, parentCwd, threads);
         } else if (child.fanInState === "completed" && child.worktreePath !== null) {
           // Deferred-removal sweep (plan §3 step 4): a fanned-in child whose
@@ -450,6 +529,12 @@ const make = Effect.gen(function* () {
         // transition is the final trigger event that was sampled before the
         // projection write landed (one of the observed live race modes).
         if (event.type === "thread.session-set") {
+          return worker.enqueue();
+        }
+        // Item 3: a fan-in settling to `completed` is the conflicted→completed
+        // transition the resolved-conflict wake keys on — re-arm so the notice
+        // fires promptly rather than waiting for the periodic tick.
+        if (event.type === "thread.fanin-set") {
           return worker.enqueue();
         }
         return Effect.void;

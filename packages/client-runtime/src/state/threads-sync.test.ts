@@ -62,6 +62,8 @@ const BASE_THREAD: OrchestrationThread = {
   toolUses: null,
   usedTokens: null,
   maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
   title: "Cached thread",
   modelSelection: {
     instanceId: ProviderInstanceId.make("codex"),

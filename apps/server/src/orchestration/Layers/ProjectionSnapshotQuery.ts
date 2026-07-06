@@ -533,6 +533,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
@@ -581,6 +583,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -631,6 +635,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -1086,6 +1092,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -1843,6 +1851,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 toolUses: row.toolUses,
                 usedTokens: row.usedTokens,
                 maxTokens: row.maxTokens,
+                diffAdditions: row.diffAdditions,
+                diffDeletions: row.diffDeletions,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 archivedAt: row.archivedAt,
@@ -2087,6 +2097,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   toolUses: row.toolUses,
                   usedTokens: row.usedTokens,
                   maxTokens: row.maxTokens,
+                  diffAdditions: row.diffAdditions,
+                  diffDeletions: row.diffDeletions,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -2288,6 +2300,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         toolUses: row.toolUses,
                         usedTokens: row.usedTokens,
                         maxTokens: row.maxTokens,
+                        diffAdditions: row.diffAdditions,
+                        diffDeletions: row.diffDeletions,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
                         archivedAt: row.archivedAt,
@@ -2445,6 +2459,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   toolUses: row.toolUses,
                   usedTokens: row.usedTokens,
                   maxTokens: row.maxTokens,
+                  diffAdditions: row.diffAdditions,
+                  diffDeletions: row.diffDeletions,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -2752,6 +2768,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         toolUses: threadRow.value.toolUses,
         usedTokens: threadRow.value.usedTokens,
         maxTokens: threadRow.value.maxTokens,
+        diffAdditions: threadRow.value.diffAdditions,
+        diffDeletions: threadRow.value.diffDeletions,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
         archivedAt: threadRow.value.archivedAt,
@@ -2883,6 +2901,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             toolUses: threadRow.value.toolUses,
             usedTokens: threadRow.value.usedTokens,
             maxTokens: threadRow.value.maxTokens,
+            diffAdditions: threadRow.value.diffAdditions,
+            diffDeletions: threadRow.value.diffDeletions,
             createdAt: threadRow.value.createdAt,
             updatedAt: threadRow.value.updatedAt,
             archivedAt: threadRow.value.archivedAt,

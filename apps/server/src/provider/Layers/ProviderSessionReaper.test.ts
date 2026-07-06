@@ -124,6 +124,8 @@ function makeReadModel(
       toolUses: null,
       usedTokens: null,
       maxTokens: null,
+      diffAdditions: null,
+      diffDeletions: null,
       latestTurn: null,
       messages: [],
       session: thread.session

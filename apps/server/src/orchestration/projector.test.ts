@@ -106,6 +106,8 @@ describe("orchestration projector", () => {
         toolUses: null,
         usedTokens: null,
         maxTokens: null,
+        diffAdditions: null,
+        diffDeletions: null,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,

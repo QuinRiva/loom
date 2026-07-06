@@ -116,6 +116,7 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
+import * as WorkstreamWorktreeStatus from "./orchestration/WorkstreamWorktreeStatus.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as Data from "effect/Data";
@@ -180,6 +181,8 @@ const makeDefaultOrchestrationReadModel = () => {
         toolUses: null,
         usedTokens: null,
         maxTokens: null,
+        diffAdditions: null,
+        diffDeletions: null,
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -234,6 +237,8 @@ const makeDefaultOrchestrationThreadShell = (
     toolUses: null,
     usedTokens: null,
     maxTokens: null,
+    diffAdditions: null,
+    diffDeletions: null,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -641,24 +646,30 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(ProcessDiagnostics.ProcessDiagnostics)({
-          read: Effect.succeed({
-            serverPid: process.pid,
-            readAt: TEST_EPOCH,
-            processCount: 0,
-            totalRssBytes: 0,
-            totalCpuPercent: 0,
-            processes: [],
-            error: Option.none(),
+        Layer.mergeAll(
+          Layer.mock(WorkstreamWorktreeStatus.WorkstreamWorktreeStatus)({
+            read: Effect.succeed({ readAt: TEST_EPOCH, entries: [] }),
+            remove: () => Effect.succeed({ removed: true, deletedBranch: null, message: null }),
           }),
-          signal: (input) =>
-            Effect.succeed({
-              pid: input.pid,
-              signal: input.signal,
-              signaled: true,
-              message: Option.none(),
+          Layer.mock(ProcessDiagnostics.ProcessDiagnostics)({
+            read: Effect.succeed({
+              serverPid: process.pid,
+              readAt: TEST_EPOCH,
+              processCount: 0,
+              totalRssBytes: 0,
+              totalCpuPercent: 0,
+              processes: [],
+              error: Option.none(),
             }),
-        }),
+            signal: (input) =>
+              Effect.succeed({
+                pid: input.pid,
+                signal: input.signal,
+                signaled: true,
+                message: Option.none(),
+              }),
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ProcessResourceMonitor.ProcessResourceMonitor)({
@@ -5627,6 +5638,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             toolUses: null,
             usedTokens: null,
             maxTokens: null,
+            diffAdditions: null,
+            diffDeletions: null,
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,

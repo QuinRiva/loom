@@ -251,6 +251,123 @@ describe("WorkstreamFanInReactor", () => {
     }),
   );
 
+  // Phase 3 task A (cancel-race): a cancelled child whose provider session is
+  // still winding down (session running / turn running) must NOT have its
+  // worktree committed + removed yet — the provider process may still be
+  // writing files. Cleanup runs once the projection shows the child quiescent.
+  effectIt.effect("cancelled mid-turn: cleanup defers until the child session is quiescent", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+        const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+        const record = (tag: string) => Ref.update(gitCalls, (xs) => [...xs, tag]);
+        const busyCancelled = isolatedChild({
+          planLane: "cancelled",
+          latestTurn: {
+            turnId: TurnId.make("turn-cancel-race"),
+            state: "running",
+            requestedAt: "2026-01-01T00:00:00.000Z",
+            startedAt: "2026-01-01T00:00:01.000Z",
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          session: {
+            threadId: "child" as ThreadId,
+            status: "running",
+            providerName: null,
+            runtimeMode: "approval-required",
+            activeTurnId: TurnId.make("turn-cancel-race"),
+            lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+        });
+        const childRef = yield* Ref.make<OrchestrationThreadShell>(busyCancelled);
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+        const engineLayer = Layer.succeed(OrchestrationEngineService, {
+          readEvents: () => Stream.empty,
+          streamDomainEvents: Stream.fromPubSub(events),
+          dispatch: (command: OrchestrationCommand) =>
+            Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+        } as never);
+        const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+          getShellSnapshot: () =>
+            Effect.map(Ref.get(childRef), (child) => ({
+              snapshotSequence: 0,
+              projects: [],
+              goals: [],
+              updatedAt: "1970-01-01T00:00:00.000Z",
+              threads: [child, parent],
+            })),
+        } as never);
+        const gitLayer = Layer.succeed(GitWorkflowService, {
+          commitAll: (_cwd: string, subject: string) =>
+            record(`commit:${subject}`).pipe(Effect.as({ committed: true, commitSha: "sha" })),
+          mergeWorktreeBranch: () =>
+            record("merge").pipe(Effect.as({ status: "merged", conflictPaths: [] })),
+          removeWorktree: () => record("removeWorktree"),
+          deleteBranch: () => record("deleteBranch"),
+        } as never);
+        const layer = WorkstreamFanInReactorLive.pipe(
+          Layer.provide(engineLayer),
+          Layer.provide(projectionLayer),
+          Layer.provide(gitLayer),
+          Layer.provide(WorktreeMutationLockLive),
+          Layer.provideMerge(NodeServices.layer),
+        );
+
+        yield* Effect.gen(function* () {
+          const reactor = yield* WorkstreamFanInReactor;
+          yield* reactor.start();
+          yield* reactor.drain;
+
+          // Startup pass sees the cancelled child still mid-turn: no cleanup.
+          expect(yield* Ref.get(gitCalls)).toEqual([]);
+
+          // The interrupt lands: the runtime reports the turn interrupted and
+          // the session leaves "running" — the projection now shows quiescence.
+          yield* Ref.set(
+            childRef,
+            isolatedChild({
+              planLane: "cancelled",
+              latestTurn: {
+                turnId: TurnId.make("turn-cancel-race"),
+                state: "interrupted",
+                requestedAt: "2026-01-01T00:00:00.000Z",
+                startedAt: "2026-01-01T00:00:01.000Z",
+                completedAt: "2026-01-01T00:00:05.000Z",
+                assistantMessageId: null,
+              },
+              session: {
+                threadId: "child" as ThreadId,
+                status: "interrupted",
+                providerName: null,
+                runtimeMode: "approval-required",
+                activeTurnId: null,
+                lastError: null,
+                queuedMessages: { steering: [], followUp: [] },
+                updatedAt: "2026-01-01T00:00:05.000Z",
+              },
+            }),
+          );
+          // The projection write is announced by a session-set event (the same
+          // re-arm path a live server takes).
+          yield* PubSub.publish(events, {
+            type: "thread.session-set",
+            payload: { threadId: "child" as ThreadId },
+          } as OrchestrationEvent);
+          yield* reactor.drain;
+
+          const calls = yield* Ref.get(gitCalls);
+          expect(calls).toContain("commit:wip: cancelled");
+          expect(calls).toContain("removeWorktree");
+          expect(calls).not.toContain("deleteBranch");
+        }).pipe(Effect.scoped, Effect.provide(layer));
+      }),
+    ),
+  );
+
   // Review finding 1: a gated coder must NOT fan in on its round-0 `done` while
   // the gate is unresolved (the reviewer would then attach to the merged parent
   // tree); the merge fires exactly once, at resolution.
@@ -527,6 +644,101 @@ describe("WorkstreamFanInReactor", () => {
         const finalStates = fanInStates(yield* Ref.get(dispatched));
         expect(finalStates).toContain("conflicted");
         expect(finalStates).toContain("completed");
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    }),
+  );
+
+  // Item 3 (phase 3): resolved-conflict wake. Once a fan-in that first CONFLICTED
+  // settles `completed` (child reopened → resolved → resubmitted → merged), the
+  // reactor dispatches ONE lightweight notice to the parent — the generation wake
+  // already fired with the conflict notice and the clean resubmit otherwise
+  // re-notifies nothing.
+  it.effect("resolved-conflict wake: notifies the parent on conflicted→completed", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const mergeResult = yield* Ref.make<GitMergeWorktreeBranchResult>({
+        status: "conflict",
+        conflictPaths: ["README.md"],
+      });
+      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        readEvents: () => Stream.empty,
+        streamDomainEvents: Stream.fromPubSub(events),
+        dispatch: (command: OrchestrationCommand) =>
+          Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+      } as never);
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+        getShellSnapshot: () =>
+          Effect.map(Ref.get(childRef), (child) => ({
+            snapshotSequence: 0,
+            projects: [],
+            goals: [],
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            threads: [child, parent],
+          })),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        commitAll: (_cwd: string, _subject: string) =>
+          Effect.succeed({ committed: true, commitSha: "sha" }),
+        mergeWorktreeBranch: () => Ref.get(mergeResult),
+        removeWorktree: () => Effect.void,
+        deleteBranch: () => Effect.void,
+      } as never);
+      const layer = WorkstreamFanInReactorLive.pipe(
+        Layer.provide(engineLayer),
+        Layer.provide(projectionLayer),
+        Layer.provide(gitLayer),
+        Layer.provide(WorktreeMutationLockLive),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      const resolutionWakes = (commands: ReadonlyArray<OrchestrationCommand>) =>
+        commands.filter(
+          (c) =>
+            c.type === "thread.turn.start" &&
+            c.commandId === "server:workstream-fanin:resolved:child",
+        );
+
+      yield* Effect.gen(function* () {
+        const reactor = yield* WorkstreamFanInReactor;
+        yield* reactor.start();
+        yield* reactor.drain;
+        // Pass 1: merge conflicts → the child is now tracked as conflicted.
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("conflicted");
+        // No wake yet — nothing resolved.
+        expect(resolutionWakes(yield* Ref.get(dispatched))).toHaveLength(0);
+
+        // Reopen + resubmit: reset to none/done, merge now succeeds.
+        yield* Ref.set(childRef, isolatedChild());
+        yield* Ref.set(mergeResult, { status: "merged", conflictPaths: [] });
+        yield* PubSub.publish(events, {
+          type: "thread.plan-lane-set",
+          payload: { threadId: "child" as ThreadId, planLane: "done" },
+        } as OrchestrationEvent);
+        yield* reactor.drain;
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("completed");
+
+        // Projection catches up to the settled `completed` state and re-arms the
+        // sweep via the fanin-set event: the resolved-conflict wake now fires.
+        yield* Ref.set(childRef, isolatedChild({ fanInState: "completed" }));
+        yield* PubSub.publish(events, {
+          type: "thread.fanin-set",
+          payload: {
+            threadId: "child" as ThreadId,
+            fanInState: "completed",
+            updatedAt: "2026-01-01T00:00:05.000Z",
+          },
+        } as OrchestrationEvent);
+        yield* reactor.drain;
+
+        const wakes = resolutionWakes(yield* Ref.get(dispatched));
+        expect(wakes.length).toBeGreaterThanOrEqual(1);
+        const wake = wakes[0] as Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
+        expect(wake.threadId).toBe("parent");
+        expect(wake.requireIdle).toBe(true);
+        expect(wake.message.text).toContain("resolved its fan-in merge conflict");
       }).pipe(Effect.scoped, Effect.provide(layer));
     }),
   );

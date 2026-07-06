@@ -43,6 +43,8 @@ const baseThread: OrchestrationThread = {
   toolUses: null,
   usedTokens: null,
   maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
   title: "Test Thread",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",

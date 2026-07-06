@@ -56,6 +56,8 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     toolUses: null,
     usedTokens: null,
     maxTokens: null,
+    diffAdditions: null,
+    diffDeletions: null,
     lastActivityPreview: null,
     title: `Thread ${id}`,
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },

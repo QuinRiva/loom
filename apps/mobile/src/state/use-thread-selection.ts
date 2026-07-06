@@ -67,6 +67,8 @@ function threadDetailToShell(
     toolUses: thread.toolUses,
     usedTokens: thread.usedTokens,
     maxTokens: thread.maxTokens,
+    diffAdditions: thread.diffAdditions,
+    diffDeletions: thread.diffDeletions,
     lastActivityPreview: null,
     title: thread.title,
     modelSelection: thread.modelSelection,

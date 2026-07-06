@@ -213,6 +213,26 @@ export interface GitDeleteBranchInput {
   readonly force?: boolean;
 }
 
+// One entry of `git worktree list --porcelain` (worktree reaper / visibility
+// surface). `branch` is null for a detached HEAD; `isMain` marks the primary
+// worktree (always listed first by git).
+export interface GitWorktreeListEntry {
+  readonly path: string;
+  readonly branch: string | null;
+  readonly head: string | null;
+  readonly isMain: boolean;
+  readonly locked: boolean;
+  readonly prunable: boolean;
+}
+
+export interface GitIsAncestorInput {
+  readonly cwd: string;
+  /** The ref that must be contained (e.g. the child branch). */
+  readonly ancestor: string;
+  /** The ref that must contain it (e.g. the parent branch). */
+  readonly descendant: string;
+}
+
 export class GitVcsDriver extends Context.Service<
   GitVcsDriver,
   {
@@ -248,6 +268,14 @@ export class GitVcsDriver extends Context.Service<
       input: GitMergeWorktreeBranchInput,
     ) => Effect.Effect<GitMergeWorktreeBranchResult, GitCommandError>;
     readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
+    // Worktree reaper (phase 3): enumerate this repo's worktrees.
+    readonly listWorktrees: (
+      cwd: string,
+    ) => Effect.Effect<ReadonlyArray<GitWorktreeListEntry>, GitCommandError>;
+    // Worktree reaper (phase 3): is `ancestor` fully contained in `descendant`?
+    readonly isAncestor: (input: GitIsAncestorInput) => Effect.Effect<boolean, GitCommandError>;
+    // Worktree reaper (phase 3): lightweight dirty check (`status --porcelain`).
+    readonly hasWorkingTreeChanges: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
     readonly pushCurrentBranch: (
       cwd: string,
       fallbackBranch: string | null,

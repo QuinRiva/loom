@@ -166,6 +166,8 @@ describe("OrchestrationEngine", () => {
           toolUses: null,
           usedTokens: null,
           maxTokens: null,
+          diffAdditions: null,
+          diffDeletions: null,
           deletedAt: null,
           messages: [],
           proposedPlans: [],

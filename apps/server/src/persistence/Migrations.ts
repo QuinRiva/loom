@@ -61,6 +61,7 @@ import Migration0045 from "./Migrations/045_ProjectionThreadReviewGates.ts";
 import Migration0046 from "./Migrations/046_UsageLedger.ts";
 import Migration0047 from "./Migrations/047_ProjectionThreadWorktreeIsolation.ts";
 import Migration0048 from "./Migrations/048_ProjectionThreadConsults.ts";
+import Migration0049 from "./Migrations/049_ProjectionThreadDiffMetrics.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -121,6 +122,7 @@ export const migrationEntries = [
   [46, "UsageLedger", Migration0046],
   [47, "ProjectionThreadWorktreeIsolation", Migration0047],
   [48, "ProjectionThreadConsults", Migration0048],
+  [49, "ProjectionThreadDiffMetrics", Migration0049],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

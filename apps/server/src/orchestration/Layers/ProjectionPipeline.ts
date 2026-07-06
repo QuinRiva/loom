@@ -249,6 +249,30 @@ function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity
   return { toolUses: toolStarts > 0 ? toolStarts : null, usedTokens, maxTokens };
 }
 
+// Lines-of-diff meter for a thread: SUM of every checkpoint turn's per-file
+// additions/deletions. Isolation makes this attribution honest (an isolated
+// child's turn diffs contain exactly its own edits). Null when the thread has no
+// checkpoint turn yet so the UI suppresses the chip rather than showing 0.
+function deriveDiffTotals(turns: ReadonlyArray<ProjectionTurn>): {
+  readonly diffAdditions: number | null;
+  readonly diffDeletions: number | null;
+} {
+  let additions = 0;
+  let deletions = 0;
+  let hasCheckpoint = false;
+  for (const turn of turns) {
+    if (turn.checkpointTurnCount === null) continue;
+    hasCheckpoint = true;
+    for (const file of turn.checkpointFiles) {
+      additions += file.additions;
+      deletions += file.deletions;
+    }
+  }
+  return hasCheckpoint
+    ? { diffAdditions: additions, diffDeletions: deletions }
+    : { diffAdditions: null, diffDeletions: null };
+}
+
 function deriveHasActionableProposedPlan(input: {
   readonly latestTurnId: string | null;
   readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
@@ -766,11 +790,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [messages, proposedPlans, activities, pendingApprovals] = yield* Effect.all([
+      const [messages, proposedPlans, activities, pendingApprovals, turns] = yield* Effect.all([
         projectionThreadMessageRepository.listByThreadId({ threadId }),
         projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
         projectionThreadActivityRepository.listByThreadId({ threadId }),
         projectionPendingApprovalRepository.listByThreadId({ threadId }),
+        projectionTurnRepository.listByThreadId({ threadId }),
       ]);
 
       let latestUserMessageAt: string | null = null;
@@ -793,6 +818,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       });
       const cumulativeCostUsd = deriveCumulativeCostUsd(activities);
       const contextMetrics = deriveContextMetrics(activities);
+      const diffTotals = deriveDiffTotals(turns);
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
@@ -804,6 +830,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         toolUses: contextMetrics.toolUses,
         usedTokens: contextMetrics.usedTokens,
         maxTokens: contextMetrics.maxTokens,
+        diffAdditions: diffTotals.diffAdditions,
+        diffDeletions: diffTotals.diffDeletions,
       });
     });
 
@@ -849,6 +877,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             toolUses: null,
             usedTokens: null,
             maxTokens: null,
+            diffAdditions: null,
+            diffDeletions: null,
             deletedAt: null,
           });
           return;
@@ -1212,6 +1242,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId: event.payload.turnId,
             updatedAt: event.occurredAt,
           });
+          // Also refolds the thread's lines-of-diff totals: the turns projector
+          // (which runs before this one) has already written the new checkpoint's
+          // per-file summary, so the recompute reflects it on the card metric.
           yield* refreshThreadShellSummary(event.payload.threadId);
           return;
         }

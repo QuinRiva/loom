@@ -36,6 +36,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     toolUses: null,
     usedTokens: null,
     maxTokens: null,
+    diffAdditions: null,
+    diffDeletions: null,
     title: "Thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: DEFAULT_RUNTIME_MODE,

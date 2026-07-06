@@ -407,6 +407,77 @@ export const ServerSignalProcessResult = Schema.Struct({
 });
 export type ServerSignalProcessResult = typeof ServerSignalProcessResult.Type;
 
+// Workstream worktrees maintenance surface (phase 3 visibility panel).
+// The wire vocabulary mirrors the server's `worktreeClassification` truth:
+// one disposition, plus a stale reason when the auto-reaper deliberately
+// declined to remove the worktree. The UI maps these to human labels.
+export const WorkstreamWorktreeDisposition = Schema.Literals(["active", "reapable", "stale"]);
+export type WorkstreamWorktreeDisposition = typeof WorkstreamWorktreeDisposition.Type;
+
+export const WorkstreamWorktreeStaleReason = Schema.Literals([
+  "orphaned",
+  "unmanaged",
+  "cancelled",
+  "conflicted",
+  "fanin-pending",
+  "dirty",
+  "unmerged",
+  "recently-finished",
+]);
+export type WorkstreamWorktreeStaleReason = typeof WorkstreamWorktreeStaleReason.Type;
+
+export const WorkstreamWorktreeOwner = Schema.Struct({
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString,
+  role: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type WorkstreamWorktreeOwner = typeof WorkstreamWorktreeOwner.Type;
+
+export const WorkstreamWorktreeEntry = Schema.Struct({
+  worktreePath: TrimmedNonEmptyString,
+  projectName: TrimmedNonEmptyString,
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  isMain: Schema.Boolean,
+  disposition: WorkstreamWorktreeDisposition,
+  // Present exactly when disposition is `stale`.
+  reason: Schema.NullOr(WorkstreamWorktreeStaleReason),
+  // Null when no projection thread claims the path (a crash orphan).
+  owner: Schema.NullOr(WorkstreamWorktreeOwner),
+  // ms since the owner's last activity, else since the directory mtime.
+  ageMs: Schema.NullOr(NonNegativeInt),
+  // Branch fully merged into the parent branch; null when unknown/detached.
+  merged: Schema.NullOr(Schema.Boolean),
+  // Uncommitted changes (unknown dirty state is reported conservatively as dirty).
+  dirty: Schema.Boolean,
+  // Added by the query layer via `du`; null when sizing timed out or is unavailable.
+  sizeBytes: Schema.NullOr(NonNegativeInt),
+});
+export type WorkstreamWorktreeEntry = typeof WorkstreamWorktreeEntry.Type;
+
+export const WorkstreamWorktreesResult = Schema.Struct({
+  readAt: Schema.DateTimeUtc,
+  entries: Schema.Array(WorkstreamWorktreeEntry),
+});
+export type WorkstreamWorktreesResult = typeof WorkstreamWorktreesResult.Type;
+
+export const WorkstreamRemoveWorktreeInput = Schema.Struct({
+  worktreePath: TrimmedNonEmptyString,
+  // Per-fact acknowledgements, not a blanket force: the server re-classifies
+  // and refuses when the live state is riskier than what the human confirmed.
+  acknowledgeDirty: Schema.optional(Schema.Boolean),
+  acknowledgeUnmerged: Schema.optional(Schema.Boolean),
+});
+export type WorkstreamRemoveWorktreeInput = typeof WorkstreamRemoveWorktreeInput.Type;
+
+export const WorkstreamRemoveWorktreeResult = Schema.Struct({
+  removed: Schema.Boolean,
+  // The `ws/…` branch, when it was deleted (only ever when fully merged).
+  deletedBranch: Schema.NullOr(TrimmedNonEmptyString),
+  // A refusal reason or failure detail; null on a clean removal.
+  message: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type WorkstreamRemoveWorktreeResult = typeof WorkstreamRemoveWorktreeResult.Type;
+
 // Static meter → ledger-provider-name map (docs/usage-dashboard-design.md §D6).
 // A meter scope key is a gauge account key (`providerInstanceId ?? providerName`);
 // the poller emits "claudeAgent" for the Anthropic OAuth meter and "codex" for

@@ -21,10 +21,12 @@ import {
   COLUMN_ORDER,
   COLUMN_SHORT_LABELS,
   formatContextPercent,
+  formatDiffMetric,
   formatModelLabel,
   formatRelativeAge,
   getActivity,
   getAttentionBadges,
+  getFanInChip,
   getGateWaitLabel,
   getLastActivityAt,
   getPurpose,
@@ -46,6 +48,14 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import { useUiStateStore } from "../uiStateStore";
 
 type WorkstreamView = "board" | "graph";
+
+// Fan-in chip palette: conflict is amber and must not read as success; merged is
+// a subtle green; merging is a neutral in-flight grey.
+const FAN_IN_CHIP_STYLES = {
+  merging: "border-white/15 bg-white/[0.04] text-white/55",
+  merged: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200/80",
+  conflict: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+} as const;
 
 // The graph subtree (own SVG renderer + hand-rolled fork–join layout) is
 // lazy-loaded so it lands in its own chunk and never bloats the board render path.
@@ -458,6 +468,8 @@ function WorkstreamCard({
   // is idle-by-design while its counterpart holds the active leg.
   const verdictChip = getVerdictChip(thread);
   const gateWait = getGateWaitLabel(thread, childById);
+  const fanInChip = getFanInChip(thread);
+  const diffMetric = formatDiffMetric(thread.diffAdditions, thread.diffDeletions);
   // Quiet metadata (model · spend · context) rides in the header next to the age
   // as muted text. Context% is a health signal, not a vanity stat: hidden below
   // 20% (a near-empty window says nothing actionable), shown muted 20-50%, red
@@ -542,16 +554,32 @@ function WorkstreamCard({
           {isRunning ? <LiveDots /> : null}
           {isBlocked ? <span className={`size-2 rounded-full ${status.dotClass}`} /> : null}
           <span>{activity}</span>
-          {thread.toolUses && thread.toolUses > 0 ? (
-            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-white/35">
-              {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
-            </span>
-          ) : null}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-white/35">
+            {diffMetric ? (
+              <span title="Lines changed across this sub-thread's checkpoints">{diffMetric}</span>
+            ) : null}
+            {diffMetric && thread.toolUses && thread.toolUses > 0 ? (
+              <span className="text-white/20">·</span>
+            ) : null}
+            {thread.toolUses && thread.toolUses > 0 ? (
+              <span>
+                {thread.toolUses} {thread.toolUses === 1 ? "tool" : "tools"}
+              </span>
+            ) : null}
+          </span>
         </div>
       </button>
 
-      {badges.length > 0 || verdictChip || gateWait ? (
+      {badges.length > 0 || verdictChip || gateWait || fanInChip ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {fanInChip ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
+              title="Fan-in merge of this isolated child's branch into its parent"
+            >
+              {fanInChip.label}
+            </span>
+          ) : null}
           {badges.map(({ reason, label }) => {
             const style = ATTENTION_STYLES[reason];
             return (
