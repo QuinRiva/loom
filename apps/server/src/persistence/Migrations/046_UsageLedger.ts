@@ -15,7 +15,6 @@ export default Effect.gen(function* () {
       event_id             TEXT PRIMARY KEY,   -- runtime event id; replay-safe dedupe key
       thread_id            TEXT NOT NULL,
       turn_id              TEXT,
-      provider_name        TEXT NOT NULL,      -- driver kind from the event envelope, e.g. "pi"
       provider_instance_id TEXT,               -- envelope providerInstanceId (nullable during migration)
       requested_model      TEXT,               -- pi AssistantMessage.model, e.g. "claude-fable-5"
       resolved_model       TEXT,               -- responseModel when the provider reports it; NULL today

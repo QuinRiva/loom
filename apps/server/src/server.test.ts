@@ -846,6 +846,7 @@ const buildAppUnderTest = (options?: {
               projectedCostAtReset: null,
               models: [],
               consumers: [],
+              providers: [],
             }),
         }),
       ),

@@ -20,8 +20,10 @@ export const ProjectionUsageLedgerRow = Schema.Struct({
   eventId: EventId,
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
-  providerName: Schema.String,
   providerInstanceId: Schema.NullOr(Schema.String),
+  // Real backend provider identity (e.g. "google-vertex-claude", "openai-codex");
+  // null when the emitting adapter can't resolve a real backend.
+  providerId: Schema.NullOr(Schema.String),
   requestedModel: Schema.NullOr(Schema.String),
   resolvedModel: Schema.NullOr(Schema.String),
   inputTokens: Schema.Number,

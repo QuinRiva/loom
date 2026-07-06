@@ -223,3 +223,18 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [PI_DRIVER_KIND]: "Pi",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
 };
+
+// Human labels for real backend provider ids — the `providerID` half of pi's
+// `providerID/modelID` slug, as recorded in the usage ledger's `provider_id`
+// and surfaced as the /usage dashboard's per-backend scope tabs. A DISTINCT key
+// space from PROVIDER_DISPLAY_NAMES (driver kinds): these are pi provider slugs
+// like "google-vertex-claude". Shared by the usage dashboard and PiDriver's
+// model-picker labels so the two never drift.
+export const USAGE_BACKEND_DISPLAY_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  bedrock: "Bedrock",
+  "google-vertex": "Vertex",
+  "google-vertex-claude": "Vertex",
+  openai: "OpenAI",
+  "openai-codex": "Codex",
+};

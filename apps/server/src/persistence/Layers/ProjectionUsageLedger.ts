@@ -19,13 +19,13 @@ const makeProjectionUsageLedgerRepository = Effect.gen(function* () {
     execute: (row) =>
       sql`
         INSERT OR IGNORE INTO projection_usage_ledger (
-          event_id, thread_id, turn_id, provider_name, provider_instance_id,
-          requested_model, resolved_model,
+          event_id, thread_id, turn_id, provider_instance_id,
+          provider_id, requested_model, resolved_model,
           input_tokens, cache_read_tokens, cache_write_tokens, output_tokens,
           cost_usd, created_at
         ) VALUES (
-          ${row.eventId}, ${row.threadId}, ${row.turnId}, ${row.providerName},
-          ${row.providerInstanceId}, ${row.requestedModel}, ${row.resolvedModel},
+          ${row.eventId}, ${row.threadId}, ${row.turnId},
+          ${row.providerInstanceId}, ${row.providerId}, ${row.requestedModel}, ${row.resolvedModel},
           ${row.inputTokens}, ${row.cacheReadTokens}, ${row.cacheWriteTokens},
           ${row.outputTokens}, ${row.costUsd}, ${row.createdAt}
         )

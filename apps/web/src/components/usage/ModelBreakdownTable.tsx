@@ -97,18 +97,18 @@ export function ModelBreakdownTable({
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <TableRow key={`${row.providerName}:${row.model}`}>
+          <TableRow key={`${row.providerId}:${row.model}`}>
             <TableCell>
               <div className="flex items-center gap-1.5">
                 <span className="font-medium">{row.model}</span>
-                {scope === "all" && isMeterlessProvider(row.providerName) ? (
+                {scope === "all" && isMeterlessProvider(row.providerId) ? (
                   <Badge size="sm" variant="outline" className="text-muted-foreground">
                     not counted in any meter
                   </Badge>
                 ) : null}
               </div>
               <div className="text-[11px] text-muted-foreground/70">
-                {usageProviderDisplayName(row.providerName)}
+                {usageProviderDisplayName(row.providerId)}
               </div>
             </TableCell>
             <TableCell className="text-right tabular-nums">

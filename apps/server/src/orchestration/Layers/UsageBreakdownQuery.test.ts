@@ -57,26 +57,57 @@ layer("UsageBreakdownQuery.verify", (it) => {
         threadId: string,
         turnId: string,
         provider: string,
+        providerId: string,
         model: string | null,
         atMs: number,
         cost: number,
       ) => sql`
         INSERT INTO projection_usage_ledger (
-          event_id, thread_id, turn_id, provider_name, provider_instance_id,
-          requested_model, resolved_model, input_tokens, cache_read_tokens,
+          event_id, thread_id, turn_id, provider_instance_id,
+          provider_id, requested_model, resolved_model, input_tokens, cache_read_tokens,
           cache_write_tokens, output_tokens, cost_usd, created_at
         ) VALUES (
-          ${eventId}, ${threadId}, ${turnId}, ${provider}, ${provider},
-          ${model}, NULL, 100, 20, 30, 50, ${cost}, ${iso(atMs)}
+          ${eventId}, ${threadId}, ${turnId}, ${provider},
+          ${providerId}, ${model}, NULL, 100, 20, 30, 50, ${cost}, ${iso(atMs)}
         )
       `;
-      // pi rows (Anthropic meter): child C two turns/models, root R one; one old
-      // row 20 min ago so the cost projection guard (>=15 min elapsed) passes.
-      yield* insertLedger("e1", "thread-C", "t1", "pi", "claude-fable-5", now - 20 * 60_000, 1.0);
-      yield* insertLedger("e2", "thread-C", "t2", "pi", "claude-opus", now - 5 * 60_000, 2.0);
-      yield* insertLedger("e3", "thread-R", "t3", "pi", "claude-fable-5", now - 3 * 60_000, 0.5);
-      // codex row (Codex meter), independent root X.
-      yield* insertLedger("e4", "thread-X", "t4", "codex", "gpt-5", now - 4 * 60_000, 0.0);
+      // pi rows: all run via the pi driver kind but attribute to their real
+      // backend — Anthropic-direct (metered by the claudeAgent subscription) and
+      // Vertex-Claude (billed by Google ⇒ meterless). One old row 20 min ago so
+      // the cost projection guard (>=15 min elapsed) passes.
+      yield* insertLedger(
+        "e1",
+        "thread-C",
+        "t1",
+        "pi",
+        "anthropic",
+        "claude-fable-5",
+        now - 20 * 60_000,
+        1.0,
+      );
+      yield* insertLedger(
+        "e2",
+        "thread-C",
+        "t2",
+        "pi",
+        "google-vertex-claude",
+        "claude-opus",
+        now - 5 * 60_000,
+        2.0,
+      );
+      yield* insertLedger(
+        "e3",
+        "thread-R",
+        "t3",
+        "pi",
+        "anthropic",
+        "claude-fable-5",
+        now - 3 * 60_000,
+        0.5,
+      );
+      // codex row (Codex meter) via the pi driver: real backend is OpenAI, so it
+      // lands in the codex scope — this is the Codex-tab fix in miniature.
+      yield* insertLedger("e4", "thread-X", "t4", "pi", "openai", "gpt-5", now - 4 * 60_000, 0.0);
 
       // ── Trailing mode: registry empty ⇒ no provider boundaries, no gauges ──
       const trailing = yield* query.getBreakdown({ window: "primary" });
@@ -107,12 +138,14 @@ layer("UsageBreakdownQuery.verify", (it) => {
       assert.strictEqual(oneSample.windowEnd, resetsAt);
       assert.strictEqual(oneSample.windowStart, iso(now + 2 * 60 * 60_000 - 300 * 60_000));
 
-      // scope=claudeAgent excludes the codex row: models are pi-only.
-      assert.deepStrictEqual([...new Set(oneSample.models.map((m) => m.providerName))].sort(), [
-        "pi",
+      // scope=claudeAgent is the Anthropic OAuth subscription meter, which
+      // officially meters only the anthropic backend — the Vertex-Claude row is
+      // meterless and excluded here (it surfaces under "all" / its own tab).
+      assert.deepStrictEqual([...new Set(oneSample.models.map((m) => m.providerId))].sort(), [
+        "anthropic",
       ]);
       const modelNames = oneSample.models.map((m) => m.model).sort();
-      assert.deepStrictEqual(modelNames, ["claude-fable-5", "claude-opus"]);
+      assert.deepStrictEqual(modelNames, ["claude-fable-5"]);
       // costShare sums ~1 over the scoped window.
       const shareSum = oneSample.models.reduce((s, m) => s + m.costShare, 0);
       assert.isTrue(Math.abs(shareSum - 1) < 1e-9);
@@ -122,7 +155,9 @@ layer("UsageBreakdownQuery.verify", (it) => {
       const cRow = oneSample.consumers.find((c) => c.threadId === "thread-C");
       assert.strictEqual(cRow?.rootThreadId, "thread-R");
       assert.strictEqual(cRow?.role, "coder");
-      assert.strictEqual(cRow?.turnCount, 2);
+      // Only the anthropic row (t1) counts under the claudeAgent meter; the
+      // Vertex row (t2) is meterless and excluded.
+      assert.strictEqual(cRow?.turnCount, 1);
       // cost projection: an old (20 min) row ⇒ elapsed>=15 ⇒ non-null.
       assert.isNotNull(oneSample.projectedCostAtReset);
 
@@ -149,12 +184,29 @@ layer("UsageBreakdownQuery.verify", (it) => {
 
       // ── scope="all" includes the codex row ────────────────────────────────
       const all = yield* query.getBreakdown({ window: "primary", scope: "all" });
-      assert.isTrue(all.models.some((m) => m.providerName === "codex"));
+      assert.isTrue(all.models.some((m) => m.providerId === "openai"));
       assert.isTrue(all.consumers.some((c) => c.rootThreadId === "thread-X"));
+      // The backend inventory (scope-independent) lists every real backend in
+      // the window — including meterless Vertex — so the client can auto-derive a
+      // per-backend tab for it. Cost-descending.
+      assert.deepStrictEqual(
+        all.providers.map((p) => p.providerId),
+        ["google-vertex-claude", "anthropic", "openai"],
+      );
 
-      // ── scope="codex" excludes pi rows ────────────────────────────────────
+      // ── A meterless backend scope isolates just its rows ──────────────────
+      const vertex = yield* query.getBreakdown({
+        window: "primary",
+        scope: "google-vertex-claude",
+      });
+      assert.deepStrictEqual(
+        [...new Set(vertex.models.map((m) => m.providerId))],
+        ["google-vertex-claude"],
+      );
+
+      // ── scope="codex" matches the OpenAI backend, excludes Claude rows ─────
       const codex = yield* query.getBreakdown({ window: "primary", scope: "codex" });
-      assert.deepStrictEqual([...new Set(codex.models.map((m) => m.providerName))], ["codex"]);
+      assert.deepStrictEqual([...new Set(codex.models.map((m) => m.providerId))], ["openai"]);
 
       // Series buckets are contiguous 5-min from windowStart up to now.
       const startMs = Date.parse(all.windowStart);
@@ -190,14 +242,24 @@ layer("UsageBreakdownQuery.verify", (it) => {
       });
       const weekStartMs = Date.parse(misalignedReset) - 7 * 24 * 60 * 60_000;
       // 10 s into the window: minute prefix precedes windowStart (clamps to bucket 0).
-      yield* insertLedger("e5", "thread-X", "t5", "codex", "gpt-5", weekStartMs + 10_000, 3.0);
+      yield* insertLedger(
+        "e5",
+        "thread-X",
+        "t5",
+        "pi",
+        "openai",
+        "gpt-5",
+        weekStartMs + 10_000,
+        3.0,
+      );
       // Within-hour offset (5 min) precedes the boundary offset (61 min 47 s % hour):
       // hour-prefix bucketing rendered this at index 71 instead of 72.
       yield* insertLedger(
         "e6",
         "thread-X",
         "t6",
-        "codex",
+        "pi",
+        "openai",
         "gpt-5",
         weekStartMs + 72 * 60 * 60_000 + 5 * 60_000,
         4.0,

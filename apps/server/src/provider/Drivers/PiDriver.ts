@@ -17,6 +17,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId,
+  USAGE_BACKEND_DISPLAY_NAMES,
   type ChatAttachment,
   type ModelCapabilities,
   type ModelSelection,
@@ -245,24 +246,15 @@ interface PiAvailableModel {
   readonly contextWindow: number;
 }
 
-/** Human backend labels for pi's provider ids (slug prefixes). */
-const PI_BACKEND_LABELS: Record<string, string> = {
-  anthropic: "Anthropic",
-  bedrock: "Bedrock",
-  "google-vertex": "Vertex",
-  "google-vertex-claude": "Vertex",
-  openai: "OpenAI",
-  "openai-codex": "Codex",
-};
-
 /**
  * Backend label for a catalogue model. Bedrock ids carry a region routing
  * prefix (e.g. `au.anthropic.claude-…`) which is surfaced as "Bedrock AU";
  * unknown provider ids fall back to the raw id so the backend is never
- * silently ambiguous.
+ * silently ambiguous. Labels come from the shared USAGE_BACKEND_DISPLAY_NAMES
+ * map so the model picker and the /usage dashboard's scope tabs never drift.
  */
 export function piBackendLabel(provider: string, modelId: string): string {
-  const base = PI_BACKEND_LABELS[provider] ?? provider;
+  const base = USAGE_BACKEND_DISPLAY_NAMES[provider] ?? provider;
   if (provider !== "bedrock") return base;
   const region = /^([a-z]{2,5})\./.exec(modelId)?.[1];
   return region ? `${base} ${region.toUpperCase()}` : base;
@@ -1032,11 +1024,21 @@ function makePiAdapter(input: {
           str(message.message.model) ??
           (sessionModel ? (resolvePiModel(sessionModel)?.modelId ?? sessionModel) : undefined);
         const resolvedModel = str(message.message.responseModel);
+        // Real backend provider for usage attribution. pi's per-message
+        // `message.model` is a bare id with NO provider prefix, and pi surfaces
+        // no per-message backend over RPC — only the session slug
+        // (`session.session.model`, e.g. "google-vertex-claude/claude-opus-4-8")
+        // carries the vendor. So attribution is the session's selected backend;
+        // a subagent/oracle turn that transiently runs a different backend in
+        // the same thread is attributed to the session backend (accepted
+        // best-effort — no per-message signal exists to do better).
+        const providerId = sessionModel ? resolvePiModel(sessionModel)?.provider : undefined;
         const usage = normalized
           ? {
               ...normalized,
               ...(model ? { model } : {}),
               ...(resolvedModel ? { resolvedModel } : {}),
+              ...(providerId ? { providerId } : {}),
             }
           : undefined;
         return emit({
