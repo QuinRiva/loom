@@ -414,4 +414,112 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
       expect(events[2]?.payload).toMatchObject({ threadId: CODER, planLane: "done" });
     }),
   );
+
+  // Issue 2 (2026-07-06 incident): manual gate recovery via a bare
+  // `set_lane(coder, ready)` must restore the coder's lost `pendingRework` so a
+  // subsequent submission still loops back to the reviewer instead of escaping
+  // the gate as a plain terminal/yield.
+  it.effect(
+    "Issue 2: set_lane(coder, ready) recovery restores pendingRework so the next done loops to the reviewer",
+    () =>
+      Effect.gen(function* () {
+        let model = yield* seedGateModel;
+        // Round 1 opens: the reviewer loops its findings back to the coder.
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(true);
+        // The gate state is then lost: the coder's rework round closes and it
+        // lands terminal `done` WITHOUT looping back (the incident's escape).
+        model = yield* apply(model, [
+          seedEvent({
+            aggregateKind: "thread",
+            aggregateId: CODER,
+            type: "thread.outcome-recorded",
+            payload: {
+              threadId: CODER,
+              outcome: "done",
+              decision: "terminal",
+              round: 0,
+              updatedAt: now,
+            },
+          }),
+        ]);
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(false);
+        // The reviewer still owes the loop round (non-terminal, lastOutcome=loop).
+        expect(model.threads.find((t) => t.id === REVIEWER)?.lastOutcome?.decision).toBe("loop");
+        // Manual recovery: the orchestrator reopens the coder to `ready`.
+        model = yield* applyDecided(
+          model,
+          yield* decide(
+            {
+              type: "thread.plan-lane.set",
+              commandId: CommandId.make("server:workstream-lane:test-recovery"),
+              threadId: CODER,
+              planLane: "ready",
+              createdAt: now,
+            },
+            model,
+          ),
+        );
+        // Fix: the reopen restored pendingRework from the still-open gate.
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(true);
+        // The coder's plain `done` now loops back to the reviewer, not terminal.
+        const events = yield* decide(submit(CODER, "done"), model);
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.report-set",
+          "thread.outcome-recorded",
+          "thread.route-taken",
+        ]);
+        expect(events[1]?.payload).toMatchObject({ decision: "loop", round: 1 });
+        expect(events[2]?.payload).toMatchObject({ threadId: CODER, to: REVIEWER, round: 1 });
+      }),
+  );
+
+  it.effect(
+    "Issue 2 guard: reopening a coder does NOT restore pendingRework once the gate is dissolved",
+    () =>
+      Effect.gen(function* () {
+        let model = yield* seedGateModel;
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
+        // The orchestrator dissolves the gate (reviewer accepted → terminal) and
+        // the coder's round closes — a deliberate detach, not a recovery.
+        model = yield* apply(model, [
+          seedEvent({
+            aggregateKind: "thread",
+            aggregateId: REVIEWER,
+            type: "thread.plan-lane-set",
+            payload: { threadId: REVIEWER, planLane: "done", updatedAt: now },
+          }),
+          seedEvent({
+            aggregateKind: "thread",
+            aggregateId: CODER,
+            type: "thread.outcome-recorded",
+            payload: {
+              threadId: CODER,
+              outcome: "done",
+              decision: "terminal",
+              round: 0,
+              updatedAt: now,
+            },
+          }),
+        ]);
+        // Reopening the coder finds no live source → pendingRework stays false.
+        model = yield* applyDecided(
+          model,
+          yield* decide(
+            {
+              type: "thread.plan-lane.set",
+              commandId: CommandId.make("server:workstream-lane:test-detach"),
+              threadId: CODER,
+              planLane: "ready",
+              createdAt: now,
+            },
+            model,
+          ),
+        );
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(false);
+        // And the coder's done is a clean terminal, not a loop into a dead gate.
+        const events = yield* decide(submit(CODER, "done"), model);
+        expect(events[1]?.payload).toMatchObject({ decision: "terminal" });
+      }),
+  );
 });

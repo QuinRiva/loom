@@ -41,10 +41,7 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
-import {
-  WorktreeProvisioner,
-  isProvisionedChildBranch,
-} from "../../project/WorktreeProvisioner.ts";
+import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -425,6 +422,13 @@ export interface ChildWakeContext {
   readonly frozen?: boolean;
   readonly toolName?: string;
   readonly inFlightMs?: number;
+  /**
+   * The child's `needs_guidance` came from a pre-first-turn worktree
+   * provisioning failure (a transient environment/git error, e.g. index.lock
+   * contention), not an agent stall. Switches the `attention` copy to say so
+   * and to instruct re-prompting to retry provisioning.
+   */
+  readonly provisionFailed?: boolean;
 }
 
 /**
@@ -601,9 +605,11 @@ export const buildChildWakeMessage = (
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : kind === "attention"
-        ? context?.frozen
-          ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
-          : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
+        ? context?.provisionFailed
+          ? `Your Workstream sub-thread ${who} never started: creating its isolated worktree failed with an environment/git error (a transient snapshot-commit race, NOT an agent stall) so it was parked with \`needs_guidance\` before its first turn. Its plan lane is still \`${child.planLane}\` and no turn has run.`
+          : context?.frozen
+            ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
+            : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
         : kind === "idle"
           ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
           : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
@@ -615,9 +621,11 @@ export const buildChildWakeMessage = (
     kind === "recovered"
       ? "Its dependents have already been released by the `done` transition (nothing is gated on it now). Read its report (referenced above), fold its result into your orchestration, and continue."
       : kind === "attention"
-        ? context?.frozen
-          ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `workstream_stop` it to close the wedged turn, then `workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
-          : "Do not treat its work as complete. If it is `awaiting_acceptance`, review its report and either accept it (`workstream_set_lane` done, which releases its dependents) or escalate to the human. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
+        ? context?.provisionFailed
+          ? "This is an infrastructure failure, not the agent — nothing ran, so there is no report. `workstream_prompt` the child to retry provisioning (a transient snapshot-commit race normally clears on retry). Its dependents stay gated until it reaches `done`."
+          : context?.frozen
+            ? "Do not treat its work as complete. A human has also been alerted on the board, but you can act on their behalf: `workstream_stop` it to close the wedged turn, then `workstream_prompt` it to redirect — or plan around it. Its dependents stay gated until it reaches `done`."
+            : "Do not treat its work as complete. If it is `awaiting_acceptance`, review its report and either accept it (`workstream_set_lane` done, which releases its dependents) or escalate to the human. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`."
         : "Investigate via its report above (or `consult_thread` for a read-only Q&A), then either advance its plan lane (`workstream_set_lane` done/cancelled) or re-dispatch it. Its dependents stay gated until it reaches `done`; nothing was auto-cascaded.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
@@ -671,11 +679,6 @@ const make = Effect.gen(function* () {
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const worktreeProvisioner = yield* WorktreeProvisioner;
 
-  // Worktree-provisioning failures are surfaced once per process (activity +
-  // needs_guidance flag) then this thread is skipped, so a git error does not
-  // spin the promote loop. A restart retries once.
-  const failedProvisions = new Set<ThreadId>();
-
   // In-memory caches of the recomputable durable state (decision 4): the
   // handled-generation set caches the receipt-backed wake/park markers, and the
   // wake-timestamp history backs the interim rate guard. Both are safe as plain
@@ -712,40 +715,6 @@ const make = Effect.gen(function* () {
       : readWorkstreamReport(thread.id)
     ).pipe(Effect.map(Option.getOrNull));
 
-  const raiseProvisionFailure = Effect.fn("raiseProvisionFailure")(function* (
-    threadId: ThreadId,
-    detail: string,
-  ) {
-    failedProvisions.add(threadId);
-    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* orchestrationEngine
-      .dispatch({
-        type: "thread.activity.append",
-        commandId: yield* serverCommandId("provision-failed"),
-        threadId,
-        activity: {
-          id: EventId.make(yield* crypto.randomUUIDv4),
-          tone: "error",
-          kind: "workstream.provision.failed",
-          summary: "Worktree provisioning failed",
-          payload: { detail },
-          turnId: null,
-          createdAt: now,
-        },
-        createdAt: now,
-      } satisfies OrchestrationCommand)
-      .pipe(Effect.ignoreCause({ log: true }));
-    yield* orchestrationEngine
-      .dispatch({
-        type: "thread.attention.raise",
-        commandId: yield* serverCommandId("provision-failed-flag"),
-        threadId,
-        reason: "needs_guidance",
-        createdAt: now,
-      } satisfies OrchestrationCommand)
-      .pipe(Effect.ignoreCause({ log: true }));
-  });
-
   // Provision the child's workspace at promotion (plan §2/§4). Isolated children
   // get their own worktree + `ws/…` branch (parent dirty state auto-committed
   // first); an attached gated reviewer copies its gate target's worktree/branch;
@@ -756,25 +725,17 @@ const make = Effect.gen(function* () {
     role: string,
   ) {
     if (thread.isolation === "isolated") {
-      if (thread.branch === null || thread.worktreePath === null) return true;
-      // Idempotence: a crash between provisioning's meta.update and this kickoff
-      // leaves the child already on its `ws/…` branch; re-provisioning would nest
-      // `ws/ws/…` and orphan a worktree. Skip — the worktree already exists.
-      if (isProvisionedChildBranch(thread.branch, thread.id)) return true;
-      return yield* worktreeProvisioner
-        .provisionIsolatedChild({
-          threadId: thread.id,
-          role,
-          projectId: thread.projectId,
-          parentCwd: thread.worktreePath,
-          parentBranch: thread.branch,
-        })
-        .pipe(
-          Effect.as(true),
-          Effect.catchCause((cause) =>
-            raiseProvisionFailure(thread.id, Cause.pretty(cause)).pipe(Effect.as(false)),
-          ),
-        );
+      // Delegated to the shared provisioner (item 4): idempotent on an already
+      // -provisioned `ws/…` child, and it parks (needs_guidance) on failure. The
+      // reactor's turn-start guard shares this exact path, so a later prompt on a
+      // parked child re-provisions rather than running in the parent's worktree.
+      return yield* worktreeProvisioner.ensureIsolatedChildProvisioned({
+        threadId: thread.id,
+        role,
+        projectId: thread.projectId,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+      });
     }
     if (thread.isolation === "attached") {
       const targetId = gateLoopTargetOf(thread);
@@ -799,7 +760,7 @@ const make = Effect.gen(function* () {
     const { role, purpose, brief } = thread;
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null) return;
-    if (failedProvisions.has(thread.id)) return;
+    if (worktreeProvisioner.hasPendingProvisionFailure(thread.id)) return;
     // Provision the workspace before the kick-off turn so the child's provider
     // session resolves its cwd to the new worktree from its first turn.
     if (!(yield* provisionWorkspace(thread, role))) return;
@@ -1131,6 +1092,12 @@ const make = Effect.gen(function* () {
         episode = `idle:${freshness.maxSequence ?? "none"}`;
       } else if (kind === "attention") {
         episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
+        // A pre-first-turn provisioning park (transient git/index.lock race)
+        // wears the same `needs_guidance` flag as a genuine agent-stuck pause; the
+        // provisioner's in-process marker is the authoritative signal, so the copy
+        // can say "provisioning failed, nothing ran" instead of "agent paused".
+        if (worktreeProvisioner.hasPendingProvisionFailure(child.id))
+          context = { quietMs: 0, provisionFailed: true };
         // The idle backstop raises `needs_guidance` itself right before its
         // "went quiet" wake, which would re-classify the same child as
         // `attention` on the very next pass. If THIS quiet episode (same max
