@@ -75,6 +75,10 @@ export const ProjectionThread = Schema.Struct({
   toolUses: Schema.NullOr(NonNegativeInt),
   usedTokens: Schema.NullOr(NonNegativeInt),
   maxTokens: Schema.NullOr(NonNegativeInt),
+  // Cumulative lines-of-diff (SUM of checkpoint turn file additions/deletions).
+  // Null when unknown (no checkpoint yet) so the UI suppresses the chip.
+  diffAdditions: Schema.NullOr(NonNegativeInt),
+  diffDeletions: Schema.NullOr(NonNegativeInt),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;

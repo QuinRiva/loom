@@ -77,6 +77,14 @@ export class GitWorkflowService extends Context.Service<
     readonly deleteBranch: (
       input: GitVcsDriver.GitDeleteBranchInput,
     ) => Effect.Effect<void, GitCommandError>;
+    // Worktree reaper (phase 3): enumeration + provably-dead predicates.
+    readonly listWorktrees: (
+      cwd: string,
+    ) => Effect.Effect<ReadonlyArray<GitVcsDriver.GitWorktreeListEntry>, GitCommandError>;
+    readonly isAncestor: (
+      input: GitVcsDriver.GitIsAncestorInput,
+    ) => Effect.Effect<boolean, GitCommandError>;
+    readonly hasWorkingTreeChanges: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
     readonly fetchRemote: (input: {
       readonly cwd: string;
       readonly remoteName: string;
@@ -322,6 +330,18 @@ export const make = Effect.gen(function* () {
     deleteBranch: (input) =>
       ensureGitCommand("GitWorkflowService.deleteBranch", input.cwd).pipe(
         Effect.andThen(git.deleteBranch(input)),
+      ),
+    listWorktrees: (cwd) =>
+      ensureGitCommand("GitWorkflowService.listWorktrees", cwd).pipe(
+        Effect.andThen(git.listWorktrees(cwd)),
+      ),
+    isAncestor: (input) =>
+      ensureGitCommand("GitWorkflowService.isAncestor", input.cwd).pipe(
+        Effect.andThen(git.isAncestor(input)),
+      ),
+    hasWorkingTreeChanges: (cwd) =>
+      ensureGitCommand("GitWorkflowService.hasWorkingTreeChanges", cwd).pipe(
+        Effect.andThen(git.hasWorkingTreeChanges(cwd)),
       ),
     fetchRemote: (input) =>
       ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(

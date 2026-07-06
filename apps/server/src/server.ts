@@ -56,6 +56,8 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcherLive } from "./orchestration/Layers/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactorLive } from "./orchestration/Layers/WorkstreamFanInReactor.ts";
+import { WorktreeReaperLive } from "./orchestration/Layers/WorktreeReaper.ts";
+import * as WorkstreamWorktreeStatus from "./orchestration/WorkstreamWorktreeStatus.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -169,6 +171,10 @@ const PlatformServicesLive = Layer.unwrap(
 );
 
 const ReactorLayerLive = Layer.empty.pipe(
+  // Phase-3 worktrees maintenance surface. Placed first (earliest consumer) so
+  // its WorktreeReaper/ProjectionSnapshotQuery/OrchestrationEngine/Git deps are
+  // all satisfied by later provideMerge steps in this and the RuntimeCore pipe.
+  Layer.provideMerge(WorkstreamWorktreeStatus.layer),
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
@@ -176,6 +182,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(WorkstreamDispatcherLive),
   Layer.provideMerge(WorkstreamFanInReactorLive),
+  Layer.provideMerge(WorktreeReaperLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
   // Transient reasoning channel shared by the ingestion producer and ws

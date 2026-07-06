@@ -99,6 +99,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
+import * as WorkstreamWorktreeStatus from "./orchestration/WorkstreamWorktreeStatus.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
@@ -239,7 +240,8 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
       | "thread.consult-recorded"
       | "thread.turn-diff-completed"
       | "thread.reverted"
-      | "thread.session-set";
+      | "thread.session-set"
+      | "thread.fanin-set";
   }
 > {
   return (
@@ -250,7 +252,10 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
     event.type === "thread.consult-recorded" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
-    event.type === "thread.session-set"
+    event.type === "thread.session-set" ||
+    // Fan-in settlement (merging → merged/conflicted) so an open thread's detail
+    // updates live rather than only on the next shell-snapshot resync.
+    event.type === "thread.fanin-set"
   );
 }
 
@@ -281,6 +286,8 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetUsageBreakdown, AuthOrchestrationReadScope],
   [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
+  [WS_METHODS.serverGetWorkstreamWorktrees, AuthOrchestrationReadScope],
+  [WS_METHODS.serverRemoveWorkstreamWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
   [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
   [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
@@ -422,6 +429,7 @@ const makeWsRpcLayer = (
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
+      const workstreamWorktreeStatus = yield* WorkstreamWorktreeStatus.WorkstreamWorktreeStatus;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const relayClient = yield* RelayClient.RelayClient;
       const authorizationError = (requiredScope: AuthEnvironmentScope) =>
@@ -1189,6 +1197,20 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverGetWorkstreamWorktrees]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetWorkstreamWorktrees, workstreamWorktreeStatus.read, {
+            "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.serverRemoveWorkstreamWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverRemoveWorkstreamWorktree,
+            workstreamWorktreeStatus.remove({
+              worktreePath: input.worktreePath,
+              acknowledgeDirty: input.acknowledgeDirty ?? false,
+              acknowledgeUnmerged: input.acknowledgeUnmerged ?? false,
+            }),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) =>
           observeRpcEffect(WS_METHODS.cloudGetRelayClientStatus, relayClient.resolve, {
             "rpc.aggregate": "cloud",

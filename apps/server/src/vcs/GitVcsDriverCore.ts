@@ -2626,6 +2626,78 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       input.branch,
     ]);
 
+  // Worktree reaper (phase 3): parse `git worktree list --porcelain`. Git
+  // always lists the main worktree first; blank lines separate entries.
+  const listWorktrees: GitVcsDriver.GitVcsDriver["Service"]["listWorktrees"] = (cwd) =>
+    runGitStdout("GitVcsDriver.listWorktrees", cwd, ["worktree", "list", "--porcelain"]).pipe(
+      Effect.map((stdout) => {
+        const entries: GitVcsDriver.GitWorktreeListEntry[] = [];
+        let current: { path: string; branch: string | null; head: string | null } | null = null;
+        let locked = false;
+        let prunable = false;
+        const flush = () => {
+          if (current !== null) {
+            entries.push({ ...current, isMain: entries.length === 0, locked, prunable });
+          }
+          current = null;
+          locked = false;
+          prunable = false;
+        };
+        for (const line of stdout.split("\n")) {
+          if (line.startsWith("worktree ")) {
+            flush();
+            current = { path: line.slice("worktree ".length), branch: null, head: null };
+          } else if (line.startsWith("HEAD ") && current) {
+            current.head = line.slice("HEAD ".length);
+          } else if (line.startsWith("branch refs/heads/") && current) {
+            current.branch = line.slice("branch refs/heads/".length);
+          } else if ((line === "locked" || line.startsWith("locked ")) && current) {
+            locked = true;
+          } else if ((line === "prunable" || line.startsWith("prunable ")) && current) {
+            prunable = true;
+          }
+        }
+        flush();
+        return entries;
+      }),
+    );
+
+  // Worktree reaper (phase 3): `merge-base --is-ancestor` — exit 0 means
+  // `ancestor` is fully contained in `descendant`, exit 1 means it is not;
+  // anything else (unknown ref, corrupt repo) is a real error.
+  const isAncestor: GitVcsDriver.GitVcsDriver["Service"]["isAncestor"] = (input) =>
+    executeGit(
+      "GitVcsDriver.isAncestor",
+      input.cwd,
+      ["merge-base", "--is-ancestor", input.ancestor, input.descendant],
+      { allowNonZeroExit: true, timeoutMs: 10_000 },
+    ).pipe(
+      Effect.flatMap((result) =>
+        result.exitCode === 0 || result.exitCode === 1
+          ? Effect.succeed(result.exitCode === 0)
+          : Effect.fail(
+              new GitCommandError({
+                ...gitCommandContext({
+                  operation: "GitVcsDriver.isAncestor",
+                  cwd: input.cwd,
+                  args: ["merge-base", "--is-ancestor", input.ancestor, input.descendant],
+                }),
+                detail: `git merge-base --is-ancestor failed: ${result.stderr.trim()}`,
+                ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+              }),
+            ),
+      ),
+    );
+
+  // Worktree reaper (phase 3): lightweight dirty check — any tracked change or
+  // untracked file makes the tree dirty (much cheaper than statusDetailsLocal).
+  const hasWorkingTreeChanges: GitVcsDriver.GitVcsDriver["Service"]["hasWorkingTreeChanges"] = (
+    cwd,
+  ) =>
+    runGitStdout("GitVcsDriver.hasWorkingTreeChanges", cwd, ["status", "--porcelain"]).pipe(
+      Effect.map((stdout) => stdout.trim().length > 0),
+    );
+
   return GitVcsDriver.GitVcsDriver.of({
     execute,
     status,
@@ -2637,6 +2709,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     commitAll,
     mergeWorktreeBranch,
     deleteBranch,
+    listWorktrees,
+    isAncestor,
+    hasWorkingTreeChanges,
     pushCurrentBranch,
     pullCurrentBranch,
     readRangeContext,

@@ -168,6 +168,8 @@ export function applyThreadDetailEvent(
           toolUses: null,
           usedTokens: null,
           maxTokens: null,
+          diffAdditions: null,
+          diffDeletions: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,
@@ -246,6 +248,25 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           planLane: event.payload.planLane,
+          // Mirror the server projector: leaving done/cancelled (an orchestrator
+          // re-opening a conflicted child to resolve+resubmit) clears the fan-in
+          // settlement so the resubmit re-arms it.
+          ...(event.payload.planLane !== "done" && event.payload.planLane !== "cancelled"
+            ? { fanInState: "none" as const }
+            : {}),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    // Worktree isolation (design §3): fan-in settlement transitions (merging →
+    // merged/conflicted) delivered live so an open thread's detail reflects them
+    // without a snapshot resync.
+    case "thread.fanin-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          fanInState: event.payload.fanInState,
           updatedAt: event.payload.updatedAt,
         },
       };

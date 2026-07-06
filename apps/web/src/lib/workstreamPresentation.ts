@@ -355,6 +355,40 @@ export function formatContextPercent(used: number | null, max: number | null): s
   return pct < 10 ? `${pct.toFixed(1).replace(/\.0$/, "")}%` : `${Math.round(pct)}%`;
 }
 
+/**
+ * Compact lines-of-diff label (`+128 −40`) summed across this thread's
+ * checkpoint turns, or null when there is no checkpoint yet (both unknown). A
+ * settled thread with a real 0/0 diff still renders `+0 −0` so "no changes" is
+ * distinguishable from "not measured".
+ */
+export function formatDiffMetric(
+  additions: number | null,
+  deletions: number | null,
+): string | null {
+  if (additions === null && deletions === null) return null;
+  return `+${additions ?? 0} −${deletions ?? 0}`;
+}
+
+export type FanInChip = {
+  readonly label: string;
+  readonly tone: "merging" | "merged" | "conflict";
+};
+
+/**
+ * Fan-in settlement chip for an isolated child's card (design §3), derived from
+ * shell state so it updates live off `thread.fanin-set`: an amber "merge
+ * conflict" that must not read as success, a subtle "merged", or a "merging…"
+ * while a done child's branch is still being folded in. Null for shared threads
+ * and un-settled non-terminal ones (nothing to show).
+ */
+export function getFanInChip(thread: SidebarThreadSummary): FanInChip | null {
+  if (thread.isolation !== "isolated" || thread.parentThreadId === null) return null;
+  if (thread.fanInState === "conflicted") return { label: "merge conflict", tone: "conflict" };
+  if (thread.fanInState === "completed") return { label: "merged", tone: "merged" };
+  if (thread.planLane === "done") return { label: "merging…", tone: "merging" };
+  return null;
+}
+
 export function getRoleLabel(thread: SidebarThreadSummary): string {
   return thread.role?.trim() || "sub-thread";
 }

@@ -169,6 +169,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:process-diagnostics",
       tag: WS_METHODS.serverGetProcessDiagnostics,
     }),
+    workstreamWorktrees: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:workstream-worktrees",
+      tag: WS_METHODS.serverGetWorkstreamWorktrees,
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
@@ -224,6 +228,10 @@ export function createServerEnvironmentAtoms<R, E>(
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
+    }),
+    removeWorkstreamWorktree: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:remove-workstream-worktree",
+      tag: WS_METHODS.serverRemoveWorkstreamWorktree,
     }),
   };
 }

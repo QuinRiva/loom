@@ -174,6 +174,92 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       }
     }),
   );
+
+  it.effect("folds lines-of-diff totals from checkpoint turn file summaries", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-diff");
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-diff-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-diff-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-diff-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-diff"),
+          title: "Thread Diff",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const turnDiff = (
+        suffix: string,
+        turn: string,
+        count: number,
+        files: ReadonlyArray<{ path: string; additions: number; deletions: number }>,
+      ) =>
+        eventStore
+          .append({
+            type: "thread.turn-diff-completed",
+            eventId: EventId.make(`evt-diff-${suffix}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: CommandId.make(`cmd-diff-${suffix}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-diff-${suffix}`),
+            metadata: {},
+            payload: {
+              threadId,
+              turnId: TurnId.make(turn),
+              checkpointTurnCount: count,
+              checkpointRef: CheckpointRef.make(`refs/t3/checkpoints/thread-diff/turn/${count}`),
+              status: "ready",
+              files: files.map((f) => ({ kind: "modified", ...f })),
+              assistantMessageId: MessageId.make(`message-${turn}`),
+              completedAt: now,
+            },
+          })
+          .pipe(Effect.asVoid);
+
+      yield* turnDiff("2", "turn-a", 1, [{ path: "a.ts", additions: 10, deletions: 2 }]);
+      yield* turnDiff("3", "turn-b", 2, [
+        { path: "b.ts", additions: 5, deletions: 3 },
+        { path: "a.ts", additions: 1, deletions: 0 },
+      ]);
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly diffAdditions: number | null;
+        readonly diffDeletions: number | null;
+      }>`
+        SELECT
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(rows, [{ diffAdditions: 16, diffDeletions: 5 }]);
+    }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(

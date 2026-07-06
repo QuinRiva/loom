@@ -9,7 +9,8 @@ import type * as Scope from "effect/Scope";
  * `completed` (releasing dependents) and removes the child worktree + branch
  * (occupancy-gated); on conflict it aborts and records `conflicted`, keeping the
  * worktree for the orchestrator to resolve. A cancelled isolated child gets its
- * worktree committed + removed, keeping the branch recoverable.
+ * worktree committed + removed — deferred until its provider session is
+ * quiescent (cancel-race hardening) — keeping the branch recoverable.
  */
 export interface WorkstreamFanInReactorShape {
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;

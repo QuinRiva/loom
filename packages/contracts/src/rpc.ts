@@ -128,6 +128,9 @@ import {
   ServerProcessResourceHistoryResult,
   ServerSignalProcessInput,
   ServerSignalProcessResult,
+  WorkstreamWorktreesResult,
+  WorkstreamRemoveWorktreeInput,
+  WorkstreamRemoveWorktreeResult,
   ServerUsageBreakdownError,
   ServerUsageBreakdownInput,
   ServerUsageBreakdownResult,
@@ -220,6 +223,8 @@ export const WS_METHODS = {
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
   serverGetUsageBreakdown: "server.getUsageBreakdown",
   serverSignalProcess: "server.signalProcess",
+  serverGetWorkstreamWorktrees: "server.getWorkstreamWorktrees",
+  serverRemoveWorkstreamWorktree: "server.removeWorkstreamWorktree",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -339,6 +344,21 @@ export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess,
   success: ServerSignalProcessResult,
   error: EnvironmentAuthorizationError,
 });
+
+export const WsServerGetWorkstreamWorktreesRpc = Rpc.make(WS_METHODS.serverGetWorkstreamWorktrees, {
+  payload: Schema.Struct({}),
+  success: WorkstreamWorktreesResult,
+  error: EnvironmentAuthorizationError,
+});
+
+export const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
+  WS_METHODS.serverRemoveWorkstreamWorktree,
+  {
+    payload: WorkstreamRemoveWorktreeInput,
+    success: WorkstreamRemoveWorktreeResult,
+    error: EnvironmentAuthorizationError,
+  },
+);
 
 export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
   payload: Schema.Struct({}),
@@ -719,6 +739,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProcessResourceHistoryRpc,
   WsServerGetUsageBreakdownRpc,
   WsServerSignalProcessRpc,
+  WsServerGetWorkstreamWorktreesRpc,
+  WsServerRemoveWorkstreamWorktreeRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   WsSourceControlLookupRepositoryRpc,

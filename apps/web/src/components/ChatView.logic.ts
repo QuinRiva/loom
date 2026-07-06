@@ -55,6 +55,8 @@ export function buildLocalDraftThread(
     toolUses: null,
     usedTokens: null,
     maxTokens: null,
+    diffAdditions: null,
+    diffDeletions: null,
     title: "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,

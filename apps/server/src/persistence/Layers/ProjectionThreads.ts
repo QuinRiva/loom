@@ -77,6 +77,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           tool_uses,
           used_tokens,
           max_tokens,
+          diff_additions,
+          diff_deletions,
           deleted_at
         )
         VALUES (
@@ -116,6 +118,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.toolUses},
           ${row.usedTokens},
           ${row.maxTokens},
+          ${row.diffAdditions},
+          ${row.diffDeletions},
           ${row.deletedAt}
         )
         ON CONFLICT (thread_id)
@@ -155,6 +159,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           tool_uses = excluded.tool_uses,
           used_tokens = excluded.used_tokens,
           max_tokens = excluded.max_tokens,
+          diff_additions = excluded.diff_additions,
+          diff_deletions = excluded.diff_deletions,
           deleted_at = excluded.deleted_at
       `,
   });
@@ -201,6 +207,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -249,6 +257,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           tool_uses AS "toolUses",
           used_tokens AS "usedTokens",
           max_tokens AS "maxTokens",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}

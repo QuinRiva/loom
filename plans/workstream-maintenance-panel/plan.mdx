@@ -1,0 +1,174 @@
+---
+manager_sessions:
+  - id: 18e95b51-d1fe-4451-8e4c-2b3813fe4136
+    role: plan
+    authored_at: 2026-07-05T11:50:04.976Z
+---
+
+# Stale-worktrees visibility surface
+
+## Objective
+
+Give the human one cheap place to see every workstream worktree on disk — who owns it, how old it is, how much disk it costs, and **why the conservative auto-reaper did not delete it** — plus a guarded, human-confirmed Remove action. Done means: a `Worktrees` settings page lists all worktrees across projects with owner/age/size/merge/dirty state and a per-row removal reason, removal of a stale worktree works from the page with server-enforced guardrails, and nothing on the page can delete work that is merely stale without an explicit acknowledgement.
+
+This is a maintenance panel, not a dashboard product. It follows the design principle settled for Phase 3: **auto-reap only provably-dead worktrees; everything else is surfaced, not deleted.** The Wave-1 reaper handles the provably-dead class; this surface exists for everything the reaper deliberately refuses to touch.
+
+<Screen
+  surface="browser"
+  caption="Settings → Worktrees — the whole feature on one page"
+  html={'<div style="display:flex;flex-direction:column;gap:14px;padding:16px;height:100%"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><h2>Worktrees</h2><div style="flex:1"></div><small>Checked 14s ago</small><button>Refresh</button></div><div class="wf-card" style="display:flex;padding:0"><div style="flex:1;padding:10px 14px;border-right:1.4px solid var(--wf-line)"><small>WORKTREES</small><br /><strong>21</strong></div><div style="flex:1;padding:10px 14px;border-right:1.4px solid var(--wf-line)"><small>DISK</small><br /><strong>2.6 GB</strong></div><div style="flex:1;padding:10px 14px;border-right:1.4px solid var(--wf-line)"><small>STALE</small><br /><strong>6</strong></div><div style="flex:1;padding:10px 14px"><small>AUTO-REAP PENDING</small><br /><strong>2</strong></div></div><div class="wf-card" style="display:flex;flex-direction:column;padding:0"><div style="display:flex;gap:10px;padding:8px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap"><small style="flex:2.2">WORKTREE</small><small style="flex:2">OWNER</small><small style="flex:1.3">WHY KEPT</small><small style="flex:0.7">AGE</small><small style="flex:0.8">SIZE</small><small style="flex:1.4">BRANCH STATE</small><small style="flex:0.9"></small></div><div style="display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap"><span style="flex:2.2;overflow:hidden;text-overflow:ellipsis"><strong>coder-9c05d1d3</strong></span><span style="flex:2;overflow:hidden;text-overflow:ellipsis">Harden cancel race <small>coder</small></span><span style="flex:1.3"><span class="wf-pill">Active</span></span><small style="flex:0.7">2h</small><small style="flex:0.8">131 MB</small><small style="flex:1.4">3 ahead</small><span style="flex:0.9"></span></div><div style="display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap"><span style="flex:2.2;overflow:hidden;text-overflow:ellipsis"><strong>reviewer-41ab02c9</strong></span><span style="flex:2;overflow:hidden;text-overflow:ellipsis">Review diff tracking <small>reviewer</small></span><span style="flex:1.3"><span class="wf-pill" style="border-color:var(--wf-warn);color:var(--wf-warn)">Conflicted</span></span><small style="flex:0.7">6d</small><small style="flex:0.8">128 MB</small><small style="flex:1.4">unmerged · dirty (4)</small><span style="flex:0.9;text-align:right"><button>Remove…</button></span></div><div style="display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap"><span style="flex:2.2;overflow:hidden;text-overflow:ellipsis"><strong>coder-77f2d1aa</strong></span><span style="flex:2;overflow:hidden;text-overflow:ellipsis"><small class="wf-muted">no owning thread</small></span><span style="flex:1.3"><span class="wf-pill" style="border-color:var(--wf-warn);color:var(--wf-warn)">Orphaned</span></span><small style="flex:0.7">12d</small><small style="flex:0.8">128 MB</small><small style="flex:1.4">unmerged · clean</small><span style="flex:0.9;text-align:right"><button>Remove…</button></span></div><div style="display:flex;gap:10px;align-items:center;padding:9px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap"><span style="flex:2.2;overflow:hidden;text-overflow:ellipsis"><strong>coder-b0c81f22</strong></span><span style="flex:2;overflow:hidden;text-overflow:ellipsis">Fix spawn fallback <small>coder</small></span><span style="flex:1.3"><span class="wf-pill">Cancelled wip</span></span><small style="flex:0.7">3d</small><small style="flex:0.8">129 MB</small><small style="flex:1.4">unmerged · clean</small><span style="flex:0.9;text-align:right"><button>Remove…</button></span></div><div style="display:flex;gap:10px;align-items:center;padding:9px 12px;white-space:nowrap"><span style="flex:2.2;overflow:hidden;text-overflow:ellipsis"><strong class="wf-muted">planner-18e95b51</strong></span><span style="flex:2;overflow:hidden;text-overflow:ellipsis"><small class="wf-muted">Plan maintenance panel</small></span><span style="flex:1.3"><span class="wf-pill">Auto-reap soon</span></span><small style="flex:0.7">9h</small><small style="flex:0.8">128 MB</small><small style="flex:1.4">merged · clean</small><span style="flex:0.9"></span></div></div></div>'}
+/>
+
+The page lists **all** worktrees the classifier finds (grouped/sortable by project when more than one project has any), so the disk total is honest. `Active` rows and `Auto-reap soon` rows carry no action — the former are alive, the latter are the reaper's job. Every other row gets `Remove…`.
+
+## Scope and non-goals
+
+**In:** one read-only scan query, one guarded removal command, one settings page, a nav entry. **Out (deliberately):** auto-refresh/polling or live push events (manual Refresh matches the Diagnostics idiom and this is a maintenance surface); bulk/multi-select removal; any "open in editor / browse diff" affordances; changing reaper policy from the UI; cross-environment aggregation (the page reads the primary environment, like every other settings page); mobile.
+
+## Where it lives: a `Worktrees` settings page
+
+New route `apps/web/src/routes/settings.worktrees.tsx` + `WorktreesSettings.tsx` panel, with a nav entry in `SettingsSidebarNav.tsx` (between Source Control and Connections). It reuses the Diagnostics page idiom wholesale — `SettingsPageContainer`/`SettingsSection`, the `StatsGrid`/`StatBlock` header, `DiagnosticsLastChecked`-style "Checked Ns ago" + refresh button, and the same table styling — so the new UI is mostly composition of existing pieces in `apps/web/src/components/settings/`.
+
+<Callout tone="decision">
+  A dedicated settings page, not a section on the Diagnostics page and not a per-thread surface. Diagnostics is process/trace-oriented and already long; worktrees are a per-repo maintenance concern with their own actions. Per-thread surfaces (DiffPanel, workstream cards) are the wrong scope — the whole point is the aggregate view across threads, including orphans that have no thread at all.
+</Callout>
+
+## Data flow: on-demand server scan, not projection state
+
+The truth about worktrees lives on disk and in git; the projection only knows threads. So the page issues an on-demand query RPC (exactly like `server.getProcessDiagnostics`): the handler runs the Wave-1 **classification module** (built by the reaper coder: `git worktree list` + projection join → per-worktree classification), layers disk sizing on top, and returns a snapshot with a `readAt` timestamp. Nothing is materialised or kept in sync; Refresh re-scans.
+
+<Mermaid
+  caption="Query and removal paths (all server-side beyond the RPC boundary)"
+  source={"flowchart LR\n  UI[Worktrees settings page] -- server.getWorkstreamWorktrees --> Q[worktree status query]\n  Q --> C[Wave-1 classification module]\n  C --> G[git worktree list / merge / dirty]\n  C --> P[projection threads]\n  Q --> D[du per worktree, bounded]\n  UI -- server.removeWorkstreamWorktree --> R[guarded removal]\n  R --> C\n  R --> W[GitWorkflowService.removeWorktree under WorktreeMutationLock]\n  R --> M[thread.meta.update worktreePath=null]\n"}
+/>
+
+Disk sizing is the only expensive part of the scan (`du` per worktree, bounded concurrency, per-worktree timeout). ~20 worktrees × ~128 MB is a few seconds cold — acceptable for an explicit maintenance query; `sizeBytes` is nullable so a timed-out `du` degrades one cell, not the scan.
+
+### What the surface needs from the classification module
+
+The Wave-1 coder is building the classifier now; this is the consuming contract. Each entry must carry:
+
+<DataModel
+  entities={[
+    {
+      id: "entry",
+      name: "WorkstreamWorktreeEntry",
+      change: "added",
+      fields: [
+        { name: "worktreePath", type: "string", pk: true },
+        { name: "projectName", type: "string", note: "repo the scan ran in" },
+        { name: "branch", type: "string | null", note: "null when detached" },
+        { name: "classification", type: "active | reapable | conflicted | cancelled | orphaned | deferred-removal | stale", note: "why it was not auto-reaped" },
+        { name: "owner", type: "OwningThreadRef | null", fk: "OwningThreadRef", nullable: true, note: "null = orphan" },
+        { name: "lastActivityAt", type: "ISO datetime", note: "thread updatedAt, else dir mtime" },
+        { name: "merged", type: "boolean | null", note: "branch fully merged into parent; null = unknown/detached" },
+        { name: "aheadCount", type: "number | null" },
+        { name: "dirty", type: "boolean" },
+        { name: "dirtyFileCount", type: "number | null" },
+        { name: "sizeBytes", type: "number | null", note: "added by the query layer, not the classifier" },
+      ],
+    },
+    {
+      id: "owner",
+      name: "OwningThreadRef",
+      change: "added",
+      fields: [
+        { name: "threadId", type: "ThreadId", pk: true },
+        { name: "title", type: "string" },
+        { name: "role", type: "string | null" },
+        { name: "goalId", type: "GoalId | null" },
+        { name: "planLane", type: "lane" },
+        { name: "fanInState", type: "ThreadFanInState" },
+      ],
+    },
+  ]}
+  relations={[{ from: "entry", to: "owner", kind: "1-1", label: "owning thread" }]}
+/>
+
+Classification meanings, aligned with the reaper brief: `active` = owning thread non-terminal or fan-in unsettled; `reapable` = provably dead, the reaper will take it at its next tick (shown as "Auto-reap soon"); `conflicted` = fan-in conflict escalated and abandoned; `cancelled` = carries a `wip: cancelled` snapshot; `orphaned` = no projection thread claims the path (crash leftover); `deferred-removal` = a cancel-time removal was deferred and lost to a restart; `stale` = none of the above but past the reaper's age threshold with an unmerged/dirty reason.
+
+<Callout tone="risk">
+  The exact module path/shape lands with Wave 1 (in flight). The fields above are the binding requirement; if the shipped classifier lacks one (e.g. `dirtyFileCount`), the status query layer adds it rather than the panel re-deriving git state. If the shipped enum names differ, the contracts schema adopts the shipped names — the seven categories are the requirement, not the spelling.
+</Callout>
+
+### Wire contract
+
+Two RPCs, added to `packages/contracts/src/server.ts` (schemas) and `packages/contracts/src/rpc.ts` (methods + router registration), handled in `apps/server/src/ws.ts`, exposed to the web via `createEnvironmentRpcQueryAtomFamily` / `createEnvironmentRpcCommand` in `packages/client-runtime/src/state/server.ts` — the identical chain `traceDiagnostics` and `signalProcess` already use.
+
+<Code
+  filename="packages/contracts/src/rpc.ts (additions)"
+  language="ts"
+  code={"export const WsServerGetWorkstreamWorktreesRpc = Rpc.make(WS_METHODS.serverGetWorkstreamWorktrees, {\n  payload: Schema.Struct({}),\n  success: WorkstreamWorktreesResult, // { readAt, entries: WorkstreamWorktreeEntry[] }\n  error: EnvironmentAuthorizationError,\n});\n\nexport const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(WS_METHODS.serverRemoveWorkstreamWorktree, {\n  payload: Schema.Struct({\n    worktreePath: TrimmedNonEmptyString,\n    // acknowledgements, not a blanket force: the server refuses when the\n    // live state is riskier than what the human confirmed (TOCTOU guard)\n    acknowledgeDirty: Schema.optional(Schema.Boolean),\n    acknowledgeUnmerged: Schema.optional(Schema.Boolean),\n  }),\n  success: WorkstreamWorktreeRemovalResult, // { removed, deletedBranch: string | null, message: string | null }\n  error: EnvironmentAuthorizationError,\n});\n"}
+/>
+
+## The removal action
+
+The server handler **re-classifies the single worktree before acting** — the guardrails are server-enforced, never trusted from a possibly-stale client snapshot:
+
+1. `active` → always refused (message: thread is live / fan-in pending).
+2. `dirty` without `acknowledgeDirty`, or unmerged without `acknowledgeUnmerged` → refused; the client re-renders the confirm with the live facts.
+3. Otherwise: remove the worktree via `GitWorkflowService.removeWorktree` (force when dirty), **under `WorktreeMutationLock` on the parent repo cwd** — the same serialisation the provisioner and fan-in use, so a removal can never race a concurrent merge.
+4. Delete the `ws/…` branch **only when fully merged**; an unmerged branch always survives worktree removal, so acknowledged-unmerged removal loses no commits, only checkout disk.
+5. If an owning thread exists, dispatch `thread.meta.update` with `worktreePath: null` (the schema already permits it), and refresh vcs status.
+
+This intentionally does **not** reuse the existing raw `vcs.removeWorktree` RPC that thread-deletion uses (`useThreadActions.ts`): that path has no classification guard, no lock on the parent repo, no branch handling, and no thread-meta cleanup. Server-side, though, the removal tail (steps 3–5) should be the **same routine the Wave-1 reaper calls**, with the acknowledgement flags as the only difference — one removal implementation, two callers.
+
+<Screen
+  surface="panel"
+  caption="Remove confirmation — acknowledgement mirrors the live server facts"
+  html={'<div style="display:flex;flex-direction:column;gap:12px;padding:16px;height:100%"><h3>Remove worktree?</h3><p style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><strong>reviewer-41ab02c9</strong> <small>· 128 MB · conflicted</small></p><div class="wf-box" style="border-color:var(--wf-warn)"><small>4 uncommitted changes will be permanently deleted. The branch <strong>ws/t3code/…/reviewer-41ab02c9</strong> is not merged — the branch itself is kept.</small></div><label style="display:flex;gap:8px;align-items:center;white-space:nowrap"><input type="checkbox" /> <small>Delete the 4 uncommitted changes</small></label><div style="flex:1"></div><div style="display:flex;gap:8px;white-space:nowrap"><div style="flex:1"></div><button>Cancel</button><button class="primary">Remove worktree</button></div></div>'}
+/>
+
+## Change map
+
+<FileTree
+  title="All touched files"
+  entries={[
+    { path: "packages/contracts/src/server.ts", change: "modified", note: "WorkstreamWorktreeEntry / results schemas" },
+    { path: "packages/contracts/src/rpc.ts", change: "modified", note: "2 WS_METHODS + Rpc.make + router registration" },
+    { path: "apps/server/src/git/WorkstreamWorktreeStatus.ts", change: "added", note: "query layer: classification module + du sizing; guarded removal wrapping the reaper's removal routine" },
+    { path: "apps/server/src/ws.ts", change: "modified", note: "wire the two handlers (observeRpcEffect, like processDiagnostics)" },
+    { path: "packages/client-runtime/src/state/server.ts", change: "modified", note: "workstreamWorktrees query atom + removeWorkstreamWorktree command" },
+    { path: "apps/web/src/components/settings/WorktreesSettings.tsx", change: "added", note: "panel: stats, table, confirm dialog; reuses Diagnostics building blocks" },
+    { path: "apps/web/src/routes/settings.worktrees.tsx", change: "added", note: "route shell" },
+    { path: "apps/web/src/components/settings/SettingsSidebarNav.tsx", change: "modified", note: "nav entry" },
+  ]}
+/>
+
+The exact home of `WorkstreamWorktreeStatus.ts` should sit next to wherever Wave 1 lands the classifier (`apps/server/src/git/` assumed) so query, classifier, and removal routine stay one cluster.
+
+## Verification
+
+`vp check` and `vp run typecheck` pass. The real smoke uses the dev instance (`skills/t3code-dev-instance/`) against this machine's genuinely accumulated worktrees: open **Settings → Worktrees**, confirm the table shows the real ~20 loom worktrees with plausible owners/reasons/sizes; remove one `cancelled`/`orphaned` worktree and assert on disk that the directory is gone, `git worktree list` no longer shows it, the unmerged branch still exists, and the owning thread's row disappears on Refresh; attempt removal of an `active` worktree via the RPC directly and confirm the server refuses.
+
+<QuestionForm
+  questions={[
+    {
+      id: "sizing",
+      title: "Compute per-worktree disk usage during the scan?",
+      mode: "single",
+      options: [
+        { id: "du", label: "Yes — du with bounded concurrency + timeout", recommended: true, detail: "A few seconds on an explicit maintenance query; nullable cells degrade gracefully. Disk cost is half the reason the page exists." },
+        { id: "skip", label: "No — ship v1 without sizes", detail: "Fastest scan; loses the 2.6 GB headline that motivates cleanup." },
+      ],
+    },
+    {
+      id: "bulk",
+      title: "Add a bulk action for the removable classes (e.g. remove all cancelled/orphaned)?",
+      mode: "single",
+      options: [
+        { id: "none", label: "No — per-row removal only", recommended: true, detail: "Every non-reapable class exists precisely because it needs a human look; bulk defeats that. The reaper already handles the provably-dead class." },
+        { id: "bulk", label: "Yes — one confirm covering N selected rows" },
+      ],
+    },
+    {
+      id: "placement",
+      title: "Confirm the placement: dedicated Settings → Worktrees page?",
+      mode: "single",
+      options: [
+        { id: "page", label: "Own settings page + nav entry", recommended: true },
+        { id: "diag", label: "A section on the Diagnostics page", detail: "One fewer route, but buries a per-repo maintenance surface in a process/trace page." },
+      ],
+    },
+  ]}
+/>
