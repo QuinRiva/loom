@@ -77,6 +77,7 @@ import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
+import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -828,6 +829,15 @@ const buildAppUnderTest = (options?: {
           update: () => Effect.void,
           streamChanges: Stream.empty,
           usageSlopePerMinute: () => Effect.succeed(null),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProviderHealthRegistry)({
+          isExhausted: () => Effect.succeed(false),
+          exhaustedUntil: () => Effect.succeed(null),
+          markExhausted: () => Effect.void,
+          snapshot: Effect.succeed([]),
+          streamChanges: Stream.empty,
         }),
       ),
       Layer.provide(

@@ -9,8 +9,8 @@
  *
  * Provider rate-limit events are sparse rolling updates (Codex documents this
  * explicitly; Claude reports a single window per event), so updates merge at the
- * window level — an incoming window of a given kind replaces the stored one of
- * that kind, while the other kind is preserved.
+ * window level — an incoming window of a given kind + scope replaces the stored
+ * one of that key, while the other windows are preserved.
  *
  * @module AccountUsageRegistry
  */
@@ -46,6 +46,7 @@ export interface AccountUsageRegistryShape {
     key: string,
     windowKind: AccountUsageWindowKind,
     nowMs: number,
+    scopeDisplayName?: string,
   ) => Effect.Effect<number | null>;
 }
 
@@ -73,15 +74,21 @@ interface UsageSample {
   readonly percent: number;
 }
 
-const sampleBufferKey = (key: string, kind: AccountUsageWindowKind): string =>
-  `${key}\u0000${kind}`;
+const windowMergeKey = (window: AccountUsageWindow): string =>
+  `${window.kind}\u0000${window.scope?.displayName ?? ""}`;
+
+const sampleBufferKey = (
+  key: string,
+  kind: AccountUsageWindowKind,
+  scopeDisplayName?: string,
+): string => `${key}\u0000${kind}\u0000${scopeDisplayName ?? ""}`;
 
 const clampPercent = (value: number): number =>
   Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
 
 /**
  * Append the snapshot's per-window official % to the sample buffers, keyed by
- * account key + window kind. Dedupes on `observedAt` (the poller re-emits the
+ * account key + window kind + scope. Dedupes on `observedAt` (the poller re-emits the
  * same reading between whole-percent steps) and prunes to the retention window.
  */
 const recordSamples = (
@@ -93,7 +100,7 @@ const recordSamples = (
   const next = new Map(buffers);
   for (const window of snapshot.windows) {
     if (!Number.isFinite(window.usedPercent)) continue;
-    const bufKey = sampleBufferKey(usageKey(snapshot), window.kind);
+    const bufKey = sampleBufferKey(usageKey(snapshot), window.kind, window.scope?.displayName);
     const existing = next.get(bufKey) ?? [];
     const last = existing[existing.length - 1];
     if (last !== undefined && last.atMs === observedAtMs) continue;
@@ -144,10 +151,10 @@ const mergeWindows = (
   existing: ReadonlyArray<AccountUsageWindow>,
   incoming: ReadonlyArray<AccountUsageWindow>,
 ): ReadonlyArray<AccountUsageWindow> => {
-  const byKind = new Map<AccountUsageWindow["kind"], AccountUsageWindow>();
-  for (const window of existing) byKind.set(window.kind, window);
-  for (const window of incoming) byKind.set(window.kind, window);
-  return Array.from(byKind.values());
+  const byKey = new Map<string, AccountUsageWindow>();
+  for (const window of existing) byKey.set(windowMergeKey(window), window);
+  for (const window of incoming) byKey.set(windowMergeKey(window), window);
+  return Array.from(byKey.values());
 };
 
 export const AccountUsageRegistryLive = Layer.effect(
@@ -184,10 +191,14 @@ export const AccountUsageRegistryLive = Layer.effect(
       key,
       windowKind,
       nowMs,
+      scopeDisplayName,
     ) =>
       Ref.get(samplesRef).pipe(
         Effect.map((buffers) =>
-          slopePerMinute(buffers.get(sampleBufferKey(key, windowKind)) ?? [], nowMs),
+          slopePerMinute(
+            buffers.get(sampleBufferKey(key, windowKind, scopeDisplayName)) ?? [],
+            nowMs,
+          ),
         ),
       );
 

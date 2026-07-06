@@ -12,6 +12,7 @@ import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientError } from "effect/unstable/http";
 
 import { AccountUsageRegistry } from "../Services/AccountUsageRegistry.ts";
+import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
 import { type ProviderUsage, fetchAnthropicUsage, fetchCodexUsage } from "../quotas/piQuotas.ts";
 import {
   SubscriptionUsagePoller,
@@ -83,6 +84,7 @@ const PiAuthSchema = Schema.Struct({
 
 const make = Effect.gen(function* () {
   const registry = yield* AccountUsageRegistry;
+  const providerRegistry = yield* ProviderRegistry;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
@@ -92,6 +94,14 @@ const make = Effect.gen(function* () {
   const readPiAuth = fileSystem
     .readFileString(piAuthPath)
     .pipe(Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(PiAuthSchema))));
+
+  const piModelSlugs = providerRegistry.getProviders.pipe(
+    Effect.map((providers) =>
+      providers.flatMap((provider) =>
+        provider.driver === "pi" ? provider.models.map((model) => model.slug) : [],
+      ),
+    ),
+  );
 
   const feed = (providerName: string, usage: ProviderUsage) =>
     usage.windows.length === 0
@@ -105,6 +115,10 @@ const make = Effect.gen(function* () {
               windows: usage.windows,
               planType: usage.planType,
               observedAt,
+              // Explicit provider exhaustion flag (Codex `limit_reached`) so the
+              // health registry can mark account-wide even if the window percent
+              // undershoots the ≥99% threshold (§4.4 mark source 1).
+              ...(usage.rateLimit?.limitReached === true ? { limitReached: true } : {}),
             }),
           ),
           Effect.andThen(
@@ -121,7 +135,10 @@ const make = Effect.gen(function* () {
         yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
         return;
       }
-      yield* feed("claudeAgent", yield* fetchAnthropicUsage(httpClient, token));
+      yield* feed(
+        "claudeAgent",
+        yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
+      );
     });
 
   const pollCodex = (auth: typeof PiAuthSchema.Type) =>

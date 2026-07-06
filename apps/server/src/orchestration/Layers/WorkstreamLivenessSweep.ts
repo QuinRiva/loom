@@ -20,6 +20,11 @@ import * as Schedule from "effect/Schedule";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import {
+  formatResetHint,
+  subscriptionScopeForSelection,
+} from "../../provider/exhaustionMapping.ts";
 import { readThreadStallContext, renderStallContext, type StallContext } from "../stallContext.ts";
 import {
   WorkstreamLivenessSweep,
@@ -299,6 +304,18 @@ const CONTROL_PLANE_MARKER = "[T3 Workstream control plane — automated notice,
  * the control-plane marker, what we observed, the extracted account of what
  * happened, and an instruction to recover or explain a genuine block.
  */
+/**
+ * Wake reason for a child that stalled on a provider subscription limit
+ * (`lastErrorClass === "quota_exhausted"`), replacing the generic circuit-
+ * breaker "repeatedly failed" text. Tells the parent orchestrator this is a
+ * usage cap that resumes automatically (§6) — so it waits rather than
+ * cancelling/replanning. `resetHint` is a relative phrase from
+ * {@link formatResetHint}.
+ */
+export const buildQuotaExhaustionWakeReason = (resetHint: string): string =>
+  `Provider subscription limit reached — this turn stalled on a usage cap, not a fault. ` +
+  `It will resume automatically ${resetHint}; wait rather than cancelling or replanning.`;
+
 export const buildStallNudgeMessage = (
   verdict: LivenessVerdict,
   context: StallContext | null,
@@ -322,6 +339,7 @@ const makeWorkstreamLivenessSweep = (
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const directory = yield* ProviderSessionDirectory;
+    const healthRegistry = yield* ProviderHealthRegistry;
     const crypto = yield* Crypto.Crypto;
 
     // Consecutive failed-state observations per thread (the circuit-breaker
@@ -392,7 +410,18 @@ const makeWorkstreamLivenessSweep = (
         reason: "error",
         createdAt: now,
       } satisfies OrchestrationCommand);
-      yield* appendLivenessActivity(thread, verdict, verdict.reason, "error-reason", now);
+      // Enrich the wake for a quota-exhaustion stall: the ExhaustionResumeSweep
+      // will restart it at reset, so the parent should wait, not replan. Pull
+      // the reset hint from the health registry for the intended selection.
+      let reason = verdict.reason;
+      if (thread.session?.lastErrorClass === "quota_exhausted") {
+        const { accountKey, modelId } = subscriptionScopeForSelection(thread.modelSelection);
+        const until =
+          accountKey === null ? null : yield* healthRegistry.exhaustedUntil(accountKey, modelId);
+        const nowMs = yield* Clock.currentTimeMillis;
+        reason = buildQuotaExhaustionWakeReason(formatResetHint(until, nowMs));
+      }
+      yield* appendLivenessActivity(thread, verdict, reason, "error-reason", now);
     });
 
     // State C step 1 (informed nudge): drive ONE recovery turn into the child's

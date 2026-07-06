@@ -26,6 +26,7 @@ import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts
 import { ProviderServiceLive } from "./provider/Layers/ProviderService.ts";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper.ts";
 import { WorkstreamLivenessSweepLive } from "./orchestration/Layers/WorkstreamLivenessSweep.ts";
+import { ExhaustionResumeSweepLive } from "./orchestration/Layers/ExhaustionResumeSweep.ts";
 import * as OpenCodeRuntime from "./provider/opencodeRuntime.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
@@ -63,6 +64,7 @@ import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { AccountUsageRegistryLive } from "./provider/Services/AccountUsageRegistry.ts";
+import { ProviderHealthRegistryLive } from "./provider/Services/ProviderHealthRegistry.ts";
 import { SubscriptionUsagePollerLive } from "./provider/Layers/SubscriptionUsagePoller.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -314,6 +316,7 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   WorkstreamLivenessSweepLive,
+  ExhaustionResumeSweepLive,
   SubscriptionUsagePollerLive,
 ).pipe(
   Layer.provideMerge(ProviderLayerLive),
@@ -349,11 +352,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),
-  // `AccountUsageRegistryLive` is an ephemeral, account-scoped subscription-usage
-  // store — merged alongside the provider registry as a shared singleton:
-  // `ProviderRuntimeIngestion` writes rate-limit events here and the WS config
-  // stream reads its snapshot + change stream.
-  Layer.provideMerge(Layer.mergeAll(ProviderRegistryLive, AccountUsageRegistryLive)),
+  Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`
   // through this layer. Built-in drivers come from `BUILT_IN_DRIVERS`;
@@ -365,7 +364,23 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // `ProviderService` (canonical stream, written after event normalization).
   // Provided once at the runtime level so every consumer sees the same
   // logger instances.
-  Layer.provideMerge(ProviderEventLoggers.ProviderEventLoggersLive),
+  //
+  // Bundled with exhaustion state (`ProviderHealthRegistryLive`) + the
+  // ephemeral, account-scoped usage store it derives marks from
+  // (`AccountUsageRegistryLive`) — kept in one provideMerge step so both are
+  // provided TO the built-in drivers above (PiDriver.create requires
+  // ProviderHealthRegistry for quota classification) while staying under the
+  // pipe's 20-argument ceiling. AccountUsageRegistry is nested-provided into
+  // the health registry and merged out for its other consumers
+  // (`ProviderRuntimeIngestion` writes rate-limit events here; the WS config
+  // stream reads its snapshot + change stream). The health registry also reads
+  // `providerFailover` from ServerSettings (provided by a later pipe step).
+  Layer.provideMerge(
+    Layer.mergeAll(
+      ProviderEventLoggers.ProviderEventLoggersLive,
+      ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
+    ),
+  ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but
   // the rewritten registry reads snapshots off the instance registry and

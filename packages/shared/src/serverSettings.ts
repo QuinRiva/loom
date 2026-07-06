@@ -76,7 +76,7 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
-  const { automaticGitFetchInterval, ...patchForMerge } = patch;
+  const { automaticGitFetchInterval, providerFailover, ...patchForMerge } = patch;
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacements = {
     ...next,
@@ -87,6 +87,11 @@ export function applyServerSettingsPatch(
       ? { workstreamModelPresets: patch.workstreamModelPresets }
       : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+    // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
+    // replace wholesale (records/arrays have no coherent partial merge).
+    ...(providerFailover !== undefined
+      ? { providerFailover: { ...current.providerFailover, ...providerFailover } }
+      : {}),
   };
   if (!selectionPatch) {
     return nextWithReplacements;

@@ -41,6 +41,7 @@ import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
+import { classifiesAsQuota } from "../exhaustionMapping.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 
 import {
@@ -1286,7 +1287,15 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
           message,
-          ...(!willRetry ? { class: "provider_error" as const } : {}),
+          // Classify subscription/quota exhaustion (§9: direct drivers get
+          // classification only — the resume sweep restarts them at reset).
+          ...(!willRetry
+            ? {
+                class: classifiesAsQuota(message)
+                  ? ("quota_exhausted" as const)
+                  : ("provider_error" as const),
+              }
+            : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },

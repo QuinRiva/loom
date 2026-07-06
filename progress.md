@@ -167,3 +167,59 @@ ProviderRuntimeIngestion.test error.
   `serverRuntimeStartup.test.ts:30` (Codex default-model drift),
   `ProviderRegistry.test.ts` ×3 (provider-name drift: `pi` vs codex/cursor/… —
   the Pi-fork).
+
+---
+
+# Provider exhaustion failover — Chunk B (health registry + classification)
+
+Status: COMPLETE — `vp run typecheck` PASS (0 errors); `vp check` PASS for all
+changed source files; new registry unit test PASS (8).
+
+## Manager consult (recorded per plan §11 requirement)
+
+- Author: `fc530ab2` (plan role, docs/plans/provider-exhaustion-failover.md).
+- Question: Codex explicit `limit_reached` reaches the health registry how, given
+  the poller dropped the flag and it wasn't on `AccountUsageSnapshot`?
+- Decision: **Option 1** — add an optional, provider-agnostic `limitReached?:
+boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
+  account-wide on it. Confidence: **medium**. (Do NOT collapse into ≥99%.)
+
+## Delivered
+
+- Contracts: `RuntimeErrorClass += "quota_exhausted"` (+ exported schema);
+  `AccountUsageSnapshot.limitReached?`; `ProviderSession.lastErrorClass?`;
+  `OrchestrationSession.lastErrorClass?`; `ProviderFailoverSettings` (+ ServerSettings
+  field + patch); shared `applyServerSettingsPatch` shallow-merges providerFailover.
+- `ProviderHealthRegistry` service+layer (marks keyed (accountKey, modelScope),
+  telemetry ≥99% / Codex flag / error sources, 30-min error TTL, <97% + until-passed
+  clearing, soft-pause from settings). Server layer wiring: bundled with
+  AccountUsageRegistry into one provideMerge step after hydration.
+- `exhaustionMapping.ts`: `PI_QUOTA_ERROR_RE`, `classifiesAsQuota`,
+  `accountKeyForModelSlug` / slug-namespace→accountKey table.
+- PiDriver: quota classification BEFORE transient ladder (regex OR
+  transient+corroboration), `markExhausted` (source error), fail with
+  `quota_exhausted`; NO rerouting (chunk C). Direct adapters (Codex/Claude):
+  classification only (§9).
+- lastErrorClass plumbed end-to-end: ingestion → thread.session.set →
+  ProjectionPipeline → migration 051 (last_error_class) → repo SQL → snapshot query.
+
+## Decisions / notes
+
+- Direct adapters classify only (no markExhausted) — §9 scopes them to
+  classification; the poller marks their accounts within ≤60s.
+- Error-sourced marks are model-scoped (conservative) unless account-key only.
+
+## Pre-existing FAILS (NOT mine — reproduce with my changes stashed)
+
+- `ProjectionSnapshotQuery.test.ts` ×1 (projection_projects.workspace_root unique,
+  migration 050).
+- `ProviderRegistry.test.ts` ×3 (Pi-fork provider-name drift — see prior entry).
+- `vp check`: only `docs/plans/provider-exhaustion-failover.md` (planner-committed,
+  not in my diff) + gitignored `.pi-subagents/` artifacts.
+
+## Chunk F (UI/settings) — manager consult 2026-07-06
+
+- Q: concrete-slug chain editor vs <m>-templated §5.2 defaults.
+- Author fc530ab2 (role=plan), confidence MEDIUM → Option (b): editor renders all §5.2 default chains; target picker = concrete catalogue slugs ∪ one "Same model on {provider}" entry per namespace, PERSISTED as the bare namespace string that resolveFailoverTarget substitutes. Value grammar = concrete slug OR bare namespace. No other placeholder syntax.
+- Escalate only if chunk C landed a chains schema rejecting namespace-only targets (it hasn't; contract is Record<string,string[]>).
+- F decision: seed 3 wildcard source rows (openai-codex/_, anthropic/_, google-vertex-claude/_); anthropic/_ chain = [google-vertex-claude(same-model), anthropic/claude-opus-4-8] — resolver skip-exhausted covers model-scoped vs account-wide. DEFAULT_FAILOVER_CHAINS lives in packages/shared (single source for F editor + chunk C resolver) — C/F integration seam.

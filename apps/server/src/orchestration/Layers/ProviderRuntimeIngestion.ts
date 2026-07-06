@@ -1961,6 +1961,9 @@ const make = Effect.gen(function* () {
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
+              // Persist the error class (e.g. "quota_exhausted") so the resume
+              // sweep can find exhaustion-stalled sessions without re-parsing.
+              ...(event.payload.class !== undefined ? { lastErrorClass: event.payload.class } : {}),
               queuedMessages: { steering: [], followUp: [] },
               updatedAt: now,
             },

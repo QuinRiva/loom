@@ -194,6 +194,10 @@
     "./httpReadiness": {
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
+    },
+    "./providerFailover": {
+      "types": "./src/providerFailover.ts",
+      "import": "./src/providerFailover.ts"
     }
   },
   "scripts": {

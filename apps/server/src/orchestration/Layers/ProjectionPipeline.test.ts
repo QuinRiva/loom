@@ -175,6 +175,138 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect(
+    "preserves a quota error class through a failed completion and clears it on success",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.make("thread-error-class");
+        const errorText = "Codex quota exhausted";
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-error-class-1"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+          commandId: CommandId.make("cmd-error-class-1"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-error-class-1"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.make("project-error-class"),
+            title: "Error class",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-error-class-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:01.000Z",
+          commandId: CommandId.make("cmd-error-class-2"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-error-class-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "error",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: errorText,
+              lastErrorClass: "quota_exhausted",
+              queuedMessages: { steering: [], followUp: [] },
+              updatedAt: "2026-01-01T00:00:01.000Z",
+            },
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-error-class-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:02.000Z",
+          commandId: CommandId.make("cmd-error-class-3"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-error-class-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "error",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: errorText,
+              queuedMessages: { steering: [], followUp: [] },
+              updatedAt: "2026-01-01T00:00:02.000Z",
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const failedRows = yield* sql<{ readonly lastErrorClass: string | null }>`
+        SELECT last_error_class AS "lastErrorClass"
+        FROM projection_thread_sessions
+        WHERE thread_id = ${threadId}
+      `;
+        assert.deepEqual(failedRows, [{ lastErrorClass: "quota_exhausted" }]);
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.make("evt-error-class-4"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-01-01T00:00:03.000Z",
+          commandId: CommandId.make("cmd-error-class-4"),
+          causationEventId: null,
+          correlationId: CommandId.make("cmd-error-class-4"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              queuedMessages: { steering: [], followUp: [] },
+              updatedAt: "2026-01-01T00:00:03.000Z",
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const successfulRows = yield* sql<{ readonly lastErrorClass: string | null }>`
+        SELECT last_error_class AS "lastErrorClass"
+        FROM projection_thread_sessions
+        WHERE thread_id = ${threadId}
+      `;
+        assert.deepEqual(successfulRows, [{ lastErrorClass: null }]);
+      }),
+  );
+
   it.effect("folds lines-of-diff totals from checkpoint turn file summaries", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

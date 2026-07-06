@@ -74,6 +74,7 @@ import * as Stream from "effect/Stream";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { classifiesAsQuota } from "../exhaustionMapping.ts";
 import { makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
 import {
   getClaudeModelCapabilities,
@@ -252,6 +253,12 @@ function claudeRateLimitWindow(info: SDKRateLimitInfo): AccountUsageWindow | nul
   if (kind === null || info.utilization === undefined) {
     return null;
   }
+  const displayName =
+    info.rateLimitType === "seven_day_opus"
+      ? "Opus"
+      : info.rateLimitType === "seven_day_sonnet"
+        ? "Sonnet"
+        : undefined;
   return {
     kind,
     usedPercent: Math.max(0, Math.min(100, info.utilization)),
@@ -262,6 +269,7 @@ function claudeRateLimitWindow(info: SDKRateLimitInfo): AccountUsageWindow | nul
             DateTime.makeUnsafe(info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000),
           ),
     windowDurationMins: null,
+    ...(displayName ? { scope: { displayName } } : {}),
   };
 }
 
@@ -1736,7 +1744,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       ...(turnState ? { turnId: asCanonicalTurnId(turnState.turnId) } : {}),
       payload: {
         message,
-        class: "provider_error",
+        // Classify subscription/quota exhaustion (§9: direct drivers get
+        // classification only — the resume sweep restarts them at reset).
+        class: classifiesAsQuota(message) ? "quota_exhausted" : "provider_error",
         ...(cause !== undefined ? { detail: cause } : {}),
       },
       providerRefs: nativeProviderRefs(context),

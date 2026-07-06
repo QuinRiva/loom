@@ -398,6 +398,24 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
+// Cross-provider subscription-exhaustion failover (tier 2). Sparse, defaulted
+// — no migration. `chains` is optional (absent ⇒ use built-in default chains,
+// which live server-side); keys are exact slugs ("anthropic/claude-fable-5") or
+// namespace wildcards ("openai-codex/*"), values ordered target slugs.
+// `pausedAccounts` are account keys (providerInstanceId ?? providerName) the
+// user has soft-paused — treated as exhausted account-wide indefinitely.
+export const ProviderFailoverSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  resumeOnReset: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  chains: Schema.optional(
+    Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
+  ),
+  pausedAccounts: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -461,6 +479,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  providerFailover: ProviderFailoverSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -592,6 +611,19 @@ export const ServerSettingsPatch = Schema.Struct({
   // Whole-map replacement, mirroring `providerInstances`: presets are set as
   // complete entries, so a partial per-preset merge has no coherent meaning.
   workstreamModelPresets: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, ModelSelection)),
+  // Shallow-merged into current (see applyServerSettingsPatch): scalar toggles
+  // replace when present; `chains`/`pausedAccounts` replace wholesale (the UI
+  // sends complete values), so a partial per-key merge has no coherent meaning.
+  providerFailover: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      resumeOnReset: Schema.optionalKey(Schema.Boolean),
+      chains: Schema.optionalKey(
+        Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
+      ),
+      pausedAccounts: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+    }),
+  ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

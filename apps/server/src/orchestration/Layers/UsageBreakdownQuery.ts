@@ -117,10 +117,11 @@ const make = Effect.gen(function* () {
 
       const snapshots = yield* registry.snapshot;
       // Candidate gauges: every snapshot that reports the requested window kind.
-      const candidates = snapshots.flatMap((snapshot) => {
-        const window = snapshot.windows.find((w) => w.kind === kind);
-        return window ? [{ snapshot, window }] : [];
-      });
+      const candidates = snapshots.flatMap((snapshot) =>
+        snapshot.windows
+          .filter((window) => window.kind === kind)
+          .map((window) => ({ snapshot, window })),
+      );
       const freshest = (
         list: ReadonlyArray<{ snapshot: AccountUsageSnapshot; window: AccountUsageWindow }>,
       ) =>
@@ -184,7 +185,12 @@ const make = Effect.gen(function* () {
       // ── Gauges: official % + linear depletion projection (§D4.1) ──────────
       const gauges: Array<ServerUsageBreakdownGauge> = [];
       for (const { snapshot, window } of candidates) {
-        const slope = yield* registry.usageSlopePerMinute(usageAccountKey(snapshot), kind, nowMs);
+        const slope = yield* registry.usageSlopePerMinute(
+          usageAccountKey(snapshot),
+          kind,
+          nowMs,
+          window.scope?.displayName,
+        );
         let projectedExhaustionAt: string | null = null;
         if (slope !== null && window.resetsAt !== null) {
           const gaugeResetMs = Date.parse(window.resetsAt);
