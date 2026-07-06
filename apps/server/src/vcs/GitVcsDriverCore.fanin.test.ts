@@ -89,6 +89,40 @@ it.layer(TestLayer)("GitVcsDriver fan-in primitives", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  // Regression: repos with a failing pre-commit hook (this fork installs
+  // vite-plus hooks via `core.hooksPath`, and `vp fmt` exits 1 when the staged
+  // set has zero formattable files) must not break machine-generated snapshots.
+  // commitAll passes `--no-verify`, so the hook never runs.
+  it.effect("commitAll bypasses a failing pre-commit hook", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+      const cwd = yield* makeTmp("fanin-noverify-");
+      yield* initRepo(cwd);
+
+      const hooksDir = path.join(cwd, ".githooks");
+      yield* fs.makeDirectory(hooksDir, { recursive: true });
+      const hookPath = path.join(hooksDir, "pre-commit");
+      yield* fs.writeFileString(hookPath, "#!/bin/sh\nexit 1\n");
+      yield* fs.chmod(hookPath, 0o755);
+      yield* git(cwd, ["config", "core.hooksPath", hooksDir]);
+
+      // Sanity: a plain `git commit` is blocked by the hook.
+      yield* write(cwd, "a.txt", "hello\n");
+      yield* git(cwd, ["add", "-A"]);
+      const blocked = yield* git(cwd, ["commit", "-m", "blocked"]).pipe(Effect.flip);
+      assert.instanceOf(blocked, GitCommandError);
+
+      // commitAll snapshots the same tree successfully despite the hook.
+      const result = yield* driver.commitAll(cwd, "wip: snapshot", "");
+      assert.strictEqual(result.committed, true);
+      assert.notStrictEqual(result.commitSha, null);
+      const tracked = yield* git(cwd, ["ls-files", "a.txt"]);
+      assert.strictEqual(tracked, "a.txt");
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("mergeWorktreeBranch merges a child branch back with --no-ff", () =>
     Effect.gen(function* () {
       const driver = yield* GitVcsDriver.GitVcsDriver;
