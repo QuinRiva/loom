@@ -112,6 +112,50 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  // Item 1 (loud on conflict): a fan-in that conflicts fires AFTER the gate has
+  // resolved — coder + reviewer are both `done`, so the thread-local error
+  // activity has no actor to act on it. Engage the one live actor that can
+  // resolve it: dispatch a control-plane turn to the parent orchestrator (the
+  // same primitive `deliverResolutionWake` uses) carrying everything needed to
+  // hand-merge. Deterministic id → receipt-deduped, so re-running the pass (or
+  // the 60s tick) never double-notifies; a deferred delivery (busy parent) is
+  // retried by the next session-set/fanin re-arm.
+  const deliverConflictNotice = (
+    child: OrchestrationThreadShell,
+    parent: OrchestrationThreadShell,
+    childBranch: string,
+    conflictPaths: ReadonlyArray<string>,
+  ) =>
+    Effect.gen(function* () {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`server:workstream-fanin:conflict:${child.id}`),
+        threadId: parent.id,
+        message: {
+          messageId: MessageId.make(yield* crypto.randomUUIDv4),
+          role: "user",
+          text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` finished, but its fan-in could NOT merge: merging its branch \`${childBranch}\` into your branch \`${parent.branch ?? "(unknown)"}\` hit a conflict on ${conflictPaths.length} path(s): ${conflictPaths.join(", ")}. Its review gate has already resolved, so no sub-thread can act — and its dependents stay blocked until the merge lands. Resolve it by merging \`${childBranch}\` into \`${parent.branch ?? "your branch"}\` yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once \`${childBranch}\` is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear \`blockedBy\`.`,
+          attachments: [],
+        },
+        titleSeed: parent.title,
+        runtimeMode: parent.runtimeMode,
+        interactionMode: parent.interactionMode,
+        requireIdle: true,
+        createdAt: yield* nowIso,
+      } satisfies OrchestrationCommand);
+      return true;
+    }).pipe(
+      Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("fan-in conflict notice failed", {
+              child: child.id,
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as(false)),
+      ),
+    );
+
   const setFanInState = (threadId: ThreadId, fanInState: ThreadFanInState) =>
     Effect.gen(function* () {
       yield* orchestrationEngine.dispatch({
@@ -251,12 +295,18 @@ const make = Effect.gen(function* () {
     });
   });
 
-  // Check if a child's runtime turn has completed (state: "completed") so its
-  // final checkpoint has been captured (plan §11 / B2: defer fan-in until
-  // quiescence). An uncompleted turn means the child's submit is still mid-turn
-  // and the worktree hasn't settled yet.
-  const isTurnCompleted = (child: OrchestrationThreadShell): boolean =>
-    child.latestTurn !== null && child.latestTurn.state === "completed";
+  // Defer the merge only while the child's runtime turn is genuinely in flight
+  // (state "running") — then the worktree is mid-write and the pass is re-armed
+  // by the turn-diff-completed event. Every *settled* turn is mergeable: not
+  // just "completed", but also the terminal `interrupted`/`error` states and a
+  // null `latestTurn`. A gated coder's lane is set to `done` by the reviewer's
+  // resolve, decoupled from the coder's own turn state, so its final turn can
+  // legitimately be interrupted/errored/absent (e.g. a 429 storm dropped the
+  // checkpoint). Gating on `=== "completed"` wedged those coders forever
+  // (permanent non-completion masquerading as a transient wait); `doFanIn`
+  // commits whatever is in the child worktree, so a missing checkpoint is fine.
+  const isChildTurnInFlight = (child: OrchestrationThreadShell): boolean =>
+    child.latestTurn !== null && child.latestTurn.state === "running";
 
   // Check if a parent thread has an active/running turn, which would mean the
   // parent is mid-turn and uncommitted (plan §11 / B2: require parent quiescence
@@ -310,19 +360,41 @@ const make = Effect.gen(function* () {
           subject: `merge ${childBranch}`,
         });
         if (merge.status === "conflict") {
-          yield* appendActivity({
-            threadId: child.id,
-            kind: "workstream.fanin.conflicted",
-            summary: `Fan-in merge of ${childBranch} conflicted (${merge.conflictPaths.length} path(s)); resolve in the child worktree and resubmit.`,
-            payload: {
-              branch: childBranch,
-              conflictPaths: merge.conflictPaths,
-              parentBranch: parent.branch,
-            },
-            tone: "error",
-          });
-          yield* setFanInState(child.id, "conflicted");
+          // Write ONLY on a genuine transition. Re-emitting `fanin.set` for an
+          // already-`conflicted` child is a self-feeding edge: the decider emits
+          // a `thread.fanin-set` event for every set command (no unchanged-value
+          // guard), the reactor re-arms its worker on that event, and the
+          // non-coalescing DrainableWorker runs another pass — which re-conflicts
+          // and re-writes, spinning git merge/abort under the worktree lock for
+          // as long as the conflict stays unresolved. Skipping the no-op write
+          // means re-attempts fire only via genuine external re-arms
+          // (session-set / turn-diff-completed / the 60s tick), which is the
+          // intended cadence; the self-heal path still converges (a later
+          // up-to-date re-attempt sets `completed`).
+          if (child.fanInState !== "conflicted") yield* setFanInState(child.id, "conflicted");
+          // First observation of THIS conflict (process-scoped) fires the loud,
+          // one-shot signals; a retry that still conflicts (60s tick) must not
+          // re-spam the activity feed or re-raise attention. After a restart the
+          // set is empty, so a persisted conflict is re-surfaced exactly once.
+          const firstObservation = !conflictedChildren.has(child.id);
           conflictedChildren.add(child.id);
+          if (firstObservation) {
+            yield* appendActivity({
+              threadId: child.id,
+              kind: "workstream.fanin.conflicted",
+              summary: `Fan-in merge of ${childBranch} into ${parent.branch ?? "parent"} conflicted (${merge.conflictPaths.length} path(s)); the gate has resolved, so the parent orchestrator must resolve it.`,
+              payload: {
+                branch: childBranch,
+                conflictPaths: merge.conflictPaths,
+                parentBranch: parent.branch,
+              },
+              tone: "error",
+            });
+            yield* raiseGuidance(parent.id);
+          }
+          // Notice is receipt-deduped by its deterministic id, so calling it on
+          // every conflicted pass is at-most-once yet retries a deferred delivery.
+          yield* deliverConflictNotice(child, parent, childBranch, merge.conflictPaths);
           return;
         }
         yield* setFanInState(child.id, "completed");
@@ -415,7 +487,19 @@ const make = Effect.gen(function* () {
             conflictedChildren.delete(child.id);
           }
         }
-        if (child.planLane === "done" && child.fanInState === "none") {
+        if (
+          child.planLane === "done" &&
+          (child.fanInState === "none" || child.fanInState === "conflicted")
+        ) {
+          // `conflicted` is included so the reactor SELF-HEALS after the conflict
+          // is resolved externally (item 2): the orchestrator hand-merges the
+          // child branch into the parent, then a re-attempt here sees the branch
+          // already contained (`mergeWorktreeBranch` → `up-to-date`) and settles
+          // `completed`, releasing dependents — no `workstream_set_dependencies []`
+          // escape hatch needed. While genuinely unresolved the re-attempt just
+          // re-conflicts and stays blocked (a dependent's premise is the merged
+          // tree, so releasing on `conflicted` would be wrong).
+          //
           // Gate members fan in exactly once, at resolution: skip while the gate
           // is unresolved (plan §3/§4, review finding 1). The both-parties `done`
           // at resolution — or a parent-override dissolve — re-arms this pass.
@@ -431,11 +515,12 @@ const make = Effect.gen(function* () {
             yield* setFanInState(child.id, "completed");
             return;
           }
-          // Plan §11 / B2: defer merge until child's runtime turn completes
-          // (checkpoint captured) and parent has no active turn. If either
-          // condition fails, the pass will be re-armed when the turn finishes
-          // (thread.turn-diff-completed event re-enqueues the worker).
-          if (!isTurnCompleted(child)) return;
+          // Defer only while the child's turn is genuinely in flight; every
+          // settled turn (completed / interrupted / error / null) is mergeable
+          // — `doFanIn` commits whatever is in the worktree. Also defer while the
+          // parent is mid-turn (uncommitted). Both are re-armed by the
+          // turn-diff-completed / session-set events and the 60s tick.
+          if (isChildTurnInFlight(child)) return;
           if (hasParentActiveTurn(parent)) return;
           yield* doFanIn(child, parent, parentCwd, threads, projects);
         } else if (child.planLane === "cancelled") {

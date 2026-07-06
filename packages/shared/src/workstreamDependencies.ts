@@ -57,25 +57,48 @@ export interface DependencyGateThread {
 export const areDependenciesSatisfied = <T extends DependencyGateThread>(
   thread: T,
   threadsById: ReadonlyMap<ThreadId, T>,
-): boolean =>
-  thread.blockedBy.every((depId) => {
-    if (depId === thread.id) return true;
+): boolean => describeUnsatisfiedDependency(thread, threadsById) === null;
+
+/**
+ * Single source of truth for the dependency gate, returning the *reason* the
+ * first blocking dependency is unsatisfied (or `null` when all are satisfied —
+ * so `areDependenciesSatisfied` is exactly `describeUnsatisfiedDependency(...)
+ * === null`). The reason names the real blocker, including the two-hops-away
+ * case a dependent never sees directly: an attached reviewer that is itself
+ * `done` but still gates an isolated coder whose fan-in has not landed. Used by
+ * the `thread.turn.start` invariant so a fan-in-blocked dependent's rejection
+ * says *which* coder's fan-in (and its state) is holding it, instead of the
+ * misleading "until every dependency is done" when the deps genuinely are done.
+ */
+export const describeUnsatisfiedDependency = <T extends DependencyGateThread>(
+  thread: T,
+  threadsById: ReadonlyMap<ThreadId, T>,
+): string | null => {
+  for (const depId of thread.blockedBy) {
+    if (depId === thread.id) continue;
     const dep = threadsById.get(depId);
-    if (dep === undefined || dep.parentThreadId !== thread.parentThreadId) return true;
-    if (dep.planLane !== "done") return false;
-    if (thread.isolation === "attached") return true;
-    if (dep.isolation === "attached")
-      return dep.blockedBy.every((gatedId) => {
+    if (dep === undefined || dep.parentThreadId !== thread.parentThreadId) continue;
+    if (dep.planLane !== "done")
+      return `dependency '${depId}' is not done yet (lane: ${dep.planLane})`;
+    if (thread.isolation === "attached") continue;
+    if (dep.isolation === "attached") {
+      for (const gatedId of dep.blockedBy) {
         const gated = threadsById.get(gatedId);
-        return (
-          gated === undefined ||
-          gated.parentThreadId !== dep.parentThreadId ||
-          gated.isolation !== "isolated" ||
-          gated.fanInState === "completed"
-        );
-      });
-    return dep.isolation !== "isolated" || dep.fanInState === "completed";
-  });
+        if (
+          gated !== undefined &&
+          gated.parentThreadId === dep.parentThreadId &&
+          gated.isolation === "isolated" &&
+          gated.fanInState !== "completed"
+        )
+          return `reviewer '${depId}' is done, but the coder '${gatedId}' it gates has not completed fan-in (fanInState: ${gated.fanInState})`;
+      }
+      continue;
+    }
+    if (dep.isolation === "isolated" && dep.fanInState !== "completed")
+      return `dependency '${depId}' is done, but its fan-in has not completed (fanInState: ${dep.fanInState})`;
+  }
+  return null;
+};
 
 /**
  * Detects a dependency cycle across the same sibling-scoped edges that can

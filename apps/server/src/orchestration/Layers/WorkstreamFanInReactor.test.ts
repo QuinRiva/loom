@@ -742,4 +742,256 @@ describe("WorkstreamFanInReactor", () => {
       }).pipe(Effect.scoped, Effect.provide(layer));
     }),
   );
+
+  // Item 1 (loud on conflict): a conflicted fan-in fires AFTER the gate has
+  // resolved (coder + reviewer both done), so a thread-local error activity has
+  // no actor. The fix must engage the one live actor — the parent orchestrator:
+  // raise attention on it AND deliver a control-plane notice carrying the
+  // branch + conflicting paths so it can hand-merge.
+  it.effect("conflict is loud: raises attention on the parent + delivers a conflict notice", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        mergeResult: { status: "conflict", conflictPaths: ["apps/server/src/server.test.ts"] },
+      });
+      expect(fanInStates(dispatched)).toContain("conflicted");
+      // Blocking semantics kept: the branch/worktree stay put while unresolved.
+      expect(gitCalls).not.toContain("removeWorktree");
+      expect(gitCalls).not.toContain("deleteBranch");
+      // Attention raised on the parent orchestrator (the live actor).
+      expect(
+        dispatched.some((c) => c.type === "thread.attention.raise" && c.threadId === "parent"),
+      ).toBe(true);
+      // A control-plane notice turn is delivered to the parent, carrying the
+      // child branch + conflicting path so it can act.
+      const notice = dispatched.find(
+        (c) =>
+          c.type === "thread.turn.start" &&
+          c.commandId === "server:workstream-fanin:conflict:child",
+      ) as Extract<OrchestrationCommand, { type: "thread.turn.start" }> | undefined;
+      expect(notice).toBeDefined();
+      expect(notice?.threadId).toBe("parent");
+      expect(notice?.message.text).toContain("ws/main/coder-abc");
+      expect(notice?.message.text).toContain("apps/server/src/server.test.ts");
+    }),
+  );
+
+  // Item 2 (self-healing after EXTERNAL resolution): the incident's actual
+  // recovery. The orchestrator hand-merges the coder branch into the parent
+  // branch — the coder is NEVER reopened, so `fanInState` stays `conflicted`
+  // (nothing resets it to `none`). The reactor must still converge: a re-attempt
+  // now sees the branch already contained (`up-to-date`), settles `completed`,
+  // and finalises — with no `workstream_set_dependencies []` escape hatch.
+  it.effect("external hand-merge: converges to completed with fanInState never reset to none", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+      const record = (tag: string) => Ref.update(gitCalls, (xs) => [...xs, tag]);
+      const mergeResult = yield* Ref.make<GitMergeWorktreeBranchResult>({
+        status: "conflict",
+        conflictPaths: ["apps/server/src/server.test.ts"],
+      });
+      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        readEvents: () => Stream.empty,
+        streamDomainEvents: Stream.fromPubSub(events),
+        subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        dispatch: (command: OrchestrationCommand) =>
+          Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+      } as never);
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+        getShellSnapshot: () =>
+          Effect.map(Ref.get(childRef), (child) => ({
+            snapshotSequence: 0,
+            projects: [],
+            goals: [],
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            threads: [child, parent],
+          })),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        commitAll: (_cwd: string, subject: string) =>
+          record(`commit:${subject}`).pipe(Effect.as({ committed: true, commitSha: "sha" })),
+        mergeWorktreeBranch: () => record("merge").pipe(Effect.andThen(Ref.get(mergeResult))),
+        removeWorktree: () => record("removeWorktree"),
+        deleteBranch: () => record("deleteBranch"),
+      } as never);
+      const layer = WorkstreamFanInReactorLive.pipe(
+        Layer.provide(engineLayer),
+        Layer.provide(projectionLayer),
+        Layer.provide(gitLayer),
+        Layer.provide(WorktreeMutationLockLive),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const reactor = yield* WorkstreamFanInReactor;
+        yield* reactor.start();
+        yield* reactor.drain;
+        // Pass 1: conflict → conflicted, worktree kept.
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("conflicted");
+        expect(yield* Ref.get(gitCalls)).not.toContain("removeWorktree");
+
+        // Projection catches up to the persisted conflicted state (NO reopen —
+        // fanInState stays conflicted). The orchestrator hand-merges the branch
+        // into the parent, so a re-attempt is now up-to-date.
+        yield* Ref.set(childRef, isolatedChild({ fanInState: "conflicted" }));
+        yield* Ref.set(mergeResult, { status: "up-to-date", conflictPaths: [] });
+        // The orchestrator idling after its hand-merge turn re-arms the sweep.
+        yield* PubSub.publish(events, {
+          type: "thread.session-set",
+          payload: { threadId: "parent" as ThreadId },
+        } as OrchestrationEvent);
+        yield* reactor.drain;
+
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("completed");
+        expect(yield* Ref.get(gitCalls)).toContain("removeWorktree");
+        expect(yield* Ref.get(gitCalls)).toContain("deleteBranch");
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    }),
+  );
+
+  // Must-fix (round 1): a genuinely-conflicted fan-in must NOT self-feed a hot
+  // loop. `setFanInState("conflicted")` emits a `fanin-set` event; the reactor
+  // re-arms on that event; a non-coalescing worker then re-passes → re-conflicts
+  // → re-writes → … This harness closes the real feedback edge the other tests
+  // omit: `dispatch` reflects `thread.fanin.set` into the projected state AND
+  // republishes it as a `thread.fanin-set` event. With the transition-guard fix,
+  // the state is written exactly once and the worker quiesces; without it, the
+  // pass count (and `conflicted` writes) would be unbounded and drain would hang.
+  it.effect("conflict does not self-feed: exactly one conflicted write, worker quiesces", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const merges = yield* Ref.make(0);
+      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        readEvents: () => Stream.empty,
+        streamDomainEvents: Stream.fromPubSub(events),
+        subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        // Realistic wiring: a committed fanin.set both lands in the read model
+        // (projected onto the child's fanInState) and is published as a
+        // fanin-set domain event — the edge that re-arms the reactor's worker.
+        dispatch: (command: OrchestrationCommand) =>
+          Effect.gen(function* () {
+            yield* Ref.update(dispatched, (xs) => [...xs, command]);
+            if (command.type === "thread.fanin.set") {
+              const next = (command as Extract<OrchestrationCommand, { type: "thread.fanin.set" }>)
+                .fanInState;
+              yield* Ref.update(childRef, (c) => isolatedChild({ ...c, fanInState: next }));
+              yield* PubSub.publish(events, {
+                type: "thread.fanin-set",
+                payload: {
+                  threadId: "child" as ThreadId,
+                  fanInState: next,
+                  updatedAt: "2026-01-01T00:00:05.000Z",
+                },
+              } as OrchestrationEvent);
+            }
+            return { sequence: 0 };
+          }),
+      } as never);
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+        getShellSnapshot: () =>
+          Effect.map(Ref.get(childRef), (child) => ({
+            snapshotSequence: 0,
+            projects: [],
+            goals: [],
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            threads: [child, parent],
+          })),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        commitAll: (_cwd: string, _subject: string) =>
+          Effect.succeed({ committed: true, commitSha: "sha" }),
+        // Stays conflicted for the whole test (the unresolved window).
+        mergeWorktreeBranch: () =>
+          Ref.update(merges, (n) => n + 1).pipe(
+            Effect.as({ status: "conflict", conflictPaths: ["README.md"] }),
+          ),
+        removeWorktree: () => Effect.void,
+        deleteBranch: () => Effect.void,
+      } as never);
+      const layer = WorkstreamFanInReactorLive.pipe(
+        Layer.provide(engineLayer),
+        Layer.provide(projectionLayer),
+        Layer.provide(gitLayer),
+        Layer.provide(WorktreeMutationLockLive),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const reactor = yield* WorkstreamFanInReactor;
+        yield* reactor.start();
+        // Drain terminates only because the worker quiesces (no self-feed).
+        yield* reactor.drain;
+
+        // The transition is written exactly once despite multiple passes
+        // (startup double-enqueue + the one fanin-set re-arm it produces).
+        expect(fanInStates(yield* Ref.get(dispatched)).filter((s) => s === "conflicted")).toEqual([
+          "conflicted",
+        ]);
+        // Merge re-attempts stay bounded — not an unbounded busy-loop.
+        expect(yield* Ref.get(merges)).toBeLessThanOrEqual(4);
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    }),
+  );
+
+  // Item 3 (terminal turn states don't block the merge): a gated coder's lane is
+  // set to `done` by the reviewer's resolve, decoupled from the coder's own turn
+  // state — so its final turn can end `interrupted`/`error` or be absent (null).
+  // The old `latestTurn.state === "completed"` guard wedged those coders forever;
+  // a settled (non-running) turn must merge.
+  for (const finalTurn of [
+    {
+      label: "interrupted",
+      latestTurn: {
+        turnId: TurnId.make("turn-final"),
+        state: "interrupted" as const,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:01.000Z",
+        completedAt: "2026-01-01T00:00:02.000Z",
+        assistantMessageId: null,
+      },
+    },
+    {
+      label: "error",
+      latestTurn: {
+        turnId: TurnId.make("turn-final"),
+        state: "error" as const,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:00:01.000Z",
+        completedAt: "2026-01-01T00:00:02.000Z",
+        assistantMessageId: null,
+      },
+    },
+    { label: "null", latestTurn: null },
+  ]) {
+    it.effect(
+      `resolved gate + final turn ${finalTurn.label}: still merges and settles completed`,
+      () =>
+        Effect.gen(function* () {
+          const reviewer = shell({
+            id: "reviewer",
+            parentThreadId: "parent" as ThreadId,
+            isolation: "attached",
+            planLane: "done",
+            routes: [{ on: ["needs_rework"], kind: "loop", to: "child" as ThreadId }],
+          });
+          const { dispatched, gitCalls } = yield* runReactor({
+            child: isolatedChild({
+              latestTurn: finalTurn.latestTurn as OrchestrationThreadShell["latestTurn"],
+            }),
+            others: [parent, reviewer],
+          });
+          expect(gitCalls.filter((c) => c === "merge").length).toBeGreaterThanOrEqual(1);
+          expect(fanInStates(dispatched)).toContain("completed");
+          expect(gitCalls).toContain("removeWorktree");
+        }),
+    );
+  }
 });
