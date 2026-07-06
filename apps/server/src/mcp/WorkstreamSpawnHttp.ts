@@ -8,7 +8,9 @@ import {
   ThreadId,
   ThreadIsolation,
   ThreadPlanLane,
+  isProviderAvailable,
   type OrchestrationCommand,
+  type ServerProvider,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
@@ -40,6 +42,7 @@ import {
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
+import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
@@ -173,8 +176,19 @@ const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
  * supplied (steps 2–4 of the spawn precedence). An explicit, decoded selection
  * always wins and is handled in the caller before this runs.
  */
+/** Where a resolved `ModelSelection` came from — drives the validation error prose. */
+export type SelectionSource =
+  | { readonly kind: "explicit" }
+  | { readonly kind: "preset"; readonly name: string }
+  | { readonly kind: "role-preset"; readonly role: string }
+  | { readonly kind: "inherited" };
+
 export type PresetResolution =
-  | { readonly kind: "selection"; readonly selection: ModelSelection }
+  | {
+      readonly kind: "selection";
+      readonly selection: ModelSelection;
+      readonly source: SelectionSource;
+    }
   | {
       readonly kind: "unknown-preset";
       readonly modelPreset: string;
@@ -201,9 +215,20 @@ export const resolvePresetSelection = (input: {
           modelPreset: input.modelPreset,
           available: Object.keys(input.presets),
         }
-      : { kind: "selection", selection: preset };
+      : {
+          kind: "selection",
+          selection: preset,
+          source: { kind: "preset", name: input.modelPreset },
+        };
   }
-  return { kind: "selection", selection: input.presets[input.role] ?? input.parentSelection };
+  const rolePreset = input.presets[input.role];
+  return rolePreset !== undefined
+    ? {
+        kind: "selection",
+        selection: rolePreset,
+        source: { kind: "role-preset", role: input.role },
+      }
+    : { kind: "selection", selection: input.parentSelection, source: { kind: "inherited" } };
 };
 
 type DependencySibling = {
@@ -412,6 +437,125 @@ const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): s
     available.length > 0 ? available.join(", ") : "none configured"
   }.`;
 
+/**
+ * One usable provider instance and the model slugs it advertises. An empty
+ * `models` list means the instance is configured but its model catalogue has
+ * not been snapshotted yet — the model slug is then validated best-effort
+ * (skipped) rather than falsely rejected.
+ */
+export interface ModelCatalogueEntry {
+  readonly instanceId: string;
+  readonly models: ReadonlyArray<string>;
+}
+
+/**
+ * The discoverable catalogue: every configured, available provider instance and
+ * its known model slugs. Mirrors the launch-time validity set (an unavailable
+ * shadow instance would fail `getInstanceInfo` at turn start) so a selection
+ * that passes here is one the child can actually launch with.
+ */
+export const modelCatalogueOf = (
+  providers: ReadonlyArray<ServerProvider>,
+): ReadonlyArray<ModelCatalogueEntry> =>
+  providers.filter(isProviderAvailable).map((provider) => ({
+    instanceId: provider.instanceId,
+    models: provider.models.map((model) => model.slug),
+  }));
+
+export type ModelSelectionValidation =
+  | { readonly kind: "ok" }
+  | { readonly kind: "unknown-instance"; readonly instanceId: string }
+  | {
+      readonly kind: "unknown-model";
+      readonly instanceId: string;
+      readonly model: string;
+      readonly models: ReadonlyArray<string>;
+    };
+
+/**
+ * Fail-fast validation of an explicit `modelSelection` against the configured
+ * catalogue: the instance must exist; the model slug is checked only when the
+ * instance advertises a non-empty catalogue (best-effort — never reject a slug
+ * against an unpopulated list).
+ */
+export const validateModelSelection = (
+  selection: ModelSelection,
+  catalogue: ReadonlyArray<ModelCatalogueEntry>,
+): ModelSelectionValidation => {
+  const entry = catalogue.find((e) => e.instanceId === selection.instanceId);
+  if (entry === undefined) return { kind: "unknown-instance", instanceId: selection.instanceId };
+  if (entry.models.length > 0 && !entry.models.includes(selection.model)) {
+    return {
+      kind: "unknown-model",
+      instanceId: selection.instanceId,
+      model: selection.model,
+      models: entry.models,
+    };
+  }
+  return { kind: "ok" };
+};
+
+const formatCatalogue = (catalogue: ReadonlyArray<ModelCatalogueEntry>): string =>
+  catalogue.length === 0
+    ? "none configured"
+    : catalogue
+        .map(
+          (e) =>
+            `${e.instanceId} (models: ${e.models.length > 0 ? e.models.join(", ") : "unknown"})`,
+        )
+        .join("; ");
+
+const describeSource = (source: SelectionSource): string => {
+  switch (source.kind) {
+    case "explicit":
+      return "This modelSelection";
+    case "preset":
+      return `modelPreset "${source.name}" (resolved from server settings)`;
+    case "role-preset":
+      return `The role-default preset for role "${source.role}" (resolved from server settings)`;
+    case "inherited":
+      return "The inherited (parent) model selection";
+  }
+};
+
+/**
+ * Actionable 400 body for an invalid resolved `modelSelection`, whatever its
+ * source (explicit selection, a stale configured preset, or a role default).
+ */
+export const invalidModelSelectionMessage = (
+  validation: Exclude<ModelSelectionValidation, { readonly kind: "ok" }>,
+  catalogue: ReadonlyArray<ModelCatalogueEntry>,
+  presets: ReadonlyArray<string>,
+  source: SelectionSource,
+): string =>
+  validation.kind === "unknown-instance"
+    ? `${describeSource(source)} references instanceId "${validation.instanceId}", which is not a configured provider instance in this build. Valid instances: ${formatCatalogue(catalogue)}. Configured presets: ${presets.length > 0 ? presets.join(", ") : "none"}. Prefer a configured modelPreset (or omit both to inherit) rather than guessing instance ids/model slugs from another environment${source.kind === "preset" || source.kind === "role-preset" ? ", or fix the preset in server settings" : ""}. Nothing was spawned.`
+    : `${describeSource(source)} references model "${validation.model}", which is not a known model for instance "${validation.instanceId}". Known models for ${validation.instanceId}: ${validation.models.join(", ")}. Nothing was spawned.`;
+
+/**
+ * A configured preset resolved against the catalogue for the discovery surface:
+ * `valid` is false when the preset points at an instance/model that would be
+ * rejected at spawn — so `workstream_list` never silently recommends a preset
+ * that still strands the child.
+ */
+export interface PresetCatalogueEntry {
+  readonly name: string;
+  readonly instanceId: string;
+  readonly model: string;
+  readonly valid: boolean;
+}
+
+export const presetCatalogueOf = (
+  presets: Record<string, ModelSelection>,
+  catalogue: ReadonlyArray<ModelCatalogueEntry>,
+): ReadonlyArray<PresetCatalogueEntry> =>
+  Object.entries(presets).map(([name, selection]) => ({
+    name,
+    instanceId: selection.instanceId,
+    model: selection.model,
+    valid: validateModelSelection(selection, catalogue).kind === "ok",
+  }));
+
 const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
   mcpEndpoint.endsWith("/mcp")
     ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
@@ -543,6 +687,14 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   //   2. named `modelPreset` (unknown → 400),
   //   3. a preset keyed by the child's `role`,
   //   4. inherit the parent's selection.
+  // Fail-fast validation front-runs the launch-time "unknown provider instance"
+  // error that would otherwise strand the child. The catalogue is seeded with
+  // every configured instance at registry build, so instance-id validation is
+  // reliable from boot; model slugs are checked best-effort (only against a
+  // populated per-instance catalogue).
+  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
+  const settings = yield* (yield* ServerSettingsService).getSettings;
+  const presetNames = Object.keys(settings.workstreamModelPresets);
   let modelSelection: ModelSelection;
   if (body.modelSelection !== undefined) {
     const decoded = yield* decodeModelSelection(body.modelSelection).pipe(
@@ -550,9 +702,15 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
       Effect.orElseSucceed(() => Option.none<ModelSelection>()),
     );
     if (Option.isNone(decoded)) return jsonError(400, "modelSelection is invalid.");
+    const validation = validateModelSelection(decoded.value, catalogue);
+    if (validation.kind !== "ok") {
+      return jsonError(
+        400,
+        invalidModelSelectionMessage(validation, catalogue, presetNames, { kind: "explicit" }),
+      );
+    }
     modelSelection = decoded.value;
   } else {
-    const settings = yield* (yield* ServerSettingsService).getSettings;
     const resolved = resolvePresetSelection({
       presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
       modelPreset: trimString(body.modelPreset),
@@ -561,6 +719,20 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     });
     if (resolved.kind === "unknown-preset") {
       return jsonError(400, unknownPresetMessage(resolved.modelPreset, resolved.available));
+    }
+    // A configured preset / role default can be stale and point at an instance
+    // this build no longer ships — that would create a dead child, the same
+    // failure the explicit check prevents. Validate it too. The inherited
+    // parent selection is trusted: the parent is live, so its instance is by
+    // construction configured.
+    if (resolved.source.kind !== "inherited") {
+      const validation = validateModelSelection(resolved.selection, catalogue);
+      if (validation.kind !== "ok") {
+        return jsonError(
+          400,
+          invalidModelSelectionMessage(validation, catalogue, presetNames, resolved.source),
+        );
+      }
     }
     modelSelection = resolved.selection;
   }
@@ -1106,14 +1278,26 @@ const handleWorkstreamList = Effect.gen(function* () {
     lastActivityAt: thread.updatedAt,
     lastActivitySummary: thread.lastActivityPreview,
   }));
+  // Proactive model discoverability: the same catalogue the spawn validator
+  // checks against, plus each configured preset resolved (with a validity flag)
+  // so an orchestrator can read valid instance ids / model slugs before spawning
+  // instead of guessing and hitting the fail-fast 400 — and is never pointed at a
+  // stale preset that would still strand the child.
+  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
+  const settings = yield* (yield* ServerSettingsService).getSettings;
   // The caller is implicitly in its own tree; no target arg, no 403 path.
-  return HttpServerResponse.jsonUnsafe(
-    graphViewFor(
+  return HttpServerResponse.jsonUnsafe({
+    ...graphViewFor(
       scope.threadId,
       viewThreads,
       (id) => resolveSessionFilePath(piSessionIdForThread(id)) ?? null,
     ),
-  );
+    modelCatalogue: catalogue,
+    modelPresets: presetCatalogueOf(
+      settings.workstreamModelPresets as Record<string, ModelSelection>,
+      catalogue,
+    ),
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(

@@ -38,7 +38,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — an imperative label of roughly ≤6 words), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: { rework: thatChildThreadId }; gate.rework is automatically added to blockedBy. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — an imperative label of roughly ≤6 words), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: { rework: thatChildThreadId }; gate.rework is automatically added to blockedBy. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model. An explicit modelSelection is validated at spawn against the configured provider instances: an unknown instanceId (or unknown model slug) is rejected immediately with the list of valid instances and nothing is created — so prefer modelPreset, or omit both to inherit, rather than guessing ids from another environment. Call workstream_list to see the valid instances, model slugs, and preset names (its modelCatalogue / modelPresets).",
     promptSnippet: "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
     promptGuidelines: [
       "Name the work with three distinct fields: title is a short imperative label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions.",
@@ -67,13 +67,13 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         },
         staged: { type: "boolean", description: "Create the child held (plan lane 'planned') instead of released. Default false → 'ready', which runs once dependencies clear. Set true to stage a graph for review before any tokens are spent; release it later with workstream_release." },
         isolation: { type: "string", enum: ["isolated", "shared"], description: "Worktree isolation for the child. Omit to take the role default (writers — coder/planner/free-text — are 'isolated'; readers — researcher/reviewer/shipper — are 'shared'). 'isolated' gives the child its own worktree + branch that is merged back into this thread's branch on completion, so its diffs are exactly its own edits and a dependent starts from a tree already containing its output; 'shared' runs the child in this thread's worktree (no fan-in). A gated reviewer always joins the coder's worktree regardless." },
-        modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific. Ignored when modelSelection is given; an unknown name is rejected. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited." },
+        modelPreset: { type: "string", description: "Optional named model preset to run the child on (resolved to a configured ModelSelection on the server). Preset names are deployment-specific — see modelPresets in workstream_list. Ignored when modelSelection is given; an unknown name is rejected with the available names. When both modelSelection and modelPreset are omitted, a preset whose name matches the child's role is used if configured, otherwise the parent's model is inherited. Prefer this over modelSelection to avoid guessing instance ids/model slugs." },
         modelSelection: {
           type: "object",
           description: "Optional explicit model override for the child. Takes precedence over modelPreset and the role default. Omit to fall back to modelPreset, the role preset, or this thread's model.",
           properties: {
-            instanceId: { type: "string", description: "Configured provider instance id to route to." },
-            model: { type: "string", description: "Model slug for that instance." },
+            instanceId: { type: "string", description: "Configured provider instance id to route to. Must be a configured instance in this build (see workstream_list modelCatalogue) — an unknown id is rejected at spawn." },
+            model: { type: "string", description: "Model slug for that instance (see the instance's entry in workstream_list modelCatalogue)." },
             options: {
               type: "array",
               description: "Optional per-model options, e.g. thinking level.",
@@ -372,6 +372,24 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         for (const child of children.get(node.id) ?? []) emit(child, depth + 1);
       };
       for (const root of roots) emit(root, 0);
+      const catalogue = Array.isArray(view.modelCatalogue) ? view.modelCatalogue : [];
+      const modelPresets = Array.isArray(view.modelPresets) ? view.modelPresets : [];
+      if (catalogue.length > 0 || modelPresets.length > 0) {
+        lines.push("", "Model selection (for spawning children):");
+        for (const entry of catalogue) {
+          const models = Array.isArray(entry.models) && entry.models.length > 0 ? entry.models.join(", ") : "(catalogue not yet loaded)";
+          lines.push("  - instance \"" + entry.instanceId + "\": " + models);
+        }
+        if (modelPresets.length > 0) {
+          lines.push("  presets (prefer these):");
+          for (const preset of modelPresets) {
+            const marker = preset.valid === false ? " [INVALID — points at an unconfigured instance/model; do not use]" : "";
+            lines.push("    - \"" + preset.name + "\" → " + preset.instanceId + " / " + preset.model + marker);
+          }
+        } else {
+          lines.push("  presets: none configured");
+        }
+      }
       return {
         content: [{ type: "text", text: lines.join("\n") }],
         details: { ok: true, ...view }

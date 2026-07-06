@@ -3,8 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   hasThreadStarted,
+  invalidModelSelectionMessage,
+  modelCatalogueOf,
+  presetCatalogueOf,
   resolvePresetSelection,
+  validateModelSelection,
   validateSpawnGraph,
+  type ModelCatalogueEntry,
 } from "./WorkstreamSpawnHttp.ts";
 
 const sel = (instanceId: string, model: string): ModelSelection =>
@@ -61,7 +66,11 @@ describe("resolvePresetSelection (spawn precedence steps 2-4)", () => {
       role: "coder",
       parentSelection: parent,
     });
-    expect(r).toEqual({ kind: "selection", selection: reviewerPreset });
+    expect(r).toEqual({
+      kind: "selection",
+      selection: reviewerPreset,
+      source: { kind: "preset", name: "reviewer" },
+    });
   });
 
   it("reports unknown-preset with the available names when the name is missing", () => {
@@ -95,7 +104,11 @@ describe("resolvePresetSelection (spawn precedence steps 2-4)", () => {
       role: "reviewer",
       parentSelection: parent,
     });
-    expect(r).toEqual({ kind: "selection", selection: reviewerPreset });
+    expect(r).toEqual({
+      kind: "selection",
+      selection: reviewerPreset,
+      source: { kind: "role-preset", role: "reviewer" },
+    });
   });
 
   it("inherits the parent's selection when neither a modelPreset nor a role preset matches", () => {
@@ -105,7 +118,7 @@ describe("resolvePresetSelection (spawn precedence steps 2-4)", () => {
       role: "researcher",
       parentSelection: parent,
     });
-    expect(r).toEqual({ kind: "selection", selection: parent });
+    expect(r).toEqual({ kind: "selection", selection: parent, source: { kind: "inherited" } });
   });
 });
 
@@ -376,6 +389,104 @@ describe("validateSpawnGraph", () => {
         }),
       ).warnings.join("\n"),
     ).toContain("DISPLAY ONLY");
+  });
+});
+
+const provider = (
+  instanceId: string,
+  models: ReadonlyArray<string>,
+  overrides: { readonly availability?: "available" | "unavailable" } = {},
+) =>
+  ({
+    instanceId,
+    driver: "pi",
+    enabled: true,
+    installed: true,
+    version: null,
+    status: "ready",
+    auth: { state: "unknown" },
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    ...(overrides.availability !== undefined ? { availability: overrides.availability } : {}),
+    models: models.map((slug) => ({ slug, name: slug, isCustom: false, capabilities: null })),
+    slashCommands: [],
+    skills: [],
+  }) as unknown as Parameters<typeof modelCatalogueOf>[0][number];
+
+describe("modelCatalogueOf / validateModelSelection", () => {
+  const catalogue = modelCatalogueOf([
+    provider("pi", ["anthropic/claude-opus-4-8", "openai-codex/gpt-5.5"]),
+    provider("empty-instance", []),
+    provider("shadow", ["x"], { availability: "unavailable" }),
+  ]);
+
+  it("lists only available instances with their slugs", () => {
+    expect(catalogue).toEqual([
+      { instanceId: "pi", models: ["anthropic/claude-opus-4-8", "openai-codex/gpt-5.5"] },
+      { instanceId: "empty-instance", models: [] },
+    ] satisfies ReadonlyArray<ModelCatalogueEntry>);
+  });
+
+  it("accepts a known instance + slug", () => {
+    expect(validateModelSelection(sel("pi", "anthropic/claude-opus-4-8"), catalogue).kind).toBe(
+      "ok",
+    );
+  });
+
+  it("rejects an unknown instance id with a source-aware, actionable message", () => {
+    const v = validateModelSelection(sel("google-vertex-claude", "claude-opus-4-8"), catalogue);
+    expect(v).toEqual({ kind: "unknown-instance", instanceId: "google-vertex-claude" });
+    const explicit = invalidModelSelectionMessage(
+      v as Exclude<typeof v, { readonly kind: "ok" }>,
+      catalogue,
+      ["coder", "reviewer"],
+      { kind: "explicit" },
+    );
+    expect(explicit).toContain("This modelSelection");
+    expect(explicit).toContain('instanceId "google-vertex-claude"');
+    expect(explicit).toContain("is not a configured provider instance");
+    expect(explicit).toContain("anthropic/claude-opus-4-8");
+    expect(explicit).toContain("coder, reviewer");
+    expect(explicit).toContain("Nothing was spawned.");
+    // A stale configured preset names the preset in the error.
+    const preset = invalidModelSelectionMessage(
+      v as Exclude<typeof v, { readonly kind: "ok" }>,
+      catalogue,
+      ["coder"],
+      { kind: "preset", name: "coder" },
+    );
+    expect(preset).toContain('modelPreset "coder"');
+    expect(preset).toContain("fix the preset in server settings");
+  });
+
+  it("rejects an unknown model slug when the catalogue is populated", () => {
+    const v = validateModelSelection(sel("pi", "claude-opus-4-8"), catalogue);
+    expect(v.kind).toBe("unknown-model");
+    expect(
+      invalidModelSelectionMessage(v as Exclude<typeof v, { readonly kind: "ok" }>, catalogue, [], {
+        kind: "role-preset",
+        role: "coder",
+      }),
+    ).toContain('is not a known model for instance "pi"');
+  });
+
+  it("accepts any slug best-effort when the instance catalogue is empty", () => {
+    expect(validateModelSelection(sel("empty-instance", "whatever"), catalogue).kind).toBe("ok");
+  });
+
+  it("resolves configured presets with a validity flag for discovery", () => {
+    const resolved = presetCatalogueOf(
+      {
+        good: sel("pi", "anthropic/claude-opus-4-8"),
+        stale: sel("google-vertex-claude", "claude-opus-4-8"),
+        emptyOk: sel("empty-instance", "anything"),
+      },
+      catalogue,
+    );
+    expect(resolved).toEqual([
+      { name: "good", instanceId: "pi", model: "anthropic/claude-opus-4-8", valid: true },
+      { name: "stale", instanceId: "google-vertex-claude", model: "claude-opus-4-8", valid: false },
+      { name: "emptyOk", instanceId: "empty-instance", model: "anything", valid: true },
+    ]);
   });
 });
 
