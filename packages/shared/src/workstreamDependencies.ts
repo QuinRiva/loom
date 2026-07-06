@@ -44,6 +44,15 @@ export interface DependencyGateThread {
  * dependency's `done` alone — it must join the coder's *pre-merge* worktree, and
  * that coder's fan-in is deliberately deferred until gate resolution (which the
  * reviewer itself drives). Requiring fan-in here would deadlock the gate.
+ *
+ * An **attached** *dependency* (the mirror case: a downstream thread gated on a
+ * gated reviewer — the wiring the review-gate guidance recommends) never fans in
+ * itself; the merged output the dependent must branch from belongs to the
+ * coder(s) that reviewer gates, whose fan-in fires only at gate resolution —
+ * asynchronously *after* the reviewer's `done`. So the dependent waits for those
+ * coders' fan-in, not the reviewer's `done` alone. Without this, the dispatcher
+ * provisions the dependent's worktree off the pre-merge parent branch before the
+ * coder's merge lands — the fan-in propagation gap.
  */
 export const areDependenciesSatisfied = <T extends DependencyGateThread>(
   thread: T,
@@ -55,6 +64,16 @@ export const areDependenciesSatisfied = <T extends DependencyGateThread>(
     if (dep === undefined || dep.parentThreadId !== thread.parentThreadId) return true;
     if (dep.planLane !== "done") return false;
     if (thread.isolation === "attached") return true;
+    if (dep.isolation === "attached")
+      return dep.blockedBy.every((gatedId) => {
+        const gated = threadsById.get(gatedId);
+        return (
+          gated === undefined ||
+          gated.parentThreadId !== dep.parentThreadId ||
+          gated.isolation !== "isolated" ||
+          gated.fanInState === "completed"
+        );
+      });
     return dep.isolation !== "isolated" || dep.fanInState === "completed";
   });
 

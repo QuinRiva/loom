@@ -129,6 +129,53 @@ describe("areDependenciesSatisfied", () => {
     expect(areDependenciesSatisfied(sharedReviewer, index([coder, sharedReviewer]))).toBe(false);
     expect(areDependenciesSatisfied(attachedReviewer, index([coder, attachedReviewer]))).toBe(true);
   });
+
+  // The fan-in propagation gap: a downstream thread gated on a gated reviewer
+  // (the recommended "wire downstream on the reviewer" pattern) must not release
+  // on the reviewer's `done` alone. The reviewer is `attached` (fan-in `none`),
+  // but the coder it gates fans in asynchronously after gate resolution; the
+  // dependent must wait for that coder's fan-in or it is provisioned off the
+  // pre-merge parent branch.
+  it("gates a dependent of a gated reviewer until the reviewed coder has fanned in", () => {
+    const coder = node("coder", { planLane: "done", isolation: "isolated", fanInState: "none" });
+    const reviewer = node("reviewer", {
+      blockedBy: [coder.id],
+      planLane: "done",
+      isolation: "attached",
+    });
+    const downstream = node("downstream", { blockedBy: [reviewer.id], isolation: "isolated" });
+    expect(areDependenciesSatisfied(downstream, index([coder, reviewer, downstream]))).toBe(false);
+  });
+
+  it("releases a dependent of a gated reviewer once the reviewed coder's fan-in completed", () => {
+    const coder = node("coder", {
+      planLane: "done",
+      isolation: "isolated",
+      fanInState: "completed",
+    });
+    const reviewer = node("reviewer", {
+      blockedBy: [coder.id],
+      planLane: "done",
+      isolation: "attached",
+    });
+    const downstream = node("downstream", { blockedBy: [reviewer.id], isolation: "isolated" });
+    expect(areDependenciesSatisfied(downstream, index([coder, reviewer, downstream]))).toBe(true);
+  });
+
+  it("keeps a dependent of a gated reviewer blocked when the reviewed coder's fan-in conflicted", () => {
+    const coder = node("coder", {
+      planLane: "done",
+      isolation: "isolated",
+      fanInState: "conflicted",
+    });
+    const reviewer = node("reviewer", {
+      blockedBy: [coder.id],
+      planLane: "done",
+      isolation: "attached",
+    });
+    const downstream = node("downstream", { blockedBy: [reviewer.id], isolation: "isolated" });
+    expect(areDependenciesSatisfied(downstream, index([coder, reviewer, downstream]))).toBe(false);
+  });
 });
 
 describe("findDependencyCycle", () => {
