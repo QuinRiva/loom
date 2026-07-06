@@ -30,17 +30,22 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     return result;
   };
 
+  const appendWarnings = (text, result) => {
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    return warnings.length === 0 ? text : text + "\n" + warnings.map((warning) => "Warning: " + warning).join("\n");
+  };
+
   pi.registerTool({
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
-    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — an imperative label of roughly ≤6 words), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with blockedBy: [thatChildThreadId]. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
+    description: "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — an imperative label of roughly ≤6 words), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: { rework: thatChildThreadId }; gate.rework is automatically added to blockedBy. Model selection precedence: an explicit modelSelection wins; otherwise a named modelPreset is used; otherwise a preset matching the child's role (if one is configured) is used; otherwise the child inherits this thread's model.",
     promptSnippet: "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
     promptGuidelines: [
       "Name the work with three distinct fields: title is a short imperative label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
       "To run a child on a specific model, pass either modelSelection (a full selection) or modelPreset (a configured preset name). If you omit both, a preset whose name matches the child's role is used when one is configured, otherwise the child inherits this thread's model.",
       "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole graph for review before any tokens are spent, then workstream_release the held subtree to let it run.",
-      "To put a coder under review, spawn the coder first, then spawn a reviewer with blockedBy: [coderId] AND gate: { rework: coderId }. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong)."
+      "To put a coder under review, spawn the coder first, then spawn a reviewer with gate: { rework: coderId }. gate.rework is automatically added to blockedBy, so the reviewer waits for the coder before running. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong)."
     ],
     parameters: {
       type: "object",
@@ -52,7 +57,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
         blockedBy: { type: "array", items: { type: "string" }, description: "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'." },
         gate: {
           type: "object",
-          description: "Declare a review gate on this child (typically a reviewer): rework names the sibling whose work it verifies. The child's workstream_submit outcomes then route in the control plane — 'needs_rework' loops that sibling for rework (round-capped), 'clean'/'fixed_inline' resolve the gate and complete both threads. Combine with blockedBy on the same sibling so the review starts after the work completes.",
+          description: "Declare a review gate on this child (typically a reviewer): rework names the sibling whose work it verifies. The child's workstream_submit outcomes then route in the control plane — 'needs_rework' loops that sibling for rework (round-capped), 'clean'/'fixed_inline' resolve the gate and complete both threads. gate.rework is automatically added to blockedBy so the review starts after the work completes.",
           properties: {
             rework: { type: "string", description: "Thread id of the sibling this gate loops rework back to (the coder under review). Must be a thread you directly parent." },
             maxRounds: { type: "number", description: "Maximum rework loops before the gate yields to you instead of looping again. Default 2." }
@@ -95,7 +100,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       const childThreadId = result?.childThreadId ?? "unknown";
       const title = result?.title ?? params.title;
       return {
-        content: [{ type: "text", text: "Spawned Workstream sub-thread " + childThreadId + ": " + title }],
+        content: [{ type: "text", text: appendWarnings("Spawned Workstream sub-thread " + childThreadId + ": " + title, result) }],
         details: { ok: true, ...result }
       };
     }
@@ -300,7 +305,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
   pi.registerTool({
     name: "workstream_set_dependencies",
     label: "Set Workstream Dependencies",
-    description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but a thread that has already started running is never un-run — the edge is recorded for display only. To gate a child's execution from the start, pass blockedBy at spawn time instead.",
+    description: "Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but setting dependencies on an already-started thread returns a warning — the edge is recorded for display only and never un-runs the thread. To gate a child's execution from the start, pass blockedBy at spawn time instead.",
     promptSnippet: "adjust the blockedBy set of a not-yet-started thread (re-planning only; does not gate an already-started thread).",
     promptGuidelines: [
       "blockedBy replaces the whole set each call; to actually defer a child's start, set blockedBy at spawn time — setting dependencies after a thread is already running does not stop it."
@@ -316,10 +321,10 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     },
     async execute(_id, params, signal) {
       const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_DEPENDENCIES_URL, params, signal);
-      const count = Array.isArray(params.blockedBy) ? params.blockedBy.length : 0;
+      const count = Array.isArray(result?.blockedBy) ? result.blockedBy.length : (Array.isArray(params.blockedBy) ? params.blockedBy.length : 0);
       const threadId = result?.threadId ?? params.threadId ?? "this thread";
       return {
-        content: [{ type: "text", text: "Set Workstream thread " + threadId + " dependencies (" + count + " waits-on)." }],
+        content: [{ type: "text", text: appendWarnings("Set Workstream thread " + threadId + " dependencies (" + count + " waits-on).", result) }],
         details: { ok: true, ...result }
       };
     }

@@ -3,6 +3,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
@@ -32,7 +33,10 @@ import {
 } from "./commandInvariants.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { projectEvent } from "./projector.ts";
-import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import {
+  areDependenciesSatisfied,
+  findDependencyCycle,
+} from "@t3tools/shared/workstreamDependencies";
 import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -68,6 +72,56 @@ function withEventBase(
 }
 
 type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+
+/**
+ * Coherence backstop shared by `thread.create` and `thread.dependencies.set` —
+ * the decider is the one chokepoint every command crosses, including the web
+ * board / client-runtime paths that dispatch these commands directly and bypass
+ * the MCP handlers. Returns a rejection detail, or null when the proposed
+ * dependency edges are coherent. Mirrors exactly the sibling-scoped edges
+ * `areDependenciesSatisfied` gates on: an edge only counts when it names an
+ * active (non-deleted, non-archived) same-parent sibling, so anything else —
+ * self, root, dangling/non-sibling, or a cycle — never releases and is rejected
+ * at the submission boundary rather than silently tolerated at runtime. Called
+ * only when the command actually carries edges; the common empty-`blockedBy`
+ * create/clear path never reaches it.
+ */
+const dependencyCoherenceError = (params: {
+  readonly readModel: OrchestrationReadModel;
+  readonly threadId: ThreadId;
+  readonly parentThreadId: ThreadId | null;
+  readonly blockedBy: ReadonlyArray<ThreadId>;
+  readonly loopTargets: ReadonlyArray<ThreadId>;
+}): string | null => {
+  const { readModel, threadId, parentThreadId, blockedBy, loopTargets } = params;
+  if (parentThreadId === null)
+    return `Dependencies have no effect on a root thread ('${threadId}') — only sub-threads are dependency-gated.`;
+  if (blockedBy.includes(threadId)) return `A thread cannot block on itself ('${threadId}').`;
+  const siblings = readModel.threads.filter(
+    (thread) =>
+      thread.deletedAt === null &&
+      thread.archivedAt === null &&
+      thread.parentThreadId === parentThreadId &&
+      thread.id !== threadId,
+  );
+  const siblingIds = new Set(siblings.map((thread) => thread.id));
+  const invalid = [...new Set([...blockedBy, ...loopTargets])].filter(
+    (id) => id !== threadId && !siblingIds.has(id),
+  );
+  if (invalid.length > 0)
+    return `Dependencies for thread '${threadId}' name non-sibling/unknown ids (${invalid.join(", ")}); a dependency can only name an active sibling (same parent). A dangling id never gates — it would silently release.`;
+  const cycle = findDependencyCycle([
+    { id: threadId, parentThreadId, blockedBy },
+    ...siblings.map((thread) => ({
+      id: thread.id,
+      parentThreadId: thread.parentThreadId,
+      blockedBy: thread.blockedBy,
+    })),
+  ]);
+  if (cycle !== null)
+    return `Dependencies for thread '${threadId}' would create a cycle (${cycle.join(" → ")}); a cyclic set can never release.`;
+  return null;
+};
 
 type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
@@ -510,6 +564,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: command.projectId,
         });
       }
+      // Coherence backstop: a dependency-bearing create (blockedBy and/or loop
+      // routes) must name active siblings and form no cycle. The common
+      // root/manual/goal-handoff create carries neither, so it skips validation.
+      {
+        const loopTargets = (command.routes ?? []).flatMap((route) =>
+          route.kind === "loop" && route.to !== undefined ? [route.to] : [],
+        );
+        if ((command.blockedBy?.length ?? 0) > 0 || loopTargets.length > 0) {
+          const detail = dependencyCoherenceError({
+            readModel,
+            threadId: command.threadId,
+            parentThreadId: command.parentThreadId ?? null,
+            blockedBy: command.blockedBy ?? [],
+            loopTargets,
+          });
+          if (detail !== null)
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail,
+            });
+        }
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -528,12 +604,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.role !== undefined ? { role: command.role } : {}),
           ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
           ...(command.brief !== undefined ? { brief: command.brief } : {}),
-          // Seed the node's run-condition; drop self-references so a thread can
-          // never block on itself (cycles/dangling ids tolerated permissively,
-          // matching thread.dependencies.set).
-          ...(command.blockedBy !== undefined
-            ? { blockedBy: command.blockedBy.filter((id) => id !== command.threadId) }
-            : {}),
+          // Seed the node's run-condition. A dependency-bearing create is
+          // validated above (self/root/dangling/cycle rejected), so the set is
+          // emitted verbatim rather than silently stripped.
+          ...(command.blockedBy !== undefined ? { blockedBy: command.blockedBy } : {}),
           // Review gates (design §4): outcome route edges declared at spawn.
           ...(command.routes !== undefined ? { routes: command.routes } : {}),
           // Worktree isolation (design §1): propagate the spawn-resolved policy.
@@ -921,6 +995,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             payload: { threadId, createdAt: occurredAt },
           });
         }
+        // M4 (dep-cancelled-then-edge ordering): a live thread OUTSIDE the
+        // cancelled subtree that is un-started, still `planned`/`ready`, and
+        // gated (same-parent `blockedBy`) on a member of the cancelled set is
+        // now wedged forever — cancelled never releases. Surface each on the
+        // "a human must look" channel so the orchestrator that issued the cancel
+        // is woken to re-plan. Cancel itself always succeeds regardless.
+        for (const thread of live) {
+          if (subtree.has(thread.id)) continue;
+          if (thread.planLane !== "planned" && thread.planLane !== "ready") continue;
+          if (thread.messages.some((message) => message.role === "user")) continue;
+          const gatedByCancelled = thread.blockedBy.some(
+            (depId) =>
+              subtree.has(depId) && threadById.get(depId)?.parentThreadId === thread.parentThreadId,
+          );
+          if (!gatedByCancelled) continue;
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "thread",
+              aggregateId: thread.id,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "thread.attention-raised",
+            payload: { threadId: thread.id, reason: "needs_guidance", updatedAt: occurredAt },
+          });
+        }
         return events;
       }
       // Re-engagement epoch (review-gates design §5.2 exception): a parent or
@@ -1049,13 +1149,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.dependencies.set": {
-      yield* requireThread({
+      const targetThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      // Coherence backstop (R1/R2): a non-empty replace-set must name active
+      // siblings and form no cycle. Clearing deps (empty set) is always allowed.
+      if (command.blockedBy.length > 0) {
+        const detail = dependencyCoherenceError({
+          readModel,
+          threadId: command.threadId,
+          parentThreadId: targetThread.parentThreadId,
+          blockedBy: command.blockedBy,
+          loopTargets: [],
+        });
+        if (detail !== null)
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail,
+          });
+      }
       const occurredAt = yield* nowIso;
-      return {
+      const dependenciesSet: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1064,13 +1180,50 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         })),
         type: "thread.dependencies-set",
         payload: {
+          // Replace-set semantics; validated above (self/root/dangling/cycle
+          // rejected), so the set is recorded verbatim.
           threadId: command.threadId,
-          // Replace-set semantics; drop self-references so a thread can never
-          // block on itself. Cycles/dangling ids are tolerated (permissive).
-          blockedBy: command.blockedBy.filter((id) => id !== command.threadId),
+          blockedBy: command.blockedBy,
           updatedAt: occurredAt,
         },
       };
+      // R3 (M4, edge-onto-cancelled-dep ordering): wiring an un-started,
+      // non-terminal target to wait on an already-`cancelled` gating sibling
+      // silently wedges it (cancelled never releases). Surface it on the same
+      // "a human must look" channel as the cancel-cascade scan below — direct
+      // event emission, never re-entering a command handler mid-decide.
+      const targetUnstarted = !targetThread.messages.some((message) => message.role === "user");
+      const targetTerminal =
+        targetThread.planLane === "done" || targetThread.planLane === "cancelled";
+      const wedgedByCancelledDep =
+        targetUnstarted &&
+        !targetTerminal &&
+        command.blockedBy.some((depId) => {
+          const dep = readModel.threads.find((thread) => thread.id === depId);
+          return (
+            dep !== undefined &&
+            dep.parentThreadId === targetThread.parentThreadId &&
+            dep.planLane === "cancelled"
+          );
+        });
+      if (!wedgedByCancelledDep) return dependenciesSet;
+      return [
+        dependenciesSet,
+        {
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.attention-raised",
+          payload: {
+            threadId: command.threadId,
+            reason: "needs_guidance",
+            updatedAt: occurredAt,
+          },
+        },
+      ];
     }
 
     case "thread.turn.start": {

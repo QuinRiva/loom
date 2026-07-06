@@ -2,6 +2,7 @@ import {
   AttentionReason,
   CommandId,
   DEFAULT_GATE_MAX_ROUNDS,
+  MAX_GATE_MAX_ROUNDS,
   MessageId,
   ModelSelection,
   ThreadId,
@@ -10,6 +11,7 @@ import {
   type OrchestrationCommand,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
+import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -204,6 +206,207 @@ export const resolvePresetSelection = (input: {
   return { kind: "selection", selection: input.presets[input.role] ?? input.parentSelection };
 };
 
+type DependencySibling = {
+  readonly id: ThreadId;
+  readonly title: string | null;
+  readonly role: string | null;
+  readonly parentThreadId: ThreadId | null;
+  readonly planLane: ThreadPlanLane;
+  readonly blockedBy: ReadonlyArray<ThreadId>;
+  readonly session: unknown | null;
+  readonly latestUserMessageAt: string | null;
+};
+
+export type SpawnGraphResult =
+  | { readonly kind: "rejected"; readonly message: string }
+  | {
+      readonly kind: "ok";
+      readonly blockedBy: ReadonlyArray<ThreadId> | undefined;
+      readonly forceAttached: boolean;
+      readonly warnings: ReadonlyArray<string>;
+    };
+
+export interface SpawnGraphInput {
+  readonly operation?: "spawn" | "set-dependencies";
+  readonly siblings: ReadonlyArray<DependencySibling>;
+  readonly archivedSiblings?: ReadonlyArray<DependencySibling>;
+  readonly blockedBy: ReadonlyArray<ThreadId> | undefined;
+  readonly gateRework: ThreadId | undefined;
+  readonly gateMaxRounds?: number | undefined;
+  readonly isolationOverride: ThreadIsolation | undefined;
+  readonly role: string;
+  readonly newThreadId?: ThreadId;
+  readonly target?: DependencySibling;
+}
+
+export const hasThreadStarted = (thread: {
+  readonly session: unknown | null;
+  readonly latestUserMessageAt: string | null;
+}): boolean => thread.session !== null || thread.latestUserMessageAt !== null;
+
+const uniqueIds = (ids: ReadonlyArray<ThreadId>): ReadonlyArray<ThreadId> => [...new Set(ids)];
+
+const formatThread = (thread: Pick<DependencySibling, "id" | "title" | "planLane">): string =>
+  `${thread.id} — "${thread.title ?? "(untitled)"}" (${thread.planLane})`;
+
+const knownChildrenMessage = (siblings: ReadonlyArray<DependencySibling>): string =>
+  siblings.length > 0 ? siblings.map(formatThread).join(", ") : "none";
+
+const dependencyCycleMessage = (
+  cycle: ReadonlyArray<ThreadId>,
+  operation: "spawn" | "set-dependencies",
+): string => {
+  const path = cycle.join(" → ");
+  return operation === "spawn"
+    ? `blockedBy would place this child behind a dependency cycle: ${path}. A cyclic set never releases, so the child would never start. Fix the cycle first (workstream_set_dependencies on one of the members). Nothing was spawned.`
+    : `These dependencies would create a cycle: ${path}. A cyclic set never releases — every member waits on another member forever. Remove one edge, or re-order the work. Nothing was changed.`;
+};
+
+export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => {
+  const operation = input.operation ?? "spawn";
+  if (
+    operation === "spawn" &&
+    input.gateMaxRounds !== undefined &&
+    (!Number.isInteger(input.gateMaxRounds) ||
+      input.gateMaxRounds < 1 ||
+      input.gateMaxRounds > MAX_GATE_MAX_ROUNDS)
+  ) {
+    return {
+      kind: "rejected",
+      message: `gate.maxRounds must be an integer between 1 and ${MAX_GATE_MAX_ROUNDS}. Each round is a full rework + re-review cycle; if you expect to need more than a few, the work should be re-scoped instead of looped.`,
+    };
+  }
+  if (operation === "set-dependencies" && input.target?.parentThreadId === null) {
+    return {
+      kind: "rejected",
+      message:
+        "Dependencies have no effect on a root thread — only sub-threads are dependency-gated. Nothing was changed.",
+    };
+  }
+
+  const blockedBy = uniqueIds(input.blockedBy ?? []);
+  if (operation === "set-dependencies" && input.target !== undefined) {
+    if (blockedBy.includes(input.target.id)) {
+      return {
+        kind: "rejected",
+        message: `A thread cannot block on itself (${input.target.id} is the target thread). Nothing was changed.`,
+      };
+    }
+  }
+
+  const validSiblings =
+    operation === "set-dependencies" && input.target !== undefined
+      ? input.siblings.filter((thread) => thread.id !== input.target!.id)
+      : input.siblings;
+  const activeById = new Map(validSiblings.map((thread) => [thread.id, thread] as const));
+  const invalid = blockedBy.filter((id) => !activeById.has(id));
+  if (invalid.length > 0) {
+    const archivedById = new Map(
+      (input.archivedSiblings ?? []).map((thread) => [thread.id, thread] as const),
+    );
+    const archived = invalid.flatMap((id) => {
+      const thread = archivedById.get(id);
+      return thread === undefined ? [] : [thread];
+    });
+    if (archived.length > 0) {
+      const archivedIds = new Set(archived.map((thread) => thread.id));
+      const otherInvalid = invalid.filter((id) => !archivedIds.has(id));
+      return {
+        kind: "rejected",
+        message: `${operation === "spawn" ? "blockedBy names" : "Dependencies name"} ${archived.map((thread) => `${thread.id} ("${thread.title ?? "(untitled)"}")`).join(", ")}, which ${archived.length === 1 ? "is" : "are"} archived and no longer active — an archived thread cannot gate (depending on it would silently release). ${otherInvalid.length > 0 ? `Other invalid ids: ${otherInvalid.join(", ")}. ` : ""}Known active siblings: ${knownChildrenMessage(validSiblings)}. Depend on an active sibling instead. ${operation === "spawn" ? "Nothing was spawned." : "Nothing was changed."}`,
+      };
+    }
+    return {
+      kind: "rejected",
+      message:
+        operation === "spawn"
+          ? `blockedBy contains ids that are not children of this thread: ${invalid.join(", ")}. A dependency can only name a sibling of the new child — a thread you directly parent. Known children: ${knownChildrenMessage(validSiblings)}. Use the exact childThreadId returned by workstream_spawn, or check workstream_list. Nothing was spawned.`
+          : `blockedBy contains ids that are not siblings of the target thread: ${invalid.join(", ")}. A dependency can only name an active sibling of the target. Known siblings: ${knownChildrenMessage(validSiblings)}. Use the exact thread id from workstream_list. Nothing was changed.`,
+    };
+  }
+
+  const warnings: Array<string> = [];
+  let effectiveBlockedBy = blockedBy;
+  let gateTarget: DependencySibling | undefined;
+  if (operation === "spawn" && input.gateRework !== undefined) {
+    gateTarget = activeById.get(input.gateRework);
+    if (gateTarget === undefined) {
+      const archived = (input.archivedSiblings ?? []).find(
+        (thread) => thread.id === input.gateRework,
+      );
+      return {
+        kind: "rejected",
+        message:
+          archived === undefined
+            ? `gate.rework must name an active sibling: a thread this thread directly parents. Known children: ${knownChildrenMessage(validSiblings)}. Nothing was spawned.`
+            : `gate.rework names ${archived.id} ("${archived.title ?? "(untitled)"}"), which is archived and no longer active — an archived thread cannot gate (depending on it would silently release). Depend on an active sibling instead. Nothing was spawned.`,
+      };
+    }
+    if (!effectiveBlockedBy.includes(input.gateRework)) {
+      effectiveBlockedBy = [...effectiveBlockedBy, input.gateRework];
+      warnings.push(
+        `gate.rework ${input.gateRework} was added to blockedBy automatically — a gated reviewer always waits for the thread it reviews.`,
+      );
+    }
+    if (input.isolationOverride !== undefined) {
+      warnings.push(
+        `isolation "${input.isolationOverride}" was ignored: a gated reviewer always runs attached (it joins the reviewed thread's worktree). Any other isolation deadlocks the gate — the reviewer would wait for the coder's fan-in, which is deferred until the gate the reviewer itself must resolve.`,
+      );
+    }
+    if (roleDefaultIsolation(gateTarget.role) !== "isolated") {
+      warnings.push(
+        `gate.rework targets ${gateTarget.id} ("${gateTarget.title ?? "(untitled)"}", role "${gateTarget.role ?? "thread"}") — a reader-style role. Review gates loop rework back to the thread that produces the work (coder/planner/free-text writer); gating a ${gateTarget.role ?? "thread"} is usually a wiring mistake. Proceeding anyway.`,
+      );
+    }
+  }
+
+  for (const depId of effectiveBlockedBy) {
+    const dep = activeById.get(depId);
+    if (dep?.planLane === "cancelled") {
+      warnings.push(
+        `blockedBy names ${dep.id} ("${dep.title ?? "(untitled)"}"), which is cancelled. A cancelled dependency never releases — ${operation === "spawn" ? "this child" : "the target thread"} will not start unless ${dep.id} is revived (workstream_set_lane → ready) or ${operation === "spawn" ? "this child's" : "the target thread's"} dependencies are re-pointed.`,
+      );
+    }
+  }
+
+  const graphThreads =
+    operation === "set-dependencies" && input.target !== undefined
+      ? input.siblings.map((thread) =>
+          thread.id === input.target!.id ? { ...thread, blockedBy: effectiveBlockedBy } : thread,
+        )
+      : [
+          ...input.siblings,
+          {
+            id: input.newThreadId ?? ("__new_child__" as ThreadId),
+            parentThreadId: input.siblings[0]?.parentThreadId ?? null,
+            blockedBy: effectiveBlockedBy,
+          },
+        ];
+  const cycle = findDependencyCycle(graphThreads);
+  if (cycle !== null)
+    return { kind: "rejected", message: dependencyCycleMessage(cycle, operation) };
+
+  if (
+    operation === "set-dependencies" &&
+    input.target !== undefined &&
+    hasThreadStarted(input.target)
+  ) {
+    warnings.push(
+      `${input.target.id} has already started: the dependency edge was recorded for DISPLAY ONLY — a started thread is never un-run, so this will not pause or re-gate it. To pause it use workstream_stop; to abandon it set its lane to cancelled; to sequence future work, set blockedBy at spawn time.`,
+    );
+  }
+
+  return {
+    kind: "ok",
+    blockedBy:
+      input.blockedBy === undefined && effectiveBlockedBy.length === 0
+        ? undefined
+        : effectiveBlockedBy,
+    forceAttached: operation === "spawn" && input.gateRework !== undefined,
+    warnings,
+  };
+};
+
 const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
   `Unknown modelPreset "${name}". Available presets: ${
     available.length > 0 ? available.join(", ") : "none configured"
@@ -309,9 +512,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
       gate.maxRounds !== undefined &&
       (typeof gate.maxRounds !== "number" ||
         !Number.isInteger(gate.maxRounds) ||
-        gate.maxRounds < 1)
+        gate.maxRounds < 1 ||
+        gate.maxRounds > MAX_GATE_MAX_ROUNDS)
     ) {
-      return jsonError(400, "gate.maxRounds must be a positive integer.");
+      return jsonError(
+        400,
+        `gate.maxRounds must be an integer between 1 and ${MAX_GATE_MAX_ROUNDS}. Each round is a full rework + re-review cycle; if you expect to need more than a few, the work should be re-scoped instead of looped.`,
+      );
     }
   }
 
@@ -322,29 +529,14 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   }
   const current = parent.value;
 
-  // Gate sibling rule (design §4.2, mirrors areDependenciesSatisfied): the loop
-  // target must be an existing thread the SPAWNER directly parents — the new
-  // reviewer and the coder become siblings, and the parent declaring the edge
-  // is the pre-authorisation for sibling→sibling report delivery.
-  let routes: ReadonlyArray<WorkstreamRoute> | undefined;
-  if (gateRework !== undefined) {
-    const reworkTarget = yield* projection.getThreadDetailById(ThreadId.make(gateRework));
-    if (Option.isNone(reworkTarget) || reworkTarget.value.parentThreadId !== scope.threadId) {
-      return jsonError(
-        400,
-        "gate.rework must name an existing sibling: a thread this thread directly parents.",
-      );
-    }
-    routes = [
-      {
-        on: ["needs_rework"],
-        kind: "loop",
-        to: reworkTarget.value.id,
-        maxRounds: (gate?.maxRounds as number | undefined) ?? DEFAULT_GATE_MAX_ROUNDS,
-      },
-      { on: ["clean", "fixed_inline"], kind: "resolve" },
-    ];
-  }
+  const activeSnapshot = yield* projection.getShellSnapshot();
+  const activeChildren = activeSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === scope.threadId,
+  );
+  const archivedSnapshot = yield* projection.getArchivedShellSnapshot();
+  const archivedChildren = archivedSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === scope.threadId,
+  );
 
   // Model + thinking are intrinsic node config. Precedence:
   //   1. explicit `modelSelection` (decoded; invalid → 400),
@@ -383,6 +575,31 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
 
+  const graph = validateSpawnGraph({
+    siblings: activeChildren,
+    archivedSiblings: archivedChildren,
+    blockedBy,
+    gateRework: gateRework === undefined ? undefined : ThreadId.make(gateRework),
+    gateMaxRounds: gate?.maxRounds as number | undefined,
+    isolationOverride: isolationOverride as ThreadIsolation | undefined,
+    role,
+    newThreadId: childThreadId,
+  });
+  if (graph.kind === "rejected") return jsonError(400, graph.message);
+
+  const routes: ReadonlyArray<WorkstreamRoute> | undefined =
+    gateRework === undefined
+      ? undefined
+      : [
+          {
+            on: ["needs_rework"],
+            kind: "loop",
+            to: ThreadId.make(gateRework),
+            maxRounds: (gate?.maxRounds as number | undefined) ?? DEFAULT_GATE_MAX_ROUNDS,
+          },
+          { on: ["clean", "fixed_inline"], kind: "resolve" },
+        ];
+
   // Generation = the parent's ACTIVE turn at spawn time, so siblings spawned in
   // the same parent turn join into one wake. When the parent is not mid-turn
   // (no active turn) the spawn is out-of-turn and gets its own singleton
@@ -390,12 +607,12 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // would merge an out-of-turn spawn into a stale, already-joined generation.
   const spawnGeneration = current.session?.activeTurnId ?? childThreadId;
 
-  // Worktree isolation (design §1): explicit override wins; a gated reviewer
-  // (declares a `gate.rework` loop) defaults to `attached` (it joins its gate
-  // target's worktree at promotion, §4); everything else takes the role default.
-  const isolation: ThreadIsolation =
-    (isolationOverride as ThreadIsolation | undefined) ??
-    (gateRework !== undefined ? "attached" : roleDefaultIsolation(role));
+  // Worktree isolation (design §1): a gated reviewer is forced `attached` (it
+  // joins its gate target's worktree at promotion, §4); everything else honours
+  // the explicit override or takes the role default.
+  const isolation: ThreadIsolation = graph.forceAttached
+    ? "attached"
+    : ((isolationOverride as ThreadIsolation | undefined) ?? roleDefaultIsolation(role));
 
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
@@ -412,7 +629,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     role,
     purpose,
     ...(brief !== undefined ? { brief } : {}),
-    ...(blockedBy !== undefined ? { blockedBy } : {}),
+    ...(graph.blockedBy !== undefined ? { blockedBy: graph.blockedBy } : {}),
     ...(routes !== undefined ? { routes } : {}),
     isolation,
     planLane,
@@ -426,7 +643,12 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ childThreadId, parentThreadId: scope.threadId, title });
+  return HttpServerResponse.jsonUnsafe({
+    childThreadId,
+    parentThreadId: scope.threadId,
+    title,
+    ...(graph.warnings.length > 0 ? { warnings: graph.warnings } : {}),
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -711,6 +933,30 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
   // Trim before branding: ThreadId.make("") throws a defect that escapes the
   // typed Effect.catch, and untrimmed ids silently become dangling deps.
   const blockedBy = body.blockedBy.map((id) => ThreadId.make((id as string).trim()));
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const activeSnapshot = yield* projection.getShellSnapshot();
+  const target = activeSnapshot.threads.find((thread) => thread.id === targetThreadId);
+  if (target === undefined) return jsonError(404, "Target thread was not found or is archived.");
+  const siblings = activeSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === target.parentThreadId,
+  );
+  const archivedSnapshot = yield* projection.getArchivedShellSnapshot();
+  const archivedSiblings = archivedSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === target.parentThreadId,
+  );
+  const graph = validateSpawnGraph({
+    operation: "set-dependencies",
+    siblings,
+    archivedSiblings,
+    blockedBy,
+    gateRework: undefined,
+    isolationOverride: undefined,
+    role: target.role ?? "thread",
+    target,
+  });
+  if (graph.kind === "rejected") return jsonError(400, graph.message);
+
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
   const engine = yield* OrchestrationEngineService;
@@ -718,11 +964,15 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
     type: "thread.dependencies.set",
     commandId: CommandId.make(`server:workstream-dependencies:${yield* crypto.randomUUIDv4}`),
     threadId: targetThreadId,
-    blockedBy,
+    blockedBy: graph.blockedBy ?? [],
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, blockedBy });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    blockedBy: graph.blockedBy ?? [],
+    ...(graph.warnings.length > 0 ? { warnings: graph.warnings } : {}),
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
