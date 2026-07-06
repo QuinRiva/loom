@@ -43,6 +43,7 @@ const setup = Layer.effectDiscard(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
+    yield* sql`PRAGMA synchronous = NORMAL;`;
     // The server holds a long-lived connection while workstream mutations run
     // as separate short-lived CLI processes (cli/orchestrationMutation, goal,
     // project) against this same file. SQLite permits one writer at a time, so

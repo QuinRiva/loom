@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -79,6 +80,47 @@ it.live("plain statements queue behind an open transaction on the worker client"
         ["plain"],
       );
     }).pipe(Effect.provide(SqliteWorkerClient.layer({ filename: dbPath })));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.live("query-only worker clients read but reject writes", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-sqlite-reader-" });
+    const dbPath = path.join(dir, "test.sqlite");
+
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`;
+      yield* sql`INSERT INTO entries(name) VALUES (${"alpha"})`;
+    }).pipe(Effect.provide(SqliteWorkerClient.layer({ filename: dbPath })));
+
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql.withTransaction(
+        sql<{ readonly name: string }>`SELECT name FROM entries`,
+      );
+      assert.deepEqual(
+        rows.map((row) => row.name),
+        ["alpha"],
+      );
+
+      const error = yield* Effect.flip(sql`INSERT INTO entries(name) VALUES (${"beta"})`);
+      assert.equal(error._tag, "SqlError");
+      const transactionError = yield* Effect.flip(
+        sql.withTransaction(sql`INSERT INTO entries(name) VALUES (${"gamma"})`),
+      );
+      assert.equal(transactionError._tag, "SqlError");
+    }).pipe(
+      Effect.provide(
+        SqliteWorkerClient.layer({
+          filename: dbPath,
+          queryOnly: true,
+          busyTimeout: Duration.millis(100),
+        }),
+      ),
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 

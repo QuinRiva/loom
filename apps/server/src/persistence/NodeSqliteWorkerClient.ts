@@ -62,6 +62,9 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   const workerData: SqliteWorkerData = {
     filename: options.filename,
     readonly: options.readonly ?? false,
+    queryOnly: options.queryOnly ?? false,
+    busyTimeoutMillis:
+      options.busyTimeout !== undefined ? Duration.toMillis(options.busyTimeout) : undefined,
     allowExtension: options.allowExtension ?? false,
     prepareCacheSize: options.prepareCacheSize,
     prepareCacheTTLMillis:
@@ -135,6 +138,11 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
     },
   };
 
+  const spanAttributes = [
+    ...(options.spanAttributes ? Object.entries(options.spanAttributes) : []),
+    [ATTR_DB_SYSTEM_NAME, "sqlite"],
+  ] as const;
+
   // Unlike the synchronous in-process client — where the permit can be
   // released before execution because a synchronous statement cannot be
   // interleaved — the async worker round trip makes the race window real: a
@@ -169,10 +177,7 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
     acquirer,
     compiler,
     transactionAcquirer,
-    spanAttributes: [
-      ...(options.spanAttributes ? Object.entries(options.spanAttributes) : []),
-      [ATTR_DB_SYSTEM_NAME, "sqlite"],
-    ],
+    spanAttributes,
     transformRows,
   });
 });

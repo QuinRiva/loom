@@ -41,6 +41,8 @@ export type TypeId = "~local/sqlite-node/SqliteClient";
 export interface SqliteClientConfig {
   readonly filename: string;
   readonly readonly?: boolean | undefined;
+  readonly queryOnly?: boolean | undefined;
+  readonly busyTimeout?: Duration.Input | undefined;
   readonly allowExtension?: boolean | undefined;
   readonly prepareCacheSize?: number | undefined;
   readonly prepareCacheTTL?: Duration.Input | undefined;

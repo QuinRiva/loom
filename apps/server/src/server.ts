@@ -16,6 +16,7 @@ import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
+import { layerConfig as SqliteReadLayerLive } from "./persistence/Layers/SqliteRead.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
@@ -96,8 +97,10 @@ import { provisionCliToken } from "./cli/cliToken.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
-import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
-import { UsageBreakdownQueryLive } from "./orchestration/Layers/UsageBreakdownQuery.ts";
+import {
+  OrchestrationLayerOnSqlReadClient,
+  UsageBreakdownQueryOnSqlReadClient,
+} from "./persistence/Layers/SqliteLanes.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -207,7 +210,10 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
   Layer.provideMerge(ProviderSessionDirectoryLayerLive),
 );
 
-const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const PersistenceLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(SqlitePersistenceLayerLive),
+  Layer.provideMerge(SqliteReadLayerLive),
+);
 
 const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProjectConfig.layer),
@@ -309,7 +315,10 @@ const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
   WorkstreamLivenessSweepLive,
   SubscriptionUsagePollerLive,
-).pipe(Layer.provideMerge(ProviderLayerLive), Layer.provideMerge(OrchestrationLayerLive));
+).pipe(
+  Layer.provideMerge(ProviderLayerLive),
+  Layer.provideMerge(OrchestrationLayerOnSqlReadClient),
+);
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services. UsageBreakdownQueryLive (/usage dashboard aggregation, §D3)
@@ -321,7 +330,11 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // same mergeAll for the same ceiling reason; its git/setup/orchestration deps
   // come from the later provideMerge steps.
   Layer.provideMerge(
-    Layer.mergeAll(UsageBreakdownQueryLive, CheckpointingLayerLive, WorktreeProvisionerLive),
+    Layer.mergeAll(
+      UsageBreakdownQueryOnSqlReadClient,
+      CheckpointingLayerLive,
+      WorktreeProvisionerLive,
+    ),
   ),
   // Per-worktree mutation lock shared by the provisioner and the fan-in reactor
   // so parent-worktree git ops never race (review finding 3). Provided in a
