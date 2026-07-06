@@ -44,12 +44,13 @@ const setup = Layer.effectDiscard(
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
     yield* sql`PRAGMA synchronous = NORMAL;`;
-    // The server holds a long-lived connection while workstream mutations run
-    // as separate short-lived CLI processes (cli/orchestrationMutation, goal,
-    // project) against this same file. SQLite permits one writer at a time, so
-    // without a busy timeout any overlap — e.g. a CLI mutation landing during
-    // the server's high-frequency token-usage writes — fails instantly with
-    // "database is locked". Wait for the lock instead of failing on contention.
+    // Live `t3 goal`/`t3 project` runs route over HTTP and never open this
+    // file; cross-process access remains only for dead-server offline CLI mode
+    // (plus the rare, human-initiated `t3 auth`/`t3 connect` residual — see
+    // docs/plans/db-lane-reader-writer-split.md). SQLite permits one writer at
+    // a time across processes, so the busy timeout is belt-and-braces for the
+    // offline-CLI → server-startup overlap window: wait for the lock instead
+    // of failing on contention.
     yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
     yield* runMigrations();
