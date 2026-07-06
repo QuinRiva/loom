@@ -121,6 +121,8 @@ const ids = (threads: ReadonlyArray<OrchestrationThreadShell>) => threads.map((t
 const WorktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
   provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
   provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
+  ensureIsolatedChildProvisioned: () => Effect.succeed(true),
+  hasPendingProvisionFailure: () => false,
   runSetup: () => Effect.void,
 } as never);
 
@@ -663,6 +665,31 @@ describe("buildChildWakeMessage (attention pause notice)", () => {
     expect(text).toContain("NOT finished");
     expect(text).toContain("child-1.md");
     expect(text).toContain("stay gated");
+  });
+});
+
+describe("buildChildWakeMessage (provisioning-failure park notice)", () => {
+  it("says provisioning failed before the child started and points at re-prompting to retry", () => {
+    const text = buildChildWakeMessage(
+      {
+        id: "child-1" as ThreadId,
+        role: "coder",
+        planLane: "ready",
+        attention: ["needs_guidance"],
+        reportPath: null,
+      },
+      "attention",
+      null,
+      { quietMs: 0, provisionFailed: true },
+    );
+    expect(text).toContain("never started");
+    expect(text).toContain("environment/git error");
+    expect(text).toContain("NOT an agent stall");
+    expect(text).toContain("workstream_prompt");
+    expect(text).toContain("retry provisioning");
+    expect(text).toContain("stay gated");
+    // Must NOT mislead the parent into treating this as a normal agent pause.
+    expect(text).not.toContain("is paused and needs attention");
   });
 });
 

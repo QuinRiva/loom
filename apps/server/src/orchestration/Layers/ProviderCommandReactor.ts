@@ -49,6 +49,11 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { listRoleOverlays, loadRoleOverlay } from "../roleOverlay.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import {
+  WorktreeProvisioner,
+  isProvisionedChildBranch,
+} from "../../project/WorktreeProvisioner.ts";
+import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -225,6 +230,7 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
+  const worktreeProvisioner = yield* WorktreeProvisioner;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
   const serverCommandId = (tag: string) =>
@@ -970,10 +976,63 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    // Worktree-isolation invariant (item 4): a turn must never start against an
+    // isolated child whose worktree was never provisioned. A promote-time
+    // provisioning failure leaves branch/worktreePath pointing at the PARENT, so
+    // without this the turn would run in the parent's worktree and silently
+    // defeat isolation. EVERY turn-start funnels through here — the kick-off, an
+    // orchestrator `workstream_prompt`, a client-initiated resume, gate
+    // traversals, wakes — so this single chokepoint (re)provisions before the
+    // turn. The predicate is restart-safe: it reads the child's own durable
+    // branch meta, not the in-process failed-provision marker. Idempotent — an
+    // already-provisioned child (its own `ws/…` branch) skips it.
+    let recoveredNeverStartedChild = false;
+    if (thread.isolation === "isolated" && !isProvisionedChildBranch(thread.branch, thread.id)) {
+      const provisioned = yield* worktreeProvisioner.ensureIsolatedChildProvisioned({
+        threadId: thread.id,
+        role: thread.role ?? "child",
+        projectId: thread.projectId,
+        branch: thread.branch,
+        worktreePath: thread.worktreePath,
+      });
+      if (!provisioned) {
+        // ensureIsolatedChildProvisioned already re-parked (activity +
+        // needs_guidance). Clear the pending turn-start row so the idle gate does
+        // not treat the child as perpetually busy, and do NOT start the turn.
+        yield* clearPendingTurnStartForFailedTurn({
+          threadId: event.payload.threadId,
+          turnStartKey: key,
+          detail:
+            "Worktree provisioning failed before the turn could start; the child was re-parked (needs_guidance).",
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      // An unprovisioned isolated branch is a durable proof the kick-off turn was
+      // never dispatched (the promote path only fires it AFTER provisioning
+      // succeeds), so the spawn brief was never delivered. Having just recovered
+      // the worktree, this turn IS the kick-off — its message must carry the brief.
+      recoveredNeverStartedChild = true;
+    }
+
+    // Deliver the never-delivered kick-off brief on the recovery turn. The
+    // documented recovery move (`workstream_prompt` a parked child) otherwise
+    // starts the child with only the orchestrator's message; here we prepend the
+    // exact kick-off content (same `workstreamChildPrompt` composition the promote
+    // path uses — one brief-assembly path, no bespoke variant) so the recovered
+    // first turn reads as the kick-off plus the orchestrator's extra message. A
+    // child whose kick-off already ran keeps `message.text` untouched (its branch
+    // is provisioned, so this block never runs) — later prompts never re-deliver.
+    const kickoffBrief = thread.brief ?? thread.purpose;
+    const effectiveMessageText =
+      recoveredNeverStartedChild && thread.role !== null && kickoffBrief !== null
+        ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief })}\n\n${message.text}`
+        : message.text;
+
     const userMessageCount = thread.messages.filter((entry) => entry.role === "user").length;
     const isFirstUserMessageTurn = userMessageCount === 1;
     const generationInput = {
-      messageText: message.text,
+      messageText: effectiveMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
     };
@@ -1043,7 +1102,7 @@ const make = Effect.gen(function* () {
 
     const sendTurnRequest = yield* buildSendTurnRequestForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: effectiveMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

@@ -830,10 +830,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         if (options.allowNonZeroExit || result.exitCode === 0) {
           return Effect.succeed(result);
         }
+        // Fold git's stderr into `detail` (bounded) so a failure is diagnosable
+        // from the persisted error message alone — the park detail and traces
+        // otherwise carry only the generic "non-zero status" line + a length.
+        const baseDetail =
+          options.fallbackErrorDetail ?? "Git command exited with a non-zero status.";
+        const stderr = result.stderr.trim().slice(0, 2000);
         return Effect.fail(
           new GitCommandError({
             ...gitCommandContext({ operation, cwd, args }),
-            detail: options.fallbackErrorDetail ?? "Git command exited with a non-zero status.",
+            detail: stderr.length > 0 ? `${baseDetail} git stderr: ${stderr}` : baseDetail,
             ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
             stdoutLength: result.stdout.length,
             stderrLength: result.stderr.length,

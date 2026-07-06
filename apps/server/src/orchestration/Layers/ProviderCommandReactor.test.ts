@@ -60,6 +60,7 @@ import * as Clock from "effect/Clock";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
+import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -145,6 +146,14 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    // Turn-start provisioning guard (item 4). Default is a no-op success stub;
+    // isolation tests pass a spy to observe the re-provision-before-turn contract.
+    readonly ensureIsolatedChildProvisioned?: (input: {
+      readonly threadId: ThreadId;
+      readonly role: string;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+    }) => Effect.Effect<boolean>;
   }) {
     const now = "2026-01-01T00:00:00.000Z";
     const baseDir =
@@ -357,7 +366,19 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(RepositoryIdentityResolver.layer),
       Layer.provide(SqlitePersistenceMemory),
     );
+    const ensureIsolatedChildProvisioned = vi.fn(
+      input?.ensureIsolatedChildProvisioned ?? (() => Effect.succeed(true)),
+    );
+    const worktreeProvisionerStub = Layer.succeed(WorktreeProvisioner, {
+      provisionWorktree: () => Effect.succeed({ worktreePath: "", branch: "" }),
+      provisionIsolatedChild: () => Effect.succeed({ worktreePath: "", branch: "" }),
+      ensureIsolatedChildProvisioned,
+      hasPendingProvisionFailure: () => false,
+      runSetup: () => Effect.void,
+    } as never);
+
     const layer = ProviderCommandReactorLive.pipe(
+      Layer.provideMerge(worktreeProvisionerStub),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
@@ -437,9 +458,11 @@ describe("ProviderCommandReactor", () => {
       generateBranchName,
       generateThreadTitle,
       generateStructured,
+      ensureIsolatedChildProvisioned,
       runtimeSessions,
       stateDir,
       drain,
+      snapshotQuery,
     };
   }
 
@@ -480,6 +503,156 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  // Item 4: the turn-start chokepoint must (re)provision an isolated child whose
+  // worktree still points at the PARENT before running its turn, so a
+  // `workstream_prompt` on a parked child recovers into its own worktree instead
+  // of silently running in the parent's.
+  const createIsolatedChild = async (
+    harness: Awaited<ReturnType<typeof createHarness>>,
+    overrides?: { readonly branch?: string | null; readonly worktreePath?: string | null },
+  ) => {
+    const now = "2026-01-01T00:00:00.000Z";
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-child-create"),
+        threadId: ThreadId.make("child-iso"),
+        projectId: asProjectId("project-1"),
+        parentThreadId: ThreadId.make("thread-1"),
+        role: "coder",
+        purpose: "do the work",
+        isolation: "isolated",
+        title: "Isolated child",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        // Provisioning failed at promote, so the child still points at the parent.
+        branch: overrides?.branch === undefined ? "main" : overrides.branch,
+        worktreePath:
+          overrides?.worktreePath === undefined ? "/tmp/parent-worktree" : overrides.worktreePath,
+        createdAt: now,
+      } as never),
+    );
+  };
+
+  const startChildTurn = (harness: Awaited<ReturnType<typeof createHarness>>, id: string) =>
+    Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`cmd-child-turn-${id}`),
+        threadId: ThreadId.make("child-iso"),
+        message: {
+          messageId: asMessageId(`child-msg-${id}`),
+          role: "user",
+          text: "retry provisioning and continue",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+  it("re-provisions an unprovisioned isolated child before starting its turn", async () => {
+    const harness = await createHarness();
+    await createIsolatedChild(harness);
+
+    await startChildTurn(harness, "ok");
+
+    await waitFor(() => harness.ensureIsolatedChildProvisioned.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    // Provisioning was asked to (re)build the child's OWN worktree from the
+    // parent-pointing meta, and only then did the turn proceed.
+    expect(harness.ensureIsolatedChildProvisioned.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.make("child-iso"),
+      role: "coder",
+      branch: "main",
+      worktreePath: "/tmp/parent-worktree",
+    });
+  });
+
+  it("does not start the turn (and clears the pending turn-start) when re-provisioning fails", async () => {
+    const harness = await createHarness({
+      ensureIsolatedChildProvisioned: () => Effect.succeed(false),
+    });
+    await createIsolatedChild(harness);
+
+    await startChildTurn(harness, "fail");
+
+    await waitFor(() => harness.ensureIsolatedChildProvisioned.mock.calls.length === 1);
+    // The pending turn-start row must be cleared so the idle gate stops treating
+    // the child as busy (otherwise its re-park never surfaces to the parent).
+    await waitFor(
+      async () =>
+        !(await Effect.runPromise(harness.snapshotQuery.getPendingTurnStartThreadIds())).has(
+          ThreadId.make("child-iso"),
+        ),
+    );
+    // The turn must NOT have been sent — the child would otherwise run in the
+    // parent's worktree.
+    expect(
+      harness.sendTurn.mock.calls.some(
+        (call) =>
+          typeof call[0] === "object" &&
+          call[0] !== null &&
+          (call[0] as { threadId?: unknown }).threadId === ThreadId.make("child-iso"),
+      ),
+    ).toBe(false);
+  });
+
+  it("skips re-provisioning for an already-provisioned isolated child", async () => {
+    const harness = await createHarness();
+    // Its own `ws/…-<first8(threadId)>` branch means it is already provisioned.
+    await createIsolatedChild(harness, {
+      branch: "ws/main/coder-child-is",
+      worktreePath: "/tmp/child-worktree",
+    });
+
+    await startChildTurn(harness, "provisioned");
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.ensureIsolatedChildProvisioned).not.toHaveBeenCalled();
+  });
+
+  it("delivers the never-dispatched kick-off brief on a never-started child's recovery turn", async () => {
+    const harness = await createHarness();
+    // Parked at promote (branch still points at the parent), so the kick-off turn
+    // — and thus the spawn brief — was never dispatched.
+    await createIsolatedChild(harness);
+
+    await startChildTurn(harness, "recover");
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const request = harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined;
+    const input = request?.input ?? "";
+    // The recovered first turn carries the kick-off brief (composed via the shared
+    // workstreamChildPrompt path) AND the orchestrator's recovery message.
+    expect(input).toContain("coder sub-thread");
+    expect(input).toContain("do the work");
+    expect(input).toContain("retry provisioning and continue");
+  });
+
+  it("does not re-deliver the kick-off brief on a prompt to an already-provisioned child", async () => {
+    const harness = await createHarness();
+    // Already provisioned (its own `ws/…` branch): its kick-off turn already ran,
+    // so a later prompt must carry only the orchestrator's message — no brief.
+    await createIsolatedChild(harness, {
+      branch: "ws/main/coder-child-is",
+      worktreePath: "/tmp/child-worktree",
+    });
+
+    await startChildTurn(harness, "prompt-again");
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const request = harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined;
+    const input = request?.input ?? "";
+    expect(input).toBe("retry provisioning and continue");
+    expect(input).not.toContain("sub-thread");
   });
 
   it("generates a thread title on the first turn", async () => {

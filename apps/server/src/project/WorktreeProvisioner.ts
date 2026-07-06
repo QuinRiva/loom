@@ -6,14 +6,17 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import type * as PlatformError from "effect/PlatformError";
 
 import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
@@ -80,6 +83,23 @@ export class WorktreeProvisioner extends Context.Service<
     readonly provisionIsolatedChild: (
       input: ProvisionIsolatedChildInput,
     ) => Effect.Effect<ProvisionWorktreeResult, ProvisionError>;
+    // Turn-start invariant (item 4): (re)provision an isolated child's worktree
+    // before any turn starts against it, parking it (needs_guidance) on failure.
+    // Idempotent — an already-provisioned (`ws/…`) or worktree-less child is a
+    // no-op success. Never fails: a provisioning error is absorbed into the park
+    // and reported as `false` so the caller skips the turn.
+    readonly ensureIsolatedChildProvisioned: (input: {
+      readonly threadId: ThreadId;
+      readonly role: string;
+      readonly projectId?: ProjectId;
+      readonly branch: string | null;
+      readonly worktreePath: string | null;
+    }) => Effect.Effect<boolean>;
+    // Was this child parked by a provisioning failure in THIS process? The
+    // restart-safe signal is the thread's own branch (see the reactor guard);
+    // this in-memory marker only drives the promote-loop skip and the
+    // provisioning-specific wake copy, and is lost (harmlessly) on restart.
+    readonly hasPendingProvisionFailure: (threadId: ThreadId) => boolean;
     // Fire-and-forget setup for a pre-existing worktree (the bootstrap
     // setup-only case). Non-blocking; status flows via the breadcrumb + trail.
     readonly runSetup: (input: RunSetupInput) => Effect.Effect<void, ProvisionError>;
@@ -113,6 +133,16 @@ export const isProvisionedChildBranch = (branch: string | null, threadId: string
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
+// The parent-worktree snapshot commit races the parent agent's OWN git
+// subprocess (index.lock contention) — a brief, self-resolving failure that the
+// in-process WorktreeMutationLock cannot serialise against (it is a separate
+// process). Absorb it with a bounded retry before parking the child: 3 attempts
+// total (~150ms → 300ms backoff, sub-second). `commitAll` is idempotent — a now
+// -clean tree returns `committed:false` — so a plain re-run is safe.
+export const SNAPSHOT_COMMIT_RETRY = Schedule.exponential(Duration.millis(150)).pipe(
+  Schedule.take(2),
+);
+
 // Normalise a setup-runner failure to a human detail, preserving the pre-refactor
 // behaviour: an operation error unwraps its `cause.message` (Error or plain
 // object) and falls back to a stringified cause; a project-not-found error gets
@@ -144,6 +174,13 @@ const make = Effect.gen(function* () {
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`server:worktree-provisioner:${tag}:${uuid}`)),
     );
+
+  // Provisioning failures are surfaced once per process (activity +
+  // needs_guidance flag) then remembered so the dispatcher's promote loop does
+  // not re-spin on the same git error. The reactor's turn-start guard retries
+  // regardless (a prompt means "retry provisioning"); on success the marker is
+  // cleared. A restart drops the set and retries once.
+  const failedProvisions = new Set<ThreadId>();
 
   const appendActivity = (input: {
     readonly threadId: ThreadId;
@@ -305,7 +342,9 @@ const make = Effect.gen(function* () {
         // which may be uncommitted in the parent worktree. Snapshot it onto the
         // parent branch so the child branches from an exact, committed HEAD and
         // the fan-in merge-base is clean. The shipper squashes wip at PR time.
-        yield* gitWorkflow.commitAll(input.parentCwd, "wip: workstream snapshot", "");
+        yield* gitWorkflow
+          .commitAll(input.parentCwd, "wip: workstream snapshot", "")
+          .pipe(Effect.retry(SNAPSHOT_COMMIT_RETRY));
         return yield* provisionWorktree({
           threadId: input.threadId,
           ...(input.projectId ? { projectId: input.projectId } : {}),
@@ -324,7 +363,93 @@ const make = Effect.gen(function* () {
     return result;
   });
 
-  return WorktreeProvisioner.of({ provisionWorktree, provisionIsolatedChild, runSetup });
+  // Park a child whose worktree provisioning failed: remember it (loop-spin
+  // guard + wake copy), append the self-describing activity, and raise the
+  // needs_guidance flag. Both dispatches are best-effort (a failed park must not
+  // crash the caller). Kept here — next to provisioning — so the promote path and
+  // the reactor's turn-start guard share ONE failure path.
+  const raiseProvisionFailure = Effect.fn("WorktreeProvisioner.raiseProvisionFailure")(function* (
+    threadId: ThreadId,
+    detail: string,
+  ) {
+    failedProvisions.add(threadId);
+    const now = yield* nowIso;
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.activity.append",
+        commandId: yield* serverCommandId("provision-failed"),
+        threadId,
+        activity: {
+          id: EventId.make(yield* crypto.randomUUIDv4),
+          tone: "error",
+          kind: "workstream.provision.failed",
+          summary:
+            "Worktree provisioning failed before the child started (environment/git error, not the agent) — prompt the child to retry provisioning",
+          payload: { detail },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(Effect.ignoreCause({ log: true }));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.attention.raise",
+        commandId: yield* serverCommandId("provision-failed-flag"),
+        threadId,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(Effect.ignoreCause({ log: true }));
+  });
+
+  const ensureIsolatedChildProvisioned = Effect.fn(
+    "WorktreeProvisioner.ensureIsolatedChildProvisioned",
+  )(function* (input: {
+    readonly threadId: ThreadId;
+    readonly role: string;
+    readonly projectId?: ProjectId;
+    readonly branch: string | null;
+    readonly worktreePath: string | null;
+  }) {
+    // No worktree meta yet (shared-provisional) — nothing to provision.
+    if (input.branch === null || input.worktreePath === null) return true;
+    // Already on its own `ws/…` branch — idempotent no-op; clear any stale marker.
+    if (isProvisionedChildBranch(input.branch, input.threadId)) {
+      failedProvisions.delete(input.threadId);
+      return true;
+    }
+    return yield* provisionIsolatedChild({
+      threadId: input.threadId,
+      role: input.role,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      parentCwd: input.worktreePath,
+      parentBranch: input.branch,
+    }).pipe(
+      Effect.matchCauseEffect({
+        onFailure: (cause) =>
+          raiseProvisionFailure(input.threadId, Cause.pretty(cause)).pipe(Effect.as(false)),
+        onSuccess: () =>
+          Effect.sync(() => {
+            failedProvisions.delete(input.threadId);
+            return true;
+          }),
+      }),
+      // The park's own command-id minting can (in theory only) fail with a
+      // platform crypto error; if even parking is impossible, report
+      // not-provisioned so the caller skips the turn. This is what makes the
+      // "never fails, parks internally" contract hold.
+      Effect.catchCause(() => Effect.succeed(false)),
+    );
+  });
+
+  return WorktreeProvisioner.of({
+    provisionWorktree,
+    provisionIsolatedChild,
+    ensureIsolatedChildProvisioned,
+    hasPendingProvisionFailure: (threadId) => failedProvisions.has(threadId),
+    runSetup,
+  });
 });
 
 export const layer = Layer.effect(WorktreeProvisioner, make);

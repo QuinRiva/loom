@@ -1,9 +1,11 @@
 /**
  * workstreamChildPrompt - Kick-off message for a spawned Workstream sub-thread.
  *
- * Shared by the spawn path (which creates the node) and the dispatcher (the
- * sole start authority that fires the deferred first turn once dependencies
- * are satisfied), so both produce an identical first-turn prompt.
+ * Shared by the dispatcher (the start authority that fires the kick-off turn
+ * once dependencies are satisfied) and the turn-start recovery guard in
+ * ProviderCommandReactor (which delivers the never-dispatched brief when a
+ * provision-parked child is recovered), so both produce an identical
+ * first-turn prompt.
  *
  * @module workstreamChildPrompt
  */

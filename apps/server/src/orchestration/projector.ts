@@ -8,6 +8,7 @@ import type {
   ThreadPlanLane,
 } from "@t3tools/contracts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import { gateSourceFor } from "@t3tools/shared/workstreamGraph";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -655,7 +656,26 @@ export function projectEvent(
             // to `none`, so the resubmit's `done` re-arms the fan-in sweep
             // instead of the child staying wedged as a permanent `conflicted`.
             ...(payload.planLane !== "done" && payload.planLane !== "cancelled"
-              ? { fanInState: "none" as const }
+              ? {
+                  fanInState: "none" as const,
+                  // Review gates (design §4.3): manual gate recovery. Reopening a
+                  // rework TARGET to a non-terminal lane (the documented
+                  // `set_lane(coder, ready)` recovery move) restores its
+                  // `pendingRework` when a non-terminal gate source still owes it
+                  // an unresolved rework round — i.e. the source looped its
+                  // findings back (`lastOutcome.decision === "loop"`) and awaits
+                  // rework. Without this the reopened target's next submission
+                  // escapes the gate as plain terminal/yield instead of looping
+                  // back to the reviewer (the incident's round-2 `done` escape).
+                  // A dissolved gate (source terminal/cancelled ⇒ no
+                  // `gateSourceFor`) or a source that never looped restores
+                  // nothing, so an orchestrator detaching a coder from a dead gate
+                  // still works as before.
+                  ...(gateSourceFor(payload.threadId, nextBase.threads)?.lastOutcome?.decision ===
+                  "loop"
+                    ? { pendingRework: true }
+                    : {}),
+                }
               : {}),
             updatedAt: payload.updatedAt,
           }),
