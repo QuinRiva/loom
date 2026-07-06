@@ -182,12 +182,14 @@ Replace the 1 s snapshot-fetch probe with discrimination the failure mode can't 
 
 **D3.3 — End-state file-access matrix.**
 
-| Process           | Opens DB file?                                     |
-| ----------------- | -------------------------------------------------- |
-| Server            | yes — writer + reader connections (both in-server) |
-| Pi children       | no (unchanged — HTTP)                              |
-| CLI, server alive | **no** (was: yes, always)                          |
-| CLI, server dead  | yes — sole process, no contention                  |
+| Process           | Opens DB file?                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| Server            | yes — writer + reader connections (both in-server)                                   |
+| Pi children       | no (unchanged — HTTP)                                                                |
+| CLI, server alive | **no** for orchestration-mutation paths (`t3 goal`/`t3 project`) (was: yes, always)¹ |
+| CLI, server dead  | yes — sole process, no contention                                                    |
+
+¹ Scope annotation (post-review, ratified by plan author): `t3 auth` and `t3 connect` were not analysed in this plan and may still open the DB file while the server runs. They are rare, human-initiated setup commands — not workflow-frequency traffic — so they cannot reproduce the compounding contention behind the >15 s stalls. Extending the token/HTTP treatment to them is a natural follow-on, to be designed only if they are ever observed contending.
 
 With this, `busy_timeout` stops being load-bearing for normal operation (retained as belt-and-braces for the server-dead-CLI → server-starts overlap window), and the 5 s × N amplification path is gone entirely.
 
