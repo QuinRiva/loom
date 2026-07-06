@@ -1076,7 +1076,7 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
           routedTo: routing.routeTo,
           round: routing.round,
           // The source's findings route to the coder (rework); an intercepted
-          // target `done` routes back to the reviewer (reverify).
+          // target rework-round submit routes back to the reviewer (reverify).
           leg: gateLoopTargetOf(self!) === routing.routeTo ? "rework" : "reverify",
         }
       : {}),

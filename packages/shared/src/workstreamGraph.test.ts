@@ -393,15 +393,17 @@ describe("routeWorkSubmit", () => {
     });
   });
 
-  it("intercepts the coder's done during an open rework round, routing back to the source", () => {
+  it("intercepts any rework-round outcome, routing back to the source", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
     const coder = gnode({ id: "coder", pendingRework: true });
-    expect(routeWorkSubmit(coder, [reviewer, coder], "done")).toEqual({
-      decision: "loop",
-      round: 1,
-      routeTo: tid("reviewer"),
-      resolveWith: null,
-    });
+    for (const outcome of ["done", "fixed", "findings_unimplementable"]) {
+      expect(routeWorkSubmit(coder, [reviewer, coder], outcome)).toEqual({
+        decision: "loop",
+        round: 1,
+        routeTo: tid("reviewer"),
+        resolveWith: null,
+      });
+    }
   });
 
   it("does NOT intercept when the gate dissolved (source terminal) — done is plain terminal", () => {
@@ -412,11 +414,11 @@ describe("routeWorkSubmit", () => {
     });
   });
 
-  it("a non-done outcome from the coder mid-round yields (findings unimplementable etc.)", () => {
+  it("needs_human still raises attention from a rework round", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
     const coder = gnode({ id: "coder", pendingRework: true });
-    expect(routeWorkSubmit(coder, [reviewer, coder], "findings_unimplementable")).toMatchObject({
-      decision: "yield",
+    expect(routeWorkSubmit(coder, [reviewer, coder], "needs_human")).toMatchObject({
+      decision: "attention",
     });
   });
 });
@@ -438,8 +440,51 @@ describe("isWaitingInGate", () => {
     expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(true);
   });
 
+  it("suppresses the source after its loop verdict while the target remains non-terminal", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop" },
+    });
+    const coder = gnode({ id: "coder", pendingRework: false });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
+  });
+
+  it("does not suppress a source whose loop target is plain terminal done", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop" },
+    });
+    const coder = gnode({ id: "coder", planLane: "done", pendingRework: false });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
+  });
+
+  it("suppresses a source while the target's routed-back outcome awaits re-verify", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop" },
+    });
+    const coder = gnode({
+      id: "coder",
+      planLane: "done",
+      pendingRework: false,
+      lastOutcome: { decision: "loop" },
+    });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
+  });
+
   it("R4: a cancelled counterpart never suppresses (the dead gate must surface)", () => {
-    const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop" },
+    });
     const coder = gnode({ id: "coder", planLane: "cancelled", pendingRework: true });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
   });

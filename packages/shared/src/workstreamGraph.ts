@@ -251,22 +251,32 @@ export const gateSourceFor = <T extends GateNode>(
 
 /**
  * Gate-waiting is not "forgot to finish" (design §6): true when the thread
- * participates in an unresolved gate and its COUNTERPART holds the active leg
- * — the source waiting on the target's open rework round, or the target that
- * routed back and awaits the source's re-verify. A cancelled counterpart never
- * suppresses (risk R4: the waiting party's idle wake un-suppresses so the
- * orchestrator hears about the dead gate).
+ * participates in an unresolved gate and the protocol has parked it — the
+ * source after it looped findings to the target (including while the target
+ * holds the open rework round), or the target that routed back and awaits the
+ * source's re-verify. A cancelled counterpart never suppresses (risk R4: the
+ * waiting party's idle wake un-suppresses so the orchestrator hears about the
+ * dead gate).
  */
 export const isWaitingInGate = (
   thread: GateNode,
   threadsById: ReadonlyMap<ThreadId, GateNode>,
 ): boolean => {
   if (isTerminalLane(thread.planLane)) return false;
-  // Source waiting: its loop target holds an open rework round.
+  // Source waiting: the target holds the open rework round, or the source has
+  // looped and the target is either still active/yielded or has routed back for
+  // re-verify. A plain terminal target with no routed-back outcome is a dead
+  // gate, not a parked one. A cancelled target deliberately un-suppresses.
   const loopTo = gateLoopTargetOf(thread);
   if (loopTo !== null) {
     const target = threadsById.get(loopTo);
-    if (target !== undefined && target.planLane !== "cancelled" && target.pendingRework) {
+    if (
+      target !== undefined &&
+      target.planLane !== "cancelled" &&
+      (target.pendingRework ||
+        (thread.lastOutcome?.decision === "loop" &&
+          (target.lastOutcome?.decision === "loop" || !isTerminalLane(target.planLane))))
+    ) {
       return true;
     }
   }
@@ -337,11 +347,10 @@ export interface WorkSubmitRouting {
  *   loop target degrades to `yield` (risk R4 — never route into a dead thread).
  * - A source outcome matching a resolve route → `resolve`, completing the
  *   non-terminal counterpart alongside.
- * - `done` from a target with an open rework round → intercepted `loop` back to
- *   the source (round = the source's open round). Any other target outcome
- *   falls through to the generic rule.
+ * - Any non-`needs_human` outcome from a target with an open rework round →
+ *   intercepted `loop` back to the source (round = the source's open round).
  * - Otherwise: `done` → `terminal`, anything else → `yield` (escalation is the
- *   safe default — no outcome can silently become done).
+ *   safe default — no outcome can silently become done outside a rework round).
  */
 export const routeWorkSubmit = <T extends GateNode>(
   thread: T,
@@ -377,7 +386,7 @@ export const routeWorkSubmit = <T extends GateNode>(
   }
   if (thread.pendingRework) {
     const source = gateSourceFor(thread.id, threads);
-    if (source !== null && outcome === "done") {
+    if (source !== null) {
       return { ...base, decision: "loop", round: source.gateRounds, routeTo: source.id };
     }
   }

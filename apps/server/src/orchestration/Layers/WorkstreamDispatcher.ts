@@ -1109,10 +1109,10 @@ const make = Effect.gen(function* () {
       // the command id without writing a receipt.
       let kind = classifyChildWake(child, pendingTurnStartThreadIds);
       // Gate-waiting is not "forgot to finish" (review-gates design §6): a gate
-      // party idling while its counterpart holds the active leg (the source
-      // awaiting rework, or the routed-back target awaiting re-verify) is
-      // exactly where the protocol parks it — no idle nag. A cancelled
-      // counterpart un-suppresses (risk R4) so the dead gate surfaces.
+      // party idling while the protocol has parked it (the source after a loop
+      // verdict, or the routed-back target awaiting re-verify) is exactly where
+      // it belongs — no idle nag. A cancelled counterpart un-suppresses (risk
+      // R4) so the dead gate surfaces.
       if (kind === "idle" && isWaitingInGate(child, threadsById)) continue;
       let episode: string;
       let context: ChildWakeContext | undefined;
