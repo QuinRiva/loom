@@ -24,6 +24,7 @@ import {
   type PiThinkingLevel,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type RuntimeErrorClass,
   type ProviderTurnStartResult,
   type ServerProvider,
   type ServerProviderModel,
@@ -83,6 +84,15 @@ import {
   type ProviderInstance,
 } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import { PI_QUOTA_ERROR_RE, accountKeyForModelSlug } from "../exhaustionMapping.ts";
+import { resolveFailoverTarget } from "../failoverChains.ts";
+import {
+  ProviderHealthRegistry,
+  matches as markMatchesAccount,
+  type ProviderHealthRegistryShape,
+} from "../Services/ProviderHealthRegistry.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import type { ProviderFailoverSettings } from "@t3tools/contracts";
 import { buildServerProvider, type ServerProviderDraft } from "../providerSnapshot.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import {
@@ -133,7 +143,28 @@ const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   ],
 });
 
-export type PiDriverEnv = ServerConfig;
+export type PiDriverEnv = ServerConfig | ProviderHealthRegistry | ServerSettingsService;
+
+/** Short settle before a reactive tier-2 switch re-prompts on the fallback. */
+const T3_QUOTA_FAILOVER_DELAY_MS = 2_000;
+
+/** Failover config used when settings can't be read (rare, cache-backed). */
+const DEFAULT_FAILOVER: Pick<ProviderFailoverSettings, "enabled" | "chains"> = {
+  enabled: true,
+  chains: undefined,
+};
+
+/**
+ * Outcome of tier-2 effective-model resolution (§5.4). Kept distinct so a
+ * dispatch NEVER lands on an exhausted/paused account: "intended" and
+ * "fallback" carry a concrete slug to run on; "exhausted" means the intent is
+ * exhausted/paused with no healthy target (or failover off) — the turn must
+ * fail `quota_exhausted` for the resume sweep, not dispatch.
+ */
+type EffectiveResolution =
+  | { readonly kind: "intended"; readonly slug: string }
+  | { readonly kind: "fallback"; readonly slug: string }
+  | { readonly kind: "exhausted" };
 
 interface ActivePiSession {
   session: ProviderSession;
@@ -160,6 +191,17 @@ interface ActivePiSession {
       }
     | undefined;
   currentAssistantMessageId: string | undefined;
+  // Tier-2 effective-model tracking (§5.4): the slug this session is currently
+  // running on after failover resolution. Distinct from `session.model` (which
+  // the tier-1 transient path also mutates); used solely to dedupe
+  // `model.rerouted` emission so it fires once per effective-slug change.
+  lastEffectiveModel: string | undefined;
+  // Window label (e.g. "weekly") and formatted reset time of the exhaustion
+  // that last forced a reroute, cached so the "back onto intended" reason can
+  // name the window + when it reset (its health mark is already cleared by
+  // then). §5.4.
+  lastRerouteWindowLabel: string | undefined;
+  lastRerouteResetAt: string | undefined;
   // pi delivers tool input only on `tool_execution_start`/`update.args` and the
   // bare result on `tool_execution_end` — so we stash the args by toolCallId on
   // start/update and merge them back into the `item.completed` payload on end.
@@ -592,6 +634,21 @@ export function piRunOutcome(messages: ReadonlyArray<Record<string, unknown>> | 
   return { stopReason: undefined, errorMessage: undefined };
 }
 
+/** Concise reset-time label for reroute reasons, e.g. "07 Jul 23:00". */
+export const formatResetTime = (iso: string | null): string | undefined => {
+  if (!iso) return undefined;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? undefined
+    : date.toLocaleString("en-AU", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+};
+
 /** In-band control-plane framing for the retry re-prompt (the errored run left
  * pi idle; a fresh prompt is the only way to resume it). */
 export const buildPiRetryPrompt = (errorMessage: string): string =>
@@ -672,6 +729,12 @@ function makePiAdapter(input: {
   // Shared slug -> context-window map populated by `enrichPiSnapshot` from pi's
   // live catalogue; read synchronously here to set token-usage `maxTokens`.
   readonly modelContextWindows: Map<string, number>;
+  // Exhaustion state: consulted for quota corroboration and written on
+  // error-classified quota failures, and read for tier-2 effective routing.
+  readonly healthRegistry: ProviderHealthRegistryShape;
+  // Reads the current tier-2 failover config (master switch + chain overrides)
+  // fresh each dispatch; defaults to enabled-with-built-ins if settings error.
+  readonly readFailover: Effect.Effect<Pick<ProviderFailoverSettings, "enabled" | "chains">>;
 }): ProviderAdapterShape<
   | ProviderAdapterProcessError
   | ProviderAdapterRequestError
@@ -728,33 +791,210 @@ function makePiAdapter(input: {
       : Effect.void;
   };
 
+  // Tier-2 effective routing (§5.4): the thread's stored selection is the
+  // *intent* and is never rewritten; each dispatch resolves an *effective* slug
+  // — the intent when healthy, a failover target when the intent's account is
+  // exhausted and tier-2 is enabled. Pure branch logic lives in
+  // `resolveFailoverTarget`; here we just gather the (synchronous) health
+  // snapshot + settings and feed it in. Stateless: one decision per dispatch,
+  // no ladder.
+  const resolveEffectiveModel = (intentSlug: string): Effect.Effect<EffectiveResolution> =>
+    Effect.gen(function* () {
+      const accountKey = accountKeyForModelSlug(intentSlug);
+      // API-billed slugs never register exhaustion (no subscription window).
+      if (accountKey === null) return { kind: "intended", slug: intentSlug };
+      const modelId = resolvePiModel(intentSlug)?.modelId;
+      const marks = yield* input.healthRegistry.snapshot;
+      const isExhausted = (key: string, id?: string) =>
+        marks.some((mark) => markMatchesAccount(mark, key, id));
+      if (!isExhausted(accountKey, modelId)) return { kind: "intended", slug: intentSlug };
+      // Intent is exhausted/paused. Disabled failover ⇒ fail and wait for reset
+      // (§5.4); enabled ⇒ reroute, failing only when no healthy target exists.
+      const failover = yield* input.readFailover;
+      if (!failover.enabled) return { kind: "exhausted" };
+      const target = resolveFailoverTarget({
+        slug: intentSlug,
+        catalogue: new Set(input.modelContextWindows.keys()),
+        isExhausted,
+        ...(failover.chains ? { chains: failover.chains } : {}),
+      });
+      return target === undefined ? { kind: "exhausted" } : { kind: "fallback", slug: target };
+    });
+
+  // Describe the intent's active exhaustion for reason/message strings: which
+  // window tripped, the model display name, reset time, and whether it is a
+  // manual pause (which has no reset).
+  const describeExhaustion = (
+    intentSlug: string,
+  ): Effect.Effect<{
+    readonly windowLabel: string | undefined;
+    readonly displayName: string | undefined;
+    readonly resetsAt: string | undefined;
+    readonly paused: boolean;
+  }> =>
+    Effect.gen(function* () {
+      const accountKey = accountKeyForModelSlug(intentSlug);
+      const modelId = resolvePiModel(intentSlug)?.modelId;
+      if (accountKey === null)
+        return {
+          windowLabel: undefined,
+          displayName: undefined,
+          resetsAt: undefined,
+          paused: false,
+        };
+      const [until, marks] = yield* Effect.all([
+        input.healthRegistry.exhaustedUntil(accountKey, modelId),
+        input.healthRegistry.snapshot,
+      ]);
+      const mark = marks.find((m) => markMatchesAccount(m, accountKey, modelId));
+      return {
+        windowLabel: mark?.windowLabel,
+        displayName: mark?.displayName,
+        resetsAt: formatResetTime(until),
+        paused: mark?.source === "manual",
+      };
+    });
+
+  // "(Fable, resets 07 Jul 23:00)" / "(manually paused)" qualifier.
+  const exhaustionQualifier = (d: {
+    readonly displayName: string | undefined;
+    readonly resetsAt: string | undefined;
+    readonly paused: boolean;
+  }): string => {
+    const bits = [
+      d.displayName,
+      d.resetsAt ? `resets ${d.resetsAt}` : d.paused ? "manually paused" : undefined,
+    ].filter((bit): bit is string => Boolean(bit));
+    return bits.length > 0 ? ` (${bits.join(", ")})` : "";
+  };
+
+  // Reason for a reroute ONTO a fallback (§5.4 wording): names the exhausted
+  // window + reset time (or pause), and never claims a reset when none is known.
+  const rerouteReasonFrom = (
+    d: {
+      readonly windowLabel: string | undefined;
+      readonly displayName: string | undefined;
+      readonly resetsAt: string | undefined;
+      readonly paused: boolean;
+    },
+    intentSlug: string,
+    effective: string,
+  ): string => {
+    const limit = d.windowLabel ? `${d.windowLabel} limit` : "usage limit";
+    const tail = d.resetsAt ? " until it resets" : d.paused ? " until unpaused" : "";
+    return `${intentSlug} ${limit} reached${exhaustionQualifier(d)} — running on ${effective}${tail}.`;
+  };
+
+  // Reason for reverting BACK onto the intended model once its window reset,
+  // using the window label + reset time cached when we routed onto the fallback
+  // (the health mark is gone by now); clears the cache. Avoids reset-shaped
+  // wording when no reset time was known (e.g. a manual unpause).
+  const restoreReason = (
+    session: ActivePiSession,
+    intentSlug: string,
+    last: string | undefined,
+  ): string => {
+    const window = session.lastRerouteWindowLabel ? `${session.lastRerouteWindowLabel} ` : "";
+    const resetAt = session.lastRerouteResetAt;
+    session.lastRerouteWindowLabel = undefined;
+    session.lastRerouteResetAt = undefined;
+    const wasRouted = last ? ` (was routed to ${last})` : "";
+    return resetAt
+      ? `${intentSlug} ${window}usage window reset at ${resetAt} — resuming on it${wasRouted}.`
+      : `${intentSlug} is available again — resuming on it${wasRouted}.`;
+  };
+
+  // Terminal-failure message when the intent is exhausted and no fallback is
+  // available — the resume sweep (chunk D) restarts it once the window resets.
+  const exhaustedFailureMessage = (intentSlug: string): Effect.Effect<string> =>
+    Effect.gen(function* () {
+      const d = yield* describeExhaustion(intentSlug);
+      const limit = d.windowLabel ? `${d.windowLabel} limit` : "usage limit";
+      const tail = d.paused ? " — account is paused" : " — waiting for reset";
+      return `${intentSlug} ${limit} reached${exhaustionQualifier(d)}; no healthy fallback available${tail}.`;
+    });
+
+  // Emit `model.rerouted` only when the effective slug changes (both directions),
+  // deduped via `lastEffectiveModel`. The very first dispatch onto a healthy
+  // intent is silent; a first dispatch already on a fallback (exhausted at
+  // kick-off) still announces. Never called for the "exhausted" outcome, so no
+  // false "available again" fires while the intent is still exhausted.
+  const maybeEmitReroute = (
+    session: ActivePiSession,
+    intentSlug: string,
+    effective: string,
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const last = session.lastEffectiveModel;
+      session.lastEffectiveModel = effective;
+      if (effective === last || (last === undefined && effective === intentSlug)) return;
+      if (effective !== intentSlug) {
+        const d = yield* describeExhaustion(intentSlug);
+        session.lastRerouteWindowLabel = d.windowLabel;
+        session.lastRerouteResetAt = d.resetsAt;
+        yield* emit({
+          ...sessionBase(session),
+          type: "model.rerouted",
+          payload: {
+            fromModel: intentSlug,
+            toModel: effective,
+            reason: rerouteReasonFrom(d, intentSlug, effective),
+          },
+        });
+      } else {
+        yield* emit({
+          ...sessionBase(session),
+          type: "model.rerouted",
+          payload: {
+            fromModel: last ?? intentSlug,
+            toModel: effective,
+            reason: restoreReason(session, intentSlug, last),
+          },
+        });
+      }
+    });
+
   // Tell the live pi process which model/thinking level to run, skipping RPCs
   // whose value already matches what this adapter last applied. Called at
   // session start (pi would otherwise silently run the user's global default)
-  // and on every turn that carries a selection.
+  // and on every turn that carries a selection. Applies tier-2 effective
+  // routing so an exhausted intent runs on its fallback from the first dispatch.
   const applyModelSelection = (
     session: ActivePiSession,
     selection: ModelSelection,
+    resolution?: EffectiveResolution,
   ): Effect.Effect<void, ProviderAdapterRequestError> =>
     Effect.gen(function* () {
-      const model = resolvePiModel(selection.model);
-      if (model && selection.model !== session.session.model) {
-        yield* Effect.tryPromise({
-          try: () =>
-            session.process.request({
-              type: "set_model",
-              provider: model.provider,
-              modelId: model.modelId,
-            }),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: DRIVER_KIND,
-              method: "set_model",
-              detail: detailFromCause(cause, "Failed to set Pi model."),
-              cause,
-            }),
-        });
-        updateSession(session, { model: selection.model });
+      const resolved =
+        resolution ??
+        (resolvePiModel(selection.model)
+          ? yield* resolveEffectiveModel(selection.model)
+          : ({ kind: "intended", slug: selection.model } as EffectiveResolution));
+      // Only configure a model when we have a concrete slug to run on. The
+      // "exhausted" outcome must NOT set_model the dead account (sendTurn fails
+      // the turn instead); at session start it simply leaves pi unconfigured
+      // until the first turn fails.
+      if (resolved.kind !== "exhausted") {
+        const model = resolvePiModel(resolved.slug);
+        if (model && resolved.slug !== session.session.model) {
+          yield* Effect.tryPromise({
+            try: () =>
+              session.process.request({
+                type: "set_model",
+                provider: model.provider,
+                modelId: model.modelId,
+              }),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: DRIVER_KIND,
+                method: "set_model",
+                detail: detailFromCause(cause, "Failed to set Pi model."),
+                cause,
+              }),
+          });
+          updateSession(session, { model: resolved.slug });
+        }
+        if (model) yield* maybeEmitReroute(session, selection.model, resolved.slug);
       }
       const thinkingLevel = getModelSelectionStringOptionValue(selection, "thinkingLevel") as
         | PiThinkingLevel
@@ -795,11 +1035,12 @@ function makePiAdapter(input: {
     session: ActivePiSession,
     errorMessage: string,
     raw?: ProviderRuntimeEvent["raw"],
+    errorClass: RuntimeErrorClass = "provider_error",
   ): Effect.Effect<void> => {
     const events = emit({
       ...sessionBase(session, raw),
       type: "runtime.error",
-      payload: { message: errorMessage, class: "provider_error" },
+      payload: { message: errorMessage, class: errorClass },
     }).pipe(
       Effect.andThen(
         emit({
@@ -926,6 +1167,130 @@ function makePiAdapter(input: {
       },
     });
   };
+
+  // Reactive tier-2 switch on a quota-classified failure: set the fallback
+  // model, announce the reroute, and re-prompt the still-open turn (mirrors
+  // `dispatchTurnRetry`'s set_model + control-plane re-prompt). Stateless — a
+  // single switch decision; if the fallback also dies quota-wise it re-enters
+  // this path, marks the fallback, and the next resolution skips it (chains are
+  // finite, so this terminates). A switch/re-prompt failure falls to the
+  // terminal quota failure.
+  const rerouteAndReprompt = (
+    session: ActivePiSession,
+    fromSlug: string,
+    toSlug: string,
+    errorMessage: string,
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const model = resolvePiModel(toSlug);
+      if (!model) {
+        yield* failTurn(session, errorMessage, undefined, "quota_exhausted");
+        return;
+      }
+      const d = yield* describeExhaustion(fromSlug);
+      session.lastRerouteWindowLabel = d.windowLabel;
+      session.lastRerouteResetAt = d.resetsAt;
+      const reason = rerouteReasonFrom(d, fromSlug, toSlug);
+      yield* Effect.tryPromise({
+        try: () =>
+          session.process.request({
+            type: "set_model",
+            provider: model.provider,
+            modelId: model.modelId,
+          }),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: DRIVER_KIND,
+            method: "set_model",
+            detail: detailFromCause(cause, "Failed to switch Pi failover model."),
+            cause,
+          }),
+      });
+      updateSession(session, { model: toSlug });
+      session.lastEffectiveModel = toSlug;
+      yield* emit({
+        ...sessionBase(session),
+        type: "model.rerouted",
+        payload: { fromModel: fromSlug, toModel: toSlug, reason },
+      });
+      yield* Effect.sleep(Duration.millis(T3_QUOTA_FAILOVER_DELAY_MS));
+      yield* Effect.tryPromise({
+        try: () =>
+          session.process.request({ type: "prompt", message: buildPiRetryPrompt(errorMessage) }),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: DRIVER_KIND,
+            method: "prompt",
+            detail: detailFromCause(cause, "Failed to dispatch Pi failover prompt."),
+            cause,
+          }),
+      });
+    }).pipe(
+      Effect.catch((error) =>
+        failTurn(
+          session,
+          `${errorMessage} (failover switch failed: ${error.detail})`,
+          undefined,
+          "quota_exhausted",
+        ),
+      ),
+    );
+
+  // Classify a failed turn's error and route it (§5.1/§5.3). Quota classification
+  // runs BEFORE the transient ladder so a quota error never burns retries against
+  // a dead account. Exhausted iff the message is quota-shaped, OR it is transient
+  // AND the health registry already marks this slug's account exhausted (a bare
+  // 429 during a known-exhausted window is exhaustion, not overload). On
+  // exhaustion: record an error-sourced mark and fail with `quota_exhausted`
+  // (rerouting is chunk C). Otherwise: existing transient ladder, then
+  // `provider_error`.
+  const classifyAndHandleError = (
+    session: ActivePiSession,
+    errorMessage: string,
+    raw?: ProviderRuntimeEvent["raw"],
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const slug = session.session.model;
+      const accountKey = slug ? accountKeyForModelSlug(slug) : null;
+      const modelId = slug ? resolvePiModel(slug)?.modelId : undefined;
+      const quotaByRegex = PI_QUOTA_ERROR_RE.test(errorMessage);
+      const quotaByCorroboration =
+        !quotaByRegex &&
+        accountKey !== null &&
+        PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage) &&
+        (yield* input.healthRegistry.isExhausted(accountKey, modelId));
+      if (quotaByRegex || quotaByCorroboration) {
+        if (accountKey !== null) {
+          yield* input.healthRegistry.markExhausted({
+            accountKey,
+            modelScope: modelId ?? "*",
+            until: null,
+            source: "error",
+          });
+        }
+        // With the mark now set, resolve a healthy fallback for the failed slug
+        // and switch to it (tier 2 stays out of the transient ladder). No
+        // healthy target (or failover disabled) ⇒ terminal quota failure, which
+        // the resume sweep (chunk D) picks up at reset.
+        const resolution = slug
+          ? yield* resolveEffectiveModel(slug)
+          : ({ kind: "exhausted" } as EffectiveResolution);
+        if (resolution.kind === "fallback" && slug && resolvePiModel(resolution.slug)) {
+          yield* rerouteAndReprompt(session, slug, resolution.slug, errorMessage);
+          return;
+        }
+        yield* failTurn(session, errorMessage, raw, "quota_exhausted");
+        return;
+      }
+      if (PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage)) {
+        const retry = scheduleTurnRetry(session, errorMessage);
+        if (retry) {
+          yield* retry; // turn stays open through the retry window
+          return;
+        }
+      }
+      yield* failTurn(session, errorMessage, raw);
+    });
 
   const handleMessage = (session: ActivePiSession, message: PiRpcStdoutMessage) => {
     const raw = rawPiMessage(message);
@@ -1131,12 +1496,7 @@ function makePiAdapter(input: {
         }
         const outcome = piRunOutcome(message.messages);
         if (outcome.stopReason === "error") {
-          const errorMessage = outcome.errorMessage ?? "Pi turn failed.";
-          if (PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage)) {
-            const retry = scheduleTurnRetry(session, errorMessage);
-            if (retry) return retry; // turn stays open through the retry window
-          }
-          return failTurn(session, errorMessage, raw);
+          return classifyAndHandleError(session, outcome.errorMessage ?? "Pi turn failed.", raw);
         }
         return completeTurn(
           session,
@@ -1294,6 +1654,9 @@ function makePiAdapter(input: {
               thinkingLevel: undefined,
               retry: undefined,
               currentAssistantMessageId: undefined,
+              lastEffectiveModel: undefined,
+              lastRerouteWindowLabel: undefined,
+              lastRerouteResetAt: undefined,
               toolArgs: new Map(),
             };
             active.unsubscribe = process.subscribe(
@@ -1375,8 +1738,46 @@ function makePiAdapter(input: {
             const inBackoff =
               session.retry?.timer !== undefined && session.activeTurnId !== undefined;
             if (inBackoff) yield* settleRetry(session);
-            if (turnInput.modelSelection)
-              yield* applyModelSelection(session, turnInput.modelSelection);
+            if (turnInput.modelSelection) {
+              // Resolve tier-2 routing once; an "exhausted" outcome (intent
+              // exhausted/paused with no healthy target, or failover off) must
+              // fail the turn quota_exhausted WITHOUT dispatching to the dead
+              // account — the resume sweep (chunk D) restarts it at reset. Only
+              // for a FRESH turn: a steer (turn already running) can't retarget
+              // mid-run, so it continues on the live model and fails naturally.
+              const resolution = resolvePiModel(turnInput.modelSelection.model)
+                ? yield* resolveEffectiveModel(turnInput.modelSelection.model)
+                : ({
+                    kind: "intended",
+                    slug: turnInput.modelSelection.model,
+                  } as EffectiveResolution);
+              if (resolution.kind === "exhausted" && session.activeTurnId === undefined) {
+                const failedTurnId = TurnId.make(`pi-turn-${NodeCrypto.randomUUID()}`);
+                session.activeTurnId = failedTurnId;
+                session.turns.push({ id: failedTurnId, items: [] });
+                updateSession(session, { status: "running", activeTurnId: failedTurnId });
+                // Emit turn.started (pi never runs here, so its agent_start
+                // won't) so the projection creates the turn row + clears the
+                // pending turn-start; failTurn then settles it as failed.
+                session.turnStartedFor = failedTurnId;
+                yield* emit({
+                  ...sessionBase(session),
+                  type: "turn.started",
+                  payload: { model: turnInput.modelSelection.model },
+                });
+                yield* failTurn(
+                  session,
+                  yield* exhaustedFailureMessage(turnInput.modelSelection.model),
+                  undefined,
+                  "quota_exhausted",
+                );
+                return {
+                  threadId: turnInput.threadId,
+                  turnId: failedTurnId,
+                } satisfies ProviderTurnStartResult;
+              }
+              yield* applyModelSelection(session, turnInput.modelSelection, resolution);
+            }
             // A send while a turn is already running is a steer: pi folds the
             // message into the live agent loop and continues the SAME turn, so
             // we keep the existing turn id and don't re-emit lifecycle state
@@ -1502,6 +1903,15 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, enabled, config }) =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig;
+      const healthRegistry = yield* ProviderHealthRegistry;
+      const serverSettings = yield* ServerSettingsService;
+      const readFailover = serverSettings.getSettings.pipe(
+        Effect.map((s) => ({
+          enabled: s.providerFailover.enabled,
+          chains: s.providerFailover.chains,
+        })),
+        Effect.orElseSucceed(() => DEFAULT_FAILOVER),
+      );
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -1525,6 +1935,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         serverConfig,
         events,
         modelContextWindows,
+        healthRegistry,
+        readFailover,
       });
       yield* Effect.addFinalizer(() =>
         adapter.stopAll().pipe(Effect.ignore, Effect.andThen(Queue.shutdown(events))),

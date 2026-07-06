@@ -31,6 +31,13 @@ export interface AccountUsageWindowView {
   readonly resetsAt: string | null;
   /** e.g. "resets in 2h 14m"; null when no/elapsed reset time is known. */
   readonly resetLabel: string | null;
+  /**
+   * Model display name when this is a per-model scoped window (e.g. "Fable").
+   * Absent ⇒ an account-wide window (today's shape). Scoped windows render as
+   * their own labelled bar so a model carve-out (weekly Fable at 100%) is
+   * visible even while the account-wide weekly is fine.
+   */
+  readonly scopeDisplayName?: string;
 }
 
 export interface AccountUsageView {
@@ -50,8 +57,19 @@ export interface AccountUsageView {
 
 const WINDOW_ORDER: Record<AccountUsageWindow["kind"], number> = { primary: 0, secondary: 1 };
 
-function windowLabel(kind: AccountUsageWindow["kind"]): string {
-  return kind === "primary" ? "5-hour limit" : "Weekly limit";
+function windowLabel(window: AccountUsageWindow): string {
+  if (window.scope) return window.scope.displayName;
+  return window.kind === "primary" ? "5-hour limit" : "Weekly limit";
+}
+
+/** Account-wide windows first, then scoped ones ordered by display name. */
+function compareWindows(left: AccountUsageWindowView, right: AccountUsageWindowView): number {
+  const kindDelta = WINDOW_ORDER[left.kind] - WINDOW_ORDER[right.kind];
+  if (kindDelta !== 0) return kindDelta;
+  const leftScoped = left.scopeDisplayName ? 1 : 0;
+  const rightScoped = right.scopeDisplayName ? 1 : 0;
+  if (leftScoped !== rightScoped) return leftScoped - rightScoped;
+  return (left.scopeDisplayName ?? "").localeCompare(right.scopeDisplayName ?? "");
 }
 
 function clampPercent(value: number): number {
@@ -83,11 +101,12 @@ function toWindowView(window: AccountUsageWindow, nowMs: number): AccountUsageWi
   const usedPercent = clampPercent(window.usedPercent);
   return {
     kind: window.kind,
-    label: windowLabel(window.kind),
+    label: windowLabel(window),
     usedPercent,
     tone: accountUsageTone(usedPercent),
     resetsAt: window.resetsAt,
     resetLabel: formatAccountUsageReset(window.resetsAt, nowMs),
+    ...(window.scope ? { scopeDisplayName: window.scope.displayName } : {}),
   };
 }
 
@@ -115,10 +134,14 @@ export function deriveAccountUsageViews(
     .map(([key, snapshot]): AccountUsageView => {
       const windows = snapshot.windows
         .map((window) => toWindowView(window, nowMs))
-        .sort((left, right) => WINDOW_ORDER[left.kind] - WINDOW_ORDER[right.kind]);
+        .sort(compareWindows);
       const loudestPercent = windows.reduce((max, window) => Math.max(max, window.usedPercent), 0);
+      // The compact pill shows the account-wide 5-hour window, never a scoped one.
       const displayPercent =
-        (windows.find((window) => window.kind === "primary") ?? windows[0])?.usedPercent ?? 0;
+        (
+          windows.find((window) => window.kind === "primary" && !window.scopeDisplayName) ??
+          windows[0]
+        )?.usedPercent ?? 0;
       return {
         key,
         providerName: snapshot.providerName,

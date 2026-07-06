@@ -22,6 +22,7 @@ import {
   RuntimeMode,
 } from "./orchestration.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
+import { RuntimeErrorClass } from "./providerRuntime.ts";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -47,6 +48,10 @@ export const ProviderSession = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastError: Schema.optional(TrimmedNonEmptyString),
+  // Classification of the last error (set alongside `lastError`). Lets the
+  // exhaustion resume sweep find `quota_exhausted`-stalled sessions without
+  // re-parsing the raw string. Absent for sessions that never errored.
+  lastErrorClass: Schema.optional(RuntimeErrorClass),
 });
 export type ProviderSession = typeof ProviderSession.Type;
 

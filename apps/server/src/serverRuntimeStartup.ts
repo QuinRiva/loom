@@ -37,6 +37,7 @@ import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
 import { ProviderService } from "./provider/Services/ProviderService.ts";
 import { WorkstreamLivenessSweep } from "./orchestration/Services/WorkstreamLivenessSweep.ts";
+import { ExhaustionResumeSweep } from "./orchestration/Services/ExhaustionResumeSweep.ts";
 import { SubscriptionUsagePoller } from "./provider/Services/SubscriptionUsagePoller.ts";
 import {
   formatHeadlessServeOutput,
@@ -385,6 +386,7 @@ export const make = Effect.gen(function* () {
   const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
   const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
   const workstreamLivenessSweep = yield* WorkstreamLivenessSweep;
+  const exhaustionResumeSweep = yield* ExhaustionResumeSweep;
   const subscriptionUsagePoller = yield* SubscriptionUsagePoller;
   const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -437,6 +439,7 @@ export const make = Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
         yield* workstreamLivenessSweep.start().pipe(Scope.provide(reactorScope));
+        yield* exhaustionResumeSweep.start().pipe(Scope.provide(reactorScope));
         yield* subscriptionUsagePoller.start().pipe(Scope.provide(reactorScope));
       }),
     );

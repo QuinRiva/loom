@@ -623,6 +623,9 @@ const make = Effect.gen(function* () {
             // Provider turn ids are not orchestration turn ids.
             activeTurnId: null,
             lastError: session.lastError ?? null,
+            ...(session.lastErrorClass !== undefined
+              ? { lastErrorClass: session.lastErrorClass }
+              : {}),
             queuedMessages: { steering: [], followUp: [] },
             updatedAt: session.updatedAt,
           },
@@ -1259,6 +1262,9 @@ const make = Effect.gen(function* () {
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
         lastError: thread.session?.lastError ?? null,
+        ...(thread.session?.lastErrorClass !== undefined
+          ? { lastErrorClass: thread.session.lastErrorClass }
+          : {}),
         queuedMessages: { steering: [], followUp: [] },
         updatedAt: now,
       },

@@ -96,11 +96,15 @@ export type RuntimeContentStreamKind = typeof RuntimeContentStreamKind.Type;
 const RuntimeSessionExitKind = Schema.Literals(["graceful", "error"]);
 export type RuntimeSessionExitKind = typeof RuntimeSessionExitKind.Type;
 
-const RuntimeErrorClass = Schema.Literals([
+export const RuntimeErrorClass = Schema.Literals([
   "provider_error",
   "transport_error",
   "permission_error",
   "validation_error",
+  // Subscription/quota exhaustion (5h/weekly limit). Distinct from a generic
+  // provider_error so the exhaustion resume sweep can find stalled turns and
+  // the UI can surface "limit reached — resets …" rather than a raw failure.
+  "quota_exhausted",
   "unknown",
 ]);
 export type RuntimeErrorClass = typeof RuntimeErrorClass.Type;
@@ -588,6 +592,12 @@ export const AccountUsageWindow = Schema.Struct({
   usedPercent: Schema.Number,
   resetsAt: Schema.NullOr(IsoDateTime),
   windowDurationMins: Schema.NullOr(Schema.Number),
+  scope: Schema.optional(
+    Schema.Struct({
+      displayName: TrimmedNonEmptyString,
+      modelId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    }),
+  ),
 });
 export type AccountUsageWindow = typeof AccountUsageWindow.Type;
 
@@ -600,6 +610,10 @@ export const AccountUsageSnapshot = Schema.Struct({
   windows: Schema.Array(AccountUsageWindow),
   planType: Schema.NullOr(TrimmedNonEmptyString),
   observedAt: IsoDateTime,
+  // Provider-agnostic explicit exhaustion flag (e.g. Codex `limit_reached` /
+  // `allowed: false`). Absent ⇒ no explicit signal (today's shape, mobile-safe);
+  // when true the account is exhausted account-wide regardless of window percent.
+  limitReached: Schema.optional(Schema.Boolean),
 });
 export type AccountUsageSnapshot = typeof AccountUsageSnapshot.Type;
 

@@ -1526,6 +1526,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       if (event.type !== "thread.session-set") {
         return;
       }
+      const explicitLastErrorClass = event.payload.session.lastErrorClass;
+      const previousSession =
+        explicitLastErrorClass === undefined
+          ? Option.getOrNull(
+              yield* projectionThreadSessionRepository.getByThreadId({
+                threadId: event.payload.threadId,
+              }),
+            )
+          : null;
       yield* projectionThreadSessionRepository.upsert({
         threadId: event.payload.threadId,
         status: event.payload.session.status,
@@ -1534,6 +1543,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         runtimeMode: event.payload.session.runtimeMode,
         activeTurnId: event.payload.session.activeTurnId,
         lastError: event.payload.session.lastError,
+        lastErrorClass:
+          explicitLastErrorClass ??
+          (previousSession?.lastError === event.payload.session.lastError
+            ? previousSession.lastErrorClass
+            : null),
         updatedAt: event.payload.session.updatedAt,
       });
     });

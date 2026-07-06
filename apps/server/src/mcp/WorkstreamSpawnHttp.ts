@@ -15,6 +15,7 @@ import {
 } from "@t3tools/contracts";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -42,7 +43,11 @@ import {
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
+import { ProviderHealthRegistry } from "../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
+import { formatResetHint, subscriptionScopeForSelection } from "../provider/exhaustionMapping.ts";
+import { resolveFailoverTarget } from "../provider/failoverChains.ts";
+import { exhaustionPredicate, piCatalogueFromProviders } from "../provider/failoverRouting.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 
@@ -230,6 +235,23 @@ export const resolvePresetSelection = (input: {
       }
     : { kind: "selection", selection: input.parentSelection, source: { kind: "inherited" } };
 };
+
+/**
+ * Spawn-time exhaustion warning (§7, D6). The resolved selection is NEVER
+ * rewritten — the child inherits intent and effective routing (chunk C) applies
+ * the fallback per dispatch, reverting after reset. This only surfaces what will
+ * happen so the orchestrator sees it in the tool result. When a healthy fallback
+ * is resolved (shared {@link resolveFailoverTarget}), it is named; otherwise the
+ * warning states the child will not start until the limit resets.
+ */
+export const buildSpawnExhaustionWarning = (input: {
+  readonly slug: string;
+  readonly resetHint: string;
+  readonly fallbackTarget: string | undefined;
+}): string =>
+  input.fallbackTarget !== undefined
+    ? `Resolved model ${input.slug} is exhausted (resets ${input.resetHint}); the child will run on fallback ${input.fallbackTarget} until ${input.slug} resets, then return to it.`
+    : `Resolved model ${input.slug} is exhausted (resets ${input.resetHint}) and no healthy fallback is available; the child will not start until the limit resets ${input.resetHint} — it resumes automatically then.`;
 
 type DependencySibling = {
   readonly id: ThreadId;
@@ -737,6 +759,46 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     modelSelection = resolved.selection;
   }
 
+  // Exhaustion-aware spawn warning (§7): consult the health registry for the
+  // resolved selection (all precedence steps, explicit included). No selection
+  // rewriting (D6) — warn only.
+  const exhaustionWarnings: string[] = [];
+  const slugScope = subscriptionScopeForSelection(modelSelection);
+  if (slugScope.accountKey !== null) {
+    const health = yield* ProviderHealthRegistry;
+    const isExhausted = exhaustionPredicate(yield* health.snapshot);
+    if (isExhausted(slugScope.accountKey, slugScope.modelId)) {
+      const until = yield* health.exhaustedUntil(slugScope.accountKey, slugScope.modelId);
+      // Non-fatal: a settings read failure must not 500 a spawn that would
+      // otherwise succeed; default to the schema default (failover enabled).
+      const failover = yield* (yield* ServerSettingsService).getSettings.pipe(
+        Effect.map((s) => ({
+          enabled: s.providerFailover.enabled,
+          chains: s.providerFailover.chains,
+        })),
+        Effect.orElseSucceed(() => ({ enabled: true, chains: undefined })),
+      );
+      // Name the concrete fallback when one is healthy (§7). Only a pi selection
+      // with failover on reroutes (§9); direct drivers always warn wait-to-reset.
+      const fallbackTarget =
+        failover.enabled && slugScope.isPiSubscriptionSlug
+          ? resolveFailoverTarget({
+              slug: modelSelection.model,
+              catalogue: piCatalogueFromProviders(yield* (yield* ProviderRegistry).getProviders),
+              isExhausted,
+              ...(failover.chains !== undefined ? { chains: failover.chains } : {}),
+            })
+          : undefined;
+      exhaustionWarnings.push(
+        buildSpawnExhaustionWarning({
+          slug: modelSelection.model,
+          resetHint: formatResetHint(until, yield* Clock.currentTimeMillis),
+          fallbackTarget,
+        }),
+      );
+    }
+  }
+
   // Trim before branding: ThreadId.make("") throws a defect that escapes the
   // typed Effect.catch, and untrimmed ids silently become dangling deps.
   const blockedBy = Array.isArray(body.blockedBy)
@@ -819,7 +881,9 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     childThreadId,
     parentThreadId: scope.threadId,
     title,
-    ...(graph.warnings.length > 0 ? { warnings: graph.warnings } : {}),
+    ...(graph.warnings.length + exhaustionWarnings.length > 0
+      ? { warnings: [...graph.warnings, ...exhaustionWarnings] }
+      : {}),
   });
 }).pipe(
   Effect.catch((error: unknown) =>

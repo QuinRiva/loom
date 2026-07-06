@@ -17,6 +17,8 @@
  */
 import type { AccountUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+
+import { scopedDisplayNameToModelId } from "../exhaustionMapping.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
@@ -31,6 +33,11 @@ const SECONDARY_WINDOW_MINS = 7 * 24 * 60;
 export interface ProviderUsage {
   readonly windows: ReadonlyArray<AccountUsageWindow>;
   readonly planType: string | null;
+  readonly rateLimit?: {
+    readonly allowed: boolean | null;
+    readonly limitReached: boolean | null;
+    readonly limitReachedType: string | null;
+  };
 }
 
 const clampPercent = (value: number): number =>
@@ -47,9 +54,28 @@ const AnthropicWindow = Schema.Struct({
   utilization: Schema.Number,
   resets_at: Schema.optional(Schema.NullOr(Schema.String)),
 });
+const AnthropicLimit = Schema.Struct({
+  kind: Schema.String,
+  percent: Schema.Number,
+  resets_at: Schema.optional(Schema.NullOr(Schema.String)),
+  scope: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        model: Schema.optional(
+          Schema.NullOr(
+            Schema.Struct({
+              display_name: Schema.optional(Schema.NullOr(Schema.String)),
+            }),
+          ),
+        ),
+      }),
+    ),
+  ),
+});
 const AnthropicUsageResponse = Schema.Struct({
   five_hour: Schema.optional(Schema.NullOr(AnthropicWindow)),
   seven_day: Schema.optional(Schema.NullOr(AnthropicWindow)),
+  limits: Schema.optional(Schema.NullOr(Schema.Array(AnthropicLimit))),
 });
 
 const anthropicWindow = (
@@ -66,9 +92,43 @@ const anthropicWindow = (
       }
     : null;
 
+const anthropicLimitWindow = (
+  limit: typeof AnthropicLimit.Type,
+  modelSlugs: ReadonlyArray<string>,
+): AccountUsageWindow | null => {
+  const kind =
+    limit.kind === "session"
+      ? "primary"
+      : limit.kind === "weekly_all" || limit.kind === "weekly_scoped"
+        ? "secondary"
+        : null;
+  if (kind === null) return null;
+  const displayName = limit.scope?.model?.display_name?.trim();
+  if (limit.kind === "weekly_scoped" && !displayName) return null;
+  return {
+    kind,
+    usedPercent: clampPercent(limit.percent),
+    resetsAt: limit.resets_at ?? null,
+    windowDurationMins: kind === "primary" ? PRIMARY_WINDOW_MINS : SECONDARY_WINDOW_MINS,
+    ...(limit.kind === "weekly_scoped" && displayName
+      ? {
+          scope: {
+            displayName,
+            modelId: scopedDisplayNameToModelId({
+              displayName,
+              modelSlugs,
+              accountKey: "claudeAgent",
+            }),
+          },
+        }
+      : {}),
+  };
+};
+
 export const fetchAnthropicUsage = Effect.fn("quotas.anthropic")(function* (
   httpClient: HttpClient.HttpClient,
   token: string,
+  modelSlugs: ReadonlyArray<string> = [],
 ) {
   const data = yield* HttpClientRequest.get("https://api.anthropic.com/api/oauth/usage").pipe(
     HttpClientRequest.setHeaders({
@@ -81,10 +141,15 @@ export const fetchAnthropicUsage = Effect.fn("quotas.anthropic")(function* (
     Effect.timeout(REQUEST_TIMEOUT),
   );
   return {
-    windows: [
-      anthropicWindow(data.five_hour, "primary", PRIMARY_WINDOW_MINS),
-      anthropicWindow(data.seven_day, "secondary", SECONDARY_WINDOW_MINS),
-    ].filter((window): window is AccountUsageWindow => window !== null),
+    windows:
+      data.limits !== undefined && data.limits !== null
+        ? data.limits
+            .map((limit) => anthropicLimitWindow(limit, modelSlugs))
+            .filter((window): window is AccountUsageWindow => window !== null)
+        : [
+            anthropicWindow(data.five_hour, "primary", PRIMARY_WINDOW_MINS),
+            anthropicWindow(data.seven_day, "secondary", SECONDARY_WINDOW_MINS),
+          ].filter((window): window is AccountUsageWindow => window !== null),
     planType: null,
   } satisfies ProviderUsage;
 });
@@ -95,16 +160,17 @@ const CodexWindow = Schema.Struct({
   limit_window_seconds: Schema.optional(Schema.NullOr(Schema.Number)),
   reset_at: Schema.optional(Schema.NullOr(Schema.Number)),
 });
+const CodexRateLimit = Schema.Struct({
+  allowed: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  limit_reached: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  rate_limit_reached_type: Schema.optional(Schema.NullOr(Schema.String)),
+  primary_window: Schema.optional(Schema.NullOr(CodexWindow)),
+  secondary_window: Schema.optional(Schema.NullOr(CodexWindow)),
+});
 const CodexUsageResponse = Schema.Struct({
   plan_type: Schema.optional(Schema.NullOr(Schema.String)),
-  rate_limit: Schema.optional(
-    Schema.NullOr(
-      Schema.Struct({
-        primary_window: Schema.optional(Schema.NullOr(CodexWindow)),
-        secondary_window: Schema.optional(Schema.NullOr(CodexWindow)),
-      }),
-    ),
-  ),
+  rate_limit_reached_type: Schema.optional(Schema.NullOr(Schema.String)),
+  rate_limit: Schema.optional(Schema.NullOr(CodexRateLimit)),
 });
 
 const codexWindow = (
@@ -148,5 +214,15 @@ export const fetchCodexUsage = Effect.fn("quotas.codex")(function* (
       codexWindow(rateLimit?.secondary_window, "secondary", SECONDARY_WINDOW_MINS),
     ].filter((window): window is AccountUsageWindow => window !== null),
     planType: data.plan_type ?? null,
+    ...(rateLimit
+      ? {
+          rateLimit: {
+            allowed: rateLimit.allowed ?? null,
+            limitReached: rateLimit.limit_reached ?? null,
+            limitReachedType:
+              rateLimit.rate_limit_reached_type ?? data.rate_limit_reached_type ?? null,
+          },
+        }
+      : {}),
   } satisfies ProviderUsage;
 });

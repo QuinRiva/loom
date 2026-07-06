@@ -80,7 +80,10 @@ function AccountUsagePill({
             ) : null}
           </div>
           {view.windows.map((window) => (
-            <div key={window.kind} className="flex flex-col gap-1">
+            <div
+              key={`${window.kind}:${window.scopeDisplayName ?? ""}`}
+              className="flex flex-col gap-1"
+            >
               <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
                 <span className="text-muted-foreground/70">{window.label}</span>
                 <span className="font-medium tabular-nums text-muted-foreground/80">

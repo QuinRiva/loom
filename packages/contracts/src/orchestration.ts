@@ -24,6 +24,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { RuntimeErrorClass } from "./providerRuntime.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
@@ -423,6 +424,10 @@ export const OrchestrationSession = Schema.Struct({
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
+  // Classification of `lastError`, carried by `thread.session.set`. Persisted so
+  // the exhaustion resume sweep can find `quota_exhausted`-stalled sessions
+  // across restarts without re-parsing the raw string.
+  lastErrorClass: Schema.optional(RuntimeErrorClass),
   // Ephemeral live queue of pending messages (steer folds into the running
   // turn, followUp runs after). Optional with an empty default so DB-hydrated
   // sessions, which never persist it, decode cleanly and start with no queue.

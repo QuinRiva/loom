@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -50,6 +51,7 @@ import {
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
   ServerUsageBreakdownError,
+  type ServerProvider,
   ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalError,
@@ -78,6 +80,11 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
+import {
+  type ExhaustionMark,
+  ProviderHealthRegistry,
+} from "./provider/Services/ProviderHealthRegistry.ts";
+import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -403,6 +410,7 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const accountUsageRegistry = yield* AccountUsageRegistry.AccountUsageRegistry;
+      const providerHealthRegistry = yield* ProviderHealthRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -773,7 +781,11 @@ const makeWsRpcLayer = (
 
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
-        const providers = yield* providerRegistry.getProviders;
+        const providers = overlayProviderExhaustion(
+          yield* providerRegistry.getProviders,
+          yield* providerHealthRegistry.snapshot,
+          yield* Clock.currentTimeMillis,
+        );
         const settings = ServerSettings.redactServerSettingsForClient(
           yield* serverSettings.getSettings,
         );
@@ -1650,12 +1662,42 @@ const makeWsRpcLayer = (
                   },
                 })),
               );
-              const providerStatuses = providerRegistry.streamChanges.pipe(
-                Stream.map((providers) => ({
-                  version: 1 as const,
-                  type: "providerStatuses" as const,
-                  payload: { providers },
-                })),
+              // Fold the provider snapshots with live exhaustion marks so an
+              // account-wide limit (or a manual pause) surfaces on the provider
+              // card (§8.2). Seeded from the current values so a marks-only
+              // change re-overlays the last known providers, and vice versa.
+              type ProviderStatusInput = {
+                readonly providers?: ReadonlyArray<ServerProvider>;
+                readonly marks?: ReadonlyArray<ExhaustionMark>;
+              };
+              const providerStatuses = Stream.merge(
+                providerRegistry.streamChanges.pipe(
+                  Stream.map((providers): ProviderStatusInput => ({ providers })),
+                ),
+                providerHealthRegistry.streamChanges.pipe(
+                  Stream.map((marks): ProviderStatusInput => ({ marks })),
+                ),
+              ).pipe(
+                Stream.scan(
+                  {
+                    providers: yield* providerRegistry.getProviders,
+                    marks: yield* providerHealthRegistry.snapshot,
+                  },
+                  (state, event) => ({
+                    providers: event.providers ?? state.providers,
+                    marks: event.marks ?? state.marks,
+                  }),
+                ),
+                Stream.drop(1),
+                Stream.mapEffect((state) =>
+                  Effect.map(Clock.currentTimeMillis, (now) => ({
+                    version: 1 as const,
+                    type: "providerStatuses" as const,
+                    payload: {
+                      providers: overlayProviderExhaustion(state.providers, state.marks, now),
+                    },
+                  })),
+                ),
                 Stream.debounce(Duration.millis(PROVIDER_STATUS_DEBOUNCE_MS)),
               );
               const settingsUpdates = serverSettings.streamChanges.pipe(

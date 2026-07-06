@@ -74,6 +74,7 @@ import {
   type ProviderUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { FailoverSettingsPanel } from "./FailoverSettingsCard";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {
   buildProviderInstanceUpdatePatch,
@@ -1491,6 +1492,8 @@ export function ProviderSettingsPanel() {
           );
         })}
       </SettingsSection>
+
+      <FailoverSettingsPanel />
 
       {isAddInstanceDialogOpen ? (
         <AddProviderInstanceDialog open onOpenChange={setIsAddInstanceDialogOpen} />
