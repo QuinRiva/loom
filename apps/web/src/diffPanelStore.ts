@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId, TurnId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -8,7 +8,8 @@ import { resolveStorage } from "./lib/storage";
 export type DiffPanelSelection =
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
-  | { kind: "turn"; turnId: TurnId; filePath: string | null; revealRequestId: number };
+  | { kind: "turn"; turnId: TurnId; filePath: string | null; revealRequestId: number }
+  | { kind: "coder"; threadId: ThreadId; turnId: TurnId | null };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 
@@ -18,7 +19,16 @@ interface DiffPanelStoreState {
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
+  selectCoder: (ref: ScopedThreadRef, threadId: ThreadId, turnId?: TurnId | null) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
+  reconcileCoderSelection: (
+    ref: ScopedThreadRef,
+    availableCoders: ReadonlyArray<{
+      readonly threadId: ThreadId;
+      readonly turnIds: ReadonlyArray<TurnId>;
+      readonly checkpointsLoaded: boolean;
+    }>,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -85,6 +95,16 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      selectCoder: (ref, threadId, turnId = null) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: { kind: "coder", threadId, turnId },
+            },
+          };
+        }),
       reconcileTurnSelection: (ref, availableTurnIds) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -104,6 +124,41 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      reconcileCoderSelection: (ref, availableCoders) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          const previous = state.byThreadKey[threadKey];
+          if (previous?.kind !== "coder") {
+            return state;
+          }
+          const coder = availableCoders.find(
+            (candidate) => candidate.threadId === previous.threadId,
+          );
+          if (!coder) {
+            return {
+              byThreadKey: {
+                ...state.byThreadKey,
+                [threadKey]: {
+                  kind: "branch",
+                  baseRef: state.branchBaseRefByThreadKey[threadKey] ?? null,
+                },
+              },
+            };
+          }
+          if (
+            previous.turnId === null ||
+            !coder.checkpointsLoaded ||
+            coder.turnIds.includes(previous.turnId)
+          ) {
+            return state;
+          }
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: { ...previous, turnId: null },
+            },
+          };
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -118,7 +173,8 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     }),
     {
       name: "t3code:diff-panel-state:v1",
-      version: 1,
+      version: 2,
+      migrate: () => ({ byThreadKey: {}, branchBaseRefByThreadKey: {} }),
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
