@@ -2764,6 +2764,7 @@ describe("ProviderRuntimeIngestion", () => {
             outputTokens: 100,
             costUsd: 0.0123,
             model: "claude-fable-5",
+            providerId: "google-vertex-claude",
           },
         },
       });
@@ -2779,8 +2780,9 @@ describe("ProviderRuntimeIngestion", () => {
       event_id: "evt-usage-ledger",
       thread_id: "thread-1",
       turn_id: "turn-ledger",
-      provider_name: "pi",
       provider_instance_id: "pi-default",
+      // Rows are attributed to the model's real backend, not the driver kind.
+      provider_id: "google-vertex-claude",
       requested_model: "claude-fable-5",
       resolved_model: null,
       input_tokens: 200,

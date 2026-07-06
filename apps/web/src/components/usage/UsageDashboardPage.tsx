@@ -1,13 +1,18 @@
 import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
 import type { AccountUsageWindowKind } from "@t3tools/contracts";
-import { deriveAccountUsageViews } from "@t3tools/client-runtime/accountUsage";
-import { formatClockTime } from "@t3tools/client-runtime/usageDashboard";
+import {
+  deriveUsageScopeTabs,
+  formatClockTime,
+  gaugeAppliesToScope,
+  normalizeUsageScope,
+  usageProviderDisplayName,
+} from "@t3tools/client-runtime/usageDashboard";
 import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
-import { serverEnvironment, useAccountUsage } from "../../state/server";
+import { serverEnvironment } from "../../state/server";
 import { SettingsSection, useRelativeTimeTick } from "../settings/settingsLayout";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -43,15 +48,26 @@ export function UsageDashboardPage({
 }) {
   const environmentId = usePrimaryEnvironmentId();
   const nowMs = useRelativeTimeTick(30_000);
-  const usage = useAccountUsage();
-  const meterViews = useMemo(() => deriveAccountUsageViews(usage, nowMs), [usage, nowMs]);
+  // Legacy meter-key deep-links (pill → scope="claudeAgent") land on the matching
+  // per-backend tab; a bare /usage defaults to "All providers".
+  const selectedScope = normalizeUsageScope(scope ?? "all");
   const { data, error, isPending, refresh } = useEnvironmentQuery(
     environmentId === null
       ? null
       : serverEnvironment.usageBreakdown({
           environmentId,
-          input: scope === undefined ? { window: windowKind } : { window: windowKind, scope },
+          input: { window: windowKind, scope: selectedScope },
         }),
+  );
+
+  const scopeTabs = useMemo(
+    () => deriveUsageScopeTabs(data?.providers ?? [], data?.gauges ?? []),
+    [data?.providers, data?.gauges],
+  );
+  const scopedGauges = useMemo(
+    () =>
+      data === null ? [] : data.gauges.filter((gauge) => gaugeAppliesToScope(gauge, selectedScope)),
+    [data, selectedScope],
   );
 
   if (environmentId === null) {
@@ -61,8 +77,6 @@ export function UsageDashboardPage({
       </div>
     );
   }
-
-  const selectedScope = scope ?? data?.scope;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -83,20 +97,17 @@ export function UsageDashboardPage({
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {[
-            ...meterViews.map((view) => ({ key: view.key, label: view.providerDisplayName })),
-            { key: "all", label: "All providers" },
-          ].map((chip) => (
+          {scopeTabs.map((tab) => (
             <button
-              key={chip.key}
+              key={tab.key}
               type="button"
               className={cn(
                 "h-6 rounded-full border border-border/60 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground",
-                selectedScope === chip.key && "border-transparent bg-muted text-foreground",
+                selectedScope === tab.key && "border-transparent bg-muted text-foreground",
               )}
-              onClick={() => onScopeChange(chip.key)}
+              onClick={() => onScopeChange(tab.key)}
             >
-              {chip.label}
+              {tab.label}
             </button>
           ))}
           <Button
@@ -134,9 +145,9 @@ export function UsageDashboardPage({
               Approximate trailing window — no provider reset data. Official meter gauges are hidden
               because the provider hasn't reported window boundaries.
             </div>
-          ) : (
+          ) : scopedGauges.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              {data.gauges.map((gauge) => (
+              {scopedGauges.map((gauge) => (
                 <WindowGaugeCard
                   key={`${gauge.providerName}:${gauge.providerInstanceId ?? ""}`}
                   gauge={gauge}
@@ -145,7 +156,12 @@ export function UsageDashboardPage({
                 />
               ))}
             </div>
-          )}
+          ) : selectedScope !== "all" ? (
+            <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+              No official meter for {usageProviderDisplayName(selectedScope)} — this is a
+              pay-per-use backend, so only tracked burn is shown below.
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
             <span>

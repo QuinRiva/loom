@@ -181,6 +181,9 @@ function normalizeCodexTokenUsage(
 
   return {
     usedTokens,
+    // The Codex CLI talks to OpenAI — its backend is unambiguous, so attribute
+    // usage to the OpenAI provider identity (lands in the codex/OpenAI scope).
+    providerId: "openai",
     ...(totalProcessedTokens !== undefined && totalProcessedTokens > usedTokens
       ? { totalProcessedTokens }
       : {}),

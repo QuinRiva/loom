@@ -478,21 +478,25 @@ export const WorkstreamRemoveWorktreeResult = Schema.Struct({
 });
 export type WorkstreamRemoveWorktreeResult = typeof WorkstreamRemoveWorktreeResult.Type;
 
-// Static meter → ledger-provider-name map (docs/usage-dashboard-design.md §D6).
-// A meter scope key is a gauge account key (`providerInstanceId ?? providerName`);
-// the poller emits "claudeAgent" for the Anthropic OAuth meter and "codex" for
-// Codex. Ledger rows carry the driver kind in `provider_name` ("pi" for the main
-// path), so each meter maps to the set of driver kinds that bill it. Drives both
-// the server-side scope row filter and the client-side "not counted in any
-// meter" badging — a single map so they cannot drift. Confirmed via
-// consult_manager (plan author, high confidence, 2026-07-03): filter by
-// provider_name, not instance ids. Caveat: pi rows served via Vertex
-// (fable/Opus) cannot be separated from OAuth-billed pi rows at provider level,
-// so they fall under the Anthropic meter here; model-level badging surfaces
-// that distinction.
+// Static meter → backend-provider-id map. A meter scope key is a gauge account
+// key (`providerInstanceId ?? providerName`); the poller emits "claudeAgent" for
+// the Anthropic OAuth subscription meter and "codex" for the Codex subscription.
+// Ledger rows carry the model's REAL backend in `provider_id` (the `providerID`
+// half of pi/OpenCode's `providerID/modelID` slug). Each meter maps to the
+// backend provider ids its subscription OFFICIALLY meters (counts toward its
+// %). This single map is the source of truth for three things that must not
+// drift: (1) which gauge card attaches to a per-backend scope tab, (2) the
+// "not counted in any meter" (meterless) badge — anything not listed here is
+// pay-per-use, and (3) the server-side row filter for a legacy meter-key scope.
+// This is what fixes the Codex tab: gpt-* usage resolves to the OpenAI backend
+// ids below, which the codex meter now matches. Vertex-served Claude and
+// Bedrock are billed by Google/AWS, NOT the Anthropic OAuth subscription, so
+// they are deliberately meterless — they appear as their own per-backend tabs
+// with tracked burn but no official gauge (the user's Claude-on-Vertex vs
+// Claude-on-Anthropic comparison lives at that per-backend granularity).
 export const USAGE_METER_PROVIDER_NAMES: Record<string, ReadonlyArray<string>> = {
-  claudeAgent: ["pi", "anthropic", "claudeAgent"],
-  codex: ["codex"],
+  claudeAgent: ["anthropic"],
+  codex: ["openai-codex", "openai"],
 };
 
 // ── /usage dashboard breakdown (docs/usage-dashboard-design.md §3 D3) ─────────
@@ -534,7 +538,9 @@ export type ServerUsageBreakdownSeriesBucket = typeof ServerUsageBreakdownSeries
 
 export const ServerUsageBreakdownModel = Schema.Struct({
   model: Schema.String, // requested slug; "unknown" when absent
-  providerName: TrimmedNonEmptyString,
+  // Real backend provider id (e.g. "google-vertex-claude", "openai-codex");
+  // "unknown" for historical rows recorded before backend attribution.
+  providerId: TrimmedNonEmptyString,
   inputTokens: Schema.Number,
   cacheReadTokens: Schema.Number,
   cacheWriteTokens: Schema.Number,
@@ -579,6 +585,13 @@ export const ServerUsageBreakdownResult = Schema.Struct({
   projectedCostAtReset: Schema.NullOr(Schema.Number),
   models: Schema.Array(ServerUsageBreakdownModel),
   consumers: Schema.Array(ServerUsageBreakdownConsumer),
+  // Real backend provider ids present in the window, cost-descending, IGNORING
+  // the scope filter — the stable inventory the client unions with gauge-backed
+  // backends to auto-derive the per-backend scope tabs. NULL-provider (historical)
+  // rows are excluded; they surface only under "all".
+  providers: Schema.Array(
+    Schema.Struct({ providerId: TrimmedNonEmptyString, costUsd: Schema.Number }),
+  ),
 });
 export type ServerUsageBreakdownResult = typeof ServerUsageBreakdownResult.Type;
 

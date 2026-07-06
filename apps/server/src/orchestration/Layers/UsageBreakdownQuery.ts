@@ -56,7 +56,7 @@ const BucketRow = Schema.Struct({
 });
 const ModelRow = Schema.Struct({
   model: Schema.String,
-  providerName: Schema.String,
+  providerId: Schema.String,
   inputTokens: Schema.Number,
   cacheReadTokens: Schema.Number,
   cacheWriteTokens: Schema.Number,
@@ -77,6 +77,10 @@ const WindowTotalsRow = Schema.Struct({
   firstAt: Schema.NullOr(Schema.String),
   windowCost: Schema.Number,
 });
+const ProviderRow = Schema.Struct({
+  providerId: Schema.String,
+  costUsd: Schema.Number,
+});
 
 // Compiled once at module scope (the schema literal + compiled decoder are
 // otherwise rebuilt on every query).
@@ -84,6 +88,7 @@ const decodeBucketRows = Schema.decodeUnknownEffect(Schema.Array(BucketRow));
 const decodeModelRows = Schema.decodeUnknownEffect(Schema.Array(ModelRow));
 const decodeConsumerRows = Schema.decodeUnknownEffect(Schema.Array(ConsumerRow));
 const decodeWindowTotalsRows = Schema.decodeUnknownEffect(Schema.Array(WindowTotalsRow));
+const decodeProviderRows = Schema.decodeUnknownEffect(Schema.Array(ProviderRow));
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -170,9 +175,11 @@ const make = Effect.gen(function* () {
           ? null
           : (USAGE_METER_PROVIDER_NAMES[resolvedScope] ?? [resolvedScope]);
       // A fresh fragment per statement — reusing one Fragment across several
-      // compiled statements misaligns bound parameters.
+      // compiled statements misaligns bound parameters. Scope on the real
+      // backend `provider_id` (NULL historical rows never match a scope, only
+      // "all").
       const scopeFilter = () =>
-        scopeNames ? sql.in("provider_name", scopeNames) : sql.literal("1=1");
+        scopeNames ? sql.in("provider_id", scopeNames) : sql.literal("1=1");
 
       // ── Gauges: official % + linear depletion projection (§D4.1) ──────────
       const gauges: Array<ServerUsageBreakdownGauge> = [];
@@ -252,7 +259,7 @@ const make = Effect.gen(function* () {
         decodeModelRows,
         sql`
           SELECT COALESCE(requested_model, 'unknown') AS "model",
-                 provider_name AS "providerName",
+                 COALESCE(provider_id, 'unknown') AS "providerId",
                  COALESCE(SUM(input_tokens), 0) AS "inputTokens",
                  COALESCE(SUM(cache_read_tokens), 0) AS "cacheReadTokens",
                  COALESCE(SUM(cache_write_tokens), 0) AS "cacheWriteTokens",
@@ -261,7 +268,7 @@ const make = Effect.gen(function* () {
           FROM projection_usage_ledger
           WHERE created_at >= ${windowStartIso} AND created_at < ${windowEndIso}
             AND ${scopeFilter()}
-          GROUP BY COALESCE(requested_model, 'unknown'), provider_name
+          GROUP BY COALESCE(requested_model, 'unknown'), COALESCE(provider_id, 'unknown')
           ORDER BY "costUsd" DESC
         `,
       );
@@ -316,6 +323,24 @@ const make = Effect.gen(function* () {
         `,
       );
 
+      // ── Backend inventory (scope-independent): drives per-backend tabs ─────
+      // No scope filter — the client needs the full set of backends present in
+      // the window (incl. meterless ones like Vertex) to build a stable tab bar
+      // regardless of which tab is selected. NULL provider_id (historical) rows
+      // are excluded; they only aggregate under "all".
+      const providerRows = yield* runRows(
+        "UsageBreakdownQuery.providers",
+        decodeProviderRows,
+        sql`
+          SELECT provider_id AS "providerId", COALESCE(SUM(cost_usd), 0) AS "costUsd"
+          FROM projection_usage_ledger
+          WHERE created_at >= ${windowStartIso} AND created_at < ${windowEndIso}
+            AND provider_id IS NOT NULL
+          GROUP BY provider_id
+          ORDER BY "costUsd" DESC
+        `,
+      );
+
       // ── Cost projection to the window end (§D4.2) ─────────────────────────
       const totals = yield* runRows(
         "UsageBreakdownQuery.windowTotals",
@@ -356,6 +381,7 @@ const make = Effect.gen(function* () {
         projectedCostAtReset,
         models,
         consumers,
+        providers: providerRows,
       } satisfies ServerUsageBreakdownResult;
     });
 

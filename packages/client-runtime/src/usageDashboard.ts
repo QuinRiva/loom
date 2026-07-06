@@ -4,7 +4,9 @@ import {
   type ServerUsageBreakdownConsumer,
   type ServerUsageBreakdownGauge,
   type ServerUsageBreakdownModel,
+  type ServerUsageBreakdownResult,
   type ServerUsageBreakdownSeriesBucket,
+  USAGE_BACKEND_DISPLAY_NAMES,
   USAGE_METER_PROVIDER_NAMES,
 } from "@t3tools/contracts";
 
@@ -20,17 +22,97 @@ import {
 const METERED_PROVIDER_NAMES = new Set(Object.values(USAGE_METER_PROVIDER_NAMES).flat());
 
 /**
- * True when a ledger provider name reports into no subscription meter (e.g. a
- * Vertex-served driver kind) — such models get the "not counted in any meter"
- * badge in the "All providers" scope.
+ * True when a backend provider id reports into no subscription meter (e.g. a
+ * Vertex/Bedrock backend, billed by Google/AWS not the Anthropic OAuth
+ * subscription) — such backends get no official gauge, and their models get the
+ * "not counted in any meter" badge in the "All providers" scope.
  */
-export function isMeterlessProvider(providerName: string): boolean {
-  return !METERED_PROVIDER_NAMES.has(providerName);
+export function isMeterlessProvider(providerId: string): boolean {
+  return !METERED_PROVIDER_NAMES.has(providerId);
 }
 
-/** Human-readable name for a ledger/gauge provider (driver kind), e.g. "pi" → "Pi". */
-export function usageProviderDisplayName(providerName: string): string {
-  return PROVIDER_DISPLAY_NAMES[providerName as ProviderDriverKind] ?? providerName;
+/** Human-readable name for a provider identity — resolves both real backend
+ * ids (ledger `provider_id`, e.g. "google-vertex-claude" → "Vertex") and driver
+ * kinds / gauge meter keys (e.g. "claudeAgent" → "Claude"), falling back to the
+ * raw id. The two key spaces are disjoint so lookup order is immaterial. */
+export function usageProviderDisplayName(providerId: string): string {
+  return (
+    USAGE_BACKEND_DISPLAY_NAMES[providerId] ??
+    PROVIDER_DISPLAY_NAMES[providerId as ProviderDriverKind] ??
+    providerId
+  );
+}
+
+// ── Per-backend scope tabs (auto-derived from usage + gauges) ──────────
+
+export interface UsageScopeTab {
+  /** Scope param sent to the server: a real backend provider id, or "all". */
+  readonly key: string;
+  readonly label: string;
+  /** True when an official subscription meter covers this backend (⇒ a gauge). */
+  readonly hasGauge: boolean;
+}
+
+const ALL_SCOPE_TAB: UsageScopeTab = { key: "all", label: "All providers", hasGauge: false };
+
+/** Backend ids officially metered by the currently-reporting gauges. */
+function gaugeMeteredBackends(
+  gauges: ReadonlyArray<ServerUsageBreakdownGauge>,
+): ReadonlySet<string> {
+  const set = new Set<string>();
+  for (const gauge of gauges)
+    for (const backend of USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []) set.add(backend);
+  return set;
+}
+
+/**
+ * The dashboard's scope tab set: one tab per real backend provider seen in
+ * tracked usage (cost-descending), unioned with any gauge-backed backend that
+ * has no rows yet, plus a trailing "All providers". Auto-derived — a new backend
+ * (Vertex, etc.) appears the moment it has usage, with no hard-coded chip set.
+ */
+export function deriveUsageScopeTabs(
+  providers: ServerUsageBreakdownResult["providers"],
+  gauges: ReadonlyArray<ServerUsageBreakdownGauge>,
+): ReadonlyArray<UsageScopeTab> {
+  const metered = gaugeMeteredBackends(gauges);
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  const push = (id: string) => {
+    if (id !== "unknown" && !seen.has(id)) {
+      seen.add(id);
+      keys.push(id);
+    }
+  };
+  for (const provider of providers) push(provider.providerId);
+  // A present gauge guarantees its subscription's CANONICAL (primary) backend a
+  // tab even before any rows land; other backends the meter also covers appear
+  // only once they have real usage, so we never invent phantom empty tabs.
+  for (const gauge of gauges) {
+    const primary = USAGE_METER_PROVIDER_NAMES[gauge.providerName]?.[0];
+    if (primary) push(primary);
+  }
+  return [
+    ...keys.map((key) => ({
+      key,
+      label: usageProviderDisplayName(key),
+      hasGauge: metered.has(key),
+    })),
+    ALL_SCOPE_TAB,
+  ];
+}
+
+/** Whether a gauge card belongs on the selected scope — every gauge under
+ * "all", else only the gauge whose meter officially covers this backend. */
+export function gaugeAppliesToScope(gauge: ServerUsageBreakdownGauge, scope: string): boolean {
+  return scope === "all" || (USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []).includes(scope);
+}
+
+/** Translate a legacy meter-key scope ("claudeAgent"/"codex", still emitted by
+ * the sidebar pill deep-link) to its primary backend id so it lands on the
+ * matching per-backend tab; backend ids and "all" pass through unchanged. */
+export function normalizeUsageScope(scope: string): string {
+  return USAGE_METER_PROVIDER_NAMES[scope]?.[0] ?? scope;
 }
 
 // ── Window totals ─────────────────────────────────────────────────────

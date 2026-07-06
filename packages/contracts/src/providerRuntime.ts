@@ -338,6 +338,13 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   // anthropic/vertex paths).
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   resolvedModel: Schema.optional(TrimmedNonEmptyStringSchema),
+  // Real backend provider identity for the usage ledger: the `providerID` half
+  // of pi/OpenCode's `providerID/modelID` slug (e.g. `google-vertex-claude`,
+  // `anthropic`, `openai-codex`) — the model's actual vendor/backend, NOT the
+  // driver kind. This is what usage is scoped and grouped by, so Anthropic vs
+  // Vertex vs OpenAI are distinguishable. Unset when an adapter can't resolve a
+  // real backend (never fabricated).
+  providerId: Schema.optional(TrimmedNonEmptyStringSchema),
   // Cache-write prompt tokens, split out because cache writes are billed at a
   // premium and dominate cost in agent workloads. `inputTokens` keeps its
   // existing context-window semantics (input + cacheRead + cacheWrite).

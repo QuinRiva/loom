@@ -1071,6 +1071,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
 
       NodeAssert.deepEqual(firstEvent.value.payload.usage, {
         usedTokens: 126,
+        providerId: "openai",
         totalProcessedTokens: 11_839,
         maxTokens: 258_400,
         inputTokens: 120,
