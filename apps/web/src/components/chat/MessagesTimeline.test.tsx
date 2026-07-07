@@ -185,7 +185,6 @@ function buildProps() {
     markdownCwd: undefined,
     resolvedTheme: "light" as const,
     timestampFormat: "locale" as const,
-    reasoningDisplay: "collapsed" as const,
     workspaceRoot: undefined,
     anchorMessageId: null,
     onAnchorReady: () => {},

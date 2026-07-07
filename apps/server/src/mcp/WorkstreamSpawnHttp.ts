@@ -55,6 +55,13 @@ import { resolveFailoverTarget } from "../provider/failoverChains.ts";
 import { exhaustionPredicate, piCatalogueFromProviders } from "../provider/failoverRouting.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
+import {
+  appendWarnings,
+  renderConsultCandidates,
+  renderSubmitOutcome,
+  renderWorkstreamList,
+} from "./workstreamRender.ts";
 
 interface WorkstreamSpawnRequest {
   readonly role?: unknown;
@@ -109,18 +116,6 @@ interface WorkstreamConsultThreadRequest {
 interface SetThreadTitleRequest {
   readonly title?: unknown;
 }
-
-const SPAWN_PATH = "/provider-tools/workstream/spawn";
-const LANE_PATH = "/provider-tools/workstream/lane";
-const ATTENTION_PATH = "/provider-tools/workstream/attention";
-const RELEASE_PATH = "/provider-tools/workstream/release";
-const STOP_PATH = "/provider-tools/workstream/stop";
-const PROMPT_PATH = "/provider-tools/workstream/prompt";
-const DEPENDENCIES_PATH = "/provider-tools/workstream/dependencies";
-const SUBMIT_PATH = "/provider-tools/workstream/submit";
-const LIST_PATH = "/provider-tools/workstream/list";
-const CONSULT_THREAD_PATH = "/provider-tools/workstream/consult-thread";
-const SET_TITLE_PATH = "/provider-tools/thread/set-title";
 
 // Server-side guard on a single fork turn (forking handles transcript size, so
 // only the turn duration and the question length need bounding).
@@ -583,44 +578,6 @@ export const presetCatalogueOf = (
     valid: validateModelSelection(selection, catalogue).kind === "ok",
   }));
 
-const workstreamUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
-  mcpEndpoint.endsWith("/mcp")
-    ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
-    : `${mcpEndpoint.replace(/\/$/, "")}${path}`;
-
-export const workstreamSpawnUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, SPAWN_PATH);
-
-export const workstreamLaneUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, LANE_PATH);
-
-export const workstreamAttentionUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, ATTENTION_PATH);
-
-export const workstreamReleaseUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, RELEASE_PATH);
-
-export const workstreamStopUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, STOP_PATH);
-
-export const workstreamPromptUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, PROMPT_PATH);
-
-export const workstreamDependenciesUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, DEPENDENCIES_PATH);
-
-export const workstreamSubmitUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, SUBMIT_PATH);
-
-export const workstreamListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, LIST_PATH);
-
-export const workstreamConsultThreadUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, CONSULT_THREAD_PATH);
-
-export const setThreadTitleUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  workstreamUrlFromMcpEndpoint(mcpEndpoint, SET_TITLE_PATH);
-
 /**
  * The caller's whole workstream graph, active + archived. Both `list` (the
  * discovery view) and the same-tree auth predicate read this single set, so
@@ -885,13 +842,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
+  const warnings = [...graph.warnings, ...exhaustionWarnings];
   return HttpServerResponse.jsonUnsafe({
     childThreadId,
     parentThreadId: scope.threadId,
     title,
-    ...(graph.warnings.length + exhaustionWarnings.length > 0
-      ? { warnings: [...graph.warnings, ...exhaustionWarnings] }
-      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    rendered: appendWarnings(`Spawned Workstream sub-thread ${childThreadId}: ${title}`, warnings),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -974,7 +931,13 @@ const handleWorkstreamSetLane = Effect.gen(function* () {
   return HttpServerResponse.jsonUnsafe({
     threadId: targetThreadId,
     planLane,
-    ...(warnings.length > 0 ? { warnings } : {}),
+    // loom: warnings folded into the server-rendered text (the collapsed
+    // provider-tool bridge prints only `result.rendered`), preserving main's
+    // review-gate force-done observability warning.
+    rendered: appendWarnings(
+      `Set Workstream thread ${targetThreadId} plan lane to ${planLane}.`,
+      warnings,
+    ),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -1015,7 +978,11 @@ const handleWorkstreamRequestAttention = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, reason });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    reason,
+    rendered: `Flagged Workstream thread ${targetThreadId} for attention: ${reason}.`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -1057,9 +1024,14 @@ const handleWorkstreamRelease = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   }
 
+  const released = held.map((node) => node.id);
   return HttpServerResponse.jsonUnsafe({
     threadId: targetThreadId,
-    released: held.map((node) => node.id),
+    released,
+    rendered:
+      released.length > 0
+        ? `Released ${released.length} held sub-thread(s): ${released.join(", ")}.`
+        : "No held (planned) sub-threads to release in that subtree.",
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -1099,7 +1071,10 @@ const handleWorkstreamStop = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    rendered: `Stopped Workstream child ${targetThreadId} (paused, lane stays in_progress — resume it with workstream_prompt).`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -1168,7 +1143,13 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, delivery });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    delivery,
+    rendered: `Sent prompt to Workstream child ${targetThreadId} (${
+      delivery === "steer" ? "queued as a steer into its open turn" : "starting its next turn"
+    }).`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -1235,10 +1216,15 @@ const handleWorkstreamSetDependencies = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
+  const resultBlockedBy = graph.blockedBy ?? [];
   return HttpServerResponse.jsonUnsafe({
     threadId: targetThreadId,
-    blockedBy: graph.blockedBy ?? [],
+    blockedBy: resultBlockedBy,
     ...(graph.warnings.length > 0 ? { warnings: graph.warnings } : {}),
+    rendered: appendWarnings(
+      `Set Workstream thread ${targetThreadId} dependencies (${resultBlockedBy.length} waits-on).`,
+      graph.warnings,
+    ),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -1333,21 +1319,35 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
           : decision === "resolve"
             ? "resolved"
             : "yielded";
-  return HttpServerResponse.jsonUnsafe({
-    threadId: scope.threadId,
-    reportPath,
-    outcome: effectiveOutcome,
-    disposition,
-    ...(routing !== undefined && decision === "loop"
+  const loopFields =
+    routing !== undefined && decision === "loop"
       ? {
           routedTo: routing.routeTo,
           round: routing.round,
           // The source's findings route to the coder (rework); an intercepted
           // target rework-round submit routes back to the reviewer (reverify).
-          leg: gateLoopTargetOf(self!) === routing.routeTo ? "rework" : "reverify",
+          leg: (gateLoopTargetOf(self!) === routing.routeTo ? "rework" : "reverify") as
+            | "rework"
+            | "reverify",
         }
-      : {}),
-    ...(decision === "cap-breach" ? { reason: "cap-breach", round: routing?.round } : {}),
+      : undefined;
+  const capBreachFields =
+    decision === "cap-breach" ? { reason: "cap-breach", round: routing?.round } : undefined;
+  return HttpServerResponse.jsonUnsafe({
+    threadId: scope.threadId,
+    reportPath,
+    outcome: effectiveOutcome,
+    disposition,
+    ...loopFields,
+    ...capBreachFields,
+    rendered: renderSubmitOutcome({
+      disposition,
+      outcome: effectiveOutcome,
+      ...(loopFields !== undefined ? { leg: loopFields.leg, round: loopFields.round } : {}),
+      ...(capBreachFields !== undefined
+        ? { reason: capBreachFields.reason, round: capBreachFields.round }
+        : {}),
+    }),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -1381,7 +1381,7 @@ const handleWorkstreamList = Effect.gen(function* () {
   const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
   const settings = yield* (yield* ServerSettingsService).getSettings;
   // The caller is implicitly in its own tree; no target arg, no 403 path.
-  return HttpServerResponse.jsonUnsafe({
+  const view = {
     ...graphViewFor(
       scope.threadId,
       viewThreads,
@@ -1392,7 +1392,8 @@ const handleWorkstreamList = Effect.gen(function* () {
       settings.workstreamModelPresets as Record<string, ModelSelection>,
       catalogue,
     ),
-  });
+  };
+  return HttpServerResponse.jsonUnsafe({ ...view, rendered: renderWorkstreamList(view) });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -1495,6 +1496,7 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
       threadId: target,
       title: shell.title,
       answer,
+      rendered: answer,
     });
   }
 
@@ -1510,18 +1512,21 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
       threadId: shell.id,
       title: shell.title,
       answer,
+      rendered: answer,
     });
   }
+  const candidates = ranked.slice(0, CONSULT_CANDIDATE_LIMIT).map((entry) => ({
+    threadId: entry.thread.id,
+    title: entry.thread.title,
+    role: entry.thread.role,
+    planLane: entry.thread.planLane,
+    projectId: entry.thread.projectId,
+    worktreePath: entry.thread.worktreePath,
+  }));
   return HttpServerResponse.jsonUnsafe({
     resolved: false,
-    candidates: ranked.slice(0, CONSULT_CANDIDATE_LIMIT).map((entry) => ({
-      threadId: entry.thread.id,
-      title: entry.thread.title,
-      role: entry.thread.role,
-      planLane: entry.thread.planLane,
-      projectId: entry.thread.projectId,
-      worktreePath: entry.thread.worktreePath,
-    })),
+    candidates,
+    rendered: renderConsultCandidates(candidates),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -1558,7 +1563,11 @@ const handleSetThreadTitle = Effect.gen(function* () {
     title,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: scope.threadId, title });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: scope.threadId,
+    title,
+    rendered: `Set this thread's title to "${title}".`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -1567,43 +1576,59 @@ const handleSetThreadTitle = Effect.gen(function* () {
   ),
 );
 
-export const workstreamSpawnRouteLayer = HttpRouter.add("POST", SPAWN_PATH, handleWorkstreamSpawn);
-export const workstreamLaneRouteLayer = HttpRouter.add("POST", LANE_PATH, handleWorkstreamSetLane);
+export const workstreamSpawnRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_spawn,
+  handleWorkstreamSpawn,
+);
+export const workstreamLaneRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_set_lane,
+  handleWorkstreamSetLane,
+);
 export const workstreamAttentionRouteLayer = HttpRouter.add(
   "POST",
-  ATTENTION_PATH,
+  PROVIDER_TOOL_PATHS.workstream_request_attention,
   handleWorkstreamRequestAttention,
 );
 export const workstreamReleaseRouteLayer = HttpRouter.add(
   "POST",
-  RELEASE_PATH,
+  PROVIDER_TOOL_PATHS.workstream_release,
   handleWorkstreamRelease,
 );
-export const workstreamStopRouteLayer = HttpRouter.add("POST", STOP_PATH, handleWorkstreamStop);
+export const workstreamStopRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_stop,
+  handleWorkstreamStop,
+);
 export const workstreamPromptRouteLayer = HttpRouter.add(
   "POST",
-  PROMPT_PATH,
+  PROVIDER_TOOL_PATHS.workstream_prompt,
   handleWorkstreamPrompt,
 );
 export const workstreamDependenciesRouteLayer = HttpRouter.add(
   "POST",
-  DEPENDENCIES_PATH,
+  PROVIDER_TOOL_PATHS.workstream_set_dependencies,
   handleWorkstreamSetDependencies,
 );
 export const workstreamSubmitRouteLayer = HttpRouter.add(
   "POST",
-  SUBMIT_PATH,
+  PROVIDER_TOOL_PATHS.workstream_submit,
   handleWorkstreamSubmit,
 );
-export const workstreamListRouteLayer = HttpRouter.add("POST", LIST_PATH, handleWorkstreamList);
+export const workstreamListRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_list,
+  handleWorkstreamList,
+);
 export const workstreamConsultThreadRouteLayer = HttpRouter.add(
   "POST",
-  CONSULT_THREAD_PATH,
+  PROVIDER_TOOL_PATHS.consult_thread,
   handleWorkstreamConsultThread,
 );
 export const setThreadTitleRouteLayer = HttpRouter.add(
   "POST",
-  SET_TITLE_PATH,
+  PROVIDER_TOOL_PATHS.set_thread_title,
   handleSetThreadTitle,
 );
 

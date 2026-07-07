@@ -1,10 +1,10 @@
 import {
   EventId,
-  type GoalId,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type ThreadId,
+  isLoomOrchestrationCommand, // loom:
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
@@ -13,37 +13,37 @@ import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
-  findGoalById,
-  listGoalsByProjectId,
   listThreadsByProjectId,
-  requireActiveGoalInProject,
-  requireGoal,
-  requireGoalAbsent,
-  requireGoalActive,
-  requireGoalNotDeleted,
-  requireGoalParentTask,
-  requireGoalTask,
-  requireGoalTaskAbsent,
-  requireActiveWorkspaceRootAvailable,
   requireProject,
   requireProjectAbsent,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
-  requireUniqueGoalSlug,
 } from "./commandInvariants.ts";
-import { flattenGoalTasks } from "./goalTaskTree.ts";
-import { projectEvent } from "./projector.ts";
+// loom: fork-owned invariant helpers still referenced by RETAINED upstream cases.
 import {
-  describeUnsatisfiedDependency,
-  findDependencyCycle,
-} from "@t3tools/shared/workstreamDependencies";
-import { gateSourceFor, routeWorkSubmit, subtreeOf } from "@t3tools/shared/workstreamGraph";
+  findGoalById,
+  listGoalsByProjectId,
+  requireActiveGoalInProject,
+  requireActiveWorkspaceRootAvailable,
+} from "./commandInvariants.loom.ts";
+import { projectEvent } from "./projector.ts";
+import { describeUnsatisfiedDependency } from "@t3tools/shared/workstreamDependencies";
+// loom: subtreeOf powers collectLiveSubtreeIds (exported below) — the shared
+// archive/delete subtree sweep reused by the fork sibling's cancel cascade.
+import { subtreeOf } from "@t3tools/shared/workstreamGraph";
+// loom: fork decider cases + the shared dependency coherence backstop live in
+// the fork sibling. This is a deliberate module cycle (decider.loom.ts imports
+// withEventBase/decideCommandSequence/PlannedOrchestrationEvent back from here);
+// both directions are referenced only inside function bodies, never at init.
+import { decideLoomCommand, dependencyCoherenceError } from "./decider.loom.ts";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
-function withEventBase(
+// loom: exported so the fork sibling `decider.loom.ts` builds identical event
+// bases without re-deriving them.
+export function withEventBase(
   input: Pick<OrchestrationCommand, "commandId"> & {
     readonly aggregateKind: OrchestrationEvent["aggregateKind"];
     readonly aggregateId: OrchestrationEvent["aggregateId"];
@@ -73,66 +73,17 @@ function withEventBase(
   );
 }
 
-type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+// loom: exported so the fork sibling can type its planned events identically.
+export type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
 
-/**
- * Coherence backstop shared by `thread.create` and `thread.dependencies.set` —
- * the decider is the one chokepoint every command crosses, including the web
- * board / client-runtime paths that dispatch these commands directly and bypass
- * the MCP handlers. Returns a rejection detail, or null when the proposed
- * dependency edges are coherent. Mirrors exactly the sibling-scoped edges
- * `areDependenciesSatisfied` gates on: an edge only counts when it names an
- * active (non-deleted, non-archived) same-parent sibling, so anything else —
- * self, root, dangling/non-sibling, or a cycle — never releases and is rejected
- * at the submission boundary rather than silently tolerated at runtime. Called
- * only when the command actually carries edges; the common empty-`blockedBy`
- * create/clear path never reaches it.
- */
-const dependencyCoherenceError = (params: {
-  readonly readModel: OrchestrationReadModel;
-  readonly threadId: ThreadId;
-  readonly parentThreadId: ThreadId | null;
-  readonly blockedBy: ReadonlyArray<ThreadId>;
-  readonly loopTargets: ReadonlyArray<ThreadId>;
-}): string | null => {
-  const { readModel, threadId, parentThreadId, blockedBy, loopTargets } = params;
-  if (parentThreadId === null)
-    return `Dependencies have no effect on a root thread ('${threadId}') — only sub-threads are dependency-gated.`;
-  if (blockedBy.includes(threadId)) return `A thread cannot block on itself ('${threadId}').`;
-  const siblings = readModel.threads.filter(
-    (thread) =>
-      thread.deletedAt === null &&
-      thread.archivedAt === null &&
-      thread.parentThreadId === parentThreadId &&
-      thread.id !== threadId,
-  );
-  const siblingIds = new Set(siblings.map((thread) => thread.id));
-  const invalid = [...new Set([...blockedBy, ...loopTargets])].filter(
-    (id) => id !== threadId && !siblingIds.has(id),
-  );
-  if (invalid.length > 0)
-    return `Dependencies for thread '${threadId}' name non-sibling/unknown ids (${invalid.join(", ")}); a dependency can only name an active sibling (same parent). A dangling id never gates — it would silently release.`;
-  const cycle = findDependencyCycle([
-    { id: threadId, parentThreadId, blockedBy },
-    ...siblings.map((thread) => ({
-      id: thread.id,
-      parentThreadId: thread.parentThreadId,
-      blockedBy: thread.blockedBy,
-    })),
-  ]);
-  if (cycle !== null)
-    return `Dependencies for thread '${threadId}' would create a cycle (${cycle.join(" → ")}); a cyclic set can never release.`;
-  return null;
-};
-
-/**
- * Transitive closure of the live (non-deleted) subtree under a thread,
- * including the thread itself, walking parentThreadId edges. Shared by the
- * archive/unarchive/delete cascades and the cancel cascade: a workstream
- * child is invisible in the sidebar, so any terminal operation on a root must
- * sweep its whole subtree or the children linger half-alive.
- */
-const collectLiveSubtreeIds = (
+// loom: exported so the fork sibling reuses this shared sweep for its cancel
+// cascade. Transitive closure of the live (non-deleted) subtree under a thread,
+// including the thread itself, walking parentThreadId edges. Shared by the
+// archive/unarchive/delete cascades (here) and the cancel cascade (fork
+// sibling): a workstream child is invisible in the sidebar, so any terminal
+// operation on a root must sweep its whole subtree or the children linger
+// half-alive.
+export const collectLiveSubtreeIds = (
   readModel: OrchestrationReadModel,
   rootThreadId: ThreadId,
 ): Set<ThreadId> =>
@@ -144,49 +95,17 @@ const collectLiveSubtreeIds = (
     ).map((thread) => thread.id),
   ]);
 
-/**
- * The subtree ROOTS of a goal's threads in a given state: matching threads
- * with no matching ANCESTOR reachable through live (non-deleted) parents. The
- * goal-level cascades (goal.archive/unarchive/delete) enumerate only these —
- * each root's own thread-level cascade sweeps its live subtree, so enumerating
- * a thread already inside another root's subtree would double-apply the
- * operation and trip an invariant mid-sequence. The ancestor walk mirrors
- * collectLiveSubtreeIds: it stops at a deleted parent, exactly where the
- * downward sweep stops too.
- */
-const listGoalSubtreeRoots = (
-  readModel: OrchestrationReadModel,
-  goalId: GoalId,
-  state: "active" | "archived" | "live",
-) => {
-  const matches = readModel.threads.filter(
-    (thread) =>
-      thread.goalId === goalId &&
-      thread.deletedAt === null &&
-      (state === "live" ||
-        (state === "active" ? thread.archivedAt === null : thread.archivedAt !== null)),
-  );
-  const matchIds = new Set(matches.map((thread) => thread.id));
-  const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
-  const hasMatchingAncestor = (thread: (typeof matches)[number]): boolean => {
-    for (
-      let parent =
-        thread.parentThreadId !== null ? threadById.get(thread.parentThreadId) : undefined;
-      parent !== undefined && parent.deletedAt === null;
-      parent = parent.parentThreadId !== null ? threadById.get(parent.parentThreadId) : undefined
-    ) {
-      if (matchIds.has(parent.id)) return true;
-    }
-    return false;
-  };
-  return matches.filter((thread) => !hasMatchingAncestor(thread));
-};
-
-type DecideOrchestrationCommandResult =
+// loom: exported for the fork sibling to mirror the return type of
+// `decideLoomCommand`. (`dependencyCoherenceError` and `listGoalSubtreeRoots`
+// are fork code and live in `decider.loom.ts`; `dependencyCoherenceError` is
+// re-imported above for the retained `thread.create`.)
+export type DecideOrchestrationCommandResult =
   | PlannedOrchestrationEvent
   | ReadonlyArray<PlannedOrchestrationEvent>;
 
-const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
+// loom: exported so the fork sibling's goal-cascade cases can recurse through
+// the same command-sequencing engine.
+export const decideCommandSequence = Effect.fn("decideCommandSequence")(function* ({
   commands,
   readModel,
 }: {
@@ -231,6 +150,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   OrchestrationCommandInvariantError | PlatformError.PlatformError,
   Crypto.Crypto
 > {
+  // loom: fork commands (goal.*, plan-lane/attention, dependencies, work.submit,
+  // consult.record, fanin.set, turn-start.fail, message.reasoning.complete) are
+  // decided by the fork sibling. After this guard `command` narrows to the
+  // upstream-only subset, so the switch's `default: command satisfies never`
+  // still holds.
+  if (isLoomOrchestrationCommand(command)) {
+    return yield* decideLoomCommand({ command, readModel });
+  }
   switch (command.type) {
     case "project.create": {
       yield* requireProjectAbsent({
@@ -247,6 +174,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // projection_projects(workspace_root) WHERE deleted_at IS NULL (migration
       // 049), which rolls back the losing create's transaction. A soft-deleted
       // project for the path does not block re-creation.
+      // loom: workspace-root-availability invariant (fork addition to an
+      // upstream case).
       yield* requireActiveWorkspaceRootAvailable({
         readModel,
         command,
@@ -310,6 +239,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const activeThreads = listThreadsByProjectId(readModel, command.projectId).filter(
         (thread) => thread.deletedAt === null,
       );
+      // loom: active-goals gate + goal.delete cascade (fork additions to this
+      // upstream case).
       const activeGoals = listGoalsByProjectId(readModel, command.projectId).filter(
         (goal) => goal.deletedAt === null,
       );
@@ -331,6 +262,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               }),
             ),
             ...activeGoals.map(
+              // loom:
               (goal): Extract<OrchestrationCommand, { type: "goal.delete" }> => ({
                 type: "goal.delete",
                 commandId: command.commandId,
@@ -362,248 +294,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "goal.create": {
-      yield* requireProject({ readModel, command, projectId: command.projectId });
-      yield* requireGoalAbsent({ readModel, command, goalId: command.goalId });
-      yield* requireUniqueGoalSlug({
-        readModel,
-        command,
-        projectId: command.projectId,
-        slug: command.slug,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.created",
-        payload: {
-          goalId: command.goalId,
-          projectId: command.projectId,
-          slug: command.slug,
-          title: command.title,
-          description: command.description ?? "",
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "goal.meta.update": {
-      yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
-      const goal = yield* requireGoal({ readModel, command, goalId: command.goalId });
-      if (command.slug !== undefined) {
-        yield* requireUniqueGoalSlug({
-          readModel,
-          command,
-          projectId: goal.projectId,
-          slug: command.slug,
-          exceptGoalId: command.goalId,
-        });
-      }
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.meta-updated",
-        payload: {
-          goalId: command.goalId,
-          ...(command.slug !== undefined ? { slug: command.slug } : {}),
-          ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.description !== undefined ? { description: command.description } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "goal.archive": {
-      yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
-      // Archiving a goal cascades DOWN to its active threads. We don't emit
-      // goal.archived here: archiving the last active thread cascades the goal
-      // archive itself (see thread.archive), so we route through that one path.
-      // Only subtree ROOTS are enumerated — thread.archive sweeps each root's
-      // descendants itself, so listing a child too would double-archive it and
-      // trip requireThreadNotArchived mid-sequence.
-      const activeThreads = listGoalSubtreeRoots(readModel, command.goalId, "active");
-      if (activeThreads.length > 0) {
-        return yield* decideCommandSequence({
-          readModel,
-          commands: activeThreads.map(
-            (thread): Extract<OrchestrationCommand, { type: "thread.archive" }> => ({
-              type: "thread.archive",
-              commandId: command.commandId,
-              threadId: thread.id,
-            }),
-          ),
-        });
-      }
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.archived",
-        payload: { goalId: command.goalId, archivedAt: occurredAt, updatedAt: occurredAt },
-      };
-    }
-
-    case "goal.unarchive": {
-      yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
-      // Inverse of goal.archive: unarchive every archived subtree root, and the
-      // first thread.unarchive cascades the goal unarchive (see
-      // thread.unarchive). Descendants are restored by each root's own cascade.
-      const archivedThreads = listGoalSubtreeRoots(readModel, command.goalId, "archived");
-      if (archivedThreads.length > 0) {
-        return yield* decideCommandSequence({
-          readModel,
-          commands: archivedThreads.map(
-            (thread): Extract<OrchestrationCommand, { type: "thread.unarchive" }> => ({
-              type: "thread.unarchive",
-              commandId: command.commandId,
-              threadId: thread.id,
-            }),
-          ),
-        });
-      }
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.unarchived",
-        payload: { goalId: command.goalId, updatedAt: occurredAt },
-      };
-    }
-
-    case "goal.delete": {
-      yield* requireGoal({ readModel, command, goalId: command.goalId });
-      // Deleting a goal cascade-deletes its live subtree roots (the goal owns
-      // them; thread.delete sweeps each root's descendants and cascades the
-      // goal delete itself once the goal is empty — see thread.delete). The
-      // empty-goal case below emits the leaf directly.
-      const threads = listGoalSubtreeRoots(readModel, command.goalId, "live");
-      if (threads.length > 0) {
-        return yield* decideCommandSequence({
-          readModel,
-          commands: threads.map(
-            (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
-              type: "thread.delete",
-              commandId: command.commandId,
-              threadId: thread.id,
-            }),
-          ),
-        });
-      }
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.deleted",
-        payload: { goalId: command.goalId, deletedAt: occurredAt },
-      };
-    }
-
-    case "goal.task.create": {
-      const goal = yield* requireGoalActive({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      yield* requireGoalTaskAbsent({ command, goal, taskId: command.taskId });
-      if (command.parentTaskId !== null) {
-        yield* requireGoalParentTask({ command, goal, parentTaskId: command.parentTaskId });
-      }
-      const siblings = flattenGoalTasks(goal.tasks).filter(
-        (task) => (task.parentTaskId ?? null) === command.parentTaskId,
-      );
-      const position =
-        command.position ??
-        (siblings.length === 0 ? 0 : Math.max(...siblings.map((task) => task.position)) + 1);
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.task-created",
-        payload: {
-          goalId: command.goalId,
-          taskId: command.taskId,
-          parentTaskId: command.parentTaskId,
-          text: command.text,
-          position,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "goal.task.update": {
-      // Task reparenting is intentionally disallowed for MVP: there is no
-      // parentTaskId on this command, so the task tree cannot form a cycle.
-      const goal = yield* requireGoalActive({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      yield* requireGoalTask({ command, goal, taskId: command.taskId });
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.task-updated",
-        payload: {
-          goalId: command.goalId,
-          taskId: command.taskId,
-          ...(command.text !== undefined ? { text: command.text } : {}),
-          ...(command.done !== undefined ? { done: command.done } : {}),
-          ...(command.position !== undefined ? { position: command.position } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "goal.task.delete": {
-      const goal = yield* requireGoalActive({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      yield* requireGoalTask({ command, goal, taskId: command.taskId });
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "goal",
-          aggregateId: command.goalId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "goal.task-deleted",
-        payload: { goalId: command.goalId, taskId: command.taskId, deletedAt: occurredAt },
-      };
-    }
-
     case "thread.create": {
       yield* requireProject({
         readModel,
@@ -615,6 +305,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // loom: goal-in-project validation (fork addition to this upstream case).
       if (command.goalId != null) {
         yield* requireActiveGoalInProject({
           readModel,
@@ -623,7 +314,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: command.projectId,
         });
       }
-      // Coherence backstop: a dependency-bearing create (blockedBy and/or loop
+      // loom: dependency-coherence backstop (fork addition; helper lives in
+      // decider.loom.ts). A dependency-bearing create (blockedBy and/or loop
       // routes) must name active siblings and form no cycle. The common
       // root/manual/goal-handoff create carries neither, so it skips validation.
       {
@@ -660,6 +352,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.parentThreadId !== undefined
             ? { parentThreadId: command.parentThreadId }
             : {}),
+          // loom: fork payload fields (goalId/parentThreadId/role/purpose/brief/
+          // blockedBy/routes/isolation/planLane/spawnGeneration).
           ...(command.role !== undefined ? { role: command.role } : {}),
           ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
           ...(command.brief !== undefined ? { brief: command.brief } : {}),
@@ -865,6 +559,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // loom: goal-in-project validation (fork addition to this upstream case).
       if (command.goalId != null) {
         yield* requireActiveGoalInProject({
           readModel,
@@ -873,6 +568,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: thread.projectId,
         });
       }
+      // loom: worktree-binding-clear warning (fork addition).
       // Clearing an existing worktree binding downgrades the thread's cwd to the
       // project-root fallback on the next turn. Legitimate flows exist (the
       // branch selector rebinding a thread to the project root), but a client
@@ -903,14 +599,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          // loom: fork payload fields (goalId/role/purpose).
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
           ...(command.role !== undefined ? { role: command.role } : {}),
           ...(command.purpose !== undefined ? { purpose: command.purpose } : {}),
           updatedAt: occurredAt,
         },
       };
-      // Cascade UP: renaming the sole active thread of a goal renames the goal
-      // too, so the sidebar never strands a stale goal header. (Mirror of the
+      // loom: cascade UP to goal.meta-updated (fork addition to this upstream
+      // case). Renaming the sole active thread of a goal renames the goal too,
+      // so the sidebar never strands a stale goal header. (Mirror of the
       // last-active-thread archive cascade above.)
       const goalId = thread.goalId ?? null;
       if (command.title !== undefined && goalId !== null) {
@@ -993,385 +691,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.plan-lane.set": {
-      const laneThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      // Authorisation chokepoint (design §8). The decider is the only path every
-      // plan-lane write passes through. `in_progress` is control-plane-only: it
-      // is set by *starting a turn* (the atomic kickoff below), never assigned
-      // directly. Server writers build a `server:`-prefixed commandId (the
-      // web/WS board dispatches a bare UUID and cannot forge that prefix), so
-      // reject `in_progress` unless the command carries it. `planned`, `ready`,
-      // `done`, and `cancelled` are accepted from client/agent.
-      if (command.planLane === "in_progress" && !command.commandId.startsWith("server:")) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Plan lane 'in_progress' is control-plane-only — it is set by starting a turn, not assigned directly.",
-        });
-      }
-      // `yielded` is likewise control-plane-only (review-gates design §5.1): it
-      // is derived from a submit's routing decision (`thread.work.submit`),
-      // never assigned directly — the same `server:` guard as `in_progress`.
-      if (command.planLane === "yielded" && !command.commandId.startsWith("server:")) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Plan lane 'yielded' is control-plane-only — it is derived from a workstream_submit outcome, not assigned directly.",
-        });
-      }
-      const occurredAt = yield* nowIso;
-      // Cancellation cascades over the whole subtree (design: orchestrator-wide
-      // descendant termination). Cancelling a thread cancels every non-terminal
-      // descendant and interrupts any in-flight turn among them, so killing one
-      // branch kills the runaway self-spawning chain beneath it. A non-cancel
-      // lane write stays single-node.
-      //
-      // No `needs_guidance` is sprayed across the subtree because each interrupt
-      // is emitted as a `thread.turn-interrupt-requested` event DIRECTLY: the
-      // raise-attention-on-interrupt decision lives ONLY in the
-      // `thread.turn.interrupt` COMMAND handler, which this path never invokes.
-      // (Routing the cascade through that command would be unsafe — within one
-      // decide pass the cancels we emit are not applied back to `readModel`, so
-      // each node would still read as `in_progress` and a bare-commandId cancel
-      // WOULD raise `needs_guidance`.) Reaching `cancelled` also clears any
-      // stored attention on each node, so a dead thread never lingers flagged
-      // for a human.
-      if (command.planLane === "cancelled") {
-        const live = readModel.threads.filter((thread) => thread.deletedAt === null);
-        const subtree = collectLiveSubtreeIds(readModel, command.threadId);
-        const threadById = new Map(live.map((thread) => [thread.id, thread] as const));
-        const events: PlannedOrchestrationEvent[] = [];
-        // Cancel the target always; cancel non-terminal descendants but never
-        // clobber a descendant that legitimately reached `done`/`cancelled`. A
-        // cancelled node with stored attention also gets it cleared.
-        for (const threadId of subtree) {
-          const node = threadById.get(threadId);
-          const lane = node?.planLane;
-          if (threadId !== command.threadId && (lane === "done" || lane === "cancelled")) continue;
-          events.push({
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: threadId,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            type: "thread.plan-lane-set",
-            payload: { threadId, planLane: "cancelled", updatedAt: occurredAt },
-          });
-          if (node && node.attention.length > 0) {
-            events.push({
-              ...(yield* withEventBase({
-                aggregateKind: "thread",
-                aggregateId: threadId,
-                occurredAt,
-                commandId: command.commandId,
-              })),
-              type: "thread.attention-cleared",
-              payload: { threadId, updatedAt: occurredAt },
-            });
-          }
-        }
-        // Interrupt any node in the subtree whose turn is live so token burn
-        // actually stops; the matching cancel above precedes it.
-        for (const threadId of subtree) {
-          if (threadById.get(threadId)?.planLane !== "in_progress") continue;
-          events.push({
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: threadId,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            type: "thread.turn-interrupt-requested",
-            payload: { threadId, createdAt: occurredAt },
-          });
-        }
-        // M4 (dep-cancelled-then-edge ordering): a live thread OUTSIDE the
-        // cancelled subtree that is un-started, still `planned`/`ready`, and
-        // gated (same-parent `blockedBy`) on a member of the cancelled set is
-        // now wedged forever — cancelled never releases. Surface each on the
-        // "a human must look" channel so the orchestrator that issued the cancel
-        // is woken to re-plan. Cancel itself always succeeds regardless.
-        for (const thread of live) {
-          if (subtree.has(thread.id)) continue;
-          if (thread.planLane !== "planned" && thread.planLane !== "ready") continue;
-          if (thread.messages.some((message) => message.role === "user")) continue;
-          const gatedByCancelled = thread.blockedBy.some(
-            (depId) =>
-              subtree.has(depId) && threadById.get(depId)?.parentThreadId === thread.parentThreadId,
-          );
-          if (!gatedByCancelled) continue;
-          events.push({
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: thread.id,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            type: "thread.attention-raised",
-            payload: { threadId: thread.id, reason: "needs_guidance", updatedAt: occurredAt },
-          });
-        }
-        return events;
-      }
-      // Re-engagement epoch (review-gates design §5.2 exception): a parent or
-      // human reopening a terminal thread via the lane-set path (done/cancelled
-      // → ready/planned) stamps a FRESH spawnGeneration in the same event. The
-      // dispatcher's delta rail marks a reported child durably by
-      // `(childId, terminalEpisodeKey)`, where the episode is the child's latest
-      // outcome-event id and FALLS BACK to `spawnGeneration`. A re-cancelled
-      // reopen with no fresh submit therefore relies on this new epoch to re-arm
-      // (its outcome id is unchanged, so only the fresh spawnGeneration makes the
-      // re-run report as news); a re-submitted reopen re-arms via the new outcome
-      // id regardless. A gate `reopen` deliberately does NOT pass here — it flows
-      // through `thread.turn.start` + `reopen`, and its re-submit records a fresh
-      // outcome id that re-arms the marker.
-      const laneSetBase = yield* withEventBase({
-        aggregateKind: "thread",
-        aggregateId: command.threadId,
-        occurredAt,
-        commandId: command.commandId,
-      });
-      const reengaging =
-        laneThread.parentThreadId !== null &&
-        (laneThread.planLane === "done" || laneThread.planLane === "cancelled") &&
-        (command.planLane === "ready" || command.planLane === "planned");
-      const planLaneSetEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...laneSetBase,
-        type: "thread.plan-lane-set",
-        payload: {
-          threadId: command.threadId,
-          planLane: command.planLane,
-          ...(reengaging ? { spawnGeneration: laneSetBase.eventId } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-      const laneTrailingEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      // Design §3 invariant: when the plan advances to a terminal lane, every
-      // stored attention flag clears — a finished thread never sits with a stale
-      // ⚠. Symmetric with the turn-start clear (a resume clears attention too).
-      // `cancelled` is handled by the cascade above (which clears each cancelled
-      // node's attention), so only `done` reaches here. Emit the omitted-reason
-      // clear ("clear ALL") only when there is something to clear, so no-op
-      // events aren't produced. Derived `awaiting_*` reasons are projected from
-      // open requests and unaffected.
-      if (command.planLane === "done" && laneThread.attention.length > 0) {
-        laneTrailingEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          causationEventId: planLaneSetEvent.eventId,
-          type: "thread.attention-cleared",
-          payload: {
-            threadId: command.threadId,
-            updatedAt: occurredAt,
-          },
-        });
-      }
-      // Gate observability (2026-07-07 incident): a parent force-`done` on a
-      // rework TARGET while its round is open (decision 9 keeps the write
-      // legal) does NOT resolve the gate — the source still awaits the
-      // hand-back, and the target's next submit is still intercepted back to
-      // it. Warn the parent so "accepting the coder" is not mistaken for
-      // resolving the review: dissolving is a reviewer-side `done`/`cancelled`.
-      const openReworkSource =
-        command.planLane === "done" && laneThread.pendingRework && laneThread.planLane !== "done"
-          ? gateSourceFor(
-              command.threadId,
-              readModel.threads.filter((thread) => thread.deletedAt === null),
-            )
-          : null;
-      if (openReworkSource !== null && laneThread.parentThreadId !== null) {
-        const activityId = yield* Crypto.Crypto.pipe(
-          Effect.flatMap((crypto) => crypto.randomUUIDv4),
-        );
-        laneTrailingEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: laneThread.parentThreadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          causationEventId: planLaneSetEvent.eventId,
-          type: "thread.activity-appended",
-          payload: {
-            threadId: laneThread.parentThreadId,
-            activity: {
-              id: EventId.make(activityId),
-              tone: "error",
-              kind: "workstream.gate.target-done-mid-round",
-              summary: `Warning: '${laneThread.title}' (${command.threadId}) was set done while its review gate's rework round is open. The gate is NOT resolved — its next submit still routes to reviewer '${openReworkSource.id}' for re-verification. To dissolve the gate instead, set the reviewer done/cancelled.`,
-              payload: {
-                targetThreadId: command.threadId,
-                gateSourceThreadId: openReworkSource.id,
-              },
-              turnId: null,
-              createdAt: occurredAt,
-            },
-          },
-        });
-      }
-      return laneTrailingEvents.length > 0
-        ? [planLaneSetEvent, ...laneTrailingEvents]
-        : planLaneSetEvent;
-    }
-
-    case "thread.attention.raise": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      // Attention authorisation (design §8). `error` is server-only (the liveness
-      // sweep sets it via a `server:`-prefixed command). The two `awaiting_*`
-      // request reasons are *derived* from open approval/input requests and are
-      // never stored, so they may never be raised by command. Only
-      // `awaiting_acceptance` and `needs_guidance` are agent-raisable.
-      if (command.reason === "error" && !command.commandId.startsWith("server:")) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Attention 'error' is server-only and cannot be raised by clients.",
-        });
-      }
-      if (command.reason === "awaiting_approval" || command.reason === "awaiting_input") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Attention 'awaiting_approval'/'awaiting_input' are derived from open requests and cannot be raised directly.",
-        });
-      }
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.attention-raised",
-        payload: {
-          threadId: command.threadId,
-          reason: command.reason,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.attention.clear": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.attention-cleared",
-        payload: {
-          threadId: command.threadId,
-          ...(command.reason !== undefined ? { reason: command.reason } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.dependencies.set": {
-      const targetThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      // Coherence backstop (R1/R2): a non-empty replace-set must name active
-      // siblings and form no cycle. Clearing deps (empty set) is always allowed.
-      if (command.blockedBy.length > 0) {
-        const detail = dependencyCoherenceError({
-          readModel,
-          threadId: command.threadId,
-          parentThreadId: targetThread.parentThreadId,
-          blockedBy: command.blockedBy,
-          loopTargets: [],
-        });
-        if (detail !== null)
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail,
-          });
-      }
-      const occurredAt = yield* nowIso;
-      const dependenciesSet: PlannedOrchestrationEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.dependencies-set",
-        payload: {
-          // Replace-set semantics; validated above (self/root/dangling/cycle
-          // rejected), so the set is recorded verbatim.
-          threadId: command.threadId,
-          blockedBy: command.blockedBy,
-          updatedAt: occurredAt,
-        },
-      };
-      // R3 (M4, edge-onto-cancelled-dep ordering): wiring an un-started,
-      // non-terminal target to wait on an already-`cancelled` gating sibling
-      // silently wedges it (cancelled never releases). Surface it on the same
-      // "a human must look" channel as the cancel-cascade scan below — direct
-      // event emission, never re-entering a command handler mid-decide.
-      const targetUnstarted = !targetThread.messages.some((message) => message.role === "user");
-      const targetTerminal =
-        targetThread.planLane === "done" || targetThread.planLane === "cancelled";
-      const wedgedByCancelledDep =
-        targetUnstarted &&
-        !targetTerminal &&
-        command.blockedBy.some((depId) => {
-          const dep = readModel.threads.find((thread) => thread.id === depId);
-          return (
-            dep !== undefined &&
-            dep.parentThreadId === targetThread.parentThreadId &&
-            dep.planLane === "cancelled"
-          );
-        });
-      if (!wedgedByCancelledDep) return dependenciesSet;
-      return [
-        dependenciesSet,
-        {
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.attention-raised",
-          payload: {
-            threadId: command.threadId,
-            reason: "needs_guidance",
-            updatedAt: occurredAt,
-          },
-        },
-      ];
-    }
-
     case "thread.turn.start": {
       const targetThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      // Dependency gate at the command boundary: the FIRST turn of a dep-blocked
+      // loom: dependency gate at the command boundary (fork addition to this
+      // upstream case). The FIRST turn of a dep-blocked
       // sub-thread may only start once its dependencies are satisfied. This
       // closes the UI bypass (opening a `blocked`/`planned` child and sending a
       // message starts it before its deps are `done`). The dispatcher passes
@@ -1417,8 +744,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
-      // Gate reopen (review-gates design §5.2): the SINGLE transition out of
-      // `done`. Server-only (the dispatcher's gate pass sets it when looping
+      // loom: gate reopen guards (review-gates design §5.2): the SINGLE
+      // transition out of `done`. Server-only (the dispatcher's gate pass sets it when looping
       // rework back to a round-0-completed coder) and only from `done` — a
       // cancelled thread stays dead, mirroring the cancel side of sticky
       // terminal. The lane flip lands atomically with the turn-start below.
@@ -1477,6 +804,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
+      // loom: sticky-terminal + attention-clear-all + atomic kickoff below are
+      // fork additions to this upstream case.
       // Sticky terminal (design §3.4/§6): a turn-start on a `done`/`cancelled`
       // thread is a re-engagement — it changes neither the plan lane nor stored
       // attention; runtime alone reflects the activity.
@@ -1549,7 +878,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         });
       }
-      // Reopen observability (design §5.2/R3): a STARTED dependent is never
+      // loom: reopen observability (design §5.2/R3): a STARTED dependent is never
       // un-run, so a reopen that supersedes work a released dependent already
       // consumed is surfaced as a warning activity on the parent — observable,
       // never blocking (a hard block would deadlock the loop on a mis-wiring).
@@ -1614,7 +943,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
-      // No-silent-halt (design §6.1). A HUMAN stop (bare commandId) of a
+      // loom: needs_guidance raise on human stop (fork addition to this upstream
+      // case). No-silent-halt (design §6.1). A HUMAN stop (bare commandId) of a
       // non-terminal thread additionally raises `needs_guidance`, so a
       // human-stopped thread surfaces immediately rather than waiting out the
       // idle grace. An orchestrator stop (workstream_stop, `server:`-prefixed)
@@ -1816,35 +1146,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    // v2: streaming reasoning chunks are transient (ReasoningStreamBus) and
-    // never become domain events. The only durable reasoning event is the
-    // completion, carrying the full accumulated text with REPLACE semantics.
-    case "thread.message.reasoning.complete": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.message-reasoning",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          turnId: command.turnId ?? null,
-          reasoningText: command.reasoningText,
-          reasoningStreaming: false,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
     case "thread.proposed-plan.upsert": {
       yield* requireThread({
         readModel,
@@ -1914,181 +1215,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    // Review gates (design §3/§4): the single terminal call. One transaction
-    // emits the report pointer, the structured outcome record, and the events
-    // the routing decision implies — lane changes, attention, or a gate
-    // traversal (`thread.route-taken`) the dispatcher's gate pass executes. The
-    // routing decision itself is the shared pure `routeWorkSubmit` (also
-    // mirrored by the submit endpoint for its response echo).
-    case "thread.work.submit": {
-      const submitThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = yield* nowIso;
-      const outcome = command.outcome ?? "done";
-      const routing = routeWorkSubmit(
-        submitThread,
-        readModel.threads.filter((thread) => thread.deletedAt === null),
-        outcome,
-      );
-      // Terminal-lane guard: a submit landing on a terminal thread never flips
-      // lanes — cancelled stays dead (mirroring reopen's never-from-cancelled)
-      // and a done thread has already completed. ONE exception (2026-07-07
-      // incident): a `done` rework target whose submit the gate intercepts
-      // (open rework round + live source ⇒ decision `loop`). A parent may
-      // force-`done` a mid-round coder (decision 9 interruptibility), but that
-      // never resolves the gate — the reviewer still awaits the hand-back, so
-      // the routed submit must go through or the pair wedges (the coder's
-      // report unroutable, the reviewer waiting forever). The loop decision
-      // touches no lanes, so sticky-terminal is preserved.
-      if (
-        (submitThread.planLane === "cancelled" || submitThread.planLane === "done") &&
-        !(submitThread.planLane === "done" && routing.decision === "loop")
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' is ${submitThread.planLane}; workstream_submit cannot act on a terminal thread.`,
-        });
-      }
-      const decision = routing.decision;
-      const reportSetEvent: PlannedOrchestrationEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.report-set",
-        payload: {
-          threadId: command.threadId,
-          reportPath: command.reportPath,
-          updatedAt: occurredAt,
-        },
-      };
-      const outcomeRecordedEvent: PlannedOrchestrationEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        causationEventId: reportSetEvent.eventId,
-        type: "thread.outcome-recorded",
-        payload: {
-          threadId: command.threadId,
-          outcome,
-          decision,
-          round: routing.round,
-          ...(command.contested !== undefined ? { contested: command.contested } : {}),
-          ...(command.counts !== undefined ? { counts: command.counts } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-      const events: PlannedOrchestrationEvent[] = [reportSetEvent, outcomeRecordedEvent];
-      // `done` lane + attention-clear pair for one party (the same invariant
-      // as a direct plan-lane.set done).
-      const completeParty = (threadId: typeof command.threadId, hadAttention: boolean) =>
-        Effect.gen(function* () {
-          events.push({
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: threadId,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            causationEventId: outcomeRecordedEvent.eventId,
-            type: "thread.plan-lane-set",
-            payload: { threadId, planLane: "done", updatedAt: occurredAt },
-          });
-          if (hadAttention) {
-            events.push({
-              ...(yield* withEventBase({
-                aggregateKind: "thread",
-                aggregateId: threadId,
-                occurredAt,
-                commandId: command.commandId,
-              })),
-              causationEventId: outcomeRecordedEvent.eventId,
-              type: "thread.attention-cleared",
-              payload: { threadId, updatedAt: occurredAt },
-            });
-          }
-        });
-      if (decision === "terminal") {
-        yield* completeParty(command.threadId, submitThread.attention.length > 0);
-      } else if (decision === "resolve") {
-        // Gate resolution (design §4.3): BOTH parties complete in one
-        // transaction (multi-aggregate, the cancel-cascade precedent). The
-        // counterpart is usually already `done` (round 0, no loop taken) — then
-        // only the source's lane event is emitted (`resolveWith` is null).
-        yield* completeParty(command.threadId, submitThread.attention.length > 0);
-        if (routing.resolveWith !== null) {
-          const counterpart = readModel.threads.find((thread) => thread.id === routing.resolveWith);
-          yield* completeParty(routing.resolveWith, (counterpart?.attention.length ?? 0) > 0);
-        }
-      } else if (decision === "loop") {
-        // Loop traversal (design §4.3): the submitter's lane is untouched — the
-        // source stays `in_progress` waiting in the gate, an intercepted
-        // target stays `in_progress` (it is NOT done while rework is routed),
-        // and a parent-forced `done` target stays `done` (sticky terminal; the
-        // routing works regardless). The dispatcher's gate pass reacts to the
-        // traversal.
-        events.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          causationEventId: outcomeRecordedEvent.eventId,
-          type: "thread.route-taken",
-          payload: {
-            threadId: command.threadId,
-            to: routing.routeTo!,
-            round: routing.round,
-            updatedAt: occurredAt,
-          },
-        });
-      } else if (decision === "attention") {
-        // `needs_human`: sugar for the existing human flag — lane untouched.
-        events.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          causationEventId: outcomeRecordedEvent.eventId,
-          type: "thread.attention-raised",
-          payload: {
-            threadId: command.threadId,
-            reason: "needs_guidance",
-            updatedAt: occurredAt,
-          },
-        });
-      } else {
-        // `yield` (unknown outcome / dead loop target, the load-bearing safe
-        // default, design §3.3) and `cap-breach` (rounds exhausted, design
-        // §4.3) both park the thread turn-over: lane `yielded`, neither
-        // terminal nor releasing. The dispatcher's yield rail wakes the parent
-        // (with both parties' reports on a cap breach).
-        events.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          causationEventId: outcomeRecordedEvent.eventId,
-          type: "thread.plan-lane-set",
-          payload: { threadId: command.threadId, planLane: "yielded", updatedAt: occurredAt },
-        });
-      }
-      return events;
-    }
-
     case "thread.activity.append": {
       yield* requireThread({
         readModel,
@@ -2115,88 +1241,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
-        },
-      };
-    }
-
-    // consult_thread observability: record one resolved consult on the asker
-    // thread. Pure passthrough — the SQL projection aggregates edges onto the
-    // asker shell and the full question/answer streams to thread-detail
-    // subscribers. The target thread's records are deliberately untouched.
-    case "thread.consult.record": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.consult-recorded",
-        payload: {
-          askerThreadId: command.threadId,
-          targetThreadId: command.targetThreadId,
-          targetTitle: command.targetTitle,
-          question: command.question,
-          answer: command.answer,
-          resolved: command.resolved,
-          durationMs: command.durationMs,
-          ...(command.forkSessionPath !== undefined
-            ? { forkSessionPath: command.forkSessionPath }
-            : {}),
-          createdAt: command.createdAt,
-        },
-      };
-    }
-
-    // Worktree isolation (design §3): record an isolated child's fan-in
-    // settlement. Emitted by the WorkstreamFanInReactor after merging the
-    // child branch back into the parent branch. Pure passthrough — the
-    // projector maps it onto `fanInState`; the dependency/wake gates read it.
-    case "thread.fanin.set": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.fanin-set",
-        payload: {
-          threadId: command.threadId,
-          fanInState: command.fanInState,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "thread.turn-start.fail": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.turn-start-failed",
-        payload: {
-          threadId: command.threadId,
-          detail: command.detail,
-          createdAt: command.createdAt,
         },
       };
     }

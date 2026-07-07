@@ -48,27 +48,7 @@ import {
 } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
-import {
-  goalTaskAddUrlFromMcpEndpoint,
-  goalTaskListUrlFromMcpEndpoint,
-  goalTaskDeleteUrlFromMcpEndpoint,
-  goalTaskUpdateUrlFromMcpEndpoint,
-  goalUpdateUrlFromMcpEndpoint,
-} from "../../mcp/GoalTaskHttp.ts";
-import { goalHandoffUrlFromMcpEndpoint } from "../../mcp/GoalHandoffHttp.ts";
-import {
-  setThreadTitleUrlFromMcpEndpoint,
-  workstreamAttentionUrlFromMcpEndpoint,
-  workstreamConsultThreadUrlFromMcpEndpoint,
-  workstreamDependenciesUrlFromMcpEndpoint,
-  workstreamLaneUrlFromMcpEndpoint,
-  workstreamListUrlFromMcpEndpoint,
-  workstreamReleaseUrlFromMcpEndpoint,
-  workstreamSubmitUrlFromMcpEndpoint,
-  workstreamSpawnUrlFromMcpEndpoint,
-  workstreamPromptUrlFromMcpEndpoint,
-  workstreamStopUrlFromMcpEndpoint,
-} from "../../mcp/WorkstreamSpawnHttp.ts";
+import { workstreamBaseUrlFromMcpEndpoint } from "../../mcp/toolPaths.ts";
 import type {
   BranchNameGenerationInput,
   ThreadTitleGenerationInput,
@@ -111,8 +91,7 @@ import {
   slugRoutesToAnthropic,
   threadSessionHasPoisonedToolIds,
 } from "../Layers/Pi/SessionIdSanitiser.ts";
-import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
-import { ensurePiGoalTaskExtension } from "./Pi/GoalTaskExtension.ts";
+import { ensurePiProviderToolExtension } from "./Pi/providerToolExtension.ts";
 import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
@@ -1859,12 +1838,7 @@ function makePiAdapter(input: {
               : {}),
             ...(startInput.tools && startInput.tools.length > 0 ? { tools: startInput.tools } : {}),
             ...(mcpSession
-              ? {
-                  extensions: [
-                    ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir),
-                    ensurePiGoalTaskExtension(input.serverConfig.stateDir),
-                  ],
-                }
+              ? { extensions: [ensurePiProviderToolExtension(input.serverConfig.stateDir)] }
               : {}),
             // Prepend the session worktree's node_modules/.bin so pi resolves
             // that worktree's workspace binaries before the server's inherited
@@ -1873,35 +1847,7 @@ function makePiAdapter(input: {
               mcpSession
                 ? {
                     ...process.env,
-                    T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_LANE_URL: workstreamLaneUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_ATTENTION_URL: workstreamAttentionUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_RELEASE_URL: workstreamReleaseUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_STOP_URL: workstreamStopUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_PROMPT_URL: workstreamPromptUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_SUBMIT_URL: workstreamSubmitUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
-                      mcpSession.endpoint,
-                    ),
-                    T3_SET_THREAD_TITLE_URL: setThreadTitleUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_TASK_LIST_URL: goalTaskListUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_TASK_UPDATE_URL: goalTaskUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_TASK_DELETE_URL: goalTaskDeleteUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_UPDATE_URL: goalUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_GOAL_HANDOFF_URL: goalHandoffUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
                     T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
                   }
                 : process.env,

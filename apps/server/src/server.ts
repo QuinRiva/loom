@@ -16,7 +16,6 @@ import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
-import { layerConfig as SqliteReadLayerLive } from "./persistence/Layers/SqliteRead.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
@@ -25,8 +24,6 @@ import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRe
 import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts";
 import { ProviderServiceLive } from "./provider/Layers/ProviderService.ts";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper.ts";
-import { WorkstreamLivenessSweepLive } from "./orchestration/Layers/WorkstreamLivenessSweep.ts";
-import { ExhaustionResumeSweepLive } from "./orchestration/Layers/ExhaustionResumeSweep.ts";
 import * as OpenCodeRuntime from "./provider/opencodeRuntime.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
@@ -39,9 +36,6 @@ import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/Provide
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
-import * as WorkstreamSpawnHttp from "./mcp/WorkstreamSpawnHttp.ts";
-import * as GoalTaskHttp from "./mcp/GoalTaskHttp.ts";
-import * as GoalHandoffHttp from "./mcp/GoalHandoffHttp.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
@@ -51,21 +45,13 @@ import * as Keybindings from "./keybindings.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor.ts";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus.ts";
-import { ReasoningStreamBusLive } from "./orchestration/Layers/ReasoningStreamBus.ts";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
-import { WorkstreamDispatcherLive } from "./orchestration/Layers/WorkstreamDispatcher.ts";
-import { WorkstreamFanInReactorLive } from "./orchestration/Layers/WorkstreamFanInReactor.ts";
-import { WorktreeReaperLive } from "./orchestration/Layers/WorktreeReaper.ts";
-import * as WorkstreamWorktreeStatus from "./orchestration/WorkstreamWorktreeStatus.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
-import { AccountUsageRegistryLive } from "./provider/Services/AccountUsageRegistry.ts";
-import { ProviderHealthRegistryLive } from "./provider/Services/ProviderHealthRegistry.ts";
-import { SubscriptionUsagePollerLive } from "./provider/Layers/SubscriptionUsagePoller.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -83,8 +69,6 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
-import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
-import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import { authHttpApiLayer, environmentAuthenticatedAuthLayer } from "./auth/http.ts";
@@ -95,14 +79,22 @@ import { serverRelayBrokerTracingLayer } from "./cloud/relayTracing.ts";
 import * as CloudManagedEndpointRuntime from "./cloud/ManagedEndpointRuntime.ts";
 import * as CloudCliTokenManager from "./cloud/CliTokenManager.ts";
 import * as CloudCliState from "./cloud/CliState.ts";
-import { provisionCliToken } from "./cli/cliToken.ts";
+import { provisionCliToken } from "./cli/cliToken.ts"; // loom:
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
+// loom: OrchestrationLayerOnSqlReadClient substitutes upstream's
+// `OrchestrationLayerLive` from ./orchestration/runtimeLayer.ts
+import { OrchestrationLayerOnSqlReadClient } from "./persistence/Layers/SqliteLanes.ts";
 import {
-  OrchestrationLayerOnSqlReadClient,
-  UsageBreakdownQueryOnSqlReadClient,
-} from "./persistence/Layers/SqliteLanes.ts";
+  LoomMcpHttpLive,
+  LoomPersistenceLive,
+  LoomProviderHealthLive,
+  LoomProviderRuntimeLive,
+  LoomReactorsLive,
+  LoomRuntimeCoreLive,
+  LoomWorktreeMutationLockLive,
+} from "./loom/serverLayers.ts"; // loom:
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -177,24 +169,18 @@ const PlatformServicesLive = Layer.unwrap(
 );
 
 const ReactorLayerLive = Layer.empty.pipe(
-  // Phase-3 worktrees maintenance surface. Placed first (earliest consumer) so
-  // its WorktreeReaper/ProjectionSnapshotQuery/OrchestrationEngine/Git deps are
-  // all satisfied by later provideMerge steps in this and the RuntimeCore pipe.
-  Layer.provideMerge(WorkstreamWorktreeStatus.layer),
   Layer.provideMerge(OrchestrationReactorLive),
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
-  Layer.provideMerge(WorkstreamDispatcherLive),
-  Layer.provideMerge(WorkstreamFanInReactorLive),
-  Layer.provideMerge(WorktreeReaperLive),
+  // loom: fork reactors + transient reasoning bus (bundle in loom/serverLayers.ts).
+  // Spliced here so the bundle's exported ReasoningStreamBus feeds the earlier
+  // ProviderRuntimeIngestion + the routes layer, while the later AgentAwareness/
+  // RuntimeReceiptBus steps still feed the fork reactors.
+  Layer.provideMerge(LoomReactorsLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
-  // Transient reasoning channel shared by the ingestion producer and ws
-  // subscribeThread consumer. Provided last (like RuntimeReceiptBusLive) so it
-  // is available to the earlier reactors and exported for the routes layer.
-  Layer.provideMerge(ReasoningStreamBusLive),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
@@ -214,7 +200,7 @@ const ProviderLayerLive = ProviderServiceLive.pipe(
 
 const PersistenceLayerLive = Layer.empty.pipe(
   Layer.provideMerge(SqlitePersistenceLayerLive),
-  Layer.provideMerge(SqliteReadLayerLive),
+  Layer.provideMerge(LoomPersistenceLive), // loom:
 );
 
 const VcsDriverRegistryLayerLive = VcsDriverRegistry.layer.pipe(
@@ -315,36 +301,22 @@ const CloudManagedEndpointRuntimeLive = Layer.mergeAll(
 
 const ProviderRuntimeLayerLive = Layer.mergeAll(
   ProviderSessionReaperLive,
-  WorkstreamLivenessSweepLive,
-  ExhaustionResumeSweepLive,
-  SubscriptionUsagePollerLive,
+  LoomProviderRuntimeLive, // loom: WorkstreamLiveness/ExhaustionResume/SubscriptionUsage sweeps
 ).pipe(
   Layer.provideMerge(ProviderLayerLive),
+  // loom: OrchestrationLayerOnSqlReadClient substitutes upstream OrchestrationLayerLive
   Layer.provideMerge(OrchestrationLayerOnSqlReadClient),
 );
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
-  // Core Services. UsageBreakdownQueryLive (/usage dashboard aggregation, §D3)
-  // is merged here rather than as its own pipe step to stay under `.pipe`'s
-  // argument-count ceiling; its SqlClient + AccountUsageRegistry deps are
-  // satisfied by the later provideMerge steps. Exposes UsageBreakdownQuery for
-  // the ws RPC handler. WorktreeProvisionerLive (worktree-isolation plan §2:
-  // the shared provisioner for root bootstrap + dispatcher promotion) rides the
-  // same mergeAll for the same ceiling reason; its git/setup/orchestration deps
-  // come from the later provideMerge steps.
+  // Core Services
+  // loom: LoomRuntimeCoreLive (UsageBreakdownQuery + WorktreeProvisioner) joins
+  // this mergeAll (see loom/serverLayers.ts for its dependency rationale).
+  Layer.provideMerge(Layer.mergeAll(CheckpointingLayerLive, LoomRuntimeCoreLive)),
+  // loom: WorktreeMutationLock rides this later, dependency-free step so it feeds
+  // both the provisioner (earlier step) and the fan-in reactor in the reactor layer.
   Layer.provideMerge(
-    Layer.mergeAll(
-      UsageBreakdownQueryOnSqlReadClient,
-      CheckpointingLayerLive,
-      WorktreeProvisionerLive,
-    ),
-  ),
-  // Per-worktree mutation lock shared by the provisioner and the fan-in reactor
-  // so parent-worktree git ops never race (review finding 3). Provided in a
-  // later step (dependency-free) so it feeds both the provisioner mergeAll above
-  // and the fan-in reactor in the reactor layer.
-  Layer.provideMerge(
-    Layer.mergeAll(SourceControlProviderRegistryLayerLive, WorktreeMutationLockLive),
+    Layer.mergeAll(SourceControlProviderRegistryLayerLive, LoomWorktreeMutationLockLive),
   ),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
@@ -364,22 +336,11 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // `ProviderService` (canonical stream, written after event normalization).
   // Provided once at the runtime level so every consumer sees the same
   // logger instances.
-  //
-  // Bundled with exhaustion state (`ProviderHealthRegistryLive`) + the
-  // ephemeral, account-scoped usage store it derives marks from
-  // (`AccountUsageRegistryLive`) — kept in one provideMerge step so both are
-  // provided TO the built-in drivers above (PiDriver.create requires
-  // ProviderHealthRegistry for quota classification) while staying under the
-  // pipe's 20-argument ceiling. AccountUsageRegistry is nested-provided into
-  // the health registry and merged out for its other consumers
-  // (`ProviderRuntimeIngestion` writes rate-limit events here; the WS config
-  // stream reads its snapshot + change stream). The health registry also reads
-  // `providerFailover` from ServerSettings (provided by a later pipe step).
+  // loom: LoomProviderHealthLive (exhaustion state + nested account-usage store)
+  // rides this step so it reaches the built-in drivers (PiDriver requires
+  // ProviderHealthRegistry); see loom/serverLayers.ts for the full rationale.
   Layer.provideMerge(
-    Layer.mergeAll(
-      ProviderEventLoggers.ProviderEventLoggersLive,
-      ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-    ),
+    Layer.mergeAll(ProviderEventLoggers.ProviderEventLoggersLive, LoomProviderHealthLive),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but
@@ -431,12 +392,10 @@ export const makeRoutesLayer = Layer.mergeAll(
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),
-  Layer.mergeAll(
-    McpHttpServer.layer,
-    WorkstreamSpawnHttp.layer,
-    GoalTaskHttp.layer,
-    GoalHandoffHttp.layer,
-  ).pipe(Layer.provide(McpSessionRegistry.layer)),
+  // loom: LoomMcpHttpLive (WorkstreamSpawn/GoalTask/GoalHandoff HTTP) merged in.
+  Layer.mergeAll(McpHttpServer.layer, LoomMcpHttpLive).pipe(
+    Layer.provide(McpSessionRegistry.layer),
+  ),
 ).pipe(Layer.provide(PreviewAutomationBroker.layer), Layer.provide(browserApiCorsLayer));
 
 export const makeServerLayer = Layer.unwrap(
@@ -461,7 +420,7 @@ export const makeServerLayer = Layer.unwrap(
             return;
           }
 
-          yield* provisionCliToken();
+          yield* provisionCliToken(); // loom:
           const state = yield* makePersistedServerRuntimeState({
             config,
             port: address.port,

@@ -3,22 +3,26 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { PI_DEFAULT_MODEL, ProviderOptionSelections } from "./model.ts";
+import { PI_DEFAULT_MODEL, ProviderOptionSelections } from "./model.ts"; // loom: PI_DEFAULT_MODEL (git-text-gen substitution residual)
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+// loom: fork additions live in the sibling file (one-way dependency). Re-export
+// them below so the `@t3tools/contracts/settings` subpath keeps exposing e.g.
+// `ReasoningDisplayMode` to web consumers. See the campaign plan, Slice A.
+import {
+  LoomClientSettingsFields,
+  LoomClientSettingsPatchFields,
+  LoomModelPreferenceFields,
+  LoomServerSettingsFields,
+  LoomServerSettingsPatchFields,
+} from "./settings.loom.ts";
+export * from "./settings.loom.ts"; // loom:
 
 // ── Client Settings (local-only) ───────────────────────────────
 
 export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"]);
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
-
-// Tri-state visibility for the model reasoning/thinking block rendered above
-// assistant answers. `off` hides it entirely; `collapsed` shows a summary
-// header ("Thought for Xs") closed by default; `expanded` opens it by default.
-export const ReasoningDisplayMode = Schema.Literals(["off", "collapsed", "expanded"]);
-export type ReasoningDisplayMode = typeof ReasoningDisplayMode.Type;
-export const DEFAULT_REASONING_DISPLAY_MODE: ReasoningDisplayMode = "collapsed";
 
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
@@ -47,6 +51,7 @@ export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
 
 export const ClientSettingsSchema = Schema.Struct({
+  ...LoomClientSettingsFields, // loom:
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -73,19 +78,11 @@ export const ClientSettingsSchema = Schema.Struct({
   providerModelPreferences: Schema.Record(
     ProviderInstanceId,
     Schema.Struct({
+      ...LoomModelPreferenceFields, // loom:
       hiddenModels: Schema.Array(Schema.String).pipe(
         Schema.withDecodingDefault(Effect.succeed([])),
       ),
       modelOrder: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
-      // Allow-list mode: when `showOnlySelectedModels` is on, only slugs in
-      // `selectedModels` (plus custom models) surface in the model picker;
-      // `hiddenModels` is ignored while the mode is active.
-      selectedModels: Schema.Array(Schema.String).pipe(
-        Schema.withDecodingDefault(Effect.succeed([])),
-      ),
-      showOnlySelectedModels: Schema.Boolean.pipe(
-        Schema.withDecodingDefault(Effect.succeed(false)),
-      ),
     }),
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
@@ -106,9 +103,6 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
-  ),
-  reasoningDisplay: ReasoningDisplayMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_REASONING_DISPLAY_MODE)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
@@ -300,6 +294,11 @@ export const CursorSettings = makeProviderSettingsSchema(
 );
 export type CursorSettings = typeof CursorSettings.Type;
 
+// loom: fork provider block. Deliberately NOT relocated to settings.loom.ts —
+// it is built with the non-exported `makeBinaryPathSetting`, so a loom-file
+// definition would create a value-init cycle. It also mirrors upstream's own
+// per-provider blocks (Codex/Claude/Grok), so it merges the way upstream's own
+// provider additions do.
 export const PiSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -398,24 +397,6 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 );
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
-// Cross-provider subscription-exhaustion failover (tier 2). Sparse, defaulted
-// — no migration. `chains` is optional (absent ⇒ use built-in default chains,
-// which live server-side); keys are exact slugs ("anthropic/claude-fable-5") or
-// namespace wildcards ("openai-codex/*"), values ordered target slugs.
-// `pausedAccounts` are account keys (providerInstanceId ?? providerName) the
-// user has soft-paused — treated as exhausted account-wide indefinitely.
-export const ProviderFailoverSettings = Schema.Struct({
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  resumeOnReset: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  chains: Schema.optional(
-    Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
-  ),
-  pausedAccounts: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
-});
-export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
-
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -425,6 +406,7 @@ export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 
 export const ServerSettings = Schema.Struct({
+  ...LoomServerSettingsFields, // loom:
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
@@ -441,6 +423,8 @@ export const ServerSettings = Schema.Struct({
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
+      // loom: fork default git-text-generation model substitution (product
+      // behaviour) — upstream defaults to codex/DEFAULT_GIT_TEXT_GENERATION_MODEL.
       Effect.succeed({
         instanceId: ProviderInstanceId.make("pi"),
         model: PI_DEFAULT_MODEL,
@@ -459,7 +443,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-    pi: PiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    pi: PiSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))), // loom:
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -470,16 +454,7 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  // Named model presets for Workstream spawns. Keyed by a plain slug; the
-  // value is a full `ModelSelection`. `workstream_spawn` resolves a preset by
-  // explicit `modelPreset` name, or — when neither model field is given — by
-  // the child's `role` (a preset named after the role). Default empty so
-  // existing spawns inherit the parent's selection exactly as before.
-  workstreamModelPresets: Schema.Record(TrimmedNonEmptyString, ModelSelection).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  providerFailover: ProviderFailoverSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -564,6 +539,7 @@ const GrokSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+// loom: fork provider patch block (mirrors PiSettings residual above).
 const PiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -579,6 +555,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  ...LoomServerSettingsPatchFields, // loom:
   // Server settings
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
@@ -599,7 +576,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
-      pi: Schema.optionalKey(PiSettingsPatch),
+      pi: Schema.optionalKey(PiSettingsPatch), // loom:
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),
@@ -608,26 +585,11 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
-  // Whole-map replacement, mirroring `providerInstances`: presets are set as
-  // complete entries, so a partial per-preset merge has no coherent meaning.
-  workstreamModelPresets: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, ModelSelection)),
-  // Shallow-merged into current (see applyServerSettingsPatch): scalar toggles
-  // replace when present; `chains`/`pausedAccounts` replace wholesale (the UI
-  // sends complete values), so a partial per-key merge has no coherent meaning.
-  providerFailover: Schema.optionalKey(
-    Schema.Struct({
-      enabled: Schema.optionalKey(Schema.Boolean),
-      resumeOnReset: Schema.optionalKey(Schema.Boolean),
-      chains: Schema.optionalKey(
-        Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
-      ),
-      pausedAccounts: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
-    }),
-  ),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
+  ...LoomClientSettingsPatchFields, // loom:
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
@@ -644,17 +606,12 @@ export const ClientSettingsPatch = Schema.Struct({
     Schema.Record(
       ProviderInstanceId,
       Schema.Struct({
+        ...LoomModelPreferenceFields, // loom:
         hiddenModels: Schema.Array(Schema.String).pipe(
           Schema.withDecodingDefault(Effect.succeed([])),
         ),
         modelOrder: Schema.Array(Schema.String).pipe(
           Schema.withDecodingDefault(Effect.succeed([])),
-        ),
-        selectedModels: Schema.Array(Schema.String).pipe(
-          Schema.withDecodingDefault(Effect.succeed([])),
-        ),
-        showOnlySelectedModels: Schema.Boolean.pipe(
-          Schema.withDecodingDefault(Effect.succeed(false)),
         ),
       }),
     ),
@@ -667,7 +624,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
-  reasoningDisplay: Schema.optionalKey(ReasoningDisplayMode),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

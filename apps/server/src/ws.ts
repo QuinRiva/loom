@@ -51,7 +51,6 @@ import {
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
-  ServerUsageBreakdownError,
   type ServerProvider,
   ThreadId,
   type TerminalAttachStreamEvent,
@@ -74,6 +73,7 @@ import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngi
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
+import { LOOM_RPC_SCOPES, makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -238,6 +238,8 @@ function projectFileFailureContext(
   }
 }
 
+// loom: adds thread.message-reasoning / thread.consult-recorded / thread.fanin-set
+// (fork event types) to the upstream thread-detail event set.
 function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   OrchestrationEvent,
   {
@@ -270,11 +272,12 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
-// NOTE: `WS_METHODS.heartbeat` is intentionally absent. It is an
+// loom: `WS_METHODS.heartbeat` is intentionally absent. It is an
 // authenticated-session-only keepalive (least privilege; carries no data): any
 // session that authenticated at the WS upgrade may beat, regardless of scope.
 // Its handler therefore bypasses the scope-checked `observeRpcEffect` wrapper.
 const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
+  ...LOOM_RPC_SCOPES, // loom: fork RPC method scopes (loom/wsMethods.ts)
   [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getThreadActivities, AuthOrchestrationReadScope],
@@ -294,10 +297,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverGetTraceDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessDiagnostics, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetUsageBreakdown, AuthOrchestrationReadScope],
   [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverGetWorkstreamWorktrees, AuthOrchestrationReadScope],
-  [WS_METHODS.serverRemoveWorkstreamWorktree, AuthOrchestrationOperateScope],
   [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
   [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
   [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
@@ -634,6 +634,7 @@ const makeWsRpcLayer = (
               Effect.orElseSucceed(() => Option.none()),
             );
           default:
+            // loom: goal aggregate → goal-upserted/goal-removed shell-stream events.
             if (event.aggregateKind === "goal") {
               const goalId = GoalId.make(event.aggregateId);
               return projectionSnapshotQuery.getGoalShellById(goalId).pipe(
@@ -706,6 +707,7 @@ const makeWsRpcLayer = (
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
                 threadId: command.threadId,
                 projectId: bootstrap.createThread.projectId,
+                // loom: fork workstream fields carried through bootstrap thread.create
                 goalId: bootstrap.createThread.goalId ?? null,
                 parentThreadId: bootstrap.createThread.parentThreadId ?? null,
                 role: bootstrap.createThread.role ?? null,
@@ -723,6 +725,8 @@ const makeWsRpcLayer = (
             }
 
             if (bootstrap?.prepareWorktree) {
+              // loom: worktree provisioner substitutes upstream's inline gitWorkflow
+              // createWorktree + setup-script plumbing.
               const provisioned = yield* worktreeProvisioner.provisionWorktree({
                 threadId: command.threadId,
                 ...(targetProjectId ? { projectId: targetProjectId } : {}),
@@ -784,6 +788,7 @@ const makeWsRpcLayer = (
 
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
+        // loom: overlay live exhaustion marks onto provider snapshots.
         const providers = overlayProviderExhaustion(
           yield* providerRegistry.getProviders,
           yield* providerHealthRegistry.snapshot,
@@ -824,10 +829,9 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
-        // Authenticated-session-only keepalive: the WS upgrade already
-        // authenticated this session, so the handler just acknowledges. No
-        // scope check, no instrumentation (kept out of request telemetry).
-        [WS_METHODS.heartbeat]: (_input) => Effect.void,
+        // loom: fork ws handlers (heartbeat keepalive, usage breakdown, workstream
+        // worktree read/remove) — factory in loom/wsMethods.ts, fed the locals above.
+        ...makeLoomWsHandlers({ observeRpcEffect, usageBreakdownQuery, workstreamWorktreeStatus }),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -1025,6 +1029,8 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
+          // loom: connect-gap rewrite — pre-subscribe the reasoning bus + durable
+          // event stream before the snapshot fetch (see inline comments below).
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
             Effect.succeed(
@@ -1219,41 +1225,10 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
-        [WS_METHODS.serverGetUsageBreakdown]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverGetUsageBreakdown,
-            usageBreakdownQuery.getBreakdown(input).pipe(
-              Effect.tapError((cause) =>
-                Effect.logError("usage breakdown query failed", { cause }),
-              ),
-              Effect.mapError(
-                (cause) =>
-                  new ServerUsageBreakdownError({
-                    message: "Failed to compute usage breakdown",
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "server" },
-          ),
         [WS_METHODS.serverSignalProcess]: (input) =>
           observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
             "rpc.aggregate": "server",
           }),
-        [WS_METHODS.serverGetWorkstreamWorktrees]: (_input) =>
-          observeRpcEffect(WS_METHODS.serverGetWorkstreamWorktrees, workstreamWorktreeStatus.read, {
-            "rpc.aggregate": "server",
-          }),
-        [WS_METHODS.serverRemoveWorkstreamWorktree]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverRemoveWorkstreamWorktree,
-            workstreamWorktreeStatus.remove({
-              worktreePath: input.worktreePath,
-              acknowledgeDirty: input.acknowledgeDirty ?? false,
-              acknowledgeUnmerged: input.acknowledgeUnmerged ?? false,
-            }),
-            { "rpc.aggregate": "server" },
-          ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) =>
           observeRpcEffect(WS_METHODS.cloudGetRelayClientStatus, relayClient.resolve, {
             "rpc.aggregate": "cloud",
@@ -1693,7 +1668,7 @@ const makeWsRpcLayer = (
                   },
                 })),
               );
-              // Fold the provider snapshots with live exhaustion marks so an
+              // loom: fold the provider snapshots with live exhaustion marks so an
               // account-wide limit (or a manual pause) surfaces on the provider
               // card (§8.2). Seeded from the current values so a marks-only
               // change re-overlays the last known providers, and vice versa.
@@ -1739,6 +1714,7 @@ const makeWsRpcLayer = (
                   payload: { settings },
                 })),
               );
+              // loom: account-usage change stream added to the config subscription.
               const accountUsageUpdates = accountUsageRegistry.streamChanges.pipe(
                 Stream.map((usage) => ({
                   version: 1 as const,
