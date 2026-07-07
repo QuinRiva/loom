@@ -21,8 +21,8 @@ import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSet
 import { primaryServerProvidersAtom, useAccountUsage } from "../../state/server";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { type ModelPickerOption, SearchableModelPopover } from "../chat/SearchableModelList";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 const PI_INSTANCE_ID = ProviderInstanceId.make("pi");
@@ -180,7 +180,7 @@ function ChainSourceCard({
   readonly isOverridden: boolean;
   readonly hasDefault: boolean;
   readonly nameBySlug: ReadonlyMap<string, string>;
-  readonly targetOptions: ReadonlyArray<{ readonly value: string; readonly label: string }>;
+  readonly targetOptions: ReadonlyArray<ModelPickerOption>;
   readonly onChange: (nextTargets: ReadonlyArray<string>) => void;
   readonly onReset: () => void;
 }) {
@@ -240,29 +240,23 @@ function ChainSourceCard({
         </div>
       )}
       {available.length > 0 && (
-        <Select
-          value=""
-          onValueChange={(value) => {
-            if (value) onChange([...targets, value]);
-          }}
-        >
-          <SelectTrigger
-            className="h-7 w-full text-xs"
-            aria-label={`Add fallback target for ${source}`}
-          >
-            <span className="flex items-center gap-1.5 text-muted-foreground">
+        <SearchableModelPopover
+          options={available}
+          align="start"
+          placeholder="Search fallback targets..."
+          onSelect={(value) => onChange([...targets, value])}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 w-full justify-start gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+              aria-label={`Add fallback target for ${source}`}
+            >
               <PlusIcon className="size-3" />
               Add fallback target
-            </span>
-          </SelectTrigger>
-          <SelectPopup align="start">
-            {available.map((option) => (
-              <SelectItem key={option.value} hideIndicator value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+            </Button>
+          }
+        />
       )}
     </div>
   );
@@ -286,18 +280,29 @@ export function FailoverSettingsPanel() {
     () => new Map(piModels.map((model) => [model.slug, model.name])),
     [piModels],
   );
-  // Target options: every concrete pi catalogue slug plus one "Same model" entry
-  // per namespace (persisted as the bare namespace the resolver substitutes).
-  const targetOptions = useMemo(() => {
+  // Target options: every concrete pi catalogue slug (grouped by provider) plus
+  // one pinned "Same model" entry per namespace (persisted as the bare namespace
+  // the resolver substitutes).
+  const targetOptions = useMemo<ReadonlyArray<ModelPickerOption>>(() => {
     const namespaces = [
       ...new Set(piModels.map((model) => failoverNamespaceOf(model.slug))),
     ].sort();
     return [
       ...namespaces.map((namespace) => ({
         value: namespace,
-        label: `Same model · ${failoverNamespaceLabel(namespace)}`,
+        name: `Same model · ${failoverNamespaceLabel(namespace)}`,
+        // Persisted namespace shown + indexed so typing e.g. "anthropic" or
+        // "google-vertex-claude" finds the synthetic entry, not just its label.
+        secondary: namespace,
+        group: "Same model",
+        pinned: true,
       })),
-      ...piModels.map((model) => ({ value: model.slug, label: `${model.name} (${model.slug})` })),
+      ...piModels.map((model) => ({
+        value: model.slug,
+        name: model.name,
+        secondary: model.slug,
+        group: failoverNamespaceLabel(failoverNamespaceOf(model.slug)),
+      })),
     ];
   }, [piModels]);
 
@@ -306,8 +311,16 @@ export function FailoverSettingsPanel() {
       [...new Set([...Object.keys(DEFAULT_FAILOVER_CHAINS), ...Object.keys(userChains)])].sort(),
     [userChains],
   );
-  const addableSources = useMemo(
-    () => piModels.filter((model) => !sources.includes(model.slug)),
+  const addableSourceOptions = useMemo<ReadonlyArray<ModelPickerOption>>(
+    () =>
+      piModels
+        .filter((model) => !sources.includes(model.slug))
+        .map((model) => ({
+          value: model.slug,
+          name: model.name,
+          secondary: model.slug,
+          group: failoverNamespaceLabel(failoverNamespaceOf(model.slug)),
+        })),
     [piModels, sources],
   );
 
@@ -416,28 +429,25 @@ export function FailoverSettingsPanel() {
       <div className="border-t border-border/60 px-4 pt-3 sm:px-5">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium text-foreground">Fallback chains</p>
-          {addableSources.length > 0 && (
-            <Select
-              value=""
-              onValueChange={(value) => {
-                if (value) setSourceTargets(value, []);
-              }}
-            >
-              <SelectTrigger
-                className="h-6 w-auto gap-1 px-2 text-[11px] text-muted-foreground"
-                aria-label="Add a model-specific fallback chain"
-              >
-                <PlusIcon className="size-3" />
-                Add model
-              </SelectTrigger>
-              <SelectPopup align="end">
-                {addableSources.map((model) => (
-                  <SelectItem key={model.slug} hideIndicator value={model.slug}>
-                    {model.name} ({model.slug})
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+          {addableSourceOptions.length > 0 && (
+            <SearchableModelPopover
+              options={addableSourceOptions}
+              align="end"
+              placeholder="Search models..."
+              onSelect={(value) => setSourceTargets(value, [])}
+              trigger={
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                  aria-label="Add a model-specific fallback chain"
+                >
+                  <PlusIcon className="size-3" />
+                  Add model
+                </Button>
+              }
+            />
           )}
         </div>
         <p className="mt-0.5 text-[11px] text-muted-foreground/70">
