@@ -5117,7 +5117,10 @@ function ChatViewContent(props: ChatViewProps) {
         mode="embedded"
       />
     ) : activeRightPanelSurface?.kind === "tasks" ? (
-      <GoalTasksPanel goalId={activeThread?.goalId ?? null} />
+      <GoalTasksPanel
+        goalId={activeThread?.goalId ?? null}
+        environmentId={activeThread?.environmentId ?? null}
+      />
     ) : activeRightPanelSurface?.kind === "workstream" ? (
       <WorkstreamPanel
         activeThread={activeThread ?? undefined}
@@ -5189,7 +5192,6 @@ function ChatViewContent(props: ChatViewProps) {
             keybindings={keybindings}
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
-            goalId={activeThread.goalId ?? null}
             threadLineage={threadLineage}
             threadRole={activeThread.role}
             onNavigateToThread={navigateToThread}

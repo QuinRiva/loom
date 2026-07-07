@@ -6,17 +6,12 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { memo, useEffect, useState, type ReactNode } from "react";
-import { ChevronDownIcon, ChevronRightIcon, CornerLeftUpIcon, TargetIcon } from "lucide-react";
+import { memo, type ReactNode } from "react";
+import { ChevronRightIcon, CornerLeftUpIcon } from "lucide-react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";
-import { countGoalTasks, useGoalById } from "../../goals/goalState";
-import type { GoalShell } from "../../types";
-import { goalEnvironment } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { cn } from "~/lib/utils";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -37,7 +32,6 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
-  goalId: string | null;
   threadLineage: ReadonlyArray<LineageSegment>;
   threadRole: string | null;
   onNavigateToThread: (threadId: ThreadId) => void;
@@ -49,111 +43,6 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
-}
-
-function GoalHeaderSection({
-  goalId,
-  environmentId,
-}: {
-  goalId: string;
-  environmentId: EnvironmentId;
-}) {
-  const goal = useGoalById(goalId);
-
-  if (!goal) {
-    return (
-      <span className="shrink-0 truncate rounded-md border border-dashed border-border/70 px-2 py-0.5 text-xs text-muted-foreground/70">
-        Missing goal: {goalId}
-      </span>
-    );
-  }
-  return <GoalHeaderBody goal={goal} environmentId={environmentId} />;
-}
-
-// Editable goal surface: the interpreted goal title/description are edit-in-place
-// controlled inputs that commit via `goal.meta.update` (no Approve button — an
-// untouched goal simply keeps its auto-created interpretation).
-function GoalHeaderBody({
-  goal,
-  environmentId,
-}: {
-  goal: GoalShell;
-  environmentId: EnvironmentId;
-}) {
-  const updateMeta = useAtomCommand(goalEnvironment.updateMeta);
-  const [expanded, setExpanded] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(goal.title);
-  const [descriptionDraft, setDescriptionDraft] = useState(goal.description);
-  useEffect(() => setTitleDraft(goal.title), [goal.title]);
-  useEffect(() => setDescriptionDraft(goal.description), [goal.description]);
-  const progress = countGoalTasks(goal.tasks);
-
-  const dispatchGoalMeta = (fields: { title?: string; description?: string }) => {
-    void updateMeta({ environmentId, input: { goalId: goal.id, ...fields } });
-  };
-
-  const commitTitle = () => {
-    const next = titleDraft.trim();
-    if (next.length === 0) {
-      setTitleDraft(goal.title);
-      return;
-    }
-    if (next !== goal.title) dispatchGoalMeta({ title: next });
-  };
-  const commitDescription = () => {
-    if (descriptionDraft !== goal.description) dispatchGoalMeta({ description: descriptionDraft });
-  };
-
-  return (
-    <div className="flex min-w-0 max-w-56 items-center gap-1.5 rounded-md border border-border/60 px-2 py-0.5 text-xs text-muted-foreground">
-      <div className="flex w-full min-w-0 items-center gap-1.5">
-        <TargetIcon className="size-3.5 shrink-0" />
-        <input
-          value={titleDraft}
-          onChange={(event) => setTitleDraft(event.target.value)}
-          onBlur={commitTitle}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.blur();
-            } else if (event.key === "Escape") {
-              setTitleDraft(goal.title);
-              event.currentTarget.blur();
-            }
-          }}
-          aria-label="Goal title"
-          title={goal.title || goal.slug}
-          className="min-w-0 flex-1 truncate bg-transparent font-medium text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
-        />
-        {progress.total > 0 ? (
-          <span className="shrink-0 tabular-nums text-muted-foreground/60">
-            {progress.done}/{progress.total}
-          </span>
-        ) : null}
-        <Popover open={expanded} onOpenChange={setExpanded}>
-          <PopoverTrigger
-            aria-label={expanded ? "Collapse goal" : "Expand goal"}
-            className="shrink-0 text-muted-foreground/55 hover:text-foreground"
-          >
-            <ChevronDownIcon
-              className={cn("size-3 transition-transform", expanded ? "rotate-180" : "")}
-            />
-          </PopoverTrigger>
-          <PopoverPopup side="bottom" align="end" className="w-[28rem] max-w-[80vw]">
-            <textarea
-              value={descriptionDraft}
-              onChange={(event) => setDescriptionDraft(event.target.value)}
-              onBlur={commitDescription}
-              aria-label="Goal description"
-              autoFocus
-              placeholder={"Describe this goal\u2026"}
-              className="max-h-[50vh] min-h-32 w-full resize-none bg-transparent text-xs leading-relaxed text-foreground/90 outline-none field-sizing-content"
-            />
-          </PopoverPopup>
-        </Popover>
-      </div>
-    </div>
-  );
 }
 
 const MAX_VISIBLE_LINEAGE_SEGMENTS = 3;
@@ -287,7 +176,6 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
-  goalId,
   threadLineage,
   threadRole,
   onNavigateToThread,
@@ -324,9 +212,6 @@ export const ChatHeader = memo(function ChatHeader({
           role={threadRole}
           onNavigateToThread={onNavigateToThread}
         />
-        {goalId ? (
-          <GoalHeaderSection goalId={goalId} environmentId={activeThreadEnvironmentId} />
-        ) : null}
       </div>
       <div
         data-chat-header-actions
