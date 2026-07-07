@@ -82,6 +82,76 @@ describe("instance-scoped model selection", () => {
     ).toContain("openai/gpt-5.5");
   });
 
+  it("drops a removed custom model even when the server catalogue still echoes it", () => {
+    // Drivers such as pi echo `config.customModels` back into their live
+    // catalogue as isCustom models; that echo lags behind settings writes.
+    // The config bucket is the single source of truth, so a slug removed
+    // from config must disappear from the picker even while the stale
+    // server snapshot still reports it.
+    const providers = [
+      {
+        ...provider({ instanceId: "claudeAgent", models: ["claude-sonnet-4-6"] }),
+        models: [
+          {
+            slug: "claude-sonnet-4-6",
+            name: "claude-sonnet-4-6",
+            isCustom: false,
+            capabilities: {},
+          },
+          { slug: "fable", name: "fable", isCustom: true, capabilities: {} },
+        ],
+      } as ServerProvider,
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerInstances: {
+        [ProviderInstanceId.make("claudeAgent")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          config: { customModels: [] },
+        },
+      },
+    };
+    const stock = deriveProviderInstanceEntries(providers).find(
+      (entry) => entry.instanceId === "claudeAgent",
+    )!;
+
+    expect(
+      getAppModelOptionsForInstance(settings, stock).map((option) => option.slug),
+    ).not.toContain("fable");
+  });
+
+  it("reflects add-then-remove of a custom model in the picker derivation", () => {
+    const providers = [provider({ instanceId: "claudeAgent", models: ["claude-sonnet-4-6"] })];
+    const withCustom: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerInstances: {
+        [ProviderInstanceId.make("claudeAgent")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          config: { customModels: ["fable"] },
+        },
+      },
+    };
+    const afterRemove: UnifiedSettings = {
+      ...withCustom,
+      providerInstances: {
+        [ProviderInstanceId.make("claudeAgent")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          config: { customModels: [] },
+        },
+      },
+    };
+    const stock = deriveProviderInstanceEntries(providers).find(
+      (entry) => entry.instanceId === "claudeAgent",
+    )!;
+
+    expect(getAppModelOptionsForInstance(withCustom, stock).map((option) => option.slug)).toContain(
+      "fable",
+    );
+    expect(
+      getAppModelOptionsForInstance(afterRemove, stock).map((option) => option.slug),
+    ).not.toContain("fable");
+  });
+
   it("resolves a custom slug against the selected custom instance", () => {
     const providers = [
       provider({ provider: ProviderDriverKind.make("claudeAgent"), instanceId: "claudeAgent" }),

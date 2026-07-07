@@ -14,8 +14,6 @@ import {
 } from "@t3tools/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
-import * as Arr from "effect/Array";
-import * as Result from "effect/Result";
 import {
   getDefaultServerModel,
   getProviderModels,
@@ -169,13 +167,14 @@ export function getAppModelOptions(
   provider: ProviderDriverKind,
   _selectedModel?: string | null,
 ): AppModelOption[] {
-  const options: AppModelOption[] = getProviderModels(providers, provider).map(toAppModelOption);
-  const seen = new Set(options.map((option) => option.slug));
-  const builtInModelSlugs = new Set(
-    Arr.filterMap(getProviderModels(providers, provider), (model) =>
-      model.isCustom ? Result.failVoid : Result.succeed(model.slug),
-    ),
+  // Built-ins come from the server snapshot; custom rows come exclusively
+  // from the config bucket below (see note in getAppModelOptionsForInstance).
+  const builtInServerModels = getProviderModels(providers, provider).filter(
+    (model) => !model.isCustom,
   );
+  const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
+  const seen = new Set(options.map((option) => option.slug));
+  const builtInModelSlugs = new Set(builtInServerModels.map((model) => model.slug));
 
   // Read from the default instance's config first (that's where edits
   // now land), falling back to the legacy per-kind bucket so unmigrated
@@ -217,13 +216,18 @@ export function getAppModelOptionsForInstance(
   settings: UnifiedSettings,
   entry: ProviderInstanceEntry,
 ): AppModelOption[] {
-  const options: AppModelOption[] = entry.models.map(toAppModelOption);
+  // Custom rows are sourced canonically from the instance's config bucket
+  // (readInstanceCustomModels), NOT from the server snapshot. Drivers such
+  // as pi echo `config.customModels` back into their live catalogue as
+  // `isCustom` models; that echo lags behind settings writes, so a removed
+  // slug would otherwise linger in the picker after the settings list
+  // dropped it. Filtering server `isCustom` models here keeps the config
+  // bucket the single source of truth — matching the settings card's
+  // `deriveProviderModelsForDisplay`.
+  const builtInServerModels = entry.models.filter((model) => !model.isCustom);
+  const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));
-  const builtInModelSlugs = new Set(
-    Arr.filterMap(entry.models, (model) =>
-      model.isCustom ? Result.failVoid : Result.succeed(model.slug),
-    ),
-  );
+  const builtInModelSlugs = new Set(builtInServerModels.map((model) => model.slug));
 
   const customModels = readInstanceCustomModels(settings, entry.instanceId, entry.driverKind);
   const normalizer = entry.driverKind;
