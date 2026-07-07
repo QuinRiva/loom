@@ -43,13 +43,14 @@ planned | ready | in_progress | done | cancelled`. Commands
 - **Dispatcher** — `apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts`.
   Three passes on a drainable worker: `promoteReadyThreads` (kick off `ready`
   children whose deps cleared, with an atomic `setInProgress` turn-start),
-  `wakeEligibleParents` (the generation join: children grouped by
-  `(parentThreadId, spawnGeneration)` via
-  `selectJoinedGenerations`/`isTerminalForJoin` in
-  `packages/shared/src/workstreamGraph.ts`; the parent is woken once the whole
-  generation is `done`/`cancelled`), and `wakeIdleAndErroredChildren` (per-child
-  rails: `error`, paused-`attention`, forgot-to-finish `idle` — which raises
-  `needs_guidance` — `recovered`, `slow-tool`). All wakes are receipt-deduped
+  `wakeEligibleParents` (the terminal-child DELTA rail: wake each parent about
+  its `done`/`cancelled` children that it has not already been told about —
+  `isTerminalForJoin` in `packages/shared/src/workstreamGraph.ts` decides
+  terminality — batching all newly-reportable children into ONE wake per pass,
+  keyed durably per child by a `child-reported` marker receipt), and
+  `wakeIdleAndErroredChildren` (per-child rails: `error`, paused-`attention`,
+  forgot-to-finish `idle` — which raises `needs_guidance` — `recovered`,
+  `slow-tool`). All wakes are receipt-deduped
   `thread.turn.start`s with `requireIdle`.
 - **Reports** — `apps/server/src/orchestration/workstreamReport.ts` writes
   markdown to `<stateDir>/workstream-reports/<threadId>.md`; the pointer is
@@ -91,7 +92,7 @@ orchestrator ──spawns──▶ coder ──done──▶ reviewer          (
                            └────────────────┘   round-capped, orchestrator asleep)
 
 reviewer submits clean/fixed_inline → gate resolves → coder+reviewer done
-                                    → generation joins → ONE parent wake
+                                    → delta rail → ONE parent wake (both)
 reviewer submits rework_approach    → reviewer lane = yielded → parent woken now
 loop rounds exhaust the cap         → reviewer lane = yielded → parent woken now
 reviewer submits needs_human        → needs_guidance flag (human), as today
@@ -293,8 +294,9 @@ decision `resolve`. The decider emits lane `done` for **both** R and C in the
 same transaction (multi-aggregate events in one command follow the
 cancel-cascade precedent in `decider.ts`). C is usually already `done`
 (round 0, no loop ever taken) — then only R's lane event is emitted. Dependents
-wired on R (or on both) release; if C and R share a `spawnGeneration`, the
-generation joins here and the parent gets **one** wake carrying both reports.
+wired on R (or on both) release; the coder+reviewer pair becomes reportable
+together at resolution, so the delta rail gives the parent **one** wake carrying
+both reports.
 `fixed_inline` is routing-identical to `clean` — it exists as a distinct token
 purely so humans can audit reviewer-authored fixes (surfaced on the verdict
 chip and in `thread.outcome-recorded`).
@@ -330,7 +332,7 @@ pure read-model comparison.
 
 | property             | value                                                                                                                                                                                                                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| terminal?            | no — the generation join (`isTerminalForJoin`) does **not** count it                                                                                                                                                                                                                               |
+| terminal?            | no — the terminal-child delta rail (`isTerminalForJoin`) does **not** count it                                                                                                                                                                                                                     |
 | releases dependents? | no — `areDependenciesSatisfied` still requires `done`                                                                                                                                                                                                                                              |
 | who sets it          | control-plane only (decider, from a submit's routing decision — same `server:` guard as `in_progress`); never settable via `workstream_set_lane` (the tool enum and the HTTP `SETTABLE_LANES` don't grow)                                                                                          |
 | how it clears        | any turn-start on a `yielded` thread emits `plan-lane-set in_progress` in the same transaction (a new decider rule alongside the attention-clear-on-turn-start rule — `yielded` is _not_ sticky-terminal). Parent `workstream_prompt`, human send, or a gate-pass resume all clear it identically. |
@@ -357,27 +359,24 @@ server-only `reopen: true` flag (§4.3). Consequences, stated honestly:
   control plane additionally logs a warning-tone activity on the parent when a
   reopen occurs while the reopened thread has already-released dependents —
   observable, not blocking.
-- **Generation join one-shot is compatible.** If C's round-0 `done` completed
-  a generation on its own (C spawned in a different turn than R), that wake
-  was already delivered and receipt-marked; a GATE reopen and its later
-  re-done never re-fire it (the handled-set is keyed by
-  `(parent, generation)`, not by lane history). The reviewer's own generation
-  join delivers the resolution wake. Spawning the pair in one turn (the
-  guided pattern) collapses this to a single wake at gate resolution.
-- **Parent-driven reopen is the exception: the re-engagement epoch.** The
-  "never re-fires" property above is safe only because a gate reopen has the
-  reviewer's generation to carry the resolution. A PARENT reopen (the
-  tool-recommended `workstream_set_lane ready` → `workstream_prompt` loop) has
-  no second generation — with an immutable `spawnGeneration` the re-run's
-  completion would be deduped forever by the first completion's receipt and
-  the parent would never hear the resubmit. So a lane-set that takes a
-  terminal sub-thread (`done`/`cancelled`) back to `ready`/`planned` stamps a
-  fresh `spawnGeneration` (the lane-set event's own id) in the same event: the
-  re-run is a new episode that detaches from its original sibling join group
-  and, on completion, joins a fresh generation whose wake id has no receipt —
-  one fresh, receipt-deduped wake per reopen episode, with no dispatcher
-  changes. Gate reopens do NOT pass through this path (they flow through
-  `thread.turn.start reopen`), so §5.2 gate semantics are untouched. A
+- **Delta noticing is one-shot per episode.** The terminal-child delta rail
+  reports each child at most once per terminal episode, keyed durably by a
+  `child-reported` marker whose id is `(childId, terminalEpisodeKey)` — the
+  child's latest `outcome-recorded` event id, falling back to its
+  `spawnGeneration`. A GATE reopen and its later re-done record a FRESH outcome
+  event, so the re-done carries a new episode key and is reported again (no
+  reliance on generation identity or lane history).
+- **Parent-driven reopen re-arms the same way.** A PARENT reopen (the
+  tool-recommended `workstream_set_lane ready` → `workstream_prompt` loop)
+  re-submits, recording a fresh `outcome-recorded` event whose id re-arms the
+  delta marker. As belt-and-braces for a reopen that is re-cancelled WITHOUT a
+  fresh submit (its outcome id would be unchanged), a lane-set that takes a
+  terminal sub-thread (`done`/`cancelled`) back to `ready`/`planned` also stamps
+  a fresh `spawnGeneration` (the lane-set event's own id) in the same event —
+  the episode-key fallback — so the re-run is unambiguously a new episode and is
+  reported afresh. Gate reopens do NOT pass through this lane-set path (they flow
+  through `thread.turn.start reopen`) but re-arm anyway via their fresh submit
+  outcome, so §5.2 gate semantics are untouched. A
   turn-start on a `ready` thread also flips it to `in_progress` (same rule as
   `yielded`), so a reopened-and-prompted child never runs mislabelled `ready`
   and cannot race the idle liveness rail.
@@ -444,13 +443,37 @@ and wakes the parent through the existing rail (that is the answer to
 "reviewer crashes mid-gate": same as any crash, and the gate's derived state
 survives because it is all in durable events).
 
-**Generation-join gating.** `selectJoinedGenerations` must not count a gate
-party as terminal while its gate is unresolved — otherwise a C-only generation
-joins at round 0 and again the guidance-preferred same-turn spawn would join
-the moment both parties _happen_ to be momentarily done mid-resolution. The
-minimal correct change: the dispatcher post-filters joined generations,
-holding back any generation containing a member of an unresolved gate. Pure,
-recomputable, and it composes with the existing one-shot receipts.
+**Terminal-child delta noticing (supersedes the generation-join barrier).** The
+dispatcher no longer waits for an entire `(parentThreadId, spawnGeneration)`
+group to go terminal before waking the parent — that barrier is what let ~11
+children handled progressively over hours re-fire as one enormous redundant
+notice when the last one finally finished. `wakeEligibleParents` is now a DELTA
+rail: it wakes each parent about its `done`/`cancelled` children that it has not
+already heard about, batching all newly-reportable children into ONE wake per
+pass. "Already heard about" is durable and recomputable from the receipt store
+(which supports only exact-id lookup, no prefix enumeration):
+
+- a per-child `child-reported` marker receipt, written after the delta wake,
+  keyed `(childId, terminalEpisodeKey)` — the durable "reported" truth that
+  survives restarts;
+- suppression when the parent already heard about the child's current state
+  through another rail with no new work since — the yield receipt (keyed on the
+  outcome event id), the `error` receipt (its `recovered` follow-up re-notifies
+  an error→done flip), the paused-`attention` receipt (keyed on the turn id),
+  and the `idle` receipt (keyed on the activity sequence). Each check is an
+  exact-id lookup on the child's CURRENT episode, so a child that ran again
+  re-arms as news.
+
+The per-child holdbacks the old barrier applied per generation are kept per
+child: a member of an unresolved gate is not reportable until the gate resolves
+(so a cleanly-resolved coder+reviewer pair becomes reportable together in ONE
+wake at resolution — which the barrier only achieved when the pair happened to
+be its own generation), and a `done` isolated child whose fan-in is still in
+flight (`none`) waits until it settles (`conflicted` IS settled-for-wake). The
+wake-before-markers order means a crash between the wake and its markers risks a
+rare duplicate mention on the next pass — strictly better than losing the
+notice. `isMemberOfUnresolvedGate`/`isTerminalForJoin` live in
+`packages/shared/src/workstreamGraph.ts`; `selectJoinedGenerations` is removed.
 
 ---
 
@@ -463,7 +486,7 @@ transition is a durable event.
 stateDiagram-v2
     [*] --> CoderWorking : dispatcher promotes coder (in_progress)
     CoderWorking --> ReviewerWorking : coder submit done (round 0)\ncoder=done releases blockedBy
-    ReviewerWorking --> Resolved : submit clean | fixed_inline\n→ both done, generation joins,\nONE parent wake
+    ReviewerWorking --> Resolved : submit clean | fixed_inline\n→ both done, delta rail,\nONE parent wake
     ReviewerWorking --> CoderRework : submit needs_rework, rounds < cap\n→ route-taken, coder REOPENED\n(done→in_progress), resumed with report
     ReviewerWorking --> YieldedToOrch : submit rework_approach /\nunknown outcome → reviewer yielded
     ReviewerWorking --> YieldedToOrch : submit needs_rework at cap\n→ reviewer yielded, wake carries\nBOTH reports + round count
@@ -747,10 +770,10 @@ submit-protocol parts; the gate-pattern parts require Phase 3.
 - `apps/server/src/orchestration/decider.ts` — lane invariants, cancel cascade
   (multi-aggregate precedent), sticky-terminal, `setInProgress` atomic kickoff.
 - `apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts` — promote /
-  generation-join / per-child rails; the receipt-dedup + `requireIdle` wake
+  terminal-child delta / per-child rails; the receipt-dedup + `requireIdle` wake
   pattern every new rail copies.
-- `packages/shared/src/workstreamGraph.ts` — `selectJoinedGenerations`,
-  `isTerminalForJoin` (join gating), home for `isWaitingInGate`.
+- `packages/shared/src/workstreamGraph.ts` — `isTerminalForJoin` (terminality),
+  home for `isWaitingInGate`.
 - `packages/shared/src/workstreamDependencies.ts` — release-on-done predicate
   (unchanged; re-gates un-started dependents on reopen for free).
 - `apps/server/src/mcp/WorkstreamSpawnHttp.ts` +
