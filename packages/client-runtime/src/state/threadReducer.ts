@@ -55,6 +55,42 @@ const activityOrder = O.combineAll<OrchestrationThreadActivity>([
 ]);
 
 /**
+ * The chronologically-oldest activity in a set, independent of array position.
+ * Unsequenced (legacy) rows sort to the END under {@link activityOrder} (their
+ * `sequence` coalesces to MAX_SAFE_INTEGER) even though they are the oldest by
+ * `createdAt`, so index 0 is NOT a reliable oldest boundary once a live append
+ * re-sorts the window. Ordering is by `(createdAt, id)` — the same keyset the
+ * server's unsequenced pagination cursor uses, so the lazy-load cursor agrees.
+ */
+export function oldestActivityByChronology(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): OrchestrationThreadActivity | null {
+  let oldest: OrchestrationThreadActivity | null = null;
+  for (const activity of activities) {
+    if (
+      oldest === null ||
+      activity.createdAt < oldest.createdAt ||
+      (activity.createdAt === oldest.createdAt && activity.id < oldest.id)
+    ) {
+      oldest = activity;
+    }
+  }
+  return oldest;
+}
+
+/**
+ * Identity sentinel for the live window's chronological-oldest boundary: the id
+ * of {@link oldestActivityByChronology}, or null when empty. Used to detect a
+ * window RESHAPE (reconnect re-snapshot / checkpoint revert) versus a plain live
+ * append, which must not reset lazy-loaded older pages.
+ */
+export function liveWindowOldestActivityId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): OrchestrationThreadActivity["id"] | null {
+  return oldestActivityByChronology(activities)?.id ?? null;
+}
+
+/**
  * Apply a single orchestration event to an `OrchestrationThread`, returning
  * the updated thread, a deletion signal, or an "unchanged" marker when the
  * event doesn't affect this thread.

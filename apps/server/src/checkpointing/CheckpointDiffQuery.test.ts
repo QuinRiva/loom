@@ -114,6 +114,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           }),
         ),
       );
@@ -214,6 +215,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           }),
         ),
       );
@@ -314,6 +316,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           }),
         ),
       );
@@ -388,6 +391,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           }),
         ),
       );
@@ -449,6 +453,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadShellById: () => Effect.succeed(Option.none()),
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+            getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           }),
         ),
       );
