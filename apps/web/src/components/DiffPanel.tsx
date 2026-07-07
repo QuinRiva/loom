@@ -235,8 +235,10 @@ function collectCoderDescendants(
 
 function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="min-w-0 truncate">{option.thread.title}</span>
+    <div className="flex min-w-0 flex-1 items-center gap-2" title={option.thread.title}>
+      <span className="min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+        {option.thread.title}
+      </span>
       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
         +{option.additions} -{option.deletions}
       </span>
@@ -711,7 +713,7 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
             <span className="truncate">{selectedScopeLabel}</span>
             <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
+          <DropdownMenuContent align="start" className="w-80">
             <DropdownMenuItem onClick={() => selectGitScope("unstaged")}>
               <span>Working tree</span>
               {isGitSelection && selectedGitScope === "unstaged" && (
