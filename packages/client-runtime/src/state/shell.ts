@@ -121,21 +121,26 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       ),
     );
 
-  const applyItem = Effect.fn("EnvironmentShellState.applyItem")(function* (
-    item: OrchestrationShellStreamItem,
+  // Fold a BURST of stream items into ONE state update. The events of a
+  // single command cascade (e.g. thread.archive → goal.archived) are committed
+  // in one DB transaction but streamed individually; applying them one
+  // SubscriptionRef.set at a time renders every intermediate state — the
+  // sidebar briefly shows an empty goal header between the thread-removed and
+  // goal-removed frames. A short coalescing window collapses the whole cascade
+  // (and any busy-turn event burst) into a single render.
+  const applyItems = Effect.fn("EnvironmentShellState.applyItems")(function* (
+    items: ReadonlyArray<OrchestrationShellStreamItem>,
   ) {
     const current = yield* SubscriptionRef.get(state);
-    const nextSnapshot =
-      item.kind === "snapshot"
-        ? item.snapshot
-        : Option.match(current.snapshot, {
-            onNone: () => null,
-            onSome: (snapshot) =>
-              item.sequence > snapshot.snapshotSequence
-                ? applyShellStreamEvent(snapshot, item)
-                : snapshot,
-          });
-    if (nextSnapshot === null) {
+    let nextSnapshot = Option.getOrNull(current.snapshot);
+    for (const item of items) {
+      if (item.kind === "snapshot") {
+        nextSnapshot = item.snapshot;
+      } else if (nextSnapshot !== null && item.sequence > nextSnapshot.snapshotSequence) {
+        nextSnapshot = applyShellStreamEvent(nextSnapshot, item);
+      }
+    }
+    if (nextSnapshot === null || nextSnapshot === Option.getOrNull(current.snapshot)) {
       return;
     }
 
@@ -153,7 +158,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     {
       onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
     },
-  ).pipe(Stream.runForEach(applyItem), Effect.forkScoped);
+  ).pipe(Stream.groupedWithin(64, "20 millis"), Stream.runForEach(applyItems), Effect.forkScoped);
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
       switch (connectionProjectionPhase(connectionState)) {
