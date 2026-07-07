@@ -243,10 +243,21 @@ export function createDevRunnerEnv({
   devUrl,
 }: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
   return Effect.gen(function* () {
+    const path = yield* Path.Path;
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
     const resolvedBaseDir = yield* resolveBaseDir(t3Home);
     const isDesktopMode = mode === "dev:desktop";
+
+    // Give each web-dev instance its own T3CODE_HOME keyed by server port.
+    // The server writes dev state to `<home>/dev`, so multiple concurrent
+    // worktree instances that inherit the same ambient T3CODE_HOME (e.g. the
+    // live cockpit's) would otherwise share one sqlite and clobber each other.
+    // Port-scoping keeps them isolated and away from the ambient home. Desktop
+    // dev keeps the shared home (its backend port is stable and single-instance).
+    const resolvedHome = isDesktopMode
+      ? resolvedBaseDir
+      : path.join(resolvedBaseDir, "dev-instances", String(serverPort));
 
     const output: NodeJS.ProcessEnv = {
       ...baseEnv,
@@ -254,7 +265,7 @@ export function createDevRunnerEnv({
       VITE_DEV_SERVER_URL:
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
-      T3CODE_HOME: resolvedBaseDir,
+      T3CODE_HOME: resolvedHome,
     };
 
     if (!isDesktopMode) {
@@ -474,6 +485,40 @@ export function resolveModePortOffsets<R = NetService.NetService>({
   });
 }
 
+interface ResolveRequestedPortInput<R = NetService.NetService> {
+  readonly port: number | undefined;
+  readonly checkPortAvailability?: PortAvailabilityCheck<R>;
+}
+
+/**
+ * Decide whether a requested server port should be honoured. `--port` falls
+ * back to the ambient `T3CODE_PORT`, so the value may be a genuine CLI request
+ * OR the live cockpit's own port leaking into an agent shell. Honour it only
+ * when it is actually free; otherwise discard it (`effectivePort: undefined`)
+ * so the caller falls back to offset scanning and never knowingly binds a busy
+ * port. An explicitly free port is returned unchanged.
+ */
+export function resolveRequestedPort<R = NetService.NetService>({
+  port,
+  checkPortAvailability,
+}: ResolveRequestedPortInput<R>): Effect.Effect<
+  { readonly effectivePort: number | undefined; readonly requestedPortBusy: boolean },
+  never,
+  R
+> {
+  return Effect.gen(function* () {
+    if (port === undefined) {
+      return { effectivePort: undefined, requestedPortBusy: false };
+    }
+    const checkPort = (checkPortAvailability ??
+      defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
+    const available = yield* checkPort(port);
+    return available
+      ? { effectivePort: port, requestedPortBusy: false }
+      : { effectivePort: undefined, requestedPortBusy: true };
+  });
+}
+
 interface DevRunnerCliInput {
   readonly mode: DevMode;
   readonly t3Home: string | undefined;
@@ -501,10 +546,14 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
 
     const { offset, source } = yield* resolveOffset({ portOffset, devInstance });
 
+    const { effectivePort, requestedPortBusy } = yield* resolveRequestedPort({
+      port: input.port,
+    });
+
     const { serverOffset, webOffset } = yield* resolveModePortOffsets({
       mode: input.mode,
       startOffset: offset,
-      hasExplicitServerPort: input.port !== undefined,
+      hasExplicitServerPort: effectivePort !== undefined,
       hasExplicitDevUrl: input.devUrl !== undefined,
     });
 
@@ -519,7 +568,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
       logWebSocketEvents: input.logWebSocketEvents,
       host: input.host,
-      port: input.port,
+      port: effectivePort,
       devUrl: input.devUrl,
     });
 
@@ -527,9 +576,16 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       serverOffset !== offset || webOffset !== offset
         ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
         : "";
+    const busySuffix = requestedPortBusy
+      ? ` requestedPort=${String(input.port)}(busy, scanned instead)`
+      : "";
 
     yield* Effect.logInfo(
-      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.T3CODE_HOME)}`,
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix}${busySuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.T3CODE_HOME)}`,
+    );
+
+    yield* Effect.logInfo(
+      `[dev-runner] web:    http://localhost:${String(env.PORT)}  |  server: http://localhost:${String(env.T3CODE_PORT)}  |  pairing URL is printed below by the server once it starts.`,
     );
 
     if (input.dryRun) {

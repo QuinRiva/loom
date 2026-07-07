@@ -51,6 +51,25 @@ const workerEntryUrl = (): URL =>
     ? new URL("./SqliteWorker.ts", import.meta.url)
     : new URL("./persistence/SqliteWorker.mjs", import.meta.url);
 
+/**
+ * Env for the sqlite worker, scrubbed of `WATCH_REPORT_DEPENDENCIES`.
+ *
+ * Under `node --watch` (dev), the parent sets `WATCH_REPORT_DEPENDENCIES`,
+ * which makes every spawned `worker_threads` worker post `watch:import`
+ * dependency messages back to its `parentPort`. Those messages arrive on the
+ * same channel the Effect `RpcClient` worker protocol uses, so the client
+ * reads a `{ "watch:import": [...] }` frame instead of an rpc response and
+ * dies with `Cannot read properties of undefined (reading '_tag')` — the
+ * server then never starts listening. Deleting the key (Node ignores an
+ * explicit `undefined` value rather than unsetting it, so it must be absent)
+ * disables that reporting for the worker without affecting the parent watcher.
+ */
+const workerEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  delete env.WATCH_REPORT_DEPENDENCIES;
+  return env;
+};
+
 const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   yield* checkNodeSqliteCompat();
 
@@ -77,7 +96,9 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   // so the worker lives exactly as long as the SqlClient layer.
   const protocol = yield* RpcClient.makeProtocolWorker({ size: 1, concurrency: 1 }).pipe(
     Effect.provide(
-      NodeWorker.layer(() => new NodeWorkerThreads.Worker(workerEntryUrl(), { workerData })),
+      NodeWorker.layer(
+        () => new NodeWorkerThreads.Worker(workerEntryUrl(), { workerData, env: workerEnv() }),
+      ),
     ),
     Effect.mapError(
       (workerError) =>
