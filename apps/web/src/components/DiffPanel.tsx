@@ -54,6 +54,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -757,57 +758,59 @@ export default function DiffPanel({ mode = "inline", composerDraftTarget }: Diff
             {coderDiffOptions.length > 0 && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>By coder</DropdownMenuLabel>
-                {coderDiffOptions.map((option) =>
-                  option.orderedCheckpoints.length > 1 ? (
-                    <DropdownMenuSub key={option.thread.id}>
-                      <DropdownMenuSubTrigger>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>By coder</DropdownMenuLabel>
+                  {coderDiffOptions.map((option) =>
+                    option.orderedCheckpoints.length > 1 ? (
+                      <DropdownMenuSub key={option.thread.id}>
+                        <DropdownMenuSubTrigger>
+                          <CoderDiffLabel option={option} />
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-72">
+                          <DropdownMenuItem onClick={() => selectCoder(option.thread.id)}>
+                            <span>All turns</span>
+                            {selectedCoderOption?.thread.id === option.thread.id &&
+                              selectedCoderTurn === undefined && <CheckIcon className="ml-auto" />}
+                          </DropdownMenuItem>
+                          {option.orderedCheckpoints.map((summary) => {
+                            const turnCount =
+                              summary.checkpointTurnCount ??
+                              option.inferredCheckpointTurnCountByTurnId[summary.turnId] ??
+                              "?";
+                            return (
+                              <DropdownMenuItem
+                                key={summary.turnId}
+                                onClick={() => selectCoder(option.thread.id, summary.turnId)}
+                              >
+                                <span>Turn {turnCount}</span>
+                                <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                                  {formatShortTimestamp(
+                                    summary.completedAt,
+                                    settings.timestampFormat,
+                                  )}
+                                </span>
+                                {selectedCoderOption?.thread.id === option.thread.id &&
+                                  selectedCoderTurn?.turnId === summary.turnId && (
+                                    <CheckIcon className="ml-1" />
+                                  )}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    ) : (
+                      <DropdownMenuItem
+                        key={option.thread.id}
+                        onClick={() => selectCoder(option.thread.id)}
+                      >
                         <CoderDiffLabel option={option} />
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-72">
-                        <DropdownMenuItem onClick={() => selectCoder(option.thread.id)}>
-                          <span>All turns</span>
-                          {selectedCoderOption?.thread.id === option.thread.id &&
-                            selectedCoderTurn === undefined && <CheckIcon className="ml-auto" />}
-                        </DropdownMenuItem>
-                        {option.orderedCheckpoints.map((summary) => {
-                          const turnCount =
-                            summary.checkpointTurnCount ??
-                            option.inferredCheckpointTurnCountByTurnId[summary.turnId] ??
-                            "?";
-                          return (
-                            <DropdownMenuItem
-                              key={summary.turnId}
-                              onClick={() => selectCoder(option.thread.id, summary.turnId)}
-                            >
-                              <span>Turn {turnCount}</span>
-                              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                                {formatShortTimestamp(
-                                  summary.completedAt,
-                                  settings.timestampFormat,
-                                )}
-                              </span>
-                              {selectedCoderOption?.thread.id === option.thread.id &&
-                                selectedCoderTurn?.turnId === summary.turnId && (
-                                  <CheckIcon className="ml-1" />
-                                )}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  ) : (
-                    <DropdownMenuItem
-                      key={option.thread.id}
-                      onClick={() => selectCoder(option.thread.id)}
-                    >
-                      <CoderDiffLabel option={option} />
-                      {selectedCoderOption?.thread.id === option.thread.id && (
-                        <CheckIcon className="ml-auto" />
-                      )}
-                    </DropdownMenuItem>
-                  ),
-                )}
+                        {selectedCoderOption?.thread.id === option.thread.id && (
+                          <CheckIcon className="ml-auto" />
+                        )}
+                      </DropdownMenuItem>
+                    ),
+                  )}
+                </DropdownMenuGroup>
               </>
             )}
           </DropdownMenuContent>
