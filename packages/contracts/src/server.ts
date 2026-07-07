@@ -523,6 +523,10 @@ export const ServerUsageBreakdownGauge = Schema.Struct({
   resetsAt: Schema.NullOr(IsoDateTime),
   windowDurationMins: Schema.NullOr(Schema.Number),
   observedAt: IsoDateTime,
+  // Model display name when this gauge meters a per-model carve-out (e.g. the
+  // Anthropic `weekly_scoped` limit for "Fable"), so the card is labelled
+  // distinctly from the account-wide weekly gauge. Absent ⇒ account-wide.
+  scopeDisplayName: Schema.optional(TrimmedNonEmptyString),
   // Linear depletion projection from the official-% sample buffer; null when the
   // guards fail (§D4: <3 samples, <10 min span, non-positive slope, stale
   // samples, or the projected exhaustion lands after the reset).

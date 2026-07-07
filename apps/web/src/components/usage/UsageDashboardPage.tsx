@@ -149,7 +149,7 @@ export function UsageDashboardPage({
             <div className="grid gap-4 sm:grid-cols-2">
               {scopedGauges.map((gauge) => (
                 <WindowGaugeCard
-                  key={`${gauge.providerName}:${gauge.providerInstanceId ?? ""}`}
+                  key={`${gauge.providerName}:${gauge.providerInstanceId ?? ""}:${gauge.scopeDisplayName ?? ""}`}
                   gauge={gauge}
                   windowLabel={WINDOW_GAUGE_LABELS[data.window]}
                   nowMs={nowMs}
