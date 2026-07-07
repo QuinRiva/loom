@@ -254,6 +254,14 @@ const makeDefaultOrchestrationThreadShell = (
   };
 };
 
+const makeShellSnapshotWithThreads = (threads: ReadonlyArray<OrchestrationThreadShell>) => ({
+  snapshotSequence: 0,
+  projects: [],
+  goals: [],
+  threads,
+  updatedAt: "1970-01-01T00:00:00.000Z",
+});
+
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
   OtlpSerialization.layerJson,
@@ -5863,9 +5871,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getThreadShellById: () =>
+            getShellSnapshot: () =>
               Effect.succeed(
-                Option.some(
+                makeShellSnapshotWithThreads([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -5880,7 +5888,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ),
+                ]),
               ),
           },
         },
@@ -5939,27 +5947,29 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getThreadShellById: () =>
+            getShellSnapshot: () =>
               Effect.sync(() => {
-                effects.push(`query:thread-shell:${archived ? "archived" : "active"}`);
-                return archived
-                  ? Option.none()
-                  : Option.some(
-                      makeDefaultOrchestrationThreadShell({
-                        id: threadId,
-                        updatedAt: now,
-                        session: {
-                          threadId,
-                          status: "ready",
-                          providerName: "claudeAgent",
-                          runtimeMode: "full-access",
-                          activeTurnId: null,
-                          queuedMessages: { steering: [], followUp: [] },
-                          lastError: null,
+                effects.push(`query:shell-snapshot:${archived ? "archived" : "active"}`);
+                return makeShellSnapshotWithThreads(
+                  archived
+                    ? []
+                    : [
+                        makeDefaultOrchestrationThreadShell({
+                          id: threadId,
                           updatedAt: now,
-                        },
-                      }),
-                    );
+                          session: {
+                            threadId,
+                            status: "ready",
+                            providerName: "claudeAgent",
+                            runtimeMode: "full-access",
+                            activeTurnId: null,
+                            queuedMessages: { steering: [], followUp: [] },
+                            lastError: null,
+                            updatedAt: now,
+                          },
+                        }),
+                      ],
+                );
               }),
           },
         },
@@ -5978,7 +5988,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(dispatchResult.sequence, 1);
       assert.deepEqual(effects, [
-        "query:thread-shell:active",
+        "query:shell-snapshot:active",
         "dispatch:thread.archive",
         "dispatch:thread.session.stop",
         `terminal.close:${threadId}`,
@@ -5986,6 +5996,90 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.deepEqual(
         dispatchedCommands.map((command) => command.type),
         ["thread.archive", "thread.session.stop"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("sweeps workstream children's sessions and terminals when archiving a root", () =>
+    Effect.gen(function* () {
+      const rootThreadId = ThreadId.make("thread-archive-root");
+      const childThreadId = ThreadId.make("thread-archive-child");
+      const effects: string[] = [];
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* buildAppUnderTest({
+        layers: {
+          terminalManager: {
+            close: (input) =>
+              Effect.sync(() => {
+                effects.push(`terminal.close:${input.threadId}`);
+              }),
+          },
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                effects.push(`dispatch:${command.type}`);
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed(
+                makeShellSnapshotWithThreads([
+                  makeDefaultOrchestrationThreadShell({
+                    id: rootThreadId,
+                    updatedAt: now,
+                    session: null,
+                  }),
+                  makeDefaultOrchestrationThreadShell({
+                    id: childThreadId,
+                    parentThreadId: rootThreadId,
+                    updatedAt: now,
+                    session: {
+                      threadId: childThreadId,
+                      status: "ready",
+                      providerName: "claudeAgent",
+                      runtimeMode: "full-access",
+                      activeTurnId: null,
+                      queuedMessages: { steering: [], followUp: [] },
+                      lastError: null,
+                      updatedAt: now,
+                    },
+                  }),
+                ]),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const dispatchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.archive",
+            commandId: CommandId.make("cmd-thread-archive-subtree"),
+            threadId: rootThreadId,
+          }),
+        ),
+      );
+
+      assert.equal(dispatchResult.sequence, 1);
+      // Root has no session (terminal close only); the child's live session is
+      // stopped and its terminal closed as part of the same archive sweep.
+      assert.deepEqual(effects, [
+        "dispatch:thread.archive",
+        `terminal.close:${rootThreadId}`,
+        "dispatch:thread.session.stop",
+        `terminal.close:${childThreadId}`,
+      ]);
+      const childStop = dispatchedCommands.find(
+        (command) => command.type === "thread.session.stop",
+      );
+      assert.equal(
+        childStop?.type === "thread.session.stop" ? childStop.threadId : null,
+        childThreadId,
       );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -6013,9 +6107,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getThreadShellById: () =>
+            getShellSnapshot: () =>
               Effect.succeed(
-                Option.some(makeDefaultOrchestrationThreadShell({ id: threadId, session: null })),
+                makeShellSnapshotWithThreads([
+                  makeDefaultOrchestrationThreadShell({ id: threadId, session: null }),
+                ]),
               ),
           },
         },
@@ -6067,9 +6163,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 }),
             },
             projectionSnapshotQuery: {
-              getThreadShellById: () =>
+              getShellSnapshot: () =>
                 Effect.succeed(
-                  Option.some(
+                  makeShellSnapshotWithThreads([
                     makeDefaultOrchestrationThreadShell({
                       id: threadId,
                       updatedAt: now,
@@ -6084,7 +6180,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                         updatedAt: now,
                       },
                     }),
-                  ),
+                  ]),
                 ),
             },
           },
@@ -6141,9 +6237,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
-            getThreadShellById: () =>
+            getShellSnapshot: () =>
               Effect.succeed(
-                Option.some(
+                makeShellSnapshotWithThreads([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -6158,7 +6254,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ),
+                ]),
               ),
           },
         },
@@ -6214,9 +6310,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
-            getThreadShellById: () =>
+            getShellSnapshot: () =>
               Effect.succeed(
-                Option.some(
+                makeShellSnapshotWithThreads([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -6231,7 +6327,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ),
+                ]),
               ),
           },
         },
