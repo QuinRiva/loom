@@ -19,6 +19,7 @@ import {
   getDevRunnerModeArgs,
   resolveModePortOffsets,
   resolveOffset,
+  resolveRequestedPort,
   runDevRunnerWithInput,
 } from "./dev-runner.ts";
 
@@ -144,7 +145,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.T3CODE_HOME, path.resolve(NodeOS.homedir(), ".t3"));
+        assert.equal(
+          env.T3CODE_HOME,
+          path.join(path.resolve(NodeOS.homedir(), ".t3"), "dev-instances", "13773"),
+        );
       }),
     );
 
@@ -165,7 +169,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.T3CODE_HOME, path.resolve("/tmp/custom-t3"));
+        assert.equal(
+          env.T3CODE_HOME,
+          path.join(path.resolve("/tmp/custom-t3"), "dev-instances", "4222"),
+        );
         assert.equal(env.T3CODE_PORT, "4222");
         assert.equal(env.VITE_HTTP_URL, "http://localhost:4222");
         assert.equal(env.VITE_WS_URL, "ws://localhost:4222");
@@ -261,6 +268,72 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const path = yield* Path.Path;
         const env = yield* createDevRunnerEnv({
           mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: "/tmp/my-t3",
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(
+          env.T3CODE_HOME,
+          path.join(path.resolve("/tmp/my-t3"), "dev-instances", "13773"),
+        );
+      }),
+    );
+
+    it.effect("isolates concurrent web-dev instances by port-scoping T3CODE_HOME", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const first = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: "/tmp/shared",
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+        const second = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {},
+          serverOffset: 1,
+          webOffset: 1,
+          t3Home: "/tmp/shared",
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(
+          first.T3CODE_HOME,
+          path.join(path.resolve("/tmp/shared"), "dev-instances", "13773"),
+        );
+        assert.equal(
+          second.T3CODE_HOME,
+          path.join(path.resolve("/tmp/shared"), "dev-instances", "13774"),
+        );
+        assert.notEqual(first.T3CODE_HOME, second.T3CODE_HOME);
+      }),
+    );
+
+    it.effect("keeps a shared T3CODE_HOME for desktop dev", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:desktop",
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
@@ -427,6 +500,38 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           [13_773, "0.0.0.0"],
           [13_773, "::"],
         ]);
+      }),
+    );
+  });
+
+  describe("resolveRequestedPort", () => {
+    it.effect("honours an explicitly free requested port unchanged", () =>
+      Effect.gen(function* () {
+        const result = yield* resolveRequestedPort({
+          port: 14_500,
+          checkPortAvailability: () => Effect.succeed(true),
+        });
+        assert.deepStrictEqual(result, { effectivePort: 14_500, requestedPortBusy: false });
+      }),
+    );
+
+    it.effect("discards a busy requested/ambient port so the caller scans", () =>
+      Effect.gen(function* () {
+        const result = yield* resolveRequestedPort({
+          port: 13_900,
+          checkPortAvailability: () => Effect.succeed(false),
+        });
+        assert.deepStrictEqual(result, { effectivePort: undefined, requestedPortBusy: true });
+      }),
+    );
+
+    it.effect("treats an absent port as no request", () =>
+      Effect.gen(function* () {
+        const result = yield* resolveRequestedPort({
+          port: undefined,
+          checkPortAvailability: () => Effect.succeed(false),
+        });
+        assert.deepStrictEqual(result, { effectivePort: undefined, requestedPortBusy: false });
       }),
     );
   });
