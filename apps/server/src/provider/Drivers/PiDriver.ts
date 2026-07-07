@@ -41,7 +41,11 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import {
+  attachmentRelativePath,
+  createAttachmentId,
+  resolveAttachmentPath,
+} from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
@@ -208,6 +212,7 @@ interface ActivePiSession {
   // Without this the loop signature (and timeline) sees only result-less generic
   // tokens and collapses every same-type call to one (false "stuck loop").
   toolArgs: Map<string, Record<string, unknown>>;
+  materializedActivityImages: Map<string, ChatAttachment>;
 }
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -509,6 +514,142 @@ function mergeRawInput(result: unknown, args: Record<string, unknown> | undefine
   if (!args) return result;
   const record = asArgsRecord(result);
   return record ? { ...record, rawInput: args } : { result, rawInput: args };
+}
+
+const MAX_ACTIVITY_TEXT_CHARS = 12_000;
+const CHILD_MESSAGE_TAIL_COUNT = 2;
+
+function truncateActivityText(value: string): string {
+  return value.length > MAX_ACTIVITY_TEXT_CHARS
+    ? `${value.slice(0, MAX_ACTIVITY_TEXT_CHARS)}\n… [truncated ${value.length - MAX_ACTIVITY_TEXT_CHARS} chars]`
+    : value;
+}
+
+function imageMimeFromBase64(value: string): string | null {
+  if (value.startsWith("iVBOR")) return "image/png";
+  if (value.startsWith("/9j/")) return "image/jpeg";
+  if (value.startsWith("R0lGOD")) return "image/gif";
+  if (value.startsWith("UklGR")) return "image/webp";
+  return null;
+}
+
+function materializeInlineActivityImage(input: {
+  readonly threadId: ThreadId;
+  readonly attachmentsDir: string;
+  readonly cache: Map<string, ChatAttachment>;
+  readonly value: string;
+}): unknown {
+  const dataUrlMatch = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(
+    input.value,
+  );
+  const mimeType = dataUrlMatch?.[1] ?? imageMimeFromBase64(input.value.slice(0, 16));
+  const base64 = (dataUrlMatch?.[2] ?? input.value).replace(/\s+/g, "");
+  if (!mimeType || base64.length < 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return null;
+
+  const hash = NodeCrypto.createHash("sha256").update(base64).digest("hex");
+  const cached = input.cache.get(hash);
+  if (cached) return { attachment: cached };
+
+  const id = createAttachmentId(input.threadId);
+  if (!id) return null;
+  const buffer = Buffer.from(base64, "base64");
+  const attachment: ChatAttachment = {
+    type: "image",
+    id,
+    name: `activity-image-${id}`,
+    mimeType,
+    sizeBytes: buffer.byteLength,
+  };
+  const relativePath = attachmentRelativePath(attachment);
+  NodeFS.mkdirSync(input.attachmentsDir, { recursive: true });
+  NodeFS.writeFileSync(`${input.attachmentsDir}/${relativePath}`, buffer);
+  input.cache.set(hash, attachment);
+  return { attachment };
+}
+
+function compactChildResult(value: unknown): unknown {
+  const result = asArgsRecord(value);
+  if (!result) return value;
+  const messages = Array.isArray(result.messages) ? result.messages : [];
+  const tail = messages.slice(-CHILD_MESSAGE_TAIL_COUNT).flatMap((message) => {
+    const record = asArgsRecord(message);
+    const text =
+      typeof record?.content === "string"
+        ? record.content
+        : Array.isArray(record?.content) &&
+            typeof asArgsRecord(record.content[0])?.text === "string"
+          ? String(asArgsRecord(record.content[0])?.text)
+          : undefined;
+    return text
+      ? [
+          {
+            role: typeof record?.role === "string" ? record.role : undefined,
+            text: truncateActivityText(text).slice(0, 1_000),
+          },
+        ]
+      : [];
+  });
+  return {
+    childThreadId: result.childThreadId ?? result.threadId ?? result.id,
+    title: result.title ?? result.name,
+    status: result.status ?? result.outcome,
+    messageCount: messages.length,
+    ...(tail.length > 0 ? { tail } : {}),
+    transcriptRef:
+      result.sessionPath ?? result.sessionFile ?? result.reportPath ?? result.childThreadId,
+  };
+}
+
+function slimActivityValue(input: {
+  readonly threadId: ThreadId;
+  readonly attachmentsDir: string;
+  readonly cache: Map<string, ChatAttachment>;
+  readonly value: unknown;
+  readonly key?: string;
+}): unknown {
+  if (typeof input.value === "string") {
+    return (
+      materializeInlineActivityImage({ ...input, value: input.value }) ??
+      truncateActivityText(input.value)
+    );
+  }
+  if (Array.isArray(input.value)) {
+    return input.value.map((entry) =>
+      slimActivityValue({
+        threadId: input.threadId,
+        attachmentsDir: input.attachmentsDir,
+        cache: input.cache,
+        value: entry,
+      }),
+    );
+  }
+  const record = asArgsRecord(input.value);
+  if (!record) return input.value;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "content" && input.key === "truncation") continue;
+    next[key] =
+      key === "results" && input.key === "details" && Array.isArray(value)
+        ? value.map(compactChildResult)
+        : slimActivityValue({ ...input, value, key });
+  }
+  return next;
+}
+
+export function slimPiToolPayloadData(input: {
+  readonly threadId: ThreadId;
+  readonly attachmentsDir: string;
+  readonly cache: Map<string, ChatAttachment>;
+  readonly itemType: ReturnType<typeof toolItemType>;
+  readonly data: unknown;
+}): unknown {
+  return slimActivityValue({
+    threadId: input.threadId,
+    attachmentsDir: input.attachmentsDir,
+    cache: input.cache,
+    value: input.data,
+  });
 }
 
 /**
@@ -1433,10 +1574,24 @@ function makePiAdapter(input: {
             : message.type === "tool_execution_end"
               ? "item.completed"
               : "item.updated";
+        const payload = piToolItemPayload(message, session.toolArgs);
+        const slimData =
+          payload.data === undefined
+            ? undefined
+            : slimPiToolPayloadData({
+                threadId: session.session.threadId,
+                attachmentsDir: input.serverConfig.attachmentsDir,
+                cache: session.materializedActivityImages,
+                itemType: payload.itemType,
+                data: payload.data,
+              });
         return emit({
           ...base({ itemId: message.toolCallId }),
           type: eventType,
-          payload: piToolItemPayload(message, session.toolArgs),
+          payload: {
+            ...payload,
+            ...(slimData !== undefined ? { data: slimData } : {}),
+          },
         });
       }
       case "extension_ui_request": {
@@ -1658,6 +1813,7 @@ function makePiAdapter(input: {
               lastRerouteWindowLabel: undefined,
               lastRerouteResetAt: undefined,
               toolArgs: new Map(),
+              materializedActivityImages: new Map(),
             };
             active.unsubscribe = process.subscribe(
               (message) =>

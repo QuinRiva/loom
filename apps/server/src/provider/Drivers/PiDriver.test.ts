@@ -1,3 +1,4 @@
+import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PiSettings } from "@t3tools/contracts";
@@ -10,6 +11,7 @@ import {
   piCatalogModels,
   piRunOutcome,
   piToolItemPayload,
+  slimPiToolPayloadData,
 } from "./PiDriver.ts";
 
 type ToolMessage = Parameters<typeof piToolItemPayload>[0];
@@ -57,6 +59,41 @@ describe("piToolItemPayload", () => {
     const toolArgs = new Map<string, Record<string, unknown>>();
     const completed = piToolItemPayload(end("x", "bash", { content: [{ text: "out" }] }), toolArgs);
     expect(completed.data).toEqual({ content: [{ text: "out" }] });
+  });
+});
+
+describe("slimPiToolPayloadData", () => {
+  it("compacts only child-result arrays at details.results", () => {
+    const nestedResults = [{ messages: [{ role: "assistant", content: "keep me whole" }] }];
+    const slimmed = slimPiToolPayloadData({
+      threadId: ThreadId.make("thread-1"),
+      attachmentsDir: "/unused",
+      cache: new Map(),
+      itemType: "collab_agent_tool_call",
+      data: {
+        details: {
+          results: [
+            { childThreadId: "child-1", messages: [{ role: "assistant", content: "done" }] },
+          ],
+          nested: { results: nestedResults },
+        },
+        results: nestedResults,
+      },
+    }) as Record<string, unknown>;
+
+    const details = slimmed.details as Record<string, unknown>;
+    expect(details.results).toEqual([
+      {
+        childThreadId: "child-1",
+        title: undefined,
+        status: undefined,
+        messageCount: 1,
+        tail: [{ role: "assistant", text: "done" }],
+        transcriptRef: "child-1",
+      },
+    ]);
+    expect((details.nested as Record<string, unknown>).results).toEqual(nestedResults);
+    expect(slimmed.results).toEqual(nestedResults);
   });
 });
 

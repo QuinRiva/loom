@@ -53,6 +53,14 @@ const setup = Layer.effectDiscard(
     // of failing on contention.
     yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
+    // synchronous=NORMAL is durable-enough under WAL (only a crash mid-checkpoint
+    // risks the last commits) and stops an fsync on every commit on the main loop.
+    yield* sql`PRAGMA synchronous = NORMAL;`;
+    // 128MB page cache (negative = KiB). The DB grew past 2GB; a real cache keeps
+    // hot pages resident so synchronous reads on the event loop avoid disk.
+    yield* sql`PRAGMA cache_size = -131072;`;
+    // Wait rather than throw SQLITE_BUSY when the WAL writer briefly holds a lock.
+    yield* sql`PRAGMA busy_timeout = 5000;`;
     yield* runMigrations();
   }),
 );
