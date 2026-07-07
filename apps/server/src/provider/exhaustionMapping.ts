@@ -47,10 +47,13 @@ export function modelIdForModelSlug(slug: string): string {
  * failover reroutes (direct drivers get classification + resume + UI only, §9),
  * so callers gate {@link resolveFailoverTarget} on it.
  */
-export function subscriptionScopeForSelection(selection: {
-  readonly instanceId: string;
-  readonly model: string;
-}): {
+export function subscriptionScopeForSelection(
+  selection: {
+    readonly instanceId: string;
+    readonly model: string;
+  },
+  usageSourceInstances: ReadonlySet<string> = EMPTY_STRING_SET,
+): {
   readonly accountKey: string | null;
   readonly modelId: string;
   readonly isPiSubscriptionSlug: boolean;
@@ -63,12 +66,41 @@ export function subscriptionScopeForSelection(selection: {
       isPiSubscriptionSlug: true,
     };
   }
+  // An instance that declares its own `usageSources` (a router/pooled proxy)
+  // meters exhaustion under its OWN instance id — the key the poller feeds and
+  // the health registry marks — even when the slug namespace has no static
+  // subscription mapping (e.g. `cliproxy/*`). This is what makes an exhausted
+  // pooled instance actually gate fallback/resume/spawn, not just the pill.
+  if (usageSourceInstances.has(selection.instanceId)) {
+    return {
+      accountKey: selection.instanceId,
+      modelId: selection.model,
+      isPiSubscriptionSlug: false,
+    };
+  }
   return {
     accountKey: SUBSCRIPTION_ACCOUNT_KEYS.has(selection.instanceId) ? selection.instanceId : null,
     modelId: selection.model,
     isPiSubscriptionSlug: false,
   };
 }
+
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+
+/**
+ * The set of provider-instance ids whose config declares subscription-usage
+ * sources. Such instances meter exhaustion under their own instance id (see
+ * {@link subscriptionScopeForSelection}); pass this into the resolver at every
+ * exhaustion-consuming seam so a pooled instance's marks are actually honoured.
+ */
+export const usageSourceInstances = (
+  providerInstances: Readonly<Record<string, { readonly usageSources?: ReadonlyArray<unknown> }>>,
+): ReadonlySet<string> =>
+  new Set(
+    Object.entries(providerInstances).flatMap(([id, cfg]) =>
+      (cfg.usageSources?.length ?? 0) > 0 ? [id] : [],
+    ),
+  );
 
 /**
  * Compact, timezone-independent phrasing of when an exhaustion window resets,

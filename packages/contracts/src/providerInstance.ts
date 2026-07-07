@@ -113,6 +113,30 @@ export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironm
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
 /**
+ * A subscription-usage source an instance polls for its own account usage.
+ *
+ * Driver-agnostic on purpose: Loom reads each source's OAuth token fresh off
+ * disk every poll cycle and hits the provider's usage endpoint, so a router
+ * proxy that pools several subscriptions (each with its own token file kept
+ * fresh by the proxy) reports accurately without Loom knowing anything about
+ * the proxy. `kind` is a closed literal today (only Anthropic OAuth) but is
+ * shaped as a union so more kinds can be added without a schema break.
+ */
+export const ProviderUsageSourceKind = Schema.Literals(["anthropic-oauth"]);
+export type ProviderUsageSourceKind = typeof ProviderUsageSourceKind.Type;
+
+export const ProviderUsageSource = Schema.Struct({
+  kind: ProviderUsageSourceKind,
+  /** Path to a JSON token file on disk; leading `~` expands to the home dir. */
+  tokenFile: TrimmedNonEmptyString,
+  /** Flat field holding the bearer token in that JSON. Default `access_token`. */
+  tokenField: Schema.optional(TrimmedNonEmptyString),
+  /** Human label for the pooled account. Default: the token file's basename. */
+  label: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderUsageSource = typeof ProviderUsageSource.Type;
+
+/**
  * Envelope shape for a provider instance configuration in `ServerSettings`.
  *
  * `driver` is intentionally accepted as any well-formed slug (see module
@@ -120,6 +144,11 @@ export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Typ
  * each driver registers its own decoder with the runtime registry, and
  * envelopes for unknown drivers are preserved verbatim so they round-trip
  * across version changes without data loss.
+ *
+ * `usageSources` is driver-agnostic Loom config (not a driver config blob): it
+ * declares where this instance's real subscription usage lives so the poller
+ * can report pooled/router setups accurately. Absent ⇒ status quo (the built-in
+ * pi-auth poll for claudeAgent/codex).
  */
 export const ProviderInstanceConfig = Schema.Struct({
   driver: ProviderDriverKind,
@@ -128,6 +157,7 @@ export const ProviderInstanceConfig = Schema.Struct({
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),
+  usageSources: Schema.optionalKey(Schema.Array(ProviderUsageSource)),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 

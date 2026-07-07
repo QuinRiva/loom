@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { AccountUsageSnapshot } from "@t3tools/contracts";
+import { type AccountUsageSnapshot, ProviderInstanceId } from "@t3tools/contracts";
 
 import { classifiesAsQuota } from "../exhaustionMapping.ts";
 import {
@@ -57,6 +57,63 @@ describe("ProviderHealthRegistry semantics", () => {
       NOW,
     );
     expect(healthy.size).toBe(0);
+  });
+
+  it("aggregates pooled accounts of one instance to best-remaining (§4)", () => {
+    const pool = ProviderInstanceId.make("cliproxy");
+    const pooled = (label: string, weeklyPercent: number) =>
+      snapshot(
+        [
+          {
+            kind: "secondary",
+            usedPercent: weeklyPercent,
+            resetsAt: FUTURE,
+            windowDurationMins: 10080,
+          },
+        ],
+        { providerName: "cliproxy", providerInstanceId: pool, accountLabel: label },
+      );
+    // One account spent (99%), one fresh (0%): MIN ⇒ instance not exhausted.
+    const { telemetry: healthy } = deriveFromTelemetry(
+      [pooled("carl@", 99), pooled("caaarl@", 0)],
+      new Map(),
+      NOW,
+    );
+    expect(healthy.size).toBe(0);
+    // Both spent ⇒ instance exhausted, keyed by the instance (routing) key.
+    const { telemetry: dead } = deriveFromTelemetry(
+      [pooled("carl@", 99), pooled("caaarl@", 100)],
+      new Map(),
+      NOW,
+    );
+    expect(dead.get(markKey("cliproxy", ACCOUNT_WIDE_SCOPE))?.source).toBe("telemetry");
+  });
+
+  it("marks a single-account instance whose only window is ≥99% (limitReached AND)", () => {
+    const pool = ProviderInstanceId.make("cliproxy");
+    // limitReached on only one pooled account must NOT exhaust the instance.
+    const { telemetry } = deriveFromTelemetry(
+      [
+        snapshot(
+          [{ kind: "primary", usedPercent: 10, resetsAt: FUTURE, windowDurationMins: 300 }],
+          {
+            providerInstanceId: pool,
+            accountLabel: "a",
+            limitReached: true,
+          },
+        ),
+        snapshot(
+          [{ kind: "primary", usedPercent: 10, resetsAt: FUTURE, windowDurationMins: 300 }],
+          {
+            providerInstanceId: pool,
+            accountLabel: "b",
+          },
+        ),
+      ],
+      new Map(),
+      NOW,
+    );
+    expect(telemetry.size).toBe(0);
   });
 
   it("scopes a model-scoped weekly window without exhausting the account", () => {

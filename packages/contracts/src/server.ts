@@ -518,6 +518,12 @@ export type ServerUsageBreakdownInput = typeof ServerUsageBreakdownInput.Type;
 export const ServerUsageBreakdownGauge = Schema.Struct({
   providerName: TrimmedNonEmptyString,
   providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  // Distinguishes pooled accounts within one instance (a router proxy pooling
+  // several subscriptions). Absent ⇒ the instance's sole account. The gauge's
+  // stable identity (React key, pill deep-link scope) is the storage key
+  // `providerInstanceId ?? providerName` plus this label — see
+  // `accountUsageStorageKey`; two pooled accounts therefore never collide.
+  accountLabel: Schema.optional(TrimmedNonEmptyString),
   planType: Schema.NullOr(TrimmedNonEmptyString),
   usedPercent: Schema.Number, // official, verbatim from the provider meter
   resetsAt: Schema.NullOr(IsoDateTime),

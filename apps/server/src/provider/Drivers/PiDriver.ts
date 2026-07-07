@@ -876,6 +876,11 @@ function makePiAdapter(input: {
   // Reads the current tier-2 failover config (master switch + chain overrides)
   // fresh each dispatch; defaults to enabled-with-built-ins if settings error.
   readonly readFailover: Effect.Effect<Pick<ProviderFailoverSettings, "enabled" | "chains">>;
+  // True when THIS instance declares its own `usageSources`. Such an instance
+  // meters exhaustion under its instance id, so a custom-provider slug whose
+  // namespace has no static account mapping routes to the instance key instead
+  // of going untracked. Read fresh so a settings edit needs no restart.
+  readonly readInstanceUsesUsageSources: Effect.Effect<boolean>;
 }): ProviderAdapterShape<
   | ProviderAdapterProcessError
   | ProviderAdapterRequestError
@@ -939,9 +944,20 @@ function makePiAdapter(input: {
   // `resolveFailoverTarget`; here we just gather the (synchronous) health
   // snapshot + settings and feed it in. Stateless: one decision per dispatch,
   // no ladder.
+  // Account key for an intent slug: the static slug-namespace mapping, falling
+  // back to this instance's id when the instance declares usageSources (so a
+  // pooled `cliproxy/*` slug is tracked under `cliproxy` rather than untracked).
+  const accountKeyForIntent = (intentSlug: string): Effect.Effect<string | null> =>
+    input.readInstanceUsesUsageSources.pipe(
+      Effect.map(
+        (usesSources) =>
+          accountKeyForModelSlug(intentSlug) ?? (usesSources ? input.instanceId : null),
+      ),
+    );
+
   const resolveEffectiveModel = (intentSlug: string): Effect.Effect<EffectiveResolution> =>
     Effect.gen(function* () {
-      const accountKey = accountKeyForModelSlug(intentSlug);
+      const accountKey = yield* accountKeyForIntent(intentSlug);
       // API-billed slugs never register exhaustion (no subscription window).
       if (accountKey === null) return { kind: "intended", slug: intentSlug };
       const modelId = resolvePiModel(intentSlug)?.modelId;
@@ -974,7 +990,7 @@ function makePiAdapter(input: {
     readonly paused: boolean;
   }> =>
     Effect.gen(function* () {
-      const accountKey = accountKeyForModelSlug(intentSlug);
+      const accountKey = yield* accountKeyForIntent(intentSlug);
       const modelId = resolvePiModel(intentSlug)?.modelId;
       if (accountKey === null)
         return {
@@ -1392,7 +1408,7 @@ function makePiAdapter(input: {
   ): Effect.Effect<void> =>
     Effect.gen(function* () {
       const slug = session.session.model;
-      const accountKey = slug ? accountKeyForModelSlug(slug) : null;
+      const accountKey = slug ? yield* accountKeyForIntent(slug) : null;
       const modelId = slug ? resolvePiModel(slug)?.modelId : undefined;
       const quotaByRegex = PI_QUOTA_ERROR_RE.test(errorMessage);
       const quotaByCorroboration =
@@ -2085,6 +2101,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       // the adapter so token-usage snapshots carry `maxTokens` with no per-session
       // RPC and no first-message race.
       const modelContextWindows = new Map<string, number>();
+      const readInstanceUsesUsageSources = serverSettings.getSettings.pipe(
+        Effect.map((s) => (s.providerInstances[instanceId]?.usageSources?.length ?? 0) > 0),
+        Effect.orElseSucceed(() => false),
+      );
       const adapter = makePiAdapter({
         instanceId,
         settings: effectiveConfig,
@@ -2093,6 +2113,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         modelContextWindows,
         healthRegistry,
         readFailover,
+        readInstanceUsesUsageSources,
       });
       yield* Effect.addFinalizer(() =>
         adapter.stopAll().pipe(Effect.ignore, Effect.andThen(Queue.shutdown(events))),

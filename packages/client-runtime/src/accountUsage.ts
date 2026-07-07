@@ -4,6 +4,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
 } from "@t3tools/contracts";
+import { accountUsageStorageKey } from "@t3tools/shared/accountUsage";
 
 /**
  * Shared derive/format logic for the account subscription-usage pill (5-hour +
@@ -123,7 +124,7 @@ export function deriveAccountUsageViews(
   const latest = new Map<string, AccountUsageSnapshot>();
   for (const snapshot of snapshots) {
     if (snapshot.windows.length === 0) continue;
-    const key = snapshot.providerInstanceId ?? snapshot.providerName;
+    const key = accountUsageStorageKey(snapshot);
     const existing = latest.get(key);
     if (!existing || snapshot.observedAt > existing.observedAt) {
       latest.set(key, snapshot);
@@ -145,7 +146,9 @@ export function deriveAccountUsageViews(
       return {
         key,
         providerName: snapshot.providerName,
-        providerDisplayName: providerDisplayName(snapshot.providerName),
+        // A pooled account labels its own pill (e.g. "carl@"); a sole account
+        // keeps the provider display name (today's shape).
+        providerDisplayName: snapshot.accountLabel ?? providerDisplayName(snapshot.providerName),
         planType: snapshot.planType,
         windows,
         displayPercent,
