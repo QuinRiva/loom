@@ -106,6 +106,11 @@ import {
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
 import { generatePiStructured } from "../Layers/Pi/OneShotCompletion.ts";
+import {
+  sanitisePiSessionForThread,
+  slugRoutesToAnthropic,
+  threadSessionHasPoisonedToolIds,
+} from "../Layers/Pi/SessionIdSanitiser.ts";
 import { ensurePiWorkstreamSpawnExtension } from "./Pi/WorkstreamSpawnExtension.ts";
 import { ensurePiGoalTaskExtension } from "./Pi/GoalTaskExtension.ts";
 import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
@@ -173,6 +178,12 @@ type EffectiveResolution =
 interface ActivePiSession {
   session: ProviderSession;
   process: PiRpcProcess;
+  // Recreate the pi process with this session's exact launch options (same
+  // sessionId, so pi re-reads the same on-disk file). Used to relaunch from a
+  // freshly sanitised history when a live session crosses into an
+  // Anthropic-family model carrying codex-poisoned tool ids in its in-memory
+  // history (which we cannot rewrite — pi owns it), so the replay is clean.
+  launch: () => Promise<PiRpcProcess>;
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   unsubscribe: () => void;
   activeTurnId: TurnId | undefined;
@@ -721,6 +732,17 @@ export const T3_FALLBACK_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 60_00
  */
 export const PI_TRANSIENT_PROVIDER_ERROR_RE =
   /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?(error|refused|reset|lost)|socket hang up|fetch failed|terminated|stream ended before|timed?.?out|timeout/i;
+
+/**
+ * Non-retryable client-request errors (HTTP 400 `invalid_request_error`) — the
+ * request is malformed, so replaying the identical history every attempt fails
+ * identically. The canonical case here is Anthropic rejecting a codex-style
+ * `tool_use.id` (`String should match pattern`) that reached it un-sanitised.
+ * Classified as `validation_error` so it burns neither pi's/the T3 transient
+ * ladder nor the exhaustion resume sweep (which only re-runs `quota_exhausted`).
+ */
+export const PI_NON_RETRYABLE_REQUEST_ERROR_RE =
+  /invalid_request_error|\[HTTP 400\]|should match pattern|tool_use\.id/i;
 
 /** Preferred capacity-pool partner per provider namespace (checked first; the
  * generic same-model-other-provider scan is the fallback). Both directions of
@@ -1344,6 +1366,15 @@ function makePiAdapter(input: {
         yield* failTurn(session, errorMessage, undefined, "quota_exhausted");
         return;
       }
+      // Failing over onto an Anthropic-family model while the live pi history
+      // still carries codex-poisoned tool ids in memory would replay them into a
+      // fatal 400. Relaunch from sanitised disk first so the reroute lands clean
+      // (the turn is between pi runs here, so restarting loses no in-flight run).
+      if (
+        slugRoutesToAnthropic(toSlug) &&
+        threadSessionHasPoisonedToolIds(session.session.threadId)
+      )
+        yield* relaunchWithSanitisedHistory(session);
       const d = yield* describeExhaustion(fromSlug);
       session.lastRerouteWindowLabel = d.windowLabel;
       session.lastRerouteResetAt = d.resetsAt;
@@ -1410,6 +1441,15 @@ function makePiAdapter(input: {
       const slug = session.session.model;
       const accountKey = slug ? yield* accountKeyForIntent(slug) : null;
       const modelId = slug ? resolvePiModel(slug)?.modelId : undefined;
+      // A non-retryable client-request error (HTTP 400 invalid_request, e.g. a
+      // codex-style tool_use.id Anthropic won't accept) replays identically
+      // forever. Fail it now as validation_error — BEFORE quota/transient — so it
+      // never enters the retry ladder or gets re-resumed as a quota stall (that
+      // was the 400 flood). Recovery is the pre-spawn sanitise on next start.
+      if (PI_NON_RETRYABLE_REQUEST_ERROR_RE.test(errorMessage)) {
+        yield* failTurn(session, errorMessage, raw, "validation_error");
+        return;
+      }
       const quotaByRegex = PI_QUOTA_ERROR_RE.test(errorMessage);
       const quotaByCorroboration =
         !quotaByRegex &&
@@ -1704,95 +1744,174 @@ function makePiAdapter(input: {
     }
   };
 
+  // Processes we deliberately swapped out during an in-place relaunch. Their
+  // `exit` must NOT tear the session down (a replacement is already live) — only
+  // an unplanned crash of the CURRENT process settles the session.
+  const replacedProcesses = new WeakSet<PiRpcProcess>();
+
+  // Attach this adapter's stream subscription + crash handler to a pi process.
+  // Shared by session start and relaunch so both wire identical semantics.
+  const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
+    active.unsubscribe = process.subscribe(
+      (message) => void Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
+    );
+    process.child.once("exit", () => {
+      if (replacedProcesses.has(process)) return;
+      if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
+      sessions.delete(active.session.threadId);
+      void Effect.runPromise(
+        emit({
+          ...eventBase({
+            instanceId: input.instanceId,
+            threadId: active.session.threadId,
+            raw: { source: "pi.rpc.synthetic", payload: { stderr: process.stderrTail() } },
+          }),
+          type: "session.exited",
+          payload: {
+            reason: process.stderrTail() || "Pi RPC process exited.",
+            recoverable: false,
+            exitKind: "error",
+          },
+        }),
+      ).catch(() => undefined);
+    });
+  };
+
+  // Restart the pi process from a freshly sanitised session file. The codex
+  // poison lives in pi's IN-MEMORY history too (pi owns it, we can't rewrite
+  // it), so an in-session set_model into an Anthropic-family model would replay
+  // the poison and hit a fatal 400. Stopping the process first means the disk
+  // rewrite never races a live writer; the replacement reads the clean file and
+  // resumes identically (disk is the source of truth for a pi resume). Model +
+  // thinking level are cleared so the caller's set_model/thinking re-applies on
+  // the fresh process. Only safe between turns (no in-flight pi run to lose).
+  const relaunchWithSanitisedHistory = (
+    session: ActivePiSession,
+  ): Effect.Effect<void, ProviderAdapterProcessError> =>
+    Effect.gen(function* () {
+      const previous = session.process;
+      replacedProcesses.add(previous);
+      if (session.retry?.timer !== undefined) {
+        clearTimeout(session.retry.timer);
+        session.retry = { ...session.retry, timer: undefined };
+      }
+      yield* Effect.promise(() => previous.stop());
+      session.unsubscribe();
+      yield* Effect.sync(() => sanitisePiSessionForThread(session.session.threadId));
+      const next = yield* Effect.tryPromise({
+        try: () => session.launch(),
+        catch: (cause) =>
+          new ProviderAdapterProcessError({
+            provider: DRIVER_KIND,
+            threadId: session.session.threadId,
+            detail: detailFromCause(cause, "Failed to relaunch Pi RPC process."),
+            cause,
+          }),
+      });
+      session.process = next;
+      session.currentAssistantMessageId = undefined;
+      // Force the caller's set_model/thinking to re-apply on the fresh process:
+      // clear the thinking dedupe (a stale model slug already differs from the
+      // Anthropic target we're switching to, so set_model won't dedupe-skip).
+      session.thinkingLevel = undefined;
+      wirePiProcess(session, next);
+    });
+
   return {
     provider: DRIVER_KIND,
     capabilities: { sessionModelSwitch: "in-session" },
     startSession: (startInput) =>
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;
-        return yield* Effect.tryPromise({
-          try: () => {
-            const mcpSession = McpProviderSession.readMcpProviderSession(startInput.threadId);
-            const appendSystemPrompt = appendSystemPrompts(
-              mcpSession ? PI_WORK_MODEL_SYSTEM_PROMPT : undefined,
-              startInput.appendSystemPrompt,
-            );
-            const piCwd = startInput.cwd ?? input.serverConfig.cwd;
-            return createPiRpcProcess({
-              binaryPath: input.settings.binaryPath,
-              platform,
-              cwd: piCwd,
-              // Deterministic per-thread session id so pi create-or-resumes the
-              // SAME session file across server restarts / reconnects, instead
-              // of silently spawning a fresh, amnesiac session each time.
-              sessionId: piSessionIdForThread(startInput.threadId),
-              ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
-              ...(startInput.skills && startInput.skills.length > 0
-                ? { skills: startInput.skills }
-                : {}),
-              ...(startInput.tools && startInput.tools.length > 0
-                ? { tools: startInput.tools }
-                : {}),
-              ...(mcpSession
+        // Pre-spawn defence for the codex→Anthropic tool_use.id bug: before pi
+        // reads its session file, rewrite any codex-style joined ids so the
+        // replayed history survives Anthropic's `^[a-zA-Z0-9_-]+$` validator.
+        // Pre-spawn is the one moment we own the file (no live pi process is
+        // writing it). Gated on the EFFECTIVE model being Anthropic-family so a
+        // codex resume keeps its joined ids intact; idempotent + a no-op on a
+        // clean history. Covers every restart-based resume (server restart,
+        // reconnect, and the exhaustion resume sweep once the process exited).
+        const intendedSlug = startInput.modelSelection?.model;
+        if (intendedSlug && resolvePiModel(intendedSlug)) {
+          const resolution = yield* resolveEffectiveModel(intendedSlug);
+          const effectiveSlug = resolution.kind === "exhausted" ? intendedSlug : resolution.slug;
+          if (slugRoutesToAnthropic(effectiveSlug))
+            yield* Effect.sync(() => sanitisePiSessionForThread(startInput.threadId));
+        }
+        const launch = (): Promise<PiRpcProcess> => {
+          const mcpSession = McpProviderSession.readMcpProviderSession(startInput.threadId);
+          const appendSystemPrompt = appendSystemPrompts(
+            mcpSession ? PI_WORK_MODEL_SYSTEM_PROMPT : undefined,
+            startInput.appendSystemPrompt,
+          );
+          const piCwd = startInput.cwd ?? input.serverConfig.cwd;
+          return createPiRpcProcess({
+            binaryPath: input.settings.binaryPath,
+            platform,
+            cwd: piCwd,
+            // Deterministic per-thread session id so pi create-or-resumes the
+            // SAME session file across server restarts / reconnects, instead
+            // of silently spawning a fresh, amnesiac session each time.
+            sessionId: piSessionIdForThread(startInput.threadId),
+            ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
+            ...(startInput.skills && startInput.skills.length > 0
+              ? { skills: startInput.skills }
+              : {}),
+            ...(startInput.tools && startInput.tools.length > 0 ? { tools: startInput.tools } : {}),
+            ...(mcpSession
+              ? {
+                  extensions: [
+                    ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir),
+                    ensurePiGoalTaskExtension(input.serverConfig.stateDir),
+                  ],
+                }
+              : {}),
+            // Prepend the session worktree's node_modules/.bin so pi resolves
+            // that worktree's workspace binaries before the server's inherited
+            // PATH, while preserving the T3_WORKSTREAM_* additions.
+            env: withLocalNodeModulesBin(
+              mcpSession
                 ? {
-                    extensions: [
-                      ensurePiWorkstreamSpawnExtension(input.serverConfig.stateDir),
-                      ensurePiGoalTaskExtension(input.serverConfig.stateDir),
-                    ],
+                    ...process.env,
+                    T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_LANE_URL: workstreamLaneUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_ATTENTION_URL: workstreamAttentionUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_RELEASE_URL: workstreamReleaseUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_STOP_URL: workstreamStopUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_PROMPT_URL: workstreamPromptUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_SUBMIT_URL: workstreamSubmitUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
+                      mcpSession.endpoint,
+                    ),
+                    T3_SET_THREAD_TITLE_URL: setThreadTitleUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_TASK_LIST_URL: goalTaskListUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_TASK_UPDATE_URL: goalTaskUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_TASK_DELETE_URL: goalTaskDeleteUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_UPDATE_URL: goalUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_GOAL_HANDOFF_URL: goalHandoffUrlFromMcpEndpoint(mcpSession.endpoint),
+                    T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
                   }
-                : {}),
-              // Prepend the session worktree's node_modules/.bin so pi resolves
-              // that worktree's workspace binaries before the server's inherited
-              // PATH, while preserving the T3_WORKSTREAM_* additions.
-              env: withLocalNodeModulesBin(
-                mcpSession
-                  ? {
-                      ...process.env,
-                      T3_WORKSTREAM_SPAWN_URL: workstreamSpawnUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_LANE_URL: workstreamLaneUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_WORKSTREAM_ATTENTION_URL: workstreamAttentionUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_RELEASE_URL: workstreamReleaseUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_STOP_URL: workstreamStopUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_WORKSTREAM_PROMPT_URL: workstreamPromptUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_DEPENDENCIES_URL: workstreamDependenciesUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_SUBMIT_URL: workstreamSubmitUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_WORKSTREAM_LIST_URL: workstreamListUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_WORKSTREAM_CONSULT_THREAD_URL: workstreamConsultThreadUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_SET_THREAD_TITLE_URL: setThreadTitleUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_GOAL_TASK_LIST_URL: goalTaskListUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_GOAL_TASK_ADD_URL: goalTaskAddUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_GOAL_TASK_UPDATE_URL: goalTaskUpdateUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_GOAL_TASK_DELETE_URL: goalTaskDeleteUrlFromMcpEndpoint(
-                        mcpSession.endpoint,
-                      ),
-                      T3_GOAL_UPDATE_URL: goalUpdateUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_GOAL_HANDOFF_URL: goalHandoffUrlFromMcpEndpoint(mcpSession.endpoint),
-                      T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
-                    }
-                  : process.env,
-                piCwd,
-                platform,
-              ),
-            });
-          },
+                : process.env,
+              piCwd,
+              platform,
+            ),
+          });
+        };
+        const piProcess = yield* Effect.tryPromise({
+          try: launch,
           catch: (cause) =>
             new ProviderAdapterProcessError({
               provider: DRIVER_KIND,
@@ -1801,8 +1920,9 @@ function makePiAdapter(input: {
               cause,
             }),
         });
+        return { process: piProcess, launch };
       }).pipe(
-        Effect.flatMap((process) =>
+        Effect.flatMap(({ process, launch }) =>
           Effect.gen(function* () {
             const createdAt = yield* nowIso;
             const session: ProviderSession = {
@@ -1818,6 +1938,7 @@ function makePiAdapter(input: {
             const active: ActivePiSession = {
               session,
               process,
+              launch,
               turns: [],
               unsubscribe: () => undefined,
               activeTurnId: undefined,
@@ -1831,29 +1952,7 @@ function makePiAdapter(input: {
               toolArgs: new Map(),
               materializedActivityImages: new Map(),
             };
-            active.unsubscribe = process.subscribe(
-              (message) =>
-                void Effect.runPromise(handleMessage(active, message)).catch(() => undefined),
-            );
-            process.child.once("exit", () => {
-              if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
-              sessions.delete(startInput.threadId);
-              void Effect.runPromise(
-                emit({
-                  ...eventBase({
-                    instanceId: input.instanceId,
-                    threadId: startInput.threadId,
-                    raw: { source: "pi.rpc.synthetic", payload: { stderr: process.stderrTail() } },
-                  }),
-                  type: "session.exited",
-                  payload: {
-                    reason: process.stderrTail() || "Pi RPC process exited.",
-                    recoverable: false,
-                    exitKind: "error",
-                  },
-                }),
-              ).catch(() => undefined);
-            });
+            wirePiProcess(active, process);
             sessions.set(startInput.threadId, active);
             // Pin the session to its assigned model from birth — pi otherwise
             // runs whatever defaultModel is in the user's global pi settings.
@@ -1948,6 +2047,21 @@ function makePiAdapter(input: {
                   turnId: failedTurnId,
                 } satisfies ProviderTurnStartResult;
               }
+              // Crossing a live session INTO an Anthropic-family model while its
+              // on-disk history still carries codex-poisoned tool ids: the poison
+              // is also in pi's in-memory replay (which we can't rewrite), so an
+              // in-session switch would 400. Relaunch from sanitised disk first.
+              // Fresh-turn only (a mid-run steer can't safely restart pi); the
+              // current-model check keeps the file scan off the hot path for
+              // sessions already on Anthropic.
+              if (
+                resolution.kind !== "exhausted" &&
+                session.activeTurnId === undefined &&
+                slugRoutesToAnthropic(resolution.slug) &&
+                !slugRoutesToAnthropic(session.session.model ?? "") &&
+                threadSessionHasPoisonedToolIds(session.session.threadId)
+              )
+                yield* relaunchWithSanitisedHistory(session);
               yield* applyModelSelection(session, turnInput.modelSelection, resolution);
             }
             // A send while a turn is already running is a steer: pi folds the
