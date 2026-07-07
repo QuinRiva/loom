@@ -112,7 +112,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
     description: "Advance the PLAN of a T3 Code Workstream thread you own (this thread or one you directly spawned) along its lifecycle: planned (held) → ready (released) → done, or cancelled. 'done' is the only lane that releases dependents and lets the next thread start; 'cancelled' abandons the work and does NOT release dependents — and it CASCADES: cancelling a thread also cancels every non-terminal descendant (children, grandchildren, …) and interrupts any in-flight turn among them, so cancelling a runaway branch kills the whole chain beneath it (already-done descendants are left untouched). 'in_progress' is set automatically when a turn starts and is never settable here. This is the PLAN axis only — to flag that a human is needed, use workstream_request_attention instead.",
     promptSnippet: "advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'cancelled' cascades to the whole subtree and stops in-flight turns; 'in_progress' is automatic.",
     promptGuidelines: [
-      "Do NOT set 'done' to complete your own work — finish with workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output (on a gated reviewer it dissolves the gate). Set 'cancelled' to abandon work (dependents stay blocked); cancelling cascades to the entire subtree below the target and interrupts any running turns, so one cancel kills a runaway branch.",
+      "Do NOT set 'done' to complete your own work — finish with workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output (on a gated reviewer it dissolves the gate; on a gated CODER mid-rework it does NOT — the coder's next submit still routes to the reviewer, and only a reviewer-side done/cancelled dissolves the gate). Set 'cancelled' to abandon work (dependents stay blocked); cancelling cascades to the entire subtree below the target and interrupts any running turns, so one cancel kills a runaway branch.",
       "Use 'ready'/'planned' to release or hold staged work. Omit threadId to advance your own plan; you may only set the lane on your own thread or threads you directly parent.",
       "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane — raise attention with workstream_request_attention."
     ],
@@ -129,7 +129,7 @@ const EXTENSION_SOURCE = String.raw`export default function(pi) {
       const result = await callWorkstreamEndpoint(process.env.T3_WORKSTREAM_LANE_URL, params, signal);
       const threadId = result?.threadId ?? params.threadId ?? "this thread";
       return {
-        content: [{ type: "text", text: "Set Workstream thread " + threadId + " plan lane to " + params.planLane + "." }],
+        content: [{ type: "text", text: appendWarnings("Set Workstream thread " + threadId + " plan lane to " + params.planLane + ".", result) }],
         details: { ok: true, ...result }
       };
     }

@@ -385,6 +385,17 @@ describe("isWaitingInGate", () => {
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
   });
 
+  it("does not suppress the source when a TERMINAL target holds the open round (forced done mid-round — the dead loop must surface)", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: loopRoutes("coder"),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop" },
+    });
+    const coder = gnode({ id: "coder", planLane: "done", pendingRework: true });
+    expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
+  });
+
   it("R4: a cancelled counterpart never suppresses (the dead gate must surface)", () => {
     const reviewer = gnode({
       id: "reviewer",

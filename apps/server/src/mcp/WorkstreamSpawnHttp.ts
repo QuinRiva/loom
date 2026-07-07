@@ -26,6 +26,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import {
   gateLoopTargetOf,
+  gateSourceFor,
   graphViewFor,
   requiresSubmitToComplete,
   routeWorkSubmit,
@@ -940,6 +941,25 @@ const handleWorkstreamSetLane = Effect.gen(function* () {
     }
   }
 
+  // Gate observability (2026-07-07 incident): a parent force-`done` on a
+  // rework TARGET mid-round stays legal (decision 9 interruptibility) but does
+  // NOT resolve the gate — warn in the tool response so "accepting the coder"
+  // is not mistaken for dissolving the review (that is a reviewer-side done).
+  const warnings: string[] = [];
+  if (planLane === "done" && targetThreadId !== scope.threadId) {
+    const snapshot = yield* (yield* ProjectionSnapshotQuery).getShellSnapshot();
+    const target = snapshot.threads.find((thread) => thread.id === targetThreadId);
+    const source =
+      target !== undefined && target.pendingRework && target.planLane !== "done"
+        ? gateSourceFor(targetThreadId, snapshot.threads)
+        : null;
+    if (source !== null) {
+      warnings.push(
+        `this thread holds an open review-gate rework round — setting it done does NOT resolve the gate. Its next workstream_submit still routes to reviewer '${source.id}' for re-verification; to dissolve the gate, set the reviewer done/cancelled instead.`,
+      );
+    }
+  }
+
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
   const engine = yield* OrchestrationEngineService;
@@ -951,7 +971,11 @@ const handleWorkstreamSetLane = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ threadId: targetThreadId, planLane });
+  return HttpServerResponse.jsonUnsafe({
+    threadId: targetThreadId,
+    planLane,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(

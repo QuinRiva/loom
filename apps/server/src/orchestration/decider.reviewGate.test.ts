@@ -388,6 +388,86 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
     }),
   );
 
+  // 2026-07-07 incident: parent force-`done` on the coder mid-rework-round
+  // must not wedge the gate — the coder's terminal submit still routes back to
+  // the reviewer (intercepted loop), instead of being rejected by the
+  // terminal-lane guard while the reviewer waits forever.
+  it.effect(
+    "incident: a done coder with an open rework round still routes its submit to the reviewer",
+    () =>
+      Effect.gen(function* () {
+        let model = yield* seedGateModel;
+        // Round 1 opens and the gate pass reopens the coder for rework.
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
+        model = yield* applyDecided(
+          model,
+          yield* decide(turnStart(CODER, { reopen: true }), model),
+        );
+        // Parent accepts the coder mid-round (decision 9 — the write is legal).
+        const laneEvents = yield* decide(
+          {
+            type: "thread.plan-lane.set",
+            commandId: CommandId.make("server:workstream-lane:test-force-done"),
+            threadId: CODER,
+            planLane: "done",
+            createdAt: now,
+          },
+          model,
+        );
+        // The force-done is warned on the parent: the gate is NOT resolved.
+        const warning = laneEvents.find((event) => event.type === "thread.activity-appended");
+        expect(warning).toBeDefined();
+        expect(warning?.aggregateId).toBe(PARENT);
+        const activity = (warning!.payload as { activity: { kind: string; summary: string } })
+          .activity;
+        expect(activity.kind).toBe("workstream.gate.target-done-mid-round");
+        expect(activity.summary).toContain("NOT resolved");
+        model = yield* applyDecided(model, laneEvents);
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("done");
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(true);
+        // The coder's terminal submit is NOT rejected: it is the intercepted
+        // loop back to the reviewer, with the lane left untouched (sticky done).
+        const events = yield* decide(submit(CODER, "done"), model);
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.report-set",
+          "thread.outcome-recorded",
+          "thread.route-taken",
+        ]);
+        expect(events[1]?.payload).toMatchObject({ decision: "loop", round: 1 });
+        expect(events[2]?.payload).toMatchObject({ threadId: CODER, to: REVIEWER, round: 1 });
+        model = yield* applyDecided(model, events);
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("done");
+        // The reviewer's re-verify then resolves the gate normally; the coder
+        // is already terminal so only the reviewer's lane event is emitted.
+        const resolved = yield* decide(submit(REVIEWER, "clean"), model);
+        const resolvedLanes = resolved.filter((event) => event.type === "thread.plan-lane-set");
+        expect(resolvedLanes).toHaveLength(1);
+        expect(resolvedLanes[0]?.payload).toMatchObject({ threadId: REVIEWER, planLane: "done" });
+      }),
+  );
+
+  it.effect(
+    "incident guard: force-done on a coder WITHOUT an open round appends no warning and its submit stays rejected",
+    () =>
+      Effect.gen(function* () {
+        const model = yield* seedGateModel;
+        // Coder is round-0 done, no rework round open.
+        const laneEvents = yield* decide(
+          {
+            type: "thread.plan-lane.set",
+            commandId: CommandId.make("server:workstream-lane:test-plain-done"),
+            threadId: CODER,
+            planLane: "done",
+            createdAt: now,
+          },
+          model,
+        );
+        expect(laneEvents.some((event) => event.type === "thread.activity-appended")).toBe(false);
+        const exit = yield* Effect.exit(decide(submit(CODER, "done"), model));
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
   it.effect("parent set_lane done on the reviewer dissolves the gate mid-loop", () =>
     Effect.gen(function* () {
       let model = yield* seedGateModel;
