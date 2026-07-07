@@ -38,7 +38,7 @@ import {
   describeUnsatisfiedDependency,
   findDependencyCycle,
 } from "@t3tools/shared/workstreamDependencies";
-import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+import { gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -1070,6 +1070,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      const laneTrailingEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
       // Design §3 invariant: when the plan advances to a terminal lane, every
       // stored attention flag clears — a finished thread never sits with a stale
       // ⚠. Symmetric with the turn-start clear (a resume clears attention too).
@@ -1079,25 +1080,67 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // events aren't produced. Derived `awaiting_*` reasons are projected from
       // open requests and unaffected.
       if (command.planLane === "done" && laneThread.attention.length > 0) {
-        return [
-          planLaneSetEvent,
-          {
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: command.threadId,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            causationEventId: planLaneSetEvent.eventId,
-            type: "thread.attention-cleared",
-            payload: {
-              threadId: command.threadId,
-              updatedAt: occurredAt,
+        laneTrailingEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: planLaneSetEvent.eventId,
+          type: "thread.attention-cleared",
+          payload: {
+            threadId: command.threadId,
+            updatedAt: occurredAt,
+          },
+        });
+      }
+      // Gate observability (2026-07-07 incident): a parent force-`done` on a
+      // rework TARGET while its round is open (decision 9 keeps the write
+      // legal) does NOT resolve the gate — the source still awaits the
+      // hand-back, and the target's next submit is still intercepted back to
+      // it. Warn the parent so "accepting the coder" is not mistaken for
+      // resolving the review: dissolving is a reviewer-side `done`/`cancelled`.
+      const openReworkSource =
+        command.planLane === "done" && laneThread.pendingRework && laneThread.planLane !== "done"
+          ? gateSourceFor(
+              command.threadId,
+              readModel.threads.filter((thread) => thread.deletedAt === null),
+            )
+          : null;
+      if (openReworkSource !== null && laneThread.parentThreadId !== null) {
+        const activityId = yield* Crypto.Crypto.pipe(
+          Effect.flatMap((crypto) => crypto.randomUUIDv4),
+        );
+        laneTrailingEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: laneThread.parentThreadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          causationEventId: planLaneSetEvent.eventId,
+          type: "thread.activity-appended",
+          payload: {
+            threadId: laneThread.parentThreadId,
+            activity: {
+              id: EventId.make(activityId),
+              tone: "error",
+              kind: "workstream.gate.target-done-mid-round",
+              summary: `Warning: '${laneThread.title}' (${command.threadId}) was set done while its review gate's rework round is open. The gate is NOT resolved — its next submit still routes to reviewer '${openReworkSource.id}' for re-verification. To dissolve the gate instead, set the reviewer done/cancelled.`,
+              payload: {
+                targetThreadId: command.threadId,
+                gateSourceThreadId: openReworkSource.id,
+              },
+              turnId: null,
+              createdAt: occurredAt,
             },
           },
-        ];
+        });
       }
-      return planLaneSetEvent;
+      return laneTrailingEvents.length > 0
+        ? [planLaneSetEvent, ...laneTrailingEvents]
+        : planLaneSetEvent;
     }
 
     case "thread.attention.raise": {
@@ -1803,15 +1846,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      // Terminal-lane guard: a submit landing on a terminal thread never flips
-      // lanes — cancelled stays dead (mirroring reopen's never-from-cancelled)
-      // and a done thread has already completed.
-      if (submitThread.planLane === "done" || submitThread.planLane === "cancelled") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' is ${submitThread.planLane}; workstream_submit cannot act on a terminal thread.`,
-        });
-      }
       const occurredAt = yield* nowIso;
       const outcome = command.outcome ?? "done";
       const routing = routeWorkSubmit(
@@ -1819,6 +1853,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel.threads.filter((thread) => thread.deletedAt === null),
         outcome,
       );
+      // Terminal-lane guard: a submit landing on a terminal thread never flips
+      // lanes — cancelled stays dead (mirroring reopen's never-from-cancelled)
+      // and a done thread has already completed. ONE exception (2026-07-07
+      // incident): a `done` rework target whose submit the gate intercepts
+      // (open rework round + live source ⇒ decision `loop`). A parent may
+      // force-`done` a mid-round coder (decision 9 interruptibility), but that
+      // never resolves the gate — the reviewer still awaits the hand-back, so
+      // the routed submit must go through or the pair wedges (the coder's
+      // report unroutable, the reviewer waiting forever). The loop decision
+      // touches no lanes, so sticky-terminal is preserved.
+      if (
+        (submitThread.planLane === "cancelled" || submitThread.planLane === "done") &&
+        !(submitThread.planLane === "done" && routing.decision === "loop")
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is ${submitThread.planLane}; workstream_submit cannot act on a terminal thread.`,
+        });
+      }
       const decision = routing.decision;
       const reportSetEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
@@ -1897,9 +1950,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         }
       } else if (decision === "loop") {
         // Loop traversal (design §4.3): the submitter's lane is untouched — the
-        // source stays `in_progress` waiting in the gate, and an intercepted
-        // target `done` stays `in_progress` (it is NOT done while rework is
-        // routed). The dispatcher's gate pass reacts to the traversal.
+        // source stays `in_progress` waiting in the gate, an intercepted
+        // target stays `in_progress` (it is NOT done while rework is routed),
+        // and a parent-forced `done` target stays `done` (sticky terminal; the
+        // routing works regardless). The dispatcher's gate pass reacts to the
+        // traversal.
         events.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",

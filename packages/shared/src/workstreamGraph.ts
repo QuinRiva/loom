@@ -210,7 +210,12 @@ export const gateSourceFor = <T extends GateNode>(
  * holds the open rework round), or the target that routed back and awaits the
  * source's re-verify. A cancelled counterpart never suppresses (risk R4: the
  * waiting party's idle wake un-suppresses so the orchestrator hears about the
- * dead gate).
+ * dead gate). The same rule generalises to a TERMINAL target holding an open
+ * rework round (a parent force-`done` on the coder mid-round, 2026-07-07
+ * incident): the round's rework leg is receipt-deduped, so nothing re-drives
+ * the loop — the source's idle wake must surface it. A terminal target that
+ * ROUTED BACK (`lastOutcome.decision === "loop"`) still suppresses: the
+ * re-verify leg is owed and delivers regardless of the target's lane.
  */
 export const isWaitingInGate = (
   thread: GateNode,
@@ -227,7 +232,7 @@ export const isWaitingInGate = (
     if (
       target !== undefined &&
       target.planLane !== "cancelled" &&
-      (target.pendingRework ||
+      ((target.pendingRework && !isTerminalLane(target.planLane)) ||
         (thread.lastOutcome?.decision === "loop" &&
           (target.lastOutcome?.decision === "loop" || !isTerminalLane(target.planLane))))
     ) {

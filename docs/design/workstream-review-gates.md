@@ -394,6 +394,36 @@ off the _scope_, not the prefix: the lane endpoint passes
 `actorThreadId === targetThreadId` down, and the guard applies only to
 self-sets. Parent overrides stay possible by design, per decision 9.)
 
+### 5.4 Parent force-`done` on the rework target (2026-07-07 incident)
+
+Decision 9 keeps a parent `set_lane(done)` legal on either gate party, but its
+meaning differs by side. On the **source** (reviewer) it dissolves the gate
+(§4.1 — resolution is keyed off the source's terminality). On the **target**
+(coder) mid-rework-round it does **not** resolve anything: the source still
+awaits the hand-back, and blocking the write would violate decision 9 while
+treating it as whole-gate acceptance would grant the coder's lane a resolution
+power the design never gave it. The rule generalises R4's
+tolerate-and-surface pattern from a `cancelled` target to any out-of-band
+terminal target:
+
+- **The write is allowed** and the lane goes `done` (sticky terminal — a
+  gate-pass `reopen` resume still reverts it per §5.2).
+- **The routed submit still works.** The terminal-lane submit guard admits the
+  one case where routing decides `loop` on a `done` thread (open rework round
+  - live source): the coder's hand-back routes to the reviewer as the normal
+    intercepted loop, touching no lanes. Without this the coder's terminal
+    submit is rejected while the reviewer waits forever — the incident wedge.
+- **It is warned, twice.** The lane endpoint echoes a warning in the tool
+  response, and the decider appends a `workstream.gate.target-done-mid-round`
+  error-tone activity on the parent — "the gate is NOT resolved; dissolve via
+  the reviewer".
+- **A dead loop still surfaces.** `isWaitingInGate` no longer suppresses the
+  source's idle wake when a _terminal_ target holds the open round (the
+  receipt-deduped rework leg will never re-fire), so if the loop dies anyway
+  the orchestrator hears about the waiting reviewer instead of a silent stall.
+  A terminal target that already routed back keeps suppressing — the
+  re-verify leg is owed and delivers regardless of the target's lane.
+
 ---
 
 ## 6. Dispatcher changes (the gate pass, the yield rail, suppressions)
