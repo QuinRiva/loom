@@ -10,8 +10,7 @@ describe("consult_thread read-only invariants", () => {
   it("strips every T3_WORKSTREAM_* key from the fork env, keeping the rest", () => {
     const stripped = envWithoutWorkstream({
       PATH: "/usr/bin",
-      T3_WORKSTREAM_SPAWN_URL: "http://x/spawn",
-      T3_WORKSTREAM_CONSULT_THREAD_URL: "http://x/consult",
+      T3_WORKSTREAM_ENDPOINT: "http://x",
       T3_WORKSTREAM_AUTHORIZATION: "Bearer secret",
       HOME: "/home/u",
     });

@@ -22,6 +22,7 @@ import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRe
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 
 interface GoalTaskAddRequest {
   readonly text?: unknown;
@@ -45,12 +46,6 @@ interface GoalUpdateRequest {
   readonly description?: unknown;
   readonly slug?: unknown;
 }
-
-const TASK_LIST_PATH = "/provider-tools/goal/task/list";
-const TASK_ADD_PATH = "/provider-tools/goal/task/add";
-const TASK_UPDATE_PATH = "/provider-tools/goal/task/update";
-const TASK_DELETE_PATH = "/provider-tools/goal/task/delete";
-const GOAL_UPDATE_PATH = "/provider-tools/goal/update";
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
@@ -171,7 +166,11 @@ const handleGoalTaskAdd = Effect.gen(function* () {
       createdAt: now,
     }) satisfies OrchestrationCommand,
   );
-  return HttpServerResponse.jsonUnsafe({ goalId: goal.id, taskId });
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    taskId,
+    rendered: `Added task ${taskId}: ${text}`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -222,7 +221,11 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
       ...(position !== undefined ? { position } : {}),
     }) satisfies OrchestrationCommand,
   );
-  return HttpServerResponse.jsonUnsafe({ goalId: goal.id, taskId });
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    taskId,
+    rendered: `Updated task ${taskId}.`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -255,7 +258,11 @@ const handleGoalTaskDelete = Effect.gen(function* () {
       taskId: GoalTaskId.make(taskId),
     }) satisfies OrchestrationCommand,
   );
-  return HttpServerResponse.jsonUnsafe({ goalId: goal.id, taskId });
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    taskId,
+    rendered: `Deleted task ${taskId}.`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -298,7 +305,10 @@ const handleGoalUpdate = Effect.gen(function* () {
       ...(description !== undefined ? { description } : {}),
     }) satisfies OrchestrationCommand,
   );
-  return HttpServerResponse.jsonUnsafe({ goalId: goal.id });
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    rendered: `Updated goal ${goal.id}.`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -307,30 +317,10 @@ const handleGoalUpdate = Effect.gen(function* () {
   ),
 );
 
-const goalToolUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
-  mcpEndpoint.endsWith("/mcp")
-    ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
-    : `${mcpEndpoint.replace(/\/$/, "")}${path}`;
-
-export const goalTaskListUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_LIST_PATH);
-
-export const goalTaskAddUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_ADD_PATH);
-
-export const goalTaskUpdateUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_UPDATE_PATH);
-
-export const goalTaskDeleteUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, TASK_DELETE_PATH);
-
-export const goalUpdateUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, GOAL_UPDATE_PATH);
-
 export const layer = Layer.mergeAll(
-  HttpRouter.add("POST", TASK_LIST_PATH, handleGoalTaskList),
-  HttpRouter.add("POST", TASK_ADD_PATH, handleGoalTaskAdd),
-  HttpRouter.add("POST", TASK_UPDATE_PATH, handleGoalTaskUpdate),
-  HttpRouter.add("POST", TASK_DELETE_PATH, handleGoalTaskDelete),
-  HttpRouter.add("POST", GOAL_UPDATE_PATH, handleGoalUpdate),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_list, handleGoalTaskList),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_add, handleGoalTaskAdd),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_update, handleGoalTaskUpdate),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_delete, handleGoalTaskDelete),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_update, handleGoalUpdate),
 );

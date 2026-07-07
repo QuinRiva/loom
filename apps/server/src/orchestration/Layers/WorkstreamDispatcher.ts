@@ -30,6 +30,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { makeReceiptDedupedDelivery, makeWakeRateBudget } from "../receiptDedup.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -77,50 +78,14 @@ export const selectThreadsToDispatch = (
   );
 };
 
-export interface WakeRateGuardConfig {
-  readonly windowMs: number;
-  readonly maxInWindow: number;
-  readonly absoluteBackstop: number;
-}
-
-/**
- * Runaway guard (decision 5): generously-defaulted, rate-based park-and-escalate.
- *
- * Two independent catches:
- * - **Rate window** — the primary, cadence-based signal. Real work has slow
- *   generations (minutes of child work each); a spin-loop fires many wakes in a
- *   short window. The window is tuned so a slow-cadence overnight job never
- *   trips it.
- * - **Absolute backstop** — a deliberately high interim ceiling that trips after
- *   `absoluteBackstop` total wakes for a parent **regardless of cadence**. This
- *   is an accepted interim limit, not a cadence signal: even a legitimate
- *   long-running job is parked once it has generated this many wake-generations.
- *   500 is set high enough that hitting it is a non-issue in practice; the
- *   stronger heartbeat/investigator solution (D-liveness) will replace it.
- */
-export const DEFAULT_WAKE_RATE_GUARD: WakeRateGuardConfig = {
-  windowMs: 60_000,
-  maxInWindow: 30,
-  absoluteBackstop: 500,
-};
-
-/**
- * Pure guard predicate: would delivering one more wake for this parent (whose
- * prior wake timestamps are `timestamps`) breach the rolling-window rate or the
- * absolute backstop? The backstop trips on total count alone, independent of
- * cadence.
- */
-export const wakeRateGuardTrips = (
-  timestamps: ReadonlyArray<number>,
-  now: number,
-  config: WakeRateGuardConfig = DEFAULT_WAKE_RATE_GUARD,
-): boolean => {
-  const inWindow = timestamps.reduce(
-    (count, at) => (at >= now - config.windowMs ? count + 1 : count),
-    0,
-  );
-  return inWindow + 1 > config.maxInWindow || timestamps.length + 1 > config.absoluteBackstop;
-};
+// The per-parent runaway guard primitives live in the shared receipt-dedup
+// module (the `WakeRateBudget` composes them). Re-exported here because they are
+// tested pure exports and historically part of the dispatcher's public surface.
+export {
+  DEFAULT_WAKE_RATE_GUARD,
+  wakeRateGuardTrips,
+  type WakeRateGuardConfig,
+} from "../receiptDedup.ts";
 
 /**
  * Maximum number of report characters embedded inline in a wake message. The
@@ -664,21 +629,6 @@ const make = Effect.gen(function* () {
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const worktreeProvisioner = yield* WorktreeProvisioner;
 
-  // In-memory caches of the recomputable durable state (decision 4): the
-  // reported-child set caches the receipt-backed per-child "reported through the
-  // delta rail" markers, and the wake-timestamp history backs the interim rate
-  // guard. Both are safe as plain mutable state because the drainable worker
-  // processes serially. The cache is only ever a cache: a miss falls through to
-  // the durable receipt store, so a fresh process (empty cache) still recomputes
-  // the true reported set from the marker + prior-rail receipts.
-  const handledChildReports = new Set<string>();
-  const wakeTimestamps = new Map<string, number[]>();
-  // Per-child wake dedup (§1e), keyed by the deterministic child-wake command
-  // id `(childId, episode)`. A cache only: a miss falls through to the durable
-  // receipt store, so a fresh process recomputes the true delivered set. The
-  // yield rail's command ids share this set (they are disjoint by prefix).
-  const handledChildWakes = new Set<string>();
-
   // Does a command id have an accepted receipt? Backs the durable handled-check,
   // so a fresh process (empty cache) still recomputes the true handled set from
   // the receipt store rather than re-firing a wake/park.
@@ -686,6 +636,20 @@ const make = Effect.gen(function* () {
     commandReceiptRepository
       .getByCommandId({ commandId: CommandId.make(commandId) })
       .pipe(Effect.map(Option.isSome));
+
+  // Shared receipt-dedup delivery (decision 4): ONE instance backs both the
+  // per-child `child-reported` delta markers and the per-child / yield / gate
+  // wake command ids (all disjoint by prefix). Its two caches — `delivered`
+  // (local record ∪ accepted receipt) and `suppressed` (park/skip, no receipt) —
+  // are process-local caches of the recomputable durable state: a miss falls
+  // through to the receipt store, so a fresh process recomputes the true
+  // delivered set. Crucially `wasDelivered` never consults the suppressed set,
+  // so a park path can no longer poison a cross-rail "was the parent told?"
+  // question — the hazard the old raw-set discipline defended by comment.
+  const dedup = yield* makeReceiptDedupedDelivery({ hasAcceptedReceipt });
+  // Per-parent wake-rate budget backing the interim runaway guard, shared by the
+  // delta, per-child, and yield rails so they draw on ONE budget per parent.
+  const wakeBudget = makeWakeRateBudget();
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -920,20 +884,23 @@ const make = Effect.gen(function* () {
   const alreadyNoticedByPriorRail = Effect.fn("alreadyNoticedByPriorRail")(function* (
     child: OrchestrationThreadShell,
   ) {
+    // Each check is a DURABLE-delivery question ("was the parent actually told
+    // through the other rail?"), so it goes through `wasDelivered` — which reads
+    // only the delivered set (∪ receipt), never a park-path suppression.
     if (
       child.lastOutcome !== null &&
-      (yield* hasAcceptedReceipt(yieldWakeCommandId(child.id, child.lastOutcome.recordedByEventId)))
+      (yield* dedup.wasDelivered(yieldWakeCommandId(child.id, child.lastOutcome.recordedByEventId)))
     )
       return true;
-    if (yield* hasAcceptedReceipt(childWakeCommandId(child.id, "error"))) return true;
+    if (yield* dedup.wasDelivered(childWakeCommandId(child.id, "error"))) return true;
     if (
-      yield* hasAcceptedReceipt(
+      yield* dedup.wasDelivered(
         childWakeCommandId(child.id, `attention:${child.latestTurn?.turnId ?? "none"}`),
       )
     )
       return true;
     const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
-    return yield* hasAcceptedReceipt(
+    return yield* dedup.wasDelivered(
       childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`),
     );
   });
@@ -969,15 +936,15 @@ const make = Effect.gen(function* () {
       if (isFanInPending(child)) continue;
       const episode = terminalEpisodeKey(child);
       const marker = childReportedCommandId(child.id, episode);
-      if (handledChildReports.has(marker)) continue;
-      if (yield* hasAcceptedReceipt(marker)) {
-        handledChildReports.add(marker);
-        continue;
-      }
+      // `alreadyHandled` folds the in-memory cache and the durable marker receipt
+      // into one check (caching a receipt hit).
+      if (yield* dedup.alreadyHandled(marker)) continue;
       if (yield* alreadyNoticedByPriorRail(child)) {
-        // Cache so we don't re-run the prior-rail lookups every pass; the durable
-        // truth is the OTHER rail's receipt, recomputed on a fresh process.
-        handledChildReports.add(marker);
+        // Suppress locally so we don't re-run the prior-rail lookups every pass;
+        // the durable truth is the OTHER rail's receipt, recomputed on a fresh
+        // process. Not a delivery of THIS marker — so `markSuppressed`, not
+        // `deliverOnce`.
+        yield* dedup.markSuppressed(marker);
         continue;
       }
       const batch = batches.get(child.parentThreadId);
@@ -996,17 +963,19 @@ const make = Effect.gen(function* () {
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
       const now = yield* Clock.currentTimeMillis;
-      const history = wakeTimestamps.get(parentId) ?? [];
-      if (wakeRateGuardTrips(history, now)) {
+      if (wakeBudget.wouldTrip(parentId, now)) {
         yield* parkAndEscalate(parent, "delta");
-        for (const member of members) handledChildReports.add(member.marker);
+        for (const member of members) yield* dedup.markSuppressed(member.marker);
         continue;
       }
       // Wake-before-markers: deliver the batched wake, then write the durable
-      // per-child markers. `requireIdle` makes the engine defer (no receipt) if
-      // the parent became busy in the race window; treat that as not-yet-
-      // delivered so the next idle drain retries with the same batch. Only count
-      // the wake + write the markers on real delivery.
+      // per-child markers. The delta wake keeps its bespoke shape (a random
+      // command id, batched per parent) rather than routing through
+      // `deliverOnce` — cross-restart dedup is carried by the per-child markers,
+      // not this id. `requireIdle` makes the engine defer (no receipt) if the
+      // parent became busy in the race window; treat that as not-yet-delivered so
+      // the next idle drain retries with the same batch. Only count the wake +
+      // write the markers on real delivery.
       const delivered = yield* deliverWake(
         parent,
         members.map((member) => member.child),
@@ -1015,10 +984,15 @@ const make = Effect.gen(function* () {
         Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
       );
       if (!delivered) continue;
-      wakeTimestamps.set(parentId, [...history, now]);
+      wakeBudget.recordDelivery(parentId, now);
+      // Each marker IS a receipt-bearing command, so record it through the module
+      // (delivers + caches). The batch-build loop already established none are
+      // handled, so every `deliverOnce` here dispatches.
       for (const member of members) {
-        yield* dispatchChildReportedMarker(member.child, member.episode);
-        handledChildReports.add(member.marker);
+        yield* dedup.deliverOnce(
+          member.marker,
+          dispatchChildReportedMarker(member.child, member.episode),
+        );
       }
     }
   });
@@ -1147,18 +1121,23 @@ const make = Effect.gen(function* () {
         // parent has been told once — don't notify again.
         const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
         const idleWakeId = childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`);
-        if (handledChildWakes.has(idleWakeId) || (yield* hasAcceptedReceipt(idleWakeId))) {
-          handledChildWakes.add(childWakeCommandId(child.id, episode));
+        // "Was the parent already told through the idle rail?" — a DURABLE
+        // delivery question, so `wasDelivered` (never poisoned by a park).
+        if (yield* dedup.wasDelivered(idleWakeId)) {
+          yield* dedup.markSuppressed(childWakeCommandId(child.id, episode));
           continue;
         }
       } else if (child.planLane === "done") {
         const recoveryId = childWakeCommandId(child.id, "recovered");
-        if (handledChildWakes.has(recoveryId)) continue;
+        if (yield* dedup.alreadyHandled(recoveryId)) continue;
         // Only a child the parent was DURABLY told had errored can "recover". A
-        // done child with no error-wake receipt never errored (error precedes
-        // done) → record it handled so the receipt is not re-read every pass.
-        if (!(yield* hasAcceptedReceipt(childWakeCommandId(child.id, "error")))) {
-          handledChildWakes.add(recoveryId);
+        // done child with no error-wake DELIVERY never errored (error precedes
+        // done) → suppress the recovery id so the receipt is not re-read every
+        // pass. `wasDelivered` is what makes this correct even though the park
+        // path may have added the error id to the suppressed set: the recovery
+        // rail only fires for a child the parent was GENUINELY told errored.
+        if (!(yield* dedup.wasDelivered(childWakeCommandId(child.id, "error")))) {
+          yield* dedup.markSuppressed(recoveryId);
           continue;
         }
         kind = "recovered";
@@ -1221,34 +1200,30 @@ const make = Effect.gen(function* () {
         continue;
       }
       const commandId = childWakeCommandId(child.id, episode);
-      if (handledChildWakes.has(commandId)) continue;
-      if (yield* hasAcceptedReceipt(commandId)) {
-        handledChildWakes.add(commandId);
-        continue;
-      }
+      if (yield* dedup.alreadyHandled(commandId)) continue;
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
-      const history = wakeTimestamps.get(parent.id) ?? [];
-      if (wakeRateGuardTrips(history, now)) {
+      if (wakeBudget.wouldTrip(parent.id, now)) {
         yield* parkAndEscalate(
           parent,
           kind === "recovered" ? `child-recovery:${child.id}` : `child-wake:${child.id}`,
         );
-        handledChildWakes.add(commandId);
+        // A park suppresses this command id locally with NO receipt behind it —
+        // exactly the case `markSuppressed` exists for. `wasDelivered` stays
+        // false for it, so a later cross-rail "was the parent told?" (e.g. the
+        // recovery guard) is not fooled into firing.
+        yield* dedup.markSuppressed(commandId);
         continue;
       }
-      // Catch the busy-parent race (C2) exactly like `deliverWake`: a deferred
-      // command writes no receipt, so it is retried on the next idle drain.
-      const delivered = yield* deliverChildWake(parent, child, kind, commandId, context).pipe(
-        Effect.as(true),
-        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      // `deliverOnce` catches the busy-parent race (C2) exactly like the old
+      // manual catch: a deferral records nothing and stays redeliverable.
+      const outcome = yield* dedup.deliverOnce(
+        commandId,
+        deliverChildWake(parent, child, kind, commandId, context),
       );
-      if (delivered) {
-        wakeTimestamps.set(parent.id, [...history, now]);
-        handledChildWakes.add(commandId);
-      }
+      if (outcome === "delivered") wakeBudget.recordDelivery(parent.id, now);
     }
   });
 
@@ -1277,61 +1252,66 @@ const make = Effect.gen(function* () {
       // waiting source's un-suppressed idle wake surfaces the dead gate.
       if (target === undefined || target.planLane === "cancelled") continue;
 
+      // Site 3: `deliverOnce` only — no idle gate, no rate budget. The gate
+      // serialises its parties by construction, so the dispatch passes straight
+      // through; `deliverOnce` swallows nothing but the deferred error (which
+      // these commands never raise), and a genuine dispatch failure still
+      // propagates to the pass-level `catchCause`, exactly as before.
       if (target.pendingRework) {
         // Rework leg: deliver the source's findings to the target, reopening a
         // round-0-completed (`done`) target atomically in the same transaction.
         const commandId = gateCommandId(source.id, source.gateRounds, "rework");
-        if (handledChildWakes.has(commandId)) continue;
-        if (yield* hasAcceptedReceipt(commandId)) {
-          handledChildWakes.add(commandId);
-          continue;
-        }
+        // Skip-check first so the report read + message build are only done when
+        // a delivery is actually owed (mirrors the old ordering).
+        if (yield* dedup.alreadyHandled(commandId)) continue;
         const report = yield* readReportFor(source);
+        const messageId = MessageId.make(yield* crypto.randomUUIDv4);
         const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.make(commandId),
-          threadId: target.id,
-          message: {
-            messageId: MessageId.make(yield* crypto.randomUUIDv4),
-            role: "user",
-            text: buildGateReworkMessage(source, source.gateRounds, report),
-            attachments: [],
-          },
-          titleSeed: target.title,
-          runtimeMode: target.runtimeMode,
-          interactionMode: target.interactionMode,
-          ...(target.planLane === "done" ? { reopen: true } : {}),
-          createdAt: now,
-        } satisfies OrchestrationCommand);
-        handledChildWakes.add(commandId);
+        yield* dedup.deliverOnce(
+          commandId,
+          orchestrationEngine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(commandId),
+            threadId: target.id,
+            message: {
+              messageId,
+              role: "user",
+              text: buildGateReworkMessage(source, source.gateRounds, report),
+              attachments: [],
+            },
+            titleSeed: target.title,
+            runtimeMode: target.runtimeMode,
+            interactionMode: target.interactionMode,
+            ...(target.planLane === "done" ? { reopen: true } : {}),
+            createdAt: now,
+          } satisfies OrchestrationCommand),
+        );
       } else if (source.gateRounds > 0 && target.lastOutcome?.decision === "loop") {
         // Re-verify leg: the target routed its rework back; resume the source
         // (in_progress-idle, so a plain turn-start resumes it — no reopen).
         const commandId = gateCommandId(source.id, source.gateRounds, "reverify");
-        if (handledChildWakes.has(commandId)) continue;
-        if (yield* hasAcceptedReceipt(commandId)) {
-          handledChildWakes.add(commandId);
-          continue;
-        }
+        if (yield* dedup.alreadyHandled(commandId)) continue;
         const report = yield* readReportFor(target);
+        const messageId = MessageId.make(yield* crypto.randomUUIDv4);
         const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.make(commandId),
-          threadId: source.id,
-          message: {
-            messageId: MessageId.make(yield* crypto.randomUUIDv4),
-            role: "user",
-            text: buildGateReverifyMessage(target, source.gateRounds, report),
-            attachments: [],
-          },
-          titleSeed: source.title,
-          runtimeMode: source.runtimeMode,
-          interactionMode: source.interactionMode,
-          createdAt: now,
-        } satisfies OrchestrationCommand);
-        handledChildWakes.add(commandId);
+        yield* dedup.deliverOnce(
+          commandId,
+          orchestrationEngine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(commandId),
+            threadId: source.id,
+            message: {
+              messageId,
+              role: "user",
+              text: buildGateReverifyMessage(target, source.gateRounds, report),
+              attachments: [],
+            },
+            titleSeed: source.title,
+            runtimeMode: source.runtimeMode,
+            interactionMode: source.interactionMode,
+            createdAt: now,
+          } satisfies OrchestrationCommand),
+        );
       }
     }
   });
@@ -1356,20 +1336,15 @@ const make = Effect.gen(function* () {
       if (parent === undefined) continue;
 
       const commandId = yieldWakeCommandId(child.id, child.lastOutcome.recordedByEventId);
-      if (handledChildWakes.has(commandId)) continue;
-      if (yield* hasAcceptedReceipt(commandId)) {
-        handledChildWakes.add(commandId);
-        continue;
-      }
+      if (yield* dedup.alreadyHandled(commandId)) continue;
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
       const now = yield* Clock.currentTimeMillis;
-      const history = wakeTimestamps.get(parent.id) ?? [];
-      if (wakeRateGuardTrips(history, now)) {
+      if (wakeBudget.wouldTrip(parent.id, now)) {
         yield* parkAndEscalate(parent, `child-yield:${child.id}`);
-        handledChildWakes.add(commandId);
+        yield* dedup.markSuppressed(commandId);
         continue;
       }
       const report = yield* readReportFor(child);
@@ -1397,8 +1372,9 @@ const make = Effect.gen(function* () {
         };
       }
       const nowIso = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-      const delivered = yield* orchestrationEngine
-        .dispatch({
+      const outcome = yield* dedup.deliverOnce(
+        commandId,
+        orchestrationEngine.dispatch({
           type: "thread.turn.start",
           commandId: CommandId.make(commandId),
           threadId: parent.id,
@@ -1413,15 +1389,9 @@ const make = Effect.gen(function* () {
           interactionMode: parent.interactionMode,
           requireIdle: true,
           createdAt: nowIso,
-        } satisfies OrchestrationCommand)
-        .pipe(
-          Effect.as(true),
-          Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
-        );
-      if (delivered) {
-        wakeTimestamps.set(parent.id, [...history, now]);
-        handledChildWakes.add(commandId);
-      }
+        } satisfies OrchestrationCommand),
+      );
+      if (outcome === "delivered") wakeBudget.recordDelivery(parent.id, now);
     }
   });
 

@@ -9,14 +9,13 @@ import { buildGoalCreateCommand } from "../orchestration/goalTaskCommands.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 
 interface GoalHandoffRequest {
   readonly title?: unknown;
   readonly brief?: unknown;
   readonly description?: unknown;
 }
-
-const HANDOFF_PATH = "/provider-tools/goal/handoff";
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
@@ -129,7 +128,12 @@ const handleGoalHandoff = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  return HttpServerResponse.jsonUnsafe({ goalId, threadId, slug });
+  return HttpServerResponse.jsonUnsafe({
+    goalId,
+    threadId,
+    slug,
+    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${title}). The human launches it with one send.`,
+  });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
@@ -138,12 +142,4 @@ const handleGoalHandoff = Effect.gen(function* () {
   ),
 );
 
-const goalToolUrlFromMcpEndpoint = (mcpEndpoint: string, path: string): string =>
-  mcpEndpoint.endsWith("/mcp")
-    ? `${mcpEndpoint.slice(0, -"/mcp".length)}${path}`
-    : `${mcpEndpoint.replace(/\/$/, "")}${path}`;
-
-export const goalHandoffUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
-  goalToolUrlFromMcpEndpoint(mcpEndpoint, HANDOFF_PATH);
-
-export const layer = HttpRouter.add("POST", HANDOFF_PATH, handleGoalHandoff);
+export const layer = HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_handoff, handleGoalHandoff);

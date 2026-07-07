@@ -28,6 +28,7 @@ import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
+import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import {
   WorkstreamFanInReactor,
   type WorkstreamFanInReactorShape,
@@ -74,43 +75,64 @@ const make = Effect.gen(function* () {
   // extra notice (the conflict itself is re-surfaced by generation reconciliation).
   const conflictedChildren = new Set<ThreadId>();
 
+  // Receipt-deduped delivery for the two parent notices. Both carry deterministic
+  // ids and lean on the engine's receipt store for cross-restart at-most-once, so
+  // this instance needs no durable receipt lookup of its own
+  // (`hasAcceptedReceipt` is always-false): `deliverOnce` adds a process-local
+  // skip the site previously lacked — every conflicted pass used to re-dispatch
+  // and let the engine receipt no-op it. Behaviour is identical, one engine
+  // round-trip cheaper per retried pass; a fresh process re-dispatches once and
+  // the engine receipt no-ops it, exactly as before.
+  const dedup = yield* makeReceiptDedupedDelivery({
+    hasAcceptedReceipt: () => Effect.succeed(false),
+  });
+
+  const resolvedCommandId = (child: OrchestrationThreadShell) =>
+    `server:workstream-fanin:resolved:${child.id}`;
+
   const deliverResolutionWake = (
     child: OrchestrationThreadShell,
     parent: OrchestrationThreadShell,
   ) =>
-    Effect.gen(function* () {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.turn.start",
-        // Deterministic id → receipt-deduped: at-most-once even if the pass
-        // re-runs after delivery.
-        commandId: CommandId.make(`server:workstream-fanin:resolved:${child.id}`),
-        threadId: parent.id,
-        message: {
-          messageId: MessageId.make(yield* crypto.randomUUIDv4),
-          role: "user",
-          text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` resolved its fan-in merge conflict: its branch has now been merged cleanly into your branch, and its dependents are released. Fold its result into your orchestration and continue.`,
-          attachments: [],
-        },
-        titleSeed: parent.title,
-        runtimeMode: parent.runtimeMode,
-        interactionMode: parent.interactionMode,
-        // Busy parent → defer atomically at the command boundary; a later
-        // session-set / fanin-set re-arm retries while the child is still tracked.
-        requireIdle: true,
-        createdAt: yield* nowIso,
-      } satisfies OrchestrationCommand);
-      return true;
-    }).pipe(
-      Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("resolved-conflict wake failed", {
-              child: child.id,
-              cause: Cause.pretty(cause),
-            }).pipe(Effect.as(false)),
-      ),
-    );
+    // `deliverOnce` adds the process-local skip; the deterministic id +
+    // engine receipt remain the cross-restart at-most-once truth. `"delivered"`
+    // maps to the true the caller branches on (stop tracking); a deferral maps
+    // to false so the tracked child is retried on the next re-arm.
+    dedup
+      .deliverOnce(
+        resolvedCommandId(child),
+        Effect.gen(function* () {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(resolvedCommandId(child)),
+            threadId: parent.id,
+            message: {
+              messageId: MessageId.make(yield* crypto.randomUUIDv4),
+              role: "user",
+              text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` resolved its fan-in merge conflict: its branch has now been merged cleanly into your branch, and its dependents are released. Fold its result into your orchestration and continue.`,
+              attachments: [],
+            },
+            titleSeed: parent.title,
+            runtimeMode: parent.runtimeMode,
+            interactionMode: parent.interactionMode,
+            // Busy parent → defer atomically at the command boundary; a later
+            // session-set / fanin-set re-arm retries while the child is still tracked.
+            requireIdle: true,
+            createdAt: yield* nowIso,
+          } satisfies OrchestrationCommand);
+        }),
+      )
+      .pipe(
+        Effect.map((outcome) => outcome === "delivered"),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("resolved-conflict wake failed", {
+                child: child.id,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+        ),
+      );
 
   // Item 1 (loud on conflict): a fan-in that conflicts fires AFTER the gate has
   // resolved — coder + reviewer are both `done`, so the thread-local error
@@ -120,41 +142,48 @@ const make = Effect.gen(function* () {
   // hand-merge. Deterministic id → receipt-deduped, so re-running the pass (or
   // the 60s tick) never double-notifies; a deferred delivery (busy parent) is
   // retried by the next session-set/fanin re-arm.
+  const conflictCommandId = (child: OrchestrationThreadShell) =>
+    `server:workstream-fanin:conflict:${child.id}`;
+
   const deliverConflictNotice = (
     child: OrchestrationThreadShell,
     parent: OrchestrationThreadShell,
     childBranch: string,
     conflictPaths: ReadonlyArray<string>,
   ) =>
-    Effect.gen(function* () {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`server:workstream-fanin:conflict:${child.id}`),
-        threadId: parent.id,
-        message: {
-          messageId: MessageId.make(yield* crypto.randomUUIDv4),
-          role: "user",
-          text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` finished, but its fan-in could NOT merge: merging its branch \`${childBranch}\` into your branch \`${parent.branch ?? "(unknown)"}\` hit a conflict on ${conflictPaths.length} path(s): ${conflictPaths.join(", ")}. Its review gate has already resolved, so no sub-thread can act — and its dependents stay blocked until the merge lands. Resolve it by merging \`${childBranch}\` into \`${parent.branch ?? "your branch"}\` yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once \`${childBranch}\` is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear \`blockedBy\`.`,
-          attachments: [],
-        },
-        titleSeed: parent.title,
-        runtimeMode: parent.runtimeMode,
-        interactionMode: parent.interactionMode,
-        requireIdle: true,
-        createdAt: yield* nowIso,
-      } satisfies OrchestrationCommand);
-      return true;
-    }).pipe(
-      Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("fan-in conflict notice failed", {
-              child: child.id,
-              cause: Cause.pretty(cause),
-            }).pipe(Effect.as(false)),
-      ),
-    );
+    dedup
+      .deliverOnce(
+        conflictCommandId(child),
+        Effect.gen(function* () {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(conflictCommandId(child)),
+            threadId: parent.id,
+            message: {
+              messageId: MessageId.make(yield* crypto.randomUUIDv4),
+              role: "user",
+              text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` finished, but its fan-in could NOT merge: merging its branch \`${childBranch}\` into your branch \`${parent.branch ?? "(unknown)"}\` hit a conflict on ${conflictPaths.length} path(s): ${conflictPaths.join(", ")}. Its review gate has already resolved, so no sub-thread can act — and its dependents stay blocked until the merge lands. Resolve it by merging \`${childBranch}\` into \`${parent.branch ?? "your branch"}\` yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once \`${childBranch}\` is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear \`blockedBy\`.`,
+              attachments: [],
+            },
+            titleSeed: parent.title,
+            runtimeMode: parent.runtimeMode,
+            interactionMode: parent.interactionMode,
+            requireIdle: true,
+            createdAt: yield* nowIso,
+          } satisfies OrchestrationCommand);
+        }),
+      )
+      .pipe(
+        Effect.map((outcome) => outcome === "delivered"),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("fan-in conflict notice failed", {
+                child: child.id,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+        ),
+      );
 
   const setFanInState = (threadId: ThreadId, fanInState: ThreadFanInState) =>
     Effect.gen(function* () {

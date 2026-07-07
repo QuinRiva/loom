@@ -45,7 +45,7 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
-import { useUiStateStore } from "../uiStateStore";
+import { useLoomScrollStore } from "../loom/loomScrollStore";
 
 type WorkstreamView = "board" | "graph";
 
@@ -128,7 +128,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(subtree.map((thread) => [thread.id, thread])),
     [subtree],
   );
-  const requestScrollToDispatch = useUiStateStore((store) => store.requestScrollToDispatch);
+  const requestScrollToDispatch = useLoomScrollStore((store) => store.requestScrollToDispatch);
   const spawnThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
   const setPlanLane = useAtomCommand(threadEnvironment.setPlanLane);
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);

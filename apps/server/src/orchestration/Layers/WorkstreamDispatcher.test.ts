@@ -68,7 +68,7 @@ import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { isThreadIdle } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
-import { reconcileStartupStaleSessionState } from "../../serverRuntimeStartup.ts";
+import { reconcileStartupStaleSessionState } from "../../loom/startup.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
 
@@ -2985,6 +2985,139 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
               ),
             ),
           );
+        }),
+      ),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The :1109 poisoning class, pinned through the assembled layer. A parked error
+// wake is SUPPRESSED locally (no receipt behind it). The old raw
+// `handledChildWakes` set could not tell that apart from a real delivery, so the
+// recovered rail had to consult the durable receipt directly (a comment-enforced
+// discipline). The receipt-dedup module makes it structural: park →
+// `markSuppressed`, and the recovered rail asks `wasDelivered` (delivered ∪
+// receipt, never suppressed), so a parked-then-done child NEVER fires a spurious
+// "recovered" wake.
+// ---------------------------------------------------------------------------
+describe("parked error wake never poisons the recovered rail (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-poison" as ThreadId;
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  // The child whose error wake we force to be PARKED (suppressed, no receipt) by
+  // exhausting the parent's per-window wake budget with sibling error wakes.
+  const TARGET = "child-poison-target" as ThreadId;
+
+  const errorChild = (id: string) =>
+    shell({
+      id,
+      parentThreadId: PARENT_ID,
+      planLane: "in_progress",
+      spawnGeneration: "gen-1",
+      attention: ["error"],
+      session: runningSession({ threadId: id as ThreadId, status: "ready", activeTurnId: null }),
+    });
+
+  const buildDeps = (
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    dispatched: Array<OrchestrationCommand>,
+    receipts: Set<string>,
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          receipts.add(command.commandId as unknown as string);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
+    } as unknown as OrchestrationEngineShape;
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.map(Ref.get(threadsRef), (threads) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        })),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const receiptRepo = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { commandId: unknown }) =>
+        Effect.succeed(
+          receipts.has(commandId as string)
+            ? Option.some({ status: "accepted" } as never)
+            : Option.none(),
+        ),
+    };
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receiptRepo as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-poison-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect(
+    "a rate-guard-parked error wake (suppressed, no receipt) fires no recovered wake once the child reaches done",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          // Enough sibling error children to exhaust the per-window budget
+          // (`maxInWindow`), then the target — the pass parks the one that trips
+          // the guard. The target is ordered last so the budget is spent first.
+          const siblings = Array.from({ length: DEFAULT_WAKE_RATE_GUARD.maxInWindow }, (_u, i) =>
+            errorChild(`child-poison-sib-${i}`),
+          );
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            ...siblings,
+            errorChild(TARGET as unknown as string),
+          ]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // The guard tripped: a park (needs_guidance raise on the parent)
+            // fired, and NO error-wake receipt exists for the parked target.
+            const parked = dispatched.some(
+              (c) => c.type === "thread.attention.raise" && c.threadId === PARENT_ID,
+            );
+            expect(parked).toBe(true);
+            expect(receipts.has(childWakeCommandId(TARGET, "error"))).toBe(false);
+
+            // The target reaches `done` (its error was never durably delivered).
+            yield* Ref.update(threadsRef, (current) =>
+              current.map((t) =>
+                t.id === TARGET ? { ...t, planLane: "done" as const, attention: [] } : t,
+              ),
+            );
+            const before = dispatched.length;
+            yield* dispatcher.drain;
+
+            // No "recovered" wake — the parked (suppressed) error id is invisible
+            // to `wasDelivered`, so the recovered rail correctly stays silent.
+            const recoveredWakes = dispatched
+              .slice(before)
+              .filter(
+                (c) => c.type === "thread.turn.start" && c.message.text.includes("recovered"),
+              );
+            expect(recoveredWakes).toHaveLength(0);
+          }).pipe(Effect.provide(buildDeps(threadsRef, dispatched, receipts)));
         }),
       ),
   );
