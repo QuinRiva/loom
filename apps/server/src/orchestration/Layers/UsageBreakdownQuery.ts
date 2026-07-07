@@ -209,6 +209,7 @@ const make = Effect.gen(function* () {
           windowDurationMins: window.windowDurationMins,
           observedAt: snapshot.observedAt,
           projectedExhaustionAt,
+          ...(window.scope ? { scopeDisplayName: window.scope.displayName } : {}),
         });
       }
 

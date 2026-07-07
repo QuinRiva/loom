@@ -38,6 +38,11 @@ export function WindowGaugeCard({
   nowMs: number;
 }) {
   const displayName = usageProviderDisplayName(gauge.providerName);
+  // A per-model carve-out (e.g. the Anthropic weekly limit for "Fable") shows
+  // its model name so it reads distinctly from the account-wide weekly gauge.
+  const meterLabel = gauge.scopeDisplayName
+    ? `${windowLabel} · ${gauge.scopeDisplayName}`
+    : windowLabel;
   const percent = Math.max(0, Math.min(100, Math.round(gauge.usedPercent)));
   const tone = accountUsageTone(gauge.usedPercent);
   const resetLabel = formatAccountUsageReset(gauge.resetsAt, nowMs);
@@ -49,7 +54,7 @@ export function WindowGaugeCard({
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{displayName}</div>
           <div className="text-[11px] text-muted-foreground/70">
-            {windowLabel}
+            {meterLabel}
             {gauge.planType ? ` · ${gauge.planType}` : ""}
           </div>
         </div>
@@ -63,7 +68,7 @@ export function WindowGaugeCard({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        aria-label={`${displayName} ${windowLabel} usage`}
+        aria-label={`${displayName} ${meterLabel} usage`}
       >
         <div
           className={cn(
