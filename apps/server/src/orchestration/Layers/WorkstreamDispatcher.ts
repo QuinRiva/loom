@@ -13,9 +13,8 @@ import {
 import {
   gateLoopTargetOf,
   isMemberOfUnresolvedGate,
+  isTerminalForJoin,
   isWaitingInGate,
-  selectJoinedGenerations,
-  type JoinedGeneration,
 } from "@t3tools/shared/workstreamGraph";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { isFanInPending } from "@t3tools/shared/workstreamIsolation";
@@ -158,15 +157,18 @@ const formatReportExcerpt = (report: string | null): string => {
 
 /**
  * Pure parent wake-message builder (the wake-message contract): tells the parent
- * which children reached a terminal plan lane (role + id + lane + any attention
+ * which of its sub-threads have reached a terminal plan lane SINCE IT WAS LAST
+ * NOTIFIED — a delta, not the whole generation (role + id + lane + any attention
  * flags — the copy never claims a child "finished" beyond its actual lane), for
  * each a reference to its on-disk report plus a BOUNDED excerpt (never the full
  * report), and the instruction to review, decide what needs human escalation
  * vs. what it can act on / accept on the human's behalf, and continue
  * orchestrating (including accepting children that are awaiting acceptance).
  *
- * For conflicted fan-in (isolated child with merge abort), the message names
- * the conflict prominently and includes recovery instructions (plan §3 / B3).
+ * For conflicted fan-in (isolated child whose merge aborted) the block points
+ * at the fan-in reactor's dedicated conflict notice (which carries the branch
+ * names + conflict paths) and mirrors its recovery copy — it never invents a
+ * paths-less warning or contradictory "re-open with set_lane" advice.
  */
 export const buildParentWakeMessage = (
   children: ReadonlyArray<{
@@ -177,7 +179,6 @@ export const buildParentWakeMessage = (
     readonly reportPath: string | null;
     readonly report: string | null;
     readonly fanInState?: string | null;
-    readonly conflictPaths?: ReadonlyArray<string> | undefined;
   }>,
 ): string => {
   const sections = children.map((child) => {
@@ -188,19 +189,18 @@ export const buildParentWakeMessage = (
         ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
         : "_No report was filed; status is the trigger, the report is best-effort context._";
 
-    // Plan §3 / B3: if this child's fan-in is conflicted, name it prominently
-    // and include recovery instructions (re-open, merge parent branch, resolve, resubmit).
+    // Conflicted fan-in: the fan-in reactor already delivered a dedicated,
+    // receipt-deduped conflict notice (coder id, both branches, conflict paths)
+    // and raised `needs_guidance`. Here we only flag it and echo the reactor's
+    // recovery copy — no fabricated "paths not yet available" line, no stale
+    // "re-open with set_lane" advice that contradicts the reactor.
     const conflictNotice =
       child.fanInState === "conflicted"
         ? [
             "",
-            "⚠️  **Fan-in merge conflict detected.** The merge of this child's branch into the parent failed due to conflicting edits:",
+            "⚠️  **Fan-in merge conflict.** This child's branch could not be merged into your branch automatically — see the separate fan-in conflict notice for the branch names and conflicting paths.",
             "",
-            child.conflictPaths && child.conflictPaths.length > 0
-              ? child.conflictPaths.map((path) => `- \`${path}\``).join("\n")
-              : "- (conflict paths not yet available)",
-            "",
-            '**Recovery:** Re-open this child with `workstream_set_lane(threadId, "ready")`, prompt it to merge the parent branch into its worktree and resolve the conflicts manually, then resubmit. Dependents are blocked until this merge succeeds.',
+            "**Recovery:** merge the child's branch into your branch yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once the branch is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear `blockedBy`.",
           ].join("\n")
         : "";
 
@@ -209,7 +209,7 @@ export const buildParentWakeMessage = (
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    "A spawn generation of your Workstream sub-thread(s) has reached terminal plan lanes (done/cancelled). Results:",
+    "The following Workstream sub-thread(s) have reached terminal plan lanes (done/cancelled) since you were last notified. Results:",
     "",
     sections.join("\n\n"),
     "",
@@ -217,29 +217,39 @@ export const buildParentWakeMessage = (
   ].join("\n");
 };
 
-// Deterministic per-(parent, generation) command ids. Both the wake and the
-// park dispatch commands under these ids, so their receipts are the durable,
-// recomputable markers of "this generation was already handled" (decision 4):
-// wake delivery is idempotent across restarts, and — critically — a parked
-// generation leaves durable markers too, so startup reconciliation does not
-// re-deliver a previously-suppressed generation as a normal wake.
-//
-// Park writes TWO durable receipts: the `needs_guidance` attention.raise
-// (`parkBlockCommandId`, written FIRST) and the activity marker (`parkCommandId`,
-// written second). The
-// handled-check keys off the FIRST write (`parkBlockCommandId`), so a crash
-// between the two writes can never resurface a parked generation as a normal
-// wake (Fix B); the missing activity marker is reconciled on the next pass.
-export const wakeCommandId = (parentId: ThreadId, generation: string): string =>
-  `server:workstream-notify:wake:${parentId}:${generation}`;
+/**
+ * Durable per-child "already reported to the parent through the delta rail"
+ * marker. The delta wake batches every newly-terminal child of a parent into
+ * ONE message, then dispatches one of these receipt-bearing markers per included
+ * child — the durable truth that survives restarts (the receipt store has no
+ * prefix enumeration, only exact-id lookup, so the marker id must be
+ * recomputable from thread state). Keyed by `(childId, episode)` where the
+ * episode is the child's current terminal episode: a reopened-then-re-done child
+ * gets a fresh episode (new outcome event, or a re-stamped `spawnGeneration`)
+ * and so re-arms as news.
+ */
+export const childReportedCommandId = (childId: ThreadId, episode: string): string =>
+  `server:workstream-notify:child-reported:${childId}:${episode}`;
+
+/**
+ * The child's current terminal episode key: the id of its latest
+ * `thread.outcome-recorded` event where present (each submit is a distinct
+ * episode), else its `spawnGeneration` (re-stamped on a lane-set re-engage, so a
+ * reopened-then-re-cancelled child with no fresh submit still re-arms), else a
+ * constant fallback.
+ */
+export const terminalEpisodeKey = (child: {
+  readonly lastOutcome: { readonly recordedByEventId: EventId } | null;
+  readonly spawnGeneration: string | null;
+}): string => child.lastOutcome?.recordedByEventId ?? child.spawnGeneration ?? "terminal";
 
 /**
  * Per-child wake (D-liveness §1e). All per-child kinds (`error`, paused
  * `attention`, forgot-to-finish `idle`, `recovered`, informational `slow-tool`)
- * wake the parent through THIS rail, not the generation
- * barrier (`selectJoinedGenerations` only fires when an *entire* generation is
- * terminal, so a single quiet/errored child among running siblings would never
- * wake the parent). The command id is keyed by `(childId, episode)` so each
+ * wake the parent through THIS rail, distinct from the terminal-child delta rail
+ * (`wakeEligibleParents`, which reports children that reached done/cancelled) —
+ * these are the non-terminal / transitional states a delta could never carry.
+ * The command id is keyed by `(childId, episode)` so each
  * distinct quiet episode notifies exactly once; for idle the episode is the
  * child's max activity *sequence* at idle onset (NOT `turnId`, which is null
  * while idle), so a child that resumes then goes quiet again re-arms while an
@@ -466,13 +476,13 @@ export const slowToolNoticeIndex = (quietMs: number): number => {
  * - `attention` — "paused, needs attention": the child carries a raised
  *   attention flag (`needs_guidance`/`awaiting_acceptance` — a human stop, a
  *   self-raise, a stall escalation), is not executing, and its plan lane is
- *   still pre-terminal. Since the generation join is plan-lane-only, this rail
- *   is the ONLY way the parent agent hears about a paused child; the copy is
- *   honest ("paused", never "finished").
+ *   still pre-terminal. The terminal-child delta rail is plan-lane-only, so this
+ *   rail is the ONLY way the parent agent hears about a paused child; the copy
+ *   is honest ("paused", never "finished").
  * - `idle`  — "forgot to finish": the child ran (has a session now `ready`/
  *   `stopped`) and went idle, but its plan lane is still pre-terminal
  *   (`ready`/`in_progress`) AND it carries no attention flag (a `done`/
- *   `cancelled` child is finished and joins its generation instead).
+ *   `cancelled` child is terminal and is reported by the delta rail instead).
  *
  * Idleness reuses the shared `isThreadIdle` predicate (no pending turn-start,
  * session not `running`, no active turn) so a freshly-promoted child mid-kickoff
@@ -637,40 +647,15 @@ export const buildChildWakeMessage = (
     tail,
   ].join("\n");
 };
-const parkCommandId = (parentId: ThreadId, generation: string): string =>
-  `server:workstream-notify:park:${parentId}:${generation}`;
-// The FIRST durable park write (the `needs_guidance` attention.raise). The
-// handled-check keys off this receipt, not the activity marker, to close the
-// crash window.
-const parkBlockCommandId = (parentId: ThreadId, generation: string): string =>
-  `${parkCommandId(parentId, generation)}:block`;
-
-export type GenerationDeliveryDecision =
-  | { readonly kind: "already-woken" }
-  | { readonly kind: "parked"; readonly reconcileMarker: boolean }
-  | { readonly kind: "deliverable" };
-
-/**
- * Pure receipt-driven decision for one (parent, generation) (Fix B): given which
- * of its durable receipts exist, decide whether the wake was already delivered,
- * the generation was parked (and whether its activity marker still needs
- * reconciling after a crash between the two park writes), or it is still
- * deliverable.
- *
- * Keying "parked" off the FIRST park write (`parkBlocked`) — not the activity
- * marker — is the fix: a crash between the attention.raise and the marker leaves the
- * generation parked, never redelivered as a normal wake.
- */
-export const classifyGenerationByReceipts = (receipts: {
-  readonly wakeDelivered: boolean;
-  readonly parkBlocked: boolean;
-  readonly parkMarkerPresent: boolean;
-}): GenerationDeliveryDecision =>
-  receipts.wakeDelivered
-    ? { kind: "already-woken" }
-    : receipts.parkBlocked
-      ? { kind: "parked", reconcileMarker: !receipts.parkMarkerPresent }
-      : { kind: "deliverable" };
+// Deterministic park command ids (shared by every wake rail): `parkAndEscalate`
+// writes the `needs_guidance` attention.raise under `parkBlockCommandId` and the
+// activity marker under `parkCommandId`, both receipt-deduped so a re-run never
+// double-raises. The `episode` is a per-rail key (e.g. `child-wake:<id>` or
+// `delta` for a whole terminal-child batch).
+const parkCommandId = (parentId: ThreadId, episode: string): string =>
+  `server:workstream-notify:park:${parentId}:${episode}`;
+const parkBlockCommandId = (parentId: ThreadId, episode: string): string =>
+  `${parkCommandId(parentId, episode)}:block`;
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
@@ -680,12 +665,13 @@ const make = Effect.gen(function* () {
   const worktreeProvisioner = yield* WorktreeProvisioner;
 
   // In-memory caches of the recomputable durable state (decision 4): the
-  // handled-generation set caches the receipt-backed wake/park markers, and the
-  // wake-timestamp history backs the interim rate guard. Both are safe as plain
-  // mutable state because the drainable worker processes serially. The cache is
-  // only ever a cache: a miss falls through to the durable receipt store, so a
-  // fresh process (empty cache) still recomputes the true handled set.
-  const handledGenerations = new Set<string>();
+  // reported-child set caches the receipt-backed per-child "reported through the
+  // delta rail" markers, and the wake-timestamp history backs the interim rate
+  // guard. Both are safe as plain mutable state because the drainable worker
+  // processes serially. The cache is only ever a cache: a miss falls through to
+  // the durable receipt store, so a fresh process (empty cache) still recomputes
+  // the true reported set from the marker + prior-rail receipts.
+  const handledChildReports = new Set<string>();
   const wakeTimestamps = new Map<string, number[]>();
   // Per-child wake dedup (§1e), keyed by the deterministic child-wake command
   // id `(childId, episode)`. A cache only: a miss falls through to the durable
@@ -795,18 +781,19 @@ const make = Effect.gen(function* () {
     }
   });
 
-  // Deliver a single (parent, generation) wake. The command id is deterministic
-  // (parent + generation), so the receipt store dedups delivery across restarts
-  // and re-evaluations (decision 4): re-dispatch after a wake was already
-  // injected is a no-op that never injects a second turn. `requireIdle` makes
-  // the engine re-check parent idleness atomically at the serialized command
-  // boundary; a busy parent defers (fails without a receipt) and is retried on
-  // the next idle drain.
+  // Deliver ONE batched delta wake carrying every newly-terminal child of a
+  // parent. The command id is a fresh server uuid: cross-restart / re-eval dedup
+  // is carried by the per-child `child-reported` markers (written after the
+  // wake), NOT by this id, so a crash between wake and markers risks at most a
+  // rare duplicate mention on the next pass — strictly better than losing the
+  // notice. `requireIdle` makes the engine re-check parent idleness atomically
+  // at the serialized command boundary; a busy parent defers (fails without a
+  // receipt) and is retried on the next idle drain.
   const deliverWake = Effect.fn("deliverWake")(function* (
     parent: OrchestrationThreadShell,
-    generation: JoinedGeneration<OrchestrationThreadShell>,
+    children: ReadonlyArray<OrchestrationThreadShell>,
   ) {
-    const children = yield* Effect.forEach(generation.children, (child) =>
+    const rendered = yield* Effect.forEach(children, (child) =>
       readReportFor(child).pipe(
         Effect.map((report) => ({
           id: child.id,
@@ -816,25 +803,18 @@ const make = Effect.gen(function* () {
           reportPath: child.reportPath,
           report,
           fanInState: child.fanInState,
-          // Conflict paths are recorded in the workstream.fanin.conflicted activity
-          // payload. We don't extract them here (that would require a full activity
-          // lookup), so the wake message will note the conflict but the paths will
-          // say "not yet available" — this is acceptable per plan §3 / B3 (deliver
-          // the conflict prominently; full details are in the activity and the child's
-          // working state).
-          conflictPaths: undefined,
         })),
       ),
     );
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
-      commandId: CommandId.make(wakeCommandId(parent.id, generation.generation)),
+      commandId: yield* serverCommandId("delta-wake"),
       threadId: parent.id,
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
-        text: buildParentWakeMessage(children),
+        text: buildParentWakeMessage(rendered),
         attachments: [],
       },
       titleSeed: parent.title,
@@ -845,27 +825,54 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
-  const PARK_SUMMARY =
-    "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
-
-  // The activity marker — the SECOND durable park write (under `parkCommandId`).
-  // Dispatched both as the tail of a fresh park and, on its own, to reconcile a
-  // crash that landed the `needs_guidance` attention.raise but not this marker (Fix B).
-  const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
-    parent: OrchestrationThreadShell,
-    generation: string,
+  // Durable per-child "reported through the delta rail" marker (an activity row
+  // whose deterministic command id yields the recomputable receipt). Appended to
+  // the CHILD under kind `workstream.child-reported`, which the activity-
+  // freshness query excludes (`kind NOT LIKE 'workstream.%'`), so it never
+  // perturbs the child's idle/stall episode keys. Dispatched after the wake
+  // (wake-before-markers); idempotent — a re-dispatch under the same id is a
+  // no-op that writes no second row.
+  const dispatchChildReportedMarker = Effect.fn("dispatchChildReportedMarker")(function* (
+    child: OrchestrationThreadShell,
+    episode: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
       type: "thread.activity.append",
-      commandId: CommandId.make(parkCommandId(parent.id, generation)),
+      commandId: CommandId.make(childReportedCommandId(child.id, episode)),
+      threadId: child.id,
+      activity: {
+        id: EventId.make(yield* crypto.randomUUIDv4),
+        tone: "info",
+        kind: "workstream.child-reported",
+        summary: `Terminal status (${child.planLane}) reported to the parent orchestrator.`,
+        payload: { parentId: child.parentThreadId, episode, planLane: child.planLane },
+        turnId: null,
+        createdAt: now,
+      },
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  });
+
+  const PARK_SUMMARY =
+    "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
+
+  // The activity marker — the SECOND durable park write (under `parkCommandId`).
+  const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
+    parent: OrchestrationThreadShell,
+    episode: string,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: CommandId.make(parkCommandId(parent.id, episode)),
       threadId: parent.id,
       activity: {
         id: EventId.make(yield* crypto.randomUUIDv4),
         tone: "error",
         kind: "workstream.runaway-guard.tripped",
         summary: PARK_SUMMARY,
-        payload: { reason: "wake-rate-guard", generation },
+        payload: { reason: "wake-rate-guard", episode },
         turnId: null,
         createdAt: now,
       },
@@ -876,106 +883,142 @@ const make = Effect.gen(function* () {
   // Park-and-escalate (decision 5): on a tripped rate guard, do not kill and do
   // not deliver — raise the parent's `needs_guidance` attention flag (the single
   // notification surface) and surface it to the human (the stub for the future
-  // investigator agent). The `needs_guidance` attention.raise (`parkBlockCommandId`)
-  // is dispatched FIRST and is the durable marker the handled-check keys off; the
-  // activity marker follows. A crash between the two leaves the generation parked
-  // (block receipt present) and is reconciled into the marker on the next pass —
-  // never redelivered as a normal wake (Fix B).
+  // investigator agent). Both writes are receipt-deduped by their deterministic
+  // ids so re-running the pass never double-raises. The rate guard itself is an
+  // in-memory runaway catch (backed by `wakeTimestamps`), so after a restart a
+  // genuine runaway simply re-trips and re-parks — the human was already alerted.
   const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
     parent: OrchestrationThreadShell,
-    generation: string,
+    episode: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
       type: "thread.attention.raise",
-      commandId: CommandId.make(parkBlockCommandId(parent.id, generation)),
+      commandId: CommandId.make(parkBlockCommandId(parent.id, episode)),
       threadId: parent.id,
       reason: "needs_guidance",
       createdAt: now,
     } satisfies OrchestrationCommand);
-    yield* dispatchParkMarker(parent, generation);
+    yield* dispatchParkMarker(parent, episode);
   });
 
+  // Has the parent ALREADY heard about this terminal child's current state
+  // through one of the other wake rails, with no new work since? Each check is an
+  // exact-id receipt lookup on the child's CURRENT episode key, so it re-arms
+  // automatically: a child that ran again after the earlier wake carries a fresh
+  // outcome event / turn id / activity sequence, so the old receipt no longer
+  // matches and the child is news again.
+  //  - yield: the parent got this exact submitted outcome (accept/cancel adds
+  //    nothing); a re-run changes `recordedByEventId`.
+  //  - error: the parent was told it errored — an error→done flip is re-notified
+  //    by the dedicated `recovered` rail, and error→cancelled is a parent action,
+  //    so either way the delta must not double-report.
+  //  - attention: the parent got the pause notice + report at that turn; going
+  //    terminal without a new turn adds nothing.
+  //  - idle: the parent got the forgot-to-finish notice + report at that activity
+  //    sequence; going terminal without new activity adds nothing.
+  const alreadyNoticedByPriorRail = Effect.fn("alreadyNoticedByPriorRail")(function* (
+    child: OrchestrationThreadShell,
+  ) {
+    if (
+      child.lastOutcome !== null &&
+      (yield* hasAcceptedReceipt(yieldWakeCommandId(child.id, child.lastOutcome.recordedByEventId)))
+    )
+      return true;
+    if (yield* hasAcceptedReceipt(childWakeCommandId(child.id, "error"))) return true;
+    if (
+      yield* hasAcceptedReceipt(
+        childWakeCommandId(child.id, `attention:${child.latestTurn?.turnId ?? "none"}`),
+      )
+    )
+      return true;
+    const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
+    return yield* hasAcceptedReceipt(
+      childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`),
+    );
+  });
+
+  // Delta-based terminal-child noticing: wake each parent about its terminal
+  // (done/cancelled) children that it has NOT already been told about, batching
+  // all newly-reportable children of one parent into ONE wake per pass
+  // ("everything new since you last heard", promptly — not "everything, once the
+  // whole generation ends"). Replaces the old all-members-terminal generation
+  // barrier.
   const wakeEligibleParents = Effect.fn("wakeEligibleParents")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
-    // Generation-join gating (review-gates design §6): hold back any joined
-    // generation containing a party of an unresolved gate. A coder's round-0
-    // `done` must not join its generation while its reviewer can still reopen
-    // it — the join fires once at gate resolution, with both reports.
-    const joined = selectJoinedGenerations(snapshot.threads).filter(
-      (generation) =>
-        !generation.children.some((member) => isMemberOfUnresolvedGate(member, snapshot.threads)) &&
-        // Worktree isolation (plan §3): hold a generation whose `done` isolated
-        // member has not settled its fan-in yet (still merging). A `conflicted`
-        // fan-in is settled-for-wake — the wake carries the conflict so the
-        // orchestrator can resolve it; only an in-flight (`none`) fan-in waits.
-        !generation.children.some((member) => isFanInPending(member)),
-    );
-    if (joined.length === 0) return;
+    const threads = snapshot.threads;
+    const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
+
+    // Build per-parent batches of newly-reportable terminal children.
+    const batches = new Map<
+      ThreadId,
+      Array<{ child: OrchestrationThreadShell; episode: string; marker: string }>
+    >();
+    for (const child of threads) {
+      if (child.parentThreadId === null) continue;
+      if (!isTerminalForJoin(child)) continue;
+      // Per-child holdbacks (were per-generation, now per child): a member of an
+      // unresolved gate is not reportable until the gate resolves — the nice
+      // consequence is that a cleanly-resolved coder+reviewer pair becomes
+      // reportable together in ONE wake at resolution, which the old barrier only
+      // managed when the pair happened to be its own generation. A `done`
+      // isolated child whose fan-in is still in flight (`none`) waits until it
+      // settles; `conflicted` IS settled-for-wake (the wake carries the conflict
+      // block so the orchestrator can resolve it).
+      if (isMemberOfUnresolvedGate(child, threads)) continue;
+      if (isFanInPending(child)) continue;
+      const episode = terminalEpisodeKey(child);
+      const marker = childReportedCommandId(child.id, episode);
+      if (handledChildReports.has(marker)) continue;
+      if (yield* hasAcceptedReceipt(marker)) {
+        handledChildReports.add(marker);
+        continue;
+      }
+      if (yield* alreadyNoticedByPriorRail(child)) {
+        // Cache so we don't re-run the prior-rail lookups every pass; the durable
+        // truth is the OTHER rail's receipt, recomputed on a fresh process.
+        handledChildReports.add(marker);
+        continue;
+      }
+      const batch = batches.get(child.parentThreadId);
+      if (batch) batch.push({ child, episode, marker });
+      else batches.set(child.parentThreadId, [{ child, episode, marker }]);
+    }
+    if (batches.size === 0) return;
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
 
-    for (const generation of joined) {
-      const key = `${generation.parentId}::${generation.generation}`;
-      if (handledGenerations.has(key)) continue;
-      const parent = threadsById.get(generation.parentId);
+    for (const [parentId, members] of batches) {
+      const parent = threadsById.get(parentId);
       // Parent absent (archived/deleted) → nothing to wake.
       if (parent === undefined) continue;
-
-      // Durable idempotency (decision 4 + Fix B): classify from the receipt
-      // store, not just the in-memory cache, so a fresh process never
-      // re-delivers a generation that was already woken or parked. "Parked" keys
-      // off the FIRST park write (the `needs_guidance` attention.raise), so a crash between
-      // the two park writes can never resurface a parked generation as a wake.
-      const wakeDelivered = yield* hasAcceptedReceipt(
-        wakeCommandId(generation.parentId, generation.generation),
-      );
-      const parkBlocked =
-        !wakeDelivered &&
-        (yield* hasAcceptedReceipt(parkBlockCommandId(generation.parentId, generation.generation)));
-      const parkMarkerPresent =
-        !parkBlocked ||
-        (yield* hasAcceptedReceipt(parkCommandId(generation.parentId, generation.generation)));
-      const decision = classifyGenerationByReceipts({
-        wakeDelivered,
-        parkBlocked,
-        parkMarkerPresent,
-      });
-      if (decision.kind === "already-woken") {
-        handledGenerations.add(key);
-        continue;
-      }
-      if (decision.kind === "parked") {
-        // Reconcile a crash between the two park writes: the `needs_guidance`
-        // attention.raise landed but the activity marker did not. Append it rather than waking.
-        if (decision.reconcileMarker) {
-          yield* dispatchParkMarker(parent, generation.generation);
-        }
-        handledGenerations.add(key);
-        continue;
-      }
-
       // Busy parent → defer; a later thread.session-set (parent going idle)
       // re-triggers this pass. (The engine re-checks idleness atomically too.)
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
       const now = yield* Clock.currentTimeMillis;
-      const history = wakeTimestamps.get(generation.parentId) ?? [];
+      const history = wakeTimestamps.get(parentId) ?? [];
       if (wakeRateGuardTrips(history, now)) {
-        yield* parkAndEscalate(parent, generation.generation);
-        handledGenerations.add(key);
+        yield* parkAndEscalate(parent, "delta");
+        for (const member of members) handledChildReports.add(member.marker);
         continue;
       }
-      // requireIdle makes the engine defer (no receipt) if the parent became
-      // busy in the race window; treat that as not-yet-delivered so the next
-      // idle drain retries. Only mark handled + count the wake on real delivery.
-      const delivered = yield* deliverWake(parent, generation).pipe(
+      // Wake-before-markers: deliver the batched wake, then write the durable
+      // per-child markers. `requireIdle` makes the engine defer (no receipt) if
+      // the parent became busy in the race window; treat that as not-yet-
+      // delivered so the next idle drain retries with the same batch. Only count
+      // the wake + write the markers on real delivery.
+      const delivered = yield* deliverWake(
+        parent,
+        members.map((member) => member.child),
+      ).pipe(
         Effect.as(true),
         Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
       );
-      if (delivered) {
-        wakeTimestamps.set(generation.parentId, [...history, now]);
-        handledGenerations.add(key);
+      if (!delivered) continue;
+      wakeTimestamps.set(parentId, [...history, now]);
+      for (const member of members) {
+        yield* dispatchChildReportedMarker(member.child, member.episode);
+        handledChildReports.add(member.marker);
       }
     }
   });
@@ -1036,11 +1079,10 @@ const make = Effect.gen(function* () {
   // recovered (`error`→`done`), or slow-tool (executing, in-flight tool call
   // gone quiet — informational) child through the shared rail, so a single
   // failed/paused/quiet/recovered child is surfaced promptly (B1) even while its
-  // siblings still run — the generation barrier (`wakeEligibleParents`) only
-  // fires once a WHOLE generation is plan-terminal, and is one-shot per
-  // generation so it never re-notifies on an `error`→`done` flip. Shares `wakeTimestamps` +
-  // `parkAndEscalate` so error/idle/recovery/generation-join wakes draw on ONE
-  // rate budget per parent (C1).
+  // siblings still run — these are the non-terminal / transitional states the
+  // terminal-child delta rail (`wakeEligibleParents`) could never carry. Shares
+  // `wakeTimestamps` + `parkAndEscalate` so error/idle/recovery/terminal-delta
+  // wakes draw on ONE rate budget per parent (C1).
   const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
@@ -1409,9 +1451,10 @@ const make = Effect.gen(function* () {
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) =>
         event.type === "thread.created" ||
-        // A child reaching `done` (plan-lane-set) releases dependents and can
-        // complete a generation; an `error`/`needs_guidance` raise (attention-
-        // raised) surfaces a child needing a human. Both must re-run the pass.
+        // A child reaching a terminal lane (plan-lane-set) releases dependents
+        // and makes it reportable via the delta rail; an `error`/`needs_guidance`
+        // raise (attention-raised) surfaces a child needing a human. Both must
+        // re-run the pass.
         event.type === "thread.plan-lane-set" ||
         event.type === "thread.attention-raised" ||
         // A submit's routing decision (review gates): drives the yield rail
@@ -1419,8 +1462,8 @@ const make = Effect.gen(function* () {
         event.type === "thread.outcome-recorded" ||
         event.type === "thread.route-taken" ||
         // A settled fan-in (`completed`/`conflicted`) can release dependents and
-        // a held generation wake — re-run the pass immediately instead of
-        // waiting for the periodic tick (review finding 2).
+        // unblock a held terminal-child delta wake — re-run the pass immediately
+        // instead of waiting for the periodic tick (review finding 2).
         event.type === "thread.fanin-set" ||
         event.type === "thread.dependencies-set" ||
         // A failed/reconciled turn-start clears the durable pending-start row,

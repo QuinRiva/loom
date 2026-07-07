@@ -147,16 +147,13 @@ export const subtreeCostOf = <T extends CostGraphNode>(
 ): number => subtreeOf(id, threads).reduce((sum, node) => sum + (node.cumulativeCostUsd ?? 0), 0);
 
 /**
- * A child is "terminal" for the join barrier (design §6) ONLY when its plan
- * lane is `done`/`cancelled`. Attention flags and runtime state never count:
- * a flagged, non-executing child (a human stop, `awaiting_acceptance`, a stall
- * escalation) means the generation is PAUSED, not finished — the parent hears
- * about the pause promptly through the per-child notice rail in
- * `WorkstreamDispatcher`, never by firing this barrier. Joining only on genuine
- * plan terminality also keeps the one-shot generation wake from being consumed
- * by a momentary pause, so a resumed child's real completion always wakes the
- * parent. Only `done` releases dependents (that stays done-only in
- * `workstreamDependencies`).
+ * A child is "terminal" for parent noticing ONLY when its plan lane is
+ * `done`/`cancelled`. Attention flags and runtime state never count: a flagged,
+ * non-executing child (a human stop, `awaiting_acceptance`, a stall escalation)
+ * is PAUSED, not finished — the parent hears about the pause promptly through
+ * the per-child notice rail in `WorkstreamDispatcher`, never through the
+ * terminal-child delta rail. Only `done` releases dependents (that stays
+ * done-only in `workstreamDependencies`).
  */
 export interface TerminalForJoinNode {
   readonly planLane: ThreadPlanLane;
@@ -164,49 +161,6 @@ export interface TerminalForJoinNode {
 
 export const isTerminalForJoin = (node: TerminalForJoinNode): boolean =>
   node.planLane === "done" || node.planLane === "cancelled";
-
-/** The fields the generation join reads. */
-type JoinGroupThread = {
-  readonly parentThreadId: ThreadId | null;
-  readonly spawnGeneration: string | null;
-} & TerminalForJoinNode;
-
-export interface JoinedGeneration<T> {
-  readonly parentId: ThreadId;
-  readonly generation: string;
-  readonly children: ReadonlyArray<T>;
-}
-
-/**
- * Pure generation-join selection: group every sub-thread by
- * (parentThreadId, spawnGeneration) and return the groups in which **every**
- * member is terminal. Generic over the concrete node type so the dispatcher gets
- * back full shells. Generation grouping stays internal — no consumer needs a
- * standalone `groupByGeneration`.
- *
- * Eligibility is a pure function of durable thread state, so it is fully
- * recomputable from the read model after a restart.
- */
-export const selectJoinedGenerations = <T extends JoinGroupThread>(
-  threads: ReadonlyArray<T>,
-): ReadonlyArray<JoinedGeneration<T>> => {
-  const groups = new Map<string, { parentId: ThreadId; generation: string; children: T[] }>();
-  for (const thread of threads) {
-    if (thread.parentThreadId === null || thread.spawnGeneration === null) continue;
-    const key = `${thread.parentThreadId}::${thread.spawnGeneration}`;
-    const group = groups.get(key);
-    if (group) group.children.push(thread);
-    else
-      groups.set(key, {
-        parentId: thread.parentThreadId,
-        generation: thread.spawnGeneration,
-        children: [thread],
-      });
-  }
-  return [...groups.values()].filter((group) =>
-    group.children.every((child) => isTerminalForJoin(child)),
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Review gates (docs/design/workstream-review-gates.md §4–§6) — the pure gate

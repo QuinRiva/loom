@@ -12,7 +12,6 @@ import {
   isWaitingInGate,
   requiresSubmitToComplete,
   routeWorkSubmit,
-  selectJoinedGenerations,
   subtreeCostOf,
   subtreeOf,
 } from "./workstreamGraph.ts";
@@ -156,98 +155,6 @@ describe("isTerminalForJoin", () => {
     expect(isTerminalForJoin(joinNode({ planLane: "planned" }))).toBe(false);
     expect(isTerminalForJoin(joinNode({ planLane: "ready" }))).toBe(false);
     expect(isTerminalForJoin(joinNode({ planLane: "in_progress" }))).toBe(false);
-  });
-});
-
-const genIds = (groups: ReadonlyArray<{ parentId: ThreadId; generation: string }>) =>
-  groups.map((g) => `${g.parentId}::${g.generation}`).sort();
-
-describe("selectJoinedGenerations", () => {
-  it("joins a generation only once every member is plan-terminal", () => {
-    expect(
-      selectJoinedGenerations([
-        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-        joinNode({ id: "b", spawnGeneration: "gen-1", planLane: "in_progress", executing: true }),
-      ]),
-    ).toEqual([]);
-    expect(
-      genIds(
-        selectJoinedGenerations([
-          joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-          joinNode({ id: "b", spawnGeneration: "gen-1", planLane: "cancelled" }),
-        ]),
-      ),
-    ).toEqual(["parent-1::gen-1"]);
-  });
-
-  it("holds the join on a flagged, non-executing child until its lane goes terminal (a pause never joins)", () => {
-    // The parent hears about the pause through the per-child rail, never this
-    // barrier; the one-shot generation wake stays armed for the real completion.
-    expect(
-      selectJoinedGenerations([
-        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-        joinNode({
-          id: "b",
-          spawnGeneration: "gen-1",
-          planLane: "in_progress",
-          attention: ["awaiting_acceptance"],
-        }),
-      ]),
-    ).toEqual([]);
-    expect(
-      selectJoinedGenerations([
-        joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-        joinNode({ id: "b", spawnGeneration: "gen-1", attention: ["error"] }),
-      ]),
-    ).toEqual([]);
-    expect(
-      genIds(
-        selectJoinedGenerations([
-          joinNode({ id: "a", spawnGeneration: "gen-1", planLane: "done" }),
-          joinNode({
-            id: "b",
-            spawnGeneration: "gen-1",
-            planLane: "cancelled",
-            attention: ["error"],
-          }),
-        ]),
-      ),
-    ).toEqual(["parent-1::gen-1"]);
-  });
-
-  it("scopes the join per (parent, generation) so a later generation wakes independently", () => {
-    expect(
-      genIds(
-        selectJoinedGenerations([
-          joinNode({
-            id: "old",
-            spawnGeneration: "gen-1",
-            planLane: "in_progress",
-            executing: true,
-          }),
-          joinNode({ id: "new", spawnGeneration: "gen-2", planLane: "done" }),
-        ]),
-      ),
-    ).toEqual(["parent-1::gen-2"]);
-  });
-
-  it("ignores children without a spawn generation or parent", () => {
-    expect(
-      selectJoinedGenerations([
-        joinNode({ id: "root", spawnGeneration: "gen-1", planLane: "done", parentThreadId: null }),
-        joinNode({ id: "ungen", spawnGeneration: null, planLane: "done" }),
-      ]),
-    ).toEqual([]);
-  });
-
-  it("preserves the concrete node type in the joined children", () => {
-    const [group] = selectJoinedGenerations([
-      {
-        ...joinNode({ id: "a", parentThreadId: tid("p"), spawnGeneration: "g", planLane: "done" }),
-        role: "coder",
-      },
-    ]);
-    expect(group?.children[0]?.role).toBe("coder");
   });
 });
 

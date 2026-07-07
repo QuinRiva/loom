@@ -1041,14 +1041,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Re-engagement epoch (review-gates design §5.2 exception): a parent or
       // human reopening a terminal thread via the lane-set path (done/cancelled
       // → ready/planned) stamps a FRESH spawnGeneration in the same event. The
-      // parent's one-shot generation wake is keyed (parentId, spawnGeneration)
-      // with durable receipts, so without a new epoch the re-run's completion
-      // would be deduped forever by the first completion's receipt. The fresh
-      // generation makes the re-run a new episode: it detaches from its original
-      // sibling join group and its completion fires a fresh, receipt-deduped
-      // wake. A gate `reopen` deliberately does NOT pass here — it flows through
-      // `thread.turn.start` + `reopen` and relies on the reviewer's generation
-      // carrying the resolution wake.
+      // dispatcher's delta rail marks a reported child durably by
+      // `(childId, terminalEpisodeKey)`, where the episode is the child's latest
+      // outcome-event id and FALLS BACK to `spawnGeneration`. A re-cancelled
+      // reopen with no fresh submit therefore relies on this new epoch to re-arm
+      // (its outcome id is unchanged, so only the fresh spawnGeneration makes the
+      // re-run report as news); a re-submitted reopen re-arms via the new outcome
+      // id regardless. A gate `reopen` deliberately does NOT pass here — it flows
+      // through `thread.turn.start` + `reopen`, and its re-submit records a fresh
+      // outcome id that re-arms the marker.
       const laneSetBase = yield* withEventBase({
         aggregateKind: "thread",
         aggregateId: command.threadId,
