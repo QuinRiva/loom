@@ -1509,7 +1509,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
   );
 
   it.effect(
-    "in-flight tool detection: started>completed within the turn names the latest started tool",
+    "in-flight tool detection treats an updated lifecycle row as running until completed",
     () =>
       Effect.gen(function* () {
         const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1521,35 +1521,46 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
           )
           VALUES
-            ('act-1', 'thread-t', 'turn-1', 'tool', 'tool.started', 'read started', '{}', 1, '2026-05-01T00:00:00.000Z'),
-            ('act-2', 'thread-t', 'turn-1', 'tool', 'tool.completed', 'read', '{}', 2, '2026-05-01T00:00:01.000Z'),
-            ('act-3', 'thread-t', 'turn-1', 'tool', 'tool.started', 'bash started', '{}', 3, '2026-05-01T00:00:02.000Z'),
+            ('act-read', 'thread-t', 'turn-1', 'tool', 'tool.completed', 'read', '{}', 2, '2026-05-01T00:00:01.000Z'),
+            ('act-bash', 'thread-t', 'turn-1', 'tool', 'tool.updated', 'bash', '{}', 3, '2026-05-01T00:00:12.000Z'),
             ('act-old', 'thread-t', 'turn-0', 'tool', 'tool.started', 'stale started', '{}', 0, '2026-04-30T00:00:00.000Z')
         `;
 
-        // turn-1 has 2 started vs 1 completed → the latest started call (bash)
-        // is in flight; rows from other turns never leak in.
         const inFlight = yield* snapshotQuery.getInFlightToolByThreadId(
           ThreadId.make("thread-t"),
           asTurnId("turn-1"),
         );
         assert.deepStrictEqual(inFlight, {
           toolName: "bash",
-          startedAt: "2026-05-01T00:00:02.000Z",
-          activityId: "act-3",
+          startedAt: "2026-05-01T00:00:12.000Z",
+          activityId: "act-bash",
         });
 
-        // Balance the counts → nothing in flight.
+        yield* sql`
+          UPDATE projection_thread_activities
+          SET kind = 'tool.completed', summary = 'bash', sequence = 4, created_at = '2026-05-01T00:00:13.000Z'
+          WHERE activity_id = 'act-bash'
+        `;
+        assert.equal(
+          yield* snapshotQuery.getInFlightToolByThreadId(
+            ThreadId.make("thread-t"),
+            asTurnId("turn-1"),
+          ),
+          null,
+        );
+
         yield* sql`
           INSERT INTO projection_thread_activities (
             activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
           )
           VALUES
-            ('act-4', 'thread-t', 'turn-1', 'tool', 'tool.completed', 'bash', '{}', 4, '2026-05-01T00:00:03.000Z')
+            ('old-started', 'thread-old', 'turn-1', 'tool', 'tool.started', 'grep started', '{}', 1, '2026-05-01T00:00:00.000Z'),
+            ('old-updated', 'thread-old', 'turn-1', 'tool', 'tool.updated', 'grep', '{}', 2, '2026-05-01T00:00:10.000Z'),
+            ('old-completed', 'thread-old', 'turn-1', 'tool', 'tool.completed', 'grep', '{}', 3, '2026-05-01T00:00:11.000Z')
         `;
         assert.equal(
           yield* snapshotQuery.getInFlightToolByThreadId(
-            ThreadId.make("thread-t"),
+            ThreadId.make("thread-old"),
             asTurnId("turn-1"),
           ),
           null,

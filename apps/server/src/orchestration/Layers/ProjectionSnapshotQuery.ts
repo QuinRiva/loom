@@ -192,11 +192,10 @@ const InFlightToolInput = Schema.Struct({
   turnId: TurnId,
 });
 const InFlightToolRowSchema = Schema.Struct({
-  startedCount: NonNegativeInt,
-  completedCount: NonNegativeInt,
-  latestStartedActivityId: Schema.NullOr(Schema.String),
-  latestStartedSummary: Schema.NullOr(Schema.String),
-  latestStartedCreatedAt: Schema.NullOr(IsoDateTime),
+  latestActivityId: Schema.NullOr(Schema.String),
+  latestKind: Schema.NullOr(Schema.String),
+  latestSummary: Schema.NullOr(Schema.String),
+  latestCreatedAt: Schema.NullOr(IsoDateTime),
 });
 const RecentToolActivityRowSchema = Schema.Struct({
   summary: Schema.String,
@@ -1384,36 +1383,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         })),
       );
 
-  // In-flight tool detection (class-2 liveness): within one turn, more
-  // `tool.started` rows than `tool.completed` rows means a tool call is still
-  // running. The rows carry no per-call id, so the count differential is the
-  // in-flight signal and the LATEST started row names the tool (with parallel
-  // tool calls the latest started may not be the one still pending — an
-  // accepted approximation for an informational notice).
+  // In-flight tool detection (class-2 liveness): tool lifecycle rows are
+  // superseded in place by activity id, but historical rows accumulated per
+  // tick. Rank the latest lifecycle row either way, then only treat it as
+  // in-flight if it has not advanced to `tool.completed`.
   const getInFlightToolRow = SqlSchema.findOne({
     Request: InFlightToolInput,
     Result: InFlightToolRowSchema,
     execute: ({ threadId, turnId }) =>
       sql`
         SELECT
-          (
-            SELECT COUNT(*)
-            FROM projection_thread_activities
-            WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.started'
-          ) AS "startedCount",
-          (
-            SELECT COUNT(*)
-            FROM projection_thread_activities
-            WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.completed'
-          ) AS "completedCount",
-          latest.activity_id AS "latestStartedActivityId",
-          latest.summary AS "latestStartedSummary",
-          latest.created_at AS "latestStartedCreatedAt"
+          latest.activity_id AS "latestActivityId",
+          latest.kind AS "latestKind",
+          latest.summary AS "latestSummary",
+          latest.created_at AS "latestCreatedAt"
         FROM (SELECT 1) AS one
         LEFT JOIN (
-          SELECT activity_id, summary, created_at
+          SELECT activity_id, kind, summary, created_at
           FROM projection_thread_activities
-          WHERE thread_id = ${threadId} AND turn_id = ${turnId} AND kind = 'tool.started'
+          WHERE thread_id = ${threadId}
+            AND turn_id = ${turnId}
+            AND kind IN ('tool.started', 'tool.updated', 'tool.completed')
           ORDER BY
             CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
             sequence DESC,
@@ -1436,15 +1426,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       ),
       Effect.map((row) =>
-        row.startedCount > row.completedCount &&
-        row.latestStartedActivityId !== null &&
-        row.latestStartedSummary !== null &&
-        row.latestStartedCreatedAt !== null
+        row.latestKind !== "tool.completed" &&
+        row.latestActivityId !== null &&
+        row.latestSummary !== null &&
+        row.latestCreatedAt !== null
           ? {
-              // The ingestion summary is `${toolName} started`; recover the name.
-              toolName: row.latestStartedSummary.replace(/ started$/, ""),
-              startedAt: row.latestStartedCreatedAt,
-              activityId: row.latestStartedActivityId,
+              // Started summaries are `${toolName} started`; updated summaries are already titles.
+              toolName: row.latestSummary.replace(/ started$/, ""),
+              startedAt: row.latestCreatedAt,
+              activityId: row.latestActivityId,
             }
           : null,
       ),

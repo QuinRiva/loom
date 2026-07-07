@@ -90,17 +90,17 @@ export interface ProjectionThreadProgressSignal {
 
 /**
  * The tool call currently in flight within a thread's active turn (class-2
- * liveness): derived from the `tool.started` / `tool.completed` row-count
- * differential, with the latest started row naming the tool. `null` when every
- * started call has completed. Used to (a) exempt a running tool call from the
- * stall ladder and the State-D spin fingerprint, and (b) build the
+ * liveness): derived from the latest lifecycle row, provided its kind is
+ * `tool.started` or `tool.updated` rather than `tool.completed`. `null` when
+ * every started call has completed. Used to (a) exempt a running tool call from
+ * the stall ladder and the State-D spin fingerprint, and (b) build the
  * informational slow-tool notice to the parent.
  */
 export interface ProjectionInFlightTool {
   readonly toolName: string;
-  /** The started row's `createdAt` — how long the call has been in flight. */
+  /** The in-flight row's `createdAt` timestamp. */
   readonly startedAt: string;
-  /** The started row's id — the slow-tool notice episode key. */
+  /** The in-flight row's id — the slow-tool notice episode key. */
   readonly activityId: string;
 }
 

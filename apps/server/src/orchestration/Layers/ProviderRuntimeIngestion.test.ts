@@ -223,7 +223,11 @@ describe("ProviderRuntimeIngestion", () => {
     }
   });
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
+  async function createHarness(options?: {
+    serverSettings?: Partial<ServerSettings>;
+    startIngestion?: boolean;
+    seedProviderSession?: boolean;
+  }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     NodeFS.mkdirSync(NodePath.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
@@ -255,8 +259,9 @@ describe("ProviderRuntimeIngestion", () => {
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
     scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
+    const startIngestion = () => Effect.runPromise(ingestion.start().pipe(Scope.provide(scope!)));
     const drain = () => Effect.runPromise(ingestion.drain);
+    if (options?.startIngestion !== false) await startIngestion();
 
     const createdAt = "2026-01-01T00:00:00.000Z";
     await Effect.runPromise(
@@ -309,21 +314,23 @@ describe("ProviderRuntimeIngestion", () => {
         createdAt,
       }),
     );
-    provider.setSession({
-      provider: ProviderDriverKind.make("codex"),
-      status: "ready",
-      runtimeMode: "approval-required",
-      threadId: ThreadId.make("thread-1"),
-      createdAt,
-      updatedAt: createdAt,
-    });
-
     const activeRuntime = runtime;
+    if (options?.seedProviderSession !== false) {
+      provider.setSession({
+        provider: ProviderDriverKind.make("codex"),
+        status: "ready",
+        runtimeMode: "approval-required",
+        threadId: ThreadId.make("thread-1"),
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
     return {
       engine,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       emit: provider.emit,
       setProviderSession: provider.setSession,
+      startIngestion,
       drain,
       queryUsageLedger: () =>
         activeRuntime.runPromise(
@@ -798,11 +805,11 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(harness.readModel, (entry) =>
       entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-completed-with-data",
+        (activity: ProviderRuntimeTestActivity) => activity.id === "tool:item-tool-completed",
       ),
     );
     const activity = thread.activities.find(
-      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-tool-completed-with-data",
+      (entry: ProviderRuntimeTestActivity) => entry.id === "tool:item-tool-completed",
     );
     const payload =
       activity?.payload && typeof activity.payload === "object"
@@ -853,11 +860,11 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(harness.readModel, (entry) =>
       entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-completed",
+        (activity: ProviderRuntimeTestActivity) => activity.id === "tool:item-command-completed",
       ),
     );
     const activity = thread.activities.find(
-      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-completed",
+      (entry: ProviderRuntimeTestActivity) => entry.id === "tool:item-command-completed",
     );
     const payload =
       activity?.payload && typeof activity.payload === "object"
@@ -895,11 +902,11 @@ describe("ProviderRuntimeIngestion", () => {
 
     const thread = await waitForThread(harness.readModel, (entry) =>
       entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-read-path-completed",
+        (activity: ProviderRuntimeTestActivity) => activity.id === "tool:item-read-path",
       ),
     );
     const activity = thread.activities.find(
-      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-read-path-completed",
+      (entry: ProviderRuntimeTestActivity) => entry.id === "tool:item-read-path",
     );
     const payload =
       activity?.payload && typeof activity.payload === "object"
@@ -2661,7 +2668,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(Array.isArray(planPayload?.plan)).toBe(true);
 
     const toolUpdate = thread.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-item-updated",
+      (activity: ProviderRuntimeTestActivity) => activity.id === "tool:item-p1-tool",
     );
     const toolUpdatePayload =
       toolUpdate?.payload && typeof toolUpdate.payload === "object"
@@ -2687,6 +2694,116 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+  });
+
+  it("checkpoints in-flight tool updates at most every 10s and always persists terminal state", async () => {
+    const harness = await createHarness();
+
+    const emitTool = (
+      eventId: string,
+      createdAt: string,
+      status: "in_progress" | "completed",
+      pid: number,
+    ) =>
+      harness.emit({
+        type: status === "completed" ? "item.completed" : "item.updated",
+        eventId: asEventId(eventId),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-checkpoint"),
+        itemId: asItemId("tool-checkpoint"),
+        payload: {
+          itemType: "command_execution",
+          status,
+          title: "Run command",
+          data: { pid },
+        },
+      });
+
+    const checkpointActivity = (thread: ProviderRuntimeTestThread) =>
+      thread.activities.find((activity) => activity.id === "tool:tool-checkpoint");
+    const checkpointPid = (thread: ProviderRuntimeTestThread) =>
+      (checkpointActivity(thread)?.payload as { data?: { pid?: number } } | undefined)?.data?.pid;
+
+    emitTool("evt-update-1", "2026-01-01T00:00:00.000Z", "in_progress", 1);
+    let thread = await waitForThread(harness.readModel, (entry) => checkpointPid(entry) === 1);
+    expect(checkpointPid(thread)).toBe(1);
+
+    emitTool("evt-update-2", "2026-01-01T00:00:05.000Z", "in_progress", 2);
+    await harness.drain();
+    thread = await waitForThread(
+      harness.readModel,
+      (entry) => checkpointActivity(entry) !== undefined,
+    );
+    expect(checkpointPid(thread)).toBe(1);
+
+    emitTool("evt-update-3", "2026-01-01T00:00:11.000Z", "in_progress", 3);
+    thread = await waitForThread(harness.readModel, (entry) => checkpointPid(entry) === 3);
+    expect(checkpointPid(thread)).toBe(3);
+
+    emitTool("evt-update-4", "2026-01-01T00:00:12.000Z", "completed", 4);
+    thread = await waitForThread(
+      harness.readModel,
+      (entry) => checkpointActivity(entry)?.kind === "tool.completed" && checkpointPid(entry) === 4,
+    );
+    expect(checkpointActivity(thread)?.kind).toBe("tool.completed");
+  });
+
+  it("marks in-progress tool activities interrupted on startup when the runtime session is gone", async () => {
+    const harness = await createHarness({ startIngestion: false, seedProviderSession: false });
+    const createdAt = "2026-01-01T00:00:00.000Z";
+
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-running-crashed"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-crashed"),
+          queuedMessages: { steering: [], followUp: [] },
+          updatedAt: createdAt,
+          lastError: null,
+        },
+        createdAt,
+      }),
+    );
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-crashed-tool-activity"),
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: asEventId("tool:crashed-tool"),
+          kind: "tool.updated",
+          tone: "tool",
+          summary: "Run command",
+          payload: { status: "inProgress", toolCallId: "crashed-tool" },
+          turnId: asTurnId("turn-crashed"),
+          createdAt,
+        },
+        createdAt,
+      }),
+    );
+
+    await harness.startIngestion();
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "tool:crashed-tool" &&
+          activity.kind === "tool.completed" &&
+          (activity.payload as { status?: string }).status === "interrupted",
+      ),
+    );
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "tool:crashed-tool",
+    );
+    expect(activity?.tone).toBe("error");
+    expect(activity?.summary).toBe("Run command interrupted");
   });
 
   it("projects context window updates into normalized thread activities", async () => {

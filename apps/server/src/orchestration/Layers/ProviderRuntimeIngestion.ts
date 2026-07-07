@@ -2,6 +2,7 @@ import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  EventId,
   IsoDateTime,
   MessageId,
   type OrchestrationEvent,
@@ -21,6 +22,7 @@ import {
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -61,6 +63,7 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
+const ACTIVITY_CHECKPOINT_INTERVAL_MS = 10_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -267,6 +270,10 @@ function requestKindFromCanonicalRequestType(
     default:
       return undefined;
   }
+}
+
+function toolLifecycleActivityId(event: ProviderRuntimeEvent): EventId {
+  return EventId.make(event.itemId ? `tool:${event.itemId}` : event.eventId);
 }
 
 function runtimeEventToActivities(
@@ -584,7 +591,7 @@ function runtimeEventToActivities(
       }
       return [
         {
-          id: event.eventId,
+          id: toolLifecycleActivityId(event),
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.updated",
@@ -592,6 +599,8 @@ function runtimeEventToActivities(
           payload: {
             itemType: event.payload.itemType,
             ...(event.payload.status ? { status: event.payload.status } : {}),
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.itemId ? { toolCallId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
@@ -607,13 +616,16 @@ function runtimeEventToActivities(
       }
       return [
         {
-          id: event.eventId,
+          id: toolLifecycleActivityId(event),
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.completed",
           summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            status: event.payload.status ?? "completed",
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.itemId ? { toolCallId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
@@ -629,13 +641,16 @@ function runtimeEventToActivities(
       }
       return [
         {
-          id: event.eventId,
+          id: toolLifecycleActivityId(event),
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.started",
           summary: `${event.payload.title ?? "Tool"} started`,
           payload: {
             itemType: event.payload.itemType,
+            status: event.payload.status ?? "inProgress",
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.itemId ? { toolCallId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -671,6 +686,11 @@ const make = Effect.gen(function* () {
   // keeping the persisted value monotonic.
   const HEARTBEAT_DEBOUNCE_MS = 3_000;
   const lastHeartbeatWriteMsByThread = new Map<string, number>();
+  const lastActivityCheckpointMsById = new Map<string, number>();
+  const inFlightToolActivitiesByThread = new Map<
+    string,
+    Map<string, OrchestrationThreadActivity>
+  >();
   const touchHeartbeat = (threadId: ThreadId, at: IsoDateTime) =>
     Effect.gen(function* () {
       const atMs = Date.parse(at);
@@ -686,6 +706,71 @@ const make = Effect.gen(function* () {
         ),
       );
     });
+  const activityPayloadRecord = (activity: OrchestrationThreadActivity) =>
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : undefined;
+
+  const interruptToolActivity = (
+    activity: OrchestrationThreadActivity,
+    createdAt: IsoDateTime,
+  ): OrchestrationThreadActivity => ({
+    ...activity,
+    createdAt,
+    kind: "tool.completed",
+    tone: "error",
+    summary: `${activity.summary.replace(/\s+started$/i, "")} interrupted`,
+    payload: { ...activityPayloadRecord(activity), status: "interrupted" },
+  });
+
+  const isInProgressToolActivity = (activity: OrchestrationThreadActivity): boolean => {
+    if (activity.kind !== "tool.started" && activity.kind !== "tool.updated") return false;
+    const status = activityPayloadRecord(activity)?.status;
+    return status === undefined || status === "inProgress" || status === "in_progress";
+  };
+
+  const shouldPersistActivity = (
+    threadId: ThreadId,
+    activity: OrchestrationThreadActivity,
+  ): boolean => {
+    if (
+      activity.kind !== "tool.started" &&
+      activity.kind !== "tool.updated" &&
+      activity.kind !== "tool.completed"
+    ) {
+      return true;
+    }
+
+    const threadActivities = inFlightToolActivitiesByThread.get(threadId) ?? new Map();
+    inFlightToolActivitiesByThread.set(threadId, threadActivities);
+    const atMs = Date.parse(activity.createdAt);
+    const checkpointKey = `${threadId}:${activity.id}`;
+
+    if (activity.kind === "tool.completed") {
+      threadActivities.delete(activity.id);
+      lastActivityCheckpointMsById.delete(checkpointKey);
+      return true;
+    }
+
+    threadActivities.set(activity.id, activity);
+    if (activity.kind === "tool.started") {
+      lastActivityCheckpointMsById.set(checkpointKey, Number.isNaN(atMs) ? 0 : atMs);
+      return true;
+    }
+
+    const previous = lastActivityCheckpointMsById.get(checkpointKey) ?? 0;
+    const current = Number.isNaN(atMs) ? previous + ACTIVITY_CHECKPOINT_INTERVAL_MS : atMs;
+    if (current - previous < ACTIVITY_CHECKPOINT_INTERVAL_MS) return false;
+    lastActivityCheckpointMsById.set(checkpointKey, current);
+    return true;
+  };
+
+  const interruptedActivitiesForThread = (threadId: ThreadId, createdAt: IsoDateTime) => {
+    const activities = [...(inFlightToolActivitiesByThread.get(threadId)?.values() ?? [])];
+    inFlightToolActivitiesByThread.delete(threadId);
+    return activities.map((activity) => interruptToolActivity(activity, createdAt));
+  };
+
   const reasoningStreamBus = yield* ReasoningStreamBus;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -2018,19 +2103,24 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const activities = runtimeEventToActivities(event);
-      yield* Effect.forEach(activities, (activity) =>
-        providerCommandId(event, "thread-activity-append").pipe(
-          Effect.flatMap((commandId) =>
-            orchestrationEngine.dispatch({
-              type: "thread.activity.append",
-              commandId,
-              threadId: thread.id,
-              activity,
-              createdAt: activity.createdAt,
-            }),
+      const activities = [
+        ...runtimeEventToActivities(event),
+        ...(event.type === "session.exited" ? interruptedActivitiesForThread(thread.id, now) : []),
+      ];
+      yield* Effect.forEach(
+        activities.filter((activity) => shouldPersistActivity(thread.id, activity)),
+        (activity) =>
+          providerCommandId(event, "thread-activity-append").pipe(
+            Effect.flatMap((commandId) =>
+              orchestrationEngine.dispatch({
+                type: "thread.activity.append",
+                commandId,
+                threadId: thread.id,
+                activity,
+                createdAt: activity.createdAt,
+              }),
+            ),
           ),
-        ),
       ).pipe(Effect.asVoid);
     });
 
@@ -2054,10 +2144,79 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const reconcileInterruptedToolActivitiesOnStartup = Effect.gen(function* () {
+    const [snapshot, activeProviderSessions, createdAt] = yield* Effect.all([
+      projectionSnapshotQuery.getSnapshot(),
+      providerService.listSessions().pipe(Effect.orElseSucceed(() => [])),
+      DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+    ]);
+    const activeRuntimeThreadIds = new Set(
+      activeProviderSessions.map((session) => session.threadId),
+    );
+    let interruptedCount = 0;
+
+    for (const thread of snapshot.threads) {
+      if (
+        thread.session === null ||
+        thread.session.activeTurnId === null ||
+        activeRuntimeThreadIds.has(thread.id)
+      )
+        continue;
+      const completedToolCallIds = new Set(
+        thread.activities.flatMap((activity) => {
+          const toolCallId = activityPayloadRecord(activity)?.toolCallId;
+          return activity.kind === "tool.completed" && typeof toolCallId === "string"
+            ? [toolCallId]
+            : [];
+        }),
+      );
+      const stuckActivities = thread.activities.filter((activity) => {
+        const toolCallId = activityPayloadRecord(activity)?.toolCallId;
+        return (
+          isInProgressToolActivity(activity) &&
+          (typeof toolCallId !== "string" || !completedToolCallIds.has(toolCallId))
+        );
+      });
+
+      yield* Effect.forEach(
+        stuckActivities,
+        (activity) =>
+          crypto.randomUUIDv4.pipe(
+            Effect.flatMap((uuid) =>
+              orchestrationEngine.dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.make(
+                  `server:provider-runtime-ingestion:startup-interrupt:${thread.id}:${uuid}`,
+                ),
+                threadId: thread.id,
+                activity: interruptToolActivity(activity, createdAt),
+                createdAt,
+              }),
+            ),
+          ),
+        { concurrency: 1 },
+      );
+      interruptedCount += stuckActivities.length;
+    }
+
+    if (interruptedCount > 0) {
+      yield* Effect.logInfo("provider-runtime-ingestion.startup-interrupted-tools", {
+        interruptedCount,
+      });
+    }
+  });
+
   const worker = yield* makeDrainableWorker(processInputSafely);
 
   const start: ProviderRuntimeIngestionShape["start"] = () =>
     Effect.gen(function* () {
+      yield* reconcileInterruptedToolActivitiesOnStartup.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider runtime ingestion startup reconcile failed", {
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
       yield* Effect.forkScoped(
         Stream.runForEach(providerService.streamEvents, (event) =>
           worker.enqueue({ source: "runtime", event }),
