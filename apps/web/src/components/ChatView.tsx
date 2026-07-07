@@ -62,6 +62,10 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import {
+  useOlderThreadActivities,
+  type OlderActivitiesCursor,
+} from "@t3tools/client-runtime/state/older-thread-activities";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
@@ -193,6 +197,7 @@ import {
   primaryServerKeybindingsAtom,
   serverEnvironment,
 } from "../state/server";
+import { orchestrationEnvironment } from "../state/orchestration";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
@@ -1794,7 +1799,36 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
-  const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+
+  const loadThreadActivities = useAtomCommand(orchestrationEnvironment.loadThreadActivities, {
+    reportFailure: false,
+  });
+  const activeThreadEnvironmentIdForActivities = activeThread?.environmentId ?? null;
+  const activeThreadIdForActivities = activeThread?.id ?? null;
+  const loadOlderActivitiesPage = useCallback(
+    async (cursor: OlderActivitiesCursor) => {
+      if (activeThreadEnvironmentIdForActivities === null || activeThreadIdForActivities === null) {
+        return null;
+      }
+      const result = await loadThreadActivities({
+        environmentId: activeThreadEnvironmentIdForActivities,
+        input: { threadId: activeThreadIdForActivities, ...cursor },
+      });
+      return result._tag === "Success" ? result.value : null;
+    },
+    [activeThreadEnvironmentIdForActivities, activeThreadIdForActivities, loadThreadActivities],
+  );
+  const {
+    mergedActivities: threadActivities,
+    hasMoreOlder: hasMoreOlderActivities,
+    loadingOlder: loadingOlderActivities,
+    loadOlder: loadOlderActivities,
+  } = useOlderThreadActivities({
+    threadKey: activeThread ? `${activeThread.environmentId}\u0000${activeThread.id}` : null,
+    liveActivities: activeThread?.activities ?? EMPTY_ACTIVITIES,
+    hasMoreLiveActivities: activeThread?.hasMoreActivities ?? false,
+    loadPage: loadOlderActivitiesPage,
+  });
   useRerouteToasts(activeThreadRef, threadActivities);
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const pendingApprovals = useMemo(
@@ -5248,6 +5282,9 @@ function ChatViewContent(props: ChatViewProps) {
                 contentInsetEndAdjustment={composerOverlayHeight}
                 onIsAtEndChange={onIsAtEndChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
+                hasMoreOlder={hasMoreOlderActivities}
+                loadingOlder={loadingOlderActivities}
+                onLoadOlder={loadOlderActivities}
               />
 
               {/* Staged kickoff offer for a not-yet-launched handoff root. */}

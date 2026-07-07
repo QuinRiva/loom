@@ -226,6 +226,7 @@ describe("OrchestrationEngine", () => {
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+          getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),

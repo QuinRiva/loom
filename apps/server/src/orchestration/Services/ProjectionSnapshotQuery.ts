@@ -10,6 +10,8 @@ import type {
   CheckpointRef,
   TurnId,
   OrchestrationCheckpointSummary,
+  OrchestrationGetThreadActivitiesInput,
+  OrchestrationGetThreadActivitiesResult,
   OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
@@ -256,6 +258,16 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailSnapshotById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<ProjectionThreadDetailSnapshot>, ProjectionRepositoryError>;
+
+  /**
+   * Cursor-paginated load of a thread's older activities (lazy-load / infinite
+   * scroll). Returns the page of activities immediately older than the provided
+   * sequence or unsequenced activity cursor, ascending, plus whether older ones
+   * remain.
+   */
+  readonly getThreadActivitiesPage: (
+    input: OrchestrationGetThreadActivitiesInput,
+  ) => Effect.Effect<OrchestrationGetThreadActivitiesResult, ProjectionRepositoryError>;
 
   /**
    * Read the set of thread ids that currently have a pending turn-start (a
