@@ -7,6 +7,7 @@ import type {
   AccountUsageWindow,
 } from "@t3tools/contracts";
 import { IsoDateTime, ThreadId, USAGE_METER_PROVIDER_NAMES } from "@t3tools/contracts";
+import { accountUsageStorageKey } from "@t3tools/shared/accountUsage";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -39,8 +40,9 @@ const SECONDARY_BUCKET_MINS = 60;
 // Cost projection guard (§D4.2): linear extrapolation is noise below 15 min.
 const COST_PROJECTION_MIN_ELAPSED_MINS = 15;
 
-const usageAccountKey = (snapshot: AccountUsageSnapshot): string =>
-  snapshot.providerInstanceId ?? snapshot.providerName;
+// Matches the registry storage key so slope-buffer lookups and pill scope
+// navigation resolve per pooled account, not per instance.
+const usageAccountKey = accountUsageStorageKey;
 
 const iso = (ms: number): string => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
@@ -170,11 +172,18 @@ const make = Effect.gen(function* () {
       const windowEndIso = iso(windowEndMs);
       const boundarySource = provider ? "provider" : "trailing";
 
-      // Row filter for the selected meter scope (§D6). "all" applies none.
+      // Row filter for the selected meter scope (§D6). "all" applies none. A
+      // pooled-account scope arrives as a storage key (`instance\0label`); the
+      // ledger is attributed per instance/backend, not per pooled account, so
+      // strip the label suffix to the routing key before the meter lookup —
+      // otherwise the NUL-suffixed string matches no `provider_id` and the burn
+      // chart is silently empty for a per-account pill deep-link.
+      const scopeRoutingKey =
+        resolvedScope === "all" ? "all" : (resolvedScope.split("\u0000")[0] ?? resolvedScope);
       const scopeNames =
-        resolvedScope === "all"
+        scopeRoutingKey === "all"
           ? null
-          : (USAGE_METER_PROVIDER_NAMES[resolvedScope] ?? [resolvedScope]);
+          : (USAGE_METER_PROVIDER_NAMES[scopeRoutingKey] ?? [scopeRoutingKey]);
       // A fresh fragment per statement — reusing one Fragment across several
       // compiled statements misaligns bound parameters. Scope on the real
       // backend `provider_id` (NULL historical rows never match a scope, only
@@ -203,6 +212,7 @@ const make = Effect.gen(function* () {
         gauges.push({
           providerName: snapshot.providerName,
           providerInstanceId: snapshot.providerInstanceId,
+          ...(snapshot.accountLabel ? { accountLabel: snapshot.accountLabel } : {}),
           planType: snapshot.planType,
           usedPercent: window.usedPercent,
           resetsAt: window.resetsAt,

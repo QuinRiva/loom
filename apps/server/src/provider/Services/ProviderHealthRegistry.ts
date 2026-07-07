@@ -27,7 +27,8 @@
  *
  * @module ProviderHealthRegistry
  */
-import type { AccountUsageSnapshot } from "@t3tools/contracts";
+import type { AccountUsageSnapshot, AccountUsageWindow } from "@t3tools/contracts";
+import { accountUsageRoutingKey } from "@t3tools/shared/accountUsage";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -103,6 +104,48 @@ export const matches = (mark: ExhaustionMark, accountKey: string, modelId?: stri
   mark.accountKey === accountKey &&
   (mark.modelScope === ACCOUNT_WIDE_SCOPE || mark.modelScope === modelId);
 
+/**
+ * Collapse pooled accounts of one instance into a single best-remaining view
+ * before exhaustion marks are derived (§4). The registry stores one snapshot
+ * per account (distinguished by `accountLabel`), but routing and exhaustion key
+ * by the instance alone: the router fails over between the pooled accounts, so
+ * the instance is only exhausted when EVERY account is. We therefore take, per
+ * window kind+scope, the MINIMUM `usedPercent` across the instance's accounts
+ * (the best remaining account, carrying its own resetsAt), and treat the
+ * explicit `limitReached` flag as exhausted only when ALL accounts set it.
+ * Single-account instances pass through unchanged.
+ */
+export const aggregateAccountsBestRemaining = (
+  snapshots: ReadonlyArray<AccountUsageSnapshot>,
+): ReadonlyArray<AccountUsageSnapshot> => {
+  const groups = new Map<string, AccountUsageSnapshot[]>();
+  for (const snapshot of snapshots) {
+    const group = groups.get(accountUsageRoutingKey(snapshot));
+    if (group) group.push(snapshot);
+    else groups.set(accountUsageRoutingKey(snapshot), [snapshot]);
+  }
+  const windowKey = (window: AccountUsageWindow): string =>
+    `${window.kind}\u0000${window.scope?.displayName ?? ""}`;
+  return Array.from(groups.values(), (group) => {
+    if (group.length === 1) return group[0] as AccountUsageSnapshot;
+    const freshest = group.reduce((a, b) => (b.observedAt > a.observedAt ? b : a));
+    const bestByWindow = new Map<string, AccountUsageWindow>();
+    for (const window of group.flatMap((s) => s.windows)) {
+      const prev = bestByWindow.get(windowKey(window));
+      if (prev === undefined || window.usedPercent < prev.usedPercent)
+        bestByWindow.set(windowKey(window), window);
+    }
+    return {
+      providerName: freshest.providerName,
+      providerInstanceId: freshest.providerInstanceId,
+      windows: Array.from(bestByWindow.values()),
+      planType: freshest.planType,
+      observedAt: freshest.observedAt,
+      ...(group.every((s) => s.limitReached === true) ? { limitReached: true } : {}),
+    } satisfies AccountUsageSnapshot;
+  });
+};
+
 /** Rebuild the telemetry mark map + drop reset/expired error marks from a snapshot list. */
 export const deriveFromTelemetry = (
   snapshots: ReadonlyArray<AccountUsageSnapshot>,
@@ -117,8 +160,8 @@ export const deriveFromTelemetry = (
   // Prune error marks whose TTL has passed regardless of telemetry.
   for (const [key, mark] of error) if (!isActive(mark, now)) error.delete(key);
 
-  for (const snapshot of snapshots) {
-    const accountKey = snapshot.providerInstanceId ?? snapshot.providerName;
+  for (const snapshot of aggregateAccountsBestRemaining(snapshots)) {
+    const accountKey = accountUsageRoutingKey(snapshot);
     let flagUntil: string | null = null;
     let flagPercent = -1;
     for (const window of snapshot.windows) {

@@ -607,6 +607,12 @@ export type AccountUsageWindow = typeof AccountUsageWindow.Type;
 export const AccountUsageSnapshot = Schema.Struct({
   providerName: TrimmedNonEmptyString,
   providerInstanceId: Schema.NullOr(ProviderInstanceId),
+  // Distinguishes pooled accounts within a single instance (e.g. two Anthropic
+  // subscriptions behind one router proxy). Absent ⇒ the instance's sole
+  // account (today's shape). When present it discriminates the registry entry
+  // so two accounts of one instance never collapse into one snapshot; routing/
+  // exhaustion still keys by the instance alone (best-remaining across accounts).
+  accountLabel: Schema.optional(TrimmedNonEmptyString),
   windows: Schema.Array(AccountUsageWindow),
   planType: Schema.NullOr(TrimmedNonEmptyString),
   observedAt: IsoDateTime,

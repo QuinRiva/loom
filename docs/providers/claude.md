@@ -208,6 +208,58 @@ HOME=~/.claude_router_home claude auth login
 Claude Code Router's setup can change over time. Use its upstream README for the current install and
 configuration steps: <https://github.com/musistudio/claude-code-router>.
 
+## My Router Pools Several Subscriptions — Make The Usage Pill Accurate
+
+By default T3 Code reads your subscription usage from the Claude account you logged in with
+(`~/.pi/agent/auth.json`). If you route Claude traffic through a local proxy that pools **several**
+Anthropic subscriptions (e.g. CLIProxyAPI), that default is misleading: the pill and the
+failover/exhaustion logic watch one account while real consumption drains the pooled ones.
+
+Point the provider instance at the token files the proxy keeps fresh on disk with a `usageSources`
+array in the instance config. Each source is polled directly against Anthropic's usage endpoint every
+cycle; the token is re-read fresh each time (T3 Code never caches or refreshes it — the proxy owns
+refresh).
+
+```jsonc
+// ServerSettings → providerInstances["<your-instance-id>"]
+{
+  "driver": "cliproxy",
+  "displayName": "Claude (pooled)",
+  "usageSources": [
+    {
+      "kind": "anthropic-oauth",
+      "tokenFile": "~/cli-proxy/auths/claude-carl@unseen.id.json",
+      "label": "carl@",
+    },
+    {
+      "kind": "anthropic-oauth",
+      "tokenFile": "~/cli-proxy/auths/claude-caaarl@unseen.id.json",
+      "label": "caaarl@",
+    },
+  ],
+}
+```
+
+Each source field:
+
+- `kind` — `"anthropic-oauth"` (the only kind today).
+- `tokenFile` — path to the proxy's JSON token file; a leading `~` expands to your home directory.
+- `tokenField` — optional; the flat JSON field holding the bearer token. Defaults to `access_token`.
+- `label` — optional human label shown on the pill. Defaults to the token file's basename.
+
+With usage sources configured, the sidebar renders **one pill per pooled account** (labelled), and
+exhaustion is judged on the _best remaining_ account: the instance is only treated as exhausted for a
+window once **every** pooled account has spent it, matching how the router fails over between them.
+That instance-scoped exhaustion is honoured by the fallback/resume/spawn paths too — a routed model
+selection whose instance id is this configured instance is marked (and waits for reset) under the
+instance's own account key, and the `/usage` dashboard shows one labelled official gauge per pooled
+account. Missing or unreadable token files are skipped quietly. Adding or removing sources takes
+effect on the next server start.
+
+> Put `usageSources` on the **same provider instance that actually routes the pooled traffic** (its
+> `instanceId` is what a thread's model selection carries). An instance that declares usage sources
+> but routes nothing will report an accurate pill, but its exhaustion marks won't gate any traffic.
+
 ## I Want Different Claude Settings, Not A Different Account
 
 Create another Claude provider with the same account if you want a named preset.

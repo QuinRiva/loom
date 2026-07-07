@@ -16,7 +16,10 @@ import * as Schedule from "effect/Schedule";
 
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
-import { subscriptionScopeForSelection } from "../../provider/exhaustionMapping.ts";
+import {
+  subscriptionScopeForSelection,
+  usageSourceInstances,
+} from "../../provider/exhaustionMapping.ts";
 import { resolveFailoverTarget } from "../../provider/failoverChains.ts";
 import { exhaustionPredicate, piCatalogueFromProviders } from "../../provider/failoverRouting.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -140,7 +143,9 @@ const make = Effect.gen(function* () {
   });
 
   const sweep = Effect.gen(function* () {
-    const failover = (yield* settings.getSettings).providerFailover;
+    const currentSettings = yield* settings.getSettings;
+    const failover = currentSettings.providerFailover;
+    const usageInstances = usageSourceInstances(currentSettings.providerInstances);
     const snapshot = yield* projection.getShellSnapshot();
     const now = yield* Clock.currentTimeMillis;
     // One health snapshot + catalogue per tick (paused folded into the marks),
@@ -169,7 +174,7 @@ const make = Effect.gen(function* () {
       }
       stalledIds.add(thread.id);
 
-      const scope = subscriptionScopeForSelection(thread.modelSelection);
+      const scope = subscriptionScopeForSelection(thread.modelSelection, usageInstances);
       // No subscription account (API-billed / unknown) ⇒ nothing to wait on.
       // Intended healthy ⇒ ready. Else, only a pi selection with failover on can
       // become ready via a now-healthy fallback (direct drivers never reroute,

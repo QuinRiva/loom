@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./accountUsage": {
+      "types": "./src/accountUsage.ts",
+      "import": "./src/accountUsage.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

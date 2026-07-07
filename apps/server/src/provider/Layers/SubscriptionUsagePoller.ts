@@ -11,6 +11,9 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientError } from "effect/unstable/http";
 
+import { ProviderInstanceId, type ProviderUsageSource } from "@t3tools/contracts";
+
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AccountUsageRegistry } from "../Services/AccountUsageRegistry.ts";
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
 import { type ProviderUsage, fetchAnthropicUsage, fetchCodexUsage } from "../quotas/piQuotas.ts";
@@ -85,11 +88,15 @@ const PiAuthSchema = Schema.Struct({
 const make = Effect.gen(function* () {
   const registry = yield* AccountUsageRegistry;
   const providerRegistry = yield* ProviderRegistry;
+  const serverSettings = yield* ServerSettingsService;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
 
-  const piAuthPath = path.join(NodeOS.homedir(), ".pi", "agent", "auth.json");
+  const homeDir = NodeOS.homedir();
+  const piAuthPath = path.join(homeDir, ".pi", "agent", "auth.json");
+  const expandHome = (p: string): string =>
+    p === "~" ? homeDir : p.startsWith("~/") ? path.join(homeDir, p.slice(2)) : p;
 
   const readPiAuth = fileSystem
     .readFileString(piAuthPath)
@@ -103,15 +110,22 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const feed = (providerName: string, usage: ProviderUsage) =>
-    usage.windows.length === 0
-      ? Effect.logDebug(`subscription-usage poller: ${providerName} returned no rolling windows`)
+  const feed = (
+    attribution: {
+      readonly providerName: string;
+      readonly providerInstanceId: ProviderInstanceId | null;
+      readonly accountLabel?: string;
+    },
+    usage: ProviderUsage,
+  ) => {
+    const label = attribution.accountLabel ?? attribution.providerName;
+    return usage.windows.length === 0
+      ? Effect.logDebug(`subscription-usage poller: ${label} returned no rolling windows`)
       : DateTime.now.pipe(
           Effect.map(DateTime.formatIso),
           Effect.flatMap((observedAt) =>
             registry.update({
-              providerName,
-              providerInstanceId: null,
+              ...attribution,
               windows: usage.windows,
               planType: usage.planType,
               observedAt,
@@ -122,11 +136,12 @@ const make = Effect.gen(function* () {
             }),
           ),
           Effect.andThen(
-            Effect.logDebug(`subscription-usage poller: ${providerName} usage updated`, {
+            Effect.logDebug(`subscription-usage poller: ${label} usage updated`, {
               windows: usage.windows.map((w) => `${w.kind}=${Math.round(w.usedPercent)}%`),
             }),
           ),
         );
+  };
 
   const pollAnthropic = (auth: typeof PiAuthSchema.Type) =>
     Effect.gen(function* () {
@@ -136,7 +151,47 @@ const make = Effect.gen(function* () {
         return;
       }
       yield* feed(
-        "claudeAgent",
+        { providerName: "claudeAgent", providerInstanceId: null },
+        yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
+      );
+    });
+
+  // Instance-scoped usage sources (§Option B): an instance's config can declare
+  // its own token files (e.g. a router proxy pooling several subscriptions, each
+  // kept fresh on disk). We read the token FRESH every cycle — never cache it,
+  // never attempt OAuth refresh; the external proxy owns refresh. A missing or
+  // unreadable token file is a quiet debug-level skip.
+  const TokenFileSchema = Schema.Record(Schema.String, Schema.Unknown);
+  const readSourceToken = (source: ProviderUsageSource) =>
+    fileSystem.readFileString(expandHome(source.tokenFile)).pipe(
+      Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(TokenFileSchema))),
+      Effect.map((json) => {
+        const value = json[source.tokenField ?? "access_token"];
+        return typeof value === "string" && value.length > 0 ? value : null;
+      }),
+    );
+
+  const sourceLabel = (source: ProviderUsageSource): string =>
+    source.label ?? path.basename(source.tokenFile);
+
+  const pollUsageSource = (
+    instanceId: ProviderInstanceId,
+    driver: string,
+    source: ProviderUsageSource,
+  ) =>
+    Effect.gen(function* () {
+      const label = sourceLabel(source);
+      const token = yield* readSourceToken(source).pipe(
+        Effect.catch(() =>
+          Effect.logDebug(
+            `subscription-usage poller: ${label} token file missing/unreadable; skipping`,
+            { tokenFile: source.tokenFile },
+          ).pipe(Effect.as(null)),
+        ),
+      );
+      if (!token) return;
+      yield* feed(
+        { providerName: driver, providerInstanceId: instanceId, accountLabel: label },
         yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
       );
     });
@@ -148,7 +203,10 @@ const make = Effect.gen(function* () {
         yield* Effect.logDebug("subscription-usage poller: no Codex token on disk; skipping");
         return;
       }
-      yield* feed("codex", yield* fetchCodexUsage(httpClient, codex.access, codex.accountId));
+      yield* feed(
+        { providerName: "codex", providerInstanceId: null },
+        yield* fetchCodexUsage(httpClient, codex.access, codex.accountId),
+      );
     });
 
   // Pull the first HttpClientError out of a failure cause, so we can read its
@@ -226,13 +284,51 @@ const make = Effect.gen(function* () {
   const pollProvider = <E>(select: (auth: typeof PiAuthSchema.Type) => Effect.Effect<void, E>) =>
     readPiAuth.pipe(Effect.flatMap(select));
 
+  // Enumerate configured instance usage sources once at startup. Adding/removing
+  // sources takes effect on next server start (no hot-reload), matching the
+  // poller's fork-once-per-provider model.
+  const configuredSources = serverSettings.getSettings.pipe(
+    Effect.map((settings) =>
+      Object.entries(settings.providerInstances).flatMap(([instanceId, instance]) =>
+        (instance.usageSources ?? []).map((source) => ({
+          instanceId: ProviderInstanceId.make(instanceId),
+          driver: instance.driver as string,
+          source,
+        })),
+      ),
+    ),
+    Effect.catch(() =>
+      Effect.logWarning(
+        "subscription-usage poller: could not read settings; usage sources off",
+      ).pipe(
+        Effect.as(
+          [] as ReadonlyArray<{
+            instanceId: ProviderInstanceId;
+            driver: string;
+            source: ProviderUsageSource;
+          }>,
+        ),
+      ),
+    ),
+  );
+
   const start: SubscriptionUsagePollerShape["start"] = () =>
     Effect.gen(function* () {
       yield* Effect.forkScoped(runProvider("Anthropic", pollProvider(pollAnthropic)));
       yield* Effect.forkScoped(runProvider("Codex", pollProvider(pollCodex)));
+      const sources = yield* configuredSources;
+      for (const { instanceId, driver, source } of sources) {
+        yield* Effect.forkScoped(
+          runProvider(
+            `${instanceId}/${sourceLabel(source)}`,
+            pollUsageSource(instanceId, driver, source),
+          ),
+        );
+      }
       yield* Effect.logInfo("subscription-usage poller: started", {
         healthyIntervalMs: Duration.toMillis(HEALTHY_INTERVAL),
         maxBackoffMs: Duration.toMillis(MAX_BACKOFF),
+        usageSources: sources.length,
       });
     });
 

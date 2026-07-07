@@ -9,6 +9,7 @@ import {
   USAGE_BACKEND_DISPLAY_NAMES,
   USAGE_METER_PROVIDER_NAMES,
 } from "@t3tools/contracts";
+import { accountUsageStorageKey } from "@t3tools/shared/accountUsage";
 
 /**
  * Pure view maths for the /usage dashboard (docs/usage-dashboard-design.md §D5):
@@ -103,9 +104,15 @@ export function deriveUsageScopeTabs(
 }
 
 /** Whether a gauge card belongs on the selected scope — every gauge under
- * "all", else only the gauge whose meter officially covers this backend. */
+ * "all", the exact pooled-account gauge when the scope is its storage key (a
+ * per-account pill deep-link), else the gauge whose meter officially covers this
+ * backend. */
 export function gaugeAppliesToScope(gauge: ServerUsageBreakdownGauge, scope: string): boolean {
-  return scope === "all" || (USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []).includes(scope);
+  return (
+    scope === "all" ||
+    scope === accountUsageStorageKey(gauge) ||
+    (USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []).includes(scope)
+  );
 }
 
 /** Translate a legacy meter-key scope ("claudeAgent"/"codex", still emitted by

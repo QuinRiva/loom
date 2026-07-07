@@ -45,7 +45,11 @@ import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
 import { ProviderHealthRegistry } from "../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
-import { formatResetHint, subscriptionScopeForSelection } from "../provider/exhaustionMapping.ts";
+import {
+  formatResetHint,
+  subscriptionScopeForSelection,
+  usageSourceInstances,
+} from "../provider/exhaustionMapping.ts";
 import { resolveFailoverTarget } from "../provider/failoverChains.ts";
 import { exhaustionPredicate, piCatalogueFromProviders } from "../provider/failoverRouting.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
@@ -763,7 +767,10 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // resolved selection (all precedence steps, explicit included). No selection
   // rewriting (D6) — warn only.
   const exhaustionWarnings: string[] = [];
-  const slugScope = subscriptionScopeForSelection(modelSelection);
+  const slugScope = subscriptionScopeForSelection(
+    modelSelection,
+    usageSourceInstances(settings.providerInstances),
+  );
   if (slugScope.accountKey !== null) {
     const health = yield* ProviderHealthRegistry;
     const isExhausted = exhaustionPredicate(yield* health.snapshot);

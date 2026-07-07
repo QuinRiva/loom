@@ -7,6 +7,7 @@ import {
   normalizeUsageScope,
   usageProviderDisplayName,
 } from "@t3tools/client-runtime/usageDashboard";
+import { accountUsageStorageKey } from "@t3tools/shared/accountUsage";
 import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
@@ -149,7 +150,7 @@ export function UsageDashboardPage({
             <div className="grid gap-4 sm:grid-cols-2">
               {scopedGauges.map((gauge) => (
                 <WindowGaugeCard
-                  key={`${gauge.providerName}:${gauge.providerInstanceId ?? ""}:${gauge.scopeDisplayName ?? ""}`}
+                  key={`${accountUsageStorageKey(gauge)}:${gauge.scopeDisplayName ?? ""}`}
                   gauge={gauge}
                   windowLabel={WINDOW_GAUGE_LABELS[data.window]}
                   nowMs={nowMs}

@@ -1,8 +1,9 @@
 /**
  * AccountUsageRegistry — live, account-scoped subscription-usage snapshots.
  *
- * Holds the latest normalised {@link AccountUsageSnapshot} per provider instance
- * (keyed by `providerInstanceId`, falling back to `providerName`). The data is
+ * Holds the latest normalised {@link AccountUsageSnapshot} per account (keyed by
+ * the storage key = `providerInstanceId ?? providerName`, plus an `accountLabel`
+ * suffix when an instance pools several accounts). The data is
  * ephemeral global server state: it is never persisted and simply repopulates
  * from the next provider rate-limit event after a restart. `ProviderRuntimeIngestion`
  * writes to it; the WS config stream reads its snapshot + change stream.
@@ -19,6 +20,7 @@ import type {
   AccountUsageWindow,
   AccountUsageWindowKind,
 } from "@t3tools/contracts";
+import { accountUsageStorageKey } from "@t3tools/shared/accountUsage";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -55,8 +57,9 @@ export class AccountUsageRegistry extends Context.Service<
   AccountUsageRegistryShape
 >()("t3/provider/Services/AccountUsageRegistry") {}
 
-const usageKey = (snapshot: AccountUsageSnapshot): string =>
-  snapshot.providerInstanceId ?? snapshot.providerName;
+// Per-account storage key: pooled accounts of one instance (each with its own
+// label) get their own entry instead of collapsing into one.
+const usageKey = accountUsageStorageKey;
 
 // Sample ring buffer (§D4.1). Samples accrue at poller cadence (~60 s); we keep
 // the last hour and require a 10-min span before projecting.

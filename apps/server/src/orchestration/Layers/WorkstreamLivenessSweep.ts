@@ -21,9 +21,11 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   formatResetHint,
   subscriptionScopeForSelection,
+  usageSourceInstances,
 } from "../../provider/exhaustionMapping.ts";
 import { readThreadStallContext, renderStallContext, type StallContext } from "../stallContext.ts";
 import {
@@ -340,6 +342,7 @@ const makeWorkstreamLivenessSweep = (
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const directory = yield* ProviderSessionDirectory;
     const healthRegistry = yield* ProviderHealthRegistry;
+    const serverSettings = yield* ServerSettingsService;
     const crypto = yield* Crypto.Crypto;
 
     // Consecutive failed-state observations per thread (the circuit-breaker
@@ -415,7 +418,14 @@ const makeWorkstreamLivenessSweep = (
       // the reset hint from the health registry for the intended selection.
       let reason = verdict.reason;
       if (thread.session?.lastErrorClass === "quota_exhausted") {
-        const { accountKey, modelId } = subscriptionScopeForSelection(thread.modelSelection);
+        const usageInstances = yield* serverSettings.getSettings.pipe(
+          Effect.map((s) => usageSourceInstances(s.providerInstances)),
+          Effect.orElseSucceed(() => new Set<string>()),
+        );
+        const { accountKey, modelId } = subscriptionScopeForSelection(
+          thread.modelSelection,
+          usageInstances,
+        );
         const until =
           accountKey === null ? null : yield* healthRegistry.exhaustedUntil(accountKey, modelId);
         const nowMs = yield* Clock.currentTimeMillis;

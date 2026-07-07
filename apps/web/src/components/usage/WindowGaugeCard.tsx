@@ -37,7 +37,12 @@ export function WindowGaugeCard({
   windowLabel: string;
   nowMs: number;
 }) {
-  const displayName = usageProviderDisplayName(gauge.providerName);
+  const providerDisplayName = usageProviderDisplayName(gauge.providerName);
+  // A pooled account (router proxy) labels its own card so two accounts of one
+  // instance are distinguishable; a sole account keeps just the provider name.
+  const displayName = gauge.accountLabel
+    ? `${providerDisplayName} · ${gauge.accountLabel}`
+    : providerDisplayName;
   // A per-model carve-out (e.g. the Anthropic weekly limit for "Fable") shows
   // its model name so it reads distinctly from the account-wide weekly gauge.
   const meterLabel = gauge.scopeDisplayName
@@ -87,7 +92,8 @@ export function WindowGaugeCard({
         {projection ? <span>{projection}</span> : null}
       </div>
       <div className="border-t border-border/60 pt-2 text-[11px] text-muted-foreground/60">
-        Official {displayName} figure — counts all clients on this account, not just T3 Code.
+        Official {providerDisplayName} figure — counts all clients on this account, not just T3
+        Code.
       </div>
     </div>
   );
