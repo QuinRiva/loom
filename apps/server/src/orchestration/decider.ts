@@ -1,5 +1,6 @@
 import {
   EventId,
+  type GoalId,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
@@ -38,7 +39,7 @@ import {
   describeUnsatisfiedDependency,
   findDependencyCycle,
 } from "@t3tools/shared/workstreamDependencies";
-import { gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+import { gateSourceFor, routeWorkSubmit, subtreeOf } from "@t3tools/shared/workstreamGraph";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -122,6 +123,63 @@ const dependencyCoherenceError = (params: {
   if (cycle !== null)
     return `Dependencies for thread '${threadId}' would create a cycle (${cycle.join(" → ")}); a cyclic set can never release.`;
   return null;
+};
+
+/**
+ * Transitive closure of the live (non-deleted) subtree under a thread,
+ * including the thread itself, walking parentThreadId edges. Shared by the
+ * archive/unarchive/delete cascades and the cancel cascade: a workstream
+ * child is invisible in the sidebar, so any terminal operation on a root must
+ * sweep its whole subtree or the children linger half-alive.
+ */
+const collectLiveSubtreeIds = (
+  readModel: OrchestrationReadModel,
+  rootThreadId: ThreadId,
+): Set<ThreadId> =>
+  new Set([
+    rootThreadId,
+    ...subtreeOf(
+      rootThreadId,
+      readModel.threads.filter((thread) => thread.deletedAt === null),
+    ).map((thread) => thread.id),
+  ]);
+
+/**
+ * The subtree ROOTS of a goal's threads in a given state: matching threads
+ * with no matching ANCESTOR reachable through live (non-deleted) parents. The
+ * goal-level cascades (goal.archive/unarchive/delete) enumerate only these —
+ * each root's own thread-level cascade sweeps its live subtree, so enumerating
+ * a thread already inside another root's subtree would double-apply the
+ * operation and trip an invariant mid-sequence. The ancestor walk mirrors
+ * collectLiveSubtreeIds: it stops at a deleted parent, exactly where the
+ * downward sweep stops too.
+ */
+const listGoalSubtreeRoots = (
+  readModel: OrchestrationReadModel,
+  goalId: GoalId,
+  state: "active" | "archived" | "live",
+) => {
+  const matches = readModel.threads.filter(
+    (thread) =>
+      thread.goalId === goalId &&
+      thread.deletedAt === null &&
+      (state === "live" ||
+        (state === "active" ? thread.archivedAt === null : thread.archivedAt !== null)),
+  );
+  const matchIds = new Set(matches.map((thread) => thread.id));
+  const threadById = new Map(readModel.threads.map((thread) => [thread.id, thread] as const));
+  const hasMatchingAncestor = (thread: (typeof matches)[number]): boolean => {
+    for (
+      let parent =
+        thread.parentThreadId !== null ? threadById.get(thread.parentThreadId) : undefined;
+      parent !== undefined && parent.deletedAt === null;
+      parent = parent.parentThreadId !== null ? threadById.get(parent.parentThreadId) : undefined
+    ) {
+      if (matchIds.has(parent.id)) return true;
+    }
+    return false;
+  };
+  return matches.filter((thread) => !hasMatchingAncestor(thread));
 };
 
 type DecideOrchestrationCommandResult =
@@ -369,12 +427,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // Archiving a goal cascades DOWN to its active threads. We don't emit
       // goal.archived here: archiving the last active thread cascades the goal
       // archive itself (see thread.archive), so we route through that one path.
-      const activeThreads = readModel.threads.filter(
-        (thread) =>
-          thread.goalId === command.goalId &&
-          thread.deletedAt === null &&
-          thread.archivedAt === null,
-      );
+      // Only subtree ROOTS are enumerated — thread.archive sweeps each root's
+      // descendants itself, so listing a child too would double-archive it and
+      // trip requireThreadNotArchived mid-sequence.
+      const activeThreads = listGoalSubtreeRoots(readModel, command.goalId, "active");
       if (activeThreads.length > 0) {
         return yield* decideCommandSequence({
           readModel,
@@ -402,14 +458,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "goal.unarchive": {
       yield* requireGoalNotDeleted({ readModel, command, goalId: command.goalId });
-      // Inverse of goal.archive: unarchive every archived thread, and the first
-      // thread.unarchive cascades the goal unarchive (see thread.unarchive).
-      const archivedThreads = readModel.threads.filter(
-        (thread) =>
-          thread.goalId === command.goalId &&
-          thread.deletedAt === null &&
-          thread.archivedAt !== null,
-      );
+      // Inverse of goal.archive: unarchive every archived subtree root, and the
+      // first thread.unarchive cascades the goal unarchive (see
+      // thread.unarchive). Descendants are restored by each root's own cascade.
+      const archivedThreads = listGoalSubtreeRoots(readModel, command.goalId, "archived");
       if (archivedThreads.length > 0) {
         return yield* decideCommandSequence({
           readModel,
@@ -437,29 +489,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "goal.delete": {
       yield* requireGoal({ readModel, command, goalId: command.goalId });
-      // Deleting a goal cascade-deletes its threads (the goal owns them), then
-      // deletes the goal once empty. thread.delete has no goal cascade, so the
-      // trailing goal.delete re-decides against an empty goal and emits the leaf.
-      const threads = readModel.threads.filter(
-        (thread) => thread.goalId === command.goalId && thread.deletedAt === null,
-      );
+      // Deleting a goal cascade-deletes its live subtree roots (the goal owns
+      // them; thread.delete sweeps each root's descendants and cascades the
+      // goal delete itself once the goal is empty — see thread.delete). The
+      // empty-goal case below emits the leaf directly.
+      const threads = listGoalSubtreeRoots(readModel, command.goalId, "live");
       if (threads.length > 0) {
         return yield* decideCommandSequence({
           readModel,
-          commands: [
-            ...threads.map(
-              (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
-                type: "thread.delete",
-                commandId: command.commandId,
-                threadId: thread.id,
-              }),
-            ),
-            {
-              type: "goal.delete",
+          commands: threads.map(
+            (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
+              type: "thread.delete",
               commandId: command.commandId,
-              goalId: command.goalId,
-            },
-          ],
+              threadId: thread.id,
+            }),
+          ),
         });
       }
       const occurredAt = yield* nowIso;
@@ -644,25 +688,56 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.deleted",
-        payload: {
-          threadId: command.threadId,
-          deletedAt: occurredAt,
-        },
-      };
+      // Cascade DOWN over the live subtree (workstream children are invisible
+      // in the sidebar and must not survive their root), then cascade UP:
+      // deleting a goal's last live thread deletes the goal so no empty goal
+      // header dangles. goal.delete routes through this single path.
+      const subtree = collectLiveSubtreeIds(readModel, command.threadId);
+      const threadById = new Map(readModel.threads.map((entry) => [entry.id, entry] as const));
+      const events: PlannedOrchestrationEvent[] = [];
+      for (const threadId of subtree) {
+        const node = threadById.get(threadId);
+        if (!node || (node.deletedAt !== null && threadId !== command.threadId)) continue;
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.deleted",
+          payload: {
+            threadId,
+            deletedAt: occurredAt,
+          },
+        });
+      }
+      const goalId = thread.goalId ?? null;
+      if (goalId !== null) {
+        const goal = findGoalById(readModel, goalId);
+        const goalHasOtherLiveThread = readModel.threads.some(
+          (other) => other.goalId === goalId && !subtree.has(other.id) && other.deletedAt === null,
+        );
+        if (goal && goal.deletedAt === null && !goalHasOtherLiveThread) {
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "goal",
+              aggregateId: goalId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "goal.deleted",
+            payload: { goalId, deletedAt: occurredAt },
+          });
+        }
+      }
+      return events;
     }
 
     case "thread.archive": {
@@ -672,30 +747,42 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      const archivedEvent: PlannedOrchestrationEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.archived",
-        payload: {
-          threadId: command.threadId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
-        },
-      };
+      // Cascade DOWN over the live subtree: workstream children never surface
+      // in the sidebar, so archiving a root must archive its descendants too —
+      // otherwise they stay "active" invisibly and pin the goal open forever
+      // (the recurring dangling-empty-goal bug).
+      const subtree = collectLiveSubtreeIds(readModel, command.threadId);
+      const threadById = new Map(readModel.threads.map((entry) => [entry.id, entry] as const));
+      const events: PlannedOrchestrationEvent[] = [];
+      for (const threadId of subtree) {
+        const node = threadById.get(threadId);
+        if (!node || node.archivedAt !== null) continue;
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.archived",
+          payload: {
+            threadId,
+            archivedAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        });
+      }
       // Cascade UP: archiving the last active thread of a goal archives the
       // goal too, so the sidebar never strands an empty goal header. (Inverse
-      // of goal.archive, which cascades down to its threads.)
+      // of goal.archive, which cascades down to its threads.) "Other active"
+      // excludes the whole subtree being archived in this pass.
       const goalId = thread.goalId ?? null;
       if (goalId !== null) {
         const goal = findGoalById(readModel, goalId);
         const goalHasOtherActiveThread = readModel.threads.some(
           (other) =>
             other.goalId === goalId &&
-            other.id !== thread.id &&
+            !subtree.has(other.id) &&
             other.deletedAt === null &&
             other.archivedAt === null,
         );
@@ -705,22 +792,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           goal.archivedAt === null &&
           !goalHasOtherActiveThread
         ) {
-          return [
-            archivedEvent,
-            {
-              ...(yield* withEventBase({
-                aggregateKind: "goal",
-                aggregateId: goalId,
-                occurredAt,
-                commandId: command.commandId,
-              })),
-              type: "goal.archived",
-              payload: { goalId, archivedAt: occurredAt, updatedAt: occurredAt },
-            },
-          ];
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "goal",
+              aggregateId: goalId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "goal.archived",
+            payload: { goalId, archivedAt: occurredAt, updatedAt: occurredAt },
+          });
         }
       }
-      return archivedEvent;
+      return events;
     }
 
     case "thread.unarchive": {
@@ -730,19 +814,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       const occurredAt = yield* nowIso;
-      const unarchivedEvent: PlannedOrchestrationEvent = {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        })),
-        type: "thread.unarchived",
-        payload: {
-          threadId: command.threadId,
-          updatedAt: occurredAt,
-        },
-      };
+      // Cascade DOWN: restore the archived subtree symmetrically with
+      // thread.archive, so resurfacing a root brings its workstream children
+      // back with it.
+      const subtree = collectLiveSubtreeIds(readModel, command.threadId);
+      const threadById = new Map(readModel.threads.map((entry) => [entry.id, entry] as const));
+      const events: PlannedOrchestrationEvent[] = [];
+      for (const threadId of subtree) {
+        const node = threadById.get(threadId);
+        if (!node || node.archivedAt === null) continue;
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.unarchived",
+          payload: {
+            threadId,
+            updatedAt: occurredAt,
+          },
+        });
+      }
       // Cascade UP: resurfacing a thread whose goal was archived (e.g. by the
       // last-thread cascade above) must unarchive the goal too, otherwise the
       // thread would point at an archived goal and vanish from the sidebar.
@@ -750,22 +844,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (goalId !== null) {
         const goal = findGoalById(readModel, goalId);
         if (goal && goal.deletedAt === null && goal.archivedAt !== null) {
-          return [
-            unarchivedEvent,
-            {
-              ...(yield* withEventBase({
-                aggregateKind: "goal",
-                aggregateId: goalId,
-                occurredAt,
-                commandId: command.commandId,
-              })),
-              type: "goal.unarchived",
-              payload: { goalId, updatedAt: occurredAt },
-            },
-          ];
+          events.push({
+            ...(yield* withEventBase({
+              aggregateKind: "goal",
+              aggregateId: goalId,
+              occurredAt,
+              commandId: command.commandId,
+            })),
+            type: "goal.unarchived",
+            payload: { goalId, updatedAt: occurredAt },
+          });
         }
       }
-      return unarchivedEvent;
+      return events;
     }
 
     case "thread.meta.update": {
@@ -951,18 +1042,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // for a human.
       if (command.planLane === "cancelled") {
         const live = readModel.threads.filter((thread) => thread.deletedAt === null);
-        // Transitive closure of live descendants under the target (walk parentThreadId).
-        const subtree = new Set([command.threadId]);
-        const queue = [command.threadId];
-        while (queue.length > 0) {
-          const parentId = queue.shift()!;
-          for (const thread of live) {
-            if (thread.parentThreadId === parentId && !subtree.has(thread.id)) {
-              subtree.add(thread.id);
-              queue.push(thread.id);
-            }
-          }
-        }
+        const subtree = collectLiveSubtreeIds(readModel, command.threadId);
         const threadById = new Map(live.map((thread) => [thread.id, thread] as const));
         const events: PlannedOrchestrationEvent[] = [];
         // Cancel the target always; cancel non-terminal descendants but never

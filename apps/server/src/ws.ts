@@ -124,6 +124,7 @@ import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -830,31 +831,45 @@ const makeWsRpcLayer = (
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
               const normalizedCommand = yield* normalizeDispatchCommand(command);
-              const shouldStopSessionAfterArchive =
+              // thread.archive cascades over the live subtree in the decider,
+              // so the post-archive session/terminal teardown must sweep the
+              // same set — a workstream child with a running session would
+              // otherwise keep burning after its root is archived.
+              const threadsToStopAfterArchive =
                 normalizedCommand.type === "thread.archive"
-                  ? yield* projectionSnapshotQuery
-                      .getThreadShellById(normalizedCommand.threadId)
-                      .pipe(
-                        Effect.map(
-                          Option.match({
-                            onNone: () => false,
-                            onSome: (thread) =>
-                              thread.session !== null && thread.session.status !== "stopped",
-                          }),
-                        ),
-                        Effect.orElseSucceed(() => false),
-                      )
-                  : false;
+                  ? yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+                      Effect.map((snapshot) => {
+                        const members = subtreeOf(normalizedCommand.threadId, snapshot.threads);
+                        const sweep = members.map((thread) => ({
+                          threadId: thread.id,
+                          hasLiveSession:
+                            thread.session !== null && thread.session.status !== "stopped",
+                        }));
+                        // The commanded root is always swept, even when the
+                        // snapshot no longer lists it (subtreeOf omits an
+                        // unknown root).
+                        return sweep.some((entry) => entry.threadId === normalizedCommand.threadId)
+                          ? sweep
+                          : [
+                              { threadId: normalizedCommand.threadId, hasLiveSession: false },
+                              ...sweep,
+                            ];
+                      }),
+                      Effect.orElseSucceed(() => [
+                        { threadId: normalizedCommand.threadId, hasLiveSession: false },
+                      ]),
+                    )
+                  : [];
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
-              if (normalizedCommand.type === "thread.archive") {
-                if (shouldStopSessionAfterArchive) {
+              for (const { threadId, hasLiveSession } of threadsToStopAfterArchive) {
+                if (hasLiveSession) {
                   yield* Effect.gen(function* () {
                     const stopCommand = yield* normalizeDispatchCommand({
                       type: "thread.session.stop",
                       commandId: CommandId.make(
-                        `session-stop-for-archive:${normalizedCommand.commandId}`,
+                        `session-stop-for-archive:${normalizedCommand.commandId}:${threadId}`,
                       ),
-                      threadId: normalizedCommand.threadId,
+                      threadId,
                       createdAt: yield* nowIso,
                     });
 
@@ -862,17 +877,17 @@ const makeWsRpcLayer = (
                   }).pipe(
                     Effect.catchCause((cause) =>
                       Effect.logWarning("failed to stop provider session during archive", {
-                        threadId: normalizedCommand.threadId,
+                        threadId,
                         cause: Cause.pretty(cause),
                       }),
                     ),
                   );
                 }
 
-                yield* terminalManager.close({ threadId: normalizedCommand.threadId }).pipe(
+                yield* terminalManager.close({ threadId }).pipe(
                   Effect.catch((error) =>
                     Effect.logWarning("failed to close thread terminals after archive", {
-                      threadId: normalizedCommand.threadId,
+                      threadId,
                       error: error.message,
                     }),
                   ),
