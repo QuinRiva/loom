@@ -35,7 +35,10 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 ## Live frontend verification
 
-UI-affecting changes should be verified live in the browser, not just by static checks — see the **dev-verify recipe** in [`docs/dev-site-testing.md`](docs/dev-site-testing.md). It stands up an isolated dev instance, seeds a realistic workstream (`apps/server/src/dev/seedWorkstream.ts`), reads the pairing URL from stdout, and drives the app in the browser. Briefs can just say "verify live using the dev-verify recipe".
+UI-affecting changes should be verified live in the browser, not just by static checks. Two paths:
+
+- **Full app — dev-verify recipe** ([`docs/dev-site-testing.md`](docs/dev-site-testing.md)): stands up an isolated dev instance, seeds a realistic workstream (`apps/server/src/dev/seedWorkstream.ts`), reads the pairing URL from stdout, and drives the authenticated app in the browser. Briefs can just say "verify live using the dev-verify recipe". Use this for flows that need real threads, auth, or server state.
+- **Isolated component — preview harness** ([`docs/web-component-preview.md`](docs/web-component-preview.md)): a dev-only `/preview` route (no backend) that renders presentational components (`ChatMarkdown`, tables, code blocks, …) against fixtures reproducing the real timeline layout chain. Use this for pure render/CSS work — it's a ~seconds loop. Add a fixture in `apps/web/src/preview/fixtures.tsx` for the case you're changing.
 
 ## Package Roles
 
