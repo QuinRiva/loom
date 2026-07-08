@@ -8,7 +8,7 @@ import {
   attentionReasonsOf,
   hasRunningSignal,
   type WorkstreamColumnId,
-} from "./workstreamGraph";
+} from "./workstreamRollup";
 
 /**
  * Pure presentation logic shared by the Workstream board, cards, and the
@@ -372,6 +372,14 @@ export function formatDiffMetric(
 export type FanInChip = {
   readonly label: string;
   readonly tone: "merging" | "merged" | "conflict";
+};
+
+// Fan-in chip palette: conflict is amber and must not read as success; merged is
+// a subtle green; merging is a neutral in-flight grey.
+export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
+  merging: "border-white/15 bg-white/[0.04] text-white/55",
+  merged: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200/80",
+  conflict: "border-amber-400/40 bg-amber-400/10 text-amber-200",
 };
 
 /**

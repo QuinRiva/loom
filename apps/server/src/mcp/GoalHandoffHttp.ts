@@ -8,7 +8,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { buildGoalCreateCommand } from "../orchestration/goalTaskCommands.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { resolveWorkstreamScope } from "./httpScope.ts";
 import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 
 interface GoalHandoffRequest {
@@ -30,17 +30,6 @@ const slugifyTitle = (title: string): string => {
   return /[a-z0-9]/.test(slug) ? slug : "goal";
 };
 
-/** Resolve the bearer token to a Workstream-capable scope (the same per-session
- * credential the goal/task tools use), or undefined. */
-const resolveGoalScope = Effect.fn("GoalHandoffHttp.resolveScope")(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const token = request.headers.authorization?.startsWith("Bearer ")
-    ? request.headers.authorization.slice("Bearer ".length).trim()
-    : "";
-  const scope = yield* McpSessionRegistry.resolveActiveMcpCredential(token);
-  return scope && scope.capabilities.has("workstream") ? scope : undefined;
-});
-
 /**
  * Create a NEW goal + a staged (held) root session, both scoped to the caller
  * thread's project. The agent passes only the goal title, the kickoff brief, and
@@ -51,7 +40,7 @@ const resolveGoalScope = Effect.fn("GoalHandoffHttp.resolveScope")(function* () 
  */
 const handleGoalHandoff = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const scope = yield* resolveGoalScope();
+  const scope = yield* resolveWorkstreamScope();
   if (!scope) {
     return jsonError(401, "A valid provider-scoped Workstream credential is required.");
   }

@@ -1,5 +1,5 @@
 import type { VcsStatusResult } from "@t3tools/contracts";
-import type { AttentionReason, GraphRollup } from "../lib/workstreamGraph";
+import type { AttentionReason, GraphRollup } from "../lib/workstreamRollup";
 import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
 
 export interface PrStatusIndicator {

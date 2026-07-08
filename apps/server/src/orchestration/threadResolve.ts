@@ -11,8 +11,8 @@
  *     gate — consulting the wrong thread is costly.
  *
  *  2. `resolveSessionFilePath` - resolve a thread's deterministic pi session id
- *     to the ABSOLUTE `.jsonl` path on disk (re-exported from the pi driver
- *     layer, where it lives alongside `piSessionIdForThread`). This sidesteps
+ *     to the ABSOLUTE `.jsonl` path on disk (re-exported from `provider/
+ *     piSessionFiles.ts`, where it lives alongside `piSessionIdForThread`). This sidesteps
  *     pi's id-scoping trap: `pi --fork <bareId>` resolves the id rooted at the
  *     caller's project slug, so a target living in a *different* worktree/project
  *     slug yields "No session found". A full path bypasses pi's id search
@@ -22,7 +22,7 @@
  */
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 
-export { defaultSessionsRoot, resolveSessionFilePath } from "../provider/Layers/Pi/Cli.ts";
+export { defaultSessionsRoot, resolveSessionFilePath } from "../provider/piSessionFiles.ts";
 
 /** The minimal thread fields name resolution reads (a subset of the shell). */
 export interface ThreadNameCandidate {

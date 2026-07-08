@@ -39,6 +39,9 @@ import {
   yieldWakeCommandId,
   childWakeCommandId,
   classifyChildWake,
+  classifyChildWakeFull,
+  childWakeEvidenceNeeds,
+  type ChildWakeEvidence,
   terminalEpisodeKey,
   DEFAULT_IDLE_WAKE_GRACE_MS,
   DEFAULT_WAKE_RATE_GUARD,
@@ -876,6 +879,227 @@ describe("idle-wake activity-freshness grace", () => {
   });
 });
 
+// The two-phase full wake classifier (§A.5): phase 1 (`childWakeEvidenceNeeds`)
+// names exactly the async evidence the loop must fetch for a child's shape;
+// phase 2 (`classifyChildWakeFull`) turns that evidence into either a wake
+// (kind + episode key + measured context) or an assertable skip reason. These
+// make the previously comment-only suppressions directly testable; the assembled
+// layer harness elsewhere in this file remains the behaviour pin.
+const wakeEvidence = (overrides: Partial<ChildWakeEvidence> = {}): ChildWakeEvidence => ({
+  provisionFailurePending: false,
+  waitingInGate: false,
+  ...overrides,
+});
+const idleShell = (overrides: Partial<Parameters<typeof shell>[0]> = {}) =>
+  shell({
+    id: "child-1",
+    planLane: "in_progress",
+    session: runningSession({ status: "ready", activeTurnId: null }),
+    ...overrides,
+  });
+const executingShell = (overrides: Partial<Parameters<typeof shell>[0]> = {}) =>
+  shell({
+    id: "child-1",
+    planLane: "in_progress",
+    session: runningSession({ activeTurnId: "turn-1" as TurnId }),
+    latestTurn: latestTurn({ turnId: "turn-9" as TurnId }),
+    ...overrides,
+  });
+const fresh = (heartbeatAt: string | null, maxSequence: number | null = 7) => ({
+  maxCreatedAt: heartbeatAt,
+  maxSequence,
+  heartbeatAt,
+});
+
+describe("childWakeEvidenceNeeds (phase 1 — lazy evidence planning)", () => {
+  const has = (set: ReadonlySet<string>) => [...set].sort();
+
+  it("fetches nothing for an error child", () => {
+    const child = shell({ id: "child-1", attention: ["error"], session: null });
+    expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual([]);
+  });
+
+  it("fetches freshness for an idle child, but NOTHING for a parked gate party", () => {
+    expect(has(childWakeEvidenceNeeds(idleShell(), new Set(), false))).toEqual(["freshness"]);
+    expect(has(childWakeEvidenceNeeds(idleShell(), new Set(), true))).toEqual([]);
+  });
+
+  it("fetches freshness + the idle-wake delivery lookup for an attention child", () => {
+    const child = idleShell({ attention: ["needs_guidance"] });
+    expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual([
+      "freshness",
+      "idleWakeDelivered",
+    ]);
+  });
+
+  it("fetches the error-wake delivery lookup for a done child", () => {
+    const child = idleShell({ planLane: "done" });
+    expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual(["errorWakeDelivered"]);
+  });
+
+  it("fetches freshness (+ in-flight tool only when unflagged) for an executing child", () => {
+    expect(has(childWakeEvidenceNeeds(executingShell(), new Set(), false))).toEqual([
+      "freshness",
+      "inFlightTool",
+    ]);
+    const flagged = executingShell({ attention: ["needs_guidance"] });
+    expect(has(childWakeEvidenceNeeds(flagged, new Set(), false))).toEqual(["freshness"]);
+  });
+
+  it("fetches nothing for a healthy / never-started child", () => {
+    const child = shell({ id: "child-1", planLane: "planned", session: null });
+    expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual([]);
+  });
+});
+
+describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () => {
+  it("error → an `error` wake keyed on nothing but the child", () => {
+    const child = shell({ id: "child-1", attention: ["error"], session: null });
+    expect(classifyChildWakeFull(child, wakeEvidence(), t0, new Set())).toEqual({
+      kind: "error",
+      episode: "error",
+    });
+  });
+
+  it("idle + gate-waiting → skip `gate-waiting` (no fetch, no suppression)", () => {
+    expect(
+      classifyChildWakeFull(idleShell(), wakeEvidence({ waitingInGate: true }), t0, new Set()),
+    ).toEqual({ skip: "gate-waiting" });
+  });
+
+  it("idle within grace → skip `within-grace`", () => {
+    const evidence = wakeEvidence({ freshness: fresh(now) });
+    expect(classifyChildWakeFull(idleShell(), evidence, t0 + 5_000, new Set())).toEqual({
+      skip: "within-grace",
+    });
+  });
+
+  it("idle past grace → an `idle` wake keyed on the activity sequence", () => {
+    const evidence = wakeEvidence({ freshness: fresh(now, 12) });
+    expect(
+      classifyChildWakeFull(idleShell(), evidence, t0 + DEFAULT_IDLE_WAKE_GRACE_MS + 1, new Set()),
+    ).toEqual({ kind: "idle", episode: "idle:12" });
+  });
+
+  it("attention → a paused wake keyed on the latest turn; provisioning park sets the copy", () => {
+    const child = idleShell({
+      attention: ["needs_guidance"],
+      latestTurn: latestTurn({ turnId: "turn-3" as TurnId }),
+    });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ idleWakeDelivered: false }), t0, new Set()),
+    ).toEqual({ kind: "attention", episode: "attention:turn-3" });
+    expect(
+      classifyChildWakeFull(
+        child,
+        wakeEvidence({ idleWakeDelivered: false, provisionFailurePending: true }),
+        t0,
+        new Set(),
+      ),
+    ).toEqual({
+      kind: "attention",
+      episode: "attention:turn-3",
+      context: { quietMs: 0, provisionFailed: true },
+    });
+  });
+
+  it("attention already surfaced by a delivered idle wake → skip `already-notified` + suppress", () => {
+    const child = idleShell({
+      attention: ["needs_guidance"],
+      latestTurn: latestTurn({ turnId: "turn-3" as TurnId }),
+    });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ idleWakeDelivered: true }), t0, new Set()),
+    ).toEqual({ skip: "already-notified", suppressEpisode: "attention:turn-3" });
+  });
+
+  it("done with no error-wake delivery → skip `never-errored` + suppress the recovery id", () => {
+    const child = idleShell({ planLane: "done" });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ errorWakeDelivered: false }), t0, new Set()),
+    ).toEqual({ skip: "never-errored", suppressEpisode: "recovered" });
+  });
+
+  it("done that WAS durably told it errored → a `recovered` wake", () => {
+    const child = idleShell({ planLane: "done" });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ errorWakeDelivered: true }), t0, new Set()),
+    ).toEqual({ kind: "recovered", episode: "recovered" });
+  });
+
+  it("executing with no activity baseline → skip `no-activity-baseline`", () => {
+    const child = executingShell({ latestTurn: null });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ freshness: fresh(null, null) }), t0, new Set()),
+    ).toEqual({ skip: "no-activity-baseline" });
+  });
+
+  it("executing + flagged + frozen past grace → a frozen `attention` wake", () => {
+    const child = executingShell({ attention: ["needs_guidance"] });
+    const nowMs = t0 + DEFAULT_IDLE_WAKE_GRACE_MS + 1;
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ freshness: fresh(now) }), nowMs, new Set()),
+    ).toEqual({
+      kind: "attention",
+      episode: "attention:turn-9",
+      context: { quietMs: DEFAULT_IDLE_WAKE_GRACE_MS + 1, frozen: true },
+    });
+  });
+
+  it("executing + flagged but still within grace → skip `frozen-within-grace`", () => {
+    const child = executingShell({ attention: ["needs_guidance"] });
+    expect(
+      classifyChildWakeFull(child, wakeEvidence({ freshness: fresh(now) }), t0 + 60_000, new Set()),
+    ).toEqual({ skip: "frozen-within-grace" });
+  });
+
+  it("executing + unflagged + not yet quiet enough → skip `no-notice-due`", () => {
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now) }),
+        t0 + 60_000,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-notice-due" });
+  });
+
+  it("executing + unflagged + quiet but no tool in flight → skip `no-in-flight-tool`", () => {
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now), inFlightTool: null }),
+        t0 + 360_000,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-in-flight-tool" });
+  });
+
+  it("executing + unflagged + a slow in-flight call → a `slow-tool` notice keyed on the row + step", () => {
+    const decision = classifyChildWakeFull(
+      executingShell(),
+      wakeEvidence({
+        freshness: fresh(now),
+        inFlightTool: { toolName: "bash", startedAt: now, activityId: "act-1" },
+      }),
+      t0 + 360_000,
+      new Set(),
+    );
+    expect(decision).toEqual({
+      kind: "slow-tool",
+      episode: "slow-tool:act-1:0",
+      context: { quietMs: 360_000, toolName: "bash", inFlightMs: 360_000 },
+    });
+  });
+
+  it("a healthy / never-started child → skip `healthy`", () => {
+    const child = shell({ id: "child-1", planLane: "planned", session: null });
+    expect(classifyChildWakeFull(child, wakeEvidence(), t0, new Set())).toEqual({
+      skip: "healthy",
+    });
+  });
+});
+
 // The decisive end-to-end coverage for the scheduled re-pass machinery: not the
 // pure grace helper (covered above) but the assembled dispatcher layer driving
 // its forked `Schedule.spaced` fiber under a deterministic `TestClock`. This is
@@ -1125,6 +1349,112 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
             );
             expect(recoveredWakes).toHaveLength(0);
           }).pipe(Effect.provide(buildLayer(dispatched, { errorReceiptExists: false })));
+        }),
+      ),
+  );
+});
+
+// Perf regression (§A.5 extraction must preserve the inline lazy `wasDelivered`
+// pattern): a `done` child that never errored is `markSuppressed`'d once for its
+// "recovered" episode, after which later passes must short-circuit on the
+// in-memory suppressed set and NOT re-read the receipt store for the error-wake
+// delivery. Regression for the two-phase extraction dropping that pre-check.
+describe("recovery suppression avoids repeat receipt reads (TestClock, full dispatcher layer)", () => {
+  const PARENT_ID = "parent-recperf" as ThreadId;
+  const CHILD_ID = "child-recperf" as ThreadId;
+  const errorCmd = childWakeCommandId(CHILD_ID, "error");
+  const parent = shell({
+    id: PARENT_ID as unknown as string,
+    parentThreadId: null,
+    session: null,
+  });
+  // Done child that never errored: classifyChildWake → null, planLane done → the
+  // recovery/never-errored branch owns it.
+  const child = shell({
+    id: CHILD_ID as unknown as string,
+    parentThreadId: PARENT_ID,
+    planLane: "done",
+    session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
+    reportPath: "child-recperf.md",
+  });
+
+  effectIt.effect(
+    "reads the error-wake receipt at most once across a re-pass for a never-errored done child",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // Count only reads for the error-wake command id — the receipt-store
+          // lookup the suppression must stop repeating.
+          let errorReceiptReads = 0;
+          const receipts = {
+            upsert: () => Effect.void,
+            getByCommandId: ({ commandId }: { readonly commandId: string }) =>
+              Effect.sync(() => {
+                if (commandId === errorCmd) errorReceiptReads += 1;
+                return Option.none();
+              }),
+          };
+          const engine = {
+            readEvents: () => Stream.empty,
+            dispatch: (command: OrchestrationCommand) =>
+              Effect.sync(() => {
+                dispatched.push(command);
+                return { sequence: dispatched.length };
+              }),
+            streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
+          } as unknown as OrchestrationEngineShape;
+          const snapshotQuery = {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 1,
+                goals: [],
+                projects: [],
+                threads: [parent, child],
+                updatedAt: now,
+              } satisfies OrchestrationShellSnapshot),
+            getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+            getActivityFreshnessByThreadId: () =>
+              Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+          } as unknown as ProjectionSnapshotQueryShape;
+          const layer = WorkstreamDispatcherLive.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(OrchestrationEngineService, engine),
+                Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+                Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+                WorktreeProvisionerStub,
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3-workstream-dispatcher-recperf-",
+                }),
+              ).pipe(Layer.provideMerge(NodeServices.layer)),
+            ),
+          );
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            // Pass 1: the per-child wake rail (recovered branch) and the delta
+            // rail's prior-rail check each read the error receipt once, then the
+            // per-child rail `markSuppressed`s "recovered" and the delta rail
+            // records its terminal marker.
+            yield* dispatcher.drain;
+            const afterFirstPass = errorReceiptReads;
+            expect(afterFirstPass).toBeGreaterThan(0);
+            // Force a scheduled re-pass with no domain event. Cross-pass dedup is
+            // now carried by the in-memory suppressed/delivered sets, so the
+            // error receipt must NOT be read again — the pre-check this regression
+            // guards. Without it, the per-child rail re-reads every pass.
+            yield* TestClock.adjust(
+              Duration.millis(DEFAULT_IDLE_WAKE_GRACE_MS + IDLE_WAKE_REPASS_INTERVAL_MS),
+            );
+            yield* dispatcher.drain;
+            expect(errorReceiptReads).toBe(afterFirstPass);
+            const recoveredWakes = dispatched.filter(
+              (c) => c.type === "thread.turn.start" && c.message.text.includes("recovered"),
+            );
+            expect(recoveredWakes).toHaveLength(0);
+          }).pipe(Effect.provide(layer));
         }),
       ),
   );

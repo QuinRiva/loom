@@ -2,7 +2,7 @@ import type { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { SidebarThreadSummary } from "../types";
-import { type AttentionReason, rollupGraphState } from "./workstreamGraph";
+import { type AttentionReason, rollupGraphState } from "./workstreamRollup";
 
 const ROOT = "root" as ThreadId;
 

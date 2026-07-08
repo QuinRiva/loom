@@ -5,14 +5,16 @@ import { PiSettings } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
-  PI_TRANSIENT_PROVIDER_ERROR_RE,
-  piBackendFallbackModel,
   piBackendLabel,
   piCatalogModels,
-  piRunOutcome,
   piToolItemPayload,
   slimPiToolPayloadData,
 } from "./PiDriver.ts";
+import {
+  PI_TRANSIENT_PROVIDER_ERROR_RE,
+  piBackendFallbackModel,
+  piRunOutcome,
+} from "./piTurnRetryPolicy.ts";
 
 type ToolMessage = Parameters<typeof piToolItemPayload>[0];
 

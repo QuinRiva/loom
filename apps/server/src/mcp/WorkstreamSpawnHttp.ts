@@ -43,7 +43,7 @@ import {
   resolveSessionFilePath,
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
-import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
+import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
 import { ProviderHealthRegistry } from "../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import {
@@ -54,7 +54,7 @@ import {
 import { resolveFailoverTarget } from "../provider/failoverChains.ts";
 import { exhaustionPredicate, piCatalogueFromProviders } from "../provider/failoverRouting.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { resolveWorkstreamScope } from "./httpScope.ts";
 import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 import {
   appendWarnings,
@@ -145,16 +145,6 @@ const jsonError = (status: number, message: string) =>
 
 const trimString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-
-/** Resolve the bearer token to a Workstream-capable scope, or undefined. */
-const resolveWorkstreamScope = Effect.fn("WorkstreamHttp.resolveScope")(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const token = request.headers.authorization?.startsWith("Bearer ")
-    ? request.headers.authorization.slice("Bearer ".length).trim()
-    : "";
-  const scope = yield* McpSessionRegistry.resolveActiveMcpCredential(token);
-  return scope && scope.capabilities.has("workstream") ? scope : undefined;
-});
 
 /**
  * D3 authorisation: a credential may mutate status/deps only on its OWN thread

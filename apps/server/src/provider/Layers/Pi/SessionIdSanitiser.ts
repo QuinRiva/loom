@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 
-import { piSessionIdForThread, resolveSessionFilePath } from "./Cli.ts";
+import { piSessionIdForThread, resolveSessionFilePath } from "../../piSessionFiles.ts";
 
 /**
  * Loom's defence at its own boundary for a latent pi defect: codex (OpenAI

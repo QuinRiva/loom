@@ -19,7 +19,7 @@ import * as NodeFSP from "node:fs/promises";
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import { piSessionIdForThread } from "../provider/Layers/Pi/Cli.ts";
+import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
 import { resolveSessionFilePath } from "./threadResolve.ts";
 
 export interface StallContext {

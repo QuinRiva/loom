@@ -11,6 +11,7 @@ import {
   isTerminalForJoin,
   isWaitingInGate,
   requiresSubmitToComplete,
+  rootOf,
   routeWorkSubmit,
   subtreeCostOf,
   subtreeOf,
@@ -76,6 +77,28 @@ describe("structural queries", () => {
 
   it("tolerates a missing root node (singleton subtree)", () => {
     expect(subtreeOf(tid("ghost"), tree)).toEqual([]);
+  });
+
+  it("rootOf walks lineage up to the top-most ancestor from any member", () => {
+    expect(rootOf(tid("grandchild"), tree)).toBe("root-a");
+    expect(rootOf(tid("child-1"), tree)).toBe("root-a");
+    expect(rootOf(tid("root-a"), tree)).toBe("root-a");
+    expect(rootOf(tid("other"), tree)).toBe("root-b");
+  });
+
+  it("rootOf treats an unknown node, or one with a dangling parent, as its own root", () => {
+    expect(rootOf(tid("ghost"), tree)).toBe("ghost");
+    expect(rootOf(tid("orphan"), [node({ id: "orphan", parentThreadId: tid("gone") })])).toBe(
+      "orphan",
+    );
+  });
+
+  it("rootOf breaks a lineage cycle with the visited guard", () => {
+    const cycle = [
+      node({ id: "a", parentThreadId: tid("b") }),
+      node({ id: "b", parentThreadId: tid("a") }),
+    ];
+    expect(rootOf(tid("a"), cycle)).toBe("a");
   });
 });
 

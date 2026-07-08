@@ -21,7 +21,7 @@ import {
 import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import { resolveWorkstreamScope } from "./httpScope.ts";
 import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 
 interface GoalTaskAddRequest {
@@ -56,17 +56,6 @@ const trimString = (value: unknown): string | undefined =>
 const nonNegativeInt = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 
-/** Resolve the bearer token to a Workstream-capable scope (the same per-session
- * credential the workstream tools use), or undefined. */
-const resolveGoalScope = Effect.fn("GoalTaskHttp.resolveScope")(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const token = request.headers.authorization?.startsWith("Bearer ")
-    ? request.headers.authorization.slice("Bearer ".length).trim()
-    : "";
-  const scope = yield* McpSessionRegistry.resolveActiveMcpCredential(token);
-  return scope && scope.capabilities.has("workstream") ? scope : undefined;
-});
-
 const allTaskIds = (tasks: ReadonlyArray<OrchestrationGoalTask>): Set<string> => {
   const ids = new Set<string>();
   const stack: OrchestrationGoalTask[] = [...tasks];
@@ -85,7 +74,7 @@ const allTaskIds = (tasks: ReadonlyArray<OrchestrationGoalTask>): Set<string> =>
  * goal was deleted, yields a clean error response.
  */
 const resolveActiveGoal = Effect.fn("GoalTaskHttp.resolveActiveGoal")(function* () {
-  const scope = yield* resolveGoalScope();
+  const scope = yield* resolveWorkstreamScope();
   if (!scope) {
     return { error: jsonError(401, "A valid provider-scoped Workstream credential is required.") };
   }
