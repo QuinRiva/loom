@@ -437,6 +437,29 @@ label:has(> select#reasoning-effort) select {
   margin: 0.65rem 0;
 }
 
+/* Wide-block bleed: tables are allowed to escape the prose measure (max-w-3xl)
+   and use the width the viewport actually offers, up to a cap, so a large
+   display doesn't strand a table in a narrow column with whitespace either
+   side. --timeline-available-width is published by MessagesTimeline from a
+   ResizeObserver; the 100% fallback keeps prose-width behaviour when unset
+   (e.g. outside the timeline).
+
+   The container hugs its content (width: max-content) so a narrow table stays
+   narrow and the footer buttons align to the table edges — but never grows
+   past the smaller of the prose width and the bleed budget. left:50% +
+   translateX(-50%) centers any resulting width on the prose axis (the parent
+   column is itself centered), which needs no knowledge of the final width and
+   so works for both sub-prose and bled tables. */
+.chat-markdown .chat-markdown-table-container {
+  --bleed-cap: 90rem;
+  --bleed-target: min(var(--bleed-cap), calc(var(--timeline-available-width, 100%) - 3rem));
+  position: relative;
+  left: 50%;
+  width: max-content;
+  max-width: max(100%, var(--bleed-target));
+  transform: translateX(-50%);
+}
+
 .chat-markdown h1,
 .chat-markdown h2,
 .chat-markdown h3,
@@ -709,9 +732,12 @@ label:has(> select#reasoning-effort) select {
    wrapping rules (overflow-wrap: anywhere) would let columns shrink to single
    characters and defeat the overflow — restore word-boundary wrapping so the
    min column width is the longest word. */
+/* Size the table to its natural (content) width, capped at the container. When
+   the content fits within the bled container there is no side-scroll at all;
+   only genuinely huge tables still scroll (unavoidable). */
 .chat-markdown table {
-  width: 100%;
-  min-width: max-content;
+  width: max-content;
+  max-width: 100%;
   border-collapse: collapse;
   overflow-wrap: normal;
   word-break: normal;

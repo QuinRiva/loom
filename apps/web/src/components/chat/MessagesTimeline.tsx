@@ -417,6 +417,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
+      // Publish the true available content width so wide blocks (tables, etc.)
+      // can bleed past the prose measure up to what the viewport actually offers.
+      timelineViewportElement.style.setProperty(
+        "--timeline-available-width",
+        `${Math.round(viewportWidth)}px`,
+      );
       const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
       setMinimapHasPersistentGutter((current) =>
         current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
@@ -481,7 +487,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+      <div className="mx-auto w-full min-w-0 max-w-3xl" data-timeline-root="true">
         <TimelineRowContent row={item} />
       </div>
     ),
