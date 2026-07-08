@@ -4,9 +4,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   childrenOf,
   descendantsOf,
+  type FanInHoldbackNode,
   type GateNode,
   graphViewFor,
   type GraphViewThread,
+  isHeldForCounterpartFanIn,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
   isWaitingInGate,
@@ -445,6 +447,76 @@ describe("isWaitingInGate", () => {
     });
     const coder = gnode({ id: "coder", lastOutcome: { decision: "loop" } });
     expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(false);
+  });
+});
+
+describe("isHeldForCounterpartFanIn (pair fan-in coherence, notice-coalescing §4.1)", () => {
+  const fnode = (
+    overrides: Omit<Partial<FanInHoldbackNode>, "id"> & { readonly id: string },
+  ): FanInHoldbackNode & { readonly id: ThreadId } => ({
+    planLane: "done" as ThreadPlanLane,
+    routes: [],
+    isolation: "isolated",
+    fanInState: "none",
+    ...overrides,
+    id: tid(overrides.id),
+  });
+  const mapOf = (nodes: ReadonlyArray<FanInHoldbackNode & { readonly id: ThreadId }>) =>
+    new Map(nodes.map((n) => [n.id, n] as const));
+
+  it("holds a terminal source while its isolated target's fan-in is pending (none)", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
+    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "none" });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(true);
+  });
+
+  it("releases once the target fan-in settles completed", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
+    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "completed" });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
+  });
+
+  it("releases once the target fan-in settles conflicted (settled-for-wake)", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder"), isolation: "shared" });
+    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "conflicted" });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
+  });
+
+  it("never holds a non-terminal source", () => {
+    const reviewer = fnode({
+      id: "reviewer",
+      planLane: "in_progress",
+      routes: loopRoutes("coder"),
+    });
+    const coder = fnode({ id: "coder", isolation: "isolated", fanInState: "none" });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
+  });
+
+  it("never holds a source with no loop route", () => {
+    const solo = fnode({ id: "solo", routes: [] });
+    expect(isHeldForCounterpartFanIn(solo, mapOf([solo]))).toBe(false);
+  });
+
+  it("does not hold when the target is shared (never fans in)", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
+    const coder = fnode({ id: "coder", isolation: "shared", fanInState: "none" });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
+  });
+
+  it("does not hold when the target is a cancelled isolated child (never fans in)", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
+    const coder = fnode({
+      id: "coder",
+      planLane: "cancelled",
+      isolation: "isolated",
+      fanInState: "none",
+    });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer, coder]))).toBe(false);
+  });
+
+  it("does not hold when the target is absent from the map", () => {
+    const reviewer = fnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(isHeldForCounterpartFanIn(reviewer, mapOf([reviewer]))).toBe(false);
   });
 });
 

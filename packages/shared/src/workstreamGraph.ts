@@ -3,10 +3,12 @@ import {
   type AttentionReason,
   type ThreadFanInState,
   type ThreadId,
+  type ThreadIsolation,
   type ThreadPlanLane,
   type WorkOutcomeDecision,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
+import { isFanInPending } from "./workstreamIsolation.ts";
 
 /**
  * workstreamGraph - the single pure source of truth for the workstream graph:
@@ -266,6 +268,43 @@ export const isWaitingInGate = (
     }
   }
   return false;
+};
+
+/**
+ * The minimal node shape the fan-in-coherence holdback reads: plan lane +
+ * routes on the source, plus the isolation/fan-in fields on the target that
+ * `isFanInPending` consults. Both `OrchestrationThread` and
+ * `OrchestrationThreadShell` satisfy it.
+ */
+export interface FanInHoldbackNode {
+  readonly planLane: ThreadPlanLane;
+  readonly routes: ReadonlyArray<WorkstreamRoute>;
+  readonly isolation: ThreadIsolation;
+  readonly fanInState: ThreadFanInState;
+}
+
+/**
+ * Pair fan-in coherence (notice-coalescing design §4.1): a terminal gate
+ * SOURCE (the reviewer carrying the loop route) is held back from the delta
+ * rail while its loop TARGET (the coder) is a done isolated child whose fan-in
+ * has not settled. This keeps a cleanly-resolved gate over an isolated coder
+ * (the default — writers are isolated) from splitting into two wakes: the
+ * reviewer's verdict now, the coder's terminal notice after the fan-in reactor
+ * merges. Held until `thread.fanin-set`, both parties land in one batch → one
+ * notice that can truthfully say the coder's branch is merged and its
+ * dependents released. `conflicted` is settled-for-wake (`isFanInPending` is
+ * false), so the holdback releases and the pair reports together with the
+ * conflict block. The holdback only ever waits on exactly the condition the
+ * coder's own report already waits on, so it introduces no new liveness class.
+ */
+export const isHeldForCounterpartFanIn = (
+  thread: FanInHoldbackNode,
+  threadsById: ReadonlyMap<ThreadId, FanInHoldbackNode>,
+): boolean => {
+  const loopTo = gateLoopTargetOf(thread);
+  if (loopTo === null || !isTerminalForJoin(thread)) return false;
+  const target = threadsById.get(loopTo);
+  return target !== undefined && isFanInPending(target);
 };
 
 /**

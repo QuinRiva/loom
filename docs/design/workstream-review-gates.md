@@ -473,15 +473,28 @@ and wakes the parent through the existing rail (that is the answer to
 "reviewer crashes mid-gate": same as any crash, and the gate's derived state
 survives because it is all in durable events).
 
+> **Update (notice coalescing, 2026-07-08):** the terminal-child delta rail is
+> now the FYI tier of a two-tier delivery model — terminal completions are
+> withheld into a per-parent digest and delivered by piggyback on the next
+> action-required wake, by a quiet-window flush, or immediately when the
+> workstream goes quiet; resolved gate pairs are held together and rendered as
+> one combined section. The action-required rails (idle backstop, error,
+> attention, yield, fan-in conflict) stay immediate and byte-identical. The
+> losslessness/holdback machinery described below is unchanged — only the
+> delivery vehicle and copy changed. See
+> `docs/design/workstream-notice-coalescing.md` for the tiering, the
+> `isHeldForCounterpartFanIn` pair holdback, and the digest flush conditions.
+
 **Terminal-child delta noticing (supersedes the generation-join barrier).** The
 dispatcher no longer waits for an entire `(parentThreadId, spawnGeneration)`
 group to go terminal before waking the parent — that barrier is what let ~11
 children handled progressively over hours re-fire as one enormous redundant
-notice when the last one finally finished. `wakeEligibleParents` is now a DELTA
-rail: it wakes each parent about its `done`/`cancelled` children that it has not
-already heard about, batching all newly-reportable children into ONE wake per
-pass. "Already heard about" is durable and recomputable from the receipt store
-(which supports only exact-id lookup, no prefix enumeration):
+notice when the last one finally finished. The delta rail (now
+`collectTerminalDeltas`, feeding the FYI digest) wakes each parent about its
+`done`/`cancelled` children that it has not already heard about, batching all
+newly-reportable children into ONE wake per pass. "Already heard about" is
+durable and recomputable from the receipt store (which supports only exact-id
+lookup, no prefix enumeration):
 
 - a per-child `child-reported` marker receipt, written after the delta wake,
   keyed `(childId, terminalEpisodeKey)` — the durable "reported" truth that

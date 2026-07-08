@@ -33,8 +33,19 @@ import {
   childReportedCommandId,
   buildGateReverifyMessage,
   buildGateReworkMessage,
-  buildParentWakeMessage,
+  buildStandaloneDigest,
+  buildDigestPiggyback,
   buildYieldWakeMessage,
+  digestShouldFlush,
+  formatWakeTimestamp,
+  FYI_DIGEST_FLUSH_MS,
+  groupBatchForWake,
+  parentWorkstreamQuiet,
+  renderWakePair,
+  renderWakeSingle,
+  renderRecoveredDigestLine,
+  renderSlowToolDigestLine,
+  type WakeMember,
   gateCommandId,
   yieldWakeCommandId,
   childWakeCommandId,
@@ -303,9 +314,9 @@ describe("wakeRateGuardTrips", () => {
   });
 });
 
-describe("buildParentWakeMessage", () => {
+describe("buildStandaloneDigest (terminal delta items render as FYI)", () => {
   it("carries each child's role, id, plan lane, report reference, and a short report inline", () => {
-    const text = buildParentWakeMessage([
+    const text = buildStandaloneDigest([
       {
         id: "child-1" as ThreadId,
         role: "researcher",
@@ -317,8 +328,8 @@ describe("buildParentWakeMessage", () => {
       {
         id: "child-2" as ThreadId,
         role: "reviewer",
-        planLane: "in_progress",
-        attention: ["needs_guidance"],
+        planLane: "cancelled",
+        attention: [],
         reportPath: null,
         report: null,
       },
@@ -326,22 +337,22 @@ describe("buildParentWakeMessage", () => {
     expect(text).toContain("researcher");
     expect(text).toContain("child-1");
     expect(text).toContain("done");
-    // Honest copy: a non-terminal child is shown with its actual lane +
-    // attention state, never described as finished.
-    expect(text).toContain("in_progress (attention: needs_guidance)");
+    // A cancelled child shows its actual lane, never described as finished.
+    expect(text).toContain("cancelled");
     expect(text).not.toContain("has finished");
     // Short reports fit inline under the bound.
     expect(text).toContain("All good.");
     // The on-disk pointer is referenced, never the raw content alone.
     expect(text).toContain("child-1.md");
     expect(text).toContain("No report was filed");
-    expect(text).toContain("workstream_set_lane");
+    // Digest framing: nothing is blocked on the parent.
+    expect(text).toContain("Nothing below is blocked on you");
   });
 
   it("bounds an oversized report to an excerpt + reference, never the full text", () => {
     const tail = "TAIL_MARKER_SHOULD_NOT_APPEAR";
     const report = `${"x".repeat(WAKE_REPORT_EXCERPT_LIMIT + 50)}${tail}`;
-    const text = buildParentWakeMessage([
+    const text = buildStandaloneDigest([
       {
         id: "child-1" as ThreadId,
         role: "researcher",
@@ -355,6 +366,286 @@ describe("buildParentWakeMessage", () => {
     expect(text).toContain("excerpt truncated");
     expect(text).not.toContain(tail);
     expect(text).not.toContain(report);
+  });
+});
+
+describe("groupBatchForWake + pair rendering (design §4.1/§5.1)", () => {
+  const member = (
+    overrides: Omit<Partial<WakeMember>, "id"> & { readonly id: string },
+  ): WakeMember => ({
+    role: "coder",
+    planLane: "done" as ThreadPlanLane,
+    attention: [],
+    reportPath: null,
+    report: null,
+    fanInState: "completed",
+    lastOutcome: null,
+    gateRounds: 0,
+    routes: [],
+    eventAt: "2026-07-07T14:32:00.000Z",
+    releasedDependents: [],
+    ...overrides,
+    id: overrides.id as ThreadId,
+  });
+  const resolveRoutes = (to: string) =>
+    [
+      { on: ["needs_rework"], kind: "loop", to, maxRounds: 2 },
+      { on: ["clean", "fixed_inline"], kind: "resolve" },
+    ] as unknown as NonNullable<WakeMember["routes"]>;
+  const resolveOutcome = (outcome: string) =>
+    ({
+      outcome,
+      decision: "resolve",
+      round: 0,
+      recordedByEventId: "evt-1",
+      at: "2026-07-07T14:32:00.000Z",
+    }) as unknown as NonNullable<WakeMember["lastOutcome"]>;
+
+  it("pairs a resolve-source with its in-batch loop target; singles pass through", () => {
+    const reviewer = member({
+      id: "rev",
+      role: "reviewer",
+      routes: resolveRoutes("cod"),
+      lastOutcome: resolveOutcome("clean"),
+    });
+    const coder = member({ id: "cod", role: "coder" });
+    const solo = member({ id: "solo", role: "researcher", routes: [], lastOutcome: null });
+    const { pairs, singles } = groupBatchForWake([reviewer, coder, solo]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.source.id).toBe("rev");
+    expect(pairs[0]!.target.id).toBe("cod");
+    expect(singles.map((s) => s.id)).toEqual(["solo"]);
+  });
+
+  it("leaves a resolve-source as a single when its target is absent from the batch", () => {
+    const reviewer = member({
+      id: "rev",
+      role: "reviewer",
+      routes: resolveRoutes("cod"),
+      lastOutcome: resolveOutcome("clean"),
+    });
+    const { pairs, singles } = groupBatchForWake([reviewer]);
+    expect(pairs).toHaveLength(0);
+    expect(singles.map((s) => s.id)).toEqual(["rev"]);
+  });
+
+  it("does NOT pair a force-dissolved gate (source terminal without a resolve verdict)", () => {
+    // Parent force-`done`/`cancelled` on the reviewer leaves the loop route but
+    // no resolve outcome — both parties must fall through to honest singles, and
+    // the coder must keep its unreviewed-completion ☑️ first-look treatment.
+    const forcedReviewer = member({
+      id: "rev",
+      role: "reviewer",
+      planLane: "cancelled",
+      routes: resolveRoutes("cod"),
+      lastOutcome: null,
+    });
+    const coder = member({ id: "cod", role: "coder", reportPath: "/r/cod.md", report: "work" });
+    const { pairs, singles } = groupBatchForWake([forcedReviewer, coder]);
+    expect(pairs).toHaveLength(0);
+    expect(singles.map((s) => s.id).sort()).toEqual(["cod", "rev"]);
+    // The coder renders as a plain unreviewed completion (☑️ + excerpt), NOT
+    // "reference only — verified by the gate".
+    const coderSingle = renderWakeSingle(coder);
+    expect(coderSingle).toContain("☑️");
+    expect(coderSingle).toContain("work");
+    expect(coderSingle).not.toContain("verified by the gate");
+    // The forced reviewer does not claim a gate resolution.
+    expect(renderWakeSingle(forcedReviewer)).not.toContain("Gate resolved");
+  });
+
+  it("does NOT pair a gate looped back (source outcome is loop, not resolve)", () => {
+    const loopingReviewer = member({
+      id: "rev",
+      role: "reviewer",
+      routes: resolveRoutes("cod"),
+      lastOutcome: {
+        outcome: "needs_rework",
+        decision: "loop",
+        round: 1,
+        recordedByEventId: "evt-loop",
+        at: "2026-07-07T14:32:00.000Z",
+      } as unknown as NonNullable<WakeMember["lastOutcome"]>,
+    });
+    const coder = member({ id: "cod", role: "coder" });
+    const { pairs } = groupBatchForWake([loopingReviewer, coder]);
+    expect(pairs).toHaveLength(0);
+  });
+
+  it("renders a pair as ONE section: verdict, rounds, fan-in, source excerpt, target reference only", () => {
+    const text = renderWakePair({
+      source: member({
+        id: "rev",
+        role: "reviewer",
+        routes: resolveRoutes("cod"),
+        gateRounds: 2,
+        lastOutcome: resolveOutcome("clean"),
+        reportPath: "/r/rev.md",
+        report: "Clean. Both findings resolved.",
+        releasedDependents: [{ id: "tail" as ThreadId, role: "integration" }],
+      }),
+      target: member({
+        id: "cod",
+        role: "coder",
+        reportPath: "/r/cod-r2.md",
+        report: "THIS_TARGET_EXCERPT_MUST_NOT_APPEAR",
+        fanInState: "completed",
+      }),
+    });
+    expect(text).toContain("Gate resolved `clean`");
+    expect(text).toContain("reviewer `rev`");
+    expect(text).toContain("coder `cod`");
+    expect(text).toContain("2 rework rounds");
+    expect(text).toContain("merged into yours");
+    expect(text).toContain("integration `tail`");
+    expect(text).toContain("2026-07-07 14:32Z");
+    // Source excerpt present; target excerpt absent (reference only).
+    expect(text).toContain("Clean. Both findings resolved.");
+    expect(text).toContain("/r/cod-r2.md");
+    expect(text).not.toContain("THIS_TARGET_EXCERPT_MUST_NOT_APPEAR");
+    expect(text).toContain("verified by the gate");
+  });
+
+  it("a pair with a conflicted target carries the conflict block instead of a merged clause", () => {
+    const text = renderWakePair({
+      source: member({
+        id: "rev",
+        role: "reviewer",
+        routes: resolveRoutes("cod"),
+        lastOutcome: resolveOutcome("fixed_inline"),
+        reportPath: "/r/rev.md",
+        report: "Fixed a typo inline.",
+      }),
+      target: member({ id: "cod", role: "coder", fanInState: "conflicted" }),
+    });
+    expect(text).toContain("Gate resolved `fixed_inline`");
+    expect(text).toContain("CONFLICTED");
+    expect(text).toContain("Fan-in merge conflict");
+    expect(text).not.toContain("merged into yours");
+  });
+
+  it("buildStandaloneDigest: gate-resolved items carry the no-review-owed closing", () => {
+    const text = buildStandaloneDigest([
+      member({
+        id: "rev",
+        role: "reviewer",
+        routes: resolveRoutes("cod"),
+        lastOutcome: resolveOutcome("clean"),
+        reportPath: "/r/rev.md",
+        report: "Clean.",
+      }),
+      member({ id: "cod", role: "coder" }),
+    ]);
+    expect(text).toContain("No first-pass review is owed");
+    expect(text).not.toContain("you are the first-pass reviewer");
+  });
+
+  it("buildStandaloneDigest: an unreviewed completion is marked ☑️ for the usual first look", () => {
+    const text = buildStandaloneDigest([
+      member({ id: "solo", role: "researcher", routes: [], fanInState: "none" }),
+    ]);
+    expect(text).toContain("☑️");
+    expect(text).toContain("deserve the usual first look");
+  });
+});
+
+describe("digest builders + flush predicates (design §4.3/§5.3)", () => {
+  const dm = (id: string): WakeMember => ({
+    id: id as ThreadId,
+    role: "researcher",
+    planLane: "done" as ThreadPlanLane,
+    attention: [],
+    reportPath: `/r/${id}.md`,
+    report: "done",
+    fanInState: "none",
+    lastOutcome: null,
+    gateRounds: 0,
+    routes: [],
+    eventAt: "2026-07-07T14:35:00.000Z",
+    releasedDependents: [],
+  });
+
+  it("buildDigestPiggyback leads with a separator + no-action header and the closing", () => {
+    const text = buildDigestPiggyback([dm("a1b2")]);
+    expect(text).toContain("---");
+    expect(text).toContain("Also, FYI since you last heard");
+    expect(text).toContain("No first-pass review is owed on gate-resolved items");
+    expect(text).toContain("a1b2");
+  });
+
+  it("renderRecoveredDigestLine + renderSlowToolDigestLine are one-liners with no excerpt", () => {
+    const rec = renderRecoveredDigestLine({
+      id: "c1" as ThreadId,
+      role: "coder",
+      reportPath: "/r/c1.md",
+      eventAt: "2026-07-07T14:35:00.000Z",
+    });
+    expect(rec).toContain("recovered");
+    expect(rec).toContain("2026-07-07 14:35Z");
+    expect(rec).toContain("/r/c1.md");
+    const slow = renderSlowToolDigestLine({
+      id: "c2" as ThreadId,
+      role: "coder",
+      toolName: "bash",
+      inFlightMinutes: 7,
+      quietMinutes: 6,
+    });
+    expect(slow).toContain("still executing");
+    expect(slow).toContain("`bash`");
+    expect(slow).toContain("7 min");
+  });
+
+  it("parentWorkstreamQuiet is false with a running/ready child, true otherwise", () => {
+    const p = "p" as ThreadId;
+    expect(
+      parentWorkstreamQuiet(p, [{ parentThreadId: p, planLane: "in_progress" as ThreadPlanLane }]),
+    ).toBe(false);
+    expect(
+      parentWorkstreamQuiet(p, [{ parentThreadId: p, planLane: "ready" as ThreadPlanLane }]),
+    ).toBe(false);
+    // planned (held) / yielded / done do not count as running.
+    expect(
+      parentWorkstreamQuiet(p, [
+        { parentThreadId: p, planLane: "planned" as ThreadPlanLane },
+        { parentThreadId: p, planLane: "yielded" as ThreadPlanLane },
+        { parentThreadId: p, planLane: "done" as ThreadPlanLane },
+      ]),
+    ).toBe(true);
+  });
+
+  it("digestShouldFlush: quiet flushes now; age flushes past the window; else withholds", () => {
+    expect(
+      digestShouldFlush({
+        oldestEventAtMs: null,
+        now: 0,
+        quiet: true,
+        flushMs: FYI_DIGEST_FLUSH_MS,
+      }),
+    ).toBe(true);
+    expect(
+      digestShouldFlush({
+        oldestEventAtMs: 0,
+        now: FYI_DIGEST_FLUSH_MS,
+        quiet: false,
+        flushMs: FYI_DIGEST_FLUSH_MS,
+      }),
+    ).toBe(true);
+    expect(
+      digestShouldFlush({
+        oldestEventAtMs: 0,
+        now: FYI_DIGEST_FLUSH_MS - 1,
+        quiet: false,
+        flushMs: FYI_DIGEST_FLUSH_MS,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("formatWakeTimestamp", () => {
+  it("formats a UTC event time and drops null/unparseable", () => {
+    expect(formatWakeTimestamp("2026-07-07T14:32:09.000Z")).toBe("2026-07-07 14:32Z");
+    expect(formatWakeTimestamp(null)).toBe("");
+    expect(formatWakeTimestamp("not-a-date")).toBe("");
   });
 });
 
@@ -1307,7 +1598,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
   };
 
   effectIt.effect(
-    "delivers exactly one recovery wake when the prior error-wake receipt exists, idempotent thereafter",
+    "delivers exactly one recovery notice (now via the FYI digest) when the prior error-wake receipt exists, idempotent thereafter",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -1316,16 +1607,22 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
             const dispatcher = yield* WorkstreamDispatcher;
             yield* dispatcher.start();
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(1);
-            const wake = dispatched[0]!;
-            if (wake.type !== "thread.turn.start") {
-              throw new Error(`expected a thread.turn.start wake, got ${wake.type}`);
-            }
-            expect(wake.threadId).toBe(PARENT_ID);
-            expect(wake.message.text).toContain("recovered");
+            // Recovered is now an FYI item: the child is done so the workstream
+            // is quiet and the digest flushes immediately — one parent wake
+            // (the standalone digest) plus its durable marker.
+            const wakes = dispatched.filter(
+              (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+                c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+            );
+            expect(wakes).toHaveLength(1);
+            expect(wakes[0]!.message.text).toContain("recovered");
+            expect(wakes[0]!.message.text).toContain("FYI digest");
             // Further passes must not re-nag: recovery is one-shot per child.
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(1);
+            const wakesAfter = dispatched.filter(
+              (c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+            );
+            expect(wakesAfter).toHaveLength(1);
           }).pipe(Effect.provide(buildLayer(dispatched, { errorReceiptExists: true })));
         }),
       ),
@@ -1607,12 +1904,18 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
     latestTurn: latestTurn({ startedAt: epochIso, completedAt: null, state: "running" }),
   });
 
-  const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    opts: { readonly inFlight?: boolean; readonly receipts?: Set<string> } = {},
+  ) => {
+    const inFlight = opts.inFlight ?? true;
+    const receiptSet = opts.receipts;
     const engine = {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
+          receiptSet?.add(command.commandId as unknown as string);
           return { sequence: dispatched.length };
         }),
       streamDomainEvents: Stream.empty,
@@ -1632,14 +1935,22 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
       // Heartbeat frozen at epoch: quiet time === TestClock time.
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: epochIso }),
-      // One tool call in flight since epoch, never completing.
+      // One tool call in flight since epoch, never completing (unless the test
+      // says the tool has since returned — then null, as after a restart).
       getInFlightToolByThreadId: () =>
-        Effect.succeed({ toolName: "bash", startedAt: epochIso, activityId: "act-1" }),
+        Effect.succeed(
+          inFlight ? { toolName: "bash", startedAt: epochIso, activityId: "act-1" } : null,
+        ),
     } as unknown as ProjectionSnapshotQueryShape;
 
     const receipts = {
       upsert: () => Effect.void,
-      getByCommandId: () => Effect.succeed(Option.none()),
+      getByCommandId: ({ commandId }: { commandId: unknown }) =>
+        Effect.succeed(
+          receiptSet?.has(commandId as string)
+            ? Option.some({ status: "accepted" } as never)
+            : Option.none(),
+        ),
     };
 
     return WorkstreamDispatcherLive.pipe(
@@ -1655,8 +1966,14 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
     );
   };
 
+  const slowToolWakes = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+        c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+    );
+
   effectIt.effect(
-    "notifies at the first quiet step, re-notifies at the next step, never flags the child",
+    "digests the slow-tool notice at the first quiet step, re-notifies at the next step, never flags the child",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -1667,32 +1984,64 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
 
             // (1) t=0: the call just started, activity is fresh → no notice.
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(0);
+            expect(slowToolWakes(dispatched)).toHaveLength(0);
 
-            // (2) Past the first step (5m) → exactly one informational notice,
-            // idempotent across further ticks within the same step.
+            // (2) Past the first step (5m): the slow-tool item enters the FYI
+            // digest; its age (quiet onset ~= epoch) exceeds the flush window,
+            // so the digest flushes as exactly one parent notice.
             yield* TestClock.adjust(Duration.millis(6 * 60_000));
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(1);
-            const first = dispatched[0]!;
-            if (first.type !== "thread.turn.start") {
-              throw new Error(`expected a thread.turn.start notice, got ${first.type}`);
-            }
-            expect(first.threadId).toBe(PARENT_ID);
-            expect(first.message.text).toContain("Informational notice");
-            expect(first.message.text).toContain("`bash`");
+            const afterFirst = slowToolWakes(dispatched);
+            expect(afterFirst).toHaveLength(1);
+            expect(afterFirst[0]!.message.text).toContain("FYI digest");
+            expect(afterFirst[0]!.message.text).toContain("still executing");
+            expect(afterFirst[0]!.message.text).toContain("`bash`");
 
             // (3) Past the second step (15m) → exactly one more notice.
             yield* TestClock.adjust(Duration.millis(10 * 60_000));
             yield* dispatcher.drain;
-            expect(dispatched.length).toBe(2);
+            expect(slowToolWakes(dispatched)).toHaveLength(2);
 
-            // The child was never attention-flagged and never interrupted: the
-            // ONLY commands are the two parent notices.
-            expect(
-              dispatched.every((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
-            ).toBe(true);
-          }).pipe(Effect.provide(buildLayer(dispatched)));
+            // The child was never attention-flagged and never interrupted — no
+            // attention.raise anywhere.
+            expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(false);
+          }).pipe(Effect.provide(buildLayer(dispatched, { inFlight: true })));
+        }),
+      ),
+  );
+
+  // Slow-tool is best-effort ephemeral (design §4.2/§6.1): a withheld slow-tool
+  // item is NOT lossless. After a restart, if the tool has since returned the
+  // item must simply evaporate (nothing pending, nothing errors); if the tool is
+  // still in flight and quiet it re-derives and re-enters the digest.
+  effectIt.effect(
+    "restart: a withheld slow-tool item evaporates when the tool has returned, and re-derives when it is still in flight",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // (A) Fresh process, tool has since RETURNED → no in-flight tool, so
+          // the slow-tool item is never derived: no notice, no error.
+          const dispatchedReturned: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* TestClock.adjust(Duration.millis(6 * 60_000));
+            yield* dispatcher.drain;
+            expect(slowToolWakes(dispatchedReturned)).toHaveLength(0);
+          }).pipe(Effect.provide(buildLayer(dispatchedReturned, { inFlight: false })));
+
+          // (B) Fresh process, tool STILL in flight + quiet → the item
+          // re-derives (same episode-key scheme) and re-enters the digest.
+          const dispatchedStill: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* TestClock.adjust(Duration.millis(6 * 60_000));
+            yield* dispatcher.drain;
+            const wakes = slowToolWakes(dispatchedStill);
+            expect(wakes).toHaveLength(1);
+            expect(wakes[0]!.message.text).toContain("still executing");
+          }).pipe(Effect.provide(buildLayer(dispatchedStill, { inFlight: true })));
         }),
       ),
   );
@@ -3071,7 +3420,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
   });
 
   effectIt.effect(
-    "staggered terminality: each newly-terminal child is reported once, never re-included",
+    "terminal deltas are withheld while a sibling runs, then flushed as ONE quiet-workstream digest",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -3098,27 +3447,32 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
             const dispatcher = yield* WorkstreamDispatcher;
             yield* dispatcher.start();
             yield* dispatcher.drain;
-            // Pass 1: only A is terminal → one delta wake naming A, not B.
-            const wakes1 = parentWakes(dispatched);
-            expect(wakes1).toHaveLength(1);
-            expect(wakes1[0]!.message.text).toContain(A);
-            expect(wakes1[0]!.message.text).not.toContain(B);
-            // A durable reported-marker was written for A.
+            // Pass 1: A is terminal but B still runs (workstream not quiet) and
+            // A is fresh → the terminal delta is WITHHELD into the digest, no
+            // wake and no reported-marker yet.
+            expect(parentWakes(dispatched)).toHaveLength(0);
             expect(
               dispatched.some((c) => c.type === "thread.activity.append" && c.threadId === A),
-            ).toBe(true);
+            ).toBe(false);
 
-            // B goes terminal; re-run the pass.
+            // B goes terminal too → the workstream is now quiet, so the digest
+            // flushes immediately as ONE wake naming BOTH A and B.
             yield* Ref.update(threadsRef, (current) =>
               current.map((t) => (t.id === B ? { ...t, planLane: "done" as const } : t)),
             );
             yield* PubSub.publish(events, { type: "thread.plan-lane-set" } as OrchestrationEvent);
             yield* dispatcher.drain;
-            // Pass 2: exactly one MORE wake, naming B and NOT re-including A.
-            const wakes2 = parentWakes(dispatched);
-            expect(wakes2).toHaveLength(2);
-            expect(wakes2[1]!.message.text).toContain(B);
-            expect(wakes2[1]!.message.text).not.toContain(A);
+            const wakes = parentWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            expect(wakes[0]!.message.text).toContain(A);
+            expect(wakes[0]!.message.text).toContain(B);
+            // Both reported-markers were written on the flush.
+            expect(
+              dispatched.some((c) => c.type === "thread.activity.append" && c.threadId === A),
+            ).toBe(true);
+            expect(
+              dispatched.some((c) => c.type === "thread.activity.append" && c.threadId === B),
+            ).toBe(true);
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
@@ -3448,6 +3802,521 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
               );
             expect(recoveredWakes).toHaveLength(0);
           }).pipe(Effect.provide(buildDeps(threadsRef, dispatched, receipts)));
+        }),
+      ),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Notice-coalescing acceptance (docs/design/workstream-notice-coalescing.md §7):
+// the pair holdback + one combined wake, piggyback, age-flush, and the
+// restart-mid-window recompute. A Ref-backed snapshot + PubSub re-arm mirror the
+// delta-rail harness; receipts are a Set so a "restart" keeps durable markers
+// while dropping the in-memory caches.
+// ---------------------------------------------------------------------------
+describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-nc" as ThreadId;
+  const REVIEWER_ID = "reviewer-nc" as ThreadId;
+  const CODER_ID = "coder-nc" as ThreadId;
+  const SIB_ID = "sibling-nc" as ThreadId;
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+
+  const gateRoutes = [
+    { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
+    { on: ["clean", "fixed_inline"], kind: "resolve" },
+  ] as unknown as OrchestrationThreadShell["routes"];
+  const resolveOutcome = {
+    outcome: "clean",
+    decision: "resolve",
+    round: 0,
+    recordedByEventId: "evt-nc-resolve",
+    at: "2026-07-07T14:32:00.000Z",
+  } as unknown as OrchestrationThreadShell["lastOutcome"];
+
+  const buildDeps = (
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    dispatched: Array<OrchestrationCommand>,
+    receipts: Set<string>,
+    events: PubSub.PubSub<OrchestrationEvent>,
+    prefix: string,
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          receipts.add(command.commandId as unknown as string);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.fromPubSub(events),
+      subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+    } satisfies OrchestrationEngineShape;
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.map(Ref.get(threadsRef), (threads) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        })),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const receiptRepo = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { commandId: unknown }) =>
+        Effect.succeed(
+          receipts.has(commandId as string)
+            ? Option.some({ status: "accepted" } as never)
+            : Option.none(),
+        ),
+    };
+    return Layer.mergeAll(
+      Layer.succeed(OrchestrationEngineService, engine),
+      Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+      Layer.succeed(OrchestrationCommandReceiptRepository, receiptRepo as never),
+      WorktreeProvisionerStub,
+      ServerConfig.layerTest(process.cwd(), { prefix }),
+    ).pipe(Layer.provideMerge(NodeServices.layer));
+  };
+
+  const parentWakes = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+        c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+    );
+
+  const resolvedReviewer = () =>
+    shell({
+      id: REVIEWER_ID as unknown as string,
+      parentThreadId: PARENT_ID,
+      role: "reviewer",
+      planLane: "done",
+      isolation: "shared",
+      routes: gateRoutes,
+      lastOutcome: resolveOutcome,
+      reportPath: "/nonexistent/reviewer-nc.md",
+      spawnGeneration: "gen-nc",
+    });
+  const isolatedCoder = (fanInState: "none" | "completed") =>
+    shell({
+      id: CODER_ID as unknown as string,
+      parentThreadId: PARENT_ID,
+      role: "coder",
+      planLane: "done",
+      isolation: "isolated",
+      fanInState,
+      reportPath: "/nonexistent/coder-nc.md",
+      spawnGeneration: "gen-nc",
+    });
+
+  effectIt.effect(
+    "the headline: gate resolves clean with an isolated coder → no wake while fan-in pending, then ONE wake with the pair section on fanin-set",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            resolvedReviewer(),
+            isolatedCoder("none"),
+          ]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            // Fan-in pending → the reviewer is held for its counterpart, the
+            // coder is fan-in-pending: NO wake at all.
+            expect(parentWakes(dispatched)).toHaveLength(0);
+
+            // Fan-in settles completed → both reportable in one batch; the
+            // workstream is quiet → ONE wake carrying the combined pair section.
+            yield* Ref.update(ref, (cur) =>
+              cur.map((t) => (t.id === CODER_ID ? { ...t, fanInState: "completed" as const } : t)),
+            );
+            yield* PubSub.publish(events, { type: "thread.fanin-set" } as OrchestrationEvent);
+            yield* dispatcher.drain;
+            const wakes = parentWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            const text = wakes[0]!.message.text;
+            expect(text).toContain("Gate resolved `clean`");
+            expect(text).toContain("reviewer `reviewer-nc`");
+            expect(text).toContain("coder `coder-nc`");
+            expect(text).toContain("merged into yours");
+            // No first-pass review owed on a gate-resolved batch.
+            expect(text).toContain("No first-pass review is owed");
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-headline-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "restart mid-window: a fresh process (empty caches, same receipts) recomputes the pending pair and flushes it once",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            resolvedReviewer(),
+            isolatedCoder("completed"),
+          ]);
+          // Instance 1 delivers the coalesced pair wake + writes the markers.
+          const dispatched1: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched1)).toHaveLength(1);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched1, receipts, events, "t3-nc-restart-1-")),
+              ),
+            ),
+          );
+          expect(receipts.has(childReportedCommandId(REVIEWER_ID, "evt-nc-resolve"))).toBe(true);
+
+          // Instance 2 = "after restart": fresh caches, SAME durable receipts →
+          // the pending pair is recomputed but already-markered, so NO
+          // re-delivery.
+          const dispatched2: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched2)).toHaveLength(0);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched2, receipts, events, "t3-nc-restart-2-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "age flush: a withheld terminal delta flushes standalone once past the window while a sibling still runs",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const doneSibling = shell({
+            id: SIB_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            role: "researcher",
+            planLane: "done",
+            spawnGeneration: "gen-nc",
+            reportPath: "/nonexistent/sibling-nc.md",
+            // Durable event time at epoch (TestClock starts at t=0) so the item's
+            // age crosses the flush window as the clock advances.
+            updatedAt: "1970-01-01T00:00:00.000Z",
+          });
+          const runningChild = shell({
+            id: CODER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            role: "coder",
+            planLane: "in_progress",
+            spawnGeneration: "gen-nc",
+            session: runningSession({
+              threadId: CODER_ID,
+              status: "running",
+              activeTurnId: "turn-nc" as TurnId,
+            }),
+          });
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            doneSibling,
+            runningChild,
+          ]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            // t=0: fresh item, sibling running (not quiet) → withheld, no wake.
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched)).toHaveLength(0);
+            // Advance past the flush window and re-pass → standalone digest.
+            yield* TestClock.adjust(Duration.millis(FYI_DIGEST_FLUSH_MS + 1000));
+            yield* dispatcher.drain;
+            const wakes = parentWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            expect(wakes[0]!.message.text).toContain("FYI digest");
+            expect(wakes[0]!.message.text).toContain(SIB_ID);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-age-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  // Piggyback: an action-required wake (idle backstop) for the parent carries
+  // the pending FYI digest (a plain terminal completion) appended after its
+  // action copy, and writes the digest item's marker on delivery.
+  effectIt.effect(
+    "an idle-backstop action wake piggybacks the pending terminal-delta digest (action first, FYI after)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          // A plain done sibling (FYI, withheld) + an idle child (action wake)
+          // while another child still runs so the workstream is NOT quiet.
+          const doneSibling = shell({
+            id: SIB_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            role: "researcher",
+            planLane: "done",
+            spawnGeneration: "gen-nc",
+            reportPath: "/nonexistent/sibling-nc.md",
+          });
+          // An error-flagged child is an action-required wake (immediate, no
+          // grace) and keeps the workstream non-quiet so the sibling's terminal
+          // delta stays withheld and must piggyback.
+          const errorChild = shell({
+            id: CODER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            role: "coder",
+            planLane: "in_progress",
+            spawnGeneration: "gen-nc",
+            attention: ["error"],
+            session: runningSession({
+              threadId: CODER_ID,
+              status: "ready",
+              activeTurnId: null,
+            }),
+            reportPath: "/nonexistent/coder-nc.md",
+          });
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            doneSibling,
+            errorChild,
+          ]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            const wakes = parentWakes(dispatched);
+            // One wake: the idle-backstop action wake, carrying the piggybacked
+            // digest section for the done sibling.
+            expect(wakes).toHaveLength(1);
+            const text = wakes[0]!.message.text;
+            // Action copy leads.
+            expect(text).toContain("raised an `error` attention flag");
+            // FYI digest rides after the separator.
+            expect(text).toContain("Also, FYI since you last heard");
+            expect(text).toContain(SIB_ID);
+            const actionIdx = text.indexOf("raised an `error` attention flag");
+            const fyiIdx = text.indexOf("Also, FYI since you last heard");
+            expect(actionIdx).toBeLessThan(fyiIdx);
+            // The sibling's reported-marker was written on delivery.
+            expect(
+              dispatched.some((c) => c.type === "thread.activity.append" && c.threadId === SIB_ID),
+            ).toBe(true);
+            // Budget: the piggyback rides the action wake's SINGLE charge — the
+            // whole notice is exactly one parent turn.start, not two.
+            expect(wakes).toHaveLength(1);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-piggyback-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  // Crash between the digest wake and its markers (design §6.1 / §4.3): the wake
+  // was delivered but the per-item `child-reported` markers never landed. On the
+  // next pass the item is still pending (no marker receipt) and is re-delivered
+  // — a duplicate mention, never a loss. Simulated by dropping the marker
+  // receipt the first flush wrote, mirroring a crash before the marker commit.
+  effectIt.effect(
+    "crash between the digest wake and its markers re-delivers on the next pass (duplicate, never loss)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const doneChild = shell({
+            id: CODER_ID as unknown as string,
+            parentThreadId: PARENT_ID,
+            role: "coder",
+            planLane: "done",
+            spawnGeneration: "gen-nc",
+            reportPath: "/nonexistent/coder-nc.md",
+          });
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, doneChild]);
+          const marker = childReportedCommandId(CODER_ID, "gen-nc");
+          // Instance 1 delivers the digest wake and writes the marker.
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched)).toHaveLength(1);
+            expect(receipts.has(marker)).toBe(true);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-crash-1-")),
+              ),
+            ),
+          );
+          // Simulate a CRASH after the wake but before the marker commit landed:
+          // drop the marker receipt. Instance 2 = a fresh process (empty caches)
+          // finds no durable marker and re-delivers — a duplicate, never a loss.
+          receipts.delete(marker);
+          const dispatched2: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched2)).toHaveLength(1);
+            // The marker is written again on the re-delivery.
+            expect(receipts.has(marker)).toBe(true);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched2, receipts, events, "t3-nc-crash-2-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  // Gate + conflicted fan-in (design §4.1/§7): a cleanly resolved pair whose
+  // isolated coder's fan-in CONFLICTED is settled-for-wake, so the pair reports
+  // together carrying the conflict block — while the fan-in reactor's own
+  // conflict wake remains a separate, immediate rail (not exercised here).
+  effectIt.effect(
+    "a resolved gate pair with a conflicted-fan-in target delivers as ONE pair item with the conflict block",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            resolvedReviewer(),
+            {
+              ...isolatedCoder("none"),
+              fanInState: "conflicted" as const,
+            } as OrchestrationThreadShell,
+          ]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            const wakes = parentWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            const text = wakes[0]!.message.text;
+            expect(text).toContain("Gate resolved `clean`");
+            expect(text).toContain("coder `coder-nc`");
+            // Conflict block present; no false "merged into yours" clause.
+            expect(text).toContain("CONFLICTED");
+            expect(text).toContain("Fan-in merge conflict");
+            expect(text).not.toContain("merged into yours");
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-conflict-")),
+              ),
+            ),
+          );
+        }),
+      ),
+  );
+
+  // Wake-rate budget (design §4.3/§6): a standalone digest flush charges the
+  // per-parent budget, so a spin of standalone flushes trips the guard and parks
+  // exactly like any other rail. Drives one fresh quiet-workstream flush per
+  // pass; after `maxInWindow` charged flushes the next parks (needs_guidance +
+  // no wake) — which can only happen if each flush charged the budget.
+  effectIt.effect(
+    "standalone digest flushes each charge the parent's wake-rate budget (the guard trips + parks after maxInWindow)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent]);
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            // Each pass adds ONE fresh done child (its own episode) to a quiet
+            // workstream → one standalone flush = one budget charge per pass.
+            for (let i = 0; i < DEFAULT_WAKE_RATE_GUARD.maxInWindow; i++) {
+              yield* Ref.update(ref, (cur) => [
+                ...cur,
+                shell({
+                  id: `nc-budget-${i}`,
+                  parentThreadId: PARENT_ID,
+                  role: "researcher",
+                  planLane: "done",
+                  spawnGeneration: `gen-budget-${i}`,
+                  reportPath: `/nonexistent/nc-budget-${i}.md`,
+                }),
+              ]);
+              yield* PubSub.publish(events, {
+                type: "thread.plan-lane-set",
+              } as OrchestrationEvent);
+              yield* dispatcher.drain;
+            }
+            // maxInWindow flushes delivered, each charging once.
+            expect(parentWakes(dispatched)).toHaveLength(DEFAULT_WAKE_RATE_GUARD.maxInWindow);
+            expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(false);
+            // One more fresh item → the budget is at cap, so the flush PARKS.
+            const before = dispatched.length;
+            yield* Ref.update(ref, (cur) => [
+              ...cur,
+              shell({
+                id: "nc-budget-over",
+                parentThreadId: PARENT_ID,
+                role: "researcher",
+                planLane: "done",
+                spawnGeneration: "gen-budget-over",
+                reportPath: "/nonexistent/nc-budget-over.md",
+              }),
+            ]);
+            yield* PubSub.publish(events, { type: "thread.plan-lane-set" } as OrchestrationEvent);
+            yield* dispatcher.drain;
+            const after = dispatched.slice(before);
+            expect(after.some((c) => c.type === "thread.attention.raise")).toBe(true);
+            expect(
+              after.filter((c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID),
+            ).toHaveLength(0);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(ref, dispatched, receipts, events, "t3-nc-budget-")),
+              ),
+            ),
+          );
         }),
       ),
   );

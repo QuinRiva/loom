@@ -9,9 +9,12 @@ import {
   type OrchestrationThreadShell,
   type ThreadId,
   type ThreadPlanLane,
+  type WorkOutcomeRecord,
+  type WorkstreamRoute,
 } from "@t3tools/contracts";
 import {
   gateLoopTargetOf,
+  isHeldForCounterpartFanIn,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
   isWaitingInGate,
@@ -125,66 +128,335 @@ const formatReportExcerpt = (report: string | null): string => {
 };
 
 /**
- * Pure parent wake-message builder (the wake-message contract): tells the parent
- * which of its sub-threads have reached a terminal plan lane SINCE IT WAS LAST
- * NOTIFIED — a delta, not the whole generation (role + id + lane + any attention
- * flags — the copy never claims a child "finished" beyond its actual lane), for
- * each a reference to its on-disk report plus a BOUNDED excerpt (never the full
- * report), and the instruction to review, decide what needs human escalation
- * vs. what it can act on / accept on the human's behalf, and continue
- * orchestrating (including accepting children that are awaiting acceptance).
- *
- * For conflicted fan-in (isolated child whose merge aborted) the block points
- * at the fan-in reactor's dedicated conflict notice (which carries the branch
- * names + conflict paths) and mirrors its recovery copy — it never invents a
- * paths-less warning or contradictory "re-open with set_lane" advice.
+ * Format a durable event time for a rendered wake/digest item (design §5.4):
+ * `2026-07-07 14:32Z`. Null/unparseable → empty string (the caller drops the
+ * timestamp clause). Zero contract cost — the time is already in the read model.
  */
-export const buildParentWakeMessage = (
-  children: ReadonlyArray<{
+export const formatWakeTimestamp = (iso: string | null): string => {
+  if (iso === null) return "";
+  const parsed = DateTime.make(iso);
+  if (Option.isNone(parsed)) return "";
+  const parts = DateTime.toPartsUtc(parsed.value);
+  const pad = (n: number) => `${n}`.padStart(2, "0");
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(
+    parts.minute,
+  )}Z`;
+};
+
+/**
+ * One newly-terminal child as the delta/digest rail sees it: the flat status
+ * fields plus the projected gate context (`lastOutcome`, `gateRounds`, `routes`)
+ * the pair grouper reads, the durable event time (§5.4), and the names of any
+ * dependents this child's `done` released (computed from the snapshot at
+ * delivery; omitted when none).
+ */
+export interface WakeMember {
+  readonly id: ThreadId;
+  readonly role: string | null;
+  readonly planLane: ThreadPlanLane;
+  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly reportPath: string | null;
+  readonly report: string | null;
+  readonly fanInState?: string | null;
+  readonly lastOutcome?: WorkOutcomeRecord | null;
+  readonly gateRounds?: number;
+  readonly routes?: ReadonlyArray<WorkstreamRoute>;
+  readonly eventAt?: string | null;
+  readonly releasedDependents?: ReadonlyArray<{
     readonly id: ThreadId;
     readonly role: string | null;
-    readonly planLane: ThreadPlanLane;
-    readonly attention: ReadonlyArray<AttentionReason>;
-    readonly reportPath: string | null;
-    readonly report: string | null;
-    readonly fanInState?: string | null;
-  }>,
-): string => {
-  const sections = children.map((child) => {
-    const flags = child.attention.length > 0 ? ` (attention: ${child.attention.join(", ")})` : "";
-    const header = `### ${child.role ?? "sub-thread"} \`${child.id}\` — ${child.planLane}${flags}`;
-    const reference =
-      child.reportPath !== null
-        ? `Report reference: \`${child.reportPath}\` (read the full report on demand)`
-        : "_No report was filed; status is the trigger, the report is best-effort context._";
+  }>;
+}
 
-    // Conflicted fan-in: the fan-in reactor already delivered a dedicated,
-    // receipt-deduped conflict notice (coder id, both branches, conflict paths)
-    // and raised `needs_guidance`. Here we only flag it and echo the reactor's
-    // recovery copy — no fabricated "paths not yet available" line, no stale
-    // "re-open with set_lane" advice that contradicts the reactor.
-    const conflictNotice =
-      child.fanInState === "conflicted"
-        ? [
-            "",
-            "⚠️  **Fan-in merge conflict.** This child's branch could not be merged into your branch automatically — see the separate fan-in conflict notice for the branch names and conflicting paths.",
-            "",
-            "**Recovery:** merge the child's branch into your branch yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once the branch is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear `blockedBy`.",
-          ].join("\n")
+/** A resolved gate pair (design §4.1): the verdict-carrying source + its loop target. */
+export interface WakePair {
+  readonly source: WakeMember;
+  readonly target: WakeMember;
+}
+
+const loopTargetOf = (member: WakeMember): ThreadId | null =>
+  member.routes?.find((route) => route.kind === "loop" && route.to !== undefined)?.to ?? null;
+
+/** A member whose last outcome resolved a gate (`clean`/`fixed_inline`). */
+const isResolvedSource = (member: WakeMember): boolean =>
+  member.lastOutcome?.decision === "resolve";
+
+/**
+ * Partition a parent's batch into resolved gate pairs and singles (design §4.1).
+ * A pair is a member whose last outcome actually RESOLVED the gate
+ * (`clean`/`fixed_inline` → `decision === "resolve"`) carrying a loop route
+ * whose target is ALSO in the batch — the two render as one "✅ Gate resolved"
+ * section. A gate DISSOLVED out-of-band (a parent force-`done`/`cancelled` on
+ * the reviewer, whose `lastOutcome` is not a resolve, or none) is deliberately
+ * NOT paired: pairing it would fabricate a verdict that never happened and
+ * strip the target of its unreviewed-completion first-look excerpt. Both parties
+ * then fall through to singles and render their honest plain-status sections. A
+ * resolved source whose target is absent (already reported before resolution)
+ * stays a single and renders a source-only verdict section. Pure and
+ * order-preserving.
+ */
+export const groupBatchForWake = (
+  members: ReadonlyArray<WakeMember>,
+): { readonly pairs: ReadonlyArray<WakePair>; readonly singles: ReadonlyArray<WakeMember> } => {
+  const byId = new Map(members.map((member) => [member.id, member] as const));
+  const claimed = new Set<ThreadId>();
+  const pairs: WakePair[] = [];
+  for (const member of members) {
+    if (claimed.has(member.id)) continue;
+    // Only an actual resolve verdict makes a pair — never a force-dissolved gate.
+    if (!isResolvedSource(member)) continue;
+    const targetId = loopTargetOf(member);
+    if (targetId === null) continue;
+    const target = byId.get(targetId);
+    if (target === undefined || claimed.has(target.id)) continue;
+    pairs.push({ source: member, target });
+    claimed.add(member.id);
+    claimed.add(target.id);
+  }
+  const singles = members.filter((member) => !claimed.has(member.id));
+  return { pairs, singles };
+};
+
+const timestampLine = (member: WakeMember): string => {
+  const ts = formatWakeTimestamp(member.eventAt ?? null);
+  return ts === "" ? "" : `_${ts}_`;
+};
+
+const releasedClause = (member: WakeMember): string => {
+  const released = member.releasedDependents ?? [];
+  if (released.length === 0) return "";
+  return `released: ${released
+    .map((dep) => `${dep.role ?? "sub-thread"} \`${dep.id}\``)
+    .join(", ")}`;
+};
+
+// Conflicted fan-in recovery copy (shared by the plain single + pair renderers):
+// the fan-in reactor already delivered a dedicated conflict notice (branch names
+// + conflict paths) and raised `needs_guidance`, so this only flags it and
+// echoes the recovery copy — no fabricated paths line, no stale set_lane advice.
+const conflictBlock = (fanInState: string | null | undefined): string =>
+  fanInState === "conflicted"
+    ? [
+        "",
+        "⚠️  **Fan-in merge conflict.** This child's branch could not be merged into your branch automatically — see the separate fan-in conflict notice for the branch names and conflicting paths.",
+        "",
+        "**Recovery:** merge the child's branch into your branch yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once the branch is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear `blockedBy`.",
+      ].join("\n")
+    : "";
+
+/**
+ * Render one resolved gate pair as a single section (design §4.1/§5.1): the
+ * verdict + both parties' roles/ids/lanes on the header, rounds used and whether
+ * rework happened, the target's fan-in status, released dependents, and ONE
+ * report reference each — but an excerpt only for the source's verdict report.
+ * The target's round report was already consumed by the gate protocol (the
+ * reviewer verified it), so its reference suffices — the single biggest
+ * per-pair token saving.
+ */
+export const renderWakePair = (pair: WakePair): string => {
+  const { source, target } = pair;
+  const verdict = source.lastOutcome?.outcome ?? "resolved";
+  const rounds = source.gateRounds ?? 0;
+  const roundsClause = rounds > 0 ? ` (${rounds} rework round${rounds === 1 ? "" : "s"})` : "";
+  const header = `### ✅ Gate resolved \`${verdict}\` — ${source.role ?? "reviewer"} \`${source.id}\` + ${target.role ?? "coder"} \`${target.id}\`${roundsClause}`;
+  const fanInClause =
+    target.fanInState === "conflicted"
+      ? "branch fan-in CONFLICTED (see below)"
+      : target.fanInState === "completed"
+        ? `${target.role ?? "coder"} branch merged into yours`
         : "";
+  const meta = [timestampLine(source), fanInClause, releasedClause(source)]
+    .filter((part) => part !== "")
+    .join(" · ");
+  const sourceRef =
+    source.reportPath !== null
+      ? `Verdict report: \`${source.reportPath}\` — excerpt:${formatReportExcerpt(source.report)}`
+      : "_No verdict report was filed._";
+  const targetRef =
+    target.reportPath !== null
+      ? `${target.role ?? "coder"} round report: \`${target.reportPath}\` (reference only — verified by the gate).`
+      : `_No ${target.role ?? "coder"} round report was filed._`;
+  return [header, meta, "", sourceRef, "", targetRef, conflictBlock(target.fanInState)]
+    .filter((part) => part !== "")
+    .join("\n");
+};
 
-    return `${header}\n\n${reference}${formatReportExcerpt(child.report)}${conflictNotice}`;
-  });
+/** Render one non-paired terminal child. A resolved source whose target already
+ *  reported keeps its verdict header; every other child renders the plain
+ *  status section (role + id + lane + attention, reference + bounded excerpt). */
+export const renderWakeSingle = (member: WakeMember): string => {
+  const ts = timestampLine(member);
+  const released = releasedClause(member);
+  if (isResolvedSource(member)) {
+    const verdict = member.lastOutcome?.outcome ?? "resolved";
+    const rounds = member.gateRounds ?? 0;
+    const roundsClause = rounds > 0 ? ` (${rounds} rework round${rounds === 1 ? "" : "s"})` : "";
+    const header = `### ✅ Gate resolved \`${verdict}\` — ${member.role ?? "reviewer"} \`${member.id}\`${roundsClause}`;
+    const meta = [ts, released].filter((part) => part !== "").join(" · ");
+    const reference =
+      member.reportPath !== null
+        ? `Verdict report: \`${member.reportPath}\` — excerpt:${formatReportExcerpt(member.report)}`
+        : "_No verdict report was filed._";
+    return [header, meta, "", reference].filter((part) => part !== "").join("\n");
+  }
+  const flags = member.attention.length > 0 ? ` (attention: ${member.attention.join(", ")})` : "";
+  // A plain (unreviewed) completion is marked ☑️ so the digest copy can point at
+  // "completions marked ☑️ deserve the usual first look"; cancellations are not.
+  const marker = member.planLane === "done" ? "☑️ " : "";
+  const header = `### ${marker}${member.role ?? "sub-thread"} \`${member.id}\` — ${member.planLane}${flags}`;
+  const meta = [ts, released].filter((part) => part !== "").join(" · ");
+  const reference =
+    member.reportPath !== null
+      ? `Report reference: \`${member.reportPath}\` (read the full report on demand)`
+      : "_No report was filed; status is the trigger, the report is best-effort context._";
   return [
+    header,
+    meta,
+    "",
+    `${reference}${formatReportExcerpt(member.report)}${conflictBlock(member.fanInState)}`,
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+};
+
+// ---------------------------------------------------------------------------
+// Two-tier delivery: the FYI digest (notice-coalescing design §4.2–§5.3). The
+// action-required rails stay immediate; terminal deltas, `recovered`, and
+// `slow-tool` are FYI — withheld into a per-parent digest and delivered by
+// piggyback on the next action wake, by a quiet-window flush, or immediately
+// when the workstream goes quiet.
+// ---------------------------------------------------------------------------
+
+/**
+ * Quiet-window flush threshold (design §4.3): a parent's pending FYI items flush
+ * once the oldest is older than this. 120 s — longer than intra-burst gaps (a
+ * resolve transaction, its fan-in, and sibling completions land within a pass or
+ * two), negligible against child task durations. Exported so a deployment that
+ * wants today's immediate behaviour can set it to 0.
+ */
+export const FYI_DIGEST_FLUSH_MS = 120_000;
+
+/** A non-terminal FYI item that rides the digest as a one-to-three-line entry
+ *  (no excerpt): `recovered` (error→done supersession) or `slow-tool`. */
+export interface DigestExtra {
+  readonly kind: "recovered" | "slow-tool";
+  readonly line: string;
+}
+
+/** Render the shared digest body: resolved pairs, then singles, then extras. */
+const renderDigestBody = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra>,
+): string => {
+  const { pairs, singles } = groupBatchForWake(members);
+  return [
+    ...pairs.map(renderWakePair),
+    ...singles.map(renderWakeSingle),
+    ...extras.map((extra) => extra.line),
+  ].join("\n\n");
+};
+
+const DIGEST_CLOSING =
+  "No first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look.";
+
+/**
+ * Standalone FYI digest (design §5.3): delivered by a quiet-window / quiet-
+ * workstream flush as its own turn-start. Fully framed — control-plane marker,
+ * the "nothing below is blocked on you" intro, the items, and the scoreboard-
+ * and-follow-up closing (never first-pass-review deliberation).
+ */
+export const buildStandaloneDigest = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra> = [],
+): string =>
+  [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    "The following Workstream sub-thread(s) have reached terminal plan lanes (done/cancelled) since you were last notified. Results:",
+    "FYI digest — the following items completed and were fully routed by the control plane since you last heard. Nothing below is blocked on you.",
     "",
-    sections.join("\n\n"),
+    renderDigestBody(members, extras),
     "",
-    "Review these results. Decide what (if anything) genuinely warrants human escalation versus what you can act on or accept on the human's behalf. For any child awaiting acceptance, you are the first-pass reviewer: either accept it (advance its plan to `done` with `workstream_set_lane`, which releases its dependents) or escalate to the human when human review is genuinely warranted. Then reconcile the task tree and continue orchestrating.",
+    DIGEST_CLOSING,
   ].join("\n");
+
+/**
+ * Piggyback digest section (design §5.3): appended AFTER an action-required
+ * wake's own copy (action first — the decision the parent must make leads).
+ * A separator, the "no action required" header, the items, and the same closing.
+ */
+export const buildDigestPiggyback = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra> = [],
+): string =>
+  [
+    "",
+    "---",
+    "",
+    "**Also, FYI since you last heard** (no action required):",
+    "",
+    renderDigestBody(members, extras),
+    "",
+    DIGEST_CLOSING,
+  ].join("\n");
+
+/** Render a `recovered` digest one-liner (design §5.2): reference + timestamp,
+ *  no excerpt — the child is done and its dependents already released. */
+export const renderRecoveredDigestLine = (child: {
+  readonly id: ThreadId;
+  readonly role: string | null;
+  readonly reportPath: string | null;
+  readonly eventAt: string | null;
+}): string => {
+  const ts = formatWakeTimestamp(child.eventAt);
+  const tsClause = ts === "" ? "" : ` _${ts}_`;
+  const ref = child.reportPath !== null ? ` — report: \`${child.reportPath}\`` : "";
+  return `- ♻️ ${child.role ?? "sub-thread"} \`${child.id}\` recovered (earlier \`error\` superseded by \`done\`; dependents already released)${ref}.${tsClause}`;
 };
+
+/** Render a `slow-tool` digest one-liner (design §5.2): informational, no flag,
+ *  no report — a tool call has gone quiet while the child still executes. */
+export const renderSlowToolDigestLine = (child: {
+  readonly id: ThreadId;
+  readonly role: string | null;
+  readonly toolName: string;
+  readonly inFlightMinutes: number;
+  readonly quietMinutes: number;
+}): string =>
+  `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — tool \`${child.toolName}\` in flight ~${child.inFlightMinutes} min, quiet ~${child.quietMinutes} min (informational; nothing failed, the control plane will not interrupt it).`;
+
+/**
+ * Quiet-workstream flush condition (design §4.3, condition 3): true when the
+ * parent has no child in lane `ready` or `in_progress` — nothing is running or
+ * about to run, so the orchestrator's next move is due now. `planned`
+ * (deliberately held), `yielded`, `done`, and `cancelled` children do not count.
+ */
+export const parentWorkstreamQuiet = (
+  parentId: ThreadId,
+  threads: ReadonlyArray<{
+    readonly parentThreadId: ThreadId | null;
+    readonly planLane: ThreadPlanLane;
+  }>,
+): boolean =>
+  !threads.some(
+    (thread) =>
+      thread.parentThreadId === parentId &&
+      (thread.planLane === "ready" || thread.planLane === "in_progress"),
+  );
+
+/**
+ * Digest flush predicate (design §4.3): flush when the workstream is quiet
+ * (condition 3) or the oldest pending item has aged past `flushMs` (condition
+ * 2). Age is computed from durable event times, so it survives restarts.
+ * Piggyback (condition 1) is handled by the action rails directly, not here.
+ */
+export const digestShouldFlush = (input: {
+  readonly oldestEventAtMs: number | null;
+  readonly now: number;
+  readonly quiet: boolean;
+  readonly flushMs: number;
+}): boolean =>
+  input.quiet ||
+  (input.oldestEventAtMs !== null && input.now - input.oldestEventAtMs >= input.flushMs);
 
 /**
  * Durable per-child "already reported to the parent through the delta rail"
@@ -216,7 +488,7 @@ export const terminalEpisodeKey = (child: {
  * Per-child wake (D-liveness §1e). All per-child kinds (`error`, paused
  * `attention`, forgot-to-finish `idle`, `recovered`, informational `slow-tool`)
  * wake the parent through THIS rail, distinct from the terminal-child delta rail
- * (`wakeEligibleParents`, which reports children that reached done/cancelled) —
+ * (`collectTerminalDeltas`, which reports children that reached done/cancelled) —
  * these are the non-terminal / transitional states a delta could never carry.
  * The command id is keyed by `(childId, episode)` so each
  * distinct quiet episode notifies exactly once; for idle the episode is the
@@ -883,6 +1155,87 @@ const make = Effect.gen(function* () {
   // delta, per-child, and yield rails so they draw on ONE budget per parent.
   const wakeBudget = makeWakeRateBudget();
 
+  // ------------------------------------------------------------------------
+  // FYI digest accumulator (design §4.3). One entry per withheld FYI item; the
+  // map is rebuilt every pass (recomputable from lanes + receipts, no new
+  // persistence). The delta rail stashes terminal-delta items; the per-child
+  // rail stashes `recovered`/`slow-tool` items; the action rails piggyback the
+  // per-parent digest onto their wakes; a final step flushes leftovers standalone
+  // when the workstream is quiet or the oldest item has aged past the window.
+  // ------------------------------------------------------------------------
+  interface PendingDigestEntry {
+    readonly child: OrchestrationThreadShell;
+    /** Command id whose receipt records "this item was digested". */
+    readonly marker: string;
+    readonly kind: "terminal" | "recovered" | "slow-tool";
+    /** Terminal-episode key (terminal items only) — the reported-marker payload. */
+    readonly episode: string;
+    readonly slowTool?: {
+      readonly toolName: string;
+      readonly inFlightMs: number;
+      readonly quietMs: number;
+    };
+    /** Durable event time (ms) driving the quiet-window age flush. */
+    readonly eventAtMs: number | null;
+  }
+  type PendingDigests = Map<ThreadId, PendingDigestEntry[]>;
+
+  const stashPending = (
+    pending: PendingDigests,
+    parentId: ThreadId,
+    entry: PendingDigestEntry,
+  ): void => {
+    const list = pending.get(parentId);
+    if (list) list.push(entry);
+    else pending.set(parentId, [entry]);
+  };
+
+  // Render a parent's pending entries into the digest member/extra inputs (reads
+  // each terminal item's report on demand). Order: terminals first, extras last.
+  const renderPending = (
+    entries: ReadonlyArray<PendingDigestEntry>,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+  ) =>
+    Effect.gen(function* () {
+      const members: WakeMember[] = [];
+      const extras: DigestExtra[] = [];
+      const mins = (ms: number) => Math.round(ms / 60_000);
+      for (const entry of entries) {
+        if (entry.kind === "terminal") {
+          const report = yield* readReportFor(entry.child);
+          members.push(toWakeMember(entry.child, report, threads));
+        } else if (entry.kind === "recovered") {
+          extras.push({
+            kind: "recovered",
+            line: renderRecoveredDigestLine({
+              id: entry.child.id,
+              role: entry.child.role,
+              reportPath: entry.child.reportPath,
+              eventAt: entry.child.lastOutcome?.at ?? entry.child.updatedAt,
+            }),
+          });
+        } else {
+          extras.push({
+            kind: "slow-tool",
+            line: renderSlowToolDigestLine({
+              id: entry.child.id,
+              role: entry.child.role,
+              toolName: entry.slowTool?.toolName ?? "unknown",
+              inFlightMinutes: mins(entry.slowTool?.inFlightMs ?? 0),
+              quietMinutes: mins(entry.slowTool?.quietMs ?? 0),
+            }),
+          });
+        }
+      }
+      return { members, extras };
+    });
+
+  // Oldest pending event time (ms) for the age flush; null when none is known.
+  const oldestPendingMs = (entries: ReadonlyArray<PendingDigestEntry>): number | null => {
+    const times = entries.map((entry) => entry.eventAtMs).filter((ms): ms is number => ms !== null);
+    return times.length === 0 ? null : Math.min(...times);
+  };
+
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`server:workstream-dispatcher:${tag}:${uuid}`)),
@@ -985,40 +1338,73 @@ const make = Effect.gen(function* () {
   // notice. `requireIdle` makes the engine re-check parent idleness atomically
   // at the serialized command boundary; a busy parent defers (fails without a
   // receipt) and is retried on the next idle drain.
-  const deliverWake = Effect.fn("deliverWake")(function* (
+  // Siblings whose `blockedBy` names this now-`done` child (design §4.1): the
+  // dependents its terminal transition released. Only `done` releases; a
+  // cancelled child releases nothing.
+  const releasedDependentsOf = (
+    child: OrchestrationThreadShell,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+  ): ReadonlyArray<{ readonly id: ThreadId; readonly role: string | null }> =>
+    child.planLane !== "done"
+      ? []
+      : threads
+          .filter((other) => other.id !== child.id && other.blockedBy.includes(child.id))
+          .map((other) => ({ id: other.id, role: other.role }));
+
+  // Assemble the extended wake record for one terminal child: status fields +
+  // report + gate context (lastOutcome/gateRounds/routes for the pair grouper) +
+  // the durable event time (§5.4) + released dependents (§4.1).
+  const toWakeMember = (
+    child: OrchestrationThreadShell,
+    report: string | null,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+  ): WakeMember => ({
+    id: child.id,
+    role: child.role,
+    planLane: child.planLane,
+    attention: child.attention,
+    reportPath: child.reportPath,
+    report,
+    fanInState: child.fanInState,
+    lastOutcome: child.lastOutcome,
+    gateRounds: child.gateRounds,
+    routes: child.routes,
+    eventAt: child.lastOutcome?.at ?? child.updatedAt,
+    releasedDependents: releasedDependentsOf(child, threads),
+  });
+
+  // Deliver a parent's pending FYI items as a STANDALONE digest turn-start
+  // (design §5.3). Its own control-plane marker + "nothing below is blocked on
+  // you" framing. `requireIdle`, so a busy parent defers (no receipt) and the
+  // items stay pending for the next pass. Returns true only on real delivery.
+  const deliverStandaloneDigest = Effect.fn("deliverStandaloneDigest")(function* (
     parent: OrchestrationThreadShell,
-    children: ReadonlyArray<OrchestrationThreadShell>,
+    entries: ReadonlyArray<PendingDigestEntry>,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
   ) {
-    const rendered = yield* Effect.forEach(children, (child) =>
-      readReportFor(child).pipe(
-        Effect.map((report) => ({
-          id: child.id,
-          role: child.role,
-          planLane: child.planLane,
-          attention: child.attention,
-          reportPath: child.reportPath,
-          report,
-          fanInState: child.fanInState,
-        })),
-      ),
-    );
+    const { members, extras } = yield* renderPending(entries, threads);
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* orchestrationEngine.dispatch({
-      type: "thread.turn.start",
-      commandId: yield* serverCommandId("delta-wake"),
-      threadId: parent.id,
-      message: {
-        messageId: MessageId.make(yield* crypto.randomUUIDv4),
-        role: "user",
-        text: buildParentWakeMessage(rendered),
-        attachments: [],
-      },
-      titleSeed: parent.title,
-      runtimeMode: parent.runtimeMode,
-      interactionMode: parent.interactionMode,
-      requireIdle: true,
-      createdAt: now,
-    } satisfies OrchestrationCommand);
+    return yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: yield* serverCommandId("fyi-digest"),
+        threadId: parent.id,
+        message: {
+          messageId: MessageId.make(yield* crypto.randomUUIDv4),
+          role: "user",
+          text: buildStandaloneDigest(members, extras),
+          attachments: [],
+        },
+        titleSeed: parent.title,
+        runtimeMode: parent.runtimeMode,
+        interactionMode: parent.interactionMode,
+        requireIdle: true,
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(
+        Effect.as(true),
+        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      );
   });
 
   // Durable per-child "reported through the delta rail" marker (an activity row
@@ -1049,6 +1435,57 @@ const make = Effect.gen(function* () {
       createdAt: now,
     } satisfies OrchestrationCommand);
   });
+
+  // Durable marker for a `recovered`/`slow-tool` FYI item delivered through the
+  // digest. Keyed by the SAME `childWakeCommandId` the immediate rail used, so
+  // the recovered/slow-tool episode dedup (`alreadyHandled`/`wasDelivered`) is
+  // unchanged; only the delivery vehicle moved to the digest. Written on the
+  // child after the digest turn-start succeeds (wake-before-markers).
+  const dispatchDigestExtraMarker = Effect.fn("dispatchDigestExtraMarker")(function* (
+    child: OrchestrationThreadShell,
+    kind: "recovered" | "slow-tool",
+    commandId: string,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: CommandId.make(commandId),
+      threadId: child.id,
+      activity: {
+        id: EventId.make(yield* crypto.randomUUIDv4),
+        tone: "info",
+        kind: "workstream.child-reported",
+        summary: `Informational ${kind} status folded into the parent's FYI digest.`,
+        payload: { parentId: child.parentThreadId, kind },
+        turnId: null,
+        createdAt: now,
+      },
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  });
+
+  // Record the durable marker for one delivered digest entry (wake-before-
+  // markers). Terminal items reuse the `child-reported` marker; FYI extras reuse
+  // their `childWakeCommandId`. Idempotent via `deliverOnce`.
+  const recordDigestMarker = (entry: PendingDigestEntry) =>
+    entry.kind === "terminal"
+      ? dedup.deliverOnce(entry.marker, dispatchChildReportedMarker(entry.child, entry.episode))
+      : dedup.deliverOnce(
+          entry.marker,
+          dispatchDigestExtraMarker(entry.child, entry.kind, entry.marker),
+        );
+
+  // The parent's pending entries not yet durably delivered this pass (or by a
+  // prior process). Filters out any whose marker receipt already exists so a
+  // piggyback and the standalone flush never double-deliver the same item.
+  const deliverablePending = (entries: ReadonlyArray<PendingDigestEntry>) =>
+    Effect.gen(function* () {
+      const out: PendingDigestEntry[] = [];
+      for (const entry of entries) {
+        if (!(yield* dedup.alreadyHandled(entry.marker))) out.push(entry);
+      }
+      return out;
+    });
 
   const PARK_SUMMARY =
     "Workstream wake rate guard tripped: this parent is being woken too frequently (likely a spawn spin-loop). Parked and escalated for human review.";
@@ -1137,22 +1574,16 @@ const make = Effect.gen(function* () {
     );
   });
 
-  // Delta-based terminal-child noticing: wake each parent about its terminal
-  // (done/cancelled) children that it has NOT already been told about, batching
-  // all newly-reportable children of one parent into ONE wake per pass
-  // ("everything new since you last heard", promptly — not "everything, once the
-  // whole generation ends"). Replaces the old all-members-terminal generation
-  // barrier.
-  const wakeEligibleParents = Effect.fn("wakeEligibleParents")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const threads = snapshot.threads;
-    const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
-
-    // Build per-parent batches of newly-reportable terminal children.
-    const batches = new Map<
-      ThreadId,
-      Array<{ child: OrchestrationThreadShell; episode: string; marker: string }>
-    >();
+  // Terminal-child delta collection (two-tier, design §4.2/§4.3): terminal
+  // children are now FYI, so instead of an immediate wake this stashes every
+  // newly-reportable terminal child into the per-pass pending-digest map. The
+  // holdbacks (unresolved gate, fan-in pending, pair coherence) and prior-rail
+  // suppression are unchanged — only the delivery vehicle moved to the digest.
+  const collectTerminalDeltas = Effect.fn("collectTerminalDeltas")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    pending: PendingDigests,
+  ) {
     for (const child of threads) {
       if (child.parentThreadId === null) continue;
       if (!isTerminalForJoin(child)) continue;
@@ -1166,6 +1597,12 @@ const make = Effect.gen(function* () {
       // block so the orchestrator can resolve it).
       if (isMemberOfUnresolvedGate(child, threads)) continue;
       if (isFanInPending(child)) continue;
+      // Pair fan-in coherence (notice-coalescing §4.1): hold a resolved gate
+      // source back while its loop target's fan-in is still in flight, so the
+      // pair reports together in one wake rather than splitting (reviewer now,
+      // coder after the merge). Releases on `thread.fanin-set` when the target
+      // settles `completed`/`conflicted`.
+      if (isHeldForCounterpartFanIn(child, threadsById)) continue;
       const episode = terminalEpisodeKey(child);
       const marker = childReportedCommandId(child.id, episode);
       // `alreadyHandled` folds the in-memory cache and the durable marker receipt
@@ -1179,57 +1616,17 @@ const make = Effect.gen(function* () {
         yield* dedup.markSuppressed(marker);
         continue;
       }
-      const batch = batches.get(child.parentThreadId);
-      if (batch) batch.push({ child, episode, marker });
-      else batches.set(child.parentThreadId, [{ child, episode, marker }]);
-    }
-    if (batches.size === 0) return;
-    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
-
-    for (const [parentId, members] of batches) {
-      const parent = threadsById.get(parentId);
-      // Parent absent (archived/deleted) → nothing to wake.
-      if (parent === undefined) continue;
-      // Busy parent → defer; a later thread.session-set (parent going idle)
-      // re-triggers this pass. (The engine re-checks idleness atomically too.)
-      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
-
-      const now = yield* Clock.currentTimeMillis;
-      if (wakeBudget.wouldTrip(parentId, now)) {
-        yield* parkAndEscalate(parent, "delta");
-        for (const member of members) yield* dedup.markSuppressed(member.marker);
-        continue;
-      }
-      // Wake-before-markers: deliver the batched wake, then write the durable
-      // per-child markers. The delta wake keeps its bespoke shape (a random
-      // command id, batched per parent) rather than routing through
-      // `deliverOnce` — cross-restart dedup is carried by the per-child markers,
-      // not this id. `requireIdle` makes the engine defer (no receipt) if the
-      // parent became busy in the race window; treat that as not-yet-delivered so
-      // the next idle drain retries with the same batch. Only count the wake +
-      // write the markers on real delivery.
-      const delivered = yield* deliverWake(
-        parent,
-        members.map((member) => member.child),
-      ).pipe(
-        Effect.as(true),
-        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
-      );
-      if (!delivered) continue;
-      wakeBudget.recordDelivery(parentId, now);
-      // Each marker IS a receipt-bearing command, so record it through the module
-      // (delivers + caches). The batch-build loop already established none are
-      // handled, so every `deliverOnce` here dispatches.
-      for (const member of members) {
-        yield* dedup.deliverOnce(
-          member.marker,
-          dispatchChildReportedMarker(member.child, member.episode),
-        );
-      }
+      stashPending(pending, child.parentThreadId, {
+        child,
+        marker,
+        kind: "terminal",
+        episode,
+        eventAtMs: parseIsoMs(child.lastOutcome?.at ?? child.updatedAt),
+      });
     }
   });
 
-  // Deliver one per-child wake (§1e). Mirrors `deliverWake`: a deterministic
+  // Deliver one per-child wake (§1e). Mirrors the delta wake: a deterministic
   // command id (receipt-dedup across restarts), `requireIdle` so a busy parent
   // defers atomically at the command boundary. The child's PLAN is left untouched
   // (the parent decides done/cancelled/re-dispatch); the only state it writes is
@@ -1241,6 +1638,9 @@ const make = Effect.gen(function* () {
     kind: ChildWakeKind,
     commandId: string,
     context?: ChildWakeContext,
+    // Piggyback digest text appended AFTER the action copy (design §5.3): the
+    // decision the parent must make leads; the FYI scoreboard rides along.
+    digestText?: string,
   ) {
     // No-silent-halt backstop (design §4.7/§6): a forgot-to-finish child is
     // halted non-terminal with no resumer, so raise its `needs_guidance` flag —
@@ -1262,6 +1662,7 @@ const make = Effect.gen(function* () {
     }
     const report = yield* readReportFor(child);
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    const actionText = buildChildWakeMessage(child, kind, report, context);
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
       commandId: CommandId.make(commandId),
@@ -1269,7 +1670,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
-        text: buildChildWakeMessage(child, kind, report, context),
+        text: digestText === undefined ? actionText : `${actionText}\n${digestText}`,
         attachments: [],
       },
       titleSeed: parent.title,
@@ -1286,15 +1687,17 @@ const make = Effect.gen(function* () {
   // gone quiet — informational) child through the shared rail, so a single
   // failed/paused/quiet/recovered child is surfaced promptly (B1) even while its
   // siblings still run — these are the non-terminal / transitional states the
-  // terminal-child delta rail (`wakeEligibleParents`) could never carry. Shares
+  // terminal-child delta rail (`collectTerminalDeltas`) could never carry. Shares
   // `wakeTimestamps` + `parkAndEscalate` so error/idle/recovery/terminal-delta
   // wakes draw on ONE rate budget per parent (C1).
-  const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+  const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    pending: PendingDigests,
+  ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
 
-    for (const child of snapshot.threads) {
+    for (const child of threads) {
       // Top-level threads have no agent parent to wake; the board surfaces them
       // (error lane / activity) as escalate-to-human.
       if (child.parentThreadId === null) continue;
@@ -1376,30 +1779,80 @@ const make = Effect.gen(function* () {
         continue;
       }
 
-      const commandId = childWakeCommandId(child.id, decision.episode);
+      const { kind, episode, context } = decision;
+      const commandId = childWakeCommandId(child.id, episode);
       if (yield* dedup.alreadyHandled(commandId)) continue;
+
+      // Two-tier redirect (design §4.2): `recovered` and `slow-tool` are FYI —
+      // stash them into the per-parent digest instead of an immediate wake
+      // (episode keys/receipts unchanged; explicitly exempt from losslessness).
+      // A quiet-window/quiet-workstream flush or a piggyback delivers them.
+      if (kind === "recovered" || kind === "slow-tool") {
+        stashPending(pending, parent.id, {
+          child,
+          marker: commandId,
+          kind,
+          episode,
+          ...(kind === "slow-tool"
+            ? {
+                slowTool: {
+                  toolName: context?.toolName ?? "unknown",
+                  inFlightMs: context?.inFlightMs ?? 0,
+                  quietMs: context?.quietMs ?? 0,
+                },
+              }
+            : {}),
+          // Recovered: stable durable event time. Slow-tool: anchor the age to
+          // quiet ONSET (now - quietMs) so the quiet-window flush fires — the
+          // child is in_progress, so the quiet-workstream condition never does.
+          eventAtMs:
+            kind === "recovered"
+              ? parseIsoMs(child.lastOutcome?.at ?? child.updatedAt)
+              : now - (context?.quietMs ?? 0),
+        });
+        continue;
+      }
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
       if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
 
       if (wakeBudget.wouldTrip(parent.id, now)) {
-        yield* parkAndEscalate(
-          parent,
-          decision.kind === "recovered" ? `child-recovery:${child.id}` : `child-wake:${child.id}`,
-        );
+        yield* parkAndEscalate(parent, `child-wake:${child.id}`);
         // A park suppresses this command id locally with NO receipt behind it —
         // `wasDelivered` stays false for it, so a later cross-rail "was the parent
         // told?" (e.g. the recovery guard) is not fooled into firing.
         yield* dedup.markSuppressed(commandId);
         continue;
       }
+      // Action-required wake: piggyback this parent's pending FYI digest (action
+      // copy first, FYI after) and, on real delivery, write the digest items'
+      // durable markers and clear them from the pending map so the standalone
+      // flush and other action wakes never re-deliver them.
+      const piggyback = yield* deliverablePending(pending.get(parent.id) ?? []);
+      const digestText =
+        piggyback.length === 0
+          ? undefined
+          : buildDigestPiggyback(
+              ...(yield* renderPending(piggyback, threads).pipe(
+                Effect.map((r) => [r.members, r.extras] as const),
+              )),
+            );
       // `deliverOnce` catches the busy-parent race (C2) exactly like the old
       // manual catch: a deferral records nothing and stays redeliverable.
       const outcome = yield* dedup.deliverOnce(
         commandId,
-        deliverChildWake(parent, child, decision.kind, commandId, decision.context),
+        deliverChildWake(parent, child, kind, commandId, context, digestText),
       );
-      if (outcome === "delivered") wakeBudget.recordDelivery(parent.id, now);
+      if (outcome === "delivered") {
+        wakeBudget.recordDelivery(parent.id, now);
+        for (const entry of piggyback) yield* recordDigestMarker(entry);
+        pending.set(
+          parent.id,
+          (pending.get(parent.id) ?? []).filter(
+            (entry) => !piggyback.some((done) => done.marker === entry.marker),
+          ),
+        );
+      }
     }
   });
 
@@ -1497,12 +1950,14 @@ const make = Effect.gen(function* () {
   // command id (receipt-deduped across restarts), `requireIdle`, and the shared
   // per-parent wake-rate budget. The child's lane is left untouched — clearing
   // `yielded` is the resume's job (any turn-start reverts it to `in_progress`).
-  const wakeYieldedChildren = Effect.fn("wakeYieldedChildren")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+  const wakeYieldedChildren = Effect.fn("wakeYieldedChildren")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    pending: PendingDigests,
+  ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
 
-    for (const child of snapshot.threads) {
+    for (const child of threads) {
       if (child.parentThreadId === null || child.planLane !== "yielded") continue;
       // The lane is only ever set by a submit's routing decision, whose
       // transaction also records the outcome — so a yielded child always
@@ -1548,6 +2003,23 @@ const make = Effect.gen(function* () {
         };
       }
       const nowIso = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      // Piggyback this parent's pending FYI digest onto the yield wake (action
+      // copy first, FYI after — design §5.3).
+      const piggyback = yield* deliverablePending(pending.get(parent.id) ?? []);
+      const actionText = buildYieldWakeMessage(
+        child,
+        child.lastOutcome.outcome,
+        report,
+        gateContext,
+      );
+      const yieldText =
+        piggyback.length === 0
+          ? actionText
+          : `${actionText}\n${buildDigestPiggyback(
+              ...(yield* renderPending(piggyback, threads).pipe(
+                Effect.map((r) => [r.members, r.extras] as const),
+              )),
+            )}`;
       const outcome = yield* dedup.deliverOnce(
         commandId,
         orchestrationEngine.dispatch({
@@ -1557,7 +2029,7 @@ const make = Effect.gen(function* () {
           message: {
             messageId: MessageId.make(yield* crypto.randomUUIDv4),
             role: "user",
-            text: buildYieldWakeMessage(child, child.lastOutcome.outcome, report, gateContext),
+            text: yieldText,
             attachments: [],
           },
           titleSeed: parent.title,
@@ -1567,20 +2039,80 @@ const make = Effect.gen(function* () {
           createdAt: nowIso,
         } satisfies OrchestrationCommand),
       );
-      if (outcome === "delivered") wakeBudget.recordDelivery(parent.id, now);
+      if (outcome === "delivered") {
+        wakeBudget.recordDelivery(parent.id, now);
+        for (const entry of piggyback) yield* recordDigestMarker(entry);
+        pending.set(
+          parent.id,
+          (pending.get(parent.id) ?? []).filter(
+            (entry) => !piggyback.some((done) => done.marker === entry.marker),
+          ),
+        );
+      }
     }
   });
 
-  const runPassSafely = Effect.andThen(
-    Effect.andThen(
-      Effect.andThen(
-        Effect.andThen(promoteReadyThreads(), routeGateTraversals()),
-        wakeEligibleParents(),
-      ),
-      wakeIdleAndErroredChildren(),
-    ),
-    wakeYieldedChildren(),
-  ).pipe(
+  // Standalone digest flush (design §4.3, conditions 2 & 3): after the action
+  // rails have had their piggyback chance, deliver each parent's still-pending
+  // FYI items as their own digest turn-start when the workstream is quiet or the
+  // oldest item has aged past `FYI_DIGEST_FLUSH_MS`. Wake-before-markers, rate-
+  // guarded, `requireIdle`. Leftovers that neither flush nor piggyback simply
+  // stay pending and are recomputed next pass.
+  const flushPendingDigests = Effect.fn("flushPendingDigests")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    pending: PendingDigests,
+  ) {
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+    for (const [parentId, rawEntries] of pending) {
+      const entries = yield* deliverablePending(rawEntries);
+      if (entries.length === 0) continue;
+      const parent = threadsById.get(parentId);
+      if (parent === undefined) continue;
+      const now = yield* Clock.currentTimeMillis;
+      const quiet = parentWorkstreamQuiet(parentId, threads);
+      if (
+        !digestShouldFlush({
+          oldestEventAtMs: oldestPendingMs(entries),
+          now,
+          quiet,
+          flushMs: FYI_DIGEST_FLUSH_MS,
+        })
+      )
+        continue;
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      if (wakeBudget.wouldTrip(parentId, now)) {
+        yield* parkAndEscalate(parent, "fyi-digest");
+        for (const entry of entries) yield* dedup.markSuppressed(entry.marker);
+        continue;
+      }
+      const delivered = yield* deliverStandaloneDigest(parent, entries, threads);
+      if (!delivered) continue;
+      wakeBudget.recordDelivery(parentId, now);
+      for (const entry of entries) yield* recordDigestMarker(entry);
+    }
+  });
+
+  // One dispatcher pass. The FYI-digest rails share a per-pass pending map
+  // (rebuilt each pass, recomputable from lanes + receipts): the delta rail and
+  // the per-child rail STASH FYI items into it, the action rails piggyback it
+  // onto their wakes, and the final flush delivers any leftovers standalone.
+  // Rails run serially on the drainable worker, so the plain mutable map needs
+  // no synchronisation.
+  const runPass = Effect.fn("runPass")(function* () {
+    yield* promoteReadyThreads();
+    yield* routeGateTraversals();
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const threads = snapshot.threads;
+    const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
+    const pending: PendingDigests = new Map();
+    yield* collectTerminalDeltas(threads, threadsById, pending);
+    yield* wakeIdleAndErroredChildren(threads, threadsById, pending);
+    yield* wakeYieldedChildren(threads, threadsById, pending);
+    yield* flushPendingDigests(threads, threadsById, pending);
+  });
+
+  const runPassSafely = runPass().pipe(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) {
         return Effect.failCause(cause);
