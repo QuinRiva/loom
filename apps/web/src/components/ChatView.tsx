@@ -166,8 +166,8 @@ import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
-import { buildThreadLineage, EMPTY_LINEAGE } from "../threadRouteLineage";
+import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -209,7 +209,6 @@ import {
   useThreadProposedPlans,
   useThreadRefs,
   useThreadShell,
-  useThreadShells,
   useThreadSyncError,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
@@ -1306,33 +1305,6 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
-  );
-  const allThreadShells = useThreadShells();
-  const threadShellById = useMemo(() => {
-    const map: Record<ThreadId, (typeof allThreadShells)[number]> = {};
-    if (activeThread) {
-      for (const shell of allThreadShells) {
-        if (shell.environmentId === activeThread.environmentId) map[shell.id] = shell;
-      }
-    }
-    return map;
-  }, [allThreadShells, activeThread]);
-  const threadLineage = useMemo(
-    () =>
-      activeThread?.parentThreadId != null
-        ? buildThreadLineage(threadShellById, activeThread.id)
-        : EMPTY_LINEAGE,
-    [activeThread?.parentThreadId, activeThread?.id, threadShellById],
-  );
-  const navigateToThread = useCallback(
-    (targetThreadId: ThreadId) => {
-      if (!activeThread) return;
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(activeThread.environmentId, targetThreadId)),
-      });
-    },
-    [activeThread, navigate],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const [timelineAnchor, setTimelineAnchor] = useState<{
@@ -2882,14 +2854,6 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "files");
   }, [activeProject, activeThreadRef]);
-  const addTasksSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "tasks");
-  }, [activeThreadRef]);
-  const addWorkstreamSurface = useCallback(() => {
-    if (!activeThreadRef) return;
-    useRightPanelStore.getState().open(activeThreadRef, "workstream");
-  }, [activeThreadRef]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -3595,23 +3559,17 @@ function ChatViewContent(props: ChatViewProps) {
     // activeThreadRef resets transitively with the active thread.
   }, [activeThread?.id]);
 
-  // When the active thread is bound to a goal, surface its goal-task tree once
-  // by auto-opening the "tasks" right-panel surface (mirrors the plan-sidebar
-  // auto-open). We track which scoped thread keys we've already auto-opened in a
-  // ref so switching away and back doesn't re-fire the open and clobber a
-  // surface the user has since selected (e.g. Workstream); the user can still
-  // freely change or close the surface within the session. This coexists with
-  // the plan-sidebar auto-open — both add a right-panel tab rather than fight
-  // for an exclusive slot.
-  const autoOpenedTasksByThreadKey = useRef(new Set<string>());
-  useEffect(() => {
-    if (!activeThreadRef || !activeThreadKey) return;
-    if (!activeThread?.goalId) return;
-    if (autoOpenedTasksByThreadKey.current.has(activeThreadKey)) return;
-    autoOpenedTasksByThreadKey.current.add(activeThreadKey);
-    useRightPanelStore.getState().open(activeThreadRef, "tasks");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
-  }, [activeThreadKey, activeThread?.goalId]);
+  // loom: fork chat extensions (thread lineage, tasks/workstream surfaces, tasks
+  // auto-open). Deliberately invoked HERE, not at the top of the component, so
+  // the hook's goal-tasks auto-open effect registers immediately AFTER the
+  // thread-reset effect above and BEFORE the plan-sidebar auto-open effect
+  // below. That declaration order is load-bearing: on thread change both effects
+  // fire in the same commit and each opens a right-panel surface (which also
+  // activates it), so the last opener wins the active surface (reset → tasks →
+  // plan). The returned values are consumed only in JSX further down, so this
+  // mid-component call is safe.
+  const { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface } =
+    useLoomThreadExtensions({ activeThread, activeThreadRef, activeThreadKey });
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).

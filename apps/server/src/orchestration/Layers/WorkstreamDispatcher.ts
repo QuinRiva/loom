@@ -32,7 +32,11 @@ import * as Stream from "effect/Stream";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { makeReceiptDedupedDelivery, makeWakeRateBudget } from "../receiptDedup.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionActivityFreshness,
+  type ProjectionInFlightTool,
+} from "../Services/ProjectionSnapshotQuery.ts";
 import {
   WorkstreamDispatcher,
   type WorkstreamDispatcherShape,
@@ -540,6 +544,234 @@ export const idleWakeWithinGrace = (
   now: number,
   graceWindowMs: number,
 ): boolean => lastProgressMs === null || now - lastProgressMs < graceWindowMs;
+
+/** Executing-child predicate: an open turn on a released, pre-terminal child. */
+const isChildExecuting = (child: OrchestrationThreadShell): boolean =>
+  child.session !== null &&
+  child.session.activeTurnId !== null &&
+  (child.planLane === "ready" || child.planLane === "in_progress");
+
+/**
+ * Quiet duration (ms) for an EXECUTING child: `now` minus the newest of its
+ * runtime heartbeat, activity row, and turn start. `null` when none is known (no
+ * baseline → the caller withholds). Shared by {@link classifyChildWakeFull} and
+ * by the wake loop's lazy in-flight-tool fetch gate so both read ONE definition
+ * of "how long has this open turn been silent".
+ */
+const executingQuietMs = (
+  child: OrchestrationThreadShell,
+  freshness: ProjectionActivityFreshness,
+  now: number,
+): number | null => {
+  const lastKnown = [
+    freshness.heartbeatAt,
+    freshness.maxCreatedAt,
+    child.latestTurn?.startedAt ?? child.latestTurn?.requestedAt ?? null,
+  ]
+    .map(parseIsoMs)
+    .filter((ms): ms is number => ms !== null);
+  return lastKnown.length === 0 ? null : now - Math.max(...lastKnown);
+};
+
+/** The async evidence kinds the wake loop fetches on demand (§A.5). */
+export type ChildWakeEvidenceKind =
+  | "freshness"
+  | "inFlightTool"
+  | "idleWakeDelivered"
+  | "errorWakeDelivered";
+
+const EMPTY_EVIDENCE_NEEDS: ReadonlySet<ChildWakeEvidenceKind> = new Set();
+
+/**
+ * The per-child evidence {@link classifyChildWakeFull} needs to decide. The four
+ * async fields are fetched lazily by the wake loop — only those
+ * {@link childWakeEvidenceNeeds} names for the child's shape, in the exact order
+ * the inline loop used before the extraction. The two synchronous fields are
+ * always known from the snapshot.
+ */
+export interface ChildWakeEvidence {
+  /** Activity freshness — present iff `"freshness"` was in the needs set. */
+  readonly freshness?: ProjectionActivityFreshness | undefined;
+  /** In-flight tool row (`null` when none) — present iff it was fetched. */
+  readonly inFlightTool?: ProjectionInFlightTool | null | undefined;
+  /** `wasDelivered(idle:<maxSequence>)` — the attention idle-wake suppression guard. */
+  readonly idleWakeDelivered?: boolean | undefined;
+  /** `wasDelivered(error)` — the `recovered`-wake precondition. */
+  readonly errorWakeDelivered?: boolean | undefined;
+  /** The child's `needs_guidance` came from a pre-first-turn provisioning park. */
+  readonly provisionFailurePending: boolean;
+  /** The child is a gate party the protocol has parked (not "forgot to finish"). */
+  readonly waitingInGate: boolean;
+}
+
+/**
+ * Why a child produced NO wake this pass — every previously comment-only
+ * suppression is now an assertable variant.
+ */
+export type ChildWakeSkipReason =
+  | "healthy"
+  | "gate-waiting"
+  | "within-grace"
+  | "already-notified"
+  | "never-errored"
+  | "no-activity-baseline"
+  | "frozen-within-grace"
+  | "no-notice-due"
+  | "no-in-flight-tool";
+
+/**
+ * The full wake decision: either a wake `kind` with its episode key (and any
+ * measured `context`), or a `skip` reason. `suppressEpisode` is set on the two
+ * skips that record a local suppression (attention already-notified, done
+ * never-errored) — the loop `markSuppressed`s that episode's command id.
+ */
+export type ChildWakeDecision =
+  | {
+      readonly kind: ChildWakeKind;
+      readonly episode: string;
+      readonly context?: ChildWakeContext | undefined;
+    }
+  | { readonly skip: ChildWakeSkipReason; readonly suppressEpisode?: string };
+
+/**
+ * Phase 1 (pure): which async evidence the wake loop must fetch for this child,
+ * so quiet/healthy children cost no queries. Mirrors the inline branch fetches
+ * exactly: `error` needs nothing; `idle` needs freshness UNLESS it is a parked
+ * gate party (short-circuited before any fetch — hence the `waitingInGate`
+ * argument); `attention` needs freshness + the idle-wake delivery lookup; a
+ * `done` child needs the error-wake delivery lookup; an executing child needs
+ * freshness, plus the in-flight-tool query when unflagged (the loop still gates
+ * that fetch behind the freshness-derived notice schedule, so a not-yet-quiet
+ * call is never queried).
+ */
+export const childWakeEvidenceNeeds = (
+  child: OrchestrationThreadShell,
+  pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
+  waitingInGate: boolean,
+): ReadonlySet<ChildWakeEvidenceKind> => {
+  const kind = classifyChildWake(child, pendingTurnStartThreadIds);
+  if (kind === "error") return EMPTY_EVIDENCE_NEEDS;
+  if (kind === "idle")
+    return waitingInGate ? EMPTY_EVIDENCE_NEEDS : new Set<ChildWakeEvidenceKind>(["freshness"]);
+  if (kind === "attention")
+    return new Set<ChildWakeEvidenceKind>(["freshness", "idleWakeDelivered"]);
+  if (child.planLane === "done") return new Set<ChildWakeEvidenceKind>(["errorWakeDelivered"]);
+  if (isChildExecuting(child))
+    return child.attention.length > 0
+      ? new Set<ChildWakeEvidenceKind>(["freshness"])
+      : new Set<ChildWakeEvidenceKind>(["freshness", "inFlightTool"]);
+  return EMPTY_EVIDENCE_NEEDS;
+};
+
+/**
+ * Phase 2 (pure): the whole per-child wake decision. Composes the shape
+ * classifier {@link classifyChildWake} and layers on the evidence-dependent
+ * decisions (idle grace, attention idle-wake suppression, `recovered` error
+ * precondition, frozen-attention vs slow-tool split) the loop used to inline.
+ * Every branch's episode-key construction lives here; the loop keeps only the
+ * effectful delivery tail.
+ */
+export const classifyChildWakeFull = (
+  child: OrchestrationThreadShell,
+  evidence: ChildWakeEvidence,
+  now: number,
+  pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
+): ChildWakeDecision => {
+  const kind = classifyChildWake(child, pendingTurnStartThreadIds);
+
+  // `error` fires once, keyed on nothing but the child.
+  if (kind === "error") return { kind: "error", episode: "error" };
+
+  if (kind === "idle") {
+    // Gate-waiting is not "forgot to finish": a parked gate party (source after a
+    // loop verdict, or routed-back target awaiting re-verify) is where it
+    // belongs. A cancelled counterpart un-suppresses so the dead gate surfaces.
+    if (evidence.waitingInGate) return { skip: "gate-waiting" };
+    const freshness = evidence.freshness!;
+    // Activity-freshness grace: a child only briefly between turns is not yet
+    // "forgot to finish"; the periodic re-pass re-evaluates once the grace ends.
+    if (
+      idleWakeWithinGrace(
+        idleLastProgressMs(freshness.maxCreatedAt, child.latestTurn),
+        now,
+        DEFAULT_IDLE_WAKE_GRACE_MS,
+      )
+    )
+      return { skip: "within-grace" };
+    // Idle keys on max activity sequence at idle onset (stable while idle → no
+    // re-nag; a resumed-then-quiet child advances the sequence → re-arms).
+    return { kind: "idle", episode: `idle:${freshness.maxSequence ?? "none"}` };
+  }
+
+  if (kind === "attention") {
+    // Attention keys on the latest turn at pause time (a resume clears attention
+    // AND starts a new turn, so a later re-pause re-arms).
+    const episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
+    // The idle backstop raises `needs_guidance` right before its "went quiet"
+    // wake, which re-classifies the child as `attention` next pass. If this quiet
+    // episode was already surfaced by a DELIVERED idle wake (never poisoned by a
+    // park → `wasDelivered`), the parent was told once — suppress, don't re-nag.
+    if (evidence.idleWakeDelivered) return { skip: "already-notified", suppressEpisode: episode };
+    // A pre-first-turn provisioning park wears the same flag as an agent pause;
+    // the provisioner's marker switches the copy to "provisioning failed".
+    const context: ChildWakeContext | undefined = evidence.provisionFailurePending
+      ? { quietMs: 0, provisionFailed: true }
+      : undefined;
+    return { kind: "attention", episode, context };
+  }
+
+  // `recovered` — a done child the parent was DURABLY told had errored (its
+  // frozen error verdict is superseded). Fires once per child.
+  if (child.planLane === "done") {
+    // A done child with no error-wake DELIVERY never errored (error precedes
+    // done) → suppress the recovery id so the receipt is not re-read every pass.
+    // `wasDelivered` is correct even if a park added the error id to the
+    // suppressed set: recovery fires only for a GENUINELY-told error.
+    if (!evidence.errorWakeDelivered)
+      return { skip: "never-errored", suppressEpisode: "recovered" };
+    return { kind: "recovered", episode: "recovered" };
+  }
+
+  // Executing child (class-2 liveness): frozen-attention or slow-tool notice.
+  if (isChildExecuting(child)) {
+    const quietMs = executingQuietMs(child, evidence.freshness!, now);
+    if (quietMs === null) return { skip: "no-activity-baseline" };
+    if (child.attention.length > 0) {
+      // Flagged mid-turn AND frozen (stall escalation on a wedged-open turn): the
+      // idle-gated attention rail never fires because the turn never closes, so
+      // this is the ONLY path that tells the parent. A mid-turn self-raise keeps
+      // emitting activity, stays within grace, and is caught by the idle-gated
+      // rail moments later.
+      if (quietMs < DEFAULT_IDLE_WAKE_GRACE_MS) return { skip: "frozen-within-grace" };
+      // Same episode key as the idle-gated attention rail: one notice per pause.
+      return {
+        kind: "attention",
+        episode: `attention:${child.latestTurn?.turnId ?? "none"}`,
+        context: { quietMs, frozen: true },
+      };
+    }
+    // Unflagged + executing + quiet: an in-flight tool call is a slow-but-alive
+    // call (informational, no flag, never interrupted). Quiet with no in-flight
+    // tool is State-C territory (the sweep's ladder), not ours.
+    const noticeIndex = slowToolNoticeIndex(quietMs);
+    if (noticeIndex < 0) return { skip: "no-notice-due" };
+    const inFlight = evidence.inFlightTool ?? null;
+    if (inFlight === null) return { skip: "no-in-flight-tool" };
+    return {
+      kind: "slow-tool",
+      // Keyed by the started row's id + schedule step: each step fires at most
+      // once per in-flight call; a new call re-arms the episode.
+      episode: `slow-tool:${inFlight.activityId}:${noticeIndex}`,
+      context: {
+        quietMs,
+        toolName: inFlight.toolName,
+        inFlightMs: Math.max(0, now - (parseIsoMs(inFlight.startedAt) ?? now)),
+      },
+    };
+  }
+
+  return { skip: "healthy" };
+};
 
 /**
  * Pure per-child wake-message builder. Tells the parent which child went
@@ -1070,136 +1302,81 @@ const make = Effect.gen(function* () {
       if (parent === undefined) continue;
 
       const now = yield* Clock.currentTimeMillis;
-      // Episode key (C3): `error` fires once; `attention` keys on the latest
-      // turn at pause time (stable while paused → no re-nag every pass; a resume
-      // starts a new turn AND clears attention, so a later re-pause re-arms);
-      // idle keys on the child's max activity sequence at idle onset (stable
-      // while idle → no re-nag; a resumed-then-quiet child advances the sequence
-      // → re-arms). The idle rail
-      // also applies an activity-freshness grace (reusing this SAME freshness
-      // fetch) so a child that only briefly has no open turn between turns is not
-      // mislabeled "forgot to finish"; the periodic re-pass re-evaluates it once
-      // the grace elapses. `recovered` re-notifies the parent that a child it was
-      // told had `error`ed has since reached `done` (its frozen error verdict is
-      // superseded); it fires once per child, keyed off the DURABLE error-wake
-      // receipt — NOT `handledChildWakes`, which the park path poisons by adding
-      // the command id without writing a receipt.
-      let kind = classifyChildWake(child, pendingTurnStartThreadIds);
-      // Gate-waiting is not "forgot to finish" (review-gates design §6): a gate
-      // party idling while the protocol has parked it (the source after a loop
-      // verdict, or the routed-back target awaiting re-verify) is exactly where
-      // it belongs — no idle nag. A cancelled counterpart un-suppresses (risk
-      // R4) so the dead gate surfaces.
-      if (kind === "idle" && isWaitingInGate(child, threadsById)) continue;
-      let episode: string;
-      let context: ChildWakeContext | undefined;
-      if (kind === "error") {
-        episode = "error";
-      } else if (kind === "idle") {
-        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
-        if (
-          idleWakeWithinGrace(
-            idleLastProgressMs(freshness.maxCreatedAt, child.latestTurn),
-            now,
-            DEFAULT_IDLE_WAKE_GRACE_MS,
+      // Gate-waiting (review-gates design §6) is asked only of an idle-kind child
+      // and needs the counterpart map, so it is computed here (matching the
+      // pre-extraction fetch pattern — never for a non-idle child) and fed to
+      // both evidence-planning and classification.
+      const waitingInGate =
+        classifyChildWake(child, pendingTurnStartThreadIds) === "idle" &&
+        isWaitingInGate(child, threadsById);
+
+      // Phase 1 (§A.5): fetch exactly the async evidence this child's shape needs
+      // — quiet/healthy children cost no queries. The fetch ORDER preserves the
+      // inline rail's lazy pattern verbatim: freshness before the freshness-keyed
+      // idle-wake lookup; the in-flight-tool query gated behind the notice
+      // schedule so a not-yet-quiet executing call is never queried.
+      const needs = childWakeEvidenceNeeds(child, pendingTurnStartThreadIds, waitingInGate);
+      const freshness = needs.has("freshness")
+        ? yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id)
+        : undefined;
+      const idleWakeDelivered = needs.has("idleWakeDelivered")
+        ? yield* dedup.wasDelivered(
+            childWakeCommandId(child.id, `idle:${freshness?.maxSequence ?? "none"}`),
           )
-        )
-          continue;
-        episode = `idle:${freshness.maxSequence ?? "none"}`;
-      } else if (kind === "attention") {
-        episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
-        // A pre-first-turn provisioning park (transient git/index.lock race)
-        // wears the same `needs_guidance` flag as a genuine agent-stuck pause; the
-        // provisioner's in-process marker is the authoritative signal, so the copy
-        // can say "provisioning failed, nothing ran" instead of "agent paused".
-        if (worktreeProvisioner.hasPendingProvisionFailure(child.id))
-          context = { quietMs: 0, provisionFailed: true };
-        // The idle backstop raises `needs_guidance` itself right before its
-        // "went quiet" wake, which would re-classify the same child as
-        // `attention` on the very next pass. If THIS quiet episode (same max
-        // activity sequence) was already surfaced by a delivered idle wake, the
-        // parent has been told once — don't notify again.
-        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
-        const idleWakeId = childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`);
-        // "Was the parent already told through the idle rail?" — a DURABLE
-        // delivery question, so `wasDelivered` (never poisoned by a park).
-        if (yield* dedup.wasDelivered(idleWakeId)) {
-          yield* dedup.markSuppressed(childWakeCommandId(child.id, episode));
-          continue;
-        }
-      } else if (child.planLane === "done") {
-        const recoveryId = childWakeCommandId(child.id, "recovered");
-        if (yield* dedup.alreadyHandled(recoveryId)) continue;
-        // Only a child the parent was DURABLY told had errored can "recover". A
-        // done child with no error-wake DELIVERY never errored (error precedes
-        // done) → suppress the recovery id so the receipt is not re-read every
-        // pass. `wasDelivered` is what makes this correct even though the park
-        // path may have added the error id to the suppressed set: the recovery
-        // rail only fires for a child the parent was GENUINELY told errored.
-        if (!(yield* dedup.wasDelivered(childWakeCommandId(child.id, "error")))) {
-          yield* dedup.markSuppressed(recoveryId);
-          continue;
-        }
-        kind = "recovered";
-        episode = "recovered";
-      } else if (
+        : undefined;
+      // A done child's wake episode is always "recovered" (both the delivered
+      // recovery and the never-errored suppression use that id), so — exactly as
+      // the inline branch did — the recovered already-handled/suppressed check
+      // short-circuits BEFORE the receipt-store error-delivery read. Without it a
+      // never-errored done child (which `markSuppressed`s "recovered" once) would
+      // re-read the receipt store on EVERY later pass; with it, later passes cost
+      // only an in-memory suppressed-set hit.
+      let errorWakeDelivered: boolean | undefined;
+      if (needs.has("errorWakeDelivered")) {
+        if (yield* dedup.alreadyHandled(childWakeCommandId(child.id, "recovered"))) continue;
+        errorWakeDelivered = yield* dedup.wasDelivered(childWakeCommandId(child.id, "error"));
+      }
+      let inFlightTool: ProjectionInFlightTool | null | undefined;
+      if (
+        needs.has("inFlightTool") &&
+        freshness !== undefined &&
         child.session !== null &&
-        child.session.activeTurnId !== null &&
-        (child.planLane === "ready" || child.planLane === "in_progress")
+        child.session.activeTurnId !== null
       ) {
-        // Executing child (class-2 liveness territory). Quiet time is measured
-        // against the runtime heartbeat + provider activity rows (control-plane
-        // rows are excluded by the freshness query) and the turn start.
-        const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
-        const lastKnown = [
-          freshness.heartbeatAt,
-          freshness.maxCreatedAt,
-          child.latestTurn?.startedAt ?? child.latestTurn?.requestedAt ?? null,
-        ]
-          .map(parseIsoMs)
-          .filter((ms): ms is number => ms !== null);
-        if (lastKnown.length === 0) continue;
-        const quietMs = now - Math.max(...lastKnown);
-        if (child.attention.length > 0) {
-          // Flagged mid-turn AND frozen (e.g. the liveness sweep's stall
-          // escalation raised `needs_guidance` while the turn is wedged open):
-          // the idle-gated `attention` rail would never fire because the turn
-          // never closes, so this is the ONLY path that tells the parent agent.
-          // A mid-turn self-raise (e.g. `awaiting_acceptance` just before the
-          // turn ends) keeps emitting activity, stays within the grace, and is
-          // handled by the normal idle-gated rail moments later.
-          if (quietMs < DEFAULT_IDLE_WAKE_GRACE_MS) continue;
-          kind = "attention";
-          context = { quietMs, frozen: true };
-          // Same episode key as the idle-gated attention rail: one notice per
-          // pause episode regardless of which path observed it first.
-          episode = `attention:${child.latestTurn?.turnId ?? "none"}`;
-        } else {
-          // Unflagged + executing + quiet: is a tool call in flight? If so this
-          // is a slow-but-alive call (class 2) — informational notice on an
-          // escalating schedule, NO attention flag, never interrupted. Quiet
-          // without an in-flight tool is State-C territory (the sweep's ladder).
-          const noticeIndex = slowToolNoticeIndex(quietMs);
-          if (noticeIndex < 0) continue;
-          const inFlight = yield* projectionSnapshotQuery.getInFlightToolByThreadId(
+        const quietMs = executingQuietMs(child, freshness, now);
+        if (quietMs !== null && slowToolNoticeIndex(quietMs) >= 0)
+          inFlightTool = yield* projectionSnapshotQuery.getInFlightToolByThreadId(
             child.id,
             child.session.activeTurnId,
           );
-          if (inFlight === null) continue;
-          kind = "slow-tool";
-          context = {
-            quietMs,
-            toolName: inFlight.toolName,
-            inFlightMs: Math.max(0, now - (parseIsoMs(inFlight.startedAt) ?? now)),
-          };
-          // Keyed by the started row's id + schedule step: each step fires at
-          // most once per in-flight call, and a new call re-arms the episode.
-          episode = `slow-tool:${inFlight.activityId}:${noticeIndex}`;
-        }
-      } else {
+      }
+
+      // Phase 2 (§A.5): the whole decision — episode keys AND skip reasons — is
+      // pure. The loop keeps only the effectful delivery tail below.
+      const decision = classifyChildWakeFull(
+        child,
+        {
+          freshness,
+          inFlightTool,
+          idleWakeDelivered,
+          errorWakeDelivered,
+          provisionFailurePending: worktreeProvisioner.hasPendingProvisionFailure(child.id),
+          waitingInGate,
+        },
+        now,
+        pendingTurnStartThreadIds,
+      );
+      if ("skip" in decision) {
+        // The two locally-suppressing skips (attention already-notified, done
+        // never-errored) record the episode id with NO receipt behind it, so a
+        // later cross-rail `wasDelivered` is not fooled — exactly what
+        // `markSuppressed` exists for.
+        if (decision.suppressEpisode !== undefined)
+          yield* dedup.markSuppressed(childWakeCommandId(child.id, decision.suppressEpisode));
         continue;
       }
-      const commandId = childWakeCommandId(child.id, episode);
+
+      const commandId = childWakeCommandId(child.id, decision.episode);
       if (yield* dedup.alreadyHandled(commandId)) continue;
 
       // Busy parent → defer; a later thread.session-set re-triggers this pass.
@@ -1208,12 +1385,11 @@ const make = Effect.gen(function* () {
       if (wakeBudget.wouldTrip(parent.id, now)) {
         yield* parkAndEscalate(
           parent,
-          kind === "recovered" ? `child-recovery:${child.id}` : `child-wake:${child.id}`,
+          decision.kind === "recovered" ? `child-recovery:${child.id}` : `child-wake:${child.id}`,
         );
         // A park suppresses this command id locally with NO receipt behind it —
-        // exactly the case `markSuppressed` exists for. `wasDelivered` stays
-        // false for it, so a later cross-rail "was the parent told?" (e.g. the
-        // recovery guard) is not fooled into firing.
+        // `wasDelivered` stays false for it, so a later cross-rail "was the parent
+        // told?" (e.g. the recovery guard) is not fooled into firing.
         yield* dedup.markSuppressed(commandId);
         continue;
       }
@@ -1221,7 +1397,7 @@ const make = Effect.gen(function* () {
       // manual catch: a deferral records nothing and stays redeliverable.
       const outcome = yield* dedup.deliverOnce(
         commandId,
-        deliverChildWake(parent, child, kind, commandId, context),
+        deliverChildWake(parent, child, decision.kind, commandId, decision.context),
       );
       if (outcome === "delivered") wakeBudget.recordDelivery(parent.id, now);
     }

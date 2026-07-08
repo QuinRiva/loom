@@ -72,17 +72,30 @@ const buildIndex = <T extends GraphLineageNode>(threads: ReadonlyArray<T>): Grap
  * unknown (dangling/out-of-snapshot) is its own subtree root; a cycle is broken
  * by a visited guard, returning the id where the walk re-enters itself.
  */
-const rootOf = <T extends GraphLineageNode>(id: ThreadId, index: GraphIndex<T>): ThreadId => {
+const rootOfInIndex = <T extends GraphLineageNode>(
+  id: ThreadId,
+  index: GraphIndex<T>,
+): ThreadId => {
   const seen = new Set<ThreadId>();
   let current = id;
   for (;;) {
     if (seen.has(current)) return current;
     seen.add(current);
     const node = index.byId.get(current);
-    if (node === undefined || node.parentThreadId === null) return current;
+    // Root when: the node is a top-level thread (null parent), unknown itself,
+    // or its parent is dangling/out-of-snapshot — in the last case `current`
+    // (not the phantom parent) is the subtree root.
+    if (node === undefined || node.parentThreadId === null || !index.byId.has(node.parentThreadId))
+      return current;
     current = node.parentThreadId;
   }
 };
+
+/** The root orchestrator of the tree containing `id` (builds the index internally). */
+export const rootOf = <T extends GraphLineageNode>(
+  id: ThreadId,
+  threads: ReadonlyArray<T>,
+): ThreadId => rootOfInIndex(id, buildIndex(threads));
 
 /** Direct children of a node (empty when it has none / is unknown). */
 export const childrenOf = <T extends GraphLineageNode>(
@@ -412,7 +425,7 @@ export const graphViewFor = <T extends GraphViewThread>(
   sessionPathFor?: (id: ThreadId) => string | null,
 ): GraphView => {
   const index = buildIndex(threads);
-  const rootId = rootOf(callerId, index);
+  const rootId = rootOfInIndex(callerId, index);
   const members = subtreeOf(rootId, threads);
   const memberIds = new Set(members.map((thread) => thread.id));
   const nodes: GraphViewNode[] = members.map((thread) => ({

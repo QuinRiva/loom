@@ -17,7 +17,7 @@ import {
 import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { buildThreadRouteParams } from "../threadRoutes";
-import type { AttentionReason, GraphBreakdown, GraphRollup } from "../lib/workstreamGraph";
+import type { AttentionReason, GraphBreakdown, GraphRollup } from "../lib/workstreamRollup";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { useProject } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";

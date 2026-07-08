@@ -68,7 +68,7 @@ import {
   type ProviderInstance,
 } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
-import { PI_QUOTA_ERROR_RE, accountKeyForModelSlug } from "../exhaustionMapping.ts";
+import { accountKeyForModelSlug } from "../exhaustionMapping.ts";
 import { resolveFailoverTarget } from "../failoverChains.ts";
 import {
   ProviderHealthRegistry,
@@ -92,7 +92,17 @@ import {
   threadSessionHasPoisonedToolIds,
 } from "../Layers/Pi/SessionIdSanitiser.ts";
 import { ensurePiProviderToolExtension } from "./Pi/providerToolExtension.ts";
-import { piSessionIdForThread } from "../Layers/Pi/Cli.ts";
+import { piSessionIdForThread } from "../piSessionFiles.ts";
+import {
+  T3_QUOTA_FAILOVER_DELAY_MS,
+  T3_RETRY_DELAYS_MS,
+  buildPiRetryPrompt,
+  classifyPiProviderError,
+  formatResetTime,
+  nextRetryStep,
+  piRunOutcome,
+  resolvePiModel,
+} from "./piTurnRetryPolicy.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -132,9 +142,6 @@ const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 });
 
 export type PiDriverEnv = ServerConfig | ProviderHealthRegistry | ServerSettingsService;
-
-/** Short settle before a reactive tier-2 switch re-prompts on the fallback. */
-const T3_QUOTA_FAILOVER_DELAY_MS = 2_000;
 
 /** Failover config used when settings can't be read (rare, cache-backed). */
 const DEFAULT_FAILOVER: Pick<ProviderFailoverSettings, "enabled" | "chains"> = {
@@ -681,126 +688,6 @@ export function piToolItemPayload(
   };
 }
 
-function resolvePiModel(model: string): { provider: string; modelId: string } | undefined {
-  const slash = model.indexOf("/");
-  return slash > 0 && slash < model.length - 1
-    ? { provider: model.slice(0, slash), modelId: model.slice(slash + 1) }
-    : undefined;
-}
-
-// ── T3-level provider-error retry + backend fallback ───────────────────────
-// pi already auto-retries transient provider errors on a fast schedule
-// (~2s/4s/8s). Overload episodes often last minutes, so when pi's retries
-// exhaust we run a second, slower tier ON TOP: re-dispatch the turn on the
-// current backend per T3_RETRY_DELAYS_MS, then switch to the SAME model on
-// another backend (Anthropic-direct ↔ Vertex are distinct capacity pools) for
-// a brief allowance, then give up into the normal failed-turn path. The
-// fallback is per-turn only: the next sendTurn re-issues `set_model` from the
-// thread's stored selection.
-
-/** Slow-tier retry schedule on the turn's current backend. */
-export const T3_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 30_000, 45_000, 60_000, 90_000];
-/** Brief allowance on the fallback backend before giving up. */
-export const T3_FALLBACK_RETRY_DELAYS_MS: ReadonlyArray<number> = [15_000, 60_000];
-
-/**
- * Transient (retry-worthy) provider errors — capacity/plumbing, not user
- * fault. Mirrors the spirit of pi's own retryable-error regex: 529 overloaded,
- * 429 rate limits, 5xx, and network-shaped failures. Auth/validation errors
- * deliberately do NOT match and fail immediately.
- */
-export const PI_TRANSIENT_PROVIDER_ERROR_RE =
-  /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?(error|refused|reset|lost)|socket hang up|fetch failed|terminated|stream ended before|timed?.?out|timeout/i;
-
-/**
- * Non-retryable client-request errors (HTTP 400 `invalid_request_error`) — the
- * request is malformed, so replaying the identical history every attempt fails
- * identically. The canonical case here is Anthropic rejecting a codex-style
- * `tool_use.id` (`String should match pattern`) that reached it un-sanitised.
- * Classified as `validation_error` so it burns neither pi's/the T3 transient
- * ladder nor the exhaustion resume sweep (which only re-runs `quota_exhausted`).
- */
-export const PI_NON_RETRYABLE_REQUEST_ERROR_RE =
-  /invalid_request_error|\[HTTP 400\]|should match pattern|tool_use\.id/i;
-
-/** Preferred capacity-pool partner per provider namespace (checked first; the
- * generic same-model-other-provider scan is the fallback). Both directions of
- * the Anthropic-direct ↔ Vertex pair are known-good, authenticated pools. */
-const PI_BACKEND_PARTNERS: Record<string, string> = {
-  anthropic: "google-vertex-claude",
-  "google-vertex-claude": "anthropic",
-};
-
-/**
- * Derive the same-model-different-backend fallback slug from pi's live
- * catalogue: prefer the known partner pool, else the first other provider
- * hosting the identical modelId. Undefined when no equivalent exists.
- */
-export function piBackendFallbackModel(
-  currentModel: string | undefined,
-  availableModels: Iterable<string>,
-): string | undefined {
-  const current = currentModel === undefined ? undefined : resolvePiModel(currentModel);
-  if (!current) return undefined;
-  const slugs = [...availableModels];
-  const partner = PI_BACKEND_PARTNERS[current.provider];
-  if (partner !== undefined && slugs.includes(`${partner}/${current.modelId}`))
-    return `${partner}/${current.modelId}`;
-  return slugs.find((slug) => {
-    const parsed = resolvePiModel(slug);
-    return (
-      parsed !== undefined &&
-      parsed.modelId === current.modelId &&
-      parsed.provider !== current.provider
-    );
-  });
-}
-
-/**
- * Outcome of a finished pi agent run: the last assistant message's
- * `stopReason`/`errorMessage` from the `agent_end` messages array.
- */
-export function piRunOutcome(messages: ReadonlyArray<Record<string, unknown>> | undefined): {
-  stopReason: string | undefined;
-  errorMessage: string | undefined;
-} {
-  for (let i = (messages?.length ?? 0) - 1; i >= 0; i -= 1) {
-    const message = messages![i]!;
-    if (message.role === "assistant") {
-      return {
-        stopReason: typeof message.stopReason === "string" ? message.stopReason : undefined,
-        errorMessage: typeof message.errorMessage === "string" ? message.errorMessage : undefined,
-      };
-    }
-  }
-  return { stopReason: undefined, errorMessage: undefined };
-}
-
-/** Concise reset-time label for reroute reasons, e.g. "07 Jul 23:00". */
-export const formatResetTime = (iso: string | null): string | undefined => {
-  if (!iso) return undefined;
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? undefined
-    : date.toLocaleString("en-AU", {
-        day: "2-digit",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
-};
-
-/** In-band control-plane framing for the retry re-prompt (the errored run left
- * pi idle; a fresh prompt is the only way to resume it). */
-export const buildPiRetryPrompt = (errorMessage: string): string =>
-  [
-    "[T3 Code control plane — automated retry after a provider error; not a message from the user]",
-    "",
-    `Your previous response failed with a transient provider error (${errorMessage}); none of it was delivered.`,
-    "Continue the task from where you left off.",
-  ].join("\n");
-
 /**
  * Translate pi's per-message `Usage` into the generic context-window snapshot
  * the orchestration layer ingests. `usedTokens` mirrors pi's own
@@ -1288,24 +1175,13 @@ function makePiAdapter(input: {
     session: ActivePiSession,
     errorMessage: string,
   ): Effect.Effect<void> | undefined => {
-    const attempt = (session.retry?.attempt ?? 0) + 1;
-    const primary = T3_RETRY_DELAYS_MS.length;
-    let delayMs: number;
-    let switchToModel: string | undefined;
-    if (attempt <= primary) {
-      delayMs = T3_RETRY_DELAYS_MS[attempt - 1]!;
-    } else {
-      const fallbackIndex = attempt - primary - 1;
-      if (fallbackIndex >= T3_FALLBACK_RETRY_DELAYS_MS.length) return undefined;
-      delayMs = T3_FALLBACK_RETRY_DELAYS_MS[fallbackIndex]!;
-      if (fallbackIndex === 0) {
-        switchToModel = piBackendFallbackModel(
-          session.session.model,
-          input.modelContextWindows.keys(),
-        );
-        if (switchToModel === undefined) return undefined;
-      }
-    }
+    const step = nextRetryStep(
+      session.retry?.attempt ?? 0,
+      session.session.model,
+      input.modelContextWindows.keys(),
+    );
+    if (step === undefined) return undefined;
+    const { attempt, delayMs, switchToModel } = step;
     const timer = setTimeout(() => {
       void Effect.runPromise(
         dispatchTurnRetry(session, attempt, switchToModel, errorMessage),
@@ -1425,15 +1301,15 @@ function makePiAdapter(input: {
       // forever. Fail it now as validation_error — BEFORE quota/transient — so it
       // never enters the retry ladder or gets re-resumed as a quota stall (that
       // was the 400 flood). Recovery is the pre-spawn sanitise on next start.
-      if (PI_NON_RETRYABLE_REQUEST_ERROR_RE.test(errorMessage)) {
+      const errorClass = classifyPiProviderError(errorMessage);
+      if (errorClass === "non_retryable_request") {
         yield* failTurn(session, errorMessage, raw, "validation_error");
         return;
       }
-      const quotaByRegex = PI_QUOTA_ERROR_RE.test(errorMessage);
+      const quotaByRegex = errorClass === "quota_shaped";
       const quotaByCorroboration =
-        !quotaByRegex &&
+        errorClass === "transient" &&
         accountKey !== null &&
-        PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage) &&
         (yield* input.healthRegistry.isExhausted(accountKey, modelId));
       if (quotaByRegex || quotaByCorroboration) {
         if (accountKey !== null) {
@@ -1458,7 +1334,7 @@ function makePiAdapter(input: {
         yield* failTurn(session, errorMessage, raw, "quota_exhausted");
         return;
       }
-      if (PI_TRANSIENT_PROVIDER_ERROR_RE.test(errorMessage)) {
+      if (errorClass === "transient") {
         const retry = scheduleTurnRetry(session, errorMessage);
         if (retry) {
           yield* retry; // turn stays open through the retry window

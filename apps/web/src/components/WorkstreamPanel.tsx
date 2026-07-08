@@ -1,7 +1,7 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
-import { subtreeOf } from "@t3tools/shared/workstreamGraph";
+import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
   GitBranchIcon,
@@ -21,6 +21,7 @@ import {
   COLUMN_ORDER,
   COLUMN_SHORT_LABELS,
   formatContextPercent,
+  FAN_IN_CHIP_STYLES,
   formatDiffMetric,
   formatModelLabel,
   formatRelativeAge,
@@ -49,14 +50,6 @@ import { useLoomScrollStore } from "../loom/loomScrollStore";
 
 type WorkstreamView = "board" | "graph";
 
-// Fan-in chip palette: conflict is amber and must not read as success; merged is
-// a subtle green; merging is a neutral in-flight grey.
-const FAN_IN_CHIP_STYLES = {
-  merging: "border-white/15 bg-white/[0.04] text-white/55",
-  merged: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200/80",
-  conflict: "border-amber-400/40 bg-amber-400/10 text-amber-200",
-} as const;
-
 // The graph subtree (own SVG renderer + hand-rolled fork–join layout) is
 // lazy-loaded so it lands in its own chunk and never bloats the board render path.
 const WorkstreamGraph = lazy(() => import("./WorkstreamGraph"));
@@ -72,29 +65,6 @@ function selectWorkstreamChildren(
   return shells
     .filter((thread) => thread.parentThreadId === parentThreadId)
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
-}
-
-// The whole orchestration as seen from `activeThreadId`: walk lineage up to the
-// top-most ancestor (root orchestrator), then return its full descendant
-// subtree, time-ordered. The shell list holds every thread in the environment,
-// so grandchildren are present.
-function selectWorkstreamSubtree(
-  shells: ReadonlyArray<EnvironmentThreadShell>,
-  activeThreadId: ThreadId,
-): ReadonlyArray<SidebarThreadSummary> {
-  const byId = new Map(shells.map((thread) => [thread.id, thread] as const));
-  const seen = new Set<ThreadId>();
-  let rootId = activeThreadId;
-  for (;;) {
-    if (seen.has(rootId)) break;
-    seen.add(rootId);
-    const parent = byId.get(rootId)?.parentThreadId;
-    if (!parent || !byId.has(parent)) break;
-    rootId = parent;
-  }
-  return subtreeOf(rootId, shells).toSorted((left, right) =>
-    left.createdAt.localeCompare(right.createdAt),
-  );
 }
 
 interface WorkstreamPanelProps {
@@ -120,8 +90,17 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     () => new Map(children.map((thread) => [thread.id, thread])),
     [children],
   );
+  // The whole orchestration as seen from the active thread: walk lineage up to
+  // the root orchestrator, then return its full descendant subtree,
+  // time-ordered. The shell list holds every thread in the environment, so
+  // grandchildren are present.
   const subtree = useMemo(
-    () => (activeThread ? selectWorkstreamSubtree(environmentShells, activeThread.id) : []),
+    () =>
+      activeThread
+        ? subtreeOf(rootOf(activeThread.id, environmentShells), environmentShells).toSorted(
+            (left, right) => left.createdAt.localeCompare(right.createdAt),
+          )
+        : [],
     [environmentShells, activeThread],
   );
   const subtreeById = useMemo<ChildIndex>(
