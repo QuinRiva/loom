@@ -449,7 +449,11 @@ label:has(> select#reasoning-effort) select {
    past the smaller of the prose width and the bleed budget. left:50% +
    translateX(-50%) centers any resulting width on the prose axis (the parent
    column is itself centered), which needs no knowledge of the final width and
-   so works for both sub-prose and bled tables. */
+   so works for both sub-prose and bled tables.
+
+   Iterate on this behaviour against the dev-only component preview harness
+   (`/preview`, wide-table fixture) rather than a full authenticated app — see
+   docs/web-component-preview.md. */
 .chat-markdown .chat-markdown-table-container {
   --bleed-cap: 90rem;
   --bleed-target: min(var(--bleed-cap), calc(var(--timeline-available-width, 100%) - 3rem));

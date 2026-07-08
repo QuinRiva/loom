@@ -82,6 +82,7 @@ import {
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { TIMELINE_ROW_CLASS_NAME, useTimelineAvailableWidthVar } from "./timelineLayout";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
@@ -410,35 +411,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return () => cancelAnimationFrame(frame);
   }, [handleScroll, rows.length]);
 
-  useEffect(() => {
-    if (!timelineViewportElement) {
-      return;
-    }
-
-    const measure = () => {
-      const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
-      // Publish the true available content width so wide blocks (tables, etc.)
-      // can bleed past the prose measure up to what the viewport actually offers.
-      timelineViewportElement.style.setProperty(
-        "--timeline-available-width",
-        `${Math.round(viewportWidth)}px`,
-      );
-      const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
-      setMinimapHasPersistentGutter((current) =>
-        current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
-      );
-    };
-
-    const frame = requestAnimationFrame(measure);
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(timelineViewportElement);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
-  }, [timelineViewportElement, rows.length]);
+  const handleTimelineMeasure = useCallback((viewportWidth: number) => {
+    const nextHasPersistentGutter = resolveTimelineMinimapHasPersistentGutter(viewportWidth);
+    setMinimapHasPersistentGutter((current) =>
+      current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
+    );
+  }, []);
+  useTimelineAvailableWidthVar(timelineViewportElement, handleTimelineMeasure);
 
   const reasoningDisplay = useClientSettings((settings) => settings.reasoningDisplay);
   const sharedState = useMemo<TimelineRowSharedState>(
@@ -487,7 +466,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // from TimelineRowCtx, which propagates through LegendList's memo.
   const renderItem = useCallback(
     ({ item }: { item: MessagesTimelineRow }) => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl" data-timeline-root="true">
+      <div className={TIMELINE_ROW_CLASS_NAME} data-timeline-root="true">
         <TimelineRowContent row={item} />
       </div>
     ),

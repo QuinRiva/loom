@@ -6,6 +6,12 @@ server/state (`13900`, `~/.t3/cockpit`). This is the exact flow used to catch th
 `DiffPanel` "By coder" dropdown crash, a regression that passed every static
 check.
 
+> For pure render/CSS work on an isolated presentational component (e.g.
+> `ChatMarkdown`, markdown tables) you usually don't need the full app — the
+> dev-only component preview harness ([`docs/web-component-preview.md`](web-component-preview.md))
+> renders components against fixtures with no backend in a ~seconds loop.
+> Reach for this recipe when you need real threads, auth, or server state.
+
 Everything below was run from a worktree with the cockpit's ambient
 `T3CODE_HOME`/`T3CODE_PORT` present. No `env -u` fiddling is needed — the
 collision-free dev runner handles the ambient env.

@@ -55,6 +55,18 @@ import {
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
+    // Dev-only component preview harness: skip the auth gate entirely so it can
+    // render presentational components with no backend. `import.meta.env.DEV`
+    // is statically false in production builds, so this branch (and the route
+    // itself) is tree-shaken out — production never exposes it.
+    if (import.meta.env.DEV && location.pathname === "/preview") {
+      return {
+        authGateState: {
+          status: "preview",
+        } as const,
+      };
+    }
+
     if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
       return {
         authGateState: {
