@@ -580,10 +580,18 @@ function WorkstreamCard({
           ) : null}
           {gateWait ? (
             <span
-              className="rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/55"
-              title="Idle by design — the gate counterpart holds the active leg"
+              className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                gateWait.active
+                  ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
+                  : "border-white/15 bg-white/[0.04] text-white/55"
+              }`}
+              title={
+                gateWait.active
+                  ? "This party holds the active gate leg right now"
+                  : "Idle by design — the gate counterpart holds the active leg"
+              }
             >
-              {gateWait}
+              {gateWait.label}
             </span>
           ) : null}
         </div>

@@ -1753,7 +1753,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           ThreadId.make("thread-fresh"),
         );
         assert.equal(freshness.maxCreatedAt, "2026-05-01T00:00:00.000Z");
-        assert.equal(freshness.maxSequence, 1);
       }),
   );
 

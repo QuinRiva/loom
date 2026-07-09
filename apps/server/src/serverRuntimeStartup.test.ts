@@ -101,7 +101,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
+            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -173,7 +173,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
+          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -226,7 +226,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadActivitiesPage: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
+          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -285,7 +285,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, maxSequence: null, heartbeatAt: null }),
+          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),

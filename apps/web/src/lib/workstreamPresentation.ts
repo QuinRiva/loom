@@ -1,6 +1,6 @@
 import { DEFAULT_GATE_MAX_ROUNDS } from "@t3tools/contracts";
 import type { ModelSelection, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
-import { isWaitingInGate } from "@t3tools/shared/workstreamGraph";
+import { gateSourceFor, isWaitingInGate } from "@t3tools/shared/workstreamGraph";
 
 import type { SidebarThreadSummary } from "../types";
 import {
@@ -274,16 +274,42 @@ export function getVerdictChip(thread: SidebarThreadSummary): GateVerdictChip | 
   return null;
 }
 
+/** One gate-leg badge: a live leg (re-reviewing/reworking) or a parked wait. */
+export interface GateWait {
+  readonly label: string;
+  /** True for an in-flight leg (never "idle by design"), false for a parked wait. */
+  readonly active: boolean;
+}
+
 /**
- * Gate-waiting badge (shared `isWaitingInGate` — the same predicate that
+ * Gate-leg badge for a card. Inside an active rework loop (rounds > 0), an
+ * executing party ALWAYS reads as holding the live leg — re-reviewing /
+ * reworking its round, never "waiting" (2026-07-07 incident). This is what
+ * breaks the contradictory pair: during a round hand-off both parties' stored
+ * state can still read waiting (`isWaitingInGate` true on both — the reviewer
+ * looped and the coder routed back, both carrying `lastOutcome.decision ===
+ * "loop"`), but whichever side has already picked the round back up runs, so it
+ * shows active and at most one card is left with a parked waiting badge. The
+ * round-0 initial review/coding is silent as before (no loop has happened).
+ *
+ * Otherwise falls back to the shared `isWaitingInGate` (the same predicate that
  * suppresses the dispatcher's idle nag): the gate source waits on the coder's
  * rework; the target waits on the reviewer's re-verify.
  */
-export function getGateWaitLabel(thread: SidebarThreadSummary, byId: ChildIndex): string | null {
+export function getGateWaitLabel(thread: SidebarThreadSummary, byId: ChildIndex): GateWait | null {
+  const isTerminal = thread.planLane === "done" || thread.planLane === "cancelled";
+  const isGateSource = !isTerminal && thread.routes.some((route) => route.kind === "loop");
+  if (hasRunningSignal(thread) && !isTerminal) {
+    // A running source mid-loop (>=1 round consumed) is re-reviewing that round.
+    if (isGateSource && thread.gateRounds > 0)
+      return { label: `re-reviewing round ${thread.gateRounds}`, active: true };
+    // A running target whose source has opened a rework round is reworking it.
+    const source = isGateSource ? null : gateSourceFor(thread.id, [...byId.values()]);
+    if (source && source.gateRounds > 0)
+      return { label: `reworking round ${source.gateRounds}`, active: true };
+  }
   if (!isWaitingInGate(thread, byId)) return null;
-  return thread.routes.some((route) => route.kind === "loop")
-    ? "waiting on rework"
-    : "awaiting re-review";
+  return { label: isGateSource ? "waiting on rework" : "awaiting re-review", active: false };
 }
 
 const ROLE_ICONS: Record<string, string> = {

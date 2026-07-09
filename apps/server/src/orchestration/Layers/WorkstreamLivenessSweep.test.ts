@@ -16,6 +16,7 @@ import {
   decideProgressLoop,
   decideStallAction,
   DEFAULT_LIVENESS_THRESHOLDS,
+  submitSupersedesFailure,
   type ProgressLoopState,
 } from "./WorkstreamLivenessSweep.ts";
 
@@ -173,6 +174,44 @@ describe("classifyLiveness", () => {
     });
     expect(verdict?.kind).toBe("stalled");
     expect(verdict?.effectiveActivityMs).toBe(frozenAt);
+  });
+});
+
+describe("submitSupersedesFailure (Issue 3: a submit out-votes a stale error)", () => {
+  const outcome = (at: string) =>
+    ({
+      outcome: "needs_rework",
+      decision: "loop",
+      round: 1,
+      recordedByEventId: "evt-1",
+      at,
+    }) as unknown as OrchestrationThreadShell["lastOutcome"];
+
+  it("treats an error session as superseded when a submit is newer than the session state", () => {
+    // The provider errored, then recovered and the thread submitted a verdict:
+    // the submit (0m ago) post-dates the error session-set (2m ago).
+    expect(
+      submitSupersedesFailure(
+        thread({ lastOutcome: outcome(minsAgo(0)) }),
+        session({ status: "error", updatedAt: minsAgo(2) }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does NOT supersede when the error observation is newer than the last submit", () => {
+    // A submit at 5m ago, then a fresh error at 1m ago — the error is real, live.
+    expect(
+      submitSupersedesFailure(
+        thread({ lastOutcome: outcome(minsAgo(5)) }),
+        session({ status: "error", updatedAt: minsAgo(1) }),
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT supersede when the thread has never submitted", () => {
+    expect(
+      submitSupersedesFailure(thread({ lastOutcome: null }), session({ status: "error" })),
+    ).toBe(false);
   });
 });
 

@@ -17,7 +17,7 @@ import type {
   ThreadPlanLane,
 } from "@t3tools/contracts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
-import { gateSourceFor } from "@t3tools/shared/workstreamGraph";
+import { gateLoopTargetOf, gateSourceFor } from "@t3tools/shared/workstreamGraph";
 import { OrchestrationMessage } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -263,59 +263,89 @@ export function projectLoomEvent(
 
     case "thread.plan-lane-set":
       return decodeForEvent(ThreadPlanLaneSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            planLane: payload.planLane,
-            // Re-engagement epoch: a terminal→ready/planned reopen carries a
-            // fresh spawnGeneration so the re-run's completion joins a new
-            // generation (and fires a new parent wake) instead of being deduped
-            // by the first completion's receipt.
-            ...(payload.spawnGeneration !== undefined
-              ? { spawnGeneration: payload.spawnGeneration }
-              : {}),
-            // Design §3 state invariant, enforced structurally: a terminal lane
-            // (`done`/`cancelled`) carries no stored attention. The decider emits
-            // an explicit `attention-cleared` on new terminal transitions, but
-            // this guard also backfills threads whose terminal transition predates
-            // that fix (replayed from history) and is robust to any event ordering
-            // (e.g. an `error` raised after `done`). Mirrors `remapLegacyStatus`
-            // (`done → attention: []`). Derived `awaiting_*` reasons are projected
-            // separately and unaffected.
-            ...(payload.planLane === "done" || payload.planLane === "cancelled"
-              ? { attention: [] }
-              : {}),
-            // Worktree isolation (design §3 step 5): fan-in settlement only
-            // applies while the thread is `done`. Leaving `done` for a
-            // non-terminal lane (a gate reopen, or an orchestrator re-opening a
-            // `conflicted` child to resolve + resubmit) clears `fanInState` back
-            // to `none`, so the resubmit's `done` re-arms the fan-in sweep
-            // instead of the child staying wedged as a permanent `conflicted`.
-            ...(payload.planLane !== "done" && payload.planLane !== "cancelled"
-              ? {
-                  fanInState: "none" as const,
-                  // Review gates (design §4.3): manual gate recovery. Reopening a
-                  // rework TARGET to a non-terminal lane (the documented
-                  // `set_lane(coder, ready)` recovery move) restores its
-                  // `pendingRework` when a non-terminal gate source still owes it
-                  // an unresolved rework round — i.e. the source looped its
-                  // findings back (`lastOutcome.decision === "loop"`) and awaits
-                  // rework. Without this the reopened target's next submission
-                  // escapes the gate as plain terminal/yield instead of looping
-                  // back to the reviewer (the incident's round-2 `done` escape).
-                  // A dissolved gate (source terminal/cancelled ⇒ no
-                  // `gateSourceFor`) or a source that never looped restores
-                  // nothing, so an orchestrator detaching a coder from a dead gate
-                  // still works as before.
-                  ...(gateSourceFor(payload.threadId, nextBase.threads)?.lastOutcome?.decision ===
-                  "loop"
-                    ? { pendingRework: true }
-                    : {}),
-                }
-              : {}),
-            updatedAt: payload.updatedAt,
-          }),
-        })),
+        Effect.map((payload) => {
+          // Review gates (2026-07-07/08 incident): a gate SOURCE going TERMINAL
+          // via a lane-set dissolves the gate (design §4.1/§5.4: unresolved only
+          // while the source is non-terminal — a parent `set_lane(done|cancelled)`
+          // on the reviewer dissolves it). Clear the loop target's residual
+          // `pendingRework` so the coder's later hand-back does not route into a
+          // dead gate (deadlock) — and, critically, so a re-spawned replacement
+          // reviewer over the same coder is not mis-seen as the live
+          // `gateSourceFor` and handed an orphaned round-0 loop it never issued
+          // (the wedge class the review flagged for the `set_lane(done)` path).
+          // Applies to BOTH terminal lanes: on the normal resolve path the coder
+          // is either already `pendingRework=false` or completing in the same
+          // transaction, so it is a harmless no-op there. The source keeps its
+          // loop route on this transition, so `gateLoopTargetOf` still finds the
+          // target it looped to.
+          const dissolvedTargetId =
+            payload.planLane === "cancelled" || payload.planLane === "done"
+              ? gateLoopTargetOf(
+                  nextBase.threads.find((t) => t.id === payload.threadId) ?? { routes: [] },
+                )
+              : null;
+          const threadsWithDissolvedRound =
+            dissolvedTargetId !== null &&
+            nextBase.threads.find((t) => t.id === dissolvedTargetId)?.pendingRework === true
+              ? updateThread(nextBase.threads, dissolvedTargetId, {
+                  pendingRework: false,
+                  updatedAt: payload.updatedAt,
+                })
+              : nextBase.threads;
+          return {
+            ...nextBase,
+            threads: updateThread(threadsWithDissolvedRound, payload.threadId, {
+              planLane: payload.planLane,
+              // Re-engagement epoch: a terminal→ready/planned reopen carries a
+              // fresh spawnGeneration so the re-run's completion joins a new
+              // generation (and fires a new parent wake) instead of being deduped
+              // by the first completion's receipt.
+              ...(payload.spawnGeneration !== undefined
+                ? { spawnGeneration: payload.spawnGeneration }
+                : {}),
+              // Design §3 state invariant, enforced structurally: a terminal lane
+              // (`done`/`cancelled`) carries no stored attention. The decider emits
+              // an explicit `attention-cleared` on new terminal transitions, but
+              // this guard also backfills threads whose terminal transition predates
+              // that fix (replayed from history) and is robust to any event ordering
+              // (e.g. an `error` raised after `done`). Mirrors `remapLegacyStatus`
+              // (`done → attention: []`). Derived `awaiting_*` reasons are projected
+              // separately and unaffected.
+              ...(payload.planLane === "done" || payload.planLane === "cancelled"
+                ? { attention: [] }
+                : {}),
+              // Worktree isolation (design §3 step 5): fan-in settlement only
+              // applies while the thread is `done`. Leaving `done` for a
+              // non-terminal lane (a gate reopen, or an orchestrator re-opening a
+              // `conflicted` child to resolve + resubmit) clears `fanInState` back
+              // to `none`, so the resubmit's `done` re-arms the fan-in sweep
+              // instead of the child staying wedged as a permanent `conflicted`.
+              ...(payload.planLane !== "done" && payload.planLane !== "cancelled"
+                ? {
+                    fanInState: "none" as const,
+                    // Review gates (design §4.3): manual gate recovery. Reopening a
+                    // rework TARGET to a non-terminal lane (the documented
+                    // `set_lane(coder, ready)` recovery move) restores its
+                    // `pendingRework` when a non-terminal gate source still owes it
+                    // an unresolved rework round — i.e. the source looped its
+                    // findings back (`lastOutcome.decision === "loop"`) and awaits
+                    // rework. Without this the reopened target's next submission
+                    // escapes the gate as plain terminal/yield instead of looping
+                    // back to the reviewer (the incident's round-2 `done` escape).
+                    // A dissolved gate (source terminal/cancelled ⇒ no
+                    // `gateSourceFor`) or a source that never looped restores
+                    // nothing, so an orchestrator detaching a coder from a dead gate
+                    // still works as before.
+                    ...(gateSourceFor(payload.threadId, nextBase.threads)?.lastOutcome?.decision ===
+                    "loop"
+                      ? { pendingRework: true }
+                      : {}),
+                  }
+                : {}),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.attention-raised":

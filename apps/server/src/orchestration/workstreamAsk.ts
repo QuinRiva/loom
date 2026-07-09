@@ -32,10 +32,12 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { piRunOutcome } from "../provider/Drivers/piTurnRetryPolicy.ts";
 import {
   createPiRpcProcess,
   type PiRpcProcess,
   type PiRpcSessionState,
+  type PiRpcStdoutEvent,
   type PiRpcStdoutMessage,
 } from "../provider/Layers/Pi/RpcProcess.ts";
 
@@ -94,8 +96,19 @@ const isAssistantMessageEnd = (message: PiRpcStdoutMessage): boolean =>
   message.type === "message_end" &&
   (message.message as { readonly role?: unknown }).role === "assistant";
 
-/** Wait for the fork's single turn to finish and return its assistant answer. */
-const collectAnswer = (proc: PiRpcProcess, timeoutMs: number): Promise<string> =>
+/**
+ * Wait for the fork's single turn to finish and return its assistant answer.
+ *
+ * A fork's turn can "succeed" at the RPC level while producing NOTHING useful:
+ * the target session may be un-resumable (e.g. a codex→anthropic corruption
+ * case) so the model's replay of the forked history errors in-band, surfacing
+ * as an `agent_end` whose last assistant message carries `stopReason: "error"`
+ * (and possibly no text). Resolving with the empty `lastAssistantText` in that
+ * case makes `consult_thread` report silent success with a blank answer. So
+ * treat an errored run, or an empty/whitespace answer, as a failure with a
+ * useful detail (the in-band error text and/or pi's stderr tail).
+ */
+export const collectAnswer = (proc: PiRpcProcess, timeoutMs: number): Promise<string> =>
   new Promise<string>((resolve, reject) => {
     let lastAssistantText = "";
     let currentText = "";
@@ -106,6 +119,14 @@ const collectAnswer = (proc: PiRpcProcess, timeoutMs: number): Promise<string> =
       clearTimeout(timer);
       unsubscribe();
       fn();
+    };
+    const failEmpty = (detail: string) => {
+      const stderr = proc.stderrTail().trim();
+      reject(
+        new Error(
+          `cannot fork/replay target session: ${detail}${stderr ? `\n${stderr}` : ""}`.trim(),
+        ),
+      );
     };
     const timer = setTimeout(
       () => finish(() => reject(new Error("Timed out waiting for the fork to answer."))),
@@ -126,9 +147,35 @@ const collectAnswer = (proc: PiRpcProcess, timeoutMs: number): Promise<string> =
         case "message_end":
           if (isAssistantMessageEnd(message)) lastAssistantText = currentText;
           break;
-        case "agent_end":
+        case "agent_end": {
+          const event = message as Extract<PiRpcStdoutEvent, { type: "agent_end" }>;
+          // `willRetry` means pi's built-in auto-retry will re-run the agent:
+          // this is an INTERMEDIATE end (the run/turn is not over), so the
+          // errored/empty assistant message here is transient and a later
+          // `agent_end` carries the real outcome. Ignore it, exactly as
+          // PiDriver does, or a retryable provider blip becomes a spurious
+          // WorkstreamAskError.
+          if (event.willRetry === true) break;
+          const outcome = piRunOutcome(event.messages);
+          const answer = lastAssistantText.trim();
+          if (outcome.stopReason === "error") {
+            finish(() =>
+              failEmpty(
+                outcome.errorMessage?.trim() ||
+                  "the fork's turn ended in a provider error with no message.",
+              ),
+            );
+            break;
+          }
+          if (answer.length === 0) {
+            finish(() =>
+              failEmpty("the fork produced no answer (the session history may not be replayable)."),
+            );
+            break;
+          }
           finish(() => resolve(lastAssistantText));
           break;
+        }
         default:
           break;
       }

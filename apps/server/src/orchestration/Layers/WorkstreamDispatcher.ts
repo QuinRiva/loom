@@ -49,6 +49,11 @@ import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamRepor
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
 import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
+import {
+  ProcessResourceMonitor,
+  type ProcessTreeActivity,
+} from "../../diagnostics/ProcessResourceMonitor.ts";
+import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -359,6 +364,16 @@ const renderDigestBody = (
 const DIGEST_CLOSING =
   "No first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look.";
 
+// When a digest carries ZERO terminal members (only informational extras), the
+// completion-framed closing would misfire. But the extras are heterogeneous — a
+// `slow-tool` line is still in flight, a `recovered` line is an error→`done`
+// supersession that DID complete (dependents released). So the info-only copy
+// must stay neutral: it may not claim "nothing completed" (false for recovered)
+// nor "the following completed" (false for slow-tool). It just says these are
+// status notices needing no first-pass review.
+const DIGEST_CLOSING_INFO_ONLY =
+  "These are status notices, not completions to review — some items are still in flight, others already resolved themselves (e.g. an earlier `error` superseded by `done`, its dependents released). No first-pass review is owed; act only if a notice reads as genuinely wrong (e.g. a mis-scoped tool call).";
+
 /**
  * Standalone FYI digest (design §5.3): delivered by a quiet-window / quiet-
  * workstream flush as its own turn-start. Fully framed — control-plane marker,
@@ -368,16 +383,24 @@ const DIGEST_CLOSING =
 export const buildStandaloneDigest = (
   members: ReadonlyArray<WakeMember>,
   extras: ReadonlyArray<DigestExtra> = [],
-): string =>
-  [
+): string => {
+  // Intro + closing must reflect the actual content: a digest of only
+  // informational extras (no terminal members) must not claim anything
+  // "completed".
+  const infoOnly = members.length === 0;
+  const intro = infoOnly
+    ? "FYI digest — status notices from the control plane since you last heard. Nothing below is blocked on you."
+    : "FYI digest — the following items completed and were fully routed by the control plane since you last heard. Nothing below is blocked on you.";
+  return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    "FYI digest — the following items completed and were fully routed by the control plane since you last heard. Nothing below is blocked on you.",
+    intro,
     "",
     renderDigestBody(members, extras),
     "",
-    DIGEST_CLOSING,
+    infoOnly ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
   ].join("\n");
+};
 
 /**
  * Piggyback digest section (design §5.3): appended AFTER an action-required
@@ -396,7 +419,7 @@ export const buildDigestPiggyback = (
     "",
     renderDigestBody(members, extras),
     "",
-    DIGEST_CLOSING,
+    members.length === 0 ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
   ].join("\n");
 
 /** Render a `recovered` digest one-liner (design §5.2): reference + timestamp,
@@ -421,8 +444,10 @@ export const renderSlowToolDigestLine = (child: {
   readonly toolName: string;
   readonly inFlightMinutes: number;
   readonly quietMinutes: number;
+  /** Optional process-health evidence (see {@link formatProcessHealthLine}), appended as a nested sub-bullet when present. */
+  readonly processHealth?: string | undefined;
 }): string =>
-  `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — tool \`${child.toolName}\` in flight ~${child.inFlightMinutes} min, quiet ~${child.quietMinutes} min (informational; nothing failed, the control plane will not interrupt it).`;
+  `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — long-running tool \`${child.toolName}\` in flight ~${child.inFlightMinutes} min, no agent-visible output ~${child.quietMinutes} min (informational, not a hang; the control plane will not interrupt it).${child.processHealth ? `\n  - ${child.processHealth}` : ""}`;
 
 /**
  * Quiet-workstream flush condition (design §4.3, condition 3): true when the
@@ -674,6 +699,15 @@ export interface ChildWakeContext {
   readonly toolName?: string;
   readonly inFlightMs?: number;
   /**
+   * One honest line of cheap process-health evidence for a `slow-tool` notice,
+   * derived from the {@link ProcessResourceMonitor}'s already-collected samples
+   * for the child's provider process subtree (e.g. "process tree: 87% peak CPU
+   * over the last 30s across 3 processes (working)"). Absent when the process
+   * is not locally observable (remote/SSH provider, exited, or no samples yet),
+   * so the notice degrades to its plain wording with no evidence line.
+   */
+  readonly processHealth?: string;
+  /**
    * The child's `needs_guidance` came from a pre-first-turn worktree
    * provisioning failure (a transient environment/git error, e.g. index.lock
    * contention), not an agent stall. Switches the `attention` copy to say so
@@ -809,7 +843,7 @@ export const idleLastProgressMs = (
  * has shown activity within `graceWindowMs`, or its last-progress time is
  * unknown). The idle wake fires only once this returns `false`. A grace only
  * delays *onset*; it does not change the one-wake-per-episode dedup (the episode
- * key still re-arms on `maxSequence`).
+ * key still re-arms on `maxCreatedAt`).
  */
 export const idleWakeWithinGrace = (
   lastProgressMs: number | null,
@@ -866,7 +900,15 @@ export interface ChildWakeEvidence {
   readonly freshness?: ProjectionActivityFreshness | undefined;
   /** In-flight tool row (`null` when none) — present iff it was fetched. */
   readonly inFlightTool?: ProjectionInFlightTool | null | undefined;
-  /** `wasDelivered(idle:<maxSequence>)` — the attention idle-wake suppression guard. */
+  /**
+   * Pre-formatted process-health evidence line for a due slow-tool notice
+   * (from {@link formatProcessHealthLine} over the monitor's samples for the
+   * child's provider subtree). Absent when the process is not locally
+   * observable (remote/SSH, exited, no samples, or no monitor) — the notice
+   * then degrades to its plain wording.
+   */
+  readonly processHealth?: string | undefined;
+  /** `wasDelivered(idle:<maxCreatedAt>)` — the attention idle-wake suppression guard. */
   readonly idleWakeDelivered?: boolean | undefined;
   /** `wasDelivered(error)` — the `recovered`-wake precondition. */
   readonly errorWakeDelivered?: boolean | undefined;
@@ -970,9 +1012,13 @@ export const classifyChildWakeFull = (
       )
     )
       return { skip: "within-grace" };
-    // Idle keys on max activity sequence at idle onset (stable while idle → no
-    // re-nag; a resumed-then-quiet child advances the sequence → re-arms).
-    return { kind: "idle", episode: `idle:${freshness.maxSequence ?? "none"}` };
+    // Idle keys on the newest activity-row timestamp at idle onset (stable while
+    // idle → no re-nag; a resumed-then-quiet child emits a fresher row → the key
+    // advances → the episode re-arms). This replaces the old `maxSequence` key,
+    // which was permanently `none` (the feeding `sessionSequence` field was
+    // never populated), so an idle wake once delivered was never re-armed and
+    // every later terminal delta was suppressed forever (2026-07-08 incident).
+    return { kind: "idle", episode: `idle:${freshness.maxCreatedAt ?? "none"}` };
   }
 
   if (kind === "attention") {
@@ -1038,11 +1084,31 @@ export const classifyChildWakeFull = (
         quietMs,
         toolName: inFlight.toolName,
         inFlightMs: Math.max(0, now - (parseIsoMs(inFlight.startedAt) ?? now)),
+        ...(evidence.processHealth !== undefined ? { processHealth: evidence.processHealth } : {}),
       },
     };
   }
 
   return { skip: "healthy" };
+};
+
+/**
+ * Pure formatter for the slow-tool notice's process-health evidence line from a
+ * {@link ProcessTreeActivity} read. Honest and hedged: a working subtree is
+ * stated plainly; an idle one is flagged "may be stuck" but allows for I/O- or
+ * network-blocked work (which shows no CPU yet is not hung). `null` in ⇒ no
+ * line (the notice degrades to its plain wording).
+ */
+export const formatProcessHealthLine = (
+  activity: ProcessTreeActivity | null,
+): string | undefined => {
+  if (activity === null) return undefined;
+  const secs = Math.round(activity.windowMs / 1_000);
+  const cpu = `${Math.round(activity.peakCpuPercent)}% peak CPU over the last ${secs}s`;
+  const across = activity.processCount === 1 ? "" : ` across ${activity.processCount} processes`;
+  return activity.active
+    ? `Process health: its tool process tree shows ${cpu}${across} — it is actively working, not hung.`
+    : `Process health: its tool process tree shows ${cpu}${across} — no measurable CPU, so it may be genuinely stuck (or blocked on slow I/O or network, which also shows no CPU).`;
 };
 
 /**
@@ -1059,6 +1125,7 @@ export const buildChildWakeMessage = (
     readonly planLane: ThreadPlanLane;
     readonly attention: ReadonlyArray<AttentionReason>;
     readonly reportPath: string | null;
+    readonly lastOutcome?: { readonly outcome: string; readonly decision: string } | null;
   },
   kind: ChildWakeKind,
   report: string | null,
@@ -1071,13 +1138,14 @@ export const buildChildWakeMessage = (
     return [
       WORKSTREAM_CONTROL_PLANE_MARKER,
       "",
-      `Informational notice: your Workstream sub-thread ${who} is still executing, but its current tool call \`${context?.toolName ?? "unknown"}\` has been in flight for ~${mins(context?.inFlightMs ?? 0)} min with no runtime activity for ~${mins(context?.quietMs ?? 0)} min.`,
+      `Informational notice: your Workstream sub-thread ${who} has a long-running tool call \`${context?.toolName ?? "unknown"}\` in flight for ~${mins(context?.inFlightMs ?? 0)} min, with no agent-visible output for ~${mins(context?.quietMs ?? 0)} min. This is NOT a hang verdict — the child's tool process may be working the whole time (builds, installs, long pipelines, test suites emit nothing to the agent until they return).`,
+      ...(context?.processHealth ? ["", context.processHealth] : []),
       "",
-      "Nothing has failed and no attention flag was raised. A long tool call is often legitimate (builds, installs, long pipelines) — but a quiet one can also be mis-scoped (e.g. an unscoped filesystem search). This needs your judgement; the control plane will not interrupt or kill it. Your options:",
+      "No attention flag was raised and the control plane will not interrupt or kill it. A long, quiet call is usually legitimate, but occasionally one is mis-scoped (e.g. an unscoped filesystem search) — only you have the context to tell. Your options:",
       "",
       "- Let it run — you will be re-notified at increasing intervals while it stays quiet.",
-      "- `workstream_prompt` the child to queue a steer (it is only seen once the current tool call returns — it cannot penetrate a blocked call).",
-      "- `workstream_stop` the child to interrupt the stuck call, then `workstream_prompt` it to redirect.",
+      "- `workstream_prompt` the child to queue a steer (it is only seen once the current tool call returns — it cannot penetrate an in-flight call).",
+      "- `workstream_stop` the child to interrupt the call, then `workstream_prompt` it to redirect.",
     ].join("\n");
   }
   const lead =
@@ -1090,7 +1158,10 @@ export const buildChildWakeMessage = (
             ? `Your Workstream sub-thread ${who} needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and its open turn appears frozen — no runtime activity for ~${mins(context.quietMs)} min (this typically follows a liveness stall escalation whose recovery nudge did not unstick it). Its plan lane is still \`${child.planLane}\`; it has NOT finished.`
             : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) \`${child.attention.join("`, `")}\` and is not executing, while its plan lane is still \`${child.planLane}\`. It has NOT finished — this is a pause notice, not a result.`
         : kind === "idle"
-          ? `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
+          ? child.lastOutcome != null &&
+            (child.lastOutcome.decision === "loop" || child.lastOutcome.decision === "yield")
+            ? `Your Workstream sub-thread ${who} submitted but its routing never landed: it ran \`workstream_submit\` (outcome \`${child.lastOutcome.outcome}\`, routed as \`${child.lastOutcome.decision}\`) and is now idle, yet its plan lane is still in progress — the routed hand-back to its gate counterpart was never delivered, so the review loop is wedged. It has been flagged \`needs_guidance\` so it surfaces for you. Check the gate counterpart (the reviewer/coder it loops with): resume it (\`workstream_prompt\`) or dissolve the gate (\`workstream_set_lane\` done/cancelled on the reviewer).`
+            : `Your Workstream sub-thread ${who} went quiet without reporting: it finished its turn and is idle, but its plan lane is still in progress (it never submitted — it never advanced its plan or raised attention). It has been flagged \`needs_guidance\` so it surfaces for you.`
           : `Your Workstream sub-thread ${who} recovered: you were told it raised an \`error\` flag (often a false-positive liveness verdict), but its plan has since reached \`done\`. The earlier error verdict is superseded — treat it as having completed successfully.`;
   const reference =
     child.reportPath !== null
@@ -1174,6 +1245,8 @@ const make = Effect.gen(function* () {
       readonly toolName: string;
       readonly inFlightMs: number;
       readonly quietMs: number;
+      /** One honest process-health line (see {@link formatProcessHealthLine}); absent when not locally observable. */
+      readonly processHealth?: string | undefined;
     };
     /** Durable event time (ms) driving the quiet-window age flush. */
     readonly eventAtMs: number | null;
@@ -1223,6 +1296,9 @@ const make = Effect.gen(function* () {
               toolName: entry.slowTool?.toolName ?? "unknown",
               inFlightMinutes: mins(entry.slowTool?.inFlightMs ?? 0),
               quietMinutes: mins(entry.slowTool?.quietMs ?? 0),
+              ...(entry.slowTool?.processHealth !== undefined
+                ? { processHealth: entry.slowTool.processHealth }
+                : {}),
             }),
           });
         }
@@ -1570,7 +1646,7 @@ const make = Effect.gen(function* () {
       return true;
     const freshness = yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id);
     return yield* dedup.wasDelivered(
-      childWakeCommandId(child.id, `idle:${freshness.maxSequence ?? "none"}`),
+      childWakeCommandId(child.id, `idle:${freshness.maxCreatedAt ?? "none"}`),
     );
   });
 
@@ -1724,7 +1800,7 @@ const make = Effect.gen(function* () {
         : undefined;
       const idleWakeDelivered = needs.has("idleWakeDelivered")
         ? yield* dedup.wasDelivered(
-            childWakeCommandId(child.id, `idle:${freshness?.maxSequence ?? "none"}`),
+            childWakeCommandId(child.id, `idle:${freshness?.maxCreatedAt ?? "none"}`),
           )
         : undefined;
       // A done child's wake episode is always "recovered" (both the delivered
@@ -1753,6 +1829,22 @@ const make = Effect.gen(function* () {
             child.session.activeTurnId,
           );
       }
+      // Cheap process-health evidence for a due slow-tool notice, fetched ONLY
+      // once a tool call is confirmed in flight (zero steady-state cost): the
+      // monitor already samples the descendant tree every 5s, so this is a pure
+      // read over retained samples for the child's provider subtree (matched by
+      // its pi `--session-id` in the sampled command line). Optional dependency
+      // (`serviceOption`): absent in tests / degrades to no evidence line when
+      // the process is not locally observable (remote/SSH provider, exited, or
+      // no samples yet).
+      let processHealth: string | undefined;
+      if (inFlightTool != null) {
+        const monitor = yield* Effect.serviceOption(ProcessResourceMonitor);
+        const activity = Option.isSome(monitor)
+          ? yield* monitor.value.recentActivityFor(piSessionIdForThread(child.id))
+          : null;
+        processHealth = formatProcessHealthLine(activity);
+      }
 
       // Phase 2 (§A.5): the whole decision — episode keys AND skip reasons — is
       // pure. The loop keeps only the effectful delivery tail below.
@@ -1763,6 +1855,7 @@ const make = Effect.gen(function* () {
           inFlightTool,
           idleWakeDelivered,
           errorWakeDelivered,
+          processHealth,
           provisionFailurePending: worktreeProvisioner.hasPendingProvisionFailure(child.id),
           waitingInGate,
         },
@@ -1799,6 +1892,9 @@ const make = Effect.gen(function* () {
                   toolName: context?.toolName ?? "unknown",
                   inFlightMs: context?.inFlightMs ?? 0,
                   quietMs: context?.quietMs ?? 0,
+                  ...(context?.processHealth !== undefined
+                    ? { processHealth: context.processHealth }
+                    : {}),
                 },
               }
             : {}),
@@ -1886,9 +1982,17 @@ const make = Effect.gen(function* () {
       // through; `deliverOnce` swallows nothing but the deferred error (which
       // these commands never raise), and a genuine dispatch failure still
       // propagates to the pass-level `catchCause`, exactly as before.
-      if (target.pendingRework) {
+      if (target.pendingRework && source.lastOutcome?.decision === "loop") {
         // Rework leg: deliver the source's findings to the target, reopening a
         // round-0-completed (`done`) target atomically in the same transaction.
+        // Guarded on the SOURCE having actually issued the round
+        // (`lastOutcome.decision === "loop"`), not merely on the target's open
+        // round: a replacement reviewer spawned over a coder whose
+        // `pendingRework` lingered from a now-cancelled predecessor gate
+        // (2026-07-07 incident) has `lastOutcome === null` and must NOT deliver
+        // a rework leg "from" a reviewer that never reviewed. (The projector
+        // also dissolves that residual round on the predecessor's cancel, so
+        // this is defence-in-depth against any un-dissolved residue.)
         const commandId = gateCommandId(source.id, source.gateRounds, "rework");
         // Skip-check first so the report read + message build are only done when
         // a delivery is actually owed (mirrors the old ordering).

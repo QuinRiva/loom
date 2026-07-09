@@ -53,6 +53,8 @@ import {
   classifyChildWakeFull,
   childWakeEvidenceNeeds,
   type ChildWakeEvidence,
+  type DigestExtra,
+  formatProcessHealthLine,
   terminalEpisodeKey,
   DEFAULT_IDLE_WAKE_GRACE_MS,
   DEFAULT_WAKE_RATE_GUARD,
@@ -77,6 +79,8 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
+import { ProcessResourceMonitor } from "../../diagnostics/ProcessResourceMonitor.ts";
+import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { isThreadIdle } from "../threadIdle.ts";
@@ -547,6 +551,51 @@ describe("groupBatchForWake + pair rendering (design §4.1/§5.1)", () => {
     expect(text).toContain("☑️");
     expect(text).toContain("deserve the usual first look");
   });
+
+  it("buildStandaloneDigest: an info-only digest (no terminal members) never claims anything completed", () => {
+    // 2026-07-07 incident: a quiet-window flush carrying only a slow-tool extra
+    // told the parent a still-executing coder "completed".
+    const slowExtra: DigestExtra = {
+      kind: "slow-tool",
+      line: renderSlowToolDigestLine({
+        id: "cod" as ThreadId,
+        role: "coder",
+        toolName: "pytest",
+        inFlightMinutes: 22,
+        quietMinutes: 20,
+      }),
+    };
+    const text = buildStandaloneDigest([], [slowExtra]);
+    expect(text).toContain("still executing");
+    // Must not claim completion for an in-flight slow-tool line …
+    expect(text).not.toContain("the following items completed");
+    // … and must not carry the completion-framed "first look" closing.
+    expect(text).not.toContain("deserve the usual first look");
+    // Neutral info-only framing (true for both slow-tool and recovered).
+    expect(text).toContain("status notices");
+    expect(text).toContain("No first-pass review is owed");
+  });
+
+  it("buildDigestPiggyback: a recovered-only section never claims 'nothing completed' (a recovered item DID complete)", () => {
+    const recExtra: DigestExtra = {
+      kind: "recovered",
+      line: renderRecoveredDigestLine({
+        id: "c9" as ThreadId,
+        role: "coder",
+        reportPath: null,
+        eventAt: "2026-07-07T14:35:00.000Z",
+      }),
+    };
+    const text = buildDigestPiggyback([], [recExtra]);
+    expect(text).toContain("Also, FYI since you last heard");
+    expect(text).toContain("recovered");
+    // The recovered item resolved to `done` — the copy must NOT assert nothing
+    // completed / no plan lane changed (the contradiction this round fixes).
+    expect(text).not.toContain("Nothing above completed");
+    expect(text).not.toContain("no plan lane changed");
+    expect(text).not.toContain("deserve the usual first look");
+    expect(text).toContain("already resolved themselves");
+  });
 });
 
 describe("digest builders + flush predicates (design §4.3/§5.3)", () => {
@@ -747,7 +796,7 @@ describe("startup stale session reconciliation", () => {
           getShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
           getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, maxSequence: 1, heartbeatAt: null }),
+            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
         const providerService = {
           listSessions: () => Effect.succeed(providerSessions),
@@ -872,6 +921,38 @@ describe("buildChildWakeMessage (recovered re-notifies the parent of an error→
   });
 });
 
+describe("buildChildWakeMessage (Issue 7: idle backstop distinguishes a routed-but-unlanded submit)", () => {
+  const idleChildBase = {
+    id: "child-1" as ThreadId,
+    role: "coder" as string | null,
+    planLane: "in_progress" as ThreadPlanLane,
+    attention: [],
+    reportPath: "child-1.md",
+  };
+
+  it("a never-submitted idle child gets the plain forgot-to-finish copy", () => {
+    const text = buildChildWakeMessage({ ...idleChildBase, lastOutcome: null }, "idle", null);
+    expect(text).toContain("went quiet without reporting");
+    expect(text).toContain("never submitted");
+    expect(text).not.toContain("routing never landed");
+  });
+
+  it("a child whose submit routed (loop) but never landed gets the wedged-gate copy pointing at the counterpart", () => {
+    const text = buildChildWakeMessage(
+      {
+        ...idleChildBase,
+        lastOutcome: { outcome: "fixed", decision: "loop" },
+      },
+      "idle",
+      null,
+    );
+    expect(text).toContain("submitted but its routing never landed");
+    expect(text).toContain("fixed");
+    expect(text).toContain("gate counterpart");
+    expect(text).not.toContain("went quiet without reporting");
+  });
+});
+
 describe("buildChildWakeMessage (attention pause notice)", () => {
   it("names the flags + lane and never claims the child finished", () => {
     const text = buildChildWakeMessage(
@@ -964,9 +1045,73 @@ describe("buildChildWakeMessage (slow-tool informational notice)", () => {
     expect(text).toContain("will not interrupt");
     expect(text).toContain("workstream_prompt");
     expect(text).toContain("workstream_stop");
+    // Reads as informational, not a hang verdict: a busy child IS runtime
+    // activity; the notice must say output is not agent-visible, not that
+    // nothing is happening.
+    expect(text).toContain("long-running tool call");
+    expect(text).toContain("no agent-visible output");
+    expect(text).toContain("NOT a hang verdict");
+    expect(text).not.toContain("no runtime activity");
     // Nothing failed: no fault language, no report boilerplate.
     expect(text).not.toContain("error");
     expect(text).not.toContain("No report was filed");
+    // No process-health evidence supplied → no evidence line (clean degrade).
+    expect(text).not.toContain("Process health:");
+  });
+
+  it("appends the process-health evidence line when supplied", () => {
+    const text = buildChildWakeMessage(
+      {
+        id: "child-1" as ThreadId,
+        role: "coder",
+        planLane: "in_progress",
+        attention: [],
+        reportPath: null,
+      },
+      "slow-tool",
+      null,
+      {
+        quietMs: 6 * 60_000,
+        toolName: "bash",
+        inFlightMs: 7 * 60_000,
+        processHealth:
+          "Process health: its tool process tree shows 87% peak CPU over the last 30s across 3 processes — it is actively working, not hung.",
+      },
+    );
+    expect(text).toContain("Process health:");
+    expect(text).toContain("87% peak CPU");
+    expect(text).toContain("actively working");
+  });
+});
+
+describe("formatProcessHealthLine (slow-tool process-health evidence)", () => {
+  it("states a working subtree plainly with peak CPU and process count", () => {
+    const line = formatProcessHealthLine({
+      peakCpuPercent: 87.4,
+      processCount: 3,
+      windowMs: 30_000,
+      active: true,
+    });
+    expect(line).toContain("87% peak CPU over the last 30s");
+    expect(line).toContain("across 3 processes");
+    expect(line).toContain("actively working, not hung");
+  });
+
+  it("hedges an idle subtree as maybe-stuck-or-blocked and omits the count for one process", () => {
+    const line = formatProcessHealthLine({
+      peakCpuPercent: 0,
+      processCount: 1,
+      windowMs: 30_000,
+      active: false,
+    });
+    expect(line).toContain("0% peak CPU");
+    expect(line).not.toContain("across");
+    expect(line).toContain("may be genuinely stuck");
+    expect(line).toContain("I/O or network");
+  });
+
+  it("returns undefined when no local health is observable (clean degrade)", () => {
+    expect(formatProcessHealthLine(null)).toBeUndefined();
   });
 });
 
@@ -1196,9 +1341,8 @@ const executingShell = (overrides: Partial<Parameters<typeof shell>[0]> = {}) =>
     latestTurn: latestTurn({ turnId: "turn-9" as TurnId }),
     ...overrides,
   });
-const fresh = (heartbeatAt: string | null, maxSequence: number | null = 7) => ({
+const fresh = (heartbeatAt: string | null) => ({
   maxCreatedAt: heartbeatAt,
-  maxSequence,
   heartbeatAt,
 });
 
@@ -1265,11 +1409,11 @@ describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () =
     });
   });
 
-  it("idle past grace → an `idle` wake keyed on the activity sequence", () => {
-    const evidence = wakeEvidence({ freshness: fresh(now, 12) });
+  it("idle past grace → an `idle` wake keyed on the newest activity timestamp", () => {
+    const evidence = wakeEvidence({ freshness: fresh(now) });
     expect(
       classifyChildWakeFull(idleShell(), evidence, t0 + DEFAULT_IDLE_WAKE_GRACE_MS + 1, new Set()),
-    ).toEqual({ kind: "idle", episode: "idle:12" });
+    ).toEqual({ kind: "idle", episode: `idle:${now}` });
   });
 
   it("attention → a paused wake keyed on the latest turn; provisioning park sets the copy", () => {
@@ -1321,7 +1465,7 @@ describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () =
   it("executing with no activity baseline → skip `no-activity-baseline`", () => {
     const child = executingShell({ latestTurn: null });
     expect(
-      classifyChildWakeFull(child, wakeEvidence({ freshness: fresh(null, null) }), t0, new Set()),
+      classifyChildWakeFull(child, wakeEvidence({ freshness: fresh(null) }), t0, new Set()),
     ).toEqual({ skip: "no-activity-baseline" });
   });
 
@@ -1443,7 +1587,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 42, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     // Empty receipt store: cross-pass dedup must therefore be carried by the
@@ -1509,7 +1653,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
             expect(wake.message.text).toContain("went quiet");
 
             // (3) Further re-pass ticks must NOT re-nag: the episode is deduped
-            // by the `idle:${maxSequence}` key + in-memory handled set.
+            // by the `idle:${maxCreatedAt}` key + in-memory handled set.
             yield* TestClock.adjust(Duration.millis(IDLE_WAKE_REPASS_INTERVAL_MS * 5));
             yield* dispatcher.drain;
             expect(dispatched.length).toBe(2);
@@ -1568,7 +1712,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     // Only the error-wake receipt is present (when opts say so); the recovery
@@ -1713,7 +1857,7 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
               } satisfies OrchestrationShellSnapshot),
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
             getActivityFreshnessByThreadId: () =>
-              Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+              Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
           } as unknown as ProjectionSnapshotQueryShape;
           const layer = WorkstreamDispatcherLive.pipe(
             Layer.provide(
@@ -1784,7 +1928,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
     dispatched: Array<OrchestrationCommand>,
     opts: { readonly idleWakeReceiptExists: boolean },
   ) => {
-    const idleCmd = childWakeCommandId(CHILD_ID, "idle:42");
+    const idleCmd = childWakeCommandId(CHILD_ID, `idle:${now}`);
     const engine = {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
@@ -1807,7 +1951,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 42, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     const receipts = {
@@ -1904,12 +2048,22 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
     latestTurn: latestTurn({ startedAt: epochIso, completedAt: null, state: "running" }),
   });
 
+  // `monitor` optionally stubs the ProcessResourceMonitor: `active`/`idle`
+  // returns a reading for the child's own pi session marker (null for anything
+  // else) so the notice carries a process-health line; omitting it leaves the
+  // monitor absent so the notice must degrade to its plain wording (the remote
+  // / no-samples path).
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
-    opts: { readonly inFlight?: boolean; readonly receipts?: Set<string> } = {},
+    opts: {
+      readonly inFlight?: boolean;
+      readonly receipts?: Set<string>;
+      readonly monitor?: "active" | "idle";
+    } = {},
   ) => {
     const inFlight = opts.inFlight ?? true;
     const receiptSet = opts.receipts;
+    const monitor = opts.monitor;
     const engine = {
       readEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
@@ -1934,7 +2088,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       // Heartbeat frozen at epoch: quiet time === TestClock time.
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: epochIso }),
+        Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
       // One tool call in flight since epoch, never completing (unless the test
       // says the tool has since returned — then null, as after a restart).
       getInFlightToolByThreadId: () =>
@@ -1953,12 +2107,31 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
         ),
     };
 
+    const monitorLayer =
+      monitor === undefined
+        ? Layer.empty
+        : Layer.succeed(ProcessResourceMonitor, {
+            readHistory: () => Effect.die("unused"),
+            recentActivityFor: (marker: string) =>
+              Effect.succeed(
+                marker === piSessionIdForThread(CHILD_ID)
+                  ? {
+                      peakCpuPercent: monitor === "active" ? 87 : 0,
+                      processCount: monitor === "active" ? 3 : 1,
+                      windowMs: 30_000,
+                      active: monitor === "active",
+                    }
+                  : null,
+              ),
+          } as never);
+
     return WorkstreamDispatcherLive.pipe(
       Layer.provide(
         Layer.mergeAll(
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          monitorLayer,
           WorktreeProvisionerStub,
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-dispatcher-slowtool-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer)),
@@ -1996,6 +2169,9 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
             expect(afterFirst[0]!.message.text).toContain("FYI digest");
             expect(afterFirst[0]!.message.text).toContain("still executing");
             expect(afterFirst[0]!.message.text).toContain("`bash`");
+            // No monitor provided → the notice degrades to plain wording with
+            // NO process-health evidence (the remote / no-samples path).
+            expect(afterFirst[0]!.message.text).not.toContain("Process health:");
 
             // (3) Past the second step (15m) → exactly one more notice.
             yield* TestClock.adjust(Duration.millis(10 * 60_000));
@@ -2042,6 +2218,28 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
             expect(wakes).toHaveLength(1);
             expect(wakes[0]!.message.text).toContain("still executing");
           }).pipe(Effect.provide(buildLayer(dispatchedStill, { inFlight: true })));
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "attaches a process-health evidence line when the monitor observes the child's process tree",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* TestClock.adjust(Duration.millis(6 * 60_000));
+            yield* dispatcher.drain;
+            const wakes = slowToolWakes(dispatched);
+            expect(wakes).toHaveLength(1);
+            // The grinding reading is surfaced as one honest evidence line.
+            expect(wakes[0]!.message.text).toContain("Process health:");
+            expect(wakes[0]!.message.text).toContain("87% peak CPU");
+            expect(wakes[0]!.message.text).toContain("actively working, not hung");
+          }).pipe(Effect.provide(buildLayer(dispatched, { monitor: "active" })));
         }),
       ),
   );
@@ -2095,7 +2293,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: epochIso }),
+        Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
 
@@ -2201,7 +2399,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
 
     const receipts = {
@@ -2395,7 +2593,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: epochIso, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
 
@@ -2440,6 +2638,18 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
       }),
     );
 
+  // A reviewer that actually issued a rework round carries a `loop` lastOutcome
+  // (projected from its `thread.outcome-recorded`). The rework leg is guarded on
+  // this so a replacement reviewer that never reviewed cannot deliver a rework
+  // "from" itself (2026-07-07 incident).
+  const loopOutcome = {
+    outcome: "needs_rework",
+    decision: "loop",
+    round: 1,
+    recordedByEventId: "evt-loop-1",
+    at: epochIso,
+  } as unknown as NonNullable<OrchestrationThreadShell["lastOutcome"]>;
+
   effectIt.effect(
     "rework leg: an open round resumes the done coder with reopen, exactly once (round-trip start)",
     () => {
@@ -2450,6 +2660,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         planLane: "in_progress",
         routes: gateRoutes,
         gateRounds: 1,
+        lastOutcome: loopOutcome,
         reportPath: "/nonexistent/reviewer-gate.round-1.md",
       });
       const coder = shell({
@@ -2492,6 +2703,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         planLane: "in_progress",
         routes: gateRoutes,
         gateRounds: 1,
+        lastOutcome: loopOutcome,
       });
       const coder = shell({
         id: CODER_ID as unknown as string,
@@ -2508,6 +2720,48 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         ({ dispatched }) =>
           Effect.sync(() => {
             expect(dispatched.length).toBe(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
+    "Issue 1: a replacement reviewer that has NOT reviewed fires no rework leg on a coder with a lingering open round",
+    () => {
+      // 2026-07-08 incident: the predecessor gate was cancelled but the coder's
+      // `pendingRework` lingered. A fresh replacement reviewer (gateRounds 0,
+      // lastOutcome null — it never issued a round) must NOT deliver a rework
+      // message "from" itself. (The projector also dissolves the residual round
+      // on the predecessor's cancel; this is the dispatcher-side guard.)
+      const replacement = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "reviewer",
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 0,
+        lastOutcome: null,
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "coder",
+        planLane: "done",
+        pendingRework: true,
+      });
+      return run(
+        [parent, replacement, coder],
+        { prefix: "t3-workstream-gate-replacement-" },
+        ({ dispatched }) =>
+          Effect.sync(() => {
+            // No rework/reverify resume to either gate party.
+            expect(
+              dispatched.filter(
+                (c) =>
+                  c.type === "thread.turn.start" &&
+                  (c.threadId === CODER_ID || c.threadId === REVIEWER_ID),
+              ),
+            ).toHaveLength(0);
           }),
       );
     },
@@ -2893,7 +3147,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
     const receipts = {
@@ -3043,7 +3297,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
     const receipts = {
@@ -3303,7 +3557,7 @@ describe("fan-in settlement releases dependents", () => {
           getShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
           getActivityFreshnessByThreadId: () =>
-            Effect.succeed({ maxCreatedAt: null, maxSequence: 1, heartbeatAt: null }),
+            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
         const receipts = {
           upsert: () => Effect.void,
@@ -3362,7 +3616,6 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
     events: PubSub.PubSub<OrchestrationEvent>,
     freshness: () => {
       maxCreatedAt: string | null;
-      maxSequence: number | null;
       heartbeatAt: string | null;
     },
   ) => {
@@ -3413,9 +3666,8 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
       (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
         c.type === "thread.turn.start" && c.threadId === PARENT_ID,
     );
-  const freshAt = (maxSequence: number) => () => ({
-    maxCreatedAt: now,
-    maxSequence,
+  const freshAt = (maxCreatedAt: string) => () => ({
+    maxCreatedAt,
     heartbeatAt: null,
   });
 
@@ -3476,7 +3728,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(threadsRef, dispatched, receipts, events, freshAt(1))),
+                Layer.provide(buildDeps(threadsRef, dispatched, receipts, events, freshAt(now))),
               ),
             ),
           );
@@ -3510,7 +3762,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(threadsRef, dispatched, receipts, events, freshAt(1))),
+                Layer.provide(buildDeps(threadsRef, dispatched, receipts, events, freshAt(now))),
               ),
             ),
           );
@@ -3527,7 +3779,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(threadsRef, dispatched2, receipts, events, freshAt(1))),
+                Layer.provide(buildDeps(threadsRef, dispatched2, receipts, events, freshAt(now))),
               ),
             ),
           );
@@ -3547,10 +3799,12 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
             planLane: "done",
             spawnGeneration: "gen-1",
           });
-          // Suppressed: the parent already got the idle wake at activity seq 5,
-          // and the child went terminal with no new activity (still seq 5).
+          // Suppressed: the parent already got the idle wake at the child's
+          // newest activity timestamp, and the child went terminal with no new
+          // activity (still that same timestamp).
+          const idleAtS = "2026-06-24T00:00:05.000Z";
           const dispatchedS: Array<OrchestrationCommand> = [];
-          const receiptsS = new Set<string>([childWakeCommandId(A, "idle:5")]);
+          const receiptsS = new Set<string>([childWakeCommandId(A, `idle:${idleAtS}`)]);
           const refS = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, child]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
@@ -3560,15 +3814,16 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(refS, dispatchedS, receiptsS, events, freshAt(5))),
+                Layer.provide(buildDeps(refS, dispatchedS, receiptsS, events, freshAt(idleAtS))),
               ),
             ),
           );
 
-          // Ran again: activity advanced to seq 6, so the seq-5 idle receipt no
-          // longer matches → the terminal child is news and IS reported.
+          // Ran again: activity advanced to a newer timestamp, so the earlier
+          // idle receipt no longer matches → the terminal child is news and IS
+          // reported.
           const dispatchedR: Array<OrchestrationCommand> = [];
-          const receiptsR = new Set<string>([childWakeCommandId(A, "idle:5")]);
+          const receiptsR = new Set<string>([childWakeCommandId(A, `idle:${idleAtS}`)]);
           const refR = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, child]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
@@ -3578,7 +3833,15 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(refR, dispatchedR, receiptsR, events, freshAt(6))),
+                Layer.provide(
+                  buildDeps(
+                    refR,
+                    dispatchedR,
+                    receiptsR,
+                    events,
+                    freshAt("2026-06-24T00:00:06.000Z"),
+                  ),
+                ),
               ),
             ),
           );
@@ -3621,7 +3884,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(refT, dispatched, receipts, events, freshAt(1))),
+                Layer.provide(buildDeps(refT, dispatched, receipts, events, freshAt(now))),
               ),
             ),
           );
@@ -3665,7 +3928,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           }).pipe(
             Effect.provide(
               WorkstreamDispatcherLive.pipe(
-                Layer.provide(buildDeps(refC, dispatched, receipts, events, freshAt(1))),
+                Layer.provide(buildDeps(refC, dispatched, receipts, events, freshAt(now))),
               ),
             ),
           );
@@ -3728,7 +3991,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
     const receiptRepo = {
@@ -3862,7 +4125,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       getActivityFreshnessByThreadId: () =>
-        Effect.succeed({ maxCreatedAt: now, maxSequence: 1, heartbeatAt: null }),
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
     const receiptRepo = {

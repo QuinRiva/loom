@@ -207,7 +207,6 @@ const ProjectionThreadIdLookupRowSchema = Schema.Struct({
 });
 const ActivityFreshnessRowSchema = Schema.Struct({
   maxCreatedAt: Schema.NullOr(IsoDateTime),
-  maxSequence: Schema.NullOr(NonNegativeInt),
   heartbeatAt: Schema.NullOr(IsoDateTime),
 });
 const RecentToolActivityInput = Schema.Struct({
@@ -1485,7 +1484,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           MAX(created_at) AS "maxCreatedAt",
-          MAX(sequence) AS "maxSequence",
           (
             SELECT last_activity_at
             FROM projection_thread_heartbeats
@@ -1511,7 +1509,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
         Effect.map((row) => ({
           maxCreatedAt: row.maxCreatedAt,
-          maxSequence: row.maxSequence,
           heartbeatAt: row.heartbeatAt,
         })),
       );
