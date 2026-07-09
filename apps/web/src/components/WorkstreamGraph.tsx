@@ -577,11 +577,12 @@ function GraphNode({
       ) : null}
       {gateWait ? (
         // Straddles the TOP border so it never collides with the verdict chip
-        // (the pair can exceed the card width side by side).
+        // (the pair can exceed the card width side by side). An active leg reads
+        // sky (live), a parked wait stays muted white.
         <GatePill
-          fill="#0d1117"
-          label={gateWait}
-          stroke="rgba(255,255,255,0.4)"
+          fill={gateWait.active ? "#0d2231" : "#0d1117"}
+          label={gateWait.label}
+          stroke={gateWait.active ? "#38bdf8" : "rgba(255,255,255,0.4)"}
           xEnd={node.x + node.w - 6}
           yCenter={node.y}
         />

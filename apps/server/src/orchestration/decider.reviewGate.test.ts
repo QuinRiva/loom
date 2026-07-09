@@ -602,4 +602,141 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
         expect(events[1]?.payload).toMatchObject({ decision: "terminal" });
       }),
   );
+
+  // Issue 1 (2026-07-08 incident): the parent CANCELS a reviewer mid-rework-
+  // round and spawns a fresh replacement over the same coder. The cancel must
+  // dissolve the orphaned round (clear the coder's pendingRework) so the
+  // coder's later submit lands ALIVE as a plain round-0 done that releases the
+  // replacement through the ordinary blockedBy edge — never a loop into the
+  // dead predecessor gate (the deadlock), and never intercepted "back" to a
+  // replacement that has not reviewed. The replacement restarts at round 0.
+  it.effect(
+    "Issue 1: cancelling a reviewer mid-round dissolves the round; the coder's submit lands alive on a replacement",
+    () =>
+      Effect.gen(function* () {
+        const REPLACEMENT = ThreadId.make("reviewer-2");
+        let model = yield* seedGateModel;
+        // Round 1 opens: the original reviewer loops findings back to the coder,
+        // and the gate pass reopens the coder (done → in_progress) for rework.
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
+        model = yield* applyDecided(
+          model,
+          yield* decide(turnStart(CODER, { reopen: true }), model),
+        );
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(true);
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("in_progress");
+        // The parent cancels the original reviewer (near its token limit) — the
+        // cancel cascade runs through the real decider + projector.
+        model = yield* applyDecided(
+          model,
+          yield* decide(
+            {
+              type: "thread.plan-lane.set",
+              commandId: CommandId.make("server:workstream-lane:test-cancel-reviewer"),
+              threadId: REVIEWER,
+              planLane: "cancelled",
+              createdAt: now,
+            },
+            model,
+          ),
+        );
+        expect(model.threads.find((t) => t.id === REVIEWER)?.planLane).toBe("cancelled");
+        // Fix: cancelling the gate SOURCE dissolved the coder's orphaned round.
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(false);
+        // The parent spawns a fresh replacement reviewer over the SAME coder,
+        // blockedBy the coder, with the same gate (round 0 — a new edge).
+        model = yield* apply(model, [
+          threadCreated(REPLACEMENT, {
+            parentThreadId: PARENT,
+            planLane: "ready",
+            routes: GATE_ROUTES,
+            blockedBy: [CODER],
+          }),
+        ]);
+        expect(model.threads.find((t) => t.id === REPLACEMENT)?.gateRounds).toBe(0);
+        // The coder finishes its rework and submits. With the orphaned round
+        // dissolved this is a PLAIN terminal done (round 0), not a loop — it
+        // releases the replacement through the ordinary dependency edge.
+        const events = yield* decide(submit(CODER, "done"), model);
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.report-set",
+          "thread.outcome-recorded",
+          "thread.plan-lane-set",
+        ]);
+        expect(events[1]?.payload).toMatchObject({ decision: "terminal" });
+        expect(events[2]?.payload).toMatchObject({ threadId: CODER, planLane: "done" });
+        model = yield* applyDecided(model, events);
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("done");
+        // The replacement's dependency is now satisfied (coder done) — not wedged.
+        // Its later needs_rework opens a FRESH round 1 on the coder (re-granted
+        // cap on the new edge), which the coder is reopened for as normal.
+        const replayReview = yield* decide(submit(REPLACEMENT, "needs_rework"), model);
+        expect(replayReview[1]?.payload).toMatchObject({ decision: "loop", round: 1 });
+        expect(replayReview[2]?.payload).toMatchObject({
+          threadId: REPLACEMENT,
+          to: CODER,
+          round: 1,
+        });
+      }),
+  );
+
+  // Issue 1 (round-1 review finding): the SYMMETRIC Decision-9 path. A parent
+  // `set_lane(done)` on the reviewer source dissolves the gate exactly as a
+  // cancel does (design §4.1/§5.4 — resolution keys off source terminality), so
+  // it must ALSO clear the coder's orphaned round. Otherwise a replacement
+  // reviewer spawned over the same still-`pendingRework` coder is mis-seen as
+  // the live `gateSourceFor` and the coder's submit emits an orphaned round-0
+  // loop the dispatcher never delivers — the same wedge class as the cancel
+  // incident.
+  it.effect(
+    "Issue 1: parent set_lane(done) on the reviewer also dissolves the round; the coder's submit lands alive on a replacement",
+    () =>
+      Effect.gen(function* () {
+        const REPLACEMENT = ThreadId.make("reviewer-2");
+        let model = yield* seedGateModel;
+        // Round 1 opens and the coder is reopened for rework.
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "needs_rework"), model));
+        model = yield* applyDecided(
+          model,
+          yield* decide(turnStart(CODER, { reopen: true }), model),
+        );
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(true);
+        // The parent accepts the reviewer as-is (set_lane done dissolves the gate).
+        model = yield* applyDecided(
+          model,
+          yield* decide(
+            {
+              type: "thread.plan-lane.set",
+              commandId: CommandId.make("server:workstream-lane:test-done-reviewer"),
+              threadId: REVIEWER,
+              planLane: "done",
+              createdAt: now,
+            },
+            model,
+          ),
+        );
+        expect(model.threads.find((t) => t.id === REVIEWER)?.planLane).toBe("done");
+        // Fix: a terminal `done` source dissolves the coder's orphaned round too.
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(false);
+        // A fresh replacement reviewer is spawned over the same coder.
+        model = yield* apply(model, [
+          threadCreated(REPLACEMENT, {
+            parentThreadId: PARENT,
+            planLane: "ready",
+            routes: GATE_ROUTES,
+            blockedBy: [CODER],
+          }),
+        ]);
+        // The coder submits: a PLAIN terminal done (round 0), not an orphaned
+        // loop into the replacement that never reviewed.
+        const events = yield* decide(submit(CODER, "done"), model);
+        expect(events.map((event) => event.type)).toEqual([
+          "thread.report-set",
+          "thread.outcome-recorded",
+          "thread.plan-lane-set",
+        ]);
+        expect(events[1]?.payload).toMatchObject({ decision: "terminal" });
+        expect(events[2]?.payload).toMatchObject({ threadId: CODER, planLane: "done" });
+      }),
+  );
 });

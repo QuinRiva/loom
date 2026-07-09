@@ -140,6 +140,26 @@ export interface LivenessClassifyInput {
 }
 
 /**
+ * A successful `workstream_submit` is the strongest possible liveness proof: a
+ * well-formed terminal call the agent could only have made while alive. When the
+ * thread's last recorded outcome is at-or-newer than the session's last state
+ * change, a stale `error` status (or a since-torn-down binding) is superseded
+ * and must not out-vote it — the sweep treats the observation as non-failing
+ * (2026-07-08 incident: a reviewer hit a provider context-window error,
+ * recovered, and submitted a valid `needs_rework`, yet the sweep still marked it
+ * dead from the stale error status + climbing failure count). Pure and
+ * timestamp-keyed, so it is replay-safe and needs no extra sweep state. This
+ * also naturally exempts a thread parked waiting-in-gate post-submit: its last
+ * outcome (`loop`/`resolve`) post-dates the session's last change, so a lingering
+ * error never re-escalates it.
+ */
+export const submitSupersedesFailure = (
+  thread: Pick<OrchestrationThreadShell, "lastOutcome">,
+  session: Pick<OrchestrationSession, "updatedAt">,
+): boolean =>
+  thread.lastOutcome !== null && Date.parse(thread.lastOutcome.at) >= Date.parse(session.updatedAt);
+
+/**
  * Pure Stage-1 liveness classification for one active sub-thread. Returns the
  * verdict that should set it `error`, or `null` (healthy / waiting / within
  * grace). Caller guarantees the thread is a non-terminal sub-thread with a
@@ -585,10 +605,13 @@ const makeWorkstreamLivenessSweep = (
 
         // A failed observation: the runtime reported a session error, or the
         // read model thinks a turn is active but the provider binding is gone
-        // (a crash that never emitted `session.exited`).
+        // (a crash that never emitted `session.exited`) — UNLESS a later submit
+        // already proved the thread alive (the strongest liveness proof, see
+        // `submitSupersedesFailure`).
         const failureObserved =
-          session.status === "error" ||
-          (session.activeTurnId !== null && !boundThreadIds.has(thread.id));
+          !submitSupersedesFailure(thread, session) &&
+          (session.status === "error" ||
+            (session.activeTurnId !== null && !boundThreadIds.has(thread.id)));
         const failureCount = failureObserved ? (failureCounts.get(thread.id) ?? 0) + 1 : 0;
         if (failureObserved) failureCounts.set(thread.id, failureCount);
         else failureCounts.delete(thread.id);
