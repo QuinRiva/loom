@@ -120,6 +120,27 @@ function dependencyColumns(
   const maxDepth = members.reduce((max, m) => Math.max(max, depth(m)), 0);
   const columns: SidebarThreadSummary[][] = Array.from({ length: maxDepth + 1 }, () => []);
   for (const member of members) columns[depth(member)]!.push(member);
+  // Barycentre pass: order each dependent column by the mean row of its in-wave
+  // dependencies in earlier columns, so parallel chains (coder→reviewer pairs)
+  // stay horizontal instead of criss-crossing when spawn order differs between
+  // columns. Dep-less members sink below, keeping their createdAt order.
+  const rowById = new Map<ThreadId, number>();
+  columns.forEach((column, colIndex) => {
+    if (colIndex > 0) {
+      const barycentre = (member: SidebarThreadSummary): number => {
+        const rows = member.blockedBy
+          .map((dep) => rowById.get(dep))
+          .filter((row): row is number => row !== undefined);
+        return rows.length > 0
+          ? rows.reduce((sum, row) => sum + row, 0) / rows.length
+          : Number.POSITIVE_INFINITY;
+      };
+      column.sort(
+        (a, b) => barycentre(a) - barycentre(b) || a.createdAt.localeCompare(b.createdAt),
+      );
+    }
+    column.forEach((member, row) => rowById.set(member.id, row));
+  });
   return columns;
 }
 
