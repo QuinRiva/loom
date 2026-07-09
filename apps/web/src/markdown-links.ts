@@ -188,6 +188,158 @@ function workspaceRelativePath(path: string, workspaceRoot: string | undefined):
   return normalizedPath.slice(normalizedRoot.length + 1);
 }
 
+/**
+ * Extensions we are confident denote a real file when they appear as the whole
+ * extension of a *bare* code span (no path separator). This is what keeps
+ * property accesses like `foo.bar`, `this.state`, `Math.max` or `os.path` from
+ * being mistaken for file references while still linking `package.json`,
+ * `README.md`, `tsconfig.json`, etc.
+ */
+const KNOWN_INLINE_FILE_EXTENSIONS = new Set([
+  "astro",
+  "bash",
+  "bat",
+  "c",
+  "cc",
+  "cfg",
+  "cjs",
+  "clj",
+  "cljs",
+  "conf",
+  "cpp",
+  "cs",
+  "css",
+  "csv",
+  "cts",
+  "cxx",
+  "dart",
+  "diff",
+  "env",
+  "erl",
+  "ex",
+  "exs",
+  "fish",
+  "go",
+  "gql",
+  "gradle",
+  "graphql",
+  "h",
+  "hpp",
+  "hs",
+  "htm",
+  "html",
+  "ini",
+  "java",
+  "jl",
+  "js",
+  "jsdoc",
+  "json",
+  "jsonc",
+  "jsx",
+  "kt",
+  "kts",
+  "less",
+  "lock",
+  "log",
+  "lua",
+  "md",
+  "mdx",
+  "mjs",
+  "mk",
+  "mts",
+  "patch",
+  "php",
+  "pl",
+  "pm",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "svg",
+  "webp",
+  "ico",
+  "pdf",
+  "properties",
+  "proto",
+  "ps1",
+  "py",
+  "pyi",
+  "r",
+  "rb",
+  "rs",
+  "sass",
+  "scala",
+  "scss",
+  "sh",
+  "sql",
+  "svelte",
+  "swift",
+  "tf",
+  "tfvars",
+  "toml",
+  "ts",
+  "tsv",
+  "tsx",
+  "txt",
+  "vue",
+  "xml",
+  "yaml",
+  "yml",
+  "zsh",
+]);
+
+// Characters that never appear in a plausible file reference but are common in
+// inline code that is actually a snippet of source, a command, or a type.
+const INLINE_CODE_NON_PATH_CHARS = /[\s`"'()<>{}[\]|*?!,;=$&^%]/;
+const RELATIVE_PATH_INTENT_PATTERN = /^(~\/|\.{1,2}\/)/;
+
+function extensionOf(basename: string): string | null {
+  const dotIndex = basename.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === basename.length - 1) return null;
+  return basename.slice(dotIndex + 1).toLowerCase();
+}
+
+function hasPathSeparator(text: string): boolean {
+  return text.includes("/") || text.includes("\\");
+}
+
+/**
+ * Stricter gate for turning an inline-code span into a file link. Inline code
+ * is overwhelmingly *not* a path (identifiers, commands, types, prose), so we
+ * only linkify when the span carries clear path intent: a path separator, an
+ * explicit relative/absolute prefix, a `:line` position suffix, or a bare
+ * filename whose extension is a known file extension. Everything else is left
+ * as plain code — a missed link is cheap, a wrong chip is noise.
+ */
+export function resolveInlineCodeFileLinkMeta(
+  rawText: string,
+  cwd?: string,
+): MarkdownFileLinkMeta | null {
+  const text = rawText.trim();
+  if (text.length === 0 || INLINE_CODE_NON_PATH_CHARS.test(text)) return null;
+
+  const meta = resolveMarkdownFileLinkMeta(text, cwd);
+  if (!meta) return null;
+
+  const isAbsolute =
+    WINDOWS_DRIVE_PATH_PATTERN.test(text) ||
+    WINDOWS_UNC_PATH_PATTERN.test(text) ||
+    text.startsWith("/");
+  const hasRelativeIntent = RELATIVE_PATH_INTENT_PATTERN.test(text);
+  const hasPosition = meta.line !== undefined;
+  const extension = extensionOf(meta.basename);
+  const hasKnownExtension = extension !== null && KNOWN_INLINE_FILE_EXTENSIONS.has(extension);
+
+  // Qualify only spans that carry real path intent. A separator alone is not
+  // enough (`a/b` flag values); a bare `name:line` alone is not enough
+  // (`example.com:8080`). We require one of: an explicit absolute/relative
+  // prefix, a known file extension, or a separator paired with a position.
+  const looksLikeFile =
+    isAbsolute || hasRelativeIntent || hasKnownExtension || (hasPathSeparator(text) && hasPosition);
+
+  return looksLikeFile ? meta : null;
+}
+
 export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,

@@ -85,6 +85,20 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
 - [ ] Add more component fixtures
 `;
 
+const INLINE_CODE_FILE_LINKS_MARKDOWN = `An orchestrator-style message that references files as plain inline code, the way agents actually write them.
+
+The change lives in \`apps/web/src/components/ChatMarkdown.tsx\` and the detection rules in \`apps/web/src/markdown-links.ts\`. The failing assertion was around \`src/markdown-links.test.ts:138\`, and the absolute path \`/etc/hosts\` should link too. Config lives in \`package.json\` and \`tsconfig.json\`; docs in \`AGENTS.md\`.
+
+None of these should become links: run \`vp run typecheck\` then \`vp run test\`, guard against \`foo.bar()\`, a \`HashMap<string, number>\`, the flag value \`a/b\`, a url like \`https://example.com/docs\`, and \`host:8080\`.
+
+A fenced block must keep its normal code treatment, not linkify its contents:
+
+\`\`\`ts
+import foo from "src/foo.ts";
+const path = "apps/web/src/index.ts";
+\`\`\`
+`;
+
 const MIXED_DOCUMENT_MARKDOWN = `# Release notes
 
 A representative mixed document combining prose, a wide table, code and a collapsible section.
@@ -113,6 +127,7 @@ function markdownFixture(
   title: string,
   text: string,
   description?: string,
+  cwd?: string,
 ): PreviewFixture {
   return {
     id,
@@ -120,7 +135,7 @@ function markdownFixture(
     ...(description ? { description } : {}),
     render: () => (
       <TimelineLayoutFrame>
-        <ChatMarkdown text={text} cwd={undefined} />
+        <ChatMarkdown text={text} cwd={cwd} />
       </TimelineLayoutFrame>
     ),
   };
@@ -144,6 +159,13 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "A small table must hug its content, not stretch to the bleed budget.",
       ),
       markdownFixture("code-blocks", "Code blocks", CODE_BLOCK_MARKDOWN),
+      markdownFixture(
+        "inline-code-file-links",
+        "Inline-code file links",
+        INLINE_CODE_FILE_LINKS_MARKDOWN,
+        "Plain inline-code path references become clickable file chips; non-path code spans and fenced blocks stay plain.",
+        "/Users/julius/project",
+      ),
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
     ],

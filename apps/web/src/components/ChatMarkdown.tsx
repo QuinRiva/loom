@@ -65,7 +65,9 @@ import {
   serializeTableElementToMarkdown,
 } from "../markdown-clipboard";
 import {
+  type MarkdownFileLinkMeta,
   normalizeMarkdownLinkDestination,
+  resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   rewriteMarkdownFileUriHref,
 } from "../markdown-links";
@@ -255,9 +257,12 @@ function extractCodeBlock(
   }
 
   const onlyChild = childNodes[0];
+  // The child is either the intrinsic `code` element or our `code` component
+  // override (a function component) — both expose className/children props and
+  // both are the sole child a fenced block ever produces.
   if (
     !isValidElement<{ className?: string; children?: ReactNode }>(onlyChild) ||
-    onlyChild.type !== "code"
+    (onlyChild.type !== "code" && typeof onlyChild.type !== "function")
   ) {
     return null;
   }
@@ -806,6 +811,23 @@ function extractMarkdownLinkHrefs(text: string): string[] {
   return hrefs;
 }
 
+// Inline code spans delimited by a run of N backticks closed by the next run of
+// exactly N (CommonMark). Only used to enumerate candidate spans for the
+// parent-suffix disambiguation map; the true inline/block split is still made
+// by react-markdown when it decides whether a `code` node is inside a `pre`.
+const INLINE_CODE_SPAN_PATTERN = /(`+)(?!`)((?:[^`]|`(?!\1(?!`)))+?)\1(?!`)/g;
+
+function extractInlineCodeSpanTexts(text: string): string[] {
+  const spans: string[] = [];
+  for (const match of text.matchAll(INLINE_CODE_SPAN_PATTERN)) {
+    const span = match[2];
+    if (typeof span !== "string") continue;
+    const trimmed = span.trim();
+    if (trimmed.length > 0) spans.push(trimmed);
+  }
+  return spans;
+}
+
 function normalizeMarkdownLinkHrefKey(href: string): string {
   const normalizedHref = normalizeMarkdownLinkDestination(href);
   return rewriteMarkdownFileUriHref(normalizedHref) ?? normalizedHref;
@@ -1272,10 +1294,37 @@ function ChatMarkdown({
     }
     return metaByHref;
   }, [cwd, text]);
+  // Inline code spans are frequent, so resolution is memoised per message text:
+  // a cache keyed by the raw span text turns each `code` render into a cheap
+  // lookup, and clearing it when `text`/`cwd` change keeps streaming correct.
+  const resolveInlineCodeMeta = useMemo(() => {
+    const cache = new Map<string, MarkdownFileLinkMeta | null>();
+    return (rawSpan: string): MarkdownFileLinkMeta | null => {
+      const cached = cache.get(rawSpan);
+      if (cached !== undefined) return cached;
+      const meta = resolveInlineCodeFileLinkMeta(rawSpan, cwd);
+      cache.set(rawSpan, meta);
+      return meta;
+    };
+  }, [cwd]);
+  // Parent-suffix disambiguation for inline-code chips is computed over the
+  // spans present in this message so `foo.ts` chips can gain a `dir/` suffix
+  // when they collide, consistent with explicit-link chips.
+  const inlineCodeFilePaths = useMemo(() => {
+    const filePaths = new Set<string>();
+    for (const rawSpan of extractInlineCodeSpanTexts(text)) {
+      const meta = resolveInlineCodeMeta(rawSpan);
+      if (meta) filePaths.add(meta.filePath);
+    }
+    return filePaths;
+  }, [resolveInlineCodeMeta, text]);
   const fileLinkParentSuffixByPath = useMemo(() => {
-    const filePaths = [...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath);
+    const filePaths = [
+      ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
+      ...inlineCodeFilePaths,
+    ];
     return buildFileLinkParentSuffixByPath(filePaths);
-  }, [markdownFileLinkMetaByHref]);
+  }, [inlineCodeFilePaths, markdownFileLinkMetaByHref]);
   const markdownUrlTransform = useCallback((href: string) => {
     if (href.startsWith("thread://")) return href;
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
@@ -1496,6 +1545,60 @@ function ChatMarkdown({
           />
         );
       },
+      code({ node, className, children, ...props }) {
+        // The `code` component fires for BOTH inline spans and the `code`
+        // element inside a fenced `pre`. Fenced blocks carry a `language-*`
+        // class or a trailing newline and are owned by the `pre` override
+        // (which reads these props to drive Shiki); render them plainly here so
+        // the fallback/suspense paths stay unchanged. Only bare inline spans
+        // are candidates for file-link treatment. The raw span text is read
+        // from the hast node (the rendered `children` are already wrapped into
+        // skill-inline React elements, so text extraction from them is lossy).
+        const rawText = plainHastText(node) ?? nodeToPlainText(children);
+        const isBlockCode = (className?.includes("language-") ?? false) || rawText.includes("\n");
+        const inlineMeta = isBlockCode ? null : resolveInlineCodeMeta(rawText.trim());
+        if (!inlineMeta) {
+          return (
+            <code {...props} className={className}>
+              {children}
+            </code>
+          );
+        }
+
+        const parentSuffix = fileLinkParentSuffixByPath.get(inlineMeta.filePath);
+        const labelParts = [inlineMeta.basename];
+        if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
+          labelParts.push(parentSuffix);
+        }
+        if (inlineMeta.line) {
+          labelParts.push(
+            `L${inlineMeta.line}${inlineMeta.column ? `:C${inlineMeta.column}` : ""}`,
+          );
+        }
+
+        return (
+          <MarkdownFileLink
+            href={inlineMeta.targetPath}
+            targetPath={inlineMeta.targetPath}
+            iconPath={inlineMeta.filePath}
+            displayPath={inlineMeta.displayPath}
+            workspaceRelativePath={inlineMeta.workspaceRelativePath}
+            line={inlineMeta.line}
+            label={labelParts.join(" · ")}
+            copyMarkdown={`\`${rawText}\``}
+            theme={resolvedTheme}
+            threadRef={threadRef}
+            onOpen={openInPreferredEditor}
+            onOpenInBrowser={
+              threadRef &&
+              isPreviewSupportedInRuntime() &&
+              isBrowserPreviewFile(inlineMeta.filePath)
+                ? () => openMarkdownFileInPreview(inlineMeta.filePath)
+                : undefined
+            }
+          />
+        );
+      },
       table({ node: _node, ...props }) {
         return <MarkdownTable {...props} />;
       },
@@ -1540,6 +1643,7 @@ function ChatMarkdown({
       openInPreferredEditor,
       openExternalLinkInPreview,
       openMarkdownFileInPreview,
+      resolveInlineCodeMeta,
       resolvedTheme,
       skills,
       text,
