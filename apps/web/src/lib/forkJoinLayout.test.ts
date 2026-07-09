@@ -113,6 +113,46 @@ describe("computeForkJoinLayout", () => {
     expect(edges.some((e) => e.kind === "spine" && e.key === "spine:R:1")).toBe(true);
   });
 
+  it("aligns each reviewer's row with its gated coder despite spawn order", () => {
+    // Three coder→reviewer pairs, but reviewers spawned in a scrambled order
+    // relative to their coders — the barycentre pass must keep each pair
+    // horizontal instead of criss-crossing the waits-on/loop edges.
+    const pairs = computeForkJoinLayout([
+      thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" }),
+      thread({ id: "c1", parentThreadId: "R", spawnGeneration: "g1", createdAt: "1" }),
+      thread({ id: "c2", parentThreadId: "R", spawnGeneration: "g1", createdAt: "2" }),
+      thread({ id: "c3", parentThreadId: "R", spawnGeneration: "g1", createdAt: "3" }),
+      // Reviewers created in reverse order of their coders.
+      thread({
+        id: "r3",
+        parentThreadId: "R",
+        spawnGeneration: "g1",
+        createdAt: "4",
+        blockedBy: ["c3"],
+        loopTo: "c3",
+      }),
+      thread({
+        id: "r2",
+        parentThreadId: "R",
+        spawnGeneration: "g1",
+        createdAt: "5",
+        blockedBy: ["c2"],
+        loopTo: "c2",
+      }),
+      thread({
+        id: "r1",
+        parentThreadId: "R",
+        spawnGeneration: "g1",
+        createdAt: "6",
+        blockedBy: ["c1"],
+        loopTo: "c1",
+      }),
+    ]);
+    for (const pair of ["1", "2", "3"]) {
+      expect(byId(pairs.nodes, `r${pair}`)!.y).toBe(byId(pairs.nodes, `c${pair}`)!.y);
+    }
+  });
+
   it("packs a sub-orchestrator's grandchild below its own card", () => {
     const coderA = byId(nodes, "coderA")!;
     const grandG = byId(nodes, "grandG")!;
