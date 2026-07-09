@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
@@ -125,5 +126,104 @@ describe("resolveMarkdownFileLinkTarget", () => {
 
   it("does not treat app routes as file links", () => {
     expect(resolveMarkdownFileLinkTarget("/chat/settings")).toBeNull();
+  });
+});
+
+describe("resolveInlineCodeFileLinkMeta", () => {
+  const cwd = "/Users/julius/project";
+
+  const links = (span: string) => resolveInlineCodeFileLinkMeta(span, cwd);
+
+  it("links relative paths with a separator and extension", () => {
+    expect(links("apps/web/src/components/ChatMarkdown.tsx")).toMatchObject({
+      workspaceRelativePath: "apps/web/src/components/ChatMarkdown.tsx",
+      basename: "ChatMarkdown.tsx",
+      targetPath: "/Users/julius/project/apps/web/src/components/ChatMarkdown.tsx",
+    });
+  });
+
+  it("links relative paths with a line suffix", () => {
+    expect(links("src/foo.ts:123")).toMatchObject({
+      basename: "foo.ts",
+      line: 123,
+      targetPath: "/Users/julius/project/src/foo.ts:123",
+    });
+  });
+
+  it("links absolute posix paths", () => {
+    expect(links("/etc/hosts")).toMatchObject({
+      targetPath: "/etc/hosts",
+      basename: "hosts",
+    });
+  });
+
+  it("links explicit relative prefixes even without an extension", () => {
+    expect(links("./scripts/build")).toMatchObject({
+      basename: "build",
+    });
+  });
+
+  it("links bare filenames with a known extension", () => {
+    expect(links("package.json")).toMatchObject({ basename: "package.json" });
+    expect(links("AGENTS.md")).toMatchObject({ basename: "AGENTS.md" });
+    expect(links("README.md")).toMatchObject({ basename: "README.md" });
+  });
+
+  it("links windows drive paths", () => {
+    expect(resolveInlineCodeFileLinkMeta("C:/Users/mike/app.ts", cwd)).toMatchObject({
+      basename: "app.ts",
+    });
+  });
+
+  // --- false positives that must NOT linkify ---
+
+  it("does not link property/method accesses", () => {
+    expect(links("foo.bar")).toBeNull();
+    expect(links("foo.bar()")).toBeNull();
+    expect(links("this.state")).toBeNull();
+    expect(links("Math.max")).toBeNull();
+    expect(links("os.path")).toBeNull();
+  });
+
+  it("does not link bare identifiers or keywords", () => {
+    expect(links("const")).toBeNull();
+    expect(links("useState")).toBeNull();
+    expect(links("HHH")).toBeNull();
+  });
+
+  it("does not link commands with spaces", () => {
+    expect(links("vp run test")).toBeNull();
+    expect(links("vp run typecheck")).toBeNull();
+    expect(links("git commit -m")).toBeNull();
+  });
+
+  it("does not link generic type expressions", () => {
+    expect(links("HashMap<string, number>")).toBeNull();
+    expect(links("Array<Foo>")).toBeNull();
+    expect(links("Record<string, unknown>")).toBeNull();
+  });
+
+  it("does not link urls or host:port", () => {
+    expect(links("https://example.com/docs")).toBeNull();
+    expect(links("example.com:8080")).toBeNull();
+    expect(links("http://localhost:3000")).toBeNull();
+  });
+
+  it("does not link bare separator flag values", () => {
+    expect(links("a/b")).toBeNull();
+    expect(links("y/n")).toBeNull();
+    expect(links("and/or")).toBeNull();
+  });
+
+  it("does not link expressions containing code punctuation", () => {
+    expect(links("a || b")).toBeNull();
+    expect(links("x = 1")).toBeNull();
+    expect(links("arr[0]")).toBeNull();
+    expect(links("$HOME")).toBeNull();
+  });
+
+  it("does not link an empty or whitespace span", () => {
+    expect(links("")).toBeNull();
+    expect(links("   ")).toBeNull();
   });
 });
