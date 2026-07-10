@@ -568,7 +568,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: thread.projectId,
         });
       }
-      // loom: worktree-binding-clear warning (fork addition).
+      // loom: worktree-binding-clear warning (fork addition). Retained atop
+      // upstream's #3822 rework: that change guards the stale-branch case and the
+      // client-side patch helper no longer echoes worktreePath, but this log-only
+      // guard still surfaces any OTHER client clearing a live binding.
       // Clearing an existing worktree binding downgrades the thread's cwd to the
       // project-root fallback on the next turn. Legitimate flows exist (the
       // branch selector rebinding a thread to the project root), but a client
@@ -582,6 +585,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.branch !== undefined ? { requestedBranch: command.branch } : {}),
         });
       }
+      // upstream (#3822): ignore a stale branch update when the client's
+      // expectedBranch no longer matches the thread's current branch.
+      const branch =
+        command.branch !== undefined &&
+        command.expectedBranch !== undefined &&
+        thread.branch !== command.expectedBranch
+          ? thread.branch
+          : command.branch;
       const occurredAt = yield* nowIso;
       const metaUpdatedEvent: PlannedOrchestrationEvent = {
         ...(yield* withEventBase({
@@ -597,7 +608,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
-          ...(command.branch !== undefined ? { branch: command.branch } : {}),
+          ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           // loom: fork payload fields (goalId/role/purpose).
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),

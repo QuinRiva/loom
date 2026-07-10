@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_MODEL, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { PI_DEFAULT_MODEL, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -16,10 +16,13 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 
-it("uses the canonical Codex default for auto-bootstrapped model selection", () => {
+// loom: auto-bootstrap default is pi/PI_DEFAULT_MODEL (the source was switched
+// from upstream's codex/DEFAULT_MODEL in the fork-aware architecture campaign;
+// this assertion was stale on origin/main and is realigned here).
+it("uses the Pi default for auto-bootstrapped model selection", () => {
   assert.deepStrictEqual(ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(), {
-    instanceId: ProviderInstanceId.make("codex"),
-    model: DEFAULT_MODEL,
+    instanceId: ProviderInstanceId.make("pi"),
+    model: PI_DEFAULT_MODEL,
   });
 });
 
@@ -106,6 +109,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
           getInFlightToolByThreadId: () => Effect.succeed(null),
+          getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
         }),
         Effect.provideService(AnalyticsService.AnalyticsService, {
           record: () => Effect.void,
@@ -178,6 +182,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
+        getThreadDetailSnapshot: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -231,6 +236,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
+        getThreadDetailSnapshot: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -290,6 +296,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
+        getThreadDetailSnapshot: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,

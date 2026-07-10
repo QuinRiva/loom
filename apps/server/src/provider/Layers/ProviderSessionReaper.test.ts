@@ -245,6 +245,7 @@ describe("ProviderSessionReaper", () => {
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
           getInFlightToolByThreadId: () => Effect.succeed(null),
+          getThreadDetailSnapshot: () => Effect.die("unused"),
         }),
       ),
       Layer.provideMerge(NodeServices.layer),

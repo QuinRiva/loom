@@ -45,6 +45,7 @@ import {
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
+  resolveThreadBranchMetadataPatch,
   resolveQuickAction,
   resolveThreadBranchUpdate,
 } from "./GitActionsControl.logic";
@@ -1033,15 +1034,11 @@ export default function GitActionsControl({
           return;
         }
 
-        // Deliberately omit `worktreePath`: `thread.meta.update` patches only
-        // the fields provided, and echoing the client's (possibly stale) view of
-        // the binding here once erased a server-provisioned worktree binding
-        // mid-bootstrap. Branch sync owns the branch field, nothing else.
         void updateThreadMetadata({
           environmentId: activeThreadRef.environmentId,
           input: {
             threadId: activeThreadRef.threadId,
-            branch,
+            ...resolveThreadBranchMetadataPatch(branch, activeServerThread.branch),
           },
         });
 
