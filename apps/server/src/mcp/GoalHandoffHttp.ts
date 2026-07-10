@@ -15,6 +15,7 @@ interface GoalHandoffRequest {
   readonly title?: unknown;
   readonly brief?: unknown;
   readonly description?: unknown;
+  readonly threadTitle?: unknown;
 }
 
 const jsonError = (status: number, message: string) =>
@@ -54,6 +55,10 @@ const handleGoalHandoff = Effect.gen(function* () {
   if (!brief) return jsonError(400, "brief is required.");
   // description may be provided but empty; omit it when blank.
   const description = trimString(body.description);
+  // The staged root session launches from a brief, not a first user message, so
+  // it never auto-titles itself. Honour an explicit sidebar name from the
+  // authoring agent; fall back to the goal title when omitted.
+  const threadTitle = trimString(body.threadTitle) ?? title;
 
   const projection = yield* ProjectionSnapshotQuery;
   const caller = yield* projection.getThreadDetailById(scope.threadId);
@@ -108,7 +113,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     purpose: title,
     brief,
     planLane: "planned",
-    title,
+    title: threadTitle,
     modelSelection: callerThread.modelSelection,
     runtimeMode: callerThread.runtimeMode,
     interactionMode: callerThread.interactionMode,
@@ -121,7 +126,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     goalId,
     threadId,
     slug,
-    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${title}). The human launches it with one send.`,
+    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${threadTitle}). The human launches it with one send.`,
   });
 }).pipe(
   Effect.catch((error: unknown) =>
