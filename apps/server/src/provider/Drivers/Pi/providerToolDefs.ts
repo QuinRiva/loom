@@ -541,13 +541,14 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_handoff",
     label: "Hand Off New Goal",
     description:
-      "Hand off a separate, out-of-scope piece of work as its OWN new goal and a staged (held) root session. Use when you discover follow-up work that deserves to run independently rather than as a task under THIS goal. Creates a new goal in this thread's project and a parent-less session pre-loaded with your brief, then leaves it for the human to launch with a single send (which provisions a fresh worktree). You never pass a goalId/projectId — both are inherited from this thread. Returns the new goalId + threadId.",
+      "Hand off a separate, out-of-scope piece of work as its OWN new goal and a staged (held) root session. Use when you discover follow-up work that deserves to run independently rather than as a task under THIS goal. Creates a new goal in this thread's project and a parent-less session pre-loaded with your brief, then leaves it for the human to launch with a single send (which provisions a fresh worktree). Pass threadTitle to name the session's sidebar card — a short label leading with the distinguishing subject (defaults to the goal title). You never pass a goalId/projectId — both are inherited from this thread. Returns the new goalId + threadId.",
     promptSnippet:
       "hand off discovered out-of-scope work as a new goal + a staged root session pre-loaded with a brief.",
     promptGuidelines: [
       "Use this for genuinely separate work that should run concurrently in its own goal/session — not for tasks that belong under this thread's existing goal (use goal_task_add for those).",
       "The brief becomes the new session's first turn: write it as a complete, self-contained kickoff prompt, not a one-line summary.",
       "The session is created held; the human launches it. You do NOT start it and no worktree is provisioned until the human sends.",
+      "Name the sidebar card with threadTitle: a short (≤6-word) label that leads with the distinguishing subject of the work, not a generic verb — 'Receipt-dedup migration', not 'Do the migration'. Omit it only when the goal title already reads well as the card.",
     ],
     parameters: {
       type: "object",
@@ -559,6 +560,11 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
             "The handoff/kickoff prompt that becomes the new session's first turn. Required; write it self-contained.",
         },
         description: { type: "string", description: "Optional short goal objective paragraph." },
+        threadTitle: {
+          type: "string",
+          description:
+            "Optional sidebar name for the staged root session: a short (≤6-word) label that leads with the distinguishing subject of the work rather than a generic verb. Defaults to the goal title when omitted.",
+        },
       },
       required: ["title", "brief"],
       additionalProperties: false,
