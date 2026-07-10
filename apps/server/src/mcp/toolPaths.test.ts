@@ -32,10 +32,10 @@ describe("PROVIDER_TOOL_PATHS ↔ registered routes", () => {
   });
 
   // The three HTTP modules must export a merged layer that registers exactly the
-  // 17 table paths. The layer is opaque here, so assert the modules load and the
-  // table is complete (17 tools) — the driver env + extension both key off it.
-  it("covers all 17 provider tools", () => {
-    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(17);
+  // 18 table paths. The layer is opaque here, so assert the modules load and the
+  // table is complete (18 tools) — the driver env + extension both key off it.
+  it("covers all 18 provider tools", () => {
+    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(18);
     // Touch each module so a missing export/route registration fails to import.
     expect(typeof WorkstreamSpawnHttp.layer).toBe("object");
     expect(typeof GoalTaskHttp.layer).toBe("object");

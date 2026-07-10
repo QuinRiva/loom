@@ -41,6 +41,7 @@ export const PROVIDER_TOOL_PATHS = {
   goal_task_delete: "/provider-tools/goal/task/delete",
   goal_update: "/provider-tools/goal/update",
   goal_handoff: "/provider-tools/goal/handoff",
+  goal_continue: "/provider-tools/goal/continue",
 } as const satisfies Record<string, `/provider-tools/${string}`>;
 
 export type ProviderToolName = keyof typeof PROVIDER_TOOL_PATHS;
