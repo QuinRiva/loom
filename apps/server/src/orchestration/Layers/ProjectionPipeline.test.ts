@@ -392,6 +392,87 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(rows, [{ diffAdditions: 16, diffDeletions: 5 }]);
     }),
   );
+
+  it.effect("counts a completed tool call in toolUses via its upserted lifecycle row", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-tooluses");
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-tool-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-tool-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-tool-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-tooluses"),
+          title: "Thread ToolUses",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      // A tool call's started/completed events share one activity id
+      // (`tool:<itemId>`) and upsert in place: the completed row overwrites the
+      // started row. Counting only `tool.started` would therefore miss every
+      // finished tool call (the board card's "N tools" chip vanishing on done
+      // threads). Replay both against the same id to lock in that the terminal
+      // `tool.completed` row is still counted.
+      const appendToolActivity = (suffix: string, kind: string, at: string) =>
+        eventStore
+          .append({
+            type: "thread.activity-appended",
+            eventId: EventId.make(`evt-tool-${suffix}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: at,
+            commandId: CommandId.make(`cmd-tool-${suffix}`),
+            causationEventId: null,
+            correlationId: CorrelationId.make(`cmd-tool-${suffix}`),
+            metadata: {},
+            payload: {
+              threadId,
+              activity: {
+                id: EventId.make("tool:call-1"),
+                tone: "tool",
+                kind,
+                summary: "Bash",
+                payload: {},
+                turnId: TurnId.make("turn-tool"),
+                createdAt: at,
+              },
+            },
+          })
+          .pipe(Effect.asVoid);
+
+      yield* appendToolActivity("2", "tool.started", "2026-01-01T00:00:01.000Z");
+      yield* appendToolActivity("3", "tool.completed", "2026-01-01T00:00:02.000Z");
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{ readonly toolUses: number | null }>`
+        SELECT tool_uses AS "toolUses"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(rows, [{ toolUses: 1 }]);
+    }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(

@@ -213,9 +213,12 @@ function deriveCumulativeCostUsd(activities: ReadonlyArray<ProjectionThreadActiv
 //  - `usedTokens`/`maxTokens`: latest `context-window.updated` snapshot. This is
 //    a LATEST-SNAPSHOT (newest wins) — do not accumulate. Null when unknown
 //    (no context-window activity yet) so the UI suppresses the chip.
-//  - `toolUses`: COUNT of `tool.started` activities in the durable log. We count
+//  - `toolUses`: COUNT of tool-lifecycle activities in the durable log. We count
 //    real tool-call events rather than the provider's self-reported
-//    `usage.tool_uses`, which is empty for several adapters (e.g. Claude). Null
+//    `usage.tool_uses`, which is empty for several adapters (e.g. Claude). Each
+//    tool call is ONE upserted row keyed `tool:<itemId>` whose kind advances
+//    `started`→`updated`→`completed` in place, so we count any tool.* row (not
+//    just `tool.started`, which no longer exists once the call finishes). Null
 //    when the thread has made no tool calls yet so the UI suppresses the chip.
 function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity>): {
   readonly toolUses: number | null;
@@ -224,16 +227,20 @@ function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity
 } {
   const asInt = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
-  let toolStarts = 0;
+  let toolCalls = 0;
   let usedTokens: number | null = null;
   let maxTokens: number | null = null;
-  // Newest-first: count tool.started everywhere, and take the first (latest)
-  // context-window snapshot that carries a usable usedTokens.
+  // Newest-first: count each tool-lifecycle row everywhere, and take the first
+  // (latest) context-window snapshot that carries a usable usedTokens.
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     const activity = activities[index];
     if (!activity) continue;
-    if (activity.kind === "tool.started") {
-      toolStarts += 1;
+    if (
+      activity.kind === "tool.started" ||
+      activity.kind === "tool.updated" ||
+      activity.kind === "tool.completed"
+    ) {
+      toolCalls += 1;
       continue;
     }
     if (activity.kind !== "context-window.updated" || usedTokens !== null) continue;
@@ -246,7 +253,7 @@ function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity
     usedTokens = used;
     maxTokens = asInt(payload?.maxTokens);
   }
-  return { toolUses: toolStarts > 0 ? toolStarts : null, usedTokens, maxTokens };
+  return { toolUses: toolCalls > 0 ? toolCalls : null, usedTokens, maxTokens };
 }
 
 // Lines-of-diff meter for a thread: SUM of every checkpoint turn's per-file
