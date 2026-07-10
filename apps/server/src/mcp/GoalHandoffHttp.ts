@@ -2,6 +2,7 @@ import { CommandId, GoalId, ThreadId, type OrchestrationCommand } from "@t3tools
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
@@ -15,6 +16,11 @@ interface GoalHandoffRequest {
   readonly title?: unknown;
   readonly brief?: unknown;
   readonly description?: unknown;
+  readonly threadTitle?: unknown;
+}
+
+interface GoalContinueRequest {
+  readonly brief?: unknown;
   readonly threadTitle?: unknown;
 }
 
@@ -136,4 +142,91 @@ const handleGoalHandoff = Effect.gen(function* () {
   ),
 );
 
-export const layer = HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_handoff, handleGoalHandoff);
+/**
+ * Continue THIS goal in a fresh-context session: create a staged (held)
+ * parent-less sibling thread on the caller's own goal, inheriting its worktree,
+ * branch, model and runtime — no new goal, no new worktree. The brief is stored
+ * for the composer's one-send launch (same StagedKickoffCard path as
+ * goal_handoff), with a predecessor pointer appended so the successor can
+ * consult_thread the spent session for anything the brief omits. The shared
+ * task tree carries over automatically because it is goal-scoped.
+ */
+const handleGoalContinue = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): GoalContinueRequest => ({})),
+  )) as GoalContinueRequest;
+  const brief = trimString(body.brief);
+  if (!brief) return jsonError(400, "brief is required.");
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const caller = yield* projection.getThreadDetailById(scope.threadId);
+  if (Option.isNone(caller)) {
+    return jsonError(404, "Current provider thread was not found.");
+  }
+  const callerThread = caller.value;
+  const goalId = callerThread.goalId;
+  if (goalId === null) {
+    return jsonError(400, "This thread has no active goal to continue (use goal_handoff instead).");
+  }
+  const snapshot = yield* projection.getSnapshot();
+  const goal = snapshot.goals.find((g) => g.id === goalId && g.deletedAt === null);
+  if (!goal) return jsonError(404, "This thread's active goal was not found.");
+
+  const threadTitle = trimString(body.threadTitle) ?? `${goal.title} (continued)`;
+  // Keep the successor able to drill into the spent context without the brief
+  // having to carry the whole history.
+  const briefWithPredecessor =
+    brief +
+    `\n\n---\nPredecessor: this brief hands off from thread ${callerThread.id}` +
+    ` ("${callerThread.title}") on the same goal; consult_thread it for any detail not carried above.`;
+
+  const crypto = yield* Crypto.Crypto;
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const threadId = ThreadId.make(yield* crypto.randomUUIDv4);
+  const engine = yield* OrchestrationEngineService;
+
+  // Staged parent-less sibling: held at `planned`, SAME goal + worktree +
+  // branch as the caller (so the human's launch send skips worktree bootstrap
+  // and lands in the caller's tree), model/runtime inherited.
+  yield* engine.dispatch({
+    type: "thread.create",
+    commandId: CommandId.make(`server:goal-continue:create-thread:${yield* crypto.randomUUIDv4}`),
+    threadId,
+    projectId: callerThread.projectId,
+    goalId,
+    parentThreadId: null,
+    purpose: threadTitle,
+    brief: briefWithPredecessor,
+    planLane: "planned",
+    title: threadTitle,
+    modelSelection: callerThread.modelSelection,
+    runtimeMode: callerThread.runtimeMode,
+    interactionMode: callerThread.interactionMode,
+    branch: callerThread.branch,
+    worktreePath: callerThread.worktreePath,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({
+    goalId,
+    threadId,
+    rendered: `Staged continuation session ${threadId} (${threadTitle}) on this goal, sharing this thread's worktree. The human launches it with one send.`,
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to stage the continuation."),
+    ),
+  ),
+);
+
+export const layer = Layer.mergeAll(
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_handoff, handleGoalHandoff),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_continue, handleGoalContinue),
+);

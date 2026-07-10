@@ -573,6 +573,39 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     fallbackText: "Handed off new goal.",
   },
   {
+    name: "goal_continue",
+    label: "Continue Goal in Fresh Session",
+    description:
+      "Like goal_handoff, but continues THIS goal in THIS worktree with a fresh context window: creates a staged (held) sibling session on the same goal, inheriting this thread's worktree, branch, and model — no new goal, no new worktree. Use it when a substantial hunk of work is done and the next phase should start with clean context while the overarching goal and its shared task tree carry on. The brief becomes the new session's first turn; a predecessor pointer to this thread is appended automatically so the successor can consult_thread this session for detail. The human launches it with a single send. Returns the new threadId.",
+    promptSnippet:
+      "stage a fresh-context continuation session on THIS goal + worktree, pre-loaded with a handoff brief.",
+    promptGuidelines: [
+      "Use this for the NEXT PHASE of this goal's work (fresh context, same goal/worktree/task tree) — not for separate work that deserves its own goal (use goal_handoff) and not for delegated sub-work (use workstream_spawn).",
+      "The brief becomes the successor's first turn: write it self-contained — current state, what was done, what to do next, and where key artefacts live. A pointer back to this thread is appended automatically, so the successor can consult_thread you for anything you leave out.",
+      "The session is created held; the human launches it with one send. Update the goal's task tree (mark done / add next steps) before handing off — the successor sees the same tree.",
+      "Name the sidebar card with threadTitle: a short (≤6-word) label for the next phase, e.g. 'Feature-importance deep dive'. Defaults to the goal title + '(continued)'.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        brief: {
+          type: "string",
+          description:
+            "The handoff/kickoff prompt that becomes the continuation session's first turn. Required; write it self-contained (state, done, next, artefact locations).",
+        },
+        threadTitle: {
+          type: "string",
+          description:
+            "Optional sidebar name for the staged continuation session: a short (≤6-word) label for the next phase of work. Defaults to the goal title + '(continued)'.",
+        },
+      },
+      required: ["brief"],
+      additionalProperties: false,
+    },
+    errorMode: "soft",
+    fallbackText: "Staged continuation session.",
+  },
+  {
     name: "goal_update",
     label: "Update Goal",
     description:

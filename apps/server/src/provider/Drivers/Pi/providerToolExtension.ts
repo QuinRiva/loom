@@ -4,7 +4,7 @@
 // T3_WORKSTREAM_ENDPOINT + T3_WORKSTREAM_AUTHORIZATION once, and for each
 // serialised def registers a tool whose execute() POSTs to endpoint + def.path,
 // prints `result.rendered` (server-rendered text; the single source of truth),
-// and honours the per-tool errorMode. All 17 tools' metadata lives as data in
+// and honours the per-tool errorMode. All 18 tools' metadata lives as data in
 // providerToolDefs.ts — no logic is embedded in the string.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
