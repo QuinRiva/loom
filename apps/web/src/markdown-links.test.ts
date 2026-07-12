@@ -1,11 +1,30 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  isAbsolutePreviewablePath,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
 } from "./markdown-links";
+
+describe("isAbsolutePreviewablePath", () => {
+  it("accepts POSIX absolute paths the out-of-workspace preview can serve", () => {
+    expect(isAbsolutePreviewablePath("/home/carl/report.md")).toBe(true);
+    expect(isAbsolutePreviewablePath("/tmp/x.md")).toBe(true);
+  });
+
+  it("rejects Windows drive paths so they fall back to the editor on a POSIX host", () => {
+    expect(isAbsolutePreviewablePath("C:\\Users\\carl\\report.md")).toBe(false);
+    expect(isAbsolutePreviewablePath("C:/Users/carl/report.md")).toBe(false);
+    expect(isAbsolutePreviewablePath("\\\\server\\share\\report.md")).toBe(false);
+  });
+
+  it("rejects relative paths", () => {
+    expect(isAbsolutePreviewablePath("src/foo.ts")).toBe(false);
+    expect(isAbsolutePreviewablePath("./foo.ts")).toBe(false);
+  });
+});
 
 describe("rewriteMarkdownFileUriHref", () => {
   it("rewrites file uri hrefs into direct path hrefs", () => {

@@ -40,6 +40,7 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   ProjectListEntriesError,
+  ProjectReadAbsoluteFileError,
   ProjectReadFileError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -305,6 +306,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
+  [WS_METHODS.projectsReadAbsoluteFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
   [WS_METHODS.shellOpenInEditor, AuthOrchestrationOperateScope],
@@ -1329,6 +1331,28 @@ const makeWsRpcLayer = (
                   new ProjectReadFileError({
                     ...input,
                     ...projectFileFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsReadAbsoluteFile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsReadAbsoluteFile,
+            workspaceFileSystem.readAbsoluteFile(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectReadAbsoluteFileError({
+                    absolutePath: input.absolutePath,
+                    failure: cause.failure,
+                    ...(cause.resolvedPath !== undefined
+                      ? { resolvedPath: cause.resolvedPath }
+                      : {}),
+                    ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
+                    ...(cause.operationPath !== undefined
+                      ? { operationPath: cause.operationPath }
+                      : {}),
                     cause,
                   }),
               ),

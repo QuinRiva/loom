@@ -45,13 +45,19 @@ export type RightPanelSurface =
       id: `file:${string}`;
       kind: "file";
       relativePath: string;
+      /**
+       * When set, this surface references a file OUTSIDE the workspace addressed
+       * by absolute path (read via the absolute-read RPC and rendered read-only).
+       * `relativePath` mirrors the absolute path for display/id purposes.
+       */
+      absolutePath: string | null;
       revealLine: number | null;
       revealRequestId: number;
     }
   | { id: "plan"; kind: "plan" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 7;
+const RIGHT_PANEL_STORAGE_VERSION = 8;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -64,6 +70,7 @@ interface RightPanelStoreState {
   open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
+  openFileAbsolute: (ref: ScopedThreadRef, absolutePath: string, line?: number) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -119,13 +126,42 @@ const fileSurface = (
   relativePath: string,
   revealLine: number | null,
   revealRequestId: number,
+  absolutePath: string | null = null,
 ): RightPanelSurface => ({
   id: `file:${relativePath}`,
   kind: "file",
   relativePath,
+  absolutePath,
   revealLine,
   revealRequestId,
 });
+
+const upsertFileSurface = (
+  current: ThreadRightPanelState,
+  path: string,
+  line: number | undefined,
+  absolutePath: string | null,
+): ThreadRightPanelState => {
+  const withoutStandaloneExplorer = current.surfaces.filter((surface) => surface.kind !== "files");
+  const surfaceId = `file:${path}` as const;
+  const existing = withoutStandaloneExplorer.find(
+    (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
+      surface.id === surfaceId && surface.kind === "file",
+  );
+  const surface = fileSurface(
+    path,
+    normalizeRevealLine(line),
+    (existing?.revealRequestId ?? 0) + 1,
+    absolutePath,
+  );
+  return {
+    isOpen: true,
+    activeSurfaceId: surface.id,
+    surfaces: existing
+      ? withoutStandaloneExplorer.map((entry) => (entry.id === surface.id ? surface : entry))
+      : [...withoutStandaloneExplorer, surface],
+  };
+};
 
 const terminalSurface = (terminalId: string): RightPanelSurface => ({
   id: `terminal:${terminalId}`,
@@ -197,7 +233,11 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         surface.revealRequestId >= 0
                           ? surface.revealRequestId
                           : 0;
-                      return [{ ...surface, revealLine, revealRequestId }];
+                      const absolutePath =
+                        typeof surface.absolutePath === "string" && surface.absolutePath.length > 0
+                          ? surface.absolutePath
+                          : null;
+                      return [{ ...surface, absolutePath, revealLine, revealRequestId }];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -276,30 +316,15 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         })),
       openFile: (ref, relativePath, line) =>
         set((state) => ({
-          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
-            const withoutStandaloneExplorer = current.surfaces.filter(
-              (surface) => surface.kind !== "files",
-            );
-            const surfaceId = `file:${relativePath}` as const;
-            const existing = withoutStandaloneExplorer.find(
-              (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
-                surface.id === surfaceId && surface.kind === "file",
-            );
-            const surface = fileSurface(
-              relativePath,
-              normalizeRevealLine(line),
-              (existing?.revealRequestId ?? 0) + 1,
-            );
-            return {
-              isOpen: true,
-              activeSurfaceId: surface.id,
-              surfaces: existing
-                ? withoutStandaloneExplorer.map((entry) =>
-                    entry.id === surface.id ? surface : entry,
-                  )
-                : [...withoutStandaloneExplorer, surface],
-            };
-          }),
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertFileSurface(current, relativePath, line, null),
+          ),
+        })),
+      openFileAbsolute: (ref, absolutePath, line) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertFileSurface(current, absolutePath, line, absolutePath),
+          ),
         })),
       openTerminal: (ref, terminalId) =>
         set((state) => ({

@@ -5134,6 +5134,7 @@ function ChatViewContent(props: ChatViewProps) {
           relativePath={
             activeRightPanelSurface.kind === "file" ? activeRightPanelSurface.relativePath : null
           }
+          absolutePath={activeFileSurface?.absolutePath ?? null}
           revealLine={activeFileSurface?.revealLine ?? null}
           revealRequestId={activeFileSurface?.revealRequestId ?? 0}
           onOpenFile={openFileSurface}

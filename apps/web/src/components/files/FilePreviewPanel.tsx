@@ -59,6 +59,7 @@ import {
   confirmProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
+  useProjectAbsoluteFileQuery,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
@@ -67,6 +68,12 @@ interface FilePreviewPanelProps {
   cwd: string;
   projectName: string;
   relativePath: string | null;
+  /**
+   * When set, the surface previews a file OUTSIDE the workspace addressed by
+   * absolute path (read via the absolute-read RPC, rendered read-only). In this
+   * mode `relativePath` mirrors the absolute path for display/reveal keys.
+   */
+  absolutePath: string | null;
   threadRef: ScopedThreadRef;
   composerDraftTarget: ScopedThreadRef | DraftId;
   keybindings: ResolvedKeybindingsConfig;
@@ -560,11 +567,13 @@ function RenderedMarkdownSurface({
   threadRef,
   composerDraftTarget,
   onPendingChange,
+  readOnly = false,
 }: Omit<
   EditableFileSurfaceProps,
   "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
+  readOnly?: boolean;
 }) {
   const saveCoordinator = useFileSaveCoordinator({
     environmentId,
@@ -572,6 +581,21 @@ function RenderedMarkdownSurface({
     relativePath,
     onPendingChange,
   });
+
+  // Out-of-workspace previews are read-only: render the markdown without the
+  // task-toggle / annotation write paths.
+  if (readOnly) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        <ChatMarkdown
+          text={contents}
+          cwd={cwd}
+          threadRef={threadRef}
+          className="mx-auto max-w-4xl px-6 py-5"
+        />
+      </ScrollArea>
+    );
+  }
 
   if (isMdxPreviewFile(relativePath)) {
     return (
@@ -620,6 +644,7 @@ export default function FilePreviewPanel({
   cwd,
   projectName,
   relativePath,
+  absolutePath,
   threadRef,
   composerDraftTarget,
   keybindings,
@@ -639,7 +664,12 @@ export default function FilePreviewPanel({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const file = useProjectFileQuery(environmentId, cwd, relativePath);
+  // Out-of-workspace files are addressed by absolute path and served by a
+  // distinct read-only RPC; workspace files keep their optimistic/edit layer.
+  const isAbsolute = absolutePath !== null;
+  const workspaceFile = useProjectFileQuery(environmentId, cwd, isAbsolute ? null : relativePath);
+  const absoluteFile = useProjectAbsoluteFileQuery(environmentId, absolutePath);
+  const file = isAbsolute ? absoluteFile : workspaceFile;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const [markdownView, setMarkdownView] = useState<{
     path: string | null;
@@ -659,10 +689,15 @@ export default function FilePreviewPanel({
     (explicitView ? explicitView === "rendered" : isMdx);
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
-  const absolutePath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
+  const openInEditorPath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
   const breadcrumbs = useMemo(
-    () => (relativePath ? fileBreadcrumbs(projectName, relativePath) : []),
-    [projectName, relativePath],
+    () =>
+      relativePath
+        ? isAbsolute
+          ? [{ kind: "file" as const, label: relativePath, path: relativePath }]
+          : fileBreadcrumbs(projectName, relativePath)
+        : [],
+    [isAbsolute, projectName, relativePath],
   );
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
 
@@ -686,11 +721,11 @@ export default function FilePreviewPanel({
   };
 
   const handleOpenInBrowser = useCallback(() => {
-    if (!absolutePath || !environmentHttpBaseUrl) return;
+    if (!openInEditorPath || !environmentHttpBaseUrl) return;
     void (async () => {
       const result = await openFileInPreview({
         threadRef,
-        filePath: absolutePath,
+        filePath: openInEditorPath,
         httpBaseUrl: environmentHttpBaseUrl,
         createAssetUrl,
         openPreview,
@@ -707,7 +742,7 @@ export default function FilePreviewPanel({
         }),
       );
     })();
-  }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
+  }, [openInEditorPath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -745,12 +780,12 @@ export default function FilePreviewPanel({
               ))}
             </div>
           </ScrollArea>
-          {absolutePath && environmentId === primaryEnvironmentId ? (
+          {openInEditorPath && environmentId === primaryEnvironmentId ? (
             <OpenInPicker
               environmentId={environmentId}
               keybindings={keybindings}
               availableEditors={availableEditors}
-              openInCwd={absolutePath}
+              openInCwd={openInEditorPath}
               compact
               enableShortcut={false}
             />
@@ -852,8 +887,9 @@ export default function FilePreviewPanel({
                 composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
+                readOnly={isAbsolute}
               />
-            ) : file.data.truncated ? (
+            ) : file.data.truncated || isAbsolute ? (
               <Virtualizer
                 key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}
                 className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"

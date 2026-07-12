@@ -66,6 +66,7 @@ import {
 } from "../markdown-clipboard";
 import {
   type MarkdownFileLinkMeta,
+  isAbsolutePreviewablePath,
   normalizeMarkdownLinkDestination,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
@@ -1068,12 +1069,23 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   }, [onOpen, targetPath]);
 
   const handleOpenInFilePreview = useCallback(() => {
-    if (!threadRef || !workspaceRelativePath) {
+    if (!threadRef) {
       handleOpenInEditor();
       return;
     }
-    useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath, line);
-  }, [handleOpenInEditor, line, threadRef, workspaceRelativePath]);
+    if (workspaceRelativePath) {
+      useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath, line);
+      return;
+    }
+    // Outside the workspace: open the absolute path in the read-only preview
+    // surface (e.g. workstream report paths). Anything the preview can't serve
+    // (e.g. a Windows drive path on a POSIX host) falls back to the editor.
+    if (isAbsolutePreviewablePath(iconPath)) {
+      useRightPanelStore.getState().openFileAbsolute(threadRef, iconPath, line);
+      return;
+    }
+    handleOpenInEditor();
+  }, [handleOpenInEditor, iconPath, line, threadRef, workspaceRelativePath]);
 
   const handleOpenInBrowser = useCallback(() => {
     if (!onOpenInBrowser) {
