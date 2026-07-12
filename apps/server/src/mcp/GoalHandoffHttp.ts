@@ -17,6 +17,7 @@ interface GoalHandoffRequest {
   readonly brief?: unknown;
   readonly description?: unknown;
   readonly threadTitle?: unknown;
+  readonly project?: unknown;
 }
 
 interface GoalContinueRequest {
@@ -38,12 +39,21 @@ const slugifyTitle = (title: string): string => {
 };
 
 /**
- * Create a NEW goal + a staged (held) root session, both scoped to the caller
- * thread's project. The agent passes only the goal title, the kickoff brief, and
- * an optional description — never a goalId/projectId. The new root thread is
- * created with no worktree so the human's first send routes through the existing
- * composer worktree bootstrap; it is held at `planLane: planned` and carries the
- * brief so the UI can seed the composer for a one-send launch.
+ * Inbox/concierge threads (e.g. the Slack bridge's `slack-inbox` role) live in
+ * a project that is a mailbox, not a workspace — a handoff defaulting there
+ * would provision a worktree of the wrong repo. Such roles must name the
+ * target project explicitly.
+ */
+const isInboxRole = (role: string | null): boolean => role !== null && role.endsWith("-inbox");
+
+/**
+ * Create a NEW goal + a staged (held) root session. Both default to the caller
+ * thread's project; an optional `project` (id or title) targets another — and
+ * inbox-role callers MUST name one, because their own project is a mailbox.
+ * The new root thread is created with no worktree so the human's first send
+ * routes through the existing composer worktree bootstrap (provisioning from
+ * the TARGET project's workspace); it is held at `planLane: planned` and
+ * carries the brief so the UI can seed the composer for a one-send launch.
  */
 const handleGoalHandoff = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -66,6 +76,8 @@ const handleGoalHandoff = Effect.gen(function* () {
   // authoring agent; fall back to the goal title when omitted.
   const threadTitle = trimString(body.threadTitle) ?? title;
 
+  const projectRef = trimString(body.project);
+
   const projection = yield* ProjectionSnapshotQuery;
   const caller = yield* projection.getThreadDetailById(scope.threadId);
   if (Option.isNone(caller)) {
@@ -73,14 +85,42 @@ const handleGoalHandoff = Effect.gen(function* () {
   }
   const callerThread = caller.value;
 
+  const snapshot = yield* projection.getSnapshot();
+  const activeProjects = snapshot.projects.filter((project) => project.deletedAt === null);
+
+  // Resolve the target project: default to the caller's own, unless `project`
+  // names another (exact id, else case-insensitive title). Inbox roles get no
+  // default — their project is a mailbox, not a workspace.
+  let targetProject = activeProjects.find((project) => project.id === callerThread.projectId);
+  if (projectRef !== undefined) {
+    const matches = activeProjects.filter(
+      (project) =>
+        project.id === projectRef || project.title.toLowerCase() === projectRef.toLowerCase(),
+    );
+    if (matches.length !== 1) {
+      const titles = activeProjects.map((project) => `'${project.title}'`).join(", ");
+      return jsonError(
+        400,
+        `Project '${projectRef}' ${matches.length === 0 ? "was not found" : "is ambiguous"}. Active projects: ${titles}.`,
+      );
+    }
+    targetProject = matches[0];
+  } else if (isInboxRole(callerThread.role)) {
+    const titles = activeProjects.map((project) => `'${project.title}'`).join(", ");
+    return jsonError(
+      400,
+      `This thread's project is an inbox — handoffs must name a target project. Pass 'project' as one of: ${titles}.`,
+    );
+  }
+  if (!targetProject) {
+    return jsonError(404, "Current thread's project was not found.");
+  }
+
   // Per-project slug uniqueness mirrors the decider's `requireUniqueGoalSlug`
   // (which clashes against ALL goals in the project, including deleted ones).
   // Auto-suffix `-2`, `-3`, … rather than failing back to the agent.
-  const snapshot = yield* projection.getSnapshot();
   const takenSlugs = new Set(
-    snapshot.goals
-      .filter((goal) => goal.projectId === callerThread.projectId)
-      .map((goal) => goal.slug),
+    snapshot.goals.filter((goal) => goal.projectId === targetProject.id).map((goal) => goal.slug),
   );
   const baseSlug = slugifyTitle(title);
   let slug = baseSlug;
@@ -98,7 +138,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     buildGoalCreateCommand({
       commandId: CommandId.make(`server:goal-handoff:create-goal:${yield* crypto.randomUUIDv4}`),
       goalId,
-      projectId: callerThread.projectId,
+      projectId: targetProject.id,
       slug,
       title,
       ...(description !== undefined ? { description } : {}),
@@ -113,7 +153,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     type: "thread.create",
     commandId: CommandId.make(`server:goal-handoff:create-thread:${yield* crypto.randomUUIDv4}`),
     threadId,
-    projectId: callerThread.projectId,
+    projectId: targetProject.id,
     goalId,
     parentThreadId: null,
     purpose: title,
@@ -132,7 +172,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     goalId,
     threadId,
     slug,
-    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${threadTitle}). The human launches it with one send.`,
+    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${threadTitle}) in project '${targetProject.title}'. The human launches it with one send.`,
   });
 }).pipe(
   Effect.catch((error: unknown) =>
