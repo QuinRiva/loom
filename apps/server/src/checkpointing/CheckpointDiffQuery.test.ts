@@ -115,6 +115,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
             getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           }),
         ),
       );
@@ -216,6 +217,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
             getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           }),
         ),
       );
@@ -317,6 +319,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
             getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           }),
         ),
       );
@@ -392,6 +395,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
             getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           }),
         ),
       );
@@ -454,6 +458,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getThreadDetailById: () => Effect.succeed(Option.none()),
             getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
             getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
+            getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           }),
         ),
       );
