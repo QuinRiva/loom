@@ -10,6 +10,7 @@
 import * as NodeFSP from "node:fs/promises";
 
 import type {
+  ProjectReadAbsoluteFileInput,
   ProjectReadFileInput,
   ProjectReadFileResult,
   ProjectWriteFileInput,
@@ -79,6 +80,34 @@ export class WorkspacePathNotFileError extends Schema.TaggedErrorClass<Workspace
   }
 }
 
+/**
+ * Failure of an out-of-workspace absolute read. Distinct from the workspace
+ * errors because there is no workspace root to report against; the failure
+ * kind is carried so the RPC boundary can classify it without re-parsing.
+ */
+export class WorkspaceAbsoluteReadError extends Schema.TaggedErrorClass<WorkspaceAbsoluteReadError>()(
+  "WorkspaceAbsoluteReadError",
+  {
+    absolutePath: Schema.String,
+    resolvedPath: Schema.String,
+    failure: Schema.Literals([
+      "path_not_absolute",
+      "path_not_file",
+      "binary_file",
+      "operation_failed",
+    ]),
+    operation: Schema.optional(
+      Schema.Literals(["realpath-target", "open", "stat", "read", "close"]),
+    ),
+    operationPath: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Absolute file read '${this.failure}' failed for '${this.absolutePath}' (resolved '${this.resolvedPath}').`;
+  }
+}
+
 export class WorkspaceBinaryFileError extends Schema.TaggedErrorClass<WorkspaceBinaryFileError>()(
   "WorkspaceBinaryFileError",
   {
@@ -112,6 +141,13 @@ export class WorkspaceFileSystem extends Context.Service<
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
     /**
+     * Read a UTF-8 text file addressed by absolute path, NOT constrained to a
+     * workspace root. Read-only by design — there is no absolute write.
+     */
+    readonly readAbsoluteFile: (
+      input: ProjectReadAbsoluteFileInput,
+    ) => Effect.Effect<ProjectReadFileResult, WorkspaceAbsoluteReadError>;
+    /**
      * Write a file relative to the workspace root.
      *
      * Creates parent directories as needed and rejects paths that escape the
@@ -131,6 +167,63 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+
+  type ReadOperation = "open" | "stat" | "read" | "close";
+
+  /**
+   * Open a real (symlink-resolved) path, enforce the file/size/binary invariants
+   * shared by workspace-relative and absolute reads, and decode it as UTF-8.
+   * Callers own resolving/authorising the path and constructing their own error
+   * shapes via the `errors` factories.
+   */
+  const readTextFromRealPath = <E>(
+    realTargetPath: string,
+    resultRelativePath: string,
+    errors: {
+      readonly operation: (operation: ReadOperation, cause: unknown) => E;
+      readonly notFile: () => E;
+      readonly binary: () => E;
+    },
+  ): Effect.Effect<ProjectReadFileResult, E> =>
+    Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: () => NodeFSP.open(realTargetPath, "r"),
+        catch: (cause) => errors.operation("open", cause),
+      }),
+      (handle) =>
+        Effect.gen(function* () {
+          const stat = yield* Effect.tryPromise({
+            try: () => handle.stat(),
+            catch: (cause) => errors.operation("stat", cause),
+          });
+          if (!stat.isFile()) {
+            return yield* Effect.fail(errors.notFile());
+          }
+
+          const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
+          const buffer = Buffer.alloc(bytesToRead);
+          const { bytesRead } = yield* Effect.tryPromise({
+            try: () => handle.read(buffer, 0, bytesToRead, 0),
+            catch: (cause) => errors.operation("read", cause),
+          });
+          const fileBytes = buffer.subarray(0, bytesRead);
+          if (fileBytes.includes(0)) {
+            return yield* Effect.fail(errors.binary());
+          }
+
+          return {
+            relativePath: resultRelativePath,
+            contents: new TextDecoder("utf-8").decode(fileBytes),
+            byteLength: stat.size,
+            truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
+          };
+        }),
+      (handle) =>
+        Effect.tryPromise({
+          try: () => handle.close(),
+          catch: (cause) => errors.operation("close", cause),
+        }),
+    );
 
   const readFile: WorkspaceFileSystem["Service"]["readFile"] = Effect.fn(
     "WorkspaceFileSystem.readFile",
@@ -178,84 +271,83 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    return yield* Effect.acquireUseRelease(
-      Effect.tryPromise({
-        try: () => NodeFSP.open(realTargetPath, "r"),
-        catch: (cause) =>
-          new WorkspaceFileSystemOperationError({
-            workspaceRoot: input.cwd,
-            relativePath: input.relativePath,
+    return yield* readTextFromRealPath<
+      WorkspaceFileSystemOperationError | WorkspacePathNotFileError | WorkspaceBinaryFileError
+    >(realTargetPath, target.relativePath, {
+      operation: (operation, cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: realTargetPath,
+          operationPath: realTargetPath,
+          operation,
+          cause,
+        }),
+      notFile: () =>
+        new WorkspacePathNotFileError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: realTargetPath,
+        }),
+      binary: () =>
+        new WorkspaceBinaryFileError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: realTargetPath,
+        }),
+    });
+  });
+
+  const readAbsoluteFile: WorkspaceFileSystem["Service"]["readAbsoluteFile"] = Effect.fn(
+    "WorkspaceFileSystem.readAbsoluteFile",
+  )(function* (input) {
+    if (!path.isAbsolute(input.absolutePath)) {
+      return yield* new WorkspaceAbsoluteReadError({
+        absolutePath: input.absolutePath,
+        resolvedPath: input.absolutePath,
+        failure: "path_not_absolute",
+      });
+    }
+
+    const realTargetPath = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(input.absolutePath),
+      catch: (cause) =>
+        new WorkspaceAbsoluteReadError({
+          absolutePath: input.absolutePath,
+          resolvedPath: input.absolutePath,
+          failure: "operation_failed",
+          operation: "realpath-target",
+          operationPath: input.absolutePath,
+          cause,
+        }),
+    });
+
+    return yield* readTextFromRealPath<WorkspaceAbsoluteReadError>(
+      realTargetPath,
+      input.absolutePath,
+      {
+        operation: (operation, cause) =>
+          new WorkspaceAbsoluteReadError({
+            absolutePath: input.absolutePath,
             resolvedPath: realTargetPath,
+            failure: "operation_failed",
+            operation,
             operationPath: realTargetPath,
-            operation: "open",
             cause,
           }),
-      }),
-      (handle) =>
-        Effect.gen(function* () {
-          const stat = yield* Effect.tryPromise({
-            try: () => handle.stat(),
-            catch: (cause) =>
-              new WorkspaceFileSystemOperationError({
-                workspaceRoot: input.cwd,
-                relativePath: input.relativePath,
-                resolvedPath: realTargetPath,
-                operationPath: realTargetPath,
-                operation: "stat",
-                cause,
-              }),
-          });
-          if (!stat.isFile()) {
-            return yield* new WorkspacePathNotFileError({
-              workspaceRoot: input.cwd,
-              relativePath: input.relativePath,
-              resolvedPath: realTargetPath,
-            });
-          }
-
-          const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
-          const buffer = Buffer.alloc(bytesToRead);
-          const { bytesRead } = yield* Effect.tryPromise({
-            try: () => handle.read(buffer, 0, bytesToRead, 0),
-            catch: (cause) =>
-              new WorkspaceFileSystemOperationError({
-                workspaceRoot: input.cwd,
-                relativePath: input.relativePath,
-                resolvedPath: realTargetPath,
-                operationPath: realTargetPath,
-                operation: "read",
-                cause,
-              }),
-          });
-          const fileBytes = buffer.subarray(0, bytesRead);
-          if (fileBytes.includes(0)) {
-            return yield* new WorkspaceBinaryFileError({
-              workspaceRoot: input.cwd,
-              relativePath: input.relativePath,
-              resolvedPath: realTargetPath,
-            });
-          }
-
-          return {
-            relativePath: target.relativePath,
-            contents: new TextDecoder("utf-8").decode(fileBytes),
-            byteLength: stat.size,
-            truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
-          };
-        }),
-      (handle) =>
-        Effect.tryPromise({
-          try: () => handle.close(),
-          catch: (cause) =>
-            new WorkspaceFileSystemOperationError({
-              workspaceRoot: input.cwd,
-              relativePath: input.relativePath,
-              resolvedPath: realTargetPath,
-              operationPath: realTargetPath,
-              operation: "close",
-              cause,
-            }),
-        }),
+        notFile: () =>
+          new WorkspaceAbsoluteReadError({
+            absolutePath: input.absolutePath,
+            resolvedPath: realTargetPath,
+            failure: "path_not_file",
+          }),
+        binary: () =>
+          new WorkspaceAbsoluteReadError({
+            absolutePath: input.absolutePath,
+            resolvedPath: realTargetPath,
+            failure: "binary_file",
+          }),
+      },
     );
   });
 
@@ -297,7 +389,7 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ readFile, writeFile });
+  return WorkspaceFileSystem.of({ readFile, readAbsoluteFile, writeFile });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

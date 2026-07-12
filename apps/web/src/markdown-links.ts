@@ -340,6 +340,17 @@ export function resolveInlineCodeFileLinkMeta(
   return looksLikeFile ? meta : null;
 }
 
+/**
+ * Whether a resolved file path can be served by the out-of-workspace read-only
+ * preview surface. Only POSIX absolute paths qualify: the server reads them with
+ * host `path.isAbsolute`, so a Windows drive path (`C:\…`) would be rejected on a
+ * POSIX host and must instead fall back to the editor. Preview initially targets
+ * POSIX absolute paths by design; everything else defers to the editor.
+ */
+export function isAbsolutePreviewablePath(path: string): boolean {
+  return path.startsWith("/");
+}
+
 export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,

@@ -40,6 +40,16 @@ export function getProjectFileQueryAtom(
   });
 }
 
+export function getProjectAbsoluteFileQueryAtom(
+  environmentId: EnvironmentId,
+  absolutePath: string | null,
+) {
+  return projectEnvironment.readAbsoluteFile({
+    environmentId,
+    input: { absolutePath: absolutePath ?? EMPTY_PROJECT_FILE_PATH },
+  });
+}
+
 export function setProjectFileQueryData(
   environmentId: EnvironmentId,
   cwd: string,
@@ -150,6 +160,27 @@ export function useProjectFileQuery(
 
   return {
     data: optimisticFile?.data ?? data,
+    error: errorMessage(result),
+    isPending: result.waiting,
+    refresh,
+  };
+}
+
+/**
+ * Read-only preview of a file addressed by absolute path (outside any
+ * workspace). There is deliberately no optimistic/edit layer — out-of-workspace
+ * files are never editable through the preview surface.
+ */
+export function useProjectAbsoluteFileQuery(
+  environmentId: EnvironmentId,
+  absolutePath: string | null,
+): ProjectQueryState<ProjectReadFileResult> {
+  const atom = getProjectAbsoluteFileQueryAtom(environmentId, absolutePath);
+  const result = useAtomValue(atom);
+  const refreshAtom = useAtomRefresh(atom);
+  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  return {
+    data: Option.getOrNull(AsyncResult.value(result)),
     error: errorMessage(result),
     isPending: result.waiting,
     refresh,

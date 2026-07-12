@@ -4,6 +4,7 @@ import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchema
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+const PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH = 4096;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -133,6 +134,7 @@ export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 export const ProjectFileFailure = Schema.Literals([
   "workspace_path_outside_root",
   "resolved_path_outside_root",
+  "path_not_absolute",
   "path_not_file",
   "binary_file",
   "operation_failed",
@@ -183,6 +185,50 @@ export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFil
       message:
         decodedProjectErrorMessage(props) ??
         `Failed to read workspace file '${props.relativePath}' in '${props.cwd}'.`,
+    } as any);
+  }
+}
+
+/**
+ * Read-only preview of a file addressed by absolute path, deliberately NOT
+ * constrained to a workspace root. This exists so chat file chips can open
+ * files the control plane embeds outside any workspace (e.g. workstream report
+ * paths under the durable state dir). There is intentionally no absolute WRITE
+ * counterpart — out-of-workspace files are previewable but never editable.
+ */
+export const ProjectReadAbsoluteFileInput = Schema.Struct({
+  absolutePath: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH),
+  ),
+});
+export type ProjectReadAbsoluteFileInput = typeof ProjectReadAbsoluteFileInput.Type;
+
+type ProjectAbsoluteFileFailureContext = {
+  readonly absolutePath: string;
+  readonly failure: ProjectFileFailure;
+  readonly resolvedPath?: string;
+  readonly operation?: ProjectFileOperation;
+  readonly operationPath?: string;
+  readonly cause?: unknown;
+};
+
+export class ProjectReadAbsoluteFileError extends Schema.TaggedErrorClass<ProjectReadAbsoluteFileError>()(
+  "ProjectReadAbsoluteFileError",
+  {
+    absolutePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectAbsoluteFileFailureContext) {
+    super({
+      ...props,
+      message: decodedProjectErrorMessage(props) ?? `Failed to read file '${props.absolutePath}'.`,
     } as any);
   }
 }

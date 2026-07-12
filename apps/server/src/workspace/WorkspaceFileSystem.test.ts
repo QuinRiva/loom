@@ -191,6 +191,97 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
     );
   });
 
+  describe("readAbsoluteFile", () => {
+    it.effect("reads UTF-8 files addressed by absolute path outside any workspace", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "report.round-1.md", "# Verdict\n");
+
+        const result = yield* workspaceFileSystem.readAbsoluteFile({
+          absolutePath: path.join(outsideDir, "report.round-1.md"),
+        });
+
+        expect(result).toEqual({
+          relativePath: path.join(outsideDir, "report.round-1.md"),
+          contents: "# Verdict\n",
+          byteLength: 10,
+          truncated: false,
+        });
+      }),
+    );
+
+    it.effect("rejects relative paths without touching the filesystem", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+
+        const error = yield* workspaceFileSystem
+          .readAbsoluteFile({ absolutePath: "relative/report.md" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteReadError);
+        expect(error).toMatchObject({
+          absolutePath: "relative/report.md",
+          failure: "path_not_absolute",
+        });
+        expect("cause" in error).toBe(false);
+      }),
+    );
+
+    it.effect("rejects directories", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        yield* fileSystem.makeDirectory(path.join(outsideDir, "nested"));
+
+        const error = yield* workspaceFileSystem
+          .readAbsoluteFile({ absolutePath: path.join(outsideDir, "nested") })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteReadError);
+        expect(error).toMatchObject({ failure: "path_not_file" });
+      }),
+    );
+
+    it.effect("rejects binary files without leaking their contents", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        const absolutePath = path.join(outsideDir, "asset.bin");
+        yield* fileSystem.writeFile(absolutePath, Uint8Array.from([0x61, 0, 0x62]));
+
+        const error = yield* workspaceFileSystem
+          .readAbsoluteFile({ absolutePath })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteReadError);
+        expect(error).toMatchObject({ failure: "binary_file" });
+        expect("contents" in error).toBe(false);
+      }),
+    );
+
+    it.effect("preserves the real cause for missing files", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+
+        const error = yield* workspaceFileSystem
+          .readAbsoluteFile({ absolutePath: path.join(outsideDir, "missing.md") })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteReadError);
+        expect(error).toMatchObject({ failure: "operation_failed", operation: "realpath-target" });
+        expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+      }),
+    );
+  });
+
   describe("writeFile", () => {
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {

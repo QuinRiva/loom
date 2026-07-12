@@ -92,6 +92,7 @@ describe("rightPanelStore", () => {
             {
               id: "file:src/index.ts",
               kind: "file",
+              absolutePath: null,
               relativePath: "src/index.ts",
               revealLine: null,
               revealRequestId: 0,
@@ -140,6 +141,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
+          absolutePath: null,
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 2,
@@ -147,6 +149,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:README.md",
           kind: "file",
+          absolutePath: null,
           relativePath: "README.md",
           revealLine: null,
           revealRequestId: 1,
@@ -166,6 +169,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
+          absolutePath: null,
           relativePath: "src/index.ts",
           revealLine: 87,
           revealRequestId: 2,
@@ -182,9 +186,30 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
+          absolutePath: null,
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 3,
+        },
+      ],
+    });
+  });
+
+  it("openFileAbsolute opens an out-of-workspace read-only file surface", () => {
+    const reportPath = "/home/Carl/.t3/cockpit/userdata/workstream-reports/abc.round-1.md";
+    useRightPanelStore.getState().openFileAbsolute(refA, reportPath, 12);
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: `file:${reportPath}`,
+      surfaces: [
+        {
+          id: `file:${reportPath}`,
+          kind: "file",
+          relativePath: reportPath,
+          absolutePath: reportPath,
+          revealLine: 12,
+          revealRequestId: 1,
         },
       ],
     });
@@ -384,6 +409,7 @@ describe("rightPanelStore", () => {
         {
           id: "file:src/index.ts",
           kind: "file",
+          absolutePath: null,
           relativePath: "src/index.ts",
           revealLine: null,
           revealRequestId: 1,
