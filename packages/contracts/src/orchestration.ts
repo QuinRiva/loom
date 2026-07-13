@@ -54,6 +54,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getThreadActivities: "orchestration.getThreadActivities",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  getThreadLifecycle: "orchestration.getThreadLifecycle",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
@@ -1336,6 +1337,36 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+/**
+ * The thread-aggregate event types that make up a per-thread lifecycle timeline
+ * (the journey the read model collapses to latest-state). Scoped, on-demand
+ * `getThreadLifecycle` reads filter the event store to exactly these, so a
+ * node-inspection pull returns tens of ordered rows rather than the whole
+ * global stream. Runtime/tool signals (`thread.activity-appended`, reasoning,
+ * turn plumbing) are deliberately excluded — they are not lifecycle.
+ */
+export const ORCHESTRATION_THREAD_LIFECYCLE_EVENT_TYPES = [
+  "thread.plan-lane-set",
+  "thread.attention-raised",
+  "thread.attention-cleared",
+  "thread.outcome-recorded",
+  "thread.route-taken",
+  "thread.fanin-set",
+] as const;
+export type OrchestrationThreadLifecycleEventType =
+  (typeof ORCHESTRATION_THREAD_LIFECYCLE_EVENT_TYPES)[number];
+
+export const OrchestrationGetThreadLifecycleInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetThreadLifecycleInput = typeof OrchestrationGetThreadLifecycleInput.Type;
+
+// The ordered lifecycle events for one thread, decoded through the shared
+// `OrchestrationEvent` contract (the client discriminates on `type`).
+const OrchestrationGetThreadLifecycleResult = Schema.Array(OrchestrationEvent);
+export type OrchestrationGetThreadLifecycleResult =
+  typeof OrchestrationGetThreadLifecycleResult.Type;
+
 export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
@@ -1356,6 +1387,10 @@ export const OrchestrationRpcSchemas = {
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  getThreadLifecycle: {
+    input: OrchestrationGetThreadLifecycleInput,
+    output: OrchestrationGetThreadLifecycleResult,
   },
   getArchivedShellSnapshot: {
     input: Schema.Struct({}),
@@ -1413,6 +1448,14 @@ export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass
 
 export class OrchestrationReplayEventsError extends Schema.TaggedErrorClass<OrchestrationReplayEventsError>()(
   "OrchestrationReplayEventsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class OrchestrationGetThreadLifecycleError extends Schema.TaggedErrorClass<OrchestrationGetThreadLifecycleError>()(
+  "OrchestrationGetThreadLifecycleError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),

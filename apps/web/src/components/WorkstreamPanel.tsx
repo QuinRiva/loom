@@ -41,6 +41,7 @@ import {
   STATUS_STYLES,
   truncateLabel,
 } from "../lib/workstreamPresentation";
+import { useThreadLifecycle, WorkstreamTimeline } from "./WorkstreamTimeline";
 import { useThreadShells } from "../state/entities";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -114,6 +115,15 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   const clearThreadAttention = useAtomCommand(threadEnvironment.clearAttention);
   const setThreadDependencies = useAtomCommand(threadEnvironment.setDependencies);
   const [view, setView] = useState<WorkstreamView>("graph");
+  // Graph selection: clicking a node selects it (highlight + lifecycle timeline
+  // below the canvas) rather than navigating — navigation moves to the timeline
+  // header's explicit "Open thread" button. The board's click=navigate is
+  // unchanged.
+  const [selectedThreadId, setSelectedThreadId] = useState<ThreadId | null>(null);
+  // Lifecycle fetch + per-thread cache lives HERE (panel scope), not in the
+  // timeline component, so it survives Board⇄Graph view switches (the timeline
+  // unmounts on Board; the panel does not).
+  const lifecycleState = useThreadLifecycle(activeThread?.environmentId ?? null, selectedThreadId);
   const [role, setRole] = useState("");
   const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -277,20 +287,29 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             onSetDependencies={setDependencies}
           />
         ) : (
-          <Suspense
-            fallback={
-              <div className="flex h-40 items-center justify-center text-xs text-white/40">
-                <Loader2Icon className="size-4 animate-spin" />
-              </div>
-            }
-          >
-            <WorkstreamGraph
-              threads={subtree}
-              threadById={subtreeById}
+          <>
+            <Suspense
+              fallback={
+                <div className="flex h-40 items-center justify-center text-xs text-white/40">
+                  <Loader2Icon className="size-4 animate-spin" />
+                </div>
+              }
+            >
+              <WorkstreamGraph
+                threads={subtree}
+                threadById={subtreeById}
+                selectedThreadId={selectedThreadId}
+                onSelectThread={(thread) => setSelectedThreadId(thread.id)}
+                onOpenDispatch={openDispatch}
+              />
+            </Suspense>
+            <WorkstreamTimeline
+              selectedThread={selectedThreadId ? subtreeById.get(selectedThreadId) : undefined}
+              state={lifecycleState}
               onOpenThread={openThread}
               onOpenDispatch={openDispatch}
             />
-          </Suspense>
+          </>
         )}
       </div>
 

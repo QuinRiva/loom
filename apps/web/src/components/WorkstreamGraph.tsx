@@ -36,8 +36,11 @@ import {
   type ChildIndex,
   COLUMN_LABELS,
   COLUMN_ORDER,
+  getAttentionPulse,
+  getFanInBadge,
   getGateLoopCap,
   getGateWaitLabel,
+  getLoopEdgeStroke,
   getLoopStroke,
   getPurpose,
   getRoleIcon,
@@ -63,12 +66,14 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export default function WorkstreamGraph({
   threads,
   threadById,
-  onOpenThread,
+  selectedThreadId,
+  onSelectThread,
   onOpenDispatch,
 }: {
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly selectedThreadId: ThreadId | null;
+  readonly onSelectThread: (thread: SidebarThreadSummary) => void;
   readonly onOpenDispatch: (
     threadId: ThreadId,
     anchorAtIso: string,
@@ -169,7 +174,7 @@ export default function WorkstreamGraph({
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
         a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a
-        bridge to jump to where that wave was dispatched; click a node to open the thread.
+        bridge to jump to where that wave was dispatched; click a node to inspect its history below.
       </p>
       <div className="relative w-full">
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
@@ -195,6 +200,18 @@ export default function WorkstreamGraph({
           onPointerCancel={endPan}
         >
           <defs>
+            {/* One restrained pulse for human-blocking attention; stilled under
+                prefers-reduced-motion so it never becomes a motion nuisance. */}
+            <style>{`
+              @keyframes wsAttentionPulse {
+                0%, 100% { stroke-opacity: 0.95; stroke-width: 1.4; }
+                50% { stroke-opacity: 0.28; stroke-width: 3.4; }
+              }
+              .ws-attention-pulse { animation: wsAttentionPulse 1.8s ease-in-out infinite; }
+              @media (prefers-reduced-motion: reduce) {
+                .ws-attention-pulse { animation: none; stroke-opacity: 0.9; }
+              }
+            `}</style>
             <marker
               id="workstream-arrow"
               markerHeight="8"
@@ -250,7 +267,8 @@ export default function WorkstreamGraph({
                 key={node.key}
                 node={node}
                 threadById={threadById}
-                onOpenThread={onOpenThread}
+                selected={node.thread.id === selectedThreadId}
+                onSelectThread={onSelectThread}
                 externalConsult={consultOverlay.externalByAskerId.get(node.thread.id)}
               />
             ),
@@ -314,13 +332,16 @@ function GraphEdge({
 }) {
   if (edge.kind === "loop") {
     // Return arrow of a review gate: reverse-direction, bowed BELOW the cards so
-    // it reads as a cycle against the forward waits-on edge. Stroke darkens with
-    // consumed rework rounds; the midpoint badge shows rounds vs cap. Rounds are
-    // resolved live from the gate source so the edge recolours without re-layout.
+    // it reads as a cycle against the forward waits-on edge. Stroke is tinted by
+    // the gate source's latest verdict (amber while rework pends, emerald once
+    // settled) over a violet round-depth base; the midpoint badge shows rounds
+    // vs cap. Both are resolved live from the source so the edge recolours
+    // without re-layout.
     const source = edge.sourceId ? threadById.get(edge.sourceId) : undefined;
     const rounds = source?.gateRounds ?? 0;
     const cap = source ? getGateLoopCap(source) : rounds;
-    const stroke = getLoopStroke(rounds);
+    const stroke = source ? getLoopEdgeStroke(source) : getLoopStroke(rounds);
+    const verdict = source?.lastOutcome?.outcome;
     const midX = (edge.x1 + edge.x2) / 2;
     const drop = 30;
     // Cubic midpoint with both control points at +drop: avg(y) + 0.75 * drop.
@@ -335,7 +356,7 @@ function GraphEdge({
           strokeWidth="1.4"
         />
         <g>
-          <title>{`Review loop — ${rounds} of ${cap} rework rounds used`}</title>
+          <title>{`Review loop — ${rounds} of ${cap} rework rounds used${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
           <rect
             fill="#0d1117"
             height={15}
@@ -514,12 +535,14 @@ function BridgeNode({
 function GraphNode({
   node,
   threadById,
-  onOpenThread,
+  selected,
+  onSelectThread,
   externalConsult,
 }: {
   readonly node: Extract<LaidNode, { kind: "thread" }>;
   readonly threadById: ChildIndex;
-  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly selected: boolean;
+  readonly onSelectThread: (thread: SidebarThreadSummary) => void;
   readonly externalConsult: ExternalConsult | undefined;
 }) {
   // The laid-out node carries a STRUCTURAL snapshot (layout is memoised on a key
@@ -529,18 +552,21 @@ function GraphNode({
   const status = getThreadStatus(thread, threadById);
   const verdictChip = getVerdictChip(thread);
   const gateWait = getGateWaitLabel(thread, threadById);
-  const open = () => onOpenThread(thread);
+  const attentionPulse = getAttentionPulse(thread);
+  const fanInBadge = getFanInBadge(thread);
+  const select = () => onSelectThread(thread);
   return (
     <g
       className="ws-graph-node cursor-pointer outline-none"
-      onClick={open}
+      onClick={select}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          open();
+          select();
         }
       }}
       role="button"
+      aria-pressed={selected}
       tabIndex={0}
     >
       <title>{`Goal: ${getPurpose(thread)}`}</title>
@@ -549,11 +575,43 @@ function GraphNode({
         height={node.h}
         rx="10"
         stroke={status.graphStroke}
-        strokeWidth="1.4"
+        strokeWidth={selected ? 2.4 : 1.4}
         width={node.w}
         x={node.x}
         y={node.y}
       />
+      {selected ? (
+        // Selection highlight: a bright inset ring so the inspected node reads
+        // clearly against its lane colour without shifting layout.
+        <rect
+          fill="none"
+          height={node.h + 6}
+          pointerEvents="none"
+          rx="12"
+          stroke="rgba(255,255,255,0.85)"
+          strokeWidth="1.2"
+          width={node.w + 6}
+          x={node.x - 3}
+          y={node.y - 3}
+        />
+      ) : null}
+      {attentionPulse ? (
+        // Attention overlay ring in the flag's colour, pulsing to pull the eye
+        // to a node that needs a human — more than the board badge alone.
+        <rect
+          className="ws-attention-pulse"
+          fill="none"
+          height={node.h}
+          pointerEvents="none"
+          rx="10"
+          stroke={attentionPulse.stroke}
+          width={node.w}
+          x={node.x}
+          y={node.y}
+        >
+          <title>{attentionPulse.label}</title>
+        </rect>
+      ) : null}
       <circle cx={node.x + 15} cy={node.y + 17} fill={status.graphStroke} r="4" />
       <text fill={status.graphStroke} fontSize="12" x={node.x + 25} y={node.y + 21}>
         {getRoleIcon(thread)}
@@ -621,6 +679,31 @@ function GraphNode({
             y={node.y + node.h - 8.5}
           >
             ⑂
+          </text>
+        </g>
+      ) : null}
+      {fanInBadge ? (
+        // Fan-in settlement of an isolated child's branch, in the same
+        // bottom-right slot pattern as the ⑂ fork-from badge; nudged left when
+        // they share the corner. Colour matches the card's fan-in chip.
+        <g>
+          <title>{`Fan-in: ${fanInBadge.label}`}</title>
+          <circle
+            cx={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+            cy={node.y + node.h - 12}
+            fill="#0d1117"
+            r="8"
+            stroke={fanInBadge.stroke}
+            strokeWidth="1"
+          />
+          <text
+            fill={fanInBadge.stroke}
+            fontSize="9"
+            textAnchor="middle"
+            x={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+            y={node.y + node.h - 8.5}
+          >
+            {fanInBadge.glyph}
           </text>
         </g>
       ) : null}

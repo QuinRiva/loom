@@ -12,6 +12,8 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationGetThreadActivitiesInput,
   OrchestrationGetThreadActivitiesResult,
+  OrchestrationGetThreadLifecycleInput,
+  OrchestrationGetThreadLifecycleResult,
   OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
@@ -270,6 +272,19 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadActivitiesPage: (
     input: OrchestrationGetThreadActivitiesInput,
   ) => Effect.Effect<OrchestrationGetThreadActivitiesResult, ProjectionRepositoryError>;
+
+  /**
+   * Scoped, on-demand read of one thread's ordered lifecycle events (plan-lane
+   * transitions, attention raise/clear, submitted outcomes, loop route-takens,
+   * fan-in settlements) straight from the event store, decoded through the
+   * shared `OrchestrationEvent` contract. This is the per-thread journey the
+   * latest-state read model throws away; it is pulled only when a graph node is
+   * inspected, so it stays off the always-pushed snapshot. Works on all
+   * pre-existing runs with no backfill.
+   */
+  readonly getThreadLifecycle: (
+    input: OrchestrationGetThreadLifecycleInput,
+  ) => Effect.Effect<OrchestrationGetThreadLifecycleResult, ProjectionRepositoryError>;
 
   /**
    * Read the set of thread ids that currently have a pending turn-start (a

@@ -17,6 +17,12 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       label: "environment-data:orchestration:thread-activities",
       tag: ORCHESTRATION_WS_METHODS.getThreadActivities,
     }),
+    // On-demand pull of one thread's ordered lifecycle timeline (fetched when a
+    // workstream graph node is selected, then cached per-thread by the caller).
+    loadThreadLifecycle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:thread-lifecycle",
+      tag: ORCHESTRATION_WS_METHODS.getThreadLifecycle,
+    }),
     fullThreadDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:full-thread-diff",
       tag: ORCHESTRATION_WS_METHODS.getFullThreadDiff,

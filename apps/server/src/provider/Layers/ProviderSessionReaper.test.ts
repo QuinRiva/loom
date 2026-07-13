@@ -239,6 +239,7 @@ describe("ProviderSessionReaper", () => {
           getThreadDetailById: () => Effect.die("unused"),
           getThreadDetailSnapshotById: () => Effect.die("unused"),
           getThreadActivitiesPage: () => Effect.die("unused"),
+          getThreadLifecycle: () => Effect.die("unused"),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
