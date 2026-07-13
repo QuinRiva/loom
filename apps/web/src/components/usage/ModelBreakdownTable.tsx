@@ -1,4 +1,4 @@
-import type { ServerUsageBreakdownModel } from "@t3tools/contracts";
+import type { ServerUsageBreakdownGauge, ServerUsageBreakdownModel } from "@t3tools/contracts";
 import {
   formatCostShare,
   formatTokenCount,
@@ -56,10 +56,12 @@ const NUMERIC_COLUMNS: ReadonlyArray<{ column: ModelColumn; label: string }> = [
 export function ModelBreakdownTable({
   models,
   scope,
+  gauges,
   emptyLabel,
 }: {
   models: ReadonlyArray<ServerUsageBreakdownModel>;
   scope: string;
+  gauges: ReadonlyArray<ServerUsageBreakdownGauge>;
   emptyLabel: string;
 }) {
   const [sort, setSort] = useState<UsageSort<ModelColumn>>({
@@ -101,7 +103,7 @@ export function ModelBreakdownTable({
             <TableCell>
               <div className="flex items-center gap-1.5">
                 <span className="font-medium">{row.model}</span>
-                {scope === "all" && isMeterlessProvider(row.providerId) ? (
+                {scope === "all" && isMeterlessProvider(row.providerId, gauges) ? (
                   <Badge size="sm" variant="outline" className="text-muted-foreground">
                     not counted in any meter
                   </Badge>

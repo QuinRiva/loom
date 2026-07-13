@@ -230,11 +230,13 @@ refresh).
       "kind": "anthropic-oauth",
       "tokenFile": "~/cli-proxy/auths/claude-carl@unseen.id.json",
       "label": "carl@",
+      "providerIds": ["cliproxy"],
     },
     {
       "kind": "anthropic-oauth",
       "tokenFile": "~/cli-proxy/auths/claude-caaarl@unseen.id.json",
       "label": "caaarl@",
+      "providerIds": ["cliproxy"],
     },
   ],
 }
@@ -246,6 +248,12 @@ Each source field:
 - `tokenFile` — path to the proxy's JSON token file; a leading `~` expands to your home directory.
 - `tokenField` — optional; the flat JSON field holding the bearer token. Defaults to `access_token`.
 - `label` — optional human label shown on the pill. Defaults to the token file's basename.
+- `providerIds` — optional; the ledger backend provider ids this source's meter covers — the slug
+  namespace(s) your routed traffic runs under (e.g. `["cliproxy"]` for `cliproxy/*` models). This is
+  what links the pooled gauges to that backend's tab on the `/usage` dashboard: with it set, the tab
+  shows the official pooled gauges and its rows scope correctly; without it, the tab reads "no
+  official meter". Declared explicitly because the same instance may also route API-billed backends
+  (e.g. Vertex) that report into no meter.
 
 With usage sources configured, the sidebar renders **one pill per pooled account** (labelled), and
 exhaustion is judged on the _best remaining_ account: the instance is only treated as exhausted for a

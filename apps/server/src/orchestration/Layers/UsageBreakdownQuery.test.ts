@@ -1,5 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ProviderInstanceId } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -299,6 +301,95 @@ layer("UsageBreakdownQuery.verify", (it) => {
       assert.strictEqual(stale.boundarySource, "trailing");
       assert.strictEqual(stale.windowEnd, iso(now));
       assert.strictEqual(stale.projectedCostAtReset, null);
+    }),
+  );
+
+  it.effect("scopes boundaries and rows via backend ids and declared pooled meters", () =>
+    Effect.gen(function* () {
+      const query = yield* UsageBreakdownQuery;
+      const registry = yield* AccountUsageRegistry;
+      const sql = yield* SqlClient.SqlClient;
+
+      // The layer (and its TestClock) is shared across tests in this file, so
+      // step the clock forward and read the resulting "now" rather than
+      // assuming it starts at epoch 0.
+      yield* TestClock.adjust(Duration.hours(24));
+      const now = yield* Clock.currentTimeMillis;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, parent_thread_id, role, pending_approval_count,
+          pending_user_input_count, has_actionable_proposed_plan, created_at, updated_at
+        ) VALUES (
+          'thread-P', 'project-1', 'title-P', '{"provider":"pi","model":"m"}', 'full-access',
+          'default', NULL, 'orchestrator', 0, 0, 0, ${iso(now)}, ${iso(now)}
+        )
+      `;
+      const insertLedger = (eventId: string, providerId: string, cost: number) => sql`
+        INSERT INTO projection_usage_ledger (
+          event_id, thread_id, turn_id, provider_instance_id,
+          provider_id, requested_model, resolved_model, input_tokens, cache_read_tokens,
+          cache_write_tokens, output_tokens, cost_usd, created_at
+        ) VALUES (
+          ${eventId}, 'thread-P', ${"turn-" + eventId}, 'pi',
+          ${providerId}, 'claude-fable-5', NULL, 100, 20, 30, 50, ${cost}, ${iso(now - 5 * 60_000)}
+        )
+      `;
+      yield* insertLedger("p1", "cliproxy", 2.0);
+      yield* insertLedger("p2", "anthropic", 1.0);
+      yield* insertLedger("p3", "google-vertex-claude", 4.0);
+
+      // Direct Anthropic meter resets in 1 h; a pooled cliproxy account
+      // (declared meteredProviderIds) resets in 2 h. The pooled snapshot is
+      // observed later, so a slot-name/freshest fallback would wrongly hand the
+      // anthropic tab the pooled boundary — backend-id matching must not.
+      const anthropicReset = iso(now + 60 * 60_000);
+      const pooledReset = iso(now + 2 * 60 * 60_000);
+      yield* registry.update({
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        windows: [
+          { kind: "primary", usedPercent: 50, resetsAt: anthropicReset, windowDurationMins: 300 },
+        ],
+        planType: "max",
+        observedAt: iso(now - 2 * 60_000),
+      });
+      yield* registry.update({
+        providerName: "pi",
+        providerInstanceId: ProviderInstanceId.make("pi"),
+        accountLabel: "carl@",
+        windows: [
+          { kind: "primary", usedPercent: 20, resetsAt: pooledReset, windowDurationMins: 300 },
+        ],
+        planType: "max",
+        observedAt: iso(now - 60_000),
+        meteredProviderIds: ["cliproxy"],
+      });
+
+      // Backend-id scope "anthropic" → the claudeAgent meter's boundary + rows.
+      const anthropic = yield* query.getBreakdown({ window: "primary", scope: "anthropic" });
+      assert.strictEqual(anthropic.boundarySource, "provider");
+      assert.strictEqual(anthropic.windowEnd, anthropicReset);
+      assert.deepStrictEqual(
+        [...new Set(anthropic.models.map((m) => m.providerId))],
+        ["anthropic"],
+      );
+
+      // Backend-id scope "cliproxy" → the pooled meter's boundary + rows; the
+      // pooled gauge carries its declared coverage to the client.
+      const cliproxy = yield* query.getBreakdown({ window: "primary", scope: "cliproxy" });
+      assert.strictEqual(cliproxy.boundarySource, "provider");
+      assert.strictEqual(cliproxy.windowEnd, pooledReset);
+      assert.deepStrictEqual([...new Set(cliproxy.models.map((m) => m.providerId))], ["cliproxy"]);
+      const pooledGauge = cliproxy.gauges.find((g) => g.accountLabel === "carl@");
+      assert.deepStrictEqual(pooledGauge?.meteredProviderIds, ["cliproxy"]);
+
+      // Pooled-account storage-key scope (pill deep-link "pi\0carl@") resolves
+      // rows through the declared coverage instead of matching nothing.
+      const pill = yield* query.getBreakdown({ window: "primary", scope: "pi\u0000carl@" });
+      assert.strictEqual(pill.windowEnd, pooledReset);
+      assert.deepStrictEqual([...new Set(pill.models.map((m) => m.providerId))], ["cliproxy"]);
     }),
   );
 });

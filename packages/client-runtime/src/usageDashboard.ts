@@ -26,10 +26,18 @@ const METERED_PROVIDER_NAMES = new Set(Object.values(USAGE_METER_PROVIDER_NAMES)
  * True when a backend provider id reports into no subscription meter (e.g. a
  * Vertex/Bedrock backend, billed by Google/AWS not the Anthropic OAuth
  * subscription) — such backends get no official gauge, and their models get the
- * "not counted in any meter" badge in the "All providers" scope.
+ * "not counted in any meter" badge in the "All providers" scope. Pass the
+ * current gauges so backends covered by a declared pooled meter
+ * (gauge.meteredProviderIds, e.g. "cliproxy") are not mislabelled meterless.
  */
-export function isMeterlessProvider(providerId: string): boolean {
-  return !METERED_PROVIDER_NAMES.has(providerId);
+export function isMeterlessProvider(
+  providerId: string,
+  gauges: ReadonlyArray<ServerUsageBreakdownGauge> = [],
+): boolean {
+  return (
+    !METERED_PROVIDER_NAMES.has(providerId) &&
+    !gauges.some((gauge) => (gauge.meteredProviderIds ?? []).includes(providerId))
+  );
 }
 
 /** Human-readable name for a provider identity — resolves both real backend
@@ -56,13 +64,22 @@ export interface UsageScopeTab {
 
 const ALL_SCOPE_TAB: UsageScopeTab = { key: "all", label: "All providers", hasGauge: false };
 
+/** Backend ids one gauge's meter covers: the static meter → backend map,
+ * extended by ids declared on the instance's usage-source config (pooled
+ * routers, e.g. ["cliproxy"]) — declared, never inferred. */
+function meteredBackendsOf(gauge: ServerUsageBreakdownGauge): ReadonlyArray<string> {
+  return [
+    ...(USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []),
+    ...(gauge.meteredProviderIds ?? []),
+  ];
+}
+
 /** Backend ids officially metered by the currently-reporting gauges. */
 function gaugeMeteredBackends(
   gauges: ReadonlyArray<ServerUsageBreakdownGauge>,
 ): ReadonlySet<string> {
   const set = new Set<string>();
-  for (const gauge of gauges)
-    for (const backend of USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []) set.add(backend);
+  for (const gauge of gauges) for (const backend of meteredBackendsOf(gauge)) set.add(backend);
   return set;
 }
 
@@ -90,7 +107,7 @@ export function deriveUsageScopeTabs(
   // tab even before any rows land; other backends the meter also covers appear
   // only once they have real usage, so we never invent phantom empty tabs.
   for (const gauge of gauges) {
-    const primary = USAGE_METER_PROVIDER_NAMES[gauge.providerName]?.[0];
+    const primary = meteredBackendsOf(gauge)[0];
     if (primary) push(primary);
   }
   return [
@@ -111,7 +128,7 @@ export function gaugeAppliesToScope(gauge: ServerUsageBreakdownGauge, scope: str
   return (
     scope === "all" ||
     scope === accountUsageStorageKey(gauge) ||
-    (USAGE_METER_PROVIDER_NAMES[gauge.providerName] ?? []).includes(scope)
+    meteredBackendsOf(gauge).includes(scope)
   );
 }
 

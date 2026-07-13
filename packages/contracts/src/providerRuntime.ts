@@ -620,6 +620,11 @@ export const AccountUsageSnapshot = Schema.Struct({
   // `allowed: false`). Absent ⇒ no explicit signal (today's shape, mobile-safe);
   // when true the account is exhausted account-wide regardless of window percent.
   limitReached: Schema.optional(Schema.Boolean),
+  // Ledger backend provider ids this account's official meter covers, declared
+  // on the instance's usage-source config (e.g. ["cliproxy"] for a pooled
+  // router). Absent ⇒ coverage comes from the static meter → backend map (or
+  // none). Never inferred — see ProviderUsageSource.providerIds.
+  meteredProviderIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type AccountUsageSnapshot = typeof AccountUsageSnapshot.Type;
 

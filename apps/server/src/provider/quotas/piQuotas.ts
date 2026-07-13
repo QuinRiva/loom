@@ -175,19 +175,30 @@ const CodexUsageResponse = Schema.Struct({
 
 const codexWindow = (
   source: typeof CodexWindow.Type | null | undefined,
-  kind: AccountUsageWindow["kind"],
+  slotKind: AccountUsageWindow["kind"],
   fallbackMins: number,
-): AccountUsageWindow | null =>
-  source
-    ? {
-        kind,
-        usedPercent: clampPercent(source.used_percent),
-        resetsAt: epochToIso(source.reset_at),
-        windowDurationMins: source.limit_window_seconds
-          ? Math.round(source.limit_window_seconds / 60)
-          : fallbackMins,
-      }
-    : null;
+): AccountUsageWindow | null => {
+  if (!source) return null;
+  const windowDurationMins = source.limit_window_seconds
+    ? Math.round(source.limit_window_seconds / 60)
+    : fallbackMins;
+  // The slot name is not authoritative: weekly-limited plans report the 7-day
+  // window IN `primary_window` (with `secondary_window: null`). Classify by the
+  // window's own duration when the API supplies one, so a 7-day window can
+  // never masquerade as the 5-hour meter (which would poison every consumer
+  // that picks boundaries by kind).
+  const kind = source.limit_window_seconds
+    ? source.limit_window_seconds > 24 * 60 * 60
+      ? "secondary"
+      : "primary"
+    : slotKind;
+  return {
+    kind,
+    usedPercent: clampPercent(source.used_percent),
+    resetsAt: epochToIso(source.reset_at),
+    windowDurationMins,
+  };
+};
 
 export const fetchCodexUsage = Effect.fn("quotas.codex")(function* (
   httpClient: HttpClient.HttpClient,

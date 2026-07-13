@@ -10,7 +10,7 @@ import {
   usageChartModelOrder,
 } from "./usageDashboard.ts";
 
-const gauge = (providerName: string) => ({
+const gauge = (providerName: string, meteredProviderIds?: ReadonlyArray<string>) => ({
   providerName,
   providerInstanceId: null,
   planType: null,
@@ -19,6 +19,7 @@ const gauge = (providerName: string) => ({
   windowDurationMins: 300,
   observedAt: "2026-07-03T10:00:00.000Z",
   projectedExhaustionAt: null,
+  ...(meteredProviderIds ? { meteredProviderIds } : {}),
 });
 
 const models = [
@@ -72,6 +73,17 @@ describe("deriveUsageScopeTabs", () => {
     const tabs = deriveUsageScopeTabs([], [gauge("claudeAgent")]);
     expect(tabs.map((t) => t.key)).toEqual(["anthropic", "all"]);
   });
+
+  it("marks a backend covered by a declared pooled meter as gauge-backed", () => {
+    const tabs = deriveUsageScopeTabs(
+      [{ providerId: "cliproxy", costUsd: 100 }],
+      [gauge("pi", ["cliproxy"])],
+    );
+    expect(tabs.map((t) => [t.key, t.hasGauge])).toEqual([
+      ["cliproxy", true],
+      ["all", false],
+    ]);
+  });
 });
 
 describe("gaugeAppliesToScope / meterless / normalize", () => {
@@ -82,11 +94,20 @@ describe("gaugeAppliesToScope / meterless / normalize", () => {
     expect(gaugeAppliesToScope(gauge("claudeAgent"), "all")).toBe(true);
   });
 
+  it("attaches a pooled gauge to the backend its declared providerIds cover", () => {
+    const pooled = gauge("pi", ["cliproxy"]);
+    expect(gaugeAppliesToScope(pooled, "cliproxy")).toBe(true);
+    expect(gaugeAppliesToScope(pooled, "google-vertex-claude")).toBe(false);
+  });
+
   it("treats Vertex/Bedrock as meterless and Anthropic/OpenAI as metered", () => {
     expect(isMeterlessProvider("google-vertex-claude")).toBe(true);
     expect(isMeterlessProvider("bedrock")).toBe(true);
     expect(isMeterlessProvider("anthropic")).toBe(false);
     expect(isMeterlessProvider("openai-codex")).toBe(false);
+    // A declared pooled meter makes its backend metered; others stay meterless.
+    expect(isMeterlessProvider("cliproxy", [gauge("pi", ["cliproxy"])])).toBe(false);
+    expect(isMeterlessProvider("google-vertex-claude", [gauge("pi", ["cliproxy"])])).toBe(true);
   });
 
   it("maps a legacy meter-key scope to its primary backend, passing others through", () => {

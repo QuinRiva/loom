@@ -1141,11 +1141,19 @@ function mapToRuntimeEvents(
     }
     const { primary, secondary, planType } = decoded.rateLimits;
     const windows: AccountUsageWindow[] = [];
-    for (const [kind, window] of [
+    for (const [slotKind, window] of [
       ["primary", primary],
       ["secondary", secondary],
     ] as const) {
       if (window) {
+        // Weekly-limited plans report the 7-day window in the PRIMARY slot
+        // (secondary null), so classify by the window's own duration when
+        // present rather than trusting the slot name.
+        const kind = window.windowDurationMins
+          ? window.windowDurationMins > 24 * 60
+            ? "secondary"
+            : "primary"
+          : slotKind;
         windows.push({
           kind,
           usedPercent: window.usedPercent,

@@ -182,6 +182,7 @@ export function UsageDashboardPage({
             <ModelBreakdownTable
               models={data.models}
               scope={data.scope}
+              gauges={data.gauges}
               emptyLabel={NO_DATA_LABEL}
             />
           </SettingsSection>
