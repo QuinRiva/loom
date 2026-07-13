@@ -145,14 +145,33 @@ const make = Effect.gen(function* () {
 
       // Boundary provider: the requested scope's snapshot, else the freshest
       // snapshot with a usable reset time, else the freshest snapshot (§D2).
+      // The scope arrives in two shapes: a pooled-account storage key (pill
+      // deep-link — exact key match) or a backend provider id from the scope
+      // tabs ("anthropic") — matched via the snapshot's meter → backend map,
+      // mirroring the client's gaugeAppliesToScope.
       // Caveat: a requested scope with no live snapshot falls through to
       // ANOTHER provider's reset while rows still filter to the requested
       // meter — window and row set then describe different subscriptions.
       // Rare (scopes are normally picked from live meters); accepted.
       const requested = input.scope;
+      // Backends a snapshot's meter covers: the static meter → backend map,
+      // extended by ids declared on the instance's usage-source config (pooled
+      // routers, e.g. ["cliproxy"]) — declared, never inferred.
+      const meteredBackends = (snapshot: AccountUsageSnapshot): ReadonlyArray<string> => [
+        ...(USAGE_METER_PROVIDER_NAMES[snapshot.providerName] ?? []),
+        ...(snapshot.meteredProviderIds ?? []),
+      ];
+      const matchesScope = (snapshot: AccountUsageSnapshot, scope: string): boolean =>
+        usageAccountKey(snapshot) === scope || meteredBackends(snapshot).includes(scope);
+      // Pooled accounts all match a backend-id scope but reset at different
+      // times; prefer a usable reset, then freshest observation.
+      const scopedCandidates = requested
+        ? candidates.filter((c) => matchesScope(c.snapshot, requested))
+        : [];
       const boundary =
         (requested && requested !== "all"
-          ? candidates.find((c) => usageAccountKey(c.snapshot) === requested)
+          ? (freshest(scopedCandidates.filter((c) => usableResetMs(c.window) !== null)) ??
+            freshest(scopedCandidates))
           : undefined) ??
         freshest(candidates.filter((c) => usableResetMs(c.window) !== null)) ??
         freshest(candidates);
@@ -177,13 +196,24 @@ const make = Effect.gen(function* () {
       // ledger is attributed per instance/backend, not per pooled account, so
       // strip the label suffix to the routing key before the meter lookup —
       // otherwise the NUL-suffixed string matches no `provider_id` and the burn
-      // chart is silently empty for a per-account pill deep-link.
+      // chart is silently empty for a per-account pill deep-link. A pooled
+      // account's snapshot may declare the backend ids its meter covers
+      // (meteredProviderIds); those take over when the routing key itself is
+      // not a ledger backend (e.g. scope "pi\0carl@" → rows provider_id IN
+      // ('cliproxy')). Note the pooled rows are shared across the instance's
+      // accounts — the ledger cannot attribute per pooled account.
       const scopeRoutingKey =
         resolvedScope === "all" ? "all" : (resolvedScope.split("\u0000")[0] ?? resolvedScope);
+      const scopeSnapshot = snapshots.find(
+        (snapshot) => usageAccountKey(snapshot) === resolvedScope,
+      );
       const scopeNames =
         scopeRoutingKey === "all"
           ? null
-          : (USAGE_METER_PROVIDER_NAMES[scopeRoutingKey] ?? [scopeRoutingKey]);
+          : (USAGE_METER_PROVIDER_NAMES[scopeRoutingKey] ??
+            (scopeSnapshot?.meteredProviderIds?.length
+              ? scopeSnapshot.meteredProviderIds
+              : [scopeRoutingKey]));
       // A fresh fragment per statement — reusing one Fragment across several
       // compiled statements misaligns bound parameters. Scope on the real
       // backend `provider_id` (NULL historical rows never match a scope, only
@@ -220,6 +250,9 @@ const make = Effect.gen(function* () {
           observedAt: snapshot.observedAt,
           projectedExhaustionAt,
           ...(window.scope ? { scopeDisplayName: window.scope.displayName } : {}),
+          ...(snapshot.meteredProviderIds?.length
+            ? { meteredProviderIds: snapshot.meteredProviderIds }
+            : {}),
         });
       }
 

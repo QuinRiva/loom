@@ -133,6 +133,15 @@ export const ProviderUsageSource = Schema.Struct({
   tokenField: Schema.optional(TrimmedNonEmptyString),
   /** Human label for the pooled account. Default: the token file's basename. */
   label: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Ledger backend provider ids this source's official meter covers (e.g.
+   * `["cliproxy"]` for a router proxy whose traffic is attributed to the
+   * `cliproxy/*` slug namespace). Declared, never inferred — an instance may
+   * also route API-billed backends (Vertex) that report into no meter. Absent
+   * ⇒ the meter maps to no ledger backend (the gauge still renders, but no
+   * scope tab claims it).
+   */
+  providerIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type ProviderUsageSource = typeof ProviderUsageSource.Type;
 

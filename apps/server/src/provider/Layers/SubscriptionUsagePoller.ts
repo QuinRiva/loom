@@ -115,6 +115,7 @@ const make = Effect.gen(function* () {
       readonly providerName: string;
       readonly providerInstanceId: ProviderInstanceId | null;
       readonly accountLabel?: string;
+      readonly meteredProviderIds?: ReadonlyArray<string>;
     },
     usage: ProviderUsage,
   ) => {
@@ -191,7 +192,12 @@ const make = Effect.gen(function* () {
       );
       if (!token) return;
       yield* feed(
-        { providerName: driver, providerInstanceId: instanceId, accountLabel: label },
+        {
+          providerName: driver,
+          providerInstanceId: instanceId,
+          accountLabel: label,
+          ...(source.providerIds?.length ? { meteredProviderIds: source.providerIds } : {}),
+        },
         yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
       );
     });

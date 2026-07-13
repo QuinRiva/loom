@@ -537,6 +537,10 @@ export const ServerUsageBreakdownGauge = Schema.Struct({
   // guards fail (§D4: <3 samples, <10 min span, non-positive slope, stale
   // samples, or the projected exhaustion lands after the reset).
   projectedExhaustionAt: Schema.NullOr(IsoDateTime),
+  // Ledger backend provider ids this gauge's meter covers, declared on the
+  // instance's usage-source config (e.g. ["cliproxy"]). Extends the static
+  // meter → backend map for pooled/router meters. Absent ⇒ static map only.
+  meteredProviderIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type ServerUsageBreakdownGauge = typeof ServerUsageBreakdownGauge.Type;
 

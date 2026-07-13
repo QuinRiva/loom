@@ -223,3 +223,28 @@ boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
 - Author fc530ab2 (role=plan), confidence MEDIUM → Option (b): editor renders all §5.2 default chains; target picker = concrete catalogue slugs ∪ one "Same model on {provider}" entry per namespace, PERSISTED as the bare namespace string that resolveFailoverTarget substitutes. Value grammar = concrete slug OR bare namespace. No other placeholder syntax.
 - Escalate only if chunk C landed a chains schema rejecting namespace-only targets (it hasn't; contract is Record<string,string[]>).
 - F decision: seed 3 wildcard source rows (openai-codex/_, anthropic/_, google-vertex-claude/_); anthropic/_ chain = [google-vertex-claude(same-model), anthropic/claude-opus-4-8] — resolver skip-exhausted covers model-scoped vs account-wide. DEFAULT_FAILOVER_CHAINS lives in packages/shared (single source for F editor + chunk C resolver) — C/F integration seam.
+
+## Usage dashboard 5h-graph + pooled-meter scope fixes — 2026-07-13
+
+- **Bug 1 (all 5h graphs squashed):** ChatGPT `wham/usage` now reports the
+  weekly window in the `primary_window` slot (`limit_window_seconds: 604800`,
+  `secondary_window: null`). `piQuotas.codexWindow` and the CodexAdapter
+  rate-limits path trusted the slot name, so a 7-day window registered as the
+  5-hour meter and (via freshest-reset fallback) poisoned every tab's window
+  boundaries. Fix: classify by the window's own duration (>24h ⇒ secondary),
+  slot name only as fallback.
+- **Bug 2 (boundary scope match):** scope tabs send backend ids ("anthropic")
+  but boundary matching compared storage keys ("claudeAgent") — never matched,
+  always fell through to freshest snapshot. Fix: match via
+  USAGE_METER_PROVIDER_NAMES, prefer usable reset, then freshest.
+- **Pooled-meter scope mapping (cliproxy):** consulted plan manager
+  (90713a56, confidence MEDIUM) → explicit declared coverage, never inferred
+  (inference can't distinguish pooled-subscription cliproxy from API-billed
+  vertex on the same instance). Added optional `providerIds` to
+  `ProviderUsageSource`, flowed as `meteredProviderIds` through
+  AccountUsageSnapshot → poller → ServerUsageBreakdownGauge; server boundary +
+  row filter and client gaugeAppliesToScope/deriveUsageScopeTabs/
+  isMeterlessProvider all extend the static meter→backend map with it.
+  Pill deep-link scope ("pi\0carl@") now filters rows via declared coverage.
+- Updated docs/providers/claude.md example + local settings.json
+  (providerIds: ["cliproxy"] on both sources). Server restart needed.
