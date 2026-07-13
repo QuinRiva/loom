@@ -95,6 +95,7 @@ const THREAD_SHELL = {
   attention: [],
   blockedBy: [],
   spawnGeneration: null,
+  forkFromThreadId: null,
   reportPath: null,
   routes: [],
   gateRounds: 0,

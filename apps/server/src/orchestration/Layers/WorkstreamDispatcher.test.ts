@@ -35,6 +35,8 @@ import {
   buildGateReworkMessage,
   buildStandaloneDigest,
   buildDigestPiggyback,
+  buildDigestPayload,
+  buildYieldPayload,
   buildYieldWakeMessage,
   digestShouldFlush,
   formatWakeTimestamp,
@@ -83,7 +85,7 @@ import { ProcessResourceMonitor } from "../../diagnostics/ProcessResourceMonitor
 import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
-import { isThreadIdle } from "../threadIdle.ts";
+import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { reconcileStartupStaleSessionState } from "../../loom/startup.ts";
@@ -105,6 +107,7 @@ const shell = (
     attention: [],
     blockedBy: [],
     spawnGeneration: null,
+    forkFromThreadId: null,
     reportPath: null,
     routes: [],
     gateRounds: 0,
@@ -295,6 +298,70 @@ describe("isThreadIdle", () => {
   });
 });
 
+describe("shouldRefuseForkLaunch", () => {
+  const busySource = shell({
+    id: "source-1",
+    session: runningSession({ threadId: "source-1" as ThreadId }),
+  });
+  const idleSource = shell({ id: "source-1", session: null });
+  const fork = "source-1" as ThreadId;
+
+  it("refuses the FIRST launch of a fork while the source is mid-turn", () => {
+    expect(
+      shouldRefuseForkLaunch({
+        forkFromThreadId: fork,
+        childSessionFileExists: false,
+        source: busySource,
+        pendingTurnStartThreadIds: new Set(),
+      }),
+    ).toBe(true);
+  });
+
+  it("allows the first launch when the source is idle", () => {
+    expect(
+      shouldRefuseForkLaunch({
+        forkFromThreadId: fork,
+        childSessionFileExists: false,
+        source: idleSource,
+        pendingTurnStartThreadIds: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  it("never re-forks: a later launch (child file already exists) is always allowed", () => {
+    expect(
+      shouldRefuseForkLaunch({
+        forkFromThreadId: fork,
+        childSessionFileExists: true,
+        source: busySource,
+        pendingTurnStartThreadIds: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  it("does not gate a non-forked thread", () => {
+    expect(
+      shouldRefuseForkLaunch({
+        forkFromThreadId: null,
+        childSessionFileExists: false,
+        source: busySource,
+        pendingTurnStartThreadIds: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  it("does not block when the source thread is unknown (driver's own guard covers)", () => {
+    expect(
+      shouldRefuseForkLaunch({
+        forkFromThreadId: fork,
+        childSessionFileExists: false,
+        source: undefined,
+        pendingTurnStartThreadIds: new Set(),
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("wakeRateGuardTrips", () => {
   it("does not trip on a slow-cadence job (one wake every few minutes)", () => {
     const now = 10_000_000;
@@ -370,6 +437,244 @@ describe("buildStandaloneDigest (terminal delta items render as FYI)", () => {
     expect(text).toContain("excerpt truncated");
     expect(text).not.toContain(tail);
     expect(text).not.toContain(report);
+  });
+});
+
+describe("buildDigestPayload (structured card source-of-truth)", () => {
+  it("emits one item per terminal member plus each extra, with icon + status + bounded excerpt", () => {
+    const payload = buildDigestPayload(
+      [
+        {
+          id: "child-1" as ThreadId,
+          role: "researcher",
+          planLane: "done",
+          attention: [],
+          reportPath: "child-1.md",
+          report: "# Findings\nAll good.",
+        },
+        {
+          id: "child-2" as ThreadId,
+          role: "reviewer",
+          planLane: "cancelled",
+          attention: [],
+          reportPath: null,
+          report: null,
+        },
+      ],
+      [
+        {
+          kind: "recovered",
+          childId: "child-3" as ThreadId,
+          role: "coder",
+          line: "- ♻️ recovered",
+        },
+      ],
+    );
+    expect(payload.kind).toBe("digest");
+    expect(payload.items).toHaveLength(3);
+    const [done, cancelled, recovered] = payload.items;
+    expect(done).toMatchObject({
+      threadId: "child-1",
+      role: "researcher",
+      status: "done",
+      icon: "☑️",
+      reportPath: "child-1.md",
+    });
+    expect(done!.excerpt).toContain("All good.");
+    expect(cancelled).toMatchObject({ threadId: "child-2", status: "cancelled", icon: "🚫" });
+    expect(cancelled!.reportPath).toBeUndefined();
+    expect(recovered).toMatchObject({ threadId: "child-3", status: "recovered", icon: "♻️" });
+  });
+
+  it("a resolved gate source carries the verdict as status + ✅ icon", () => {
+    const payload = buildDigestPayload([
+      {
+        id: "rev-1" as ThreadId,
+        role: "reviewer",
+        planLane: "done",
+        attention: [],
+        reportPath: "rev-1.md",
+        report: "verified",
+        lastOutcome: {
+          decision: "resolve",
+          outcome: "clean",
+          round: 0,
+          recordedByEventId: "evt-1",
+          at: "2026-07-07T14:32:00.000Z",
+        } as unknown as NonNullable<WakeMember["lastOutcome"]>,
+      },
+    ]);
+    expect(payload.items[0]).toMatchObject({ status: "clean", icon: "✅" });
+    expect(payload.items[0]!.title).toContain("Gate resolved");
+  });
+
+  it("bounds an oversized excerpt to the same limit as the inline text", () => {
+    const tail = "TAIL_MARKER_SHOULD_NOT_APPEAR";
+    const report = `${"x".repeat(WAKE_REPORT_EXCERPT_LIMIT + 50)}${tail}`;
+    const payload = buildDigestPayload([
+      {
+        id: "child-1" as ThreadId,
+        role: "researcher",
+        planLane: "done",
+        attention: [],
+        reportPath: "child-1.md",
+        report,
+      },
+    ]);
+    expect(payload.items[0]!.excerpt).not.toContain(tail);
+    expect(payload.items[0]!.excerpt!.length).toBeLessThanOrEqual(WAKE_REPORT_EXCERPT_LIMIT + 1);
+  });
+});
+
+describe("buildYieldPayload (structured yield card)", () => {
+  it("leads with the yielding child and appends the gate counterpart", () => {
+    const payload = buildYieldPayload(
+      { id: "coder-1" as ThreadId, role: "coder", reportPath: "coder-1.md" },
+      "rework_approach",
+      "my report",
+      {
+        rounds: 2,
+        maxRounds: 2,
+        counterpart: {
+          id: "rev-1" as ThreadId,
+          role: "reviewer",
+          reportPath: "rev-1.md",
+          report: "findings",
+        },
+      },
+    );
+    expect(payload.kind).toBe("yield");
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[0]).toMatchObject({ threadId: "coder-1", status: "yielded" });
+    expect(payload.items[0]!.title).toContain("rework_approach");
+    expect(payload.items[1]).toMatchObject({ threadId: "rev-1", status: "counterpart" });
+    expect(payload.heading).toContain("round cap exhausted");
+  });
+
+  it("a non-gate yield carries just the child", () => {
+    const payload = buildYieldPayload(
+      { id: "coder-1" as ThreadId, role: "coder", reportPath: null },
+      "weird_token",
+      null,
+    );
+    expect(payload.items).toHaveLength(1);
+    expect(payload.items[0]!.reportPath).toBeUndefined();
+    expect(payload.heading).toContain("unmatched outcome");
+  });
+});
+
+describe("structured payload / flattened text parity (no-drift contract)", () => {
+  const mkMember = (
+    overrides: Omit<Partial<WakeMember>, "id"> & { readonly id: string },
+  ): WakeMember => ({
+    role: "coder",
+    planLane: "done" as ThreadPlanLane,
+    attention: [],
+    reportPath: null,
+    report: null,
+    fanInState: "completed",
+    lastOutcome: null,
+    gateRounds: 0,
+    routes: [],
+    eventAt: "2026-07-07T14:32:00.000Z",
+    releasedDependents: [],
+    ...overrides,
+    id: overrides.id as ThreadId,
+  });
+  const resolveRoutes = (to: string) =>
+    [
+      { on: ["needs_rework"], kind: "loop", to, maxRounds: 2 },
+      { on: ["clean", "fixed_inline"], kind: "resolve" },
+    ] as unknown as NonNullable<WakeMember["routes"]>;
+  const resolveOutcome = (outcome: string) =>
+    ({
+      outcome,
+      decision: "resolve",
+      round: 0,
+      recordedByEventId: "evt-1",
+      at: "2026-07-07T14:32:00.000Z",
+    }) as unknown as NonNullable<WakeMember["lastOutcome"]>;
+
+  // Every piece of structured content the card would show (excerpt AND
+  // timestamp) MUST be a substring of the flattened text the model received —
+  // that is the no-drift contract in one assertion.
+  const assertContentSubsetOfText = (
+    items: ReadonlyArray<{
+      readonly excerpt?: string | undefined;
+      readonly timestamp?: string | undefined;
+    }>,
+    text: string,
+  ) => {
+    for (const item of items) {
+      if (item.excerpt !== undefined) expect(text).toContain(item.excerpt);
+      if (item.timestamp !== undefined) expect(text).toContain(item.timestamp);
+    }
+  };
+
+  it("a resolved gate pair: source excerpt is in both text and payload; target is reference-only in both", () => {
+    const members = [
+      mkMember({
+        id: "rev",
+        role: "reviewer",
+        routes: resolveRoutes("cod"),
+        lastOutcome: resolveOutcome("clean"),
+        reportPath: "/r/rev.md",
+        report: "SOURCE_VERDICT_EXCERPT clean, both findings resolved.",
+      }),
+      mkMember({
+        id: "cod",
+        role: "coder",
+        reportPath: "/r/cod-r2.md",
+        report: "TARGET_ROUND_REPORT_MUST_NOT_APPEAR",
+      }),
+    ];
+    const text = buildStandaloneDigest(members);
+    const payload = buildDigestPayload(members);
+    // Two items (source + target), source carries the excerpt, target does not.
+    expect(payload.items).toHaveLength(2);
+    const source = payload.items.find((i) => i.threadId === "rev")!;
+    const target = payload.items.find((i) => i.threadId === "cod")!;
+    expect(source.excerpt).toContain("SOURCE_VERDICT_EXCERPT");
+    expect(target.excerpt).toBeUndefined();
+    // The pair header states neither the target's lane nor its own timestamp, so
+    // the target item carries neither (only the SOURCE's timestamp is sent).
+    expect(target.status).toBeUndefined();
+    expect(target.timestamp).toBeUndefined();
+    // The target's round-report body appears in NEITHER surface (reference only).
+    expect(text).not.toContain("TARGET_ROUND_REPORT_MUST_NOT_APPEAR");
+    expect(JSON.stringify(payload)).not.toContain("TARGET_ROUND_REPORT_MUST_NOT_APPEAR");
+    // Every structured excerpt AND timestamp in the payload is in the sent text.
+    assertContentSubsetOfText(payload.items, text);
+  });
+
+  it("a yield with a piggybacked digest: the payload carries the piggyback items the appended text carries", () => {
+    const child = { id: "cod" as ThreadId, role: "coder", reportPath: "/r/cod.md" };
+    const piggybackMembers = [
+      mkMember({
+        id: "sib",
+        role: "researcher",
+        planLane: "done",
+        reportPath: "/r/sib.md",
+        report: "PIGGYBACK_SIBLING_EXCERPT done and routed.",
+      }),
+    ];
+    const piggyback = { members: piggybackMembers, extras: [] as DigestExtra[] };
+    // Mirror the send site: action text + piggyback section = the sent bytes.
+    const yieldText = `${buildYieldWakeMessage(child, "rework_approach", "YIELD_CHILD_EXCERPT my report")}\n${buildDigestPiggyback(piggyback.members, piggyback.extras)}`;
+    const payload = buildYieldPayload(
+      child,
+      "rework_approach",
+      "YIELD_CHILD_EXCERPT my report",
+      undefined,
+      piggyback,
+    );
+    // The piggyback sibling is represented as its own card item, not dropped.
+    expect(payload.items.some((i) => i.threadId === "sib")).toBe(true);
+    // Both the child's and the piggyback sibling's excerpts (and any stamped
+    // timestamps) are in the sent text.
+    assertContentSubsetOfText(payload.items, yieldText);
+    expect(yieldText).toContain("PIGGYBACK_SIBLING_EXCERPT");
+    expect(yieldText).toContain("YIELD_CHILD_EXCERPT");
   });
 });
 

@@ -27,9 +27,11 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   LoomBootstrapCreateThreadFields,
   LoomClientCommandMembers,
+  ControlPayload,
   LoomInternalCommandMembers,
   LoomMessageFields,
   LoomReadModelFields,
+  MessageOrigin,
   LoomSessionFields,
   LoomShellSnapshotFields,
   LoomShellStreamEventMembers,
@@ -648,6 +650,12 @@ export const ThreadTurnStartCommand = Schema.Struct({
     role: Schema.Literal("user"),
     text: Schema.String,
     attachments: Schema.Array(ChatAttachment),
+    // loom: provenance of a control-plane-injected user message. Server-only
+    // (this internal command is built server-side); absent ⇒ human.
+    origin: Schema.optional(MessageOrigin),
+    // loom: structured source-of-truth for a control-plane digest/notice,
+    // composed alongside `text`. Server-only; absent ⇒ plain message.
+    controlPayload: Schema.optional(ControlPayload),
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
@@ -967,6 +975,10 @@ export const ThreadMessageSentPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   role: OrchestrationMessageRole,
+  // loom: provenance of a user-role message (absent ⇒ human). See MessageOrigin.
+  origin: Schema.optional(MessageOrigin),
+  // loom: structured control-plane digest/notice payload (absent ⇒ plain).
+  controlPayload: Schema.optional(ControlPayload),
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),

@@ -317,6 +317,12 @@ export const LoomThreadFields = {
   spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Thread fork (MVP): the source thread this thread was forked from. When set,
+  // the child's FIRST provider launch forks the source's pi session (native
+  // `pi --fork`) so it starts with a full copy of the source's conversation
+  // context and then diverges independently. Null for non-forked threads.
+  // Additive, decode-defaulted so pre-fork snapshots load.
+  forkFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   // D-notify: pointer to this thread's completion report markdown file (content
   // lives on disk, never in the event store). Null until the child reports.
   reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -398,6 +404,79 @@ export const LoomSessionFields = {
   ),
 } as const;
 
+// Provenance of a user-role message — who/what composed it. Additive +
+// optional so every historical message and every non-pi provider path decodes
+// as absent, which consumers treat as `human`. Stamped ONLY where the control
+// plane builds internal turn-start commands server-side; client (human) sends
+// carry no `origin` field on the wire (`ClientThreadTurnStartCommand`) and so
+// can never spoof it. The axis is *who composed the words*:
+//   - `human`         — a real human send (the decode-absent default meaning).
+//   - `kickoff`       — the spawn kickoff brief injected when a sub-thread is
+//                       promoted. Contains the human's real task, so it stays
+//                       fully readable, only lightly marked.
+//   - `orchestrator`  — text a parent orchestrator authored at runtime to drive
+//                       a specific thread: a `workstream_prompt` steer/resume.
+//   - `control_notice`— text the control plane itself generated: parent wakes,
+//                       FYI digests, review-gate rework/re-verify legs, fan-in
+//                       conflict/resolution notices, and liveness/exhaustion
+//                       recovery nudges. Pure machinery — the follow-up
+//                       structured-digest + collapsed-card work keys off this.
+export const MessageOrigin = Schema.Literals([
+  "human",
+  "kickoff",
+  "orchestrator",
+  "control_notice",
+]);
+export type MessageOrigin = typeof MessageOrigin.Type;
+
+// One item in a structured control-plane payload — a single sub-thread the
+// notice concerns (or a pure informational line). Every field beyond `title` is
+// optional so the renderer degrades gracefully; the UI resolves the live
+// sub-thread title/status from `threadId` when present, falling back to these
+// stamped-at-send values for historical/absent shells.
+export const ControlPayloadItem = Schema.Struct({
+  // The sub-thread this item is about (absent for pure info lines, e.g. a
+  // slow-tool notice with no terminal child). Lets the card link through and
+  // resolve the live title.
+  threadId: Schema.optional(ThreadId),
+  // The sub-thread's role at send time, e.g. "researcher"/"coder".
+  role: Schema.optional(Schema.String),
+  // One-line human summary of the item (collapsed-row title), e.g. a verdict or
+  // "still executing". Always present so a row can render with no other field.
+  title: Schema.String,
+  // Terminal lane / gate verdict / notice kind label, e.g. "done", "clean",
+  // "recovered". Shown as the trailing status on the collapsed row.
+  status: Schema.optional(Schema.String),
+  // Leading glyph mirroring the flattened digest (☑️ / ✅ / ♻️ / ⏳ / ⚠️).
+  icon: Schema.optional(Schema.String),
+  // On-disk report reference (rendered as clickable inline-code path).
+  reportPath: Schema.optional(Schema.String),
+  // Bounded report excerpt / detail body shown in the expanded section.
+  excerpt: Schema.optional(Schema.String),
+  // Durable event time for the item (design §5.4 formatting), e.g. 2026-07-07 14:32Z.
+  timestamp: Schema.optional(Schema.String),
+});
+export type ControlPayloadItem = typeof ControlPayloadItem.Type;
+
+// Structured source-of-truth for a control-plane digest/notice message. The
+// dispatcher composes these programmatically from the same wake members/extras
+// it flattens into the message `text`, then persists BOTH: `text` stays the
+// exact bytes the model received (surfaced verbatim behind the card's "show raw
+// payload" toggle), while this structure drives the collapsed-by-default card so
+// the two can never drift at render time. Additive + optional: a message with no
+// `controlPayload` (every historical control_notice) renders as today's tinted
+// bubble.
+export const ControlPayload = Schema.Struct({
+  // Which composition produced this: a multi-item FYI `digest`, a `yield`
+  // hand-back (the yielding child + optional gate counterpart), or a generic
+  // single-item `notice`.
+  kind: Schema.Literals(["digest", "yield", "notice"]),
+  // The intro/framing line (e.g. "FYI digest — the following items completed…").
+  heading: Schema.optional(Schema.String),
+  items: Schema.Array(ControlPayloadItem),
+});
+export type ControlPayload = typeof ControlPayload.Type;
+
 // Spread into `OrchestrationMessage`.
 export const LoomMessageFields = {
   // Model reasoning/thinking trace for this (assistant) message, captured as a
@@ -405,6 +484,12 @@ export const LoomMessageFields = {
   // answer. Absent for messages without reasoning.
   reasoningText: Schema.optional(Schema.String),
   reasoningStreaming: Schema.optional(Schema.Boolean),
+  // Provenance of a user-role message (absent ⇒ human). See `MessageOrigin`.
+  origin: Schema.optional(MessageOrigin),
+  // Structured source-of-truth for a control-plane digest/notice (absent ⇒ this
+  // is a plain message; historical control_notice bubbles have none). See
+  // `ControlPayload`.
+  controlPayload: Schema.optional(ControlPayload),
 } as const;
 
 // Spread into `OrchestrationReadModel`.
@@ -443,6 +528,9 @@ export const LoomThreadCreateCommandFields = {
   // D-notify: spawn-batch stamp (the parent's turn id at spawn). Set by the
   // spawn path so siblings of the same parent turn join into one wake.
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Thread fork (MVP): source thread to fork the pi session from at first turn.
+  // Set by the fork path; omitted on every other create.
+  forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 } as const;
 
 // Spread into `ThreadMetaUpdateCommand`.
@@ -488,6 +576,9 @@ export const LoomBootstrapCreateThreadFields = {
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Thread fork (MVP): the UI's fork affordance seeds a draft thread carrying
+  // the source id; the first-send bootstrap create relays it into thread.create.
+  forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 } as const;
 
 // Spread into `ThreadCreatedPayload`.
@@ -503,6 +594,9 @@ export const LoomThreadCreatedPayloadFields = {
   routes: Schema.optional(Schema.Array(WorkstreamRoute)),
   isolation: Schema.optional(ThreadIsolation),
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Thread fork (MVP): propagate the fork source so the projector seeds it on
+  // the thread record (the driver reads it at first launch).
+  forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 } as const;
 
 // Spread into `ThreadMetaUpdatedPayload`.

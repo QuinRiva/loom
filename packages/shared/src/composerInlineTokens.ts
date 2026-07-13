@@ -27,6 +27,32 @@ export interface CollectComposerInlineTokensOptions {
 }
 
 const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s)/g;
+// Same skill grammar as SKILL_TOKEN_REGEX but also anchors at end-of-string so a
+// trailing `$name` (no following whitespace) still expands on send.
+const SKILL_SEND_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
+
+/**
+ * Rewrite the composer's user-facing `$name` skill tokens into the literal
+ * `/skill:<name>` text pi expands from the prompt string itself. Applied to the
+ * user-typed prompt at send time so the persisted/sent message is the expanded
+ * literal the runtime actually received.
+ *
+ * Expansion is constrained to the selected provider's enumerated skill names:
+ * a `$name` whose name is not a known skill (e.g. a shell reference like
+ * `$HOME`, or a skill the provider doesn't expose) is left untouched. With no
+ * known skills the text is returned verbatim.
+ */
+export function expandSkillTokensToPromptText(
+  text: string,
+  knownSkillNames: Iterable<string>,
+): string {
+  const known = knownSkillNames instanceof Set ? knownSkillNames : new Set(knownSkillNames);
+  if (known.size === 0) return text;
+  return text.replace(SKILL_SEND_TOKEN_REGEX, (match, prefix: string, name: string) =>
+    known.has(name) ? `${prefix}/skill:${name}` : match,
+  );
+}
+
 const MENTION_TOKEN_REGEX = /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g;
 const FILE_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)\)(?=\s)/g;
 // `thread://` links are parsed in their own branch; the file-link branch above

@@ -28,6 +28,8 @@ import {
   type ProviderTurnStartResult,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderSkill,
+  type ServerProviderSlashCommand,
   type ThreadTokenUsageSnapshot,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -81,6 +83,7 @@ import { buildServerProvider, type ServerProviderDraft } from "../providerSnapsh
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import {
   createPiRpcProcess,
+  type PiRpcCommandInfo,
   type PiRpcProcess,
   type PiRpcStdoutEvent,
   type PiRpcStdoutMessage,
@@ -92,7 +95,7 @@ import {
   threadSessionHasPoisonedToolIds,
 } from "../Layers/Pi/SessionIdSanitiser.ts";
 import { ensurePiProviderToolExtension } from "./Pi/providerToolExtension.ts";
-import { piSessionIdForThread } from "../piSessionFiles.ts";
+import { piSessionIdForThread, resolveSessionFilePath } from "../piSessionFiles.ts";
 import {
   T3_QUOTA_FAILOVER_DELAY_MS,
   T3_RETRY_DELAYS_MS,
@@ -357,11 +360,58 @@ export function piCatalogModels(
   return [...builtIn, ...piCustomModels(settings)];
 }
 
+const PI_SKILL_NAME_PREFIX = "skill:";
+
 /**
- * Replace the snapshot's placeholder model list with pi's live catalogue by
- * running a throwaway `pi --mode rpc` process and asking `get_available_models`.
- * Failures (pi not installed, not authed, RPC error) are logged and ignored so
- * the picker falls back to the curated shortlist.
+ * Split pi's unified `get_commands` list into the snapshot's two surfaces:
+ * `source === "skill"` populates the `$` skill palette (with the `skill:`
+ * display prefix stripped), while extension/prompt-template commands populate
+ * the `/` slash-command menu. Commands without a usable name are dropped so the
+ * palette never renders a blank row.
+ */
+export function piCommandsToSnapshot(commands: ReadonlyArray<PiRpcCommandInfo>): {
+  readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly skills: ReadonlyArray<ServerProviderSkill>;
+} {
+  const slashCommands: Array<ServerProviderSlashCommand> = [];
+  const skills: Array<ServerProviderSkill> = [];
+  for (const command of commands) {
+    const description = command.description?.trim() ? command.description.trim() : undefined;
+    if (command.source === "skill") {
+      const name = command.name.startsWith(PI_SKILL_NAME_PREFIX)
+        ? command.name.slice(PI_SKILL_NAME_PREFIX.length)
+        : command.name;
+      if (!name.trim()) continue;
+      const path = command.sourceInfo?.path?.trim();
+      const scope = command.sourceInfo?.scope?.trim();
+      skills.push({
+        name,
+        // `path` is required by the contract; fall back to the skill name so a
+        // skill without source metadata still surfaces in the palette.
+        path: path && path.length > 0 ? path : name,
+        enabled: true,
+        ...(description ? { description } : {}),
+        ...(scope ? { scope } : {}),
+      });
+      continue;
+    }
+    const name = command.name.trim();
+    if (!name) continue;
+    slashCommands.push({
+      name,
+      ...(description ? { description } : {}),
+    });
+  }
+  return { slashCommands, skills };
+}
+
+/**
+ * Replace the snapshot's placeholder model list with pi's live catalogue and
+ * populate its slash-command/skill palette by running a throwaway
+ * `pi --mode rpc` process and asking `get_available_models` + `get_commands`
+ * within the same acquire/use/release. Failures (pi not installed, not authed,
+ * RPC error) are logged and ignored so the picker falls back to the curated
+ * shortlist and the palette degrades to empty lists.
  */
 function enrichPiSnapshot(input: {
   readonly settings: PiSettings;
@@ -375,7 +425,7 @@ function enrichPiSnapshot(input: {
   if (!input.settings.enabled) return Effect.void;
   return Effect.gen(function* () {
     const platform = yield* HostProcessPlatform;
-    const response = yield* Effect.acquireUseRelease(
+    const enrichment = yield* Effect.acquireUseRelease(
       Effect.promise(() =>
         createPiRpcProcess({
           binaryPath: input.settings.binaryPath,
@@ -387,15 +437,28 @@ function enrichPiSnapshot(input: {
         }),
       ),
       (proc) =>
-        Effect.promise(() =>
-          proc.request<{ readonly models: ReadonlyArray<PiAvailableModel> }>(
-            { type: "get_available_models" },
-            PI_ENRICHMENT_REQUEST_TIMEOUT_MS,
-          ),
-        ),
+        // Batch both discovery requests into the one short-lived process rather
+        // than spawning pi twice per refresh.
+        Effect.promise(async () => {
+          const modelsResponse = await proc.request<{
+            readonly models: ReadonlyArray<PiAvailableModel>;
+          }>({ type: "get_available_models" }, PI_ENRICHMENT_REQUEST_TIMEOUT_MS);
+          // `get_commands` is best-effort: an older pi that doesn't support it
+          // must not blank the freshly fetched model catalogue.
+          const commandsResponse = await proc
+            .request<{ readonly commands: ReadonlyArray<PiRpcCommandInfo> }>(
+              { type: "get_commands" },
+              PI_ENRICHMENT_REQUEST_TIMEOUT_MS,
+            )
+            .catch(() => undefined);
+          return { modelsResponse, commandsResponse };
+        }),
       (proc) => Effect.promise(() => proc.stop()),
     );
-    const models = response.data?.models ?? [];
+    const models = enrichment.modelsResponse.data?.models ?? [];
+    const { slashCommands, skills } = piCommandsToSnapshot(
+      enrichment.commandsResponse?.data?.commands ?? [],
+    );
     // Only replace the window map on a non-empty catalogue: a successful-but-empty
     // refresh must not wipe known windows (which would blank the meter % until the
     // next good refresh, up to one refresh interval later).
@@ -408,6 +471,8 @@ function enrichPiSnapshot(input: {
     yield* input.publishSnapshot({
       ...input.snapshot,
       models: piCatalogModels(models, input.settings),
+      slashCommands,
+      skills,
     });
   }).pipe(
     Effect.catchCause((cause) =>
@@ -1700,6 +1765,20 @@ function makePiAdapter(input: {
             startInput.appendSystemPrompt,
           );
           const piCwd = startInput.cwd ?? input.serverConfig.cwd;
+          // Thread fork (MVP), fork-once guard: fork the source session ONLY at
+          // the child's first launch — i.e. when the thread carries a fork
+          // source AND its own deterministic session file does not exist yet.
+          // Native `pi --fork <src>` copies the source jsonl into the child's
+          // fresh session id (rewiring embedded ids) and never mutates the
+          // source; pi errors if `--session-id` already exists, so once the
+          // child's file is on disk every later resume launches normally. This
+          // is the single most important correctness detail of forking.
+          const forkSource =
+            startInput.forkFromThreadId !== undefined &&
+            resolveSessionFilePath(piSessionIdForThread(startInput.threadId)) === undefined
+              ? (resolveSessionFilePath(piSessionIdForThread(startInput.forkFromThreadId)) ??
+                piSessionIdForThread(startInput.forkFromThreadId))
+              : undefined;
           return createPiRpcProcess({
             binaryPath: input.settings.binaryPath,
             platform,
@@ -1708,6 +1787,7 @@ function makePiAdapter(input: {
             // SAME session file across server restarts / reconnects, instead
             // of silently spawning a fresh, amnesiac session each time.
             sessionId: piSessionIdForThread(startInput.threadId),
+            ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
             ...(startInput.skills && startInput.skills.length > 0
               ? { skills: startInput.skills }

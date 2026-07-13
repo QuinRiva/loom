@@ -430,6 +430,7 @@ export interface ChatComposerHandle {
     selectedProvider: ProviderDriverKind;
     selectedModel: string;
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
+    selectedProviderSkillNames: ReadonlyArray<string>;
   };
 }
 
@@ -2056,6 +2057,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedProvider,
         selectedModel,
         selectedProviderModels,
+        selectedProviderSkillNames: (selectedProviderStatus?.skills ?? []).map(
+          (skill) => skill.name,
+        ),
       }),
     }),
     [
@@ -2084,6 +2088,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedPromptEffort,
       selectedProvider,
       selectedProviderModels,
+      selectedProviderStatus,
     ],
   );
 

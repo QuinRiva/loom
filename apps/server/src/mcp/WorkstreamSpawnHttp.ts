@@ -1125,6 +1125,8 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
     message: {
       messageId: MessageId.make(yield* crypto.randomUUIDv4),
       role: "user",
+      // A parent orchestrator authored this steer/resume for a specific child.
+      origin: "orchestrator",
       text: message,
       attachments: [],
     },

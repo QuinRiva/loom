@@ -66,6 +66,9 @@ import Migration0050 from "./Migrations/050_ProjectionProjectsUniqueActiveWorksp
 import Migration0051 from "./Migrations/051_UsageLedgerProviderId.ts";
 import Migration0052 from "./Migrations/052_ProjectionThreadSessionLastErrorClass.ts";
 import Migration0053 from "./Migrations/053_ProviderSessionRuntimeLastSeenIndex.ts";
+import Migration0054 from "./Migrations/054_ProjectionThreadMessageOrigin.ts";
+import Migration0055 from "./Migrations/055_ProjectionThreadForkSource.ts";
+import Migration0056 from "./Migrations/056_ProjectionThreadMessageControlPayload.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -131,6 +134,9 @@ export const migrationEntries = [
   [51, "UsageLedgerProviderId", Migration0051],
   [52, "ProjectionThreadSessionLastErrorClass", Migration0052],
   [53, "ProviderSessionRuntimeLastSeenIndex", Migration0053],
+  [54, "ProjectionThreadMessageOrigin", Migration0054],
+  [55, "ProjectionThreadForkSource", Migration0055],
+  [56, "ProjectionThreadMessageControlPayload", Migration0056],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -63,6 +63,7 @@ const BASE_THREAD: OrchestrationThread = {
   attention: [],
   blockedBy: [],
   spawnGeneration: null,
+  forkFromThreadId: null,
   reportPath: null,
   routes: [],
   gateRounds: 0,

@@ -143,6 +143,7 @@ describe("OrchestrationEngine", () => {
           attention: [],
           blockedBy: [],
           spawnGeneration: null,
+          forkFromThreadId: null,
           reportPath: null,
           routes: [],
           gateRounds: 0,

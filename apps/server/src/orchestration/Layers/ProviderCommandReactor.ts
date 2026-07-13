@@ -41,6 +41,8 @@ import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { renderGoalTaskTree } from "../goalTaskRender.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { shouldRefuseForkLaunch } from "../threadIdle.ts";
+import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -520,6 +522,36 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
+    // Thread fork (MVP) — the load-bearing first-fork-launch idle gate. The fork
+    // is applied at THIS launch when the child carries a fork source and its own
+    // session file does not exist yet (the fork-once condition the driver also
+    // checks). Since `pi --fork` reads the SOURCE session file, refuse to start
+    // if the source is mid-turn — forking a jsonl with an unclosed tool call
+    // would corrupt the forked history. This is the ONLY idle gate for forks
+    // (fork creation is deliberately un-gated: the tool is called by the source
+    // mid-turn). Decision extracted to `shouldRefuseForkLaunch` for unit tests.
+    if (thread.forkFromThreadId !== null) {
+      const pendingTurnStartThreadIds =
+        yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+      const source = Option.getOrUndefined(
+        yield* projectionSnapshotQuery.getThreadDetailById(thread.forkFromThreadId),
+      );
+      if (
+        shouldRefuseForkLaunch({
+          forkFromThreadId: thread.forkFromThreadId,
+          childSessionFileExists:
+            resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined,
+          source,
+          pendingTurnStartThreadIds,
+        })
+      ) {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Cannot fork thread '${thread.forkFromThreadId}' while it is mid-turn — the fork copies its live session and would capture an unclosed tool call. Wait for that thread's current turn to finish, then send again.`,
+        });
+      }
+    }
     if (thread.session !== null) {
       yield* rejectStartedThreadModelChangeIfRequired({
         threadId,
@@ -599,6 +631,10 @@ const make = Effect.gen(function* () {
           ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
           ...(roleOverlay?.skills ? { skills: roleOverlay.skills } : {}),
           ...(roleOverlay?.tools ? { tools: roleOverlay.tools } : {}),
+          // Thread fork (MVP): carry the fork source so the driver forks the
+          // source's pi session at this child's first launch (fork-once — the
+          // driver no-ops it once the child's own session file exists).
+          ...(thread.forkFromThreadId ? { forkFromThreadId: thread.forkFromThreadId } : {}),
           runtimeMode: desiredRuntimeMode,
         });
       });

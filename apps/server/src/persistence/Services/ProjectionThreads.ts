@@ -43,6 +43,9 @@ export const ProjectionThread = Schema.Struct({
   attention: ThreadAttention,
   blockedBy: Schema.Array(ThreadId),
   spawnGeneration: Schema.NullOr(Schema.String),
+  // Thread fork (MVP): the source thread this thread was forked from (null when
+  // not a fork). Read by the driver at first launch to fork the pi session.
+  forkFromThreadId: Schema.NullOr(ThreadId),
   reportPath: Schema.NullOr(Schema.String),
   // Review gates (design §8): route edges + projected loop counters.
   // `pendingRework` is stored as 0/1 (SQLite has no boolean).

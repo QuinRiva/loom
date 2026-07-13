@@ -109,6 +109,7 @@ const make = Effect.gen(function* () {
             message: {
               messageId: MessageId.make(yield* crypto.randomUUIDv4),
               role: "user",
+              origin: "control_notice",
               text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` resolved its fan-in merge conflict: its branch has now been merged cleanly into your branch, and its dependents are released. Fold its result into your orchestration and continue.`,
               attachments: [],
             },
@@ -162,6 +163,7 @@ const make = Effect.gen(function* () {
             message: {
               messageId: MessageId.make(yield* crypto.randomUUIDv4),
               role: "user",
+              origin: "control_notice",
               text: `${WORKSTREAM_CONTROL_PLANE_MARKER}\n\nYour Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` finished, but its fan-in could NOT merge: merging its branch \`${childBranch}\` into your branch \`${parent.branch ?? "(unknown)"}\` hit a conflict on ${conflictPaths.length} path(s): ${conflictPaths.join(", ")}. Its review gate has already resolved, so no sub-thread can act — and its dependents stay blocked until the merge lands. Resolve it by merging \`${childBranch}\` into \`${parent.branch ?? "your branch"}\` yourself (or reopen the coder to resolve the conflict in its worktree and resubmit). Once \`${childBranch}\` is contained in your branch, the control plane completes the fan-in and releases its dependents automatically — no need to clear \`blockedBy\`.`,
               attachments: [],
             },

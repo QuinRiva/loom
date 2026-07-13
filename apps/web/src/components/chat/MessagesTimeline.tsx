@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type MessageId,
+  type MessageOrigin,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type TurnId,
@@ -101,6 +102,7 @@ import { useUiStateStore } from "~/uiStateStore";
 import { ReasoningBlock } from "~/loom/ReasoningBlock";
 import { SpawnCardSection } from "~/loom/SpawnCardSection";
 import { ConsultCardSection } from "~/loom/ConsultCardSection";
+import { ControlDigestCard } from "~/loom/ControlDigestCard";
 import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
 import { type ReasoningDisplayMode, type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
@@ -596,6 +598,13 @@ function deriveTimelineMinimapItems(
     if (row?.kind !== "message" || row.message.role !== "user") {
       continue;
     }
+    // Automated control-plane notices (wakes, digests, gate legs, recovery
+    // nudges) are machinery, not conversation — skip them so the minimap's
+    // navigation anchors track the human/kickoff/orchestrator turns. Kickoff
+    // briefs and orchestrator steers stay: they carry real directive content.
+    if (row.message.origin === "control_notice") {
+      continue;
+    }
 
     items.push({
       id: row.id,
@@ -853,13 +862,20 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       data-timeline-row-kind={row.kind}
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
+      data-message-origin={row.kind === "message" ? (row.message.origin ?? "human") : undefined}
     >
       {row.kind === "work" ? <WorkGroupSection groupedEntries={row.groupedEntries} /> : null}
       {row.kind === "spawn" ? <SpawnCardSection row={row} /> : null}
       {row.kind === "consult" ? <ConsultCardSection row={row} /> : null}
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
-      {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
+      {row.kind === "message" && row.message.role === "user" ? (
+        row.message.controlPayload ? (
+          <ControlDigestCard row={row} />
+        ) : (
+          <UserTimelineRow row={row} />
+        )
+      ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
       ) : null}
@@ -869,8 +885,25 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   );
 });
 
+// A control-plane-injected user message is authored by the machinery, not the
+// human. Absent/`human` origin renders as a normal human bubble; the rest get a
+// subtle info tint + a small provenance label so the conversation stays legible
+// while the machinery reads as lighter-weight. The kickoff brief carries the
+// human's real task, so it is only lightly marked, never buried.
+const MESSAGE_ORIGIN_LABELS: Record<Exclude<MessageOrigin, "human">, string> = {
+  kickoff: "Kickoff brief",
+  orchestrator: "Orchestrator",
+  control_notice: "Control plane",
+};
+
+function resolveMessageOriginLabel(origin: MessageOrigin | undefined): string | null {
+  if (origin === undefined || origin === "human") return null;
+  return MESSAGE_ORIGIN_LABELS[origin];
+}
+
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
+  const originLabel = resolveMessageOriginLabel(row.message.origin);
   const userImages = row.message.attachments ?? [];
   const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
   const terminalContexts = displayedUserMessage.contexts;
@@ -893,7 +926,19 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
 
   return (
     <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl border border-border bg-secondary p-3">
+      <div
+        className={cn(
+          "relative max-w-[80%] rounded-2xl border p-3",
+          // Tint the container only (never the body text) so ChatMarkdown code
+          // blocks and links keep their own colours — the spawn-card recipe.
+          originLabel ? "border-info/30 bg-info/10" : "border-border bg-secondary",
+        )}
+      >
+        {originLabel ? (
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-info/80">
+            {originLabel}
+          </div>
+        ) : null}
         {regularImages.length > 0 && (
           <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
             {regularImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

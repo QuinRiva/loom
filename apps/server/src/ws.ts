@@ -717,6 +717,10 @@ const makeWsRpcLayer = (
                 role: bootstrap.createThread.role ?? null,
                 purpose: bootstrap.createThread.purpose ?? null,
                 brief: bootstrap.createThread.brief ?? null,
+                // Thread fork (MVP): the UI's fork affordance seeds this so the
+                // first send forks the source's pi session at the child's first
+                // launch.
+                forkFromThreadId: bootstrap.createThread.forkFromThreadId ?? null,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,

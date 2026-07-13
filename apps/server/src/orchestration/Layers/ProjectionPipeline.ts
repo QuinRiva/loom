@@ -859,6 +859,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             attention: event.payload.attention ?? [],
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,
+            forkFromThreadId: event.payload.forkFromThreadId ?? null,
             reportPath: null,
             routes: event.payload.routes ?? [],
             isolation: event.payload.isolation ?? "shared",
@@ -1352,6 +1353,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
             role: event.payload.role,
+            ...(event.payload.origin !== undefined ? { origin: event.payload.origin } : {}),
+            ...(event.payload.controlPayload !== undefined
+              ? { controlPayload: event.payload.controlPayload }
+              : {}),
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,

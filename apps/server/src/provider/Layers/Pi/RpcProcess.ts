@@ -31,9 +31,20 @@ export interface PiRpcSessionState {
   readonly sessionId?: string;
 }
 
+export interface PiRpcCommandInfo {
+  readonly name: string;
+  readonly description?: string;
+  readonly source: "extension" | "prompt" | "skill";
+  readonly sourceInfo?: {
+    readonly path?: string;
+    readonly scope?: string;
+  };
+}
+
 export type PiRpcRequestCommand =
   | { readonly type: "get_state" }
   | { readonly type: "get_available_models" }
+  | { readonly type: "get_commands" }
   | { readonly type: "set_model"; readonly provider: string; readonly modelId: string }
   | { readonly type: "set_thinking_level"; readonly level: string }
   | {

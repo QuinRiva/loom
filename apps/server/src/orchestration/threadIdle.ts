@@ -28,3 +28,26 @@ export const isThreadIdle = (
   !pendingTurnStartThreadIds.has(thread.id) &&
   thread.session?.status !== "running" &&
   (thread.session === null || thread.session.activeTurnId === null);
+
+/**
+ * Thread fork (MVP) — the lazy first-fork-launch gate. A forked child copies its
+ * SOURCE's live pi session file via `pi --fork`, so forking while the source is
+ * mid-turn risks capturing an unclosed tool call. This decides, at the child's
+ * first launch, whether that launch must be refused.
+ *
+ * It is NOT gated at fork creation (the agent tool is called by the source
+ * thread DURING its own turn, so the source is expectedly busy then and nothing
+ * has been forked yet). It fires only at the child's FIRST launch — identified
+ * by the child having no session file yet — and never on a later resume (the
+ * child's own file exists, so no re-fork happens regardless of source state).
+ */
+export const shouldRefuseForkLaunch = (input: {
+  readonly forkFromThreadId: ThreadId | null;
+  readonly childSessionFileExists: boolean;
+  readonly source: IdleGateThread | undefined;
+  readonly pendingTurnStartThreadIds: ReadonlySet<ThreadId>;
+}): boolean =>
+  input.forkFromThreadId !== null &&
+  !input.childSessionFileExists &&
+  input.source !== undefined &&
+  !isThreadIdle(input.source, input.pendingTurnStartThreadIds);

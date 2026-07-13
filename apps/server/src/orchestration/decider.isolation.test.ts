@@ -132,3 +132,71 @@ it.layer(NodeServices.layer)("thread.create: isolation field propagation", (it) 
     }),
   );
 });
+
+it.layer(NodeServices.layer)("thread.create: fork source propagation", (it) => {
+  it.effect("forkFromThreadId is carried to the thread.created event", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const projectId = asProjectId("test-project-fork");
+      const sourceThreadId = asThreadId("source-thread");
+
+      let readModel = createEmptyReadModel(now);
+      readModel = yield* projectEvent(readModel, {
+        sequence: 1,
+        eventId: asEventId("evt-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        type: "project.created",
+        occurredAt: now,
+        commandId: asCommandId("cmd-project"),
+        causationEventId: null,
+        correlationId: asCommandId("cmd-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Test Project",
+          workspaceRoot: "/tmp/test-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      // The fork command names an existing source thread via forkFromThreadId.
+      const command: Extract<OrchestrationCommand, { type: "thread.create" }> = {
+        type: "thread.create",
+        commandId: asCommandId("cmd-fork"),
+        threadId: asThreadId("fork-thread"),
+        projectId,
+        parentThreadId: null,
+        forkFromThreadId: sourceThreadId,
+        title: "Source Thread (fork)",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("test"),
+          model: "test-model",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        planLane: "planned",
+        branch: "main",
+        worktreePath: "/tmp/repo",
+        createdAt: now,
+      };
+
+      const result = yield* decideOrchestrationCommand({ command, readModel });
+      const event = Array.isArray(result) ? result[0] : result;
+      expect(event.type).toBe("thread.created");
+      expect((event as any).payload.forkFromThreadId).toBe(sourceThreadId);
+
+      // And the projected thread record surfaces the fork source for the driver,
+      // as a ROOT thread (parentThreadId null) so it stays out of every
+      // delegation rail (dispatcher/wake/digest/fan-in all skip roots) — a fork
+      // diverges, it is not a delegated child.
+      const projected = yield* projectEvent(readModel, event as never);
+      const forkThread = projected.threads.find((t) => t.id === "fork-thread");
+      expect(forkThread?.forkFromThreadId).toBe(sourceThreadId);
+      expect(forkThread?.parentThreadId).toBe(null);
+    }),
+  );
+});

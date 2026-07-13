@@ -36,6 +36,7 @@ const stubThread = {
   attention: [] as const,
   blockedBy: [],
   spawnGeneration: null,
+  forkFromThreadId: null,
   reportPath: null,
   routes: [],
   gateRounds: 0,

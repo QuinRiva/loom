@@ -369,6 +369,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.spawnGeneration !== undefined
             ? { spawnGeneration: command.spawnGeneration }
             : {}),
+          // Thread fork (MVP): propagate the fork source onto the created event.
+          ...(command.forkFromThreadId !== undefined
+            ? { forkFromThreadId: command.forkFromThreadId }
+            : {}),
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -785,6 +789,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.message.messageId,
           role: "user",
+          // loom: carry control-plane provenance through to the message (absent
+          // ⇒ human). Client sends never set it, so they stay human.
+          ...(command.message.origin !== undefined ? { origin: command.message.origin } : {}),
+          // loom: carry the structured control-plane payload alongside the text.
+          ...(command.message.controlPayload !== undefined
+            ? { controlPayload: command.message.controlPayload }
+            : {}),
           text: command.message.text,
           attachments: command.message.attachments,
           turnId: null,

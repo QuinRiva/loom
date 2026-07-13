@@ -186,6 +186,7 @@ export function applyThreadDetailEvent(
           attention: event.payload.attention ?? [],
           blockedBy: event.payload.blockedBy ?? [],
           spawnGeneration: event.payload.spawnGeneration ?? null,
+          forkFromThreadId: event.payload.forkFromThreadId ?? null,
           reportPath: null,
           routes: event.payload.routes ?? [],
           gateRounds: 0,
@@ -387,6 +388,14 @@ export function applyThreadDetailEvent(
       const message: OrchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
+        // Preserve control-plane provenance (absent ⇒ human) so the timeline can
+        // distinguish machine-injected user messages from human sends.
+        ...(event.payload.origin !== undefined ? { origin: event.payload.origin } : {}),
+        // Preserve the structured control-plane payload (absent ⇒ plain) so the
+        // timeline can render the collapsed digest/notice card.
+        ...(event.payload.controlPayload !== undefined
+          ? { controlPayload: event.payload.controlPayload }
+          : {}),
         text: event.payload.text,
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }

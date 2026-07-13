@@ -73,6 +73,12 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
+  // Thread fork (MVP): when set, the driver forks this source thread's pi
+  // session at the child's FIRST launch (native `pi --fork`) so the child
+  // starts with a full copy of the source context, then diverges. Applied once
+  // — every later resume launches normally (the child's own session file now
+  // exists). Pi-only; other drivers ignore it.
+  forkFromThreadId: Schema.optional(ThreadId),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

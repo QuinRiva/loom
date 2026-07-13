@@ -309,6 +309,7 @@ export function projectEvent(
             isolation: payload.isolation ?? "shared",
             fanInState: "none",
             spawnGeneration: payload.spawnGeneration ?? null,
+            forkFromThreadId: payload.forkFromThreadId ?? null,
             reportPath: null,
             title: payload.title,
             modelSelection: payload.modelSelection,
@@ -436,6 +437,12 @@ export function projectEvent(
           {
             id: payload.messageId,
             role: payload.role,
+            // loom: preserve control-plane provenance onto the message.
+            ...(payload.origin !== undefined ? { origin: payload.origin } : {}),
+            // loom: preserve the structured control-plane payload onto the message.
+            ...(payload.controlPayload !== undefined
+              ? { controlPayload: payload.controlPayload }
+              : {}),
             text: payload.text,
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
