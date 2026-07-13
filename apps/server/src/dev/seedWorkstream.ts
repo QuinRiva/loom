@@ -198,6 +198,78 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(0),
   });
 
+  // A control-plane FYI digest on the orchestrator so the collapsed digest card
+  // (structured `controlPayload` + "show raw payload" toggle) has a live fixture
+  // for the dev-verify recipe. The `text` is the exact flattened bytes the model
+  // would receive; the payload is the structured source-of-truth rendered.
+  yield* dispatch({
+    type: "thread.turn.start",
+    commandId: nextCommandId("orchestrator-digest"),
+    threadId: ORCHESTRATOR_ID,
+    message: {
+      messageId: MessageId.make("seed-msg-orchestrator-digest"),
+      role: "user",
+      origin: "control_notice",
+      controlPayload: {
+        kind: "digest",
+        heading:
+          "FYI digest — the following items completed and were fully routed since you last heard.",
+        items: [
+          {
+            threadId: CODER_ALPHA_ID,
+            role: "coder",
+            title: "Completed",
+            status: "done",
+            icon: "☑️",
+            reportPath: "seed-thread-coder-alpha.md",
+            excerpt: "# Config loader\nImplemented the loader module and wired it into startup.",
+            timestamp: "2026-07-13 02:15Z",
+          },
+          {
+            threadId: CODER_REWORK_ID,
+            role: "reviewer",
+            title: "Gate resolved (clean)",
+            status: "clean",
+            icon: "✅",
+            reportPath: "seed-thread-coder-rework.md",
+            excerpt: "Verified the rework: findings addressed, no new issues.",
+            timestamp: "2026-07-13 02:16Z",
+          },
+          {
+            threadId: CODER_CANCELLED_ID,
+            role: "coder",
+            title: "Cancelled",
+            status: "cancelled",
+            icon: "🚫",
+            timestamp: "2026-07-13 02:17Z",
+          },
+        ],
+      },
+      text: [
+        "[T3 Workstream control plane — automated notice, not from the user]",
+        "",
+        "FYI digest — the following items completed and were fully routed since you last heard. Nothing below is blocked on you.",
+        "",
+        "### ☑️ coder `seed-thread-coder-alpha` — done",
+        "Report reference: `seed-thread-coder-alpha.md` (read the full report on demand).",
+        "",
+        "# Config loader",
+        "Implemented the loader module and wired it into startup.",
+        "",
+        "### ✅ Gate resolved `clean` — reviewer `seed-thread-coder-rework`",
+        "Verdict report: `seed-thread-coder-rework.md` — excerpt:",
+        "",
+        "Verified the rework: findings addressed, no new issues.",
+        "",
+        "### coder `seed-thread-coder-cancelled` — cancelled",
+      ].join("\n"),
+      attachments: [],
+    },
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    createdAt: iso(1),
+  });
+
   // ---- coder definitions -------------------------------------------------
   const coderSpecs = [
     {
@@ -349,6 +421,9 @@ const seedProgram = Effect.gen(function* () {
         message: {
           messageId: MessageId.make(`${spec.id}-user-${turnCount}`),
           role: "user",
+          // Sub-thread turns are control-plane-injected: turn 1 is the kickoff
+          // brief, later turns are gate rework legs.
+          origin: turnCount === 1 ? "kickoff" : "control_notice",
           text: turnCount === 1 ? spec.purpose : `Rework round ${turnCount - 1}.`,
           attachments: [],
         },

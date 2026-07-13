@@ -39,6 +39,7 @@ import {
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
+import { expandSkillTokensToPromptText } from "@t3tools/shared/composerInlineTokens";
 import { nextTerminalId, resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { Debouncer } from "@tanstack/react-pacer";
 import { useAtomValue } from "@effect/atom-react";
@@ -3988,6 +3989,7 @@ function ChatViewContent(props: ChatViewProps) {
       selectedProvider: ctxSelectedProvider,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
+      selectedProviderSkillNames: ctxSelectedProviderSkillNames,
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
@@ -4076,8 +4078,14 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    // Expand `$name` skill tokens into the literal `/skill:name` text pi expands
+    // before appending contexts, so shell-style `$VARS` in appended terminal
+    // context are left untouched. Only enumerated skills are expanded.
     const messageTextWithContexts = appendElementContextsToPrompt(
-      appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
+      appendTerminalContextsToPrompt(
+        expandSkillTokensToPromptText(promptForSend, ctxSelectedProviderSkillNames),
+        composerTerminalContextsSnapshot,
+      ),
       composerElementContextsSnapshot,
     );
     const messageTextWithPreviewAnnotations = composerPreviewAnnotationsSnapshot.reduce(
@@ -4234,6 +4242,10 @@ function ChatViewContent(props: ChatViewProps) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       goalId: activeThread.goalId ?? null,
+                      // Thread fork (MVP): relay the fork source so the server
+                      // forks the source's pi session at this child's first
+                      // launch (fork-once, in the pi driver).
+                      forkFromThreadId: activeThread.forkFromThreadId ?? null,
                       createdAt: activeThread.createdAt,
                     },
                   }
@@ -4563,6 +4575,7 @@ function ChatViewContent(props: ChatViewProps) {
         selectedProvider: ctxSelectedProvider,
         selectedModel: ctxSelectedModel,
         selectedProviderModels: ctxSelectedProviderModels,
+        selectedProviderSkillNames: ctxSelectedProviderSkillNames,
         selectedPromptEffort: ctxSelectedPromptEffort,
         selectedModelSelection: ctxSelectedModelSelection,
       } = sendCtx;
@@ -4575,7 +4588,7 @@ function ChatViewContent(props: ChatViewProps) {
         model: ctxSelectedModel,
         models: ctxSelectedProviderModels,
         effort: ctxSelectedPromptEffort,
-        text: trimmed,
+        text: expandSkillTokensToPromptText(trimmed, ctxSelectedProviderSkillNames),
       });
 
       sendInFlightRef.current = true;

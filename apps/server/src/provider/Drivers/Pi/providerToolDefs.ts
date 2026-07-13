@@ -432,6 +432,34 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     errorMode: "throw",
     fallbackText: "Set this thread's title.",
   },
+  {
+    name: "thread_fork",
+    label: "Fork Thread",
+    description:
+      "Fork THIS thread: create a new staged thread that starts with a full copy of this thread's conversation context and then diverges independently. Use it to explore an alternate direction without disturbing this thread — the fork inherits this thread's goal, model, and worktree, and its FIRST launch forks this thread's pi session (native fork), so no tokens are spent until the human (or you, via workstream_prompt) sends the divergent first message. The fork is a SIBLING that never merges back (it is divergence, not delegation — use workstream_spawn for delegated sub-work). Returns the new threadId.",
+    promptSnippet:
+      "fork this thread into a staged copy of its full context that then diverges independently.",
+    promptGuidelines: [
+      "Use this to branch the CONVERSATION (keep the context, explore an alternate direction) — not to delegate sub-work (workstream_spawn) and not to start a fresh-context next phase (goal_continue).",
+      "The fork carries no brief: its first message is the divergent continuation. It is created held; a single send launches it and forks the session at that moment.",
+      "Forking is refused while this thread is mid-turn (the session file is being written). Fork between turns.",
+      "Name the sidebar card with threadTitle: a short (≤6-word) label for the divergent line of work. Defaults to this thread's title + ' (fork)'.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadTitle: {
+          type: "string",
+          description:
+            "Optional sidebar name for the staged fork: a short (≤6-word) label for the divergent work. Defaults to this thread's title + ' (fork)'.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    errorMode: "throw",
+    fallbackText: "Forked this thread.",
+  },
 ];
 
 export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [

@@ -1,8 +1,15 @@
-import { EnvironmentId, MessageId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
 import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef } from "@legendapp/list/react";
+
+// The control-plane digest card links through to sub-threads; stub the router
+// hook so the SSR harness needs no RouterProvider.
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return { ...actual, useNavigate: () => () => {} };
+});
 
 vi.mock("@legendapp/list/react", async () => {
   const legendListTestId = "legend-list";
@@ -303,6 +310,117 @@ describe("MessagesTimeline", () => {
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
+  });
+
+  it("tints control-plane-injected user messages and leaves human messages plain", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const humanEntry = buildUserTimelineEntry("A real human prompt.");
+    const kickoffBase = buildUserTimelineEntry("Your kickoff brief with the real task.");
+    const kickoffEntry = {
+      ...kickoffBase,
+      id: "entry-kickoff",
+      message: {
+        ...kickoffBase.message,
+        id: MessageId.make("message-kickoff"),
+        origin: "kickoff" as const,
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[humanEntry, kickoffEntry]} />,
+    );
+
+    // The kickoff bubble carries the provenance hook, tint, and readable label.
+    expect(markup).toContain('data-message-origin="kickoff"');
+    expect(markup).toContain("bg-info/10");
+    expect(markup).toContain("Kickoff brief");
+    // The human bubble still emits the semantic default hook and stays the plain
+    // secondary bubble (no tint, no label).
+    expect(markup).toContain('data-message-origin="human"');
+    expect(markup).toContain("bg-secondary");
+  });
+
+  it("renders a control-plane digest as a collapsed card, hiding the raw payload until toggled", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const digestEntry = {
+      id: "entry-digest",
+      kind: "message" as const,
+      createdAt: MESSAGE_CREATED_AT,
+      message: {
+        id: MessageId.make("message-digest"),
+        role: "user" as const,
+        origin: "control_notice" as const,
+        controlPayload: {
+          kind: "digest" as const,
+          heading: "FYI digest — the following items completed",
+          items: [
+            {
+              threadId: ThreadId.make("child-1"),
+              role: "researcher",
+              title: "Completed",
+              status: "done",
+              icon: "☑️",
+              reportPath: "child-1.md",
+              excerpt: "DEEP_EXCERPT_ONLY_WHEN_EXPANDED",
+            },
+          ],
+        },
+        text: "RAW_VERBATIM_PAYLOAD_TEXT_ONLY_WHEN_TOGGLED",
+        turnId: null,
+        createdAt: MESSAGE_CREATED_AT,
+        updatedAt: MESSAGE_CREATED_AT,
+        streaming: false,
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[digestEntry]} />,
+    );
+
+    // Card view: heading, the per-item one-liner (role + persisted title +
+    // status), and the raw toggle. The title is the PERSISTED payload value,
+    // never a live thread title.
+    expect(markup).toContain("FYI digest");
+    expect(markup).toContain("researcher");
+    expect(markup).toContain("Completed");
+    expect(markup).toContain("Show raw payload");
+    // Collapsed by default: neither the excerpt nor the verbatim payload leaks.
+    expect(markup).not.toContain("DEEP_EXCERPT_ONLY_WHEN_EXPANDED");
+    expect(markup).not.toContain("RAW_VERBATIM_PAYLOAD_TEXT_ONLY_WHEN_TOGGLED");
+  });
+
+  it("renders the raw payload verbatim (markdown is not transformed)", async () => {
+    const { ControlRawPayload } = await import("~/loom/ControlDigestCard");
+    const raw = "# Heading\n\n- bullet with `code`\n\n```ts\nconst x = 1;\n```";
+    const markup = renderToStaticMarkup(<ControlRawPayload text={raw} />);
+    // The exact sent string is displayed inside a <pre>, not reflowed into a
+    // markdown heading/list/code block.
+    expect(markup).toContain("<pre");
+    expect(markup).toContain("# Heading");
+    expect(markup).toContain("- bullet with `code`");
+    expect(markup).toContain("const x = 1;");
+    expect(markup).not.toContain("<h1");
+    expect(markup).not.toContain("<li");
+  });
+
+  it("keeps a payload-less control_notice as the tinted bubble (historical fallback)", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const base = buildUserTimelineEntry("Historical control-plane notice text.");
+    const noticeEntry = {
+      ...base,
+      id: "entry-notice",
+      message: {
+        ...base.message,
+        id: MessageId.make("message-notice"),
+        origin: "control_notice" as const,
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[noticeEntry]} />,
+    );
+
+    expect(markup).toContain('data-message-origin="control_notice"');
+    expect(markup).toContain("bg-info/10");
+    expect(markup).toContain("Control plane");
+    expect(markup).not.toContain("Show raw payload");
   });
 
   it("renders collapse controls for long user messages", async () => {

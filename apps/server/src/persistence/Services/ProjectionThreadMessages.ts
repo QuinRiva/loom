@@ -8,7 +8,9 @@
  */
 import {
   ChatAttachment,
+  ControlPayload,
   MessageId,
+  MessageOrigin,
   OrchestrationMessageRole,
   ThreadId,
   TurnId,
@@ -26,6 +28,10 @@ export const ProjectionThreadMessage = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
   role: OrchestrationMessageRole,
+  // Provenance of a user-role message (absent ⇒ human). See MessageOrigin.
+  origin: Schema.optional(MessageOrigin),
+  // Structured control-plane digest/notice payload (absent ⇒ plain). See ControlPayload.
+  controlPayload: Schema.optional(ControlPayload),
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   isStreaming: Schema.Boolean,

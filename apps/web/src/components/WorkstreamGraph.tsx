@@ -52,6 +52,10 @@ import {
 import type { SidebarThreadSummary } from "../types";
 
 const SPINE_STROKE = "rgba(255,255,255,0.30)";
+// Thread fork (forkFromThreadId): a distinct violet for the “forked from”
+// lineage glyph, not conflated with the fork-join spine (FORK_STROKE below),
+// consult (teal), loop, or waits-on (amber).
+const FORKED_FROM_STROKE = "#c084fc";
 const FORK_STROKE = "rgba(255,255,255,0.26)";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -289,6 +293,12 @@ export default function WorkstreamGraph({
             style={{ borderColor: CONSULT_STROKE }}
           />
           consult
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-white/45">
+          <span className="text-[11px]" style={{ color: FORKED_FROM_STROKE }}>
+            ⑂
+          </span>
+          forked from
         </span>
       </div>
     </div>
@@ -586,6 +596,33 @@ function GraphNode({
           xEnd={node.x + node.w - 6}
           yCenter={node.y}
         />
+      ) : null}
+      {thread.forkFromThreadId ? (
+        // Thread fork: a distinct “forked from” glyph on the node (the source is
+        // often a root outside this workstream graph, so a badge reads more
+        // reliably than an edge). Hover names the source thread.
+        <g>
+          <title>{`Forked from ${
+            threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId
+          }`}</title>
+          <circle
+            cx={node.x + node.w - 12}
+            cy={node.y + node.h - 12}
+            fill="#0d1117"
+            r="8"
+            stroke={FORKED_FROM_STROKE}
+            strokeWidth="1"
+          />
+          <text
+            fill={FORKED_FROM_STROKE}
+            fontSize="10"
+            textAnchor="middle"
+            x={node.x + node.w - 12}
+            y={node.y + node.h - 8.5}
+          >
+            ⑂
+          </text>
+        </g>
       ) : null}
       {externalConsult ? (
         // Out-of-tree consults have no node to point at, so annotate the asker

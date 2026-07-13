@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import {
   piBackendLabel,
   piCatalogModels,
+  piCommandsToSnapshot,
   piToolItemPayload,
   slimPiToolPayloadData,
 } from "./PiDriver.ts";
@@ -203,5 +204,50 @@ describe("piCatalogModels backend disambiguation", () => {
     expect(piBackendLabel("bedrock", "au.anthropic.claude-opus-4-8-v1")).toBe("Bedrock AU");
     expect(piBackendLabel("bedrock", "anthropic.claude-opus-4-8-v1")).toBe("Bedrock");
     expect(piBackendLabel("some-new-backend", "whatever")).toBe("some-new-backend");
+  });
+});
+
+describe("piCommandsToSnapshot", () => {
+  it("splits skills from extension/prompt commands and strips the skill: prefix", () => {
+    const { slashCommands, skills } = piCommandsToSnapshot([
+      {
+        name: "review",
+        description: "Run a review",
+        source: "extension",
+        sourceInfo: { path: "<ext:review>" },
+      },
+      { name: "summarise", source: "prompt", sourceInfo: { path: "/tmp/summarise.md" } },
+      {
+        name: "skill:pdf-export",
+        description: "Export a PDF",
+        source: "skill",
+        sourceInfo: { path: "/home/user/.pi/skills/pdf-export/SKILL.md", scope: "user" },
+      },
+    ]);
+
+    expect(slashCommands).toEqual([
+      { name: "review", description: "Run a review" },
+      { name: "summarise" },
+    ]);
+    expect(skills).toEqual([
+      {
+        name: "pdf-export",
+        path: "/home/user/.pi/skills/pdf-export/SKILL.md",
+        enabled: true,
+        description: "Export a PDF",
+        scope: "user",
+      },
+    ]);
+  });
+
+  it("falls back to the skill name when source metadata omits a path and drops blank names", () => {
+    const { slashCommands, skills } = piCommandsToSnapshot([
+      { name: "skill:local", source: "skill" },
+      { name: "   ", source: "extension" },
+      { name: "skill:   ", source: "skill" },
+    ]);
+
+    expect(slashCommands).toEqual([]);
+    expect(skills).toEqual([{ name: "local", path: "local", enabled: true }]);
   });
 });

@@ -859,6 +859,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     attention: [],
     blockedBy: [],
     spawnGeneration: null,
+    forkFromThreadId: null,
     reportPath: null,
     routes: [],
     gateRounds: 0,

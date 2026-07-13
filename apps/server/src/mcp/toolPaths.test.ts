@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as GoalHandoffHttp from "./GoalHandoffHttp.ts";
 import * as GoalTaskHttp from "./GoalTaskHttp.ts";
 import { PROVIDER_TOOL_PATHS, workstreamBaseUrlFromMcpEndpoint } from "./toolPaths.ts";
+import * as ThreadForkHttp from "./ThreadForkHttp.ts";
 import * as WorkstreamSpawnHttp from "./WorkstreamSpawnHttp.ts";
 
 describe("workstreamBaseUrlFromMcpEndpoint", () => {
@@ -31,14 +32,15 @@ describe("PROVIDER_TOOL_PATHS ↔ registered routes", () => {
     for (const path of paths) expect(path.startsWith("/provider-tools/")).toBe(true);
   });
 
-  // The three HTTP modules must export a merged layer that registers exactly the
-  // 18 table paths. The layer is opaque here, so assert the modules load and the
-  // table is complete (18 tools) — the driver env + extension both key off it.
-  it("covers all 18 provider tools", () => {
-    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(18);
+  // The HTTP modules must export a merged layer that registers exactly the
+  // table paths. The layer is opaque here, so assert the modules load and the
+  // table is complete (19 tools) — the driver env + extension both key off it.
+  it("covers all 19 provider tools", () => {
+    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(19);
     // Touch each module so a missing export/route registration fails to import.
     expect(typeof WorkstreamSpawnHttp.layer).toBe("object");
     expect(typeof GoalTaskHttp.layer).toBe("object");
     expect(typeof GoalHandoffHttp.layer).toBe("object");
+    expect(typeof ThreadForkHttp.layer).toBe("object");
   });
 });

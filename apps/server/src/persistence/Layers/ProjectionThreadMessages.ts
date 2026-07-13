@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Struct from "effect/Struct";
-import { ChatAttachment } from "@t3tools/contracts";
+import { ChatAttachment, ControlPayload, MessageOrigin } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -20,6 +20,8 @@ import {
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
+    origin: Schema.NullOr(MessageOrigin),
+    controlPayload: Schema.NullOr(Schema.fromJsonString(ControlPayload)),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
     reasoningText: Schema.NullOr(Schema.String),
     reasoningStreaming: Schema.NullOr(Schema.Number),
@@ -34,6 +36,8 @@ function toProjectionThreadMessage(
     threadId: row.threadId,
     turnId: row.turnId,
     role: row.role,
+    ...(row.origin !== null ? { origin: row.origin } : {}),
+    ...(row.controlPayload !== null ? { controlPayload: row.controlPayload } : {}),
     text: row.text,
     isStreaming: row.isStreaming === 1,
     createdAt: row.createdAt,
@@ -54,12 +58,16 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const controlPayloadJson =
+        row.controlPayload !== undefined ? JSON.stringify(row.controlPayload) : null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
           thread_id,
           turn_id,
           role,
+          origin,
+          control_payload_json,
           text,
           attachments_json,
           is_streaming,
@@ -73,6 +81,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.threadId},
           ${row.turnId},
           ${row.role},
+          ${row.origin ?? null},
+          ${controlPayloadJson},
           ${row.text},
           COALESCE(
             ${nextAttachmentsJson},
@@ -93,6 +103,11 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id = excluded.thread_id,
           turn_id = excluded.turn_id,
           role = excluded.role,
+          origin = COALESCE(excluded.origin, projection_thread_messages.origin),
+          control_payload_json = COALESCE(
+            excluded.control_payload_json,
+            projection_thread_messages.control_payload_json
+          ),
           text = excluded.text,
           attachments_json = COALESCE(
             excluded.attachments_json,
@@ -123,6 +138,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          origin,
+          control_payload_json AS "controlPayload",
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
@@ -146,6 +163,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          origin,
+          control_payload_json AS "controlPayload",
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",

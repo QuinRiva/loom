@@ -1,6 +1,8 @@
 import {
   type AttentionReason,
   CommandId,
+  type ControlPayload,
+  type ControlPayloadItem,
   DEFAULT_GATE_MAX_ROUNDS,
   EventId,
   MessageId,
@@ -346,20 +348,152 @@ export const FYI_DIGEST_FLUSH_MS = 120_000;
 export interface DigestExtra {
   readonly kind: "recovered" | "slow-tool";
   readonly line: string;
+  // Structured carriers for the collapsed-card payload (the flattened `line`
+  // stays the model-visible text). Optional so nothing else has to change.
+  readonly childId?: ThreadId;
+  readonly role?: string | null;
 }
 
-/** Render the shared digest body: resolved pairs, then singles, then extras. */
+/** Bounded plain (un-framed) report excerpt for a payload item — same limit and
+ *  slice as the inline text excerpt (`formatReportExcerpt`) so a card item and
+ *  the flattened text carry byte-identical report content. */
+const boundedExcerpt = (report: string | null | undefined): string | undefined => {
+  const trimmed = report?.trim() ?? "";
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
+    ? `${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…`
+    : trimmed;
+};
+
+/**
+ * Map one terminal wake member to a structured card item, mirroring the icon,
+ * status, and — crucially — the excerpt-inclusion decision the flattened
+ * section makes. `includeExcerpt` is `false` for a resolved gate PAIR's target,
+ * whose report the text deliberately sends as reference-only (see
+ * `renderWakePair`); every other section carries the member's bounded excerpt.
+ */
+export const wakeMemberToPayloadItem = (
+  member: WakeMember,
+  opts: { readonly includeExcerpt?: boolean } = {},
+): ControlPayloadItem => {
+  const includeExcerpt = opts.includeExcerpt ?? true;
+  const resolved = isResolvedSource(member);
+  const verdict = member.lastOutcome?.outcome ?? null;
+  const conflicted = member.fanInState === "conflicted";
+  const icon = conflicted
+    ? "⚠️"
+    : resolved
+      ? "✅"
+      : member.planLane === "done"
+        ? "☑️"
+        : member.planLane === "cancelled"
+          ? "🚫"
+          : "•";
+  const status = resolved && verdict !== null ? verdict : member.planLane;
+  const attentionClause =
+    member.attention.length > 0 ? ` · attention: ${member.attention.join(", ")}` : "";
+  const conflictClause = conflicted ? " · fan-in conflict" : "";
+  const base = resolved
+    ? `Gate resolved${verdict !== null ? ` (${verdict})` : ""}`
+    : member.planLane === "done"
+      ? "Completed"
+      : member.planLane === "cancelled"
+        ? "Cancelled"
+        : member.planLane;
+  const ts = formatWakeTimestamp(member.eventAt ?? null);
+  const excerpt = includeExcerpt ? boundedExcerpt(member.report) : undefined;
+  return {
+    threadId: member.id,
+    ...(member.role !== null ? { role: member.role } : {}),
+    title: `${base}${attentionClause}${conflictClause}`,
+    status,
+    icon,
+    ...(member.reportPath !== null ? { reportPath: member.reportPath } : {}),
+    ...(excerpt !== undefined ? { excerpt } : {}),
+    ...(ts !== "" ? { timestamp: ts } : {}),
+  };
+};
+
+/**
+ * A resolved gate PAIR's target (the coder) as a reference-only card item.
+ * Carries ONLY what the flattened pair section (`renderWakePair`) states about
+ * the target: its role, id, the "verified by the gate" round-report reference,
+ * and — when the fan-in conflicted (the text says CONFLICTED) — the conflict
+ * glyph. It deliberately omits `excerpt`, `status` (the pair header never states
+ * the target's lane), and `timestamp` (the pair meta carries only the SOURCE's
+ * timestamp), so the card cannot show target detail the model never received.
+ */
+const pairTargetToPayloadItem = (target: WakeMember): ControlPayloadItem => {
+  const conflicted = target.fanInState === "conflicted";
+  return {
+    threadId: target.id,
+    ...(target.role !== null ? { role: target.role } : {}),
+    title: "Round report (verified by the gate)",
+    ...(conflicted ? { icon: "⚠️" } : {}),
+    ...(target.reportPath !== null ? { reportPath: target.reportPath } : {}),
+  };
+};
+
+/** Map one informational extra (recovered / slow-tool) to a card item. The
+ *  pre-rendered `line` is exactly what the flattened text carries, so it also
+ *  becomes the item's excerpt — no independent serialisation. */
+const digestExtraToPayloadItem = (extra: DigestExtra): ControlPayloadItem => {
+  const recovered = extra.kind === "recovered";
+  return {
+    ...(extra.childId !== undefined ? { threadId: extra.childId } : {}),
+    ...(extra.role != null ? { role: extra.role } : {}),
+    title: recovered ? "Recovered" : "Still executing",
+    status: extra.kind,
+    icon: recovered ? "♻️" : "⏳",
+    excerpt: extra.line.replace(/^-\s*/, "").trim(),
+  };
+};
+
+/**
+ * ONE canonical traversal of a digest body. `groupBatchForWake` partitions the
+ * members exactly once; each section yields BOTH its flattened `text` and the
+ * structured card `items` it represents, so the model-visible text and the
+ * persisted `controlPayload` can never diverge (same grouping, same members,
+ * same excerpt-inclusion). `renderDigestBody` and `buildDigestPayload` are thin
+ * projections of this result.
+ */
+export const digestBodyParts = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra>,
+): { readonly text: string; readonly items: ReadonlyArray<ControlPayloadItem> } => {
+  const { pairs, singles } = groupBatchForWake(members);
+  const sections: Array<{ text: string; items: ReadonlyArray<ControlPayloadItem> }> = [];
+  for (const pair of pairs) {
+    sections.push({
+      text: renderWakePair(pair),
+      items: [
+        wakeMemberToPayloadItem(pair.source, { includeExcerpt: true }),
+        pairTargetToPayloadItem(pair.target),
+      ],
+    });
+  }
+  for (const single of singles) {
+    sections.push({
+      text: renderWakeSingle(single),
+      items: [wakeMemberToPayloadItem(single, { includeExcerpt: true })],
+    });
+  }
+  for (const extra of extras) {
+    sections.push({ text: extra.line, items: [digestExtraToPayloadItem(extra)] });
+  }
+  return {
+    text: sections.map((section) => section.text).join("\n\n"),
+    items: sections.flatMap((section) => [...section.items]),
+  };
+};
+
+/** Render the shared digest body: resolved pairs, then singles, then extras.
+ *  A thin projection of {@link digestBodyParts} so the text can never drift
+ *  from the structured items. */
 const renderDigestBody = (
   members: ReadonlyArray<WakeMember>,
   extras: ReadonlyArray<DigestExtra>,
-): string => {
-  const { pairs, singles } = groupBatchForWake(members);
-  return [
-    ...pairs.map(renderWakePair),
-    ...singles.map(renderWakeSingle),
-    ...extras.map((extra) => extra.line),
-  ].join("\n\n");
-};
+): string => digestBodyParts(members, extras).text;
 
 const DIGEST_CLOSING =
   "No first-pass review is owed on gate-resolved items (their reviewers verified the work). Update your task tree / scoreboard, pull anything useful from the reports (follow-up work, findings worth acting on), and continue orchestrating. Unreviewed completions (marked ☑️) deserve the usual first look.";
@@ -421,6 +555,95 @@ export const buildDigestPiggyback = (
     "",
     members.length === 0 ? DIGEST_CLOSING_INFO_ONLY : DIGEST_CLOSING,
   ].join("\n");
+
+// ---------------------------------------------------------------------------
+// Structured payload builders. Each is a thin PROJECTION of the same canonical
+// traversal (`digestBodyParts`) / the same excerpt helper the flattened text
+// uses, so the persisted `controlPayload` and the model-visible `text` are two
+// views of ONE composition and cannot diverge. `WorkstreamDispatcher.test.ts`
+// locks this with parity tests (resolved pair, yield-with-piggyback).
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured FYI-digest payload (companion to `buildStandaloneDigest` /
+ * `buildDigestPiggyback`): the items are exactly `digestBodyParts(...).items`
+ * for the same members/extras the text flattens (pair target excerpt-omission
+ * included), with the same heading the flattened text leads with.
+ */
+export const buildDigestPayload = (
+  members: ReadonlyArray<WakeMember>,
+  extras: ReadonlyArray<DigestExtra> = [],
+  opts: { readonly piggyback?: boolean } = {},
+): ControlPayload => {
+  const infoOnly = members.length === 0;
+  const heading = opts.piggyback
+    ? "Also, FYI since you last heard (no action required)"
+    : infoOnly
+      ? "FYI digest — status notices from the control plane since you last heard."
+      : "FYI digest — the following items completed and were fully routed since you last heard.";
+  return {
+    kind: "digest",
+    heading,
+    items: [...digestBodyParts(members, extras).items],
+  };
+};
+
+/**
+ * Structured yield-wake payload (companion to `buildYieldWakeMessage`): the
+ * yielding child, then the gate counterpart (if any), then — when the yield
+ * text piggybacks a pending FYI digest — that digest's items too, so the card
+ * represents everything the appended `yieldText` carries. Excerpts use the same
+ * `boundedExcerpt` slice as the text's `formatReportExcerpt`.
+ */
+export const buildYieldPayload = (
+  child: {
+    readonly id: ThreadId;
+    readonly role: string | null;
+    readonly reportPath: string | null;
+  },
+  outcome: string,
+  report: string | null,
+  gate?: YieldGateContext,
+  piggyback?: {
+    readonly members: ReadonlyArray<WakeMember>;
+    readonly extras: ReadonlyArray<DigestExtra>;
+  },
+): ControlPayload => {
+  const lead: ControlPayloadItem = {
+    threadId: child.id,
+    ...(child.role !== null ? { role: child.role } : {}),
+    title: `Yielded to you — outcome \`${outcome}\``,
+    status: "yielded",
+    icon: "↩️",
+    ...(child.reportPath !== null ? { reportPath: child.reportPath } : {}),
+    ...(boundedExcerpt(report) !== undefined ? { excerpt: boundedExcerpt(report)! } : {}),
+  };
+  const counterpart = gate?.counterpart ?? null;
+  const items: ControlPayloadItem[] = [lead];
+  if (counterpart !== null) {
+    items.push({
+      threadId: counterpart.id,
+      ...(counterpart.role !== null ? { role: counterpart.role } : {}),
+      title: "Gate counterpart — latest round report",
+      status: "counterpart",
+      icon: "🔁",
+      ...(counterpart.reportPath !== null ? { reportPath: counterpart.reportPath } : {}),
+      ...(boundedExcerpt(counterpart.report) !== undefined
+        ? { excerpt: boundedExcerpt(counterpart.report)! }
+        : {}),
+    });
+  }
+  if (piggyback !== undefined && (piggyback.members.length > 0 || piggyback.extras.length > 0)) {
+    items.push(...digestBodyParts(piggyback.members, piggyback.extras).items);
+  }
+  return {
+    kind: "yield",
+    heading: gate
+      ? `A sub-thread yielded to you (review-gate round cap exhausted, ${gate.rounds}/${gate.maxRounds}).`
+      : "A sub-thread yielded to you (unmatched outcome).",
+    items,
+  };
+};
 
 /** Render a `recovered` digest one-liner (design §5.2): reference + timestamp,
  *  no excerpt — the child is done and its dependents already released. */
@@ -1280,6 +1503,8 @@ const make = Effect.gen(function* () {
         } else if (entry.kind === "recovered") {
           extras.push({
             kind: "recovered",
+            childId: entry.child.id,
+            role: entry.child.role,
             line: renderRecoveredDigestLine({
               id: entry.child.id,
               role: entry.child.role,
@@ -1290,6 +1515,8 @@ const make = Effect.gen(function* () {
         } else {
           extras.push({
             kind: "slow-tool",
+            childId: entry.child.id,
+            role: entry.child.role,
             line: renderSlowToolDigestLine({
               id: entry.child.id,
               role: entry.child.role,
@@ -1388,6 +1615,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
+        origin: "kickoff",
         text: workstreamChildPrompt({ role, brief: brief ?? purpose }),
         attachments: [],
       },
@@ -1468,6 +1696,8 @@ const make = Effect.gen(function* () {
         message: {
           messageId: MessageId.make(yield* crypto.randomUUIDv4),
           role: "user",
+          origin: "control_notice",
+          controlPayload: buildDigestPayload(members, extras),
           text: buildStandaloneDigest(members, extras),
           attachments: [],
         },
@@ -1746,6 +1976,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
+        origin: "control_notice",
         text: digestText === undefined ? actionText : `${actionText}\n${digestText}`,
         attachments: [],
       },
@@ -2009,6 +2240,7 @@ const make = Effect.gen(function* () {
             message: {
               messageId,
               role: "user",
+              origin: "control_notice",
               text: buildGateReworkMessage(source, source.gateRounds, report),
               attachments: [],
             },
@@ -2036,6 +2268,7 @@ const make = Effect.gen(function* () {
             message: {
               messageId,
               role: "user",
+              origin: "control_notice",
               text: buildGateReverifyMessage(target, source.gateRounds, report),
               attachments: [],
             },
@@ -2110,6 +2343,13 @@ const make = Effect.gen(function* () {
       // Piggyback this parent's pending FYI digest onto the yield wake (action
       // copy first, FYI after — design §5.3).
       const piggyback = yield* deliverablePending(pending.get(parent.id) ?? []);
+      // Render the piggyback ONCE and feed the same members/extras to BOTH the
+      // appended text and the payload, so the yield card represents exactly what
+      // `yieldText` carries (no dropped piggyback items).
+      const piggybackRendered =
+        piggyback.length === 0
+          ? { members: [], extras: [] }
+          : yield* renderPending(piggyback, threads);
       const actionText = buildYieldWakeMessage(
         child,
         child.lastOutcome.outcome,
@@ -2119,11 +2359,7 @@ const make = Effect.gen(function* () {
       const yieldText =
         piggyback.length === 0
           ? actionText
-          : `${actionText}\n${buildDigestPiggyback(
-              ...(yield* renderPending(piggyback, threads).pipe(
-                Effect.map((r) => [r.members, r.extras] as const),
-              )),
-            )}`;
+          : `${actionText}\n${buildDigestPiggyback(piggybackRendered.members, piggybackRendered.extras)}`;
       const outcome = yield* dedup.deliverOnce(
         commandId,
         orchestrationEngine.dispatch({
@@ -2133,6 +2369,14 @@ const make = Effect.gen(function* () {
           message: {
             messageId: MessageId.make(yield* crypto.randomUUIDv4),
             role: "user",
+            origin: "control_notice",
+            controlPayload: buildYieldPayload(
+              child,
+              child.lastOutcome.outcome,
+              report,
+              gateContext,
+              piggybackRendered,
+            ),
             text: yieldText,
             attachments: [],
           },

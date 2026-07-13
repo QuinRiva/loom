@@ -115,6 +115,7 @@ const make = Effect.gen(function* () {
       message: {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
+        origin: "control_notice",
         text: buildExhaustionResumePrompt(),
         attachments: [],
       },

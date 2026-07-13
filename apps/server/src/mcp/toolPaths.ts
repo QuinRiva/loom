@@ -35,6 +35,7 @@ export const PROVIDER_TOOL_PATHS = {
   workstream_list: "/provider-tools/workstream/list",
   consult_thread: "/provider-tools/workstream/consult-thread",
   set_thread_title: "/provider-tools/thread/set-title",
+  thread_fork: "/provider-tools/thread/fork",
   goal_task_list: "/provider-tools/goal/task/list",
   goal_task_add: "/provider-tools/goal/task/add",
   goal_task_update: "/provider-tools/goal/task/update",

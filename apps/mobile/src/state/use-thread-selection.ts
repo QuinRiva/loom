@@ -57,6 +57,7 @@ function threadDetailToShell(
     attention: thread.attention,
     blockedBy: thread.blockedBy,
     spawnGeneration: thread.spawnGeneration,
+    forkFromThreadId: thread.forkFromThreadId,
     reportPath: thread.reportPath,
     routes: thread.routes,
     gateRounds: thread.gateRounds,

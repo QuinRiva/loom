@@ -48,6 +48,7 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     attention: [],
     blockedBy: [],
     spawnGeneration: null,
+    forkFromThreadId: null,
     reportPath: null,
     title: "Sub-thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },

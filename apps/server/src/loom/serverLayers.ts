@@ -34,6 +34,7 @@ import { UsageBreakdownQueryOnSqlReadClient } from "../persistence/Layers/Sqlite
 import * as WorkstreamSpawnHttp from "../mcp/WorkstreamSpawnHttp.ts";
 import * as GoalTaskHttp from "../mcp/GoalTaskHttp.ts";
 import * as GoalHandoffHttp from "../mcp/GoalHandoffHttp.ts";
+import * as ThreadForkHttp from "../mcp/ThreadForkHttp.ts";
 
 /**
  * Fork reactors, spliced into `ReactorLayerLive` with a single `provideMerge`
@@ -103,4 +104,5 @@ export const LoomMcpHttpLive = Layer.mergeAll(
   WorkstreamSpawnHttp.layer,
   GoalTaskHttp.layer,
   GoalHandoffHttp.layer,
+  ThreadForkHttp.layer,
 );

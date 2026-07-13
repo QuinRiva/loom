@@ -216,6 +216,9 @@ const PersistedDraftThreadState = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   goalId: Schema.optionalKey(Schema.NullOr(GoalId)),
+  // Thread fork (MVP): additive + decode-default null so pre-fork persisted
+  // drafts hydrate cleanly.
+  forkFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   promotedTo: Schema.optionalKey(
@@ -298,6 +301,11 @@ export interface DraftSessionState {
   goalId: GoalId | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
+  // Thread fork (MVP): the source thread this draft was forked from. Carried
+  // into the first-send bootstrap `thread.create` so the child forks the
+  // source's pi session at its first launch. Null for ordinary new-thread
+  // drafts.
+  forkFromThreadId: ThreadId | null;
   promotedTo?: ScopedThreadRef | null;
 }
 
@@ -358,6 +366,7 @@ interface ComposerDraftStoreState {
       branch?: string | null;
       worktreePath?: string | null;
       goalId?: GoalId | null;
+      forkFromThreadId?: ThreadId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
@@ -374,9 +383,29 @@ interface ComposerDraftStoreState {
       branch?: string | null;
       worktreePath?: string | null;
       goalId?: GoalId | null;
+      forkFromThreadId?: ThreadId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      runtimeMode?: RuntimeMode;
+      interactionMode?: ProviderInteractionMode;
+    },
+  ) => void;
+  /**
+   * Thread fork (MVP): create a standalone fork draft keyed ONLY by `draftId`
+   * (no logical-project bucket mapping), so forking never clobbers the
+   * project's in-progress new-thread draft. The draft carries
+   * `forkFromThreadId` so the first send forks the source's pi session.
+   */
+  createForkDraftThread: (
+    draftId: DraftId,
+    projectRef: ScopedProjectRef,
+    options: {
+      threadId: ThreadId;
+      forkFromThreadId: ThreadId;
+      branch?: string | null;
+      worktreePath?: string | null;
+      goalId?: GoalId | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
     },
@@ -388,6 +417,7 @@ interface ComposerDraftStoreState {
       branch?: string | null;
       worktreePath?: string | null;
       goalId?: GoalId | null;
+      forkFromThreadId?: ThreadId | null;
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -408,6 +438,17 @@ interface ComposerDraftStoreState {
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
+  /**
+   * Thread fork (MVP): copy the COMPLETE unsent composer draft (prompt, images,
+   * attachments, terminal/element contexts, preview annotations, review
+   * comments) from one target onto another, merging over the destination's
+   * existing model/runtime fields (which the fork inherits separately). Never
+   * touches any prior message text — only the live, unsent composer state.
+   */
+  cloneComposerDraftContent: (
+    fromTarget: ComposerThreadTarget,
+    toTarget: ComposerThreadTarget,
+  ) => void;
   setTerminalContexts: (threadRef: ComposerThreadTarget, contexts: TerminalContextDraft[]) => void;
   setModelSelection: (
     threadRef: ComposerThreadTarget,
@@ -1344,6 +1385,7 @@ function createDraftThreadState(
     branch?: string | null;
     worktreePath?: string | null;
     goalId?: GoalId | null;
+    forkFromThreadId?: ThreadId | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
@@ -1399,6 +1441,12 @@ function createDraftThreadState(
           ? "local"
           : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
+    // A fork source is intrinsic to the draft's identity: keep it across context
+    // tweaks unless explicitly overridden.
+    forkFromThreadId:
+      options?.forkFromThreadId !== undefined
+        ? options.forkFromThreadId
+        : (existingThread?.forkFromThreadId ?? null),
     promotedTo: null,
   };
 }
@@ -1432,6 +1480,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.goalId === right.goalId &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    left.forkFromThreadId === right.forkFromThreadId &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
 }
@@ -1580,6 +1629,8 @@ function normalizePersistedDraftThreads(
           typeof candidateDraftThread.goalId === "string" && isGoalDraftBucketKey(logicalProjectKey)
             ? (candidateDraftThread.goalId as GoalId)
             : null,
+        // Legacy drafts predate thread forking.
+        forkFromThreadId: null,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
         promotedTo,
@@ -1626,6 +1677,7 @@ function normalizePersistedDraftThreads(
           interactionMode: DEFAULT_INTERACTION_MODE,
           branch: null,
           worktreePath: null,
+          forkFromThreadId: null,
           envMode: "local",
           startFromOrigin: false,
           promotedTo: null,
@@ -2202,6 +2254,7 @@ function toHydratedDraftThreadState(
     branch: persistedDraftThread.branch,
     worktreePath: persistedDraftThread.worktreePath,
     goalId: persistedDraftThread.goalId ?? null,
+    forkFromThreadId: persistedDraftThread.forkFromThreadId ?? null,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
     promotedTo: persistedDraftThread.promotedTo
@@ -2354,6 +2407,26 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             options,
           );
         },
+        createForkDraftThread: (draftId, projectRef, options) => {
+          if (draftId.length === 0) {
+            return;
+          }
+          set((state) => {
+            const nextDraftThread = createDraftThreadState(
+              projectRef,
+              options.threadId,
+              projectDraftKey(projectRef),
+              undefined,
+              options,
+            );
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [draftId]: nextDraftThread,
+              },
+            };
+          });
+        },
         setDraftThreadContext: (threadRef, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
@@ -2423,9 +2496,14 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                     ? "local"
                     : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
+              forkFromThreadId:
+                options.forkFromThreadId !== undefined
+                  ? options.forkFromThreadId
+                  : (existing.forkFromThreadId ?? null),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =
+              nextDraftThread.forkFromThreadId === existing.forkFromThreadId &&
               nextDraftThread.environmentId === existing.environmentId &&
               nextDraftThread.projectId === existing.projectId &&
               nextDraftThread.logicalProjectKey === existing.logicalProjectKey &&
@@ -2601,6 +2679,39 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        cloneComposerDraftContent: (fromTarget, toTarget) => {
+          set((state) => {
+            const fromKey = resolveComposerDraftKey(state, fromTarget);
+            const toKey = resolveComposerDraftKey(state, toTarget);
+            if (!fromKey || !toKey || fromKey === toKey) {
+              return state;
+            }
+            const src = state.draftsByThreadKey[fromKey];
+            if (!src) {
+              return state;
+            }
+            // Merge content onto any existing destination draft so the fork's
+            // inherited model/runtime/interaction (set before this call) survive.
+            const base = state.draftsByThreadKey[toKey] ?? createEmptyThreadDraft();
+            const next: ComposerThreadDraftState = {
+              ...base,
+              prompt: src.prompt,
+              images: src.images.map((image) => ({ ...image })),
+              nonPersistedImageIds: [...src.nonPersistedImageIds],
+              persistedAttachments: src.persistedAttachments.map((attachment) => ({
+                ...attachment,
+              })),
+              terminalContexts: src.terminalContexts.map((context) => ({ ...context })),
+              elementContexts: src.elementContexts.map((context) => ({ ...context })),
+              previewAnnotations: src.previewAnnotations.map((annotation) => ({ ...annotation })),
+              reviewComments: src.reviewComments.map((comment) => ({ ...comment })),
+            };
+            if (shouldRemoveDraft(next)) {
+              return state;
+            }
+            return { draftsByThreadKey: { ...state.draftsByThreadKey, [toKey]: next } };
           });
         },
         setPrompt: (threadRef, prompt) => {

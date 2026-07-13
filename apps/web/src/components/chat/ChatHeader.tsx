@@ -16,6 +16,8 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
+import { ForkThreadButton } from "./ForkThreadButton";
+import { ForkedFromBadge } from "./ForkedFromBadge";
 import { OpenInPicker } from "./OpenInPicker";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { cn } from "~/lib/utils";
@@ -105,6 +107,13 @@ export const ChatHeader = memo(function ChatHeader({
           role={threadRole}
           onNavigateToThread={onNavigateToThread}
         />
+        {!draftId && (
+          <ForkedFromBadge
+            environmentId={activeThreadEnvironmentId}
+            threadId={activeThreadId}
+            onNavigateToThread={onNavigateToThread}
+          />
+        )}
       </div>
       <div
         data-chat-header-actions
@@ -131,6 +140,9 @@ export const ChatHeader = memo(function ChatHeader({
             availableEditors={availableEditors}
             openInCwd={openInCwd}
           />
+        )}
+        {!draftId && (
+          <ForkThreadButton environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
         )}
         {activeProjectName && (
           <GitActionsControl
