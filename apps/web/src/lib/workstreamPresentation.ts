@@ -1,5 +1,10 @@
 import { DEFAULT_GATE_MAX_ROUNDS } from "@t3tools/contracts";
-import type { ModelSelection, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  OrchestrationEvent,
+  ThreadId,
+  ThreadPlanLane,
+} from "@t3tools/contracts";
 import { gateSourceFor, isWaitingInGate } from "@t3tools/shared/workstreamGraph";
 
 import type { SidebarThreadSummary } from "../types";
@@ -212,6 +217,18 @@ export function getLoopStroke(rounds: number): string {
   return LOOP_STROKES[Math.min(Math.max(rounds, 0), LOOP_STROKES.length - 1)]!;
 }
 
+/**
+ * Loop-edge stroke tinted by the gate's LATEST verdict so the ambient edge tells
+ * the exact same story as the card's verdict chip — amber while `needs_rework`,
+ * emerald once `clean`/`fixed_inline`, violet for a yielded/cap-breach outcome —
+ * by reusing `getVerdictChip`'s stroke rather than re-deriving (and re-ordering)
+ * the verdict precedence. Falls back to the neutral round-depth violet when no
+ * verdict has been recorded yet.
+ */
+export function getLoopEdgeStroke(thread: SidebarThreadSummary): string {
+  return getVerdictChip(thread)?.stroke ?? getLoopStroke(thread.gateRounds);
+}
+
 /** The loop-round cap declared on a gate source's loop route. */
 export function getGateLoopCap(thread: SidebarThreadSummary): number {
   return thread.routes.find((route) => route.kind === "loop")?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS;
@@ -226,6 +243,11 @@ export interface GateVerdictChip {
   readonly stroke: string;
   readonly fill: string;
 }
+
+// Dot-tone vocabulary shared by the lifecycle timeline. Declared here (rather
+// than beside the timeline builder) so the event-level verdict primitive below
+// can carry a tone without a forward reference.
+export type LifecycleTone = "neutral" | "sky" | "violet" | "amber" | "emerald" | "rose" | "cyan";
 
 const CHIP_EMERALD = {
   textClass: "text-emerald-300",
@@ -257,21 +279,51 @@ const CHIP_VIOLET = {
 };
 
 /**
- * Verdict chip for a gate source's card, from its last submitted outcome:
- * `clean` emerald / `fixed_inline` emerald-outline (reviewer-authored fixes are
- * human-auditable) / `needs_rework ⟲n` amber / a yielded outcome violet.
- * Null for non-gate threads and outcomes with no chip vocabulary.
+ * One resolved verdict: the card/graph chip (label + colours) plus the timeline
+ * dot tone. THE single source of the verdict vocabulary (label + colour + tone)
+ * so the board card, SVG pill, and lifecycle row can never drift — the
+ * `fixed_inline` emerald-outline distinction lives here once.
+ */
+export interface OutcomeVerdict {
+  readonly chip: GateVerdictChip;
+  readonly tone: LifecycleTone;
+}
+
+/**
+ * Classify a submitted outcome into its verdict presentation, event-level (no
+ * thread required): `clean` emerald / `fixed_inline` emerald-outline
+ * (reviewer-authored fixes are human-auditable) / `needs_rework ⟲n` amber / a
+ * yielded (yield/cap-breach) outcome violet. Null for outcomes with no verdict
+ * vocabulary (terminal/attention/resolve decisions on a non-verdict token).
+ */
+export function describeOutcomeVerdict(outcome: {
+  readonly outcome: string;
+  readonly decision: string;
+  readonly round: number;
+}): OutcomeVerdict | null {
+  if (outcome.decision === "yield" || outcome.decision === "cap-breach")
+    return {
+      chip: { label: `${outcome.outcome.replaceAll("_", " ")} · yielded`, ...CHIP_VIOLET },
+      tone: "violet",
+    };
+  if (outcome.outcome === "clean")
+    return { chip: { label: "clean", ...CHIP_EMERALD }, tone: "emerald" };
+  if (outcome.outcome === "fixed_inline")
+    return { chip: { label: "fixed inline", ...CHIP_EMERALD_OUTLINE }, tone: "emerald" };
+  if (outcome.outcome === "needs_rework")
+    return { chip: { label: `needs rework ⟲${outcome.round}`, ...CHIP_AMBER }, tone: "amber" };
+  return null;
+}
+
+/**
+ * Verdict chip for a gate source's card, from its last submitted outcome.
+ * Delegates the vocabulary to `describeOutcomeVerdict`; only adds the gate-source
+ * guard (needs a loop route + a recorded outcome). Null otherwise.
  */
 export function getVerdictChip(thread: SidebarThreadSummary): GateVerdictChip | null {
   const last = thread.lastOutcome;
   if (!last || !thread.routes.some((route) => route.kind === "loop")) return null;
-  if (last.decision === "yield" || last.decision === "cap-breach")
-    return { label: `${last.outcome.replaceAll("_", " ")} · yielded`, ...CHIP_VIOLET };
-  if (last.outcome === "clean") return { label: "clean", ...CHIP_EMERALD };
-  if (last.outcome === "fixed_inline") return { label: "fixed inline", ...CHIP_EMERALD_OUTLINE };
-  if (last.outcome === "needs_rework")
-    return { label: `needs rework ⟲${last.round}`, ...CHIP_AMBER };
-  return null;
+  return describeOutcomeVerdict(last)?.chip ?? null;
 }
 
 /** One gate-leg badge: a live leg (re-reviewing/reworking) or a parked wait. */
@@ -352,6 +404,36 @@ export function getThreadStatus(
   return { column, label: COLUMN_SHORT_LABELS[column], ...STATUS_STYLES[column] };
 }
 
+// The three STORED, human-blocking attention reasons that earn an animated node
+// pulse on the graph (the projected `awaiting_*`/`proposed_plan` overlays are
+// board-only). Hex strokes so the SVG ring can reuse the board's colour
+// families: rose error, orange needs-guidance, violet awaiting-acceptance.
+const ATTENTION_PULSE_STROKES: Partial<Record<AttentionReason, string>> = {
+  error: "#fb7185",
+  needs_guidance: "#fb923c",
+  awaiting_acceptance: "#a78bfa",
+};
+
+export interface AttentionPulse {
+  readonly reason: AttentionReason;
+  readonly stroke: string;
+  readonly label: string;
+}
+
+/**
+ * The single attention pulse to animate a graph node's stroke with, or null when
+ * nothing human-blocking is flagged. Picks the highest-priority stored reason
+ * (`attentionReasonsOf` already sorts) that has a pulse colour, so one clear
+ * pulsing affordance wins rather than stacking rings.
+ */
+export function getAttentionPulse(thread: SidebarThreadSummary): AttentionPulse | null {
+  for (const reason of attentionReasonsOf(thread)) {
+    const stroke = ATTENTION_PULSE_STROKES[reason];
+    if (stroke) return { reason, stroke, label: ATTENTION_LABELS[reason] };
+  }
+  return null;
+}
+
 /** The attention badges to overlay on a thread's card, highest-priority first. */
 export function getAttentionBadges(
   thread: SidebarThreadSummary,
@@ -408,6 +490,18 @@ export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
   conflict: "border-amber-400/40 bg-amber-400/10 text-amber-200",
 };
 
+// THE single source of the settled fan-in vocabulary (label + chip tone +
+// timeline dot tone) so the card chip, graph badge, and lifecycle row agree.
+// Only the two SETTLED states have a shared label; "merging…" (a done child
+// still folding in) and the reset-to-"none" case stay caller-specific.
+export const FAN_IN_SETTLEMENT: Record<
+  "completed" | "conflicted",
+  { readonly label: string; readonly chipTone: FanInChip["tone"]; readonly tone: LifecycleTone }
+> = {
+  completed: { label: "merged", chipTone: "merged", tone: "emerald" },
+  conflicted: { label: "merge conflict", chipTone: "conflict", tone: "amber" },
+};
+
 /**
  * Fan-in settlement chip for an isolated child's card (design §3), derived from
  * shell state so it updates live off `thread.fanin-set`: an amber "merge
@@ -417,10 +511,41 @@ export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
  */
 export function getFanInChip(thread: SidebarThreadSummary): FanInChip | null {
   if (thread.isolation !== "isolated" || thread.parentThreadId === null) return null;
-  if (thread.fanInState === "conflicted") return { label: "merge conflict", tone: "conflict" };
-  if (thread.fanInState === "completed") return { label: "merged", tone: "merged" };
+  if (thread.fanInState === "conflicted")
+    return {
+      label: FAN_IN_SETTLEMENT.conflicted.label,
+      tone: FAN_IN_SETTLEMENT.conflicted.chipTone,
+    };
+  if (thread.fanInState === "completed")
+    return { label: FAN_IN_SETTLEMENT.completed.label, tone: FAN_IN_SETTLEMENT.completed.chipTone };
   if (thread.planLane === "done") return { label: "merging…", tone: "merging" };
   return null;
+}
+
+// SVG corner-badge vocabulary for the fan-in state, parallel to the card's
+// `FAN_IN_CHIP_STYLES`: a warning glyph for an amber merge conflict, a tick for
+// a subtle merged confirmation, and an ellipsis for an in-flight merge.
+const FAN_IN_BADGE: Record<FanInChip["tone"], { glyph: string; stroke: string }> = {
+  merging: { glyph: "⋯", stroke: "rgba(255,255,255,0.5)" },
+  merged: { glyph: "✓", stroke: "#34d399" },
+  conflict: { glyph: "!", stroke: "#f59e0b" },
+};
+
+export interface FanInBadge {
+  readonly glyph: string;
+  readonly stroke: string;
+  readonly label: string;
+}
+
+/**
+ * Corner-glyph presentation for a node's fan-in settlement, derived from the
+ * same `getFanInChip` vocabulary so the graph badge and the card chip stay in
+ * lockstep. Null whenever the chip is (shared threads, un-settled).
+ */
+export function getFanInBadge(thread: SidebarThreadSummary): FanInBadge | null {
+  const chip = getFanInChip(thread);
+  if (!chip) return null;
+  return { ...FAN_IN_BADGE[chip.tone], label: chip.label };
 }
 
 export function getRoleLabel(thread: SidebarThreadSummary): string {
@@ -490,6 +615,223 @@ export function groupChildrenByColumn(
   };
   for (const thread of children) groups[getEffectiveColumn(thread, childById)].push(thread);
   return groups;
+}
+
+// ---------------------------------------------------------------------------
+// Per-thread lifecycle timeline (WorkstreamPanel) — the ordered journey the
+// latest-state read model collapses away, derived from the scoped
+// `getThreadLifecycle` event pull. Pure + JSX-free so it stays testable and the
+// panel just maps rows to markup. `LifecycleTone` is declared up beside
+// `GateVerdictChip` so the shared verdict/fan-in primitives can carry it.
+// ---------------------------------------------------------------------------
+
+export interface LifecycleRow {
+  /** Stable key — the source event id. */
+  readonly key: string;
+  /** ISO timestamp of the transition. */
+  readonly at: string;
+  /** Terse primary copy. */
+  readonly label: string;
+  /** Optional secondary copy (verdict, reason, round). */
+  readonly detail: string | null;
+  readonly tone: LifecycleTone;
+  /**
+   * Whether the row maps cleanly to a message/turn in the thread's chat so it
+   * can deep-link via `requestScrollToDispatch`. Only set where the mapping is
+   * unambiguous (a turn boundary: start/resume/yield, and each submitted
+   * outcome) — control-plane-only rows (route-taken, fan-in) are not linked.
+   */
+  readonly deepLink: boolean;
+}
+
+// Dot + text colour per tone, drawn from the same board/graph families.
+export const LIFECYCLE_TONE_STYLES: Record<
+  LifecycleTone,
+  { readonly dotClass: string; readonly textClass: string }
+> = {
+  neutral: { dotClass: "bg-white/40", textClass: "text-white/70" },
+  sky: { dotClass: "bg-sky-400", textClass: "text-sky-300" },
+  violet: { dotClass: "bg-violet-400", textClass: "text-violet-300" },
+  amber: { dotClass: "bg-amber-400", textClass: "text-amber-300" },
+  emerald: { dotClass: "bg-emerald-400", textClass: "text-emerald-300" },
+  rose: { dotClass: "bg-rose-400", textClass: "text-rose-300" },
+  cyan: { dotClass: "bg-cyan-400", textClass: "text-cyan-300" },
+};
+
+const ATTENTION_TONES: Record<AttentionReason, LifecycleTone> = {
+  error: "rose",
+  needs_guidance: "amber",
+  awaiting_acceptance: "violet",
+  awaiting_approval: "amber",
+  awaiting_input: "amber",
+  proposed_plan: "violet",
+};
+
+type LifecycleRowBody = Omit<LifecycleRow, "key" | "at">;
+
+const humanizeToken = (token: string): string => token.replaceAll("_", " ");
+
+const isTerminalLane = (lane: ThreadPlanLane | null): boolean =>
+  lane === "done" || lane === "cancelled";
+
+// A `plan-lane-set` to `in_progress` reads as: a resume when it directly follows
+// a `yielded`; a REOPEN when it follows a terminal lane (done/cancelled) — the
+// common `in_progress → done → in_progress` gate-rework shape, whose reopening
+// `in_progress` carries no `spawnGeneration`; otherwise the kickoff start.
+// `spawnGeneration` on a re-open to ready/planned marks a terminal thread being
+// re-run in a fresh generation.
+function describeLaneTransition(
+  lane: ThreadPlanLane,
+  previousLane: ThreadPlanLane | null,
+  reopened: boolean,
+): LifecycleRowBody {
+  switch (lane) {
+    case "in_progress":
+      if (previousLane === "yielded")
+        return {
+          label: "Resumed",
+          detail: "picked back up by orchestrator",
+          tone: "sky",
+          deepLink: true,
+        };
+      if (isTerminalLane(previousLane))
+        return { label: "Reopened", detail: "re-run for rework", tone: "sky", deepLink: true };
+      return { label: "Started", detail: null, tone: "sky", deepLink: true };
+    case "yielded":
+      return {
+        label: "Yielded",
+        detail: "handed the turn back to the orchestrator",
+        tone: "violet",
+        deepLink: true,
+      };
+    case "done":
+      return { label: "Done", detail: null, tone: "emerald", deepLink: false };
+    case "cancelled":
+      return { label: "Cancelled", detail: null, tone: "neutral", deepLink: false };
+    case "ready":
+      return reopened
+        ? {
+            label: "Reopened",
+            detail: "re-run in a fresh generation",
+            tone: "cyan",
+            deepLink: false,
+          }
+        : { label: "Released", detail: "ready to run", tone: "cyan", deepLink: false };
+    case "planned":
+      return reopened
+        ? { label: "Reopened · held", detail: null, tone: "neutral", deepLink: false }
+        : { label: "Held", detail: null, tone: "neutral", deepLink: false };
+  }
+}
+
+// Delegates the verdict vocabulary (label + tone) to the shared
+// `describeOutcomeVerdict`, so the timeline row and the card/graph chip can
+// never drift and `fixed_inline` keeps its distinct label. Only the row-specific
+// bits (round/counts detail, deep-linkability) live here.
+function describeOutcome(payload: {
+  readonly outcome: string;
+  readonly decision: string;
+  readonly round: number;
+  readonly counts?: { readonly mustFix: number; readonly niceToHave: number } | undefined;
+}): LifecycleRowBody {
+  const roundLabel = `round ${payload.round}`;
+  const detail =
+    payload.outcome === "needs_rework" && payload.counts
+      ? `${payload.counts.mustFix} must-fix · ${payload.counts.niceToHave} nice-to-have`
+      : roundLabel;
+  const verdict = describeOutcomeVerdict(payload);
+  if (verdict) return { label: verdict.chip.label, detail, tone: verdict.tone, deepLink: true };
+  // Outcomes with no verdict vocabulary (e.g. a terminal/resolve decision on a
+  // non-verdict token): still a submitted turn boundary, so keep it deep-linked.
+  return { label: humanizeToken(payload.outcome), detail: roundLabel, tone: "sky", deepLink: true };
+}
+
+// Reuses the shared `FAN_IN_SETTLEMENT` vocabulary (label + tone) that the card
+// chip and graph badge draw from; only "none" (a reset) is row-specific.
+function describeFanIn(state: "none" | "completed" | "conflicted"): LifecycleRowBody {
+  if (state === "completed")
+    return {
+      label: FAN_IN_SETTLEMENT.completed.label,
+      detail: "fan-in complete",
+      tone: FAN_IN_SETTLEMENT.completed.tone,
+      deepLink: false,
+    };
+  if (state === "conflicted")
+    return {
+      label: FAN_IN_SETTLEMENT.conflicted.label,
+      detail: "fan-in needs resolution",
+      tone: FAN_IN_SETTLEMENT.conflicted.tone,
+      deepLink: false,
+    };
+  return { label: "fan-in reset", detail: null, tone: "neutral", deepLink: false };
+}
+
+/**
+ * Fold the scoped, ordered lifecycle events for one thread into terse timeline
+ * rows. Lane transitions carry context (yield→resume), each outcome its verdict
+ * + round, attention raise/clear its reason, route-takens the rework round, and
+ * fan-in its settlement. Non-lifecycle events are ignored defensively.
+ */
+export function buildThreadLifecycleRows(
+  events: ReadonlyArray<OrchestrationEvent>,
+): ReadonlyArray<LifecycleRow> {
+  const rows: LifecycleRow[] = [];
+  let previousLane: ThreadPlanLane | null = null;
+  for (const event of events) {
+    const key = event.eventId;
+    const at = event.occurredAt;
+    switch (event.type) {
+      case "thread.plan-lane-set": {
+        const body = describeLaneTransition(
+          event.payload.planLane,
+          previousLane,
+          event.payload.spawnGeneration !== undefined,
+        );
+        previousLane = event.payload.planLane;
+        rows.push({ key, at, ...body });
+        break;
+      }
+      case "thread.attention-raised":
+        rows.push({
+          key,
+          at,
+          label: "Attention raised",
+          detail: ATTENTION_LABELS[event.payload.reason],
+          tone: ATTENTION_TONES[event.payload.reason],
+          deepLink: false,
+        });
+        break;
+      case "thread.attention-cleared":
+        rows.push({
+          key,
+          at,
+          label: "Attention cleared",
+          detail: event.payload.reason ? ATTENTION_LABELS[event.payload.reason] : "all flags",
+          tone: "neutral",
+          deepLink: false,
+        });
+        break;
+      case "thread.outcome-recorded":
+        rows.push({ key, at, ...describeOutcome(event.payload) });
+        break;
+      case "thread.route-taken":
+        rows.push({
+          key,
+          at,
+          label: `Rework round ${event.payload.round} opened`,
+          detail: null,
+          tone: "amber",
+          deepLink: false,
+        });
+        break;
+      case "thread.fanin-set":
+        rows.push({ key, at, ...describeFanIn(event.payload.fanInState) });
+        break;
+      default:
+        break;
+    }
+  }
+  return rows;
 }
 
 /** Whether a thread has any descendant-affecting live runtime signal. */

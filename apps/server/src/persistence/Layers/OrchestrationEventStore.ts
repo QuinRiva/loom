@@ -47,7 +47,10 @@ const AppendEventRequestSchema = Schema.Struct({
   metadataJson: EventMetadataFromJsonString,
 });
 
-const OrchestrationEventPersistedRowSchema = Schema.Struct({
+// Exported so scoped read paths (e.g. ProjectionSnapshotQuery.getThreadLifecycle)
+// can decode raw `orchestration_events` rows through the same shape/decode as the
+// event store, rather than duplicating the row schema.
+export const OrchestrationEventPersistedRowSchema = Schema.Struct({
   sequence: NonNegativeInt,
   eventId: EventId,
   type: OrchestrationEventType,

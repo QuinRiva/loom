@@ -8,6 +8,8 @@ import {
   MessageOrigin,
   NonNegativeInt,
   OrchestrationCheckpointFile,
+  OrchestrationEvent,
+  ORCHESTRATION_THREAD_LIFECYCLE_EVENT_TYPES,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
@@ -52,6 +54,7 @@ import {
   toPersistenceSqlError,
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
+import { OrchestrationEventPersistedRowSchema } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
@@ -1241,6 +1244,36 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sequence ASC,
           created_at ASC,
           activity_id ASC
+      `,
+  });
+
+  // One thread's ordered lifecycle stream, straight from the append-only event
+  // store filtered to the lifecycle event types. `(aggregate_kind, stream_id,
+  // sequence)` is indexed (idx_orch_events_stream_sequence), so this is a cheap
+  // ranged read returning tens of rows; decoded through OrchestrationEvent by
+  // the caller. Ascending sequence = chronological order.
+  const listThreadLifecycleRows = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: OrchestrationEventPersistedRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          event_type AS "type",
+          aggregate_kind AS "aggregateKind",
+          stream_id AS "aggregateId",
+          occurred_at AS "occurredAt",
+          command_id AS "commandId",
+          causation_event_id AS "causationEventId",
+          correlation_id AS "correlationId",
+          payload_json AS "payload",
+          metadata_json AS "metadata"
+        FROM orchestration_events
+        WHERE aggregate_kind = 'thread'
+          AND stream_id = ${threadId}
+          AND ${sql.in("event_type", [...ORCHESTRATION_THREAD_LIFECYCLE_EVENT_TYPES])}
+        ORDER BY sequence ASC
       `,
   });
 
@@ -3152,6 +3185,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       return { activities: page, hasMore };
     });
 
+  const decodeLifecycleEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+
+  const getThreadLifecycle: ProjectionSnapshotQueryShape["getThreadLifecycle"] = (input) =>
+    listThreadLifecycleRows({ threadId: input.threadId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadLifecycle:query",
+          "ProjectionSnapshotQuery.getThreadLifecycle:decodeRows",
+        ),
+      ),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          decodeLifecycleEvent(row).pipe(
+            Effect.mapError(
+              toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadLifecycle:rowToEvent"),
+            ),
+          ),
+        ),
+      ),
+    );
+
   const getThreadDetailSnapshot: ProjectionSnapshotQueryShape["getThreadDetailSnapshot"] = (
     threadId,
   ) =>
@@ -3198,6 +3252,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadDetailById,
     getThreadDetailSnapshotById,
     getThreadActivitiesPage,
+    getThreadLifecycle,
     getPendingTurnStartThreadIds,
     getActivityFreshnessByThreadId,
     getInFlightToolByThreadId,

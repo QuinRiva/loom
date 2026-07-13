@@ -36,6 +36,7 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetThreadActivitiesError,
+  OrchestrationGetThreadLifecycleError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProjectEntriesFailure,
@@ -286,6 +287,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.getThreadActivities, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getFullThreadDiff, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.replayEvents, AuthOrchestrationReadScope],
+  [ORCHESTRATION_WS_METHODS.getThreadLifecycle, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeShell, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeThread, AuthOrchestrationReadScope],
@@ -942,6 +944,20 @@ const makeWsRpcLayer = (
                 (cause) =>
                   new OrchestrationGetThreadActivitiesError({
                     message: "Failed to load thread activities page",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.getThreadLifecycle]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getThreadLifecycle,
+            projectionSnapshotQuery.getThreadLifecycle(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetThreadLifecycleError({
+                    message: "Failed to load thread lifecycle",
                     cause,
                   }),
               ),

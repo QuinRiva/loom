@@ -493,6 +493,57 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("reads one thread's ordered lifecycle events, scoped and filtered", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM orchestration_events`;
+
+      // stream A: three lifecycle events plus one non-lifecycle event
+      // (dependencies-set) that must be filtered out; stream B proves scoping.
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, causation_event_id, correlation_id,
+          actor_kind, payload_json, metadata_json
+        )
+        VALUES
+          ('evt-a1', 'thread', 'thread-A', 0, 'thread.plan-lane-set',
+            '2026-07-13T00:00:01.000Z', NULL, NULL, NULL, 'server',
+            '{"threadId":"thread-A","planLane":"in_progress","updatedAt":"2026-07-13T00:00:01.000Z"}', '{}'),
+          ('evt-a2', 'thread', 'thread-A', 1, 'thread.dependencies-set',
+            '2026-07-13T00:00:02.000Z', NULL, NULL, NULL, 'server',
+            '{"threadId":"thread-A","blockedBy":[],"updatedAt":"2026-07-13T00:00:02.000Z"}', '{}'),
+          ('evt-a3', 'thread', 'thread-A', 2, 'thread.outcome-recorded',
+            '2026-07-13T00:00:03.000Z', NULL, NULL, NULL, 'server',
+            '{"threadId":"thread-A","outcome":"needs_rework","decision":"loop","round":1,"updatedAt":"2026-07-13T00:00:03.000Z"}', '{}'),
+          ('evt-a4', 'thread', 'thread-A', 3, 'thread.fanin-set',
+            '2026-07-13T00:00:04.000Z', NULL, NULL, NULL, 'server',
+            '{"threadId":"thread-A","fanInState":"completed","updatedAt":"2026-07-13T00:00:04.000Z"}', '{}'),
+          ('evt-b1', 'thread', 'thread-B', 0, 'thread.plan-lane-set',
+            '2026-07-13T00:00:05.000Z', NULL, NULL, NULL, 'server',
+            '{"threadId":"thread-B","planLane":"done","updatedAt":"2026-07-13T00:00:05.000Z"}', '{}')
+      `;
+
+      const events = yield* snapshotQuery.getThreadLifecycle({
+        threadId: ThreadId.make("thread-A"),
+      });
+      assert.deepStrictEqual(
+        events.map((event) => event.type),
+        ["thread.plan-lane-set", "thread.outcome-recorded", "thread.fanin-set"],
+      );
+      assert.equal(events[0]?.eventId, "evt-a1");
+      // Decoded payload survives the round-trip through OrchestrationEvent.
+      const outcome = events[1];
+      assert.equal(outcome?.type, "thread.outcome-recorded");
+      if (outcome?.type === "thread.outcome-recorded") {
+        assert.equal(outcome.payload.outcome, "needs_rework");
+        assert.equal(outcome.payload.round, 1);
+      }
+    }),
+  );
+
   it.effect("keeps archived threads out of the main shell snapshot", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
