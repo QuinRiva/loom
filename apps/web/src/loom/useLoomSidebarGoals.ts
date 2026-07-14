@@ -2,9 +2,10 @@
 // of the upstream-owned Sidebar.tsx. Goal-collapse lives at the sidebar root (one
 // source for both the render and the Ctrl+N jump map); goal ids are globally
 // unique.
-import { useCallback, useState } from "react";
+import { useMemo } from "react";
 import type { ProjectId } from "@t3tools/contracts";
 import { useGoals } from "../goals/goalState";
+import { useSidebarUiStore } from "./sidebarUiStore";
 import type { GoalShell } from "../types";
 
 /**
@@ -44,14 +45,13 @@ export function useLoomSidebarGoals(): {
   toggleGoalCollapse: (goalId: string) => void;
 } {
   const goals = useGoals();
-  const [collapsedGoalIds, setCollapsedGoalIds] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleGoalCollapse = useCallback((goalId: string) => {
-    setCollapsedGoalIds((current) => {
-      const next = new Set(current);
-      if (next.has(goalId)) next.delete(goalId);
-      else next.add(goalId);
-      return next;
-    });
-  }, []);
+  const collapsedRecord = useSidebarUiStore((state) => state.collapsedGoalIds);
+  const toggleGoalCollapse = useSidebarUiStore((state) => state.toggleGoalCollapse);
+  // The consuming seam works with a Set; derive it (stable per record identity,
+  // which only changes on toggle) so callers see the same durable choice.
+  const collapsedGoalIds = useMemo<ReadonlySet<string>>(
+    () => new Set(Object.keys(collapsedRecord)),
+    [collapsedRecord],
+  );
   return { goals, collapsedGoalIds, toggleGoalCollapse };
 }
