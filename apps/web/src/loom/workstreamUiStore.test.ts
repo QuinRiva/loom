@@ -45,15 +45,14 @@ describe("workstreamUiStore auto-open flags (W1)", () => {
 });
 
 describe("workstreamUiStore panel state (W2)", () => {
-  it("defaults to graph view, no selection, empty spawn draft", () => {
+  it("defaults to graph view and an empty spawn draft", () => {
     expect(
       selectWorkstreamPanelState(useWorkstreamUiStore.getState().panelByThreadKey, refA),
     ).toEqual(DEFAULT_WORKSTREAM_PANEL_STATE);
   });
 
-  it("persists view, selection and spawn-draft edits", () => {
+  it("persists view and spawn-draft edits", () => {
     useWorkstreamUiStore.getState().setView(refA, "board");
-    useWorkstreamUiStore.getState().setSelectedThreadId(refA, ThreadId.make("thread-child"));
     useWorkstreamUiStore.getState().updateSpawnDraft(refA, { role: "reviewer" });
     useWorkstreamUiStore.getState().updateSpawnDraft(refA, { title: "Check W2" });
 
@@ -61,7 +60,6 @@ describe("workstreamUiStore panel state (W2)", () => {
       selectWorkstreamPanelState(useWorkstreamUiStore.getState().panelByThreadKey, refA),
     ).toEqual({
       view: "board",
-      selectedThreadId: ThreadId.make("thread-child"),
       spawnDraft: { role: "reviewer", title: "Check W2", purpose: "" },
     });
   });
@@ -86,9 +84,8 @@ describe("workstreamUiStore panel state (W2)", () => {
     });
   });
 
-  it("clears the spawn draft on successful spawn while keeping view and selection", () => {
+  it("clears the spawn draft on successful spawn while keeping the view", () => {
     useWorkstreamUiStore.getState().setView(refA, "board");
-    useWorkstreamUiStore.getState().setSelectedThreadId(refA, ThreadId.make("thread-child"));
     useWorkstreamUiStore.getState().updateSpawnDraft(refA, { purpose: "half typed" });
     useWorkstreamUiStore.getState().clearSpawnDraft(refA);
 
@@ -96,7 +93,6 @@ describe("workstreamUiStore panel state (W2)", () => {
       selectWorkstreamPanelState(useWorkstreamUiStore.getState().panelByThreadKey, refA),
     ).toEqual({
       view: "board",
-      selectedThreadId: ThreadId.make("thread-child"),
       spawnDraft: { role: "", title: "", purpose: "" },
     });
   });

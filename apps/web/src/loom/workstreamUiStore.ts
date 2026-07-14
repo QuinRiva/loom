@@ -9,9 +9,11 @@
 // - `autoOpenedByThreadKey` (W1): the durable "auto-open already fired" record,
 //   per surface. It replaces the old component-lifetime `useRef` guard so route
 //   remounts can no longer resurrect an auto-open over a user's choice.
-// - `panelByThreadKey` (W2): the Workstream panel's view, node selection, and
-//   half-typed spawn form, so they survive tab switches and navigation like
-//   every other per-thread surface.
+// - `panelByThreadKey` (W2): the Workstream panel's view and half-typed spawn
+//   form, so they survive tab switches and navigation like every other
+//   per-thread surface. (Node selection was removed by the interaction
+//   redesign: node-click enters the thread; the lifecycle drawer target is
+//   transient component state.)
 //
 // - `graphViewByKey` (session-scoped, NOT persisted): the graph's last
 //   zoom/pan per orchestration, keyed by the scoped ROOT-thread key. A viewBox
@@ -26,7 +28,7 @@
 // upstream per-thread stores already accept. `removeThread` exists for parity
 // and for the day upstream grows a real deletion path to wire into.
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -52,7 +54,6 @@ export interface WorkstreamSpawnDraft {
 
 export interface WorkstreamPanelState {
   view: WorkstreamPanelView;
-  selectedThreadId: ThreadId | null;
   spawnDraft: WorkstreamSpawnDraft;
 }
 
@@ -60,7 +61,6 @@ export const EMPTY_SPAWN_DRAFT: WorkstreamSpawnDraft = { role: "", title: "", pu
 
 export const DEFAULT_WORKSTREAM_PANEL_STATE: WorkstreamPanelState = {
   view: "graph",
-  selectedThreadId: null,
   spawnDraft: EMPTY_SPAWN_DRAFT,
 };
 
@@ -72,7 +72,6 @@ interface WorkstreamUiStoreState {
   setGraphView: (key: string, view: WorkstreamGraphView) => void;
   markAutoOpened: (ref: ScopedThreadRef, kinds: readonly SeedableSurfaceKind[]) => void;
   setView: (ref: ScopedThreadRef, view: WorkstreamPanelView) => void;
-  setSelectedThreadId: (ref: ScopedThreadRef, threadId: ThreadId | null) => void;
   updateSpawnDraft: (ref: ScopedThreadRef, patch: Partial<WorkstreamSpawnDraft>) => void;
   clearSpawnDraft: (ref: ScopedThreadRef) => void;
   removeThread: (ref: ScopedThreadRef) => void;
@@ -112,14 +111,6 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
         set((state) => ({
           panelByThreadKey: updatePanel(state.panelByThreadKey, scopedThreadKey(ref), (current) =>
             current.view === view ? current : { ...current, view },
-          ),
-        })),
-      setSelectedThreadId: (ref, threadId) =>
-        set((state) => ({
-          panelByThreadKey: updatePanel(state.panelByThreadKey, scopedThreadKey(ref), (current) =>
-            current.selectedThreadId === threadId
-              ? current
-              : { ...current, selectedThreadId: threadId },
           ),
         })),
       updateSpawnDraft: (ref, patch) =>
