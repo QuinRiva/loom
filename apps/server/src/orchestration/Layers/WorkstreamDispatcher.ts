@@ -798,7 +798,7 @@ export const buildGateReworkMessage = (
     "",
     reference + formatReportExcerpt(report),
     "",
-    "Reviewer findings are claims, not verdicts: adjudicate each one — implement what survives scrutiny, reject the rest WITH REASONS in your round report (rejecting without reasons and implementing without evaluating are both failures). If the same finding comes back contested a second time, stop looping on it and say so in your report; the reviewer escalates it.",
+    "Reviewer findings are claims, not verdicts: adjudicate each one — implement what survives scrutiny, reject the rest WITH REASONS in your round report (rejecting without reasons and implementing without evaluating are both failures). Scrutiny means asking: what concretely fails if I don't act, and what does recovery cost? Accurate evidence of what the code does is not validation of the reviewer's prescribed fix — reaching `clean` is not the goal; the right change is. If the same finding comes back contested a second time, stop looping on it and say so in your report; the reviewer escalates it.",
     "",
     "When you finish, end with one `workstream_submit` as usual. Routing notice: your next submit routes back to the reviewer for re-verification, NOT to done — write it as a round report (per finding: what you did, or why you rejected it).",
   ].join("\n");
@@ -896,7 +896,10 @@ export const buildYieldWakeMessage = (
     "",
     "The decision is yours: resume it with guidance (`workstream_prompt` — any turn-start clears `yielded` back to `in_progress`), accept its work as-is (`workstream_set_lane` done, which releases dependents" +
       (gate ? " and dissolves the gate" : "") +
-      "), re-plan around it (spawn a replacement and `workstream_set_lane` cancelled on it), or escalate to the human.",
+      "), re-plan around it (spawn a replacement and `workstream_set_lane` cancelled on it), or escalate to the human." +
+      (gate
+        ? " Adjudicate the open findings yourself before choosing: they are claims, not verdicts — judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met."
+        : ""),
   ].join("\n");
 };
 
