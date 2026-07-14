@@ -69,6 +69,9 @@ import {
   RelayClientStatusSchema,
 } from "./relayClient.ts";
 import {
+  ProjectListAbsoluteDirectoryError,
+  ProjectListAbsoluteDirectoryInput,
+  ProjectListAbsoluteDirectoryResult,
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -170,6 +173,7 @@ export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
   projectsReadFile: "projects.readFile",
   projectsReadAbsoluteFile: "projects.readAbsoluteFile",
+  projectsListAbsoluteDirectory: "projects.listAbsoluteDirectory",
   projectsStatPaths: "projects.statPaths",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
@@ -431,6 +435,15 @@ export const WsProjectsReadAbsoluteFileRpc = Rpc.make(WS_METHODS.projectsReadAbs
   success: ProjectReadFileResult,
   error: Schema.Union([ProjectReadAbsoluteFileError, EnvironmentAuthorizationError]),
 });
+
+export const WsProjectsListAbsoluteDirectoryRpc = Rpc.make(
+  WS_METHODS.projectsListAbsoluteDirectory,
+  {
+    payload: ProjectListAbsoluteDirectoryInput,
+    success: ProjectListAbsoluteDirectoryResult,
+    error: Schema.Union([ProjectListAbsoluteDirectoryError, EnvironmentAuthorizationError]),
+  },
+);
 
 export const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
   payload: ProjectStatPathsInput,
@@ -790,6 +803,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsReadAbsoluteFileRpc,
+  WsProjectsListAbsoluteDirectoryRpc,
   WsProjectsStatPathsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,

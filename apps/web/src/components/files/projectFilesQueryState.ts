@@ -1,6 +1,7 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
+  ProjectListAbsoluteDirectoryResult,
   ProjectListEntriesResult,
   ProjectReadFileResult,
 } from "@t3tools/contracts";
@@ -45,6 +46,16 @@ export function getProjectAbsoluteFileQueryAtom(
   absolutePath: string | null,
 ) {
   return projectEnvironment.readAbsoluteFile({
+    environmentId,
+    input: { absolutePath: absolutePath ?? EMPTY_PROJECT_FILE_PATH },
+  });
+}
+
+export function getProjectAbsoluteDirectoryQueryAtom(
+  environmentId: EnvironmentId,
+  absolutePath: string | null,
+) {
+  return projectEnvironment.listAbsoluteDirectory({
     environmentId,
     input: { absolutePath: absolutePath ?? EMPTY_PROJECT_FILE_PATH },
   });
@@ -176,6 +187,27 @@ export function useProjectAbsoluteFileQuery(
   absolutePath: string | null,
 ): ProjectQueryState<ProjectReadFileResult> {
   const atom = getProjectAbsoluteFileQueryAtom(environmentId, absolutePath);
+  const result = useAtomValue(atom);
+  const refreshAtom = useAtomRefresh(atom);
+  const refresh = useCallback(() => refreshAtom(), [refreshAtom]);
+  return {
+    data: Option.getOrNull(AsyncResult.value(result)),
+    error: errorMessage(result),
+    isPending: result.waiting,
+    refresh,
+  };
+}
+
+/**
+ * Read-only listing of a directory addressed by absolute path (outside any
+ * workspace). Backs the absolute-root explorer surface opened from
+ * out-of-workspace directory chips.
+ */
+export function useProjectAbsoluteDirectoryQuery(
+  environmentId: EnvironmentId,
+  absolutePath: string | null,
+): ProjectQueryState<ProjectListAbsoluteDirectoryResult> {
+  const atom = getProjectAbsoluteDirectoryQueryAtom(environmentId, absolutePath);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);

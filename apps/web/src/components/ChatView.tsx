@@ -275,6 +275,7 @@ const PreviewPanel = lazy(() =>
 );
 const DiffPanel = lazy(() => import("./DiffPanel"));
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
+const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
@@ -1328,6 +1329,10 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const activeFileSurface =
     activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;
+  const activeFilesSurface =
+    activeRightPanelSurface?.kind === "files" ? activeRightPanelSurface : null;
+  const activeDirectorySurface =
+    activeRightPanelSurface?.kind === "dir" ? activeRightPanelSurface : null;
   const activePreviewState = useThreadPreviewState(activeThreadRef);
   const panelTerminalIds = useMemo(
     () =>
@@ -5127,6 +5132,15 @@ function ChatViewContent(props: ChatViewProps) {
         activeThread={activeThread ?? undefined}
         activeProjectId={activeProject?.id}
       />
+    ) : activeDirectorySurface ? (
+      <Suspense fallback={null}>
+        <AbsoluteDirectoryPanel
+          key={activeDirectorySurface.absolutePath}
+          environmentId={activeThread.environmentId}
+          rootPath={activeDirectorySurface.absolutePath}
+          threadRef={activeThreadRef}
+        />
+      </Suspense>
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
@@ -5146,6 +5160,8 @@ function ChatViewContent(props: ChatViewProps) {
           absolutePath={activeFileSurface?.absolutePath ?? null}
           revealLine={activeFileSurface?.revealLine ?? null}
           revealRequestId={activeFileSurface?.revealRequestId ?? 0}
+          revealDirectoryPath={activeFilesSurface?.revealPath ?? null}
+          revealDirectoryRequestId={activeFilesSurface?.revealRequestId ?? 0}
           onOpenFile={openFileSurface}
           onPendingChange={handleFilePendingChange}
         />

@@ -43,6 +43,7 @@ import {
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
+  ProjectListAbsoluteDirectoryError,
   ProjectListEntriesError,
   ProjectReadAbsoluteFileError,
   ProjectReadFileError,
@@ -313,6 +314,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadAbsoluteFile, AuthOrchestrationReadScope],
+  [WS_METHODS.projectsListAbsoluteDirectory, AuthOrchestrationReadScope],
   [WS_METHODS.projectsStatPaths, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
@@ -1429,6 +1431,28 @@ const makeWsRpcLayer = (
               Effect.mapError(
                 (cause) =>
                   new ProjectReadAbsoluteFileError({
+                    absolutePath: input.absolutePath,
+                    failure: cause.failure,
+                    ...(cause.resolvedPath !== undefined
+                      ? { resolvedPath: cause.resolvedPath }
+                      : {}),
+                    ...(cause.operation !== undefined ? { operation: cause.operation } : {}),
+                    ...(cause.operationPath !== undefined
+                      ? { operationPath: cause.operationPath }
+                      : {}),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListAbsoluteDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListAbsoluteDirectory,
+            workspaceFileSystem.listAbsoluteDirectory(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListAbsoluteDirectoryError({
                     absolutePath: input.absolutePath,
                     failure: cause.failure,
                     ...(cause.resolvedPath !== undefined

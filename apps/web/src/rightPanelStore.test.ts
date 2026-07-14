@@ -103,6 +103,28 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("upgrades a pre-v9 files surface to neutral reveal state", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "files",
+            surfaces: [{ id: "files", kind: "files" }],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "files",
+          surfaces: [{ id: "files", kind: "files", revealPath: null, revealRequestId: 0 }],
+        },
+      },
+    });
+  });
+
   it("open sets the active panel for a thread", () => {
     useRightPanelStore.getState().open(refA, "preview");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("preview");
@@ -124,8 +146,27 @@ describe("rightPanelStore", () => {
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
       activeSurfaceId: "files",
-      surfaces: [{ id: "files", kind: "files" }],
+      surfaces: [{ id: "files", kind: "files", revealPath: null, revealRequestId: 0 }],
     });
+  });
+
+  it("reveals an in-workspace directory in the files surface", () => {
+    useRightPanelStore.getState().openFilesAt(refA, "src/lib");
+    useRightPanelStore.getState().openFilesAt(refA, "docs");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      { id: "files", kind: "files", revealPath: "docs", revealRequestId: 2 },
+    ]);
+    expect(state.activeSurfaceId).toBe("files");
+  });
+
+  it("opens a read-only absolute-root directory surface", () => {
+    useRightPanelStore.getState().openDirectoryAbsolute(refA, "/home/carl/out");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      { id: "dir:/home/carl/out", kind: "dir", absolutePath: "/home/carl/out" },
+    ]);
+    expect(state.activeSurfaceId).toBe("dir:/home/carl/out");
   });
 
   it("replaces the standalone explorer with peer file surfaces", () => {

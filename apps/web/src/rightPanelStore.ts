@@ -23,6 +23,7 @@ export const RIGHT_PANEL_KINDS = [
   "diff",
   "files",
   "file",
+  "dir",
   "preview",
   "terminal",
 ] as const;
@@ -42,7 +43,27 @@ export type RightPanelSurface =
   | { id: "diff"; kind: "diff" }
   | { id: "tasks"; kind: "tasks" }
   | { id: "workstream"; kind: "workstream" }
-  | { id: "files"; kind: "files" }
+  | {
+      id: "files";
+      kind: "files";
+      /**
+       * When set, the workspace explorer reveals/scrolls to this workspace-
+       * relative directory on the next `revealRequestId` change (a directory
+       * chip clicked for an in-workspace path).
+       */
+      revealPath: string | null;
+      revealRequestId: number;
+    }
+  | {
+      /**
+       * Read-only explorer rooted at a directory OUTSIDE the workspace,
+       * addressed by absolute path (listed via the absolute-directory RPC).
+       * Clearly labelled as outside the worktree; exposes no write affordances.
+       */
+      id: `dir:${string}`;
+      kind: "dir";
+      absolutePath: string;
+    }
   | {
       id: `file:${string}`;
       kind: "file";
@@ -59,7 +80,7 @@ export type RightPanelSurface =
   | { id: "plan"; kind: "plan" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 8;
+const RIGHT_PANEL_STORAGE_VERSION = 9;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -69,7 +90,7 @@ export interface ThreadRightPanelState {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
-  open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "dir" | "terminal">) => void;
   // loom: single-transition auto-open seed; see loom/seedRightPanelSurfaces.ts.
   seedSurfaces: (
     ref: ScopedThreadRef,
@@ -79,6 +100,10 @@ interface RightPanelStoreState {
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openFileAbsolute: (ref: ScopedThreadRef, absolutePath: string, line?: number) => void;
+  /** Open the workspace explorer and reveal an in-workspace directory. */
+  openFilesAt: (ref: ScopedThreadRef, relativePath: string) => void;
+  /** Open a read-only explorer rooted at an out-of-workspace absolute directory. */
+  openDirectoryAbsolute: (ref: ScopedThreadRef, absolutePath: string) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -98,7 +123,10 @@ interface RightPanelStoreState {
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
-  toggle: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  toggle: (
+    ref: ScopedThreadRef,
+    kind: Exclude<RightPanelKind, "file" | "dir" | "terminal">,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -108,14 +136,30 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
   surfaces: [],
 };
 
+const filesSurface = (
+  revealPath: string | null = null,
+  revealRequestId = 0,
+): Extract<RightPanelSurface, { kind: "files" }> => ({
+  id: "files",
+  kind: "files",
+  revealPath,
+  revealRequestId,
+});
+
+const directorySurface = (absolutePath: string): Extract<RightPanelSurface, { kind: "dir" }> => ({
+  id: `dir:${absolutePath}`,
+  kind: "dir",
+  absolutePath,
+});
+
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal">,
+  kind: Exclude<RightPanelKind, "file" | "dir" | "preview" | "terminal">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
       return { id: "diff", kind };
     case "files":
-      return { id: "files", kind };
+      return filesSurface();
     case "plan":
       return { id: "plan", kind };
     case "tasks":
@@ -247,6 +291,31 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           : null;
                       return [{ ...surface, absolutePath, revealLine, revealRequestId }];
                     }
+                    if (surface.kind === "files") {
+                      // Reveal fields are new in v9 — older persisted files
+                      // surfaces coerce to inert defaults.
+                      const revealPath =
+                        typeof surface.revealPath === "string" && surface.revealPath.length > 0
+                          ? surface.revealPath
+                          : null;
+                      const revealRequestId =
+                        typeof surface.revealRequestId === "number" &&
+                        Number.isSafeInteger(surface.revealRequestId) &&
+                        surface.revealRequestId >= 0
+                          ? surface.revealRequestId
+                          : 0;
+                      return [{ id: "files", kind: "files", revealPath, revealRequestId }];
+                    }
+                    if (surface.kind === "dir") {
+                      if (
+                        typeof surface.absolutePath !== "string" ||
+                        surface.absolutePath.length === 0 ||
+                        surface.id !== `dir:${surface.absolutePath}`
+                      ) {
+                        return [];
+                      }
+                      return [{ id: surface.id, kind: "dir", absolutePath: surface.absolutePath }];
+                    }
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -339,6 +408,29 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
             upsertFileSurface(current, absolutePath, line, absolutePath),
+          ),
+        })),
+      openFilesAt: (ref, relativePath) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
+            const existing = current.surfaces.find(
+              (surface): surface is Extract<RightPanelSurface, { kind: "files" }> =>
+                surface.kind === "files",
+            );
+            const surface = filesSurface(relativePath, (existing?.revealRequestId ?? 0) + 1);
+            return {
+              isOpen: true,
+              activeSurfaceId: surface.id,
+              surfaces: existing
+                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                : [...current.surfaces, surface],
+            };
+          }),
+        })),
+      openDirectoryAbsolute: (ref, absolutePath) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, directorySurface(absolutePath)),
           ),
         })),
       openTerminal: (ref, terminalId) =>
