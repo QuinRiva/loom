@@ -80,6 +80,9 @@ interface FilePreviewPanelProps {
   availableEditors: ReadonlyArray<EditorId>;
   revealLine: number | null;
   revealRequestId: number;
+  /** When set, the explorer reveals/scrolls to this workspace-relative directory. */
+  revealDirectoryPath?: string | null;
+  revealDirectoryRequestId?: number;
   onOpenFile: (relativePath: string) => void;
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
@@ -651,6 +654,8 @@ export default function FilePreviewPanel({
   availableEditors,
   revealLine,
   revealRequestId,
+  revealDirectoryPath = null,
+  revealDirectoryRequestId = 0,
   onOpenFile,
   onPendingChange,
 }: FilePreviewPanelProps) {
@@ -946,6 +951,8 @@ export default function FilePreviewPanel({
               environmentId={environmentId}
               cwd={cwd}
               projectName={projectName}
+              revealPath={revealDirectoryPath}
+              revealRequestId={revealDirectoryRequestId}
               onOpenFile={onOpenFile}
             />
           </aside>

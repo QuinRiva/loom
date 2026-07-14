@@ -99,6 +99,22 @@ const path = "apps/web/src/index.ts";
 \`\`\`
 `;
 
+const PROSE_AND_CODE_PATH_LINKS_MARKDOWN = `An orchestrator-style reply that hands back file paths as plain prose and inside a fenced block, the two shapes agents actually produce.
+
+The verdict and the register are at /Users/julius/project/_findings/verdict.md and /Users/julius/project/_findings/findings_register.md — open both.
+
+A relative hit with a position carries through: src/markdown-links.ts:42 should link too.
+
+The same paths inside a fenced block stay exactly as typed but each path line is clickable:
+
+\`\`\`text
+/Users/julius/project/_findings/verdict.md
+/Users/julius/project/_findings/findings_register.md
+\`\`\`
+
+None of these should link: a date like 01/02/2026, the words and/or, a flag value a/b, or a url like https://example.com/docs/guide.md.
+`;
+
 const MIXED_DOCUMENT_MARKDOWN = `# Release notes
 
 A representative mixed document combining prose, a wide table, code and a collapsible section.
@@ -128,6 +144,7 @@ function markdownFixture(
   text: string,
   description?: string,
   cwd?: string,
+  isStreaming = false,
 ): PreviewFixture {
   return {
     id,
@@ -135,7 +152,7 @@ function markdownFixture(
     ...(description ? { description } : {}),
     render: () => (
       <TimelineLayoutFrame>
-        <ChatMarkdown text={text} cwd={cwd} />
+        <ChatMarkdown text={text} cwd={cwd} isStreaming={isStreaming} />
       </TimelineLayoutFrame>
     ),
   };
@@ -165,6 +182,21 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         INLINE_CODE_FILE_LINKS_MARKDOWN,
         "Plain inline-code path references become clickable file chips; non-path code spans and fenced blocks stay plain.",
         "/Users/julius/project",
+      ),
+      markdownFixture(
+        "prose-and-code-path-links",
+        "Prose & code-block path links",
+        PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
+        "Plain-prose paths become file chips; paths inside a fenced block become terminal-style clickable regions with unchanged text. Non-paths (dates, and/or, urls) stay plain.",
+        "/Users/julius/project",
+      ),
+      markdownFixture(
+        "prose-and-code-path-links-streaming",
+        "Prose & code path links (streaming)",
+        PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
+        "While streaming, prose linking and code-block decoration are deferred: the SAME content renders as plain text (no chips, no clickable code paths) until the message completes — satisfying the 'no per-token rescans' requirement.",
+        "/Users/julius/project",
+        true,
       ),
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),

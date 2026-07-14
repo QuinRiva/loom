@@ -67,12 +67,21 @@ import {
 } from "../markdown-clipboard";
 import {
   type MarkdownFileLinkMeta,
+  type TextPathSpan,
+  collectMessageDirectoryBases,
+  extractInlineCodeSpanTexts,
+  extractMarkdownLinkHrefs,
+  extractMessagePathCandidates,
   isAbsolutePreviewablePath,
-  normalizeMarkdownLinkDestination,
+  matchTextPathSpans,
+  normalizeMarkdownLinkHrefKey,
+  resolveInlineCodeFileLinkCandidates,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   rewriteMarkdownFileUriHref,
+  selectChipBinding,
 } from "../markdown-links";
+import { decorateCodeBlockPaths, type CodePathTarget } from "../codePathDecorations";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -233,6 +242,81 @@ function remarkPreserveCodeMeta() {
       node.children?.forEach(visit);
     };
 
+    visit(tree);
+  };
+}
+
+// Custom hast tag the prose-path rehype plugin injects; mapped to a component
+// in `markdownComponents` that resolves + existence-checks + renders the chip.
+const PROSE_FILE_PATH_TAG = "t3-file-path";
+// Never scan inside these (code/pre handled by the block decorator; existing
+// links keep their own behaviour).
+const PROSE_FILE_PATH_SKIP_TAGS = new Set(["code", "pre", "a", PROSE_FILE_PATH_TAG]);
+
+interface HastTextNode {
+  type: "text";
+  value: string;
+}
+interface HastElementNode {
+  type: "element";
+  tagName: string;
+  properties?: Record<string, unknown>;
+  children: HastChildNode[];
+}
+type HastChildNode = HastTextNode | HastElementNode | { type: string; children?: HastChildNode[] };
+interface HastRootNode {
+  type: "root";
+  children: HastChildNode[];
+}
+
+function buildProsePathNodes(value: string, spans: readonly TextPathSpan[]): HastChildNode[] {
+  const nodes: HastChildNode[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor) {
+      nodes.push({ type: "text", value: value.slice(cursor, span.start) });
+    }
+    nodes.push({
+      type: "element",
+      tagName: PROSE_FILE_PATH_TAG,
+      properties: {},
+      children: [{ type: "text", value: value.slice(span.start, span.end) }],
+    });
+    cursor = span.end;
+  }
+  if (cursor < value.length) {
+    nodes.push({ type: "text", value: value.slice(cursor) });
+  }
+  return nodes;
+}
+
+/**
+ * Rehype plugin: split plain-prose text nodes on path-like substrings and inject
+ * `<t3-file-path>` elements for them. Runs *after* rehype-sanitize so the
+ * injected (trusted) nodes are not stripped; skips code/pre/anchor subtrees so
+ * inline code, fenced blocks, and existing links keep their own handling. The
+ * mapped component decides whether each hit resolves to an existing file.
+ */
+function rehypeChatFilePaths() {
+  return (tree: HastRootNode) => {
+    const visit = (node: { children?: HastChildNode[] }) => {
+      const children = node.children;
+      if (!children) return;
+      for (let index = 0; index < children.length; index += 1) {
+        const child = children[index];
+        if (!child) continue;
+        if (child.type === "text") {
+          const spans = matchTextPathSpans((child as HastTextNode).value);
+          if (spans.length === 0) continue;
+          const replacement = buildProsePathNodes((child as HastTextNode).value, spans);
+          children.splice(index, 1, ...replacement);
+          index += replacement.length - 1;
+        } else if (child.type === "element") {
+          if (PROSE_FILE_PATH_SKIP_TAGS.has((child as HastElementNode).tagName)) continue;
+          visit(child as HastElementNode);
+        }
+      }
+    };
     visit(tree);
   };
 }
@@ -641,11 +725,39 @@ function MarkdownCodeBlock({
   );
 }
 
+/**
+ * Renders Shiki HTML and, after paint, hands the container to `decorate` so
+ * path substrings can be turned into clickable regions. The effect re-runs when
+ * `html` changes (re-highlight / streaming) or when `decorate`'s identity
+ * changes (existence verification resolves), and the decorator is idempotent.
+ */
+function ShikiHtml({
+  html,
+  decorate,
+}: {
+  html: string;
+  decorate?: ((container: HTMLElement) => void) | undefined;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container && decorate) decorate(container);
+  }, [decorate, html]);
+  return (
+    <div
+      ref={containerRef}
+      className="chat-markdown-shiki"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 interface SuspenseShikiCodeBlockProps {
   className: string | undefined;
   code: string;
   themeName: DiffThemeName;
   isStreaming: boolean;
+  decorate?: ((container: HTMLElement) => void) | undefined;
 }
 
 function SuspenseShikiCodeBlock({
@@ -653,18 +765,14 @@ function SuspenseShikiCodeBlock({
   code,
   themeName,
   isStreaming,
+  decorate,
 }: SuspenseShikiCodeBlockProps) {
   const language = extractFenceLanguage(className);
   const cacheKey = createHighlightCacheKey(code, language, themeName);
   const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
 
   if (cachedHighlightedHtml != null) {
-    return (
-      <div
-        className="chat-markdown-shiki"
-        dangerouslySetInnerHTML={{ __html: cachedHighlightedHtml }}
-      />
-    );
+    return <ShikiHtml html={cachedHighlightedHtml} decorate={decorate} />;
   }
 
   return (
@@ -674,6 +782,7 @@ function SuspenseShikiCodeBlock({
       themeName={themeName}
       cacheKey={cacheKey}
       isStreaming={isStreaming}
+      decorate={decorate}
     />
   );
 }
@@ -684,6 +793,7 @@ interface UncachedShikiCodeBlockProps {
   themeName: DiffThemeName;
   cacheKey: string;
   isStreaming: boolean;
+  decorate?: ((container: HTMLElement) => void) | undefined;
 }
 
 function UncachedShikiCodeBlock({
@@ -692,6 +802,7 @@ function UncachedShikiCodeBlock({
   themeName,
   cacheKey,
   isStreaming,
+  decorate,
 }: UncachedShikiCodeBlockProps) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
@@ -718,9 +829,7 @@ function UncachedShikiCodeBlock({
     }
   }, [cacheKey, code, highlightedHtml, isStreaming]);
 
-  return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
-  );
+  return <ShikiHtml html={highlightedHtml} decorate={decorate} />;
 }
 
 interface MarkdownFileLinkProps {
@@ -742,7 +851,6 @@ interface MarkdownFileLinkProps {
   className?: string | undefined;
 }
 
-const MARKDOWN_LINK_HREF_PATTERN = /\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
 const MARKDOWN_FILE_LINK_CLASS_NAME =
   "chat-markdown-file-link cursor-pointer transition-colors hover:bg-accent/70";
 
@@ -804,38 +912,6 @@ function buildFileLinkParentSuffixByPath(filePaths: ReadonlyArray<string>): Map<
   }
 
   return suffixByPath;
-}
-
-function extractMarkdownLinkHrefs(text: string): string[] {
-  const hrefs: string[] = [];
-  for (const match of text.matchAll(MARKDOWN_LINK_HREF_PATTERN)) {
-    const href = match[1]?.trim();
-    if (!href) continue;
-    hrefs.push(href);
-  }
-  return hrefs;
-}
-
-// Inline code spans delimited by a run of N backticks closed by the next run of
-// exactly N (CommonMark). Only used to enumerate candidate spans for the
-// parent-suffix disambiguation map; the true inline/block split is still made
-// by react-markdown when it decides whether a `code` node is inside a `pre`.
-const INLINE_CODE_SPAN_PATTERN = /(`+)(?!`)((?:[^`]|`(?!\1(?!`)))+?)\1(?!`)/g;
-
-function extractInlineCodeSpanTexts(text: string): string[] {
-  const spans: string[] = [];
-  for (const match of text.matchAll(INLINE_CODE_SPAN_PATTERN)) {
-    const span = match[2];
-    if (typeof span !== "string") continue;
-    const trimmed = span.trim();
-    if (trimmed.length > 0) spans.push(trimmed);
-  }
-  return spans;
-}
-
-function normalizeMarkdownLinkHrefKey(href: string): string {
-  const normalizedHref = normalizeMarkdownLinkDestination(href);
-  return rewriteMarkdownFileUriHref(normalizedHref) ?? normalizedHref;
 }
 
 const MARKDOWN_LINK_FAVICON_CLASS_NAME = "block size-full shrink-0 select-none";
@@ -1358,6 +1434,23 @@ function ChatMarkdown({
     }
     return filePaths;
   }, [resolveInlineCodeMeta, text]);
+  // Directory references named anywhere in this message (appearance-ordered), so
+  // a bare filename can resolve against a folder mentioned in the same sentence
+  // (e.g. a `_findings/` folder plus bare `verdict.md`). Purely syntactic — no
+  // existence lookup — so it cannot feed back into the existence request set.
+  const messageDirectoryBases = useMemo(() => collectMessageDirectoryBases(text, cwd), [cwd, text]);
+  // Per-span candidate resolution, memoised like the single-meta resolver: each
+  // span yields an ordered candidate list (cwd first, then message directories).
+  const resolveInlineCodeCandidates = useMemo(() => {
+    const cache = new Map<string, MarkdownFileLinkMeta[]>();
+    return (rawSpan: string): MarkdownFileLinkMeta[] => {
+      const cached = cache.get(rawSpan);
+      if (cached) return cached;
+      const candidates = resolveInlineCodeFileLinkCandidates(rawSpan, cwd, messageDirectoryBases);
+      cache.set(rawSpan, candidates);
+      return candidates;
+    };
+  }, [cwd, messageDirectoryBases]);
   const fileLinkParentSuffixByPath = useMemo(() => {
     const filePaths = [
       ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
@@ -1372,9 +1465,23 @@ function ChatMarkdown({
   const existenceCandidatePaths = useMemo(() => {
     const paths = new Set<string>();
     for (const meta of markdownFileLinkMetaByHref.values()) paths.add(meta.filePath);
-    for (const filePath of inlineCodeFilePaths) paths.add(filePath);
+    for (const rawSpan of extractInlineCodeSpanTexts(text)) {
+      for (const meta of resolveInlineCodeCandidates(rawSpan)) paths.add(meta.filePath);
+    }
+    // Plain-prose and fenced-code-block path references. Deferred entirely while
+    // streaming: prose linking and code-block decoration are also quiescent
+    // until the message completes (see below), so scanning the growing text on
+    // every token would be pure waste. Block-aware + bounded
+    // (`extractMessagePathCandidates`): over-limit fenced blocks contribute
+    // nothing and the total is capped. When streaming ends this memo recomputes
+    // once and the single bounded existence pass fires.
+    if (!isStreaming) {
+      for (const candidate of extractMessagePathCandidates(text)) {
+        for (const meta of resolveInlineCodeCandidates(candidate)) paths.add(meta.filePath);
+      }
+    }
     return [...paths];
-  }, [inlineCodeFilePaths, markdownFileLinkMetaByHref]);
+  }, [isStreaming, markdownFileLinkMetaByHref, resolveInlineCodeCandidates, text]);
   const lookupPathExistence = usePathExistence(statEnvironmentId, existenceCandidatePaths);
   // Verification is only possible with a connected environment; without one
   // (e.g. the /preview harness) chips keep the prior syntactic-only behaviour.
@@ -1384,23 +1491,39 @@ function ChatMarkdown({
   // chip (code → chip is additive), at the cost of a brief plain-code state on
   // first paint / during streaming — the safe direction for the failure modes
   // this guards (chips that resolve to non-existent or directory targets).
-  const resolveChipMode = useCallback(
-    (filePath: string): "chip" | "directory" | "inert" => {
-      if (!verifyExistence) return "chip";
-      const existence = lookupPathExistence(filePath);
-      if (!existence || !existence.exists) return "inert";
-      return existence.isDirectory ? "directory" : "chip";
+  // Bind a chip to the first candidate confirmed to exist, walking in priority
+  // order (cwd, then message directories). A higher-priority candidate that is
+  // still unverified blocks binding (render inert and wait) so the choice is
+  // deterministic and never flickers from a lower- to a higher-priority target.
+  const resolveChipBinding = useCallback(
+    (
+      candidates: readonly MarkdownFileLinkMeta[],
+    ): { meta: MarkdownFileLinkMeta; isDirectory: boolean } | null => {
+      const first = candidates[0];
+      if (!first) return null;
+      // No connected environment (e.g. the /preview harness): keep the prior
+      // syntactic-only behaviour — the first candidate is a plain file chip.
+      if (!verifyExistence) return { meta: first, isDirectory: false };
+      return selectChipBinding(candidates, lookupPathExistence);
     },
     [lookupPathExistence, verifyExistence],
   );
   const openDirectoryTarget = useCallback(
     (meta: MarkdownFileLinkMeta) => {
+      // In-workspace directory: reveal it in the workspace explorer surface.
       if (threadRef && meta.workspaceRelativePath !== null) {
-        useRightPanelStore.getState().open(threadRef, "files");
+        useRightPanelStore.getState().openFilesAt(threadRef, meta.workspaceRelativePath);
         return;
       }
-      // Out-of-workspace directory (or no thread context): copy the path instead
-      // of attempting a file read that would surface a broken error panel.
+      // Out-of-workspace directory: open a read-only absolute-root listing so the
+      // user can browse and click into files (POSIX absolute paths only — the
+      // listing RPC rejects non-absolute/Windows paths on a POSIX host).
+      if (threadRef && isAbsolutePreviewablePath(meta.filePath)) {
+        useRightPanelStore.getState().openDirectoryAbsolute(threadRef, meta.filePath);
+        return;
+      }
+      // No thread context or an unservable path: copy the path instead of
+      // attempting a listing that would surface a broken error panel.
       if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
       void navigator.clipboard.writeText(meta.targetPath).then(
         () => {
@@ -1419,6 +1542,46 @@ function ChatMarkdown({
       );
     },
     [threadRef],
+  );
+  // Open a resolved path target. Mirrors the chip's file-preview routing
+  // (workspace file → in-workspace preview, POSIX-absolute → out-of-workspace
+  // preview, else editor) and reuses the directory handler for folders. Used by
+  // the terminal-style code-block path decorations, which are not chips.
+  const openPathTarget = useCallback(
+    (meta: MarkdownFileLinkMeta, isDirectory: boolean) => {
+      if (isDirectory) {
+        openDirectoryTarget(meta);
+        return;
+      }
+      if (threadRef) {
+        if (meta.workspaceRelativePath) {
+          useRightPanelStore.getState().openFile(threadRef, meta.workspaceRelativePath, meta.line);
+          return;
+        }
+        if (isAbsolutePreviewablePath(meta.filePath)) {
+          useRightPanelStore.getState().openFileAbsolute(threadRef, meta.filePath, meta.line);
+          return;
+        }
+      }
+      void openInPreferredEditor(meta.targetPath);
+    },
+    [openDirectoryTarget, openInPreferredEditor, threadRef],
+  );
+  // Decorate a rendered code block's DOM: turn existence-verified path
+  // substrings into clickable regions without altering the block's text.
+  // Re-created when existence resolves (via `resolveChipBinding`) so the effect
+  // that runs it re-decorates once targets are confirmed.
+  const decorateCodeBlock = useCallback(
+    (container: HTMLElement) => {
+      decorateCodeBlockPaths(container, {
+        resolveTarget: (rawPath): CodePathTarget | null => {
+          const binding = resolveChipBinding(resolveInlineCodeCandidates(rawPath));
+          return binding ? { meta: binding.meta, isDirectory: binding.isDirectory } : null;
+        },
+        onActivate: (target) => openPathTarget(target.meta, target.isDirectory),
+      });
+    },
+    [openPathTarget, resolveChipBinding, resolveInlineCodeCandidates],
   );
   const markdownUrlTransform = useCallback((href: string) => {
     if (href.startsWith("thread://")) return href;
@@ -1475,8 +1638,56 @@ function ChatMarkdown({
     },
     [createAssetUrl, openPreview, preparedConnection, threadRef],
   );
-  const markdownComponents = useMemo<Components>(
-    () => ({
+  const markdownComponents = useMemo<Components>(() => {
+    // Plain-prose path reference injected by `rehypeChatFilePaths`. Resolves
+    // (with same-message directory candidates) and existence-binds exactly
+    // like an inline-code span, rendering the shared file chip when a target
+    // exists and otherwise falling back to the original plain text.
+    const ProseFilePath = ({ node, children }: { node?: unknown; children?: ReactNode }) => {
+      // The injected element carries the raw path as its single text child; read
+      // it from the hast node (authoritative) and fall back to rendered children.
+      const rawText = plainHastText(node) ?? nodeToPlainText(children);
+      const binding = resolveChipBinding(resolveInlineCodeCandidates(rawText.trim()));
+      if (!binding) {
+        return <>{rawText}</>;
+      }
+      const meta = binding.meta;
+      const isDirectory = binding.isDirectory;
+      const parentSuffix = fileLinkParentSuffixByPath.get(meta.filePath);
+      const labelParts = [meta.basename];
+      if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
+        labelParts.push(parentSuffix);
+      }
+      if (meta.line) {
+        labelParts.push(`L${meta.line}${meta.column ? `:C${meta.column}` : ""}`);
+      }
+      return (
+        <MarkdownFileLink
+          href={meta.targetPath}
+          targetPath={meta.targetPath}
+          iconPath={meta.filePath}
+          displayPath={meta.displayPath}
+          workspaceRelativePath={meta.workspaceRelativePath}
+          line={meta.line}
+          label={labelParts.join(" · ")}
+          copyMarkdown={rawText}
+          theme={resolvedTheme}
+          threadRef={threadRef}
+          onOpen={openInPreferredEditor}
+          onOpenInBrowser={
+            !isDirectory &&
+            threadRef &&
+            isPreviewSupportedInRuntime() &&
+            isBrowserPreviewFile(meta.filePath)
+              ? () => openMarkdownFileInPreview(meta.filePath)
+              : undefined
+          }
+          isDirectory={isDirectory}
+          onOpenDirectory={isDirectory ? () => openDirectoryTarget(meta) : undefined}
+        />
+      );
+    };
+    const components: Components = {
       p({ node: _node, children, ...props }) {
         return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
       },
@@ -1605,13 +1816,13 @@ function ChatMarkdown({
           );
         }
 
-        const chipMode = resolveChipMode(fileLinkMeta.filePath);
-        if (chipMode === "inert") {
+        const binding = resolveChipBinding([fileLinkMeta]);
+        if (!binding) {
           // Unverified or non-existent target: render the link text plainly so
           // there is no dead click.
           return <>{children}</>;
         }
-        const isDirectory = chipMode === "directory";
+        const isDirectory = binding.isDirectory;
         const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
         const labelParts = [fileLinkMeta.basename];
         if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
@@ -1661,26 +1872,19 @@ function ChatMarkdown({
         // skill-inline React elements, so text extraction from them is lossy).
         const rawText = plainHastText(node) ?? nodeToPlainText(children);
         const isBlockCode = (className?.includes("language-") ?? false) || rawText.includes("\n");
-        const inlineMeta = isBlockCode ? null : resolveInlineCodeMeta(rawText.trim());
-        if (!inlineMeta) {
+        const inlineCandidates = isBlockCode ? [] : resolveInlineCodeCandidates(rawText.trim());
+        const binding = resolveChipBinding(inlineCandidates);
+        if (!binding) {
+          // No candidate confirmed to exist (or unverified): keep it as plain
+          // inline code so a plausible-but-wrong path never becomes a dead click.
           return (
             <code {...props} className={className}>
               {children}
             </code>
           );
         }
-
-        const chipMode = resolveChipMode(inlineMeta.filePath);
-        if (chipMode === "inert") {
-          // Unverified or non-existent path reference: keep it as plain inline
-          // code so a plausible-but-wrong path never becomes a dead click.
-          return (
-            <code {...props} className={className}>
-              {children}
-            </code>
-          );
-        }
-        const isDirectory = chipMode === "directory";
+        const inlineMeta = binding.meta;
+        const isDirectory = binding.isDirectory;
         const parentSuffix = fileLinkParentSuffixByPath.get(inlineMeta.filePath);
         const labelParts = [inlineMeta.basename];
         if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
@@ -1746,31 +1950,36 @@ function ChatMarkdown({
                   code={codeBlock.code}
                   themeName={diffThemeName}
                   isStreaming={isStreaming}
+                  // Defer path decoration until streaming completes so the DOM
+                  // scan does not run on every streamed re-highlight; the final
+                  // render decorates once.
+                  decorate={isStreaming ? undefined : decorateCodeBlock}
                 />
               </Suspense>
             </CodeHighlightErrorBoundary>
           </MarkdownCodeBlock>
         );
       },
-    }),
-    [
-      diffThemeName,
-      fileLinkParentSuffixByPath,
-      isStreaming,
-      markdownFileLinkMetaByHref,
-      onTaskListChange,
-      openDirectoryTarget,
-      openInPreferredEditor,
-      openExternalLinkInPreview,
-      openMarkdownFileInPreview,
-      resolveChipMode,
-      resolveInlineCodeMeta,
-      resolvedTheme,
-      skills,
-      text,
-      threadRef,
-    ],
-  );
+    };
+    return { ...components, [PROSE_FILE_PATH_TAG]: ProseFilePath } as Components;
+  }, [
+    decorateCodeBlock,
+    diffThemeName,
+    fileLinkParentSuffixByPath,
+    isStreaming,
+    markdownFileLinkMetaByHref,
+    onTaskListChange,
+    openDirectoryTarget,
+    openInPreferredEditor,
+    openExternalLinkInPreview,
+    openMarkdownFileInPreview,
+    resolveChipBinding,
+    resolveInlineCodeCandidates,
+    resolvedTheme,
+    skills,
+    text,
+    threadRef,
+  ]);
 
   return (
     <div
@@ -1786,7 +1995,14 @@ function ChatMarkdown({
             ? [remarkGfm, remarkBreaks, remarkPreserveCodeMeta]
             : [remarkGfm, remarkPreserveCodeMeta]
         }
-        rehypePlugins={[rehypeRaw, [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA]]}
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
+          // Prose path-linking is deferred until streaming completes, so the
+          // text is not re-split on every streamed parse (matches the brief's
+          // "no per-token rescans"); the completed message runs it once.
+          ...(isStreaming ? [] : [rehypeChatFilePaths]),
+        ]}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >

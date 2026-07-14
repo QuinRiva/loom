@@ -4,6 +4,7 @@ import {
   ClipboardList,
   FileDiff,
   Files,
+  FolderOpen,
   GitBranchIcon,
   Globe2,
   ListTodo,
@@ -232,6 +233,10 @@ function surfaceTitle(
       return "Diff";
     case "files":
       return "Files";
+    case "dir":
+      return surface.absolutePath.slice(
+        surface.absolutePath.replace(/\/+$/, "").lastIndexOf("/") + 1,
+      );
     case "file":
       return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
     case "terminal":
@@ -293,6 +298,8 @@ function SurfaceIcon({
       return <FileDiff className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
+    case "dir":
+      return <FolderOpen className="size-3.5 shrink-0" />;
     case "file":
       return (
         <PierreEntryIcon

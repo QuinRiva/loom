@@ -11,6 +11,8 @@ import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 
 import type {
+  ProjectListAbsoluteDirectoryInput,
+  ProjectListAbsoluteDirectoryResult,
   ProjectReadAbsoluteFileInput,
   ProjectReadFileInput,
   ProjectReadFileResult,
@@ -111,6 +113,28 @@ export class WorkspaceAbsoluteReadError extends Schema.TaggedErrorClass<Workspac
   }
 }
 
+/**
+ * Failure of an out-of-workspace absolute directory listing. Sibling of
+ * {@link WorkspaceAbsoluteReadError}: same read-only, POSIX-oriented,
+ * explicit-boundary posture, but for a directory listing rather than a file
+ * read.
+ */
+export class WorkspaceAbsoluteListError extends Schema.TaggedErrorClass<WorkspaceAbsoluteListError>()(
+  "WorkspaceAbsoluteListError",
+  {
+    absolutePath: Schema.String,
+    resolvedPath: Schema.String,
+    failure: Schema.Literals(["path_not_absolute", "path_not_directory", "operation_failed"]),
+    operation: Schema.optional(Schema.Literals(["realpath-target", "stat", "readdir"])),
+    operationPath: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Absolute directory list '${this.failure}' failed for '${this.absolutePath}' (resolved '${this.resolvedPath}').`;
+  }
+}
+
 export class WorkspaceBinaryFileError extends Schema.TaggedErrorClass<WorkspaceBinaryFileError>()(
   "WorkspaceBinaryFileError",
   {
@@ -150,6 +174,14 @@ export class WorkspaceFileSystem extends Context.Service<
     readonly readAbsoluteFile: (
       input: ProjectReadAbsoluteFileInput,
     ) => Effect.Effect<ProjectReadFileResult, WorkspaceAbsoluteReadError>;
+    /**
+     * List a directory addressed by absolute path, NOT constrained to a
+     * workspace root. Read-only by design — a sibling of {@link readAbsoluteFile}
+     * so chat directory chips can browse out-of-workspace output dirs.
+     */
+    readonly listAbsoluteDirectory: (
+      input: ProjectListAbsoluteDirectoryInput,
+    ) => Effect.Effect<ProjectListAbsoluteDirectoryResult, WorkspaceAbsoluteListError>;
     /**
      * Batch existence probe: for each (absolute) path report whether it exists
      * and, if so, whether it is a file or directory. Read-only and never
@@ -361,6 +393,103 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const listAbsoluteDirectory: WorkspaceFileSystem["Service"]["listAbsoluteDirectory"] = Effect.fn(
+    "WorkspaceFileSystem.listAbsoluteDirectory",
+  )(function* (input) {
+    if (!path.isAbsolute(input.absolutePath)) {
+      return yield* new WorkspaceAbsoluteListError({
+        absolutePath: input.absolutePath,
+        resolvedPath: input.absolutePath,
+        failure: "path_not_absolute",
+      });
+    }
+
+    // Resolve symlinks up front so the listed directory — and the child paths
+    // the client derives from it — reflect what a click would actually open,
+    // matching the absolute-read boundary.
+    const realTargetPath = yield* Effect.tryPromise({
+      try: () => NodeFSP.realpath(input.absolutePath),
+      catch: (cause) =>
+        new WorkspaceAbsoluteListError({
+          absolutePath: input.absolutePath,
+          resolvedPath: input.absolutePath,
+          failure: "operation_failed",
+          operation: "realpath-target",
+          operationPath: input.absolutePath,
+          cause,
+        }),
+    });
+
+    const targetStat = yield* Effect.tryPromise({
+      try: () => NodeFSP.stat(realTargetPath),
+      catch: (cause) =>
+        new WorkspaceAbsoluteListError({
+          absolutePath: input.absolutePath,
+          resolvedPath: realTargetPath,
+          failure: "operation_failed",
+          operation: "stat",
+          operationPath: realTargetPath,
+          cause,
+        }),
+    });
+    if (!targetStat.isDirectory()) {
+      return yield* new WorkspaceAbsoluteListError({
+        absolutePath: input.absolutePath,
+        resolvedPath: realTargetPath,
+        failure: "path_not_directory",
+      });
+    }
+
+    const dirents = yield* Effect.tryPromise({
+      try: () => NodeFSP.readdir(realTargetPath, { withFileTypes: true }),
+      catch: (cause) =>
+        new WorkspaceAbsoluteListError({
+          absolutePath: input.absolutePath,
+          resolvedPath: realTargetPath,
+          failure: "operation_failed",
+          operation: "readdir",
+          operationPath: realTargetPath,
+          cause,
+        }),
+    });
+
+    const resolved = yield* Effect.forEach(
+      dirents,
+      (dirent) =>
+        Effect.promise(async () => {
+          if (dirent.isDirectory()) {
+            return { name: dirent.name, kind: "directory" as const };
+          }
+          if (dirent.isFile()) {
+            return { name: dirent.name, kind: "file" as const };
+          }
+          if (dirent.isSymbolicLink()) {
+            // Resolve the link target's kind so it lists (and later opens) the
+            // same way a click would; unresolvable links are dropped.
+            try {
+              const linkStat = await NodeFSP.stat(path.join(realTargetPath, dirent.name));
+              if (linkStat.isDirectory()) return { name: dirent.name, kind: "directory" as const };
+              if (linkStat.isFile()) return { name: dirent.name, kind: "file" as const };
+            } catch {
+              return null;
+            }
+          }
+          // FIFOs/sockets/devices are not browsable/openable — omit them.
+          return null;
+        }),
+      { concurrency: 16 },
+    );
+
+    const entries = resolved
+      .filter((entry): entry is { name: string; kind: "file" | "directory" } => entry !== null)
+      .toSorted((left, right) => {
+        if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
+        return left.name.localeCompare(right.name);
+      });
+
+    return { absolutePath: realTargetPath, entries };
+  });
+
   const statPaths: WorkspaceFileSystem["Service"]["statPaths"] = Effect.fn(
     "WorkspaceFileSystem.statPaths",
   )(function* (input) {
@@ -437,7 +566,13 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ readFile, readAbsoluteFile, statPaths, writeFile });
+  return WorkspaceFileSystem.of({
+    readFile,
+    readAbsoluteFile,
+    listAbsoluteDirectory,
+    statPaths,
+    writeFile,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

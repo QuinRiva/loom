@@ -13,6 +13,9 @@ interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
+  /** Workspace-relative directory to reveal/scroll to on `revealRequestId` change. */
+  revealPath?: string | null;
+  revealRequestId?: number;
   onOpenFile: (relativePath: string) => void;
 }
 
@@ -36,6 +39,8 @@ export default function FileBrowserPanel({
   environmentId,
   cwd,
   projectName,
+  revealPath = null,
+  revealRequestId = 0,
   onOpenFile,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
@@ -72,6 +77,28 @@ export default function FileBrowserPanel({
     previousTreePathsRef.current = treePaths;
     model.resetPaths(treePaths);
   }, [entryKinds, model, treePaths]);
+
+  // Reveal a directory targeted by an in-workspace chip: expand ancestors, then
+  // scroll to and select it. Runs when the request id changes or once the tree
+  // paths that contain the target have loaded.
+  const handledRevealRef = useRef<number>(0);
+  useEffect(() => {
+    if (!revealPath || revealRequestId === 0) return;
+    const normalized = revealPath.replaceAll("\\", "/").replace(/\/+$/, "");
+    if (normalized.length === 0) return;
+    const canonical = `${normalized}/`;
+    if (!treePaths.some((path) => path === canonical || path.startsWith(canonical))) return;
+    if (handledRevealRef.current === revealRequestId) return;
+    handledRevealRef.current = revealRequestId;
+
+    const segments = normalized.split("/");
+    for (let depth = 1; depth <= segments.length; depth += 1) {
+      const item = model.getItem(`${segments.slice(0, depth).join("/")}/`);
+      if (item && "expand" in item) item.expand();
+    }
+    model.scrollToPath(canonical, { offset: "center", focus: true });
+    model.getItem(canonical)?.select();
+  }, [model, revealPath, revealRequestId, treePaths]);
 
   const fileCount = useMemo(
     () => entries.reduce((count, entry) => count + (entry.kind === "file" ? 1 : 0), 0),

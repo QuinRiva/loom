@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  CODE_BLOCK_MAX_LINES,
+  CODE_LINE_MAX_LENGTH,
+  MAX_MESSAGE_PATH_CANDIDATES,
+  collectMessageDirectoryBases,
+  directoryReferenceBase,
+  extractMessagePathCandidates,
+  extractTextPathCandidates,
   isAbsolutePreviewablePath,
+  isLinkablePathText,
+  matchTextPathSpans,
+  resolveInlineCodeFileLinkCandidates,
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   resolveMarkdownFileLinkTarget,
   rewriteMarkdownFileUriHref,
+  selectChipBinding,
 } from "./markdown-links";
 
 describe("isAbsolutePreviewablePath", () => {
@@ -244,5 +255,300 @@ describe("resolveInlineCodeFileLinkMeta", () => {
   it("does not link an empty or whitespace span", () => {
     expect(links("")).toBeNull();
     expect(links("   ")).toBeNull();
+  });
+});
+
+describe("directoryReferenceBase", () => {
+  it("accepts trailing-slash references and strips the separator", () => {
+    expect(directoryReferenceBase("/home/carl/data/_findings/")).toBe("/home/carl/data/_findings");
+    expect(directoryReferenceBase("/home/carl/my.data/")).toBe("/home/carl/my.data");
+  });
+
+  it("rejects references without a trailing separator — no directory guessing", () => {
+    // Extension-less spans are plausible files (README, Makefile) and known-file
+    // spans are files; neither may be guessed to be a directory base.
+    expect(directoryReferenceBase("/home/carl/data/_findings")).toBeNull();
+    expect(directoryReferenceBase("/repo/src/components")).toBeNull();
+    expect(directoryReferenceBase("/home/carl/verdict.md")).toBeNull();
+  });
+});
+
+describe("resolveInlineCodeFileLinkCandidates", () => {
+  const cwd = "/home/carl/project";
+  const findings = "/home/carl/data/lease/_findings";
+  const otherDir = "/home/carl/data/other";
+
+  it("returns no candidates for a span that is not a file link", () => {
+    expect(resolveInlineCodeFileLinkCandidates("foo.bar", cwd, [findings])).toEqual([]);
+  });
+
+  it("resolves a bare filename against cwd first, then message directories", () => {
+    const candidates = resolveInlineCodeFileLinkCandidates("verdict.md", cwd, [findings]);
+    expect(candidates.map((meta) => meta.filePath)).toEqual([
+      "/home/carl/project/verdict.md",
+      "/home/carl/data/lease/_findings/verdict.md",
+    ]);
+  });
+
+  it("expands an unprefixed relative path against message directories", () => {
+    const candidates = resolveInlineCodeFileLinkCandidates("reports/verdict.md", cwd, [findings]);
+    expect(candidates.map((meta) => meta.filePath)).toEqual([
+      "/home/carl/project/reports/verdict.md",
+      "/home/carl/data/lease/_findings/reports/verdict.md",
+    ]);
+  });
+
+  it("orders directory candidates by the order they are supplied (message appearance)", () => {
+    const candidates = resolveInlineCodeFileLinkCandidates("verdict.md", cwd, [otherDir, findings]);
+    expect(candidates.map((meta) => meta.filePath)).toEqual([
+      "/home/carl/project/verdict.md",
+      "/home/carl/data/other/verdict.md",
+      "/home/carl/data/lease/_findings/verdict.md",
+    ]);
+  });
+
+  it("deduplicates a directory that resolves to the cwd candidate", () => {
+    const candidates = resolveInlineCodeFileLinkCandidates("verdict.md", cwd, [cwd, findings]);
+    expect(candidates.map((meta) => meta.filePath)).toEqual([
+      "/home/carl/project/verdict.md",
+      "/home/carl/data/lease/_findings/verdict.md",
+    ]);
+  });
+
+  it("preserves a line/column suffix when joining onto a directory", () => {
+    const candidates = resolveInlineCodeFileLinkCandidates("verdict.md:12:3", cwd, [findings]);
+    expect(candidates.map((meta) => meta.targetPath)).toEqual([
+      "/home/carl/project/verdict.md:12:3",
+      "/home/carl/data/lease/_findings/verdict.md:12:3",
+    ]);
+    expect(candidates[1]).toMatchObject({ line: 12, column: 3, basename: "verdict.md" });
+  });
+
+  it("does not expand absolute, ~/, or explicit-relative spans", () => {
+    expect(
+      resolveInlineCodeFileLinkCandidates("/etc/hosts", cwd, [findings]).map((m) => m.filePath),
+    ).toEqual(["/etc/hosts"]);
+    expect(
+      resolveInlineCodeFileLinkCandidates("~/notes.md", cwd, [findings]).map((m) => m.filePath),
+    ).toEqual(["/home/carl/notes.md"]);
+    expect(
+      resolveInlineCodeFileLinkCandidates("./notes.md", cwd, [findings]).map((m) => m.filePath),
+    ).toEqual(["/home/carl/project/./notes.md"]);
+  });
+});
+
+describe("collectMessageDirectoryBases", () => {
+  const cwd = "/home/carl/project";
+
+  it("discovers a directory mentioned AFTER the filename (whole-message scan)", () => {
+    const text =
+      "Deliverables `verdict.md` and `findings.md` live at `/home/carl/data/_findings/`.";
+    expect(collectMessageDirectoryBases(text, cwd)).toEqual(["/home/carl/data/_findings"]);
+  });
+
+  it("expands a `~/` directory reference against the cwd home", () => {
+    expect(collectMessageDirectoryBases("See `verdict.md` in `~/reports/gold/`.", cwd)).toEqual([
+      "/home/carl/reports/gold",
+    ]);
+  });
+
+  it("keeps appearance order and ignores file (non-directory) references", () => {
+    const text = "In `~/a/` then `~/b/` — but not `plain.md` or `/etc/hosts`.";
+    expect(collectMessageDirectoryBases(text, cwd)).toEqual(["/home/carl/a", "/home/carl/b"]);
+  });
+
+  it("discovers a directory named via an explicit markdown link", () => {
+    expect(
+      collectMessageDirectoryBases("Outputs in [findings](/home/carl/out/_findings/).", cwd),
+    ).toEqual(["/home/carl/out/_findings"]);
+  });
+});
+
+describe("selectChipBinding", () => {
+  const cwd = "/home/carl/project";
+  const findings = "/home/carl/data/_findings";
+  const other = "/home/carl/data/other";
+  const candidatesFor = (dirs: string[]) =>
+    resolveInlineCodeFileLinkCandidates("verdict.md", cwd, dirs);
+  const lookupExisting = (existing: Record<string, "file" | "directory">) => (filePath: string) =>
+    filePath in existing
+      ? { exists: true, isDirectory: existing[filePath] === "directory" }
+      : { exists: false, isDirectory: false };
+
+  it("binds the first directory that contains the name when several do", () => {
+    const binding = selectChipBinding(
+      candidatesFor([findings, other]),
+      lookupExisting({
+        [`${findings}/verdict.md`]: "file",
+        [`${other}/verdict.md`]: "file",
+      }),
+    );
+    expect(binding?.meta.filePath).toBe(`${findings}/verdict.md`);
+    expect(binding?.isDirectory).toBe(false);
+  });
+
+  it("prefers the cwd candidate when both cwd and a directory contain the name", () => {
+    const binding = selectChipBinding(
+      candidatesFor([findings]),
+      lookupExisting({
+        [`${cwd}/verdict.md`]: "file",
+        [`${findings}/verdict.md`]: "file",
+      }),
+    );
+    expect(binding?.meta.filePath).toBe(`${cwd}/verdict.md`);
+  });
+
+  it("waits (null) while a higher-priority candidate is still unverified", () => {
+    // cwd candidate unverified (undefined); must not skip ahead to the directory
+    // candidate even though it is a confirmed file — the choice stays deterministic.
+    const binding = selectChipBinding(candidatesFor([findings]), (filePath) =>
+      filePath === `${findings}/verdict.md` ? { exists: true, isDirectory: false } : undefined,
+    );
+    expect(binding).toBeNull();
+  });
+
+  it("returns null when every candidate is confirmed missing", () => {
+    expect(
+      selectChipBinding(candidatesFor([findings]), () => ({ exists: false, isDirectory: false })),
+    ).toBeNull();
+  });
+});
+
+describe("isLinkablePathText", () => {
+  it("accepts absolute, ~/, and explicit-relative paths", () => {
+    expect(isLinkablePathText("/home/carl/report.md")).toBe(true);
+    expect(isLinkablePathText("~/notes/todo.md")).toBe(true);
+    expect(isLinkablePathText("./src/index.ts")).toBe(true);
+    expect(isLinkablePathText("../pkg/main.rs")).toBe(true);
+  });
+
+  it("accepts relative name/name paths with a known extension", () => {
+    expect(isLinkablePathText("src/markdown-links.ts")).toBe(true);
+    expect(isLinkablePathText("apps/web/src/index.ts")).toBe(true);
+  });
+
+  it("accepts a separator paired with a :line position", () => {
+    expect(isLinkablePathText("src/markdown-links.test.ts:138")).toBe(true);
+    expect(isLinkablePathText("/etc/hosts:5:2")).toBe(true);
+  });
+
+  it("rejects slashed words, dates, and flag values with no path intent", () => {
+    expect(isLinkablePathText("and/or")).toBe(false);
+    expect(isLinkablePathText("a/b")).toBe(false);
+    expect(isLinkablePathText("01/02/2026")).toBe(false);
+  });
+
+  it("rejects bare host:port and property accesses", () => {
+    expect(isLinkablePathText("example.com:8080")).toBe(false);
+    expect(isLinkablePathText("foo.bar")).toBe(false);
+    expect(isLinkablePathText("Math.max")).toBe(false);
+  });
+
+  it("rejects strings carrying non-path characters", () => {
+    expect(isLinkablePathText("foo.bar()")).toBe(false);
+    expect(isLinkablePathText("HashMap<string, number>")).toBe(false);
+  });
+});
+
+describe("matchTextPathSpans", () => {
+  it("finds two absolute paths in a prose sentence joined by 'and'", () => {
+    const text =
+      "See /home/carl/findings/verdict.md and /home/carl/register/findings_register.md for details.";
+    const spans = matchTextPathSpans(text);
+    expect(spans.map((span) => span.text)).toEqual([
+      "/home/carl/findings/verdict.md",
+      "/home/carl/register/findings_register.md",
+    ]);
+    // Offsets must point back at the trimmed substring in the original text.
+    for (const span of spans) {
+      expect(text.slice(span.start, span.end)).toBe(span.text);
+    }
+  });
+
+  it("trims trailing punctuation and unbalanced delimiters", () => {
+    expect(matchTextPathSpans("edit /home/carl/verdict.md.").map((s) => s.text)).toEqual([
+      "/home/carl/verdict.md",
+    ]);
+    expect(matchTextPathSpans("(/home/carl/verdict.md)").map((s) => s.text)).toEqual([
+      "/home/carl/verdict.md",
+    ]);
+    expect(matchTextPathSpans("try ~/notes.md, then stop").map((s) => s.text)).toEqual([
+      "~/notes.md",
+    ]);
+  });
+
+  it("carries a :line:col suffix through the matched span", () => {
+    expect(matchTextPathSpans("failed at /home/carl/x.ts:42:7 here").map((s) => s.text)).toEqual([
+      "/home/carl/x.ts:42:7",
+    ]);
+  });
+
+  it("does not match urls, slashed words, dates, or bare filenames", () => {
+    expect(matchTextPathSpans("visit https://example.com/docs/guide.md now")).toEqual([]);
+    expect(matchTextPathSpans("either and/or both a/b work")).toEqual([]);
+    expect(matchTextPathSpans("dated 01/02/2026 today")).toEqual([]);
+    expect(matchTextPathSpans("open verdict.md please")).toEqual([]);
+  });
+
+  it("extractTextPathCandidates returns just the trimmed strings", () => {
+    expect(
+      extractTextPathCandidates("a /home/carl/x.md and ./rel/y.ts:3 plus and/or noise"),
+    ).toEqual(["/home/carl/x.md", "./rel/y.ts:3"]);
+  });
+});
+
+describe("extractMessagePathCandidates", () => {
+  it("includes prose and in-bounds fenced-code paths", () => {
+    const text = [
+      "Prose path /home/carl/verdict.md here.",
+      "",
+      "```text",
+      "/home/carl/register.md",
+      "```",
+    ].join("\n");
+    expect(extractMessagePathCandidates(text).sort()).toEqual(
+      ["/home/carl/register.md", "/home/carl/verdict.md"].sort(),
+    );
+  });
+
+  it("contributes NOTHING from an over-limit fenced block, but keeps prose eligible", () => {
+    const codeLines = Array.from(
+      { length: CODE_BLOCK_MAX_LINES + 1 },
+      (_, index) => `/home/carl/gen/file${index}.md`,
+    );
+    const text = ["The real one is /home/carl/verdict.md.", "```text", ...codeLines, "```"].join(
+      "\n",
+    );
+    const candidates = extractMessagePathCandidates(text);
+    // Prose path survives; not one of the over-limit block's paths leaks in.
+    expect(candidates).toContain("/home/carl/verdict.md");
+    expect(candidates.some((candidate) => candidate.startsWith("/home/carl/gen/"))).toBe(false);
+  });
+
+  it("skips over-length lines inside an in-bounds block", () => {
+    const longLine = `/home/carl/${"x".repeat(CODE_LINE_MAX_LENGTH)}.md`;
+    const text = ["```text", longLine, "/home/carl/ok.md", "```"].join("\n");
+    const candidates = extractMessagePathCandidates(text);
+    expect(candidates).toContain("/home/carl/ok.md");
+    expect(candidates).not.toContain(longLine);
+  });
+
+  it("caps the total number of discovered candidates", () => {
+    const codeLines = Array.from(
+      { length: CODE_BLOCK_MAX_LINES },
+      (_, index) => `/home/carl/a/f${index}.md /home/carl/b/f${index}.md`,
+    );
+    const text = ["```text", ...codeLines, "```"].join("\n");
+    expect(extractMessagePathCandidates(text).length).toBeLessThanOrEqual(
+      MAX_MESSAGE_PATH_CANDIDATES,
+    );
+  });
+
+  it("does not treat an indented '```' inside prose as an unterminated fence swallowing later paths", () => {
+    // A normal prose message with a real fenced block, then more prose paths.
+    const text = ["```ts", "const a = 1;", "```", "Afterwards see /home/carl/after.md too."].join(
+      "\n",
+    );
+    expect(extractMessagePathCandidates(text)).toContain("/home/carl/after.md");
   });
 });

@@ -78,6 +78,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    listAbsoluteDirectory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:list-absolute-directory",
+      tag: WS_METHODS.projectsListAbsoluteDirectory,
+      staleTimeMs: 15_000,
+      idleTtlMs: 5 * 60_000,
+    }),
     statPaths: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:stat-paths",
       tag: WS_METHODS.projectsStatPaths,

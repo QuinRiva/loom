@@ -287,6 +287,136 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
     );
   });
 
+  describe("listAbsoluteDirectory", () => {
+    it.effect("lists entries with directories first, then alphabetical", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "summary.md", "# summary\n");
+        yield* writeTextFile(outsideDir, "data.csv", "a,b\n");
+        yield* fileSystem.makeDirectory(path.join(outsideDir, "charts"));
+        yield* fileSystem.makeDirectory(path.join(outsideDir, "assets"));
+
+        const result = yield* workspaceFileSystem.listAbsoluteDirectory({
+          absolutePath: outsideDir,
+        });
+
+        expect(result.entries).toEqual([
+          { name: "assets", kind: "directory" },
+          { name: "charts", kind: "directory" },
+          { name: "data.csv", kind: "file" },
+          { name: "summary.md", kind: "file" },
+        ]);
+        // The listed root is symlink-resolved.
+        expect(path.isAbsolute(result.absolutePath)).toBe(true);
+      }),
+    );
+
+    it.effect("rejects relative paths without touching the filesystem", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+
+        const error = yield* workspaceFileSystem
+          .listAbsoluteDirectory({ absolutePath: "relative/dir" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteListError);
+        expect(error).toMatchObject({
+          absolutePath: "relative/dir",
+          failure: "path_not_absolute",
+        });
+        expect("cause" in error).toBe(false);
+      }),
+    );
+
+    it.effect("rejects file targets", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "report.md", "# report\n");
+
+        const error = yield* workspaceFileSystem
+          .listAbsoluteDirectory({ absolutePath: path.join(outsideDir, "report.md") })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteListError);
+        expect(error).toMatchObject({ failure: "path_not_directory" });
+      }),
+    );
+
+    it.effect("preserves the real cause for missing directories", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+
+        const error = yield* workspaceFileSystem
+          .listAbsoluteDirectory({ absolutePath: path.join(outsideDir, "missing") })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteListError);
+        expect(error).toMatchObject({ failure: "operation_failed", operation: "realpath-target" });
+        expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+      }),
+    );
+
+    it.effect("resolves symlinked entries to their target kind and drops broken links", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "real.md", "# real\n");
+        yield* fileSystem.makeDirectory(path.join(outsideDir, "realdir"));
+        yield* fileSystem.symlink(
+          path.join(outsideDir, "real.md"),
+          path.join(outsideDir, "link.md"),
+        );
+        yield* fileSystem.symlink(
+          path.join(outsideDir, "realdir"),
+          path.join(outsideDir, "linkdir"),
+        );
+        yield* fileSystem.symlink(
+          path.join(outsideDir, "nowhere"),
+          path.join(outsideDir, "broken"),
+        );
+
+        const result = yield* workspaceFileSystem.listAbsoluteDirectory({
+          absolutePath: outsideDir,
+        });
+
+        expect(result.entries).toEqual([
+          { name: "linkdir", kind: "directory" },
+          { name: "realdir", kind: "directory" },
+          { name: "link.md", kind: "file" },
+          { name: "real.md", kind: "file" },
+        ]);
+      }),
+    );
+
+    it.effect("follows a symlinked directory to list its real contents", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const outsideDir = yield* makeTempDir;
+        const realDir = path.join(outsideDir, "real");
+        yield* fileSystem.makeDirectory(realDir);
+        yield* writeTextFile(realDir, "inside.md", "# inside\n");
+        yield* fileSystem.symlink(realDir, path.join(outsideDir, "alias"));
+
+        const result = yield* workspaceFileSystem.listAbsoluteDirectory({
+          absolutePath: path.join(outsideDir, "alias"),
+        });
+
+        expect(result.entries).toEqual([{ name: "inside.md", kind: "file" }]);
+      }),
+    );
+  });
+
   describe("statPaths", () => {
     it.effect("reports files, directories, missing and non-absolute paths", () =>
       Effect.gen(function* () {

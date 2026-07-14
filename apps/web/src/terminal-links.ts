@@ -36,12 +36,16 @@ export interface WrappedTerminalLinkLine {
   segments: ReadonlyArray<WrappedTerminalLinkLineSegment>;
 }
 
-const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
-const FILE_PATH_PATTERN =
+export const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
+// Absolute (POSIX/`~`/`./`/`../`/Windows drive/UNC) paths, or `name/name`-style
+// relative paths with a separator and optional `:line`/`:line:col` suffix. Bare
+// filenames with no separator are deliberately excluded (too noisy in prose).
+// Shared with the chat-markdown prose/code-block path scanner (markdown-links).
+export const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 
-function trimClosingDelimiters(value: string): string {
+export function trimClosingDelimiters(value: string): string {
   let output = value.replace(TRAILING_PUNCTUATION_PATTERN, "");
   if (output.length === 0) return output;
 

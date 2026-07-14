@@ -731,6 +731,18 @@ label:has(> select#reasoning-effort) select {
   background: transparent !important;
 }
 
+/* Terminal-style clickable file paths inside code blocks: inherit the token
+   colour, underline on hover only, and never alter the block's text content. */
+.chat-markdown .chat-markdown-shiki a.chat-code-path-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chat-markdown .chat-markdown-shiki a.chat-code-path-link:hover {
+  text-decoration: underline;
+}
+
 /* Diagnostics-style tables: row separators only, uppercase headers, and a
    scroll-fade container for horizontal overflow. The root chat-markdown
    wrapping rules (overflow-wrap: anywhere) would let columns shrink to single

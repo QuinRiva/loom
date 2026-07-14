@@ -137,6 +137,7 @@ export const ProjectFileFailure = Schema.Literals([
   "resolved_path_outside_root",
   "path_not_absolute",
   "path_not_file",
+  "path_not_directory",
   "binary_file",
   "operation_failed",
 ]);
@@ -148,6 +149,7 @@ export const ProjectFileOperation = Schema.Literals([
   "open",
   "stat",
   "read",
+  "readdir",
   "close",
   "make-directory",
   "write-file",
@@ -276,6 +278,56 @@ export class ProjectStatPathsError extends Schema.TaggedErrorClass<ProjectStatPa
     super({
       ...props,
       message: typeof props.message === "string" ? props.message : "Failed to stat paths.",
+    } as any);
+  }
+}
+
+/**
+ * Read-only listing of a directory addressed by absolute path, deliberately
+ * NOT constrained to a workspace root. Sibling of the absolute-file read: it
+ * lets chat directory chips open a browsable listing for out-of-workspace
+ * output dirs (e.g. data-analysis deliverables under a home directory). Like
+ * the absolute read it is POSIX-oriented, symlink-resolved, and read-only —
+ * there is intentionally no write counterpart.
+ */
+export const ProjectListAbsoluteDirectoryInput = Schema.Struct({
+  absolutePath: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH),
+  ),
+});
+export type ProjectListAbsoluteDirectoryInput = typeof ProjectListAbsoluteDirectoryInput.Type;
+
+export const ProjectAbsoluteDirectoryEntry = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  kind: Schema.Literals(["file", "directory"]),
+});
+export type ProjectAbsoluteDirectoryEntry = typeof ProjectAbsoluteDirectoryEntry.Type;
+
+export const ProjectListAbsoluteDirectoryResult = Schema.Struct({
+  /** The symlink-resolved absolute directory that was listed. */
+  absolutePath: TrimmedNonEmptyString,
+  entries: Schema.Array(ProjectAbsoluteDirectoryEntry),
+});
+export type ProjectListAbsoluteDirectoryResult = typeof ProjectListAbsoluteDirectoryResult.Type;
+
+export class ProjectListAbsoluteDirectoryError extends Schema.TaggedErrorClass<ProjectListAbsoluteDirectoryError>()(
+  "ProjectListAbsoluteDirectoryError",
+  {
+    absolutePath: Schema.optional(TrimmedNonEmptyString),
+    failure: Schema.optional(ProjectFileFailure),
+    resolvedPath: Schema.optional(TrimmedNonEmptyString),
+    operation: Schema.optional(ProjectFileOperation),
+    operationPath: Schema.optional(TrimmedNonEmptyString),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  // @effect-diagnostics-next-line overriddenSchemaConstructor:off
+  constructor(props: ProjectAbsoluteFileFailureContext) {
+    super({
+      ...props,
+      message:
+        decodedProjectErrorMessage(props) ?? `Failed to list directory '${props.absolutePath}'.`,
     } as any);
   }
 }
