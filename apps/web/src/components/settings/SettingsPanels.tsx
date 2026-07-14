@@ -63,6 +63,12 @@ import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+// loom: durable one-shot auto-open toggles (plan W1), kept in a fork-owned file.
+import {
+  LOOM_AUTO_OPEN_RESTORE_DEFAULTS,
+  LoomAutoOpenSettingsRows,
+  loomAutoOpenChangedLabels,
+} from "../../loom/LoomAutoOpenSettingsRows";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
@@ -397,8 +403,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff whitespace changes"]
         : []),
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
-        ? ["Auto-open task panel"]
+        ? ["Auto-open plan panel"]
         : []),
+      ...loomAutoOpenChangedLabels(settings), // loom:
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -430,6 +437,8 @@ export function useSettingsRestore(onRestored?: () => void) {
     [
       isGitWritingModelDirty,
       settings.autoOpenPlanSidebar,
+      settings.autoOpenGoalTasksPanel, // loom:
+      settings.autoOpenWorkstreamPanel, // loom:
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
@@ -463,6 +472,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+      ...LOOM_AUTO_OPEN_RESTORE_DEFAULTS, // loom:
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       reasoningDisplay: DEFAULT_UNIFIED_SETTINGS.reasoningDisplay,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -748,12 +758,12 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
-          title="Auto-open task panel"
-          description="Open the right-side plan and task panel automatically when steps appear."
+          title="Auto-open plan panel"
+          description="Open the right-side plan panel automatically when plan steps appear."
           resetAction={
             settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar ? (
               <SettingResetButton
-                label="auto-open task panel"
+                label="auto-open plan panel"
                 onClick={() =>
                   updateSettings({
                     autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
@@ -768,10 +778,13 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) =>
                 updateSettings({ autoOpenPlanSidebar: Boolean(checked) })
               }
-              aria-label="Open the task panel automatically"
+              aria-label="Open the plan panel automatically"
             />
           }
         />
+
+        {/* loom: durable one-shot auto-open toggles (plan W1). */}
+        <LoomAutoOpenSettingsRows settings={settings} updateSettings={updateSettings} />
 
         <SettingsRow
           title="New threads"

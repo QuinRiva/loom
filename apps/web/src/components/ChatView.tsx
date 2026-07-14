@@ -3560,17 +3560,20 @@ function ChatViewContent(props: ChatViewProps) {
     // activeThreadRef resets transitively with the active thread.
   }, [activeThread?.id]);
 
-  // loom: fork chat extensions (thread lineage, tasks/workstream surfaces, tasks
-  // auto-open). Deliberately invoked HERE, not at the top of the component, so
-  // the hook's goal-tasks auto-open effect registers immediately AFTER the
-  // thread-reset effect above and BEFORE the plan-sidebar auto-open effect
-  // below. That declaration order is load-bearing: on thread change both effects
-  // fire in the same commit and each opens a right-panel surface (which also
-  // activates it), so the last opener wins the active surface (reset → tasks →
-  // plan). The returned values are consumed only in JSX further down, so this
-  // mid-component call is safe.
+  // loom: fork chat extensions (thread lineage, tasks/workstream surfaces,
+  // goal-tasks/workstream auto-open). The auto-open effect seeds surfaces in a
+  // single non-overriding store transition guarded by a durable per-thread
+  // one-shot flag, so it no longer races the plan-sidebar auto-open below and
+  // declaration order is not load-bearing. The returned values are consumed
+  // only in JSX further down, so this mid-component call is safe.
   const { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface } =
-    useLoomThreadExtensions({ activeThread, activeThreadRef, activeThreadKey });
+    useLoomThreadExtensions({
+      activeThread,
+      activeThreadRef,
+      activeThreadKey,
+      autoOpenGoalTasksPanel: settings.autoOpenGoalTasksPanel,
+      autoOpenWorkstreamPanel: settings.autoOpenWorkstreamPanel,
+    });
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).

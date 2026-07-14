@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
@@ -7,6 +7,8 @@ import { buildThreadRouteParams } from "../threadRoutes";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useThreadShells } from "../state/entities";
 import type { Thread } from "../types";
+import type { SeedableSurfaceKind } from "./seedRightPanelSurfaces";
+import { selectAutoOpenedSurfaces, useWorkstreamUiStore } from "./workstreamUiStore";
 
 export interface LoomThreadExtensions {
   readonly threadLineage: ReadonlyArray<LineageSegment>;
@@ -26,8 +28,16 @@ export function useLoomThreadExtensions(inputs: {
   activeThread: Thread | undefined;
   activeThreadRef: ScopedThreadRef | null;
   activeThreadKey: string | null;
+  autoOpenGoalTasksPanel: boolean;
+  autoOpenWorkstreamPanel: boolean;
 }): LoomThreadExtensions {
-  const { activeThread, activeThreadRef, activeThreadKey } = inputs;
+  const {
+    activeThread,
+    activeThreadRef,
+    activeThreadKey,
+    autoOpenGoalTasksPanel,
+    autoOpenWorkstreamPanel,
+  } = inputs;
   const navigate = useNavigate();
 
   const allThreadShells = useThreadShells();
@@ -67,23 +77,49 @@ export function useLoomThreadExtensions(inputs: {
     useRightPanelStore.getState().open(activeThreadRef, "workstream");
   }, [activeThreadRef]);
 
-  // When the active thread is bound to a goal, surface its goal-task tree once
-  // by auto-opening the "tasks" right-panel surface (mirrors the plan-sidebar
-  // auto-open). We track which scoped thread keys we've already auto-opened in a
-  // ref so switching away and back doesn't re-fire the open and clobber a
-  // surface the user has since selected (e.g. Workstream); the user can still
-  // freely change or close the surface within the session. This coexists with
-  // the plan-sidebar auto-open — both add a right-panel tab rather than fight
-  // for an exclusive slot.
-  const autoOpenedTasksByThreadKey = useRef(new Set<string>());
+  // A thread "participates in a workstream" when it is a sub-thread
+  // (`parentThreadId != null`) or has spawned at least one child in the shell
+  // list. Deliberately NOT "is a server thread", which would seed an empty
+  // Workstream panel on every ordinary thread. Eligibility can flip true
+  // mid-session (first child spawned); the effect below simply fires then and
+  // the one-shot flag keeps it single.
+  const isWorkstreamParticipant =
+    activeThread != null &&
+    (activeThread.parentThreadId != null ||
+      allThreadShells.some(
+        (shell) =>
+          shell.environmentId === activeThread.environmentId &&
+          shell.parentThreadId === activeThread.id,
+      ));
+
+  // Durable one-shot auto-open (plan W1). The "already fired" record is a
+  // persisted per-thread flag (loom workstreamUiStore) whose lifetime matches
+  // the choice it guards — remounts from route changes can no longer resurrect
+  // an auto-open over a surface the user has since selected or closed. Both
+  // eligible surfaces are seeded in ONE store transition (never per-surface),
+  // so which surface ends up active does not depend on effect ordering; `tasks`
+  // wins activation over `workstream` when both are seeded on a first visit.
   useEffect(() => {
-    if (!activeThreadRef || !activeThreadKey) return;
-    if (!activeThread?.goalId) return;
-    if (autoOpenedTasksByThreadKey.current.has(activeThreadKey)) return;
-    autoOpenedTasksByThreadKey.current.add(activeThreadKey);
-    useRightPanelStore.getState().open(activeThreadRef, "tasks");
+    if (!activeThreadRef || !activeThread) return;
+    const flags = selectAutoOpenedSurfaces(useWorkstreamUiStore.getState(), activeThreadRef);
+    const eligible: SeedableSurfaceKind[] = [];
+    if (autoOpenGoalTasksPanel && activeThread.goalId != null && !flags.tasks) {
+      eligible.push("tasks");
+    }
+    if (autoOpenWorkstreamPanel && isWorkstreamParticipant && !flags.workstream) {
+      eligible.push("workstream");
+    }
+    if (eligible.length === 0) return;
+    useRightPanelStore.getState().seedSurfaces(activeThreadRef, eligible, "tasks");
+    useWorkstreamUiStore.getState().markAutoOpened(activeThreadRef, eligible);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
-  }, [activeThreadKey, activeThread?.goalId]);
+  }, [
+    activeThreadKey,
+    activeThread?.goalId,
+    isWorkstreamParticipant,
+    autoOpenGoalTasksPanel,
+    autoOpenWorkstreamPanel,
+  ]);
 
   return { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface };
 }
