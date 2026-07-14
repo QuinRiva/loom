@@ -188,6 +188,10 @@ export function applyThreadDetailEvent(
           spawnGeneration: event.payload.spawnGeneration ?? null,
           forkFromThreadId: event.payload.forkFromThreadId ?? null,
           reportPath: null,
+          // loom: scaffold-first graph authoring (graphKey seeded from the
+          // created payload; a scaffold node is born unbriefed).
+          graphKey: event.payload.graphKey ?? null,
+          kickoffBriefPath: event.payload.kickoffBriefPath ?? null,
           routes: event.payload.routes ?? [],
           gateRounds: 0,
           pendingRework: false,
@@ -304,6 +308,18 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           fanInState: event.payload.fanInState,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    // loom: scaffold-first graph authoring — a brief was attached to a
+    // scaffolded child, so it live-updates out of the awaiting-brief state.
+    case "thread.kickoff-brief-set":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          kickoffBriefPath: event.payload.kickoffBriefPath,
           updatedAt: event.payload.updatedAt,
         },
       };

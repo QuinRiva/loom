@@ -25,6 +25,8 @@ export const workstreamBaseUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
  */
 export const PROVIDER_TOOL_PATHS = {
   workstream_spawn: "/provider-tools/workstream/spawn",
+  workstream_scaffold: "/provider-tools/workstream/scaffold",
+  workstream_brief: "/provider-tools/workstream/brief",
   workstream_set_lane: "/provider-tools/workstream/lane",
   workstream_request_attention: "/provider-tools/workstream/attention",
   workstream_release: "/provider-tools/workstream/release",

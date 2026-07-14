@@ -47,6 +47,8 @@ export function buildLocalDraftThread(
     spawnGeneration: null,
     forkFromThreadId: draftThread.forkFromThreadId,
     reportPath: null,
+    graphKey: null,
+    kickoffBriefPath: null,
     routes: [],
     gateRounds: 0,
     pendingRework: false,

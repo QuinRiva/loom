@@ -370,6 +370,24 @@ export const LoomThreadFields = {
   brief: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Scaffold-first graph authoring (workstream-scaffold plan §1a): a child-only
+  // pointer to this thread's kickoff-brief markdown file (content lives on disk,
+  // never in the event store). Null until `workstream_brief` attaches one; the
+  // dispatcher gates a child's FIRST launch on this being non-null (deps AND
+  // brief are the two orthogonal launch gates). Distinct from the `brief` string
+  // above, which stays the root-handoff kickoff contract. Additive,
+  // decode-defaulted so pre-scaffold snapshots load.
+  kickoffBriefPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // Scaffold-first graph authoring (plan "Key scoping"): the symbolic graph key
+  // assigned at scaffold time — unique-forever + immutable among a parent's
+  // children, the shape-review handle exposed in workstream_list + the graph
+  // projections. Null for legacy spawns and roots. Additive, decode-defaulted so
+  // pre-scaffold snapshots load.
+  graphKey: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   planLane: ThreadPlanLane.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_THREAD_PLAN_LANE)),
   ),
@@ -453,6 +471,46 @@ export const LoomThreadShellFields = {
   consults: Schema.Array(OrchestrationThreadConsultSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  // Scaffold-first graph authoring (plan §3): the timestamp of this thread's
+  // most recent plan-lane transition (its `thread.plan-lane-set` event, or its
+  // creation lane when it never transitioned). This is the STABLE, transition-
+  // derived clock the brief-needed episode (`briefNeededSinceMs`) needs: a node's
+  // own `planned → ready` release and a dependency reaching `done` via a
+  // lane-only `workstream_set_lane` (no submit outcome) both bump it, while an
+  // unrelated receipt-marker/activity append does NOT — deliberately unlike
+  // `updatedAt`, which any activity bumps and so would re-arm the wake in a loop.
+  // Shell-only (dispatcher + liveness are the sole consumers). Null on legacy
+  // snapshots predating the column; consumers fall back to `createdAt`.
+  planLaneSince: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Scaffold-first graph authoring (plan §3): the timestamp of this thread's
+  // most recent dependency-set transition (its `thread.dependencies-set` event).
+  // Companion to `planLaneSince` for the third eligibility transition the episode
+  // clock must follow: a `workstream_set_dependencies` that removes/replaces a
+  // dependency can RE-ENTER the brief-needed state (e.g. an unfinished dep
+  // swapped for an already-`done` one), and only this stable, transition-derived
+  // stamp advances the episode — the dep's own outcome may predate the prior
+  // episode. Stamped ONLY by `thread.dependencies-set`, never by an activity/
+  // receipt append (unlike `updatedAt`, which would re-arm the wake in a loop).
+  // Fed into `briefNeededSinceMs` ONLY while the current dependency set is
+  // satisfied. Shell-only; null on legacy snapshots and until the first
+  // dependency-set (consumers fall back to `createdAt`/`planLaneSince`).
+  dependenciesSince: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  // Scaffold-first graph authoring (plan §3): the timestamp of this thread's
+  // most recent fan-in-settlement transition (its `thread.fanin-set` event).
+  // Third companion to `planLaneSince`/`dependenciesSince` for the last
+  // eligibility transition the clock must follow: `areDependenciesSatisfied`
+  // requires an isolated dependency's fan-in to reach `completed` (not just
+  // `done`), and for a node behind an attached reviewer, the gated isolated
+  // coder's fan-in — a settlement that can land long after `done`. That
+  // `fanin-set` is then the true eligibility transition; only this stable stamp
+  // dates it (the dep's own `done`/outcome predates it). Stamped ONLY by
+  // `thread.fanin-set`, never by an activity/receipt append (unlike `updatedAt`,
+  // which would re-arm the wake in a loop). Fed into `briefNeededSinceMs` on the
+  // same dep whose fan-in the predicate makes load-bearing. Shell-only; null on
+  // legacy snapshots and until the first fan-in-set.
+  faninSince: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 } as const;
 
 // Spread into `OrchestrationSession`.
@@ -661,6 +719,12 @@ export const LoomThreadCreatedPayloadFields = {
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Scaffold-first graph authoring: the symbolic graph key seeded onto the
+  // created thread (present on scaffold-created nodes; omitted for spawns/roots).
+  graphKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // A scaffold node is born unbriefed, but the field is carried so a future
+  // create path may seed a brief pointer at creation time.
+  kickoffBriefPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   planLane: Schema.optional(ThreadPlanLane),
   attention: Schema.optional(ThreadAttention),
@@ -850,6 +914,19 @@ const ThreadWorkSubmitCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// Scaffold-first graph authoring (plan §1a + `workstream_brief`): attach (or
+// overwrite, pre-launch) the on-disk kickoff-brief pointer for a scaffolded
+// child. The HTTP handler wrote the markdown via the brief-storage module; this
+// command event-sources the absolute path onto the thread. Internal (server
+// composes it): a client cannot forge a brief pointer.
+const ThreadKickoffBriefSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.kickoff-brief.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  kickoffBriefPath: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 // D-notify Fix A: a provider turn-start failed before `turn.started` ever
 // landed, so no `thread.session-set running` will arrive to clear the pending
 // turn-start row. This command durably clears that row, so the idle gate stops
@@ -900,7 +977,62 @@ export const LoomInternalCommandMembers = [
   ThreadConsultRecordCommand,
   ThreadWorkSubmitCommand,
   ThreadTurnStartFailCommand,
+  ThreadKickoffBriefSetCommand,
 ] as const;
+
+// Scaffold-first graph authoring (plan §0): the single internal command that
+// creates a whole child graph atomically. Thread ids are preallocated by the
+// HTTP handler; blockedBy/gate references are already resolved to ThreadIds
+// (batch preallocated ids and/or existing child ids). The decider validates the
+// whole batch against the union of the live sibling graph and the batch (unique
+// keys, no dangling refs, no cycles, gate targets are siblings) and emits every
+// `thread.created` event in ONE engine transaction — all-or-nothing.
+//
+// Per-node fields are today's spawn fields MINUS `brief` (a scaffold node is
+// born unbriefed), PLUS `graphKey`. Fields shared by every child of a parent
+// (projectId, goalId, runtimeMode, interactionMode, branch, worktreePath) are
+// NOT carried — the decider inherits them from the parent thread. Only
+// `modelSelection` is per-node (taskShape/preset resolution), which forces the
+// factory: `ModelSelection` lives in the upstream-owned `orchestration.ts`, and
+// this file must never value-import it. `orchestration.ts` calls the factory
+// with its own `ModelSelection` schema and splices the result into the internal
+// command union — exactly the pattern `makeLoomOrchestrationEventMembers` uses
+// for the fork event members.
+export const makeLoomScaffoldCommandMembers = <const MS extends Schema.Top>(deps: {
+  readonly ModelSelection: MS;
+}) => {
+  const WorkstreamScaffoldNode = Schema.Struct({
+    // Preallocated by the HTTP handler; validated absent by the decider.
+    threadId: ThreadId,
+    // Symbolic key — unique-forever among the parent's children, immutable.
+    graphKey: TrimmedNonEmptyString,
+    role: Schema.NullOr(TrimmedNonEmptyString),
+    title: TrimmedNonEmptyString,
+    purpose: Schema.NullOr(TrimmedNonEmptyString),
+    isolation: Schema.optional(ThreadIsolation),
+    // `ready` (runs once deps clear + brief lands) or `planned` (staged). Omit
+    // → the decider applies the scaffold's `staged` flag.
+    planLane: Schema.optional(ThreadPlanLane),
+    // Already resolved to ThreadIds (batch preallocated ids and/or existing
+    // child ids); the decider validates them against the union graph.
+    blockedBy: Schema.optional(Schema.Array(ThreadId)),
+    routes: Schema.optional(Schema.Array(WorkstreamRoute)),
+    spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+    modelSelection: deps.ModelSelection,
+  });
+  const ThreadScaffoldCommand = Schema.Struct({
+    type: Schema.Literal("thread.scaffold"),
+    commandId: CommandId,
+    parentThreadId: ThreadId,
+    // true ⇒ every created node is born `planned` (held) unless the node states
+    // its own planLane; false/omitted ⇒ `ready`.
+    staged: Schema.optional(Schema.Boolean),
+    nodes: Schema.Array(WorkstreamScaffoldNode),
+    createdAt: IsoDateTime,
+  });
+  return [ThreadScaffoldCommand] as const;
+};
 
 // ---------------------------------------------------------------------------
 // Fork event payloads (exported) + the event-member factory (shape d). The
@@ -1035,6 +1167,15 @@ export const ThreadReportSetPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// Scaffold-first graph authoring: the projected kickoff-brief pointer set on a
+// scaffolded child. The projector maps it onto `kickoffBriefPath`; the
+// dispatcher's brief gate reads it. Overwrites are ordinary re-emits pre-launch.
+export const ThreadKickoffBriefSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  kickoffBriefPath: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+
 // consult_thread observability: one resolved consult recorded on the asker
 // thread. `answer` is the FULL answer (no truncation/pointer scheme).
 // `forkSessionPath` is present when the read-only fork's jsonl was retained to
@@ -1158,6 +1299,11 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
+      type: Schema.Literal("thread.kickoff-brief-set"),
+      payload: ThreadKickoffBriefSetPayload,
+    }),
+    Schema.Struct({
+      ...base,
       type: Schema.Literal("thread.consult-recorded"),
       payload: ThreadConsultRecordedPayload,
     }),
@@ -1201,6 +1347,7 @@ export const LOOM_EVENT_TYPES = [
   "thread.turn-start-failed",
   "thread.consult-recorded",
   "thread.report-set",
+  "thread.kickoff-brief-set",
   "thread.outcome-recorded",
   "thread.route-taken",
   "thread.fanin-set",
@@ -1260,13 +1407,20 @@ export const LOOM_COMMAND_TYPES = [
   "thread.consult.record",
   "thread.fanin.set",
   "thread.turn-start.fail",
+  "thread.kickoff-brief.set",
+  "thread.scaffold",
 ] as const;
 export type LoomCommandType = (typeof LOOM_COMMAND_TYPES)[number];
 
-// The "expected" side, derived from the member tuples actually spliced.
+// The "expected" side, derived from the member tuples actually spliced. The
+// scaffold command is produced by `makeLoomScaffoldCommandMembers` (spliced into
+// the internal union by `orchestration.ts` with its own `ModelSelection`), so
+// its `type` literal is derived from the factory return — mirroring how
+// `LoomEventMemberType` derives from `makeLoomOrchestrationEventMembers`.
 type LoomCommandMemberType =
   | (typeof LoomClientCommandMembers)[number]["Type"]["type"]
-  | (typeof LoomInternalCommandMembers)[number]["Type"]["type"];
+  | (typeof LoomInternalCommandMembers)[number]["Type"]["type"]
+  | ReturnType<typeof makeLoomScaffoldCommandMembers>[number]["Type"]["type"];
 
 // Exactness, both directions.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

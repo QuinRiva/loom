@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { memo, use, useMemo, useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, GitBranchIcon } from "lucide-react";
 import { type SidebarThreadSummary } from "~/types";
+import { isAwaitingBrief } from "~/lib/workstreamPresentation";
 import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { cn } from "~/lib/utils";
@@ -132,6 +133,9 @@ function spawnChildStatus(summary: SidebarThreadSummary | undefined): {
   if (summary.planLane === "done") return { label: "Done", dotClass: "bg-emerald-400" };
   if (summary.planLane === "cancelled") return { label: "Cancelled", dotClass: "bg-slate-500" };
   if (summary.planLane === "in_progress") return { label: "In progress", dotClass: "bg-sky-400" };
-  if (summary.planLane === "ready") return { label: "Ready", dotClass: "bg-cyan-400" };
+  if (summary.planLane === "ready")
+    return isAwaitingBrief(summary)
+      ? { label: "Awaiting brief", dotClass: "bg-indigo-400" }
+      : { label: "Ready", dotClass: "bg-cyan-400" };
   return { label: "Planned", dotClass: "bg-slate-400" };
 }

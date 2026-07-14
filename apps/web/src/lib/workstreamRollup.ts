@@ -11,8 +11,9 @@ import type { SidebarThreadSummary } from "../types";
  *
  *  - **Plan lane** (intent; the kanban column): `planned | ready | in_progress |
  *    done | cancelled`, plus the *derived* `blocked` (a released `ready` thread
- *    whose dependencies are unmet). This is the only axis a thread is grouped
- *    into a column by.
+ *    whose dependencies are unmet) and `awaiting_brief` (a released `ready`
+ *    thread with no kickoff brief yet, so it cannot dispatch even once its deps
+ *    clear). This is the only axis a thread is grouped into a column by.
  *  - **Activity** (the truth; derived): is a turn literally executing right now
  *    (`hasRunningSignal`). Rendered as an overlay (live dots), never a column —
  *    a re-engaged `done` thread is plan-`done` AND activity-active at once.
@@ -24,7 +25,7 @@ import type { SidebarThreadSummary } from "../types";
  * Board column a thread occupies: its plan lane, or the derived `blocked` (ready
  * but waiting on upstream). Attention and activity are overlays, not columns.
  */
-export type WorkstreamColumnId = ThreadPlanLane | "blocked";
+export type WorkstreamColumnId = ThreadPlanLane | "blocked" | "awaiting_brief";
 
 export type GraphState = "active" | "attention" | "deadlocked" | "idle" | "done" | "empty";
 

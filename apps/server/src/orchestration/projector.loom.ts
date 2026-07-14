@@ -31,6 +31,7 @@ import {
   ThreadDependenciesSetPayload,
   ThreadFanInSetPayload,
   ThreadReportSetPayload,
+  ThreadKickoffBriefSetPayload,
   ThreadOutcomeRecordedPayload,
   ThreadRouteTakenPayload,
   GoalCreatedPayload,
@@ -448,6 +449,24 @@ export function projectLoomEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             reportPath: payload.reportPath,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    // Scaffold-first graph authoring: attach the on-disk kickoff-brief pointer.
+    // Pre-launch overwrites are ordinary re-emits (last write wins).
+    case "thread.kickoff-brief-set":
+      return decodeForEvent(
+        ThreadKickoffBriefSetPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            kickoffBriefPath: payload.kickoffBriefPath,
             updatedAt: payload.updatedAt,
           }),
         })),

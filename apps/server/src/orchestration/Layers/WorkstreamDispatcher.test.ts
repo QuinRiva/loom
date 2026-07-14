@@ -20,7 +20,9 @@ import {
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -64,6 +66,11 @@ import {
   idleLastProgressMs,
   idleWakeWithinGrace,
   selectThreadsToDispatch,
+  isBriefNeeded,
+  briefNeededSinceMs,
+  briefNeededCommandId,
+  buildBriefNeededMessage,
+  WORKSTREAM_CONTROL_PLANE_MARKER,
   slowToolNoticeIndex,
   WAKE_REPORT_EXCERPT_LIMIT,
   WorkstreamDispatcherLive,
@@ -106,6 +113,18 @@ const shell = (
     planLane: "ready" as ThreadPlanLane,
     attention: [],
     blockedBy: [],
+    // Scaffold plan §1: a dispatchable child carries a kickoff brief; the brief
+    // gate is held "present" here so the existing gate tests exercise the OTHER
+    // preconditions. Brief-gate tests set it to null explicitly.
+    kickoffBriefPath: "brief.md",
+    graphKey: null,
+    // Scaffold plan §3: the lane-transition episode clock. Null here (falls back
+    // to createdAt); the transition tests set it explicitly.
+    planLaneSince: null,
+    // Scaffold plan §3: the dependency-set episode clock (gap c). Null here; the
+    // re-enter-via-set_dependencies tests set it explicitly.
+    dependenciesSince: null,
+    faninSince: null,
     spawnGeneration: null,
     forkFromThreadId: null,
     reportPath: null,
@@ -254,6 +273,369 @@ describe("selectThreadsToDispatch", () => {
 
   it("skips sub-threads missing the role/purpose needed for a kick-off", () => {
     expect(selectThreadsToDispatch([shell({ id: "child-1", purpose: null })])).toEqual([]);
+  });
+
+  it("does NOT dispatch an unbriefed child (brief gate) even when deps + release clear", () => {
+    expect(selectThreadsToDispatch([shell({ id: "child-1", kickoffBriefPath: null })])).toEqual([]);
+  });
+
+  it("dispatches the same child once a brief is attached", () => {
+    expect(
+      ids(selectThreadsToDispatch([shell({ id: "child-1", kickoffBriefPath: "/briefs/c1.md" })])),
+    ).toEqual(["child-1"]);
+  });
+});
+
+describe("isBriefNeeded (brief-needed eligibility, scaffold plan §2/§3)", () => {
+  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+    new Map(threads.map((t) => [t.id, t] as const));
+
+  it("is true for a released, deps-satisfied, unbriefed sub-thread", () => {
+    const t = shell({ id: "child-1", kickoffBriefPath: null });
+    expect(isBriefNeeded(t, map([t]))).toBe(true);
+  });
+
+  it("is false once a brief is attached (then it is dispatchable, not brief-needed)", () => {
+    const t = shell({ id: "child-1", kickoffBriefPath: "/briefs/c1.md" });
+    expect(isBriefNeeded(t, map([t]))).toBe(false);
+  });
+
+  it("is false while a held `planned` node is not yet released", () => {
+    const t = shell({ id: "child-1", planLane: "planned", kickoffBriefPath: null });
+    expect(isBriefNeeded(t, map([t]))).toBe(false);
+  });
+
+  it("is false while a dependency is not done (not yet eligible)", () => {
+    const dep = shell({ id: "dep", planLane: "in_progress", latestUserMessageAt: now });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(isBriefNeeded(child, map([dep, child]))).toBe(false);
+  });
+
+  it("is disjoint from selectThreadsToDispatch: a child is in exactly one set", () => {
+    const unbriefed = shell({ id: "child-1", kickoffBriefPath: null });
+    const briefed = shell({ id: "child-2", kickoffBriefPath: "/briefs/c2.md" });
+    const threads = [unbriefed, briefed];
+    expect(ids(selectThreadsToDispatch(threads))).toEqual(["child-2"]);
+    expect(isBriefNeeded(unbriefed, map(threads))).toBe(true);
+    expect(isBriefNeeded(briefed, map(threads))).toBe(false);
+  });
+});
+
+describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", () => {
+  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+    new Map(threads.map((t) => [t.id, t] as const));
+
+  it("dates a born-eligible node (no deps) from its scaffold/createdAt time", () => {
+    const created = "2026-06-24T01:00:00.000Z";
+    const t = shell({ id: "child-1", kickoffBriefPath: null, createdAt: created });
+    expect(briefNeededSinceMs(t, map([t]))).toBe(Date.parse(created));
+  });
+
+  it("dates a dep-gated node from its LAST dependency's outcome, not its early createdAt", () => {
+    // Scaffolded early, unblocked late: the clock must be the unblock (dep
+    // outcome), never createdAt — else the liveness grace would trip on birth.
+    const depDone = "2026-06-24T05:00:00.000Z";
+    const dep = shell({
+      id: "dep",
+      planLane: "done",
+      latestUserMessageAt: now,
+      lastOutcome: {
+        outcome: "done",
+        decision: "resolve",
+        round: 0,
+        at: depDone,
+        recordedByEventId: EventId.make("11111111-1111-1111-1111-111111111111"),
+      } as unknown as OrchestrationThreadShell["lastOutcome"],
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(Date.parse(depDone));
+  });
+
+  it("takes the MAX across multiple dependencies (the last to finish)", () => {
+    const early = shell({
+      id: "dep-early",
+      planLane: "done",
+      latestUserMessageAt: now,
+      lastOutcome: {
+        outcome: "done",
+        decision: "resolve",
+        round: 0,
+        at: "2026-06-24T03:00:00.000Z",
+        recordedByEventId: EventId.make("22222222-2222-2222-2222-222222222222"),
+      } as unknown as OrchestrationThreadShell["lastOutcome"],
+    });
+    const late = shell({
+      id: "dep-late",
+      planLane: "done",
+      latestUserMessageAt: now,
+      lastOutcome: {
+        outcome: "done",
+        decision: "resolve",
+        round: 0,
+        at: "2026-06-24T06:00:00.000Z",
+        recordedByEventId: EventId.make("33333333-3333-3333-3333-333333333333"),
+      } as unknown as OrchestrationThreadShell["lastOutcome"],
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      blockedBy: ["dep-early" as ThreadId, "dep-late" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([early, late, child]))).toBe(
+      Date.parse("2026-06-24T06:00:00.000Z"),
+    );
+  });
+
+  it("dates a staged-then-released node from its OWN release, not its early createdAt (gap a)", () => {
+    // A node scaffolded staged early and released to `ready` much later: the
+    // episode must date from the release (`planLaneSince`), else an age-based
+    // clock trips the liveness grace immediately on release and a re-release's
+    // unchanged key suppresses the fresh wake.
+    const released = "2026-06-24T09:00:00.000Z";
+    const t = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: released,
+    });
+    expect(briefNeededSinceMs(t, map([t]))).toBe(Date.parse(released));
+  });
+
+  it("picks up a dependency completed via lane-only set_lane(done) with no outcome (gap b)", () => {
+    // The dep reached `done` through `workstream_set_lane`, so it has NO
+    // `lastOutcome`; its done-transition time lives on `planLaneSince`. The
+    // clock must still advance to it, else the old outcome-only derivation would
+    // fall back to the child's stale createdAt.
+    const depDone = "2026-06-24T07:00:00.000Z";
+    const dep = shell({
+      id: "dep",
+      planLane: "done",
+      latestUserMessageAt: now,
+      lastOutcome: null,
+      planLaneSince: depDone,
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(Date.parse(depDone));
+  });
+
+  it("ignores a non-terminal dep's planLaneSince (only a DONE dep contributes)", () => {
+    // A dep merely released to `ready` (planLaneSince set) but not yet done must
+    // NOT advance the clock — only its eventual completion does.
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    const dep = shell({
+      id: "dep",
+      planLane: "ready",
+      lastOutcome: null,
+      planLaneSince: "2026-06-24T08:00:00.000Z",
+    });
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(
+      Date.parse("2026-06-24T00:00:00.000Z"),
+    );
+  });
+
+  it("advances on a set_dependencies that re-enters eligibility with an already-done dep (gap c)", () => {
+    // Re-enter scenario: the node was eligible, left (an unfinished dep added),
+    // then a later set_dependencies swapped in an already-`done` dep whose
+    // outcome PREDATES the prior episode. Only the dependency-set stamp
+    // (`dependenciesSince`) dates the true re-entry — the dep outcome alone
+    // would leave the clock stale and suppress the fresh wake.
+    const depSetAt = "2026-06-24T10:00:00.000Z";
+    const dep = shell({
+      id: "dep",
+      planLane: "done",
+      latestUserMessageAt: now,
+      // Outcome long before the re-entry — must NOT be the episode.
+      lastOutcome: {
+        outcome: "done",
+        decision: "resolve",
+        round: 0,
+        at: "2026-06-24T01:00:00.000Z",
+        recordedByEventId: EventId.make("44444444-4444-4444-4444-444444444444"),
+      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      planLaneSince: "2026-06-24T01:00:00.000Z",
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      dependenciesSince: depSetAt,
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(Date.parse(depSetAt));
+    // The receipt/episode key advances with it, so a fresh batched wake fires
+    // instead of the prior episode's stale marker suppressing it.
+    expect(
+      briefNeededCommandId("child-1" as ThreadId, briefNeededSinceMs(child, map([dep, child]))),
+    ).not.toBe(briefNeededCommandId("child-1" as ThreadId, Date.parse("2026-06-24T00:00:00.000Z")));
+  });
+
+  it("excludes dependenciesSince while the current dep set is UNSATISFIED (added-unfinished-dep state)", () => {
+    // A set_dependencies that ADDS an unfinished dep stamps dependenciesSince but
+    // leaves the node ineligible; the stamp must not seed a phantom episode.
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      dependenciesSince: "2026-06-24T09:00:00.000Z",
+      blockedBy: ["dep" as ThreadId],
+    });
+    const dep = shell({ id: "dep", planLane: "ready", lastOutcome: null });
+    // Deps unsatisfied → dependenciesSince excluded → clock stays at createdAt.
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(
+      Date.parse("2026-06-24T00:00:00.000Z"),
+    );
+  });
+
+  it("dates the episode from an isolated dep's fan-in completion, not its earlier done (gap d)", () => {
+    // The isolated dep went `done` (+ outcome) long ago, but its branch fanned
+    // in only much later. `areDependenciesSatisfied` gates on fanInState ===
+    // 'completed', so THAT fanin-set is the true eligibility transition — the
+    // clock must date from it, else a slow settlement past grace trips the
+    // backstop the instant the dependent becomes eligible.
+    const faninAt = "2026-06-24T12:00:00.000Z";
+    const dep = shell({
+      id: "dep",
+      planLane: "done",
+      latestUserMessageAt: now,
+      isolation: "isolated",
+      fanInState: "completed",
+      lastOutcome: {
+        outcome: "done",
+        decision: "resolve",
+        round: 0,
+        at: "2026-06-24T02:00:00.000Z",
+        recordedByEventId: EventId.make("55555555-5555-5555-5555-555555555555"),
+      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      planLaneSince: "2026-06-24T02:00:00.000Z",
+      faninSince: faninAt,
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(Date.parse(faninAt));
+  });
+
+  it("does NOT count an isolated dep's fan-in for an ATTACHED dependent (releases on done alone)", () => {
+    // An attached dependent (a gated reviewer) joins the coder's pre-merge tree,
+    // so the predicate releases it on the dep's `done` alone — fan-in is not
+    // load-bearing and must not enter the clock.
+    const dep = shell({
+      id: "dep",
+      planLane: "done",
+      latestUserMessageAt: now,
+      isolation: "isolated",
+      fanInState: "completed",
+      lastOutcome: null,
+      planLaneSince: "2026-06-24T02:00:00.000Z",
+      faninSince: "2026-06-24T12:00:00.000Z",
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      isolation: "attached",
+      blockedBy: ["dep" as ThreadId],
+    });
+    // Fan-in excluded → episode is the dep's done transition (planLaneSince).
+    expect(briefNeededSinceMs(child, map([dep, child]))).toBe(
+      Date.parse("2026-06-24T02:00:00.000Z"),
+    );
+  });
+
+  it("dates the episode from the two-hop coder's fan-in behind an attached reviewer (gap d)", () => {
+    // The dependent is gated on an attached reviewer that is itself `done`, but
+    // the merged output belongs to the isolated coder the reviewer gates, whose
+    // fan-in lands at gate resolution — asynchronously after the reviewer's done.
+    // The episode must date from THAT coder's fan-in.
+    const coderFaninAt = "2026-06-24T13:00:00.000Z";
+    const coder = shell({
+      id: "coder",
+      planLane: "done",
+      latestUserMessageAt: now,
+      isolation: "isolated",
+      fanInState: "completed",
+      planLaneSince: "2026-06-24T03:00:00.000Z",
+      faninSince: coderFaninAt,
+    });
+    const reviewer = shell({
+      id: "reviewer",
+      planLane: "done",
+      latestUserMessageAt: now,
+      isolation: "attached",
+      lastOutcome: null,
+      planLaneSince: "2026-06-24T04:00:00.000Z",
+      blockedBy: ["coder" as ThreadId],
+    });
+    const child = shell({
+      id: "child-1",
+      kickoffBriefPath: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      planLaneSince: null,
+      blockedBy: ["reviewer" as ThreadId],
+    });
+    expect(briefNeededSinceMs(child, map([coder, reviewer, child]))).toBe(Date.parse(coderFaninAt));
+  });
+});
+
+describe("briefNeededCommandId (episode-keyed marker id)", () => {
+  it("keys by (childId, briefNeededSince) so a fresh episode re-arms", () => {
+    const a = briefNeededCommandId("child-1" as ThreadId, 1000);
+    const b = briefNeededCommandId("child-1" as ThreadId, 2000);
+    expect(a).not.toBe(b);
+    expect(a).toBe(briefNeededCommandId("child-1" as ThreadId, 1000));
+    expect(a.startsWith("server:workstream-brief-needed:")).toBe(true);
+  });
+});
+
+describe("buildBriefNeededMessage (scaffold plan §2 batched notice)", () => {
+  it("names every eligible child by graph key + role + title and instructs workstream_brief", () => {
+    const text = buildBriefNeededMessage([
+      { id: "child-a" as ThreadId, graphKey: "api", role: "coder", title: "Dedup endpoint" },
+      { id: "child-b" as ThreadId, graphKey: null, role: "reviewer", title: "Review it" },
+    ]);
+    expect(text).toContain(WORKSTREAM_CONTROL_PLANE_MARKER);
+    expect(text).toContain("2 of your Workstream sub-threads");
+    expect(text).toContain("`api`");
+    expect(text).toContain("Dedup endpoint");
+    // Keyless child falls back to its thread id.
+    expect(text).toContain("`child-b`");
+    expect(text).toContain("workstream_brief");
+  });
+
+  it("uses the singular lead for exactly one child", () => {
+    const text = buildBriefNeededMessage([
+      { id: "child-a" as ThreadId, graphKey: "api", role: "coder", title: "Dedup endpoint" },
+    ]);
+    expect(text).toContain("One of your Workstream sub-threads");
   });
 });
 
@@ -949,14 +1331,24 @@ describe("digest builders + flush predicates (design §4.3/§5.3)", () => {
     expect(slow).toContain("7 min");
   });
 
-  it("parentWorkstreamQuiet is false with a running/ready child, true otherwise", () => {
+  it("parentWorkstreamQuiet is false with a running/briefed-ready child, true otherwise", () => {
     const p = "p" as ThreadId;
     expect(
       parentWorkstreamQuiet(p, [{ parentThreadId: p, planLane: "in_progress" as ThreadPlanLane }]),
     ).toBe(false);
+    // A briefed `ready` child is imminent work — not quiet.
     expect(
-      parentWorkstreamQuiet(p, [{ parentThreadId: p, planLane: "ready" as ThreadPlanLane }]),
+      parentWorkstreamQuiet(p, [
+        { parentThreadId: p, planLane: "ready" as ThreadPlanLane, kickoffBriefPath: "/b.md" },
+      ]),
     ).toBe(false);
+    // A `ready` child with no brief cannot dispatch — quiet (orchestrator must
+    // write its brief), plan §5.
+    expect(
+      parentWorkstreamQuiet(p, [
+        { parentThreadId: p, planLane: "ready" as ThreadPlanLane, kickoffBriefPath: null },
+      ]),
+    ).toBe(true);
     // planned (held) / yielded / done do not count as running.
     expect(
       parentWorkstreamQuiet(p, [
@@ -3000,6 +3392,55 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
   );
 
   effectIt.effect(
+    "scaffold plan §4/§5: a gate rework round resumes the coder even with NO brief (the brief gates only the first launch)",
+    () => {
+      // Both gate parties are brief-less (kickoffBriefPath null): the brief gate
+      // must NOT touch gate-round re-prompts, which flow through the traversal
+      // pass, not the promote path.
+      const reviewer = shell({
+        id: REVIEWER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "reviewer",
+        planLane: "in_progress",
+        routes: gateRoutes,
+        gateRounds: 1,
+        lastOutcome: loopOutcome,
+        kickoffBriefPath: null,
+      });
+      const coder = shell({
+        id: CODER_ID as unknown as string,
+        parentThreadId: PARENT_ID,
+        role: "coder",
+        planLane: "done",
+        pendingRework: true,
+        kickoffBriefPath: null,
+      });
+      return run(
+        [parent, reviewer, coder],
+        { prefix: "t3-workstream-gate-rework-nobrief-" },
+        ({ dispatched }) =>
+          Effect.sync(() => {
+            const resume = dispatched.find(
+              (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+                c.type === "thread.turn.start" && c.threadId === CODER_ID,
+            );
+            expect(resume).toBeDefined();
+            expect(resume!.commandId).toBe(gateCommandId(REVIEWER_ID, 1, "rework"));
+            expect(resume!.reopen).toBe(true);
+            // No brief-read-failure park despite the null brief — the gate path
+            // never consults the brief gate.
+            expect(
+              dispatched.filter(
+                (c) =>
+                  c.type === "thread.attention.raise" && c.commandId.includes("brief-read-failed"),
+              ),
+            ).toHaveLength(0);
+          }),
+      );
+    },
+  );
+
+  effectIt.effect(
     "crash between route-taken and resume: a redrive with the receipt present never re-dispatches",
     () => {
       const reviewer = shell({
@@ -3825,6 +4266,13 @@ describe("fan-in settlement releases dependents", () => {
       Effect.gen(function* () {
         const dispatched: Array<OrchestrationCommand> = [];
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        // The dependent must carry a readable kickoff brief for promotion to
+        // fire (scaffold plan §1 brief gate + read-at-kickoff).
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const briefDir = yield* fs.makeTempDirectory({ prefix: "t3-fanin-brief-" });
+        const dependentBrief = path.join(briefDir, "dependent.md");
+        yield* fs.writeFileString(dependentBrief, "dependent kickoff brief");
         const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
           shell({
             id: DEP_ID,
@@ -3839,6 +4287,7 @@ describe("fan-in settlement releases dependents", () => {
             isolation: "isolated",
             planLane: "ready",
             blockedBy: [DEP_ID],
+            kickoffBriefPath: dependentBrief,
           }),
         ]);
         const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
@@ -3894,7 +4343,7 @@ describe("fan-in settlement releases dependents", () => {
             dispatched.some((c) => c.type === "thread.turn.start" && c.threadId === DEPENDENT_ID),
           ).toBe(true);
         }).pipe(Effect.provide(WorkstreamDispatcherLive.pipe(Layer.provide(deps))));
-      }),
+      }).pipe(Effect.provide(NodeServices.layer)),
     ),
   );
 });
@@ -4885,6 +5334,187 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
               ),
             ),
           );
+        }),
+      ),
+  );
+});
+
+// Scaffold-first graph authoring (scaffold plan §1/§2): the dispatcher gates a
+// child's first launch on BOTH deps AND a brief, reads the brief from disk at
+// kickoff (honouring pre-launch edits), parks on a read failure, and wakes the
+// parent with one batched notice for every simultaneously-eligible unbriefed
+// child. Exercised through the assembled dispatcher layer.
+describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-scaffold" as ThreadId;
+
+  const buildLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: Effect.succeed(Stream.empty),
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.succeed({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        } satisfies OrchestrationShellSnapshot),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-scaffold-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  const rootParent = shell({
+    id: PARENT_ID as unknown as string,
+    parentThreadId: null,
+    session: null,
+  });
+
+  effectIt.effect("reads the brief file at kickoff and feeds its CURRENT content", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const dir = yield* fs.makeTempDirectory({ prefix: "t3-brief-read-" });
+        const briefPath = path.join(dir, "child.md");
+        yield* fs.writeFileString(briefPath, "THE FULL SELF-CONTAINED KICKOFF BRIEF");
+        const child = shell({
+          id: "child-briefed",
+          parentThreadId: PARENT_ID,
+          kickoffBriefPath: briefPath,
+        });
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+        }).pipe(Effect.provide(buildLayer(dispatched, [rootParent, child])));
+
+        const kickoff = dispatched.find(
+          (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+            c.type === "thread.turn.start" && c.threadId === ("child-briefed" as ThreadId),
+        );
+        expect(kickoff).toBeDefined();
+        expect(kickoff!.message.origin).toBe("kickoff");
+        expect(kickoff!.message.text).toContain("THE FULL SELF-CONTAINED KICKOFF BRIEF");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  effectIt.effect("parks the node (needs_guidance) when the brief file cannot be read", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const child = shell({
+          id: "child-unreadable",
+          parentThreadId: PARENT_ID,
+          kickoffBriefPath: "/nonexistent-dir/does-not-exist.md",
+        });
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+        }).pipe(Effect.provide(buildLayer(dispatched, [rootParent, child])));
+
+        // No kickoff turn was started for the un-launchable child…
+        expect(
+          dispatched.filter(
+            (c) =>
+              c.type === "thread.turn.start" && c.threadId === ("child-unreadable" as ThreadId),
+          ),
+        ).toHaveLength(0);
+        // …instead it was parked with needs_guidance.
+        const park = dispatched.find(
+          (c): c is Extract<OrchestrationCommand, { type: "thread.attention.raise" }> =>
+            c.type === "thread.attention.raise" && c.threadId === ("child-unreadable" as ThreadId),
+        );
+        expect(park).toBeDefined();
+        expect(park!.reason).toBe("needs_guidance");
+        expect(park!.commandId).toContain("brief-read-failed");
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "wakes the idle parent with ONE batched brief-needed notice naming every eligible unbriefed child",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const childA = shell({
+            id: "child-a",
+            parentThreadId: PARENT_ID,
+            graphKey: "api",
+            title: "Dedup endpoint",
+            kickoffBriefPath: null,
+          });
+          const childB = shell({
+            id: "child-b",
+            parentThreadId: PARENT_ID,
+            graphKey: "review",
+            title: "Review the endpoint",
+            kickoffBriefPath: null,
+          });
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+          }).pipe(Effect.provide(buildLayer(dispatched, [rootParent, childA, childB])));
+
+          // Exactly one notice to the parent, naming BOTH children, and NO
+          // kickoff for either unbriefed child.
+          const notices = dispatched.filter(
+            (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+              c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+          );
+          expect(notices).toHaveLength(1);
+          expect(notices[0]!.message.origin).toBe("control_notice");
+          expect(notices[0]!.message.text).toContain("workstream_brief");
+          expect(notices[0]!.message.text).toContain("`api`");
+          expect(notices[0]!.message.text).toContain("`review`");
+          expect(
+            dispatched.filter(
+              (c) =>
+                c.type === "thread.turn.start" &&
+                (c.threadId === ("child-a" as ThreadId) || c.threadId === ("child-b" as ThreadId)),
+            ),
+          ).toHaveLength(0);
+          // One durable per-child receipt marker written after delivery.
+          const markers = dispatched.filter(
+            (c) =>
+              c.type === "thread.activity.append" && c.activity.kind === "workstream.brief-needed",
+          );
+          expect(markers).toHaveLength(2);
         }),
       ),
   );

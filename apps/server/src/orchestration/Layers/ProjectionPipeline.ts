@@ -868,6 +868,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             spawnGeneration: event.payload.spawnGeneration ?? null,
             forkFromThreadId: event.payload.forkFromThreadId ?? null,
             reportPath: null,
+            // loom: scaffold-first graph authoring. graphKey is seeded from the
+            // created payload; a scaffold node is born unbriefed.
+            graphKey: event.payload.graphKey ?? null,
+            kickoffBriefPath: event.payload.kickoffBriefPath ?? null,
+            // Scaffold plan §3: the lane-transition clock starts at creation (the
+            // node's initial lane assignment); every later plan-lane-set advances
+            // it, so the brief-needed episode dates from the newest transition.
+            planLaneSince: event.payload.createdAt,
+            // Scaffold plan §3: the dependency-set clock is null until the first
+            // `thread.dependencies-set` (the initial blockedBy is carried by
+            // thread.created; a bare creation is not a dependency-change episode).
+            dependenciesSince: null,
+            // Scaffold plan §3: the fan-in-settlement clock is null until the
+            // first `thread.fanin-set` (a fresh node has not settled a branch).
+            faninSince: null,
             routes: event.payload.routes ?? [],
             isolation: event.payload.isolation ?? "shared",
             fanInState: "none",
@@ -1001,6 +1016,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             planLane: event.payload.planLane,
+            // Scaffold plan §3: stamp the transition-derived episode clock. Only
+            // real lane transitions bump it (activity/receipt appends do not),
+            // so it is the stable source the brief-needed wake + backstop read
+            // instead of the re-arm-prone `updatedAt`.
+            planLaneSince: event.payload.updatedAt,
             // Re-engagement epoch: a terminal→ready/planned reopen carries a
             // fresh spawnGeneration so the re-run's completion joins a new
             // generation (and fires a new parent wake) instead of being deduped
@@ -1095,6 +1115,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             blockedBy: event.payload.blockedBy,
+            // Scaffold plan §3: stamp the dependency-change episode clock. A
+            // set_dependencies that removes/replaces a dep can RE-ENTER the
+            // brief-needed state; this stable, transition-derived timestamp
+            // advances the episode so a fresh wake + fresh backstop grace fire.
+            // Only real dependency-set events bump it (activity/receipt appends
+            // do not), so it is immune to the `updatedAt` re-arm loop.
+            dependenciesSince: event.payload.updatedAt,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -1110,6 +1137,23 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             reportPath: event.payload.reportPath,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // loom: scaffold-first graph authoring — attach the on-disk kickoff-brief
+        // pointer. Pre-launch overwrites are ordinary re-emits (last write wins).
+        case "thread.kickoff-brief-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            kickoffBriefPath: event.payload.kickoffBriefPath,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -1189,6 +1233,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             fanInState: event.payload.fanInState,
+            // Scaffold plan §3: stamp the fan-in-settlement episode clock. When an
+            // isolated dep's fan-in reaches `completed` (or that of an isolated
+            // coder behind an attached reviewer), THIS is the transition that
+            // makes a waiting unbriefed dependent truly eligible — later than the
+            // dep's `done`. Only real fanin-set events bump it (activity/receipt
+            // appends do not), keeping it immune to the `updatedAt` re-arm loop.
+            faninSince: event.payload.updatedAt,
             updatedAt: event.payload.updatedAt,
           });
           return;

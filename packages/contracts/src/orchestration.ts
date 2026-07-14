@@ -46,6 +46,7 @@ import {
   LOOM_AGGREGATE_KINDS,
   LOOM_EVENT_TYPES,
   makeLoomOrchestrationEventMembers,
+  makeLoomScaffoldCommandMembers,
 } from "./orchestration.loom.ts";
 
 export const ORCHESTRATION_WS_METHODS = {
@@ -839,6 +840,9 @@ const ThreadRevertCompleteCommand = Schema.Struct({
 
 const InternalOrchestrationCommand = Schema.Union([
   ...LoomInternalCommandMembers, // loom:
+  // loom: scaffold command factored out (needs ModelSelection, which this file
+  // owns); spliced here so orchestration.loom.ts never value-imports it.
+  ...makeLoomScaffoldCommandMembers({ ModelSelection }),
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,

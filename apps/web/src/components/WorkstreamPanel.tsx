@@ -706,7 +706,7 @@ function WorkstreamCard({
             type="button"
             className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-200 transition hover:bg-cyan-400/20"
             onClick={() => onSetLane(thread.id, "ready")}
-            title="Release this held sub-thread so it runs once dependencies clear"
+            title="Release this held sub-thread so it runs once dependencies clear and a kickoff brief is attached"
           >
             Release
           </button>

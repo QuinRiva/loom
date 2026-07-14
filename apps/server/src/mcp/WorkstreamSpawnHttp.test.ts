@@ -17,6 +17,7 @@ import {
   profileSummaryOf,
   rankShapeCandidates,
   resolvePresetSelection,
+  resolveScaffoldReference,
   resolveShapeSelection,
   resolveSpawnModelSelection,
   validateModelSelection,
@@ -1241,5 +1242,43 @@ describe("resolveSpawnModelSelection", () => {
     });
     expect(r.kind === "error" && r.message).toContain("This modelSelection");
     expect(r.kind === "error" && r.message).toContain("not a configured provider instance");
+  });
+});
+
+describe("resolveScaffoldReference (scaffold key/thread resolution)", () => {
+  const keyToId = new Map<string, ThreadId>();
+  keyToId.set("api", id("wt_api"));
+  keyToId.set("existing-child", id("wt_existing"));
+  const existingIds = new Set<ThreadId>([id("wt_existing"), id("wt_other")]);
+
+  it("resolves a batch node key to its preallocated id", () => {
+    const r = resolveScaffoldReference({ ref: "api", keyToId, existingIds });
+    expect(r).toEqual({ kind: "ok", id: id("wt_api") });
+  });
+
+  it("resolves an existing child's graphKey", () => {
+    const r = resolveScaffoldReference({ ref: "existing-child", keyToId, existingIds });
+    expect(r).toEqual({ kind: "ok", id: id("wt_existing") });
+  });
+
+  it("resolves a thread: reference to an active existing child id", () => {
+    const r = resolveScaffoldReference({ ref: "thread:wt_other", keyToId, existingIds });
+    expect(r).toEqual({ kind: "ok", id: id("wt_other") });
+  });
+
+  it("rejects a thread: reference that is not an active existing child", () => {
+    const r = resolveScaffoldReference({ ref: "thread:wt_nope", keyToId, existingIds });
+    expect(r.kind === "error" && r.message).toContain("does not name an active existing child");
+  });
+
+  it("rejects a bare UUID-shaped reference (missing thread: prefix)", () => {
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    const r = resolveScaffoldReference({ ref: uuid, keyToId, existingIds });
+    expect(r.kind === "error" && r.message).toContain("UUID-shaped but unprefixed");
+  });
+
+  it("rejects an unknown symbolic key", () => {
+    const r = resolveScaffoldReference({ ref: "ghost", keyToId, existingIds });
+    expect(r.kind === "error" && r.message).toContain("neither a node key in this scaffold");
   });
 });

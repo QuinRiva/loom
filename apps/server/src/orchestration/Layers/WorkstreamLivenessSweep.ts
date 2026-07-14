@@ -6,6 +6,7 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationSession,
   type OrchestrationThreadShell,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
@@ -32,6 +33,7 @@ import {
   WorkstreamLivenessSweep,
   type WorkstreamLivenessSweepShape,
 } from "../Services/WorkstreamLivenessSweep.ts";
+import { briefNeededSinceMs, isBriefNeeded } from "./WorkstreamDispatcher.ts";
 
 /**
  * State D ("possibly spinning") kill switch — the prototype-grade on/off.
@@ -88,6 +90,15 @@ export interface LivenessSweepThresholds {
    * read as flat) and strictly safer against false positives.
    */
   readonly progressInputSampleSize: number;
+  /**
+   * Scaffold-brief backstop (scaffold plan §3): how long a scaffolded child may
+   * sit brief-needed (deps satisfied + released + unbriefed) before the sweep
+   * raises attention on its PARENT (the child cannot help itself). The
+   * dispatcher's brief-needed wake covers a live orchestrator; this is the
+   * distracted/dead-orchestrator backstop, so it starts GENEROUS — tune from
+   * real runs. Measured from the `briefNeededSince` episode, NOT createdAt.
+   */
+  readonly briefNeededGraceMs: number;
 }
 
 export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
@@ -98,6 +109,7 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   stallNudgeGraceMs: 120_000,
   noProgressWindowMs: 600_000,
   progressInputSampleSize: 16,
+  briefNeededGraceMs: 600_000,
 };
 
 export type LivenessVerdictKind = "dead" | "stalled";
@@ -158,6 +170,19 @@ export const submitSupersedesFailure = (
   session: Pick<OrchestrationSession, "updatedAt">,
 ): boolean =>
   thread.lastOutcome !== null && Date.parse(thread.lastOutcome.at) >= Date.parse(session.updatedAt);
+
+/**
+ * Scaffold-brief backstop predicate (scaffold plan §3): has a brief-needed node
+ * sat eligible-but-unbriefed past its grace window? Measured from the
+ * `briefNeededSince` episode clock (the node's unblock/scaffold transition), NOT
+ * its age — a node scaffolded early but unblocked only now must not trip on
+ * creation.
+ */
+export const briefNeededBackstopDue = (input: {
+  readonly sinceMs: number;
+  readonly now: number;
+  readonly graceMs: number;
+}): boolean => input.now - input.sinceMs >= input.graceMs;
 
 /**
  * Pure Stage-1 liveness classification for one active sub-thread. Returns the
@@ -575,9 +600,52 @@ const makeWorkstreamLivenessSweep = (
       } satisfies OrchestrationCommand);
     });
 
+    // Scaffold-brief backstop (scaffold plan §3): a scaffolded child stuck
+    // brief-needed past its grace has no session (never launched) and cannot help
+    // itself, so attention is raised on the PARENT. Deterministic id keyed by
+    // the eligibility episode makes it idempotent within an episode and re-arm on
+    // a fresh one (matching the dispatcher's brief-needed wake dedup).
+    const raiseBriefNeededBackstop = Effect.fn("workstreamLiveness.briefNeededBackstop")(function* (
+      child: OrchestrationThreadShell,
+      parentId: ThreadId,
+      episodeMs: number,
+    ) {
+      const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make(
+          `server:workstream-liveness:brief-needed:${parentId}:${child.id}:${episodeMs}`,
+        ),
+        threadId: parentId,
+        activity: {
+          id: EventId.make(yield* crypto.randomUUIDv4),
+          tone: "info",
+          kind: "workstream.liveness.brief-needed",
+          summary:
+            `Sub-thread ${child.graphKey !== null ? `'${child.graphKey}' ` : ""}(${child.id}) has ` +
+            `been unblocked and released but has no kickoff brief, so it cannot launch. ` +
+            `Attach it with workstream_brief (or cancel it) — the graph is stalled at this node.`,
+          payload: { kind: "brief-needed", childId: child.id },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(
+          `server:workstream-liveness:brief-needed-attn:${parentId}:${child.id}:${episodeMs}`,
+        ),
+        threadId: parentId,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+    });
+
     const sweep = Effect.gen(function* () {
       const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
       const now = yield* Clock.currentTimeMillis;
+      const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
       const boundThreadIds = new Set(
         (yield* directory.listBindings()).map((binding) => binding.threadId),
       );
@@ -597,10 +665,35 @@ const makeWorkstreamLivenessSweep = (
         }
         const session = thread.session;
         // No session → never started; the dispatcher promotes it, not the sweep.
+        // EXCEPT the scaffold-brief backstop (scaffold plan §3): a child stuck
+        // brief-needed (deps satisfied + released + unbriefed) past its grace has
+        // a distracted/dead orchestrator, so raise attention on the PARENT. The
+        // grace clock is the `briefNeededSince` episode, not the child's age.
         if (session === null) {
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
           progressLoop.delete(thread.id);
+          if (thread.parentThreadId !== null && isBriefNeeded(thread, threadsById)) {
+            const sinceMs = briefNeededSinceMs(thread, threadsById);
+            if (briefNeededBackstopDue({ sinceMs, now, graceMs: thresholds.briefNeededGraceMs })) {
+              yield* raiseBriefNeededBackstop(thread, thread.parentThreadId, sinceMs).pipe(
+                Effect.tap(() =>
+                  Effect.logInfo("workstream.liveness.brief-needed", {
+                    threadId: thread.id,
+                    parentId: thread.parentThreadId,
+                    sinceMs,
+                  }),
+                ),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("workstream.liveness.brief-needed-failed", {
+                    threadId: thread.id,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              );
+              actionedCount += 1;
+            }
+          }
           continue;
         }
 

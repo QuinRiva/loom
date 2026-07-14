@@ -16,9 +16,11 @@ import {
   decideProgressLoop,
   decideStallAction,
   DEFAULT_LIVENESS_THRESHOLDS,
+  briefNeededBackstopDue,
   submitSupersedesFailure,
   type ProgressLoopState,
 } from "./WorkstreamLivenessSweep.ts";
+import { briefNeededSinceMs } from "./WorkstreamDispatcher.ts";
 
 const now = Date.parse("2026-06-24T00:00:00.000Z");
 const minsAgo = (m: number) => DateTime.formatIso(DateTime.makeUnsafe(now - m * 60_000));
@@ -50,6 +52,11 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     spawnGeneration: null,
     forkFromThreadId: null,
     reportPath: null,
+    graphKey: null,
+    kickoffBriefPath: null,
+    planLaneSince: null,
+    dependenciesSince: null,
+    faninSince: null,
     title: "Sub-thread",
     modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
     runtimeMode: "full-access",
@@ -398,5 +405,149 @@ describe("buildStallNudgeMessage", () => {
     const text = buildStallNudgeMessage(verdict, null);
     expect(text).toContain("control plane");
     expect(text).toContain("no specific error");
+  });
+});
+
+describe("briefNeededBackstopDue (scaffold-brief backstop grace clock, plan §3)", () => {
+  const graceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs;
+
+  it("is NOT due while within the grace window (measured from the episode, not age)", () => {
+    // Scaffolded long ago but only unblocked 1 min ago → not due, because the
+    // clock is the briefNeededSince episode, never createdAt.
+    expect(briefNeededBackstopDue({ sinceMs: now - 60_000, now, graceMs })).toBe(false);
+  });
+
+  it("is due once the eligibility episode has aged past the grace window", () => {
+    expect(briefNeededBackstopDue({ sinceMs: now - graceMs - 1, now, graceMs })).toBe(true);
+  });
+
+  it("is due exactly at the grace boundary", () => {
+    expect(briefNeededBackstopDue({ sinceMs: now - graceMs, now, graceMs })).toBe(true);
+  });
+
+  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+    new Map(threads.map((t) => [t.id, t] as const));
+  const iso = (msFromNow: number) => DateTime.formatIso(DateTime.makeUnsafe(now + msFromNow));
+
+  it("a staged node released just now is NOT due, even if scaffolded long ago (gap a)", () => {
+    // The backstop grace runs from the release (`planLaneSince`), so a node
+    // created an hour ago but released 1 min ago has plenty of grace left.
+    const child = thread({
+      id: "child-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      createdAt: iso(-60 * 60_000),
+      planLaneSince: iso(-60_000),
+    });
+    const sinceMs = briefNeededSinceMs(child, map([child]));
+    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
+  });
+
+  it("is due once a released node's OWN release has aged past grace (gap a)", () => {
+    const child = thread({
+      id: "child-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      createdAt: iso(-2 * 60 * 60_000),
+      planLaneSince: iso(-graceMs - 1),
+    });
+    const sinceMs = briefNeededSinceMs(child, map([child]));
+    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(true);
+  });
+
+  it("runs grace from a lane-only dep completion, not the child's stale createdAt (gap b)", () => {
+    // Dep reached `done` via set_lane (no outcome), 1 min ago. The child was
+    // scaffolded long ago but its episode dates from the dep's lane transition,
+    // so it is not yet due.
+    const dep = thread({
+      id: "dep" as ThreadId,
+      planLane: "done",
+      session: null,
+      latestTurn: null,
+      lastOutcome: null,
+      planLaneSince: iso(-60_000),
+    });
+    const child = thread({
+      id: "child-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      createdAt: iso(-2 * 60 * 60_000),
+      planLaneSince: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
+    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
+    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
+  });
+
+  it("grants a fresh grace window on a set_dependencies re-entry with an already-done dep (gap c)", () => {
+    // Re-entry: an unfinished dep was swapped for an already-`done` one 1 min
+    // ago. The done dep's outcome is ancient (predates the prior episode), so
+    // only the dependency-set stamp carries the true re-entry — the backstop
+    // must run a fresh grace from it, not fire immediately off the stale clock.
+    const dep = thread({
+      id: "dep" as ThreadId,
+      planLane: "done",
+      session: null,
+      latestTurn: null,
+      lastOutcome: null,
+      planLaneSince: iso(-3 * 60 * 60_000),
+    });
+    const child = thread({
+      id: "child-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      createdAt: iso(-3 * 60 * 60_000),
+      planLaneSince: null,
+      dependenciesSince: iso(-60_000),
+      blockedBy: ["dep" as ThreadId],
+    });
+    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
+    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
+    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
+  });
+
+  it("grants a fresh grace window when an isolated dep's fan-in lands late (gap d)", () => {
+    // Isolated dep went `done` 3h ago (well past grace) but its branch fanned in
+    // only 1 min ago. The dependent becomes truly eligible only at fan-in, so
+    // the backstop must run a fresh grace from the fanin-set — not fire
+    // immediately off the ancient `done`.
+    const dep = thread({
+      id: "dep" as ThreadId,
+      planLane: "done",
+      session: null,
+      latestTurn: null,
+      lastOutcome: null,
+      isolation: "isolated",
+      fanInState: "completed",
+      planLaneSince: iso(-3 * 60 * 60_000),
+      faninSince: iso(-60_000),
+    });
+    const child = thread({
+      id: "child-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      createdAt: iso(-3 * 60 * 60_000),
+      planLaneSince: null,
+      blockedBy: ["dep" as ThreadId],
+    });
+    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
+    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
+    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
   });
 });

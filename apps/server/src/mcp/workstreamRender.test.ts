@@ -68,6 +68,38 @@ describe("renderWorkstreamList", () => {
     );
   });
 
+  it("renders the scaffold graphKey inline and the purpose sub-line", () => {
+    const view: WorkstreamListView = {
+      callerId: "root",
+      nodes: [
+        {
+          id: "root",
+          parentThreadId: null,
+          role: "orchestrator",
+          title: "Root",
+          planLane: "in_progress",
+        },
+        {
+          id: "api",
+          parentThreadId: "root",
+          role: "coder",
+          title: "Dedup API endpoint",
+          graphKey: "api",
+          purpose: "Adds the merge endpoint so duplicate receipts can be collapsed.",
+          planLane: "ready",
+        },
+      ],
+    };
+    expect(renderWorkstreamList(view)).toBe(
+      [
+        "Workstream: 2 thread(s). Indentation shows lineage (parent above its children).",
+        '- root (you) [orchestrator] "Root" lane=in_progress',
+        '  - api [coder] "Dedup API endpoint" key=api lane=ready',
+        "      purpose: Adds the merge endpoint so duplicate receipts can be collapsed.",
+      ].join("\n"),
+    );
+  });
+
   it("renders the model catalogue and presets block with the INVALID marker", () => {
     const view: WorkstreamListView = {
       callerId: "root",

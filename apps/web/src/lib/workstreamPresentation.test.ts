@@ -7,11 +7,14 @@ import {
   describeOutcomeVerdict,
   formatDiffMetric,
   getAttentionPulse,
+  getEffectiveColumn,
   getFanInBadge,
   getFanInChip,
   getGateWaitLabel,
   getLoopEdgeStroke,
+  isAwaitingBrief,
 } from "./workstreamPresentation";
+import type { ChildIndex } from "./workstreamPresentation";
 
 // getFanInChip/formatDiffMetric only read a handful of fields; build a minimal
 // shell and cast rather than a full fixture.
@@ -24,6 +27,54 @@ const summary = (over: Partial<SidebarThreadSummary>): SidebarThreadSummary =>
     planLane: "in_progress",
     ...over,
   }) as unknown as SidebarThreadSummary;
+
+const EMPTY_INDEX: ChildIndex = new Map();
+
+describe("isAwaitingBrief", () => {
+  it("is true for a released child with no kickoff brief", () => {
+    expect(isAwaitingBrief(summary({ planLane: "ready", kickoffBriefPath: null }))).toBe(true);
+  });
+  it("is false once a brief is attached", () => {
+    expect(isAwaitingBrief(summary({ planLane: "ready", kickoffBriefPath: "/b.md" }))).toBe(false);
+  });
+  it("is false for a held (planned) node — the hold dominates the review window", () => {
+    expect(isAwaitingBrief(summary({ planLane: "planned", kickoffBriefPath: null }))).toBe(false);
+  });
+  it("is false for a root thread (roots carry their kickoff as the brief string)", () => {
+    expect(
+      isAwaitingBrief(summary({ planLane: "ready", kickoffBriefPath: null, parentThreadId: null })),
+    ).toBe(false);
+  });
+});
+
+describe("getEffectiveColumn", () => {
+  it("maps a released, unbriefed, dependency-free child to awaiting_brief", () => {
+    expect(
+      getEffectiveColumn(
+        summary({ planLane: "ready", kickoffBriefPath: null, blockedBy: [] }),
+        EMPTY_INDEX,
+      ),
+    ).toBe("awaiting_brief");
+  });
+  it("a briefed released child is ready", () => {
+    expect(
+      getEffectiveColumn(
+        summary({ planLane: "ready", kickoffBriefPath: "/b.md", blockedBy: [] }),
+        EMPTY_INDEX,
+      ),
+    ).toBe("ready");
+  });
+  it("unmet deps win over the brief gate (blocked, matching wake eligibility)", () => {
+    const dep = ThreadId.make("dep");
+    const index: ChildIndex = new Map([[dep, summary({ id: dep, planLane: "in_progress" })]]);
+    expect(
+      getEffectiveColumn(
+        summary({ planLane: "ready", kickoffBriefPath: null, blockedBy: [dep] }),
+        index,
+      ),
+    ).toBe("blocked");
+  });
+});
 
 describe("formatDiffMetric", () => {
   it("returns null when unmeasured (both null)", () => {

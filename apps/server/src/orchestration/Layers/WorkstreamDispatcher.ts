@@ -47,6 +47,7 @@ import {
   type WorkstreamDispatcherShape,
 } from "../Services/WorkstreamDispatcher.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
+import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { isThreadIdle } from "../threadIdle.ts";
@@ -71,10 +72,13 @@ import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
  *   Sharing the predicate keeps execution gating and the client board in
  *   agreement.
  *
- * Both gates (release + dependency) must clear, mirroring the two-gate start
- * model (design §3). Returns only threads that carry both `role` and `purpose`,
- * which are required to build the deferred kick-off prompt (spawn always sets
- * them).
+ * THREE gates now clear before dispatch (scaffold plan §1): release + dependency
+ * (design §3) **plus a brief gate** — `kickoffBriefPath !== null`. A scaffolded
+ * node is created with no brief; it becomes dispatchable only once
+ * `workstream_brief` attaches one, so deps-satisfied and brief-present are two
+ * orthogonal launch preconditions. Returns only threads that carry both `role`
+ * and `purpose`, which are required to build the deferred kick-off prompt (spawn
+ * always sets them).
  */
 export const selectThreadsToDispatch = (
   threads: ReadonlyArray<OrchestrationThreadShell>,
@@ -88,8 +92,113 @@ export const selectThreadsToDispatch = (
       thread.planLane === "ready" &&
       thread.session === null &&
       thread.latestUserMessageAt === null &&
+      thread.kickoffBriefPath !== null &&
       areDependenciesSatisfied(thread, threadsById),
   );
+};
+
+/**
+ * Brief-needed eligibility (scaffold plan §2/§3): an un-started sub-thread whose
+ * release + dependency gates are all clear but which has NO kickoff brief yet —
+ * the new "awaiting brief" stall state. Exactly {@link selectThreadsToDispatch}'s
+ * gates with the brief gate INVERTED (`kickoffBriefPath === null`): the two sets
+ * are disjoint and partition the ready-and-unstarted children into dispatchable
+ * (briefed) and brief-needed (unbriefed). Drives both the brief-needed parent
+ * wake and the liveness backstop.
+ */
+export const isBriefNeeded = (
+  thread: OrchestrationThreadShell,
+  threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+): boolean =>
+  thread.parentThreadId !== null &&
+  thread.role !== null &&
+  thread.purpose !== null &&
+  thread.planLane === "ready" &&
+  thread.session === null &&
+  thread.latestUserMessageAt === null &&
+  thread.kickoffBriefPath === null &&
+  areDependenciesSatisfied(thread, threadsById);
+
+/**
+ * The `briefNeededSince` eligibility-episode clock (scaffold plan §3): the ms
+ * timestamp of the LATEST transition that made this node brief-eligible. Three
+ * transitions can be the latest one, and all three feed the max below:
+ *   - its scaffold time (`createdAt`) when it was born eligible;
+ *   - its OWN `planned → ready` release (`planLaneSince`) — a staged node held
+ *     then released dates from the release, not scaffold time, and a re-release
+ *     starts a FRESH episode (new receipt key, new grace window);
+ *   - a dependency reaching `done`, whether by a submit outcome (`lastOutcome.at`)
+ *     OR a lane-only `workstream_set_lane(done)` that records no outcome
+ *     (`dep.planLaneSince` while the dep is `done`).
+ * NOT `createdAt` alone: a node scaffolded early but unblocked only much later
+ * must date from the unblock, else an age-based clock would trip the liveness
+ * grace the instant the node is created.
+ *
+ * Only STABLE, transition-derived sources feed it — `createdAt`, a
+ * `plan-lane-set` timestamp (`planLaneSince`, bumped ONLY by real lane
+ * transitions), and a dependency's `lastOutcome.at` (fixed for the life of that
+ * outcome) — never a mutable `updatedAt`. This matters because the derived value
+ * keys the wake's durable receipt: an `updatedAt`-based clock would drift under
+ * any unrelated thread event (a receipt-marker/activity append bumps
+ * `updatedAt`) and re-arm the wake in a loop. `planLaneSince` is immune to that
+ * because activity appends do not emit a `plan-lane-set`.
+ */
+export const briefNeededSinceMs = (
+  thread: OrchestrationThreadShell,
+  threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+): number => {
+  const parseIso = (iso: string | null | undefined): number =>
+    iso === null || iso === undefined ? NaN : Date.parse(iso);
+  let sinceMs = parseIso(thread.createdAt);
+  if (Number.isNaN(sinceMs)) sinceMs = 0;
+  const bump = (iso: string | null | undefined) => {
+    const ms = parseIso(iso);
+    if (!Number.isNaN(ms) && ms > sinceMs) sinceMs = ms;
+  };
+  // Gap (a): the node's own release to `ready`.
+  bump(thread.planLaneSince);
+  // Gap (c): a `set_dependencies` that re-enters eligibility (removes/replaces a
+  // dep). Only counts while the CURRENT set is satisfied — a set that added an
+  // unfinished dep leaves the node ineligible (isBriefNeeded is false), and its
+  // stamp must not seed a phantom episode; once the set is satisfied again the
+  // stamp is the true re-entry transition, later than any pre-existing dep
+  // outcome (which may predate the prior episode).
+  if (areDependenciesSatisfied(thread, threadsById)) bump(thread.dependenciesSince);
+  for (const depId of thread.blockedBy) {
+    if (depId === thread.id) continue;
+    const dep = threadsById.get(depId);
+    if (dep === undefined || dep.parentThreadId !== thread.parentThreadId) continue;
+    // A dependency's completion time: its submit outcome, or — gap (b) — the
+    // lane transition that carried it to `done` with no recorded outcome.
+    bump(dep.lastOutcome?.at ?? null);
+    if (dep.planLane === "done") bump(dep.planLaneSince);
+    // Gap (d): fan-in settlement. `areDependenciesSatisfied` requires more than
+    // `done` for an isolated dep (`fanInState === "completed"`), and for a node
+    // behind an attached reviewer, the gated isolated coder's fan-in. When that
+    // is load-bearing, the `fanin-set` that reached `completed` is the true
+    // eligibility transition — it can land long after the dep's `done`. Mirror
+    // the predicate's two fan-in branches exactly (incl. the `attached`
+    // dependent short-circuit, which releases on `done` alone and needs no
+    // fan-in), so the clock and the gate never disagree.
+    if (thread.isolation === "attached") continue;
+    if (dep.isolation === "attached") {
+      // Two-hop: the reviewer itself never fans in; the merged output belongs to
+      // the isolated coder(s) it gates, whose fan-in fires at gate resolution.
+      for (const gatedId of dep.blockedBy) {
+        const gated = threadsById.get(gatedId);
+        if (
+          gated !== undefined &&
+          gated.parentThreadId === dep.parentThreadId &&
+          gated.isolation === "isolated" &&
+          gated.fanInState === "completed"
+        )
+          bump(gated.faninSince);
+      }
+    } else if (dep.isolation === "isolated" && dep.fanInState === "completed") {
+      bump(dep.faninSince);
+    }
+  }
+  return sinceMs;
 };
 
 // The per-parent runaway guard primitives live in the shared receipt-dedup
@@ -674,21 +783,26 @@ export const renderSlowToolDigestLine = (child: {
 
 /**
  * Quiet-workstream flush condition (design §4.3, condition 3): true when the
- * parent has no child in lane `ready` or `in_progress` — nothing is running or
- * about to run, so the orchestrator's next move is due now. `planned`
+ * parent has no child in lane `in_progress` or a briefed `ready` — nothing is
+ * running or about to run, so the orchestrator's next move is due now. `planned`
  * (deliberately held), `yielded`, `done`, and `cancelled` children do not count.
+ * A `ready` child with no `kickoffBriefPath` is NOT imminent work either (plan
+ * §5): it cannot dispatch until the orchestrator writes its brief, so it must
+ * not keep the workstream "busy".
  */
 export const parentWorkstreamQuiet = (
   parentId: ThreadId,
   threads: ReadonlyArray<{
     readonly parentThreadId: ThreadId | null;
     readonly planLane: ThreadPlanLane;
+    readonly kickoffBriefPath?: string | null;
   }>,
 ): boolean =>
   !threads.some(
     (thread) =>
       thread.parentThreadId === parentId &&
-      (thread.planLane === "ready" || thread.planLane === "in_progress"),
+      (thread.planLane === "in_progress" ||
+        (thread.planLane === "ready" && thread.kickoffBriefPath != null)),
   );
 
 /**
@@ -900,6 +1014,54 @@ export const buildYieldWakeMessage = (
       (gate
         ? " Adjudicate the open findings yourself before choosing: they are claims, not verdicts — judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met."
         : ""),
+  ].join("\n");
+};
+
+/**
+ * Brief-needed wake (scaffold plan §2): the deterministic, receipt-deduped
+ * per-child marker id for the batched brief-needed rail. Keyed by the
+ * eligibility episode `(childId, briefNeededSince)` (see {@link briefNeededSinceMs}),
+ * NOT child id alone — so a node that leaves and re-enters the brief-needed
+ * state on a fresh episode (re-gating that adds a later-completing dependency)
+ * re-arms as news. The `workstream.` prefix keeps the durable marker out of the
+ * child's activity-freshness episode keys.
+ */
+export const briefNeededCommandId = (childId: ThreadId, sinceMs: number): string =>
+  `server:workstream-brief-needed:${childId}:${sinceMs}`;
+
+/**
+ * Pure brief-needed wake-message builder (scaffold plan §2): ONE notice naming
+ * every simultaneously-eligible unbriefed child of a parent by graph key
+ * (falling back to thread id) + role + title, and instructing the orchestrator
+ * to attach each brief with `workstream_brief`. This is deliberately the moment
+ * the orchestrator holds the upstream reports, so the late-bound brief can
+ * reference what actually happened upstream.
+ */
+export const buildBriefNeededMessage = (
+  children: ReadonlyArray<{
+    readonly id: ThreadId;
+    readonly graphKey: string | null;
+    readonly role: string | null;
+    readonly title: string;
+  }>,
+): string => {
+  const lines = children.map((child) => {
+    const handle =
+      child.graphKey !== null ? `\`${child.graphKey}\` (\`${child.id}\`)` : `\`${child.id}\``;
+    return `- ${handle} — ${child.role ?? "child"}: ${child.title}`;
+  });
+  const lead =
+    children.length === 1
+      ? "One of your Workstream sub-threads is scaffolded and unblocked (its dependencies are satisfied and it is released) but has NO kickoff brief yet, so it cannot launch:"
+      : `${children.length} of your Workstream sub-threads are scaffolded and unblocked (dependencies satisfied, released) but have NO kickoff brief yet, so they cannot launch:`;
+  return [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    lead,
+    "",
+    ...lines,
+    "",
+    "Attach each one's brief with `workstream_brief` (node = its graph key or thread id); the node launches as soon as its brief lands. This is the moment to write it — any upstream results it should build on are now in hand. Leave a node unbriefed only if you intend it not to run yet.",
   ].join("\n");
 };
 
@@ -1597,11 +1759,39 @@ const make = Effect.gen(function* () {
     return true;
   });
 
+  // Park an un-launchable child (needs_guidance) — the same posture as a
+  // worktree-provision failure. Used when the brief file cannot be read at
+  // kickoff time: launching with a stale/empty prompt is worse than parking and
+  // surfacing it. Receipt-deduped (deterministic id) so a re-run never re-raises.
+  const parkThreadForBriefReadFailure = Effect.fn("parkThreadForBriefReadFailure")(function* (
+    thread: OrchestrationThreadShell,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.attention.raise",
+      commandId: CommandId.make(`server:workstream-dispatcher:brief-read-failed:${thread.id}`),
+      threadId: thread.id,
+      reason: "needs_guidance",
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  });
+
   const promoteThread = Effect.fn("promoteThread")(function* (thread: OrchestrationThreadShell) {
-    const { role, purpose, brief } = thread;
+    const { role, purpose, kickoffBriefPath } = thread;
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
-    if (role === null || purpose === null) return;
+    if (role === null || purpose === null || kickoffBriefPath === null) return;
     if (worktreeProvisioner.hasPendingProvisionFailure(thread.id)) return;
+    // Read-at-kickoff (scaffold plan §1): the brief lives on disk (event store
+    // holds only the pointer), so the kick-off content is the file's CURRENT
+    // bytes — honouring any pre-launch edit without a further tool call. A read
+    // failure parks the node rather than launching with an empty/stale prompt,
+    // the same posture as a provision failure below.
+    const briefContent = yield* readWorkstreamBriefAt(kickoffBriefPath);
+    if (Option.isNone(briefContent)) {
+      yield* parkThreadForBriefReadFailure(thread);
+      return;
+    }
+    const brief = briefContent.value;
     // Provision the workspace before the kick-off turn so the child's provider
     // session resolves its cwd to the new worktree from its first turn.
     if (!(yield* provisionWorkspace(thread, role))) return;
@@ -1619,7 +1809,7 @@ const make = Effect.gen(function* () {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
         origin: "kickoff",
-        text: workstreamChildPrompt({ role, brief: brief ?? purpose }),
+        text: workstreamChildPrompt({ role, brief }),
         attachments: [],
       },
       titleSeed: thread.title,
@@ -2403,6 +2593,133 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Durable per-child "brief-needed notice delivered" marker (scaffold plan §2).
+  // Appended to the CHILD under a `workstream.` kind (excluded from activity-
+  // freshness), keyed by the eligibility episode so a re-entry on a fresh episode
+  // re-arms. Written AFTER the wake (wake-before-markers), idempotent via the
+  // deterministic id.
+  const dispatchBriefNeededMarker = Effect.fn("dispatchBriefNeededMarker")(function* (
+    child: OrchestrationThreadShell,
+    commandId: string,
+    sinceMs: number,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: CommandId.make(commandId),
+      threadId: child.id,
+      activity: {
+        id: EventId.make(yield* crypto.randomUUIDv4),
+        tone: "info",
+        kind: "workstream.brief-needed",
+        summary: "Brief-needed notice for this node delivered to the parent orchestrator.",
+        payload: { parentId: child.parentThreadId, briefNeededSince: sinceMs },
+        turnId: null,
+        createdAt: now,
+      },
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  });
+
+  // Deliver the ONE batched brief-needed notice for a parent (scaffold plan §2).
+  // `requireIdle` so a busy parent defers atomically at the command boundary
+  // (fails without a receipt, retried next pass); the command id is a fresh
+  // server uuid because cross-restart dedup is carried by the per-child episode
+  // markers, not this id. Returns true only on real delivery.
+  const deliverBriefNeededWake = Effect.fn("deliverBriefNeededWake")(function* (
+    parent: OrchestrationThreadShell,
+    children: ReadonlyArray<OrchestrationThreadShell>,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    return yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: yield* serverCommandId("brief-needed"),
+        threadId: parent.id,
+        message: {
+          messageId: MessageId.make(yield* crypto.randomUUIDv4),
+          role: "user",
+          origin: "control_notice",
+          text: buildBriefNeededMessage(
+            children.map((child) => ({
+              id: child.id,
+              graphKey: child.graphKey,
+              role: child.role,
+              title: child.title,
+            })),
+          ),
+          attachments: [],
+        },
+        titleSeed: parent.title,
+        runtimeMode: parent.runtimeMode,
+        interactionMode: parent.interactionMode,
+        requireIdle: true,
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(
+        Effect.as(true),
+        Effect.catchTag("OrchestrationCommandDeferredError", () => Effect.succeed(false)),
+      );
+  });
+
+  // Brief-needed wake pass (scaffold plan §2): a batched action-required rail.
+  // Collect EVERY child of a parent currently in the brief-needed state (deps-
+  // satisfied + ready + unbriefed), deliver ONE idle-gated notice naming them
+  // all, and write one durable receipt marker per included child only AFTER
+  // delivery (wake-before-markers), keyed by eligibility episode. Batching is the
+  // point: the per-child pattern would wake the parent, make it busy, then
+  // serially re-wake it for each remaining node. Shares the per-parent wake-rate
+  // budget with the other rails.
+  const wakeBriefNeededChildren = Effect.fn("wakeBriefNeededChildren")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+  ) {
+    const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+    const byParent = new Map<
+      ThreadId,
+      Array<{
+        readonly child: OrchestrationThreadShell;
+        readonly marker: string;
+        readonly sinceMs: number;
+      }>
+    >();
+    for (const child of threads) {
+      if (child.parentThreadId === null) continue;
+      if (!isBriefNeeded(child, threadsById)) continue;
+      const sinceMs = briefNeededSinceMs(child, threadsById);
+      const marker = briefNeededCommandId(child.id, sinceMs);
+      // Already notified for this exact episode (durable receipt or local
+      // suppression) → nothing owed for this child this episode.
+      if (yield* dedup.alreadyHandled(marker)) continue;
+      const list = byParent.get(child.parentThreadId);
+      if (list) list.push({ child, marker, sinceMs });
+      else byParent.set(child.parentThreadId, [{ child, marker, sinceMs }]);
+    }
+    for (const [parentId, entries] of byParent) {
+      const parent = threadsById.get(parentId);
+      if (parent === undefined) continue;
+      // Busy parent → defer; a later thread.session-set re-triggers this pass.
+      if (!isThreadIdle(parent, pendingTurnStartThreadIds)) continue;
+      const now = yield* Clock.currentTimeMillis;
+      if (wakeBudget.wouldTrip(parentId, now)) {
+        yield* parkAndEscalate(parent, "brief-needed");
+        for (const entry of entries) yield* dedup.markSuppressed(entry.marker);
+        continue;
+      }
+      const delivered = yield* deliverBriefNeededWake(
+        parent,
+        entries.map((entry) => entry.child),
+      );
+      if (!delivered) continue;
+      wakeBudget.recordDelivery(parentId, now);
+      for (const entry of entries)
+        yield* dedup.deliverOnce(
+          entry.marker,
+          dispatchBriefNeededMarker(entry.child, entry.marker, entry.sinceMs),
+        );
+    }
+  });
+
   // Standalone digest flush (design §4.3, conditions 2 & 3): after the action
   // rails have had their piggyback chance, deliver each parent's still-pending
   // FYI items as their own digest turn-start when the workstream is quiet or the
@@ -2460,6 +2777,7 @@ const make = Effect.gen(function* () {
     yield* collectTerminalDeltas(threads, threadsById, pending);
     yield* wakeIdleAndErroredChildren(threads, threadsById, pending);
     yield* wakeYieldedChildren(threads, threadsById, pending);
+    yield* wakeBriefNeededChildren(threads, threadsById);
     yield* flushPendingDigests(threads, threadsById, pending);
   });
 
@@ -2495,6 +2813,10 @@ const make = Effect.gen(function* () {
         // instead of waiting for the periodic tick (review finding 2).
         event.type === "thread.fanin-set" ||
         event.type === "thread.dependencies-set" ||
+        // Scaffold plan §2: attaching a brief makes a node dispatchable (drop it
+        // from the brief-needed rail) and can complete/stale a sibling batch's
+        // notice — re-run the pass so promotion + the brief-needed wake reconcile.
+        event.type === "thread.kickoff-brief-set" ||
         // A failed/reconciled turn-start clears the durable pending-start row,
         // which can be the only thing keeping an otherwise-idle parent busy.
         event.type === "thread.turn-start-failed" ||

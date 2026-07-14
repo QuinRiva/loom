@@ -406,6 +406,10 @@ export const routeWorkSubmit = <T extends GateNode>(
 
 /** The richer node shape the discovery view needs (lineage + report + waits-on). */
 export interface GraphViewThread extends GraphThread {
+  /** Short scaffold purpose — title + purpose are what make the render evaluable. */
+  readonly purpose: string | null;
+  /** Symbolic scaffold key (unique-forever per parent), null for legacy/spawned nodes. */
+  readonly graphKey: string | null;
   readonly reportPath: string | null;
   readonly blockedBy: ReadonlyArray<ThreadId>;
   /** Projection freshness timestamp — a lightweight liveness signal. */
@@ -421,6 +425,10 @@ export interface GraphViewNode {
   readonly parentThreadId: ThreadId | null;
   readonly role: string | null;
   readonly title: string | null;
+  /** Short scaffold purpose, so the agent-facing list works as a shape-review surface. */
+  readonly purpose: string | null;
+  /** Symbolic scaffold key (unique-forever per parent), null for legacy/spawned nodes. */
+  readonly graphKey: string | null;
   readonly planLane: ThreadPlanLane;
   readonly attention: ReadonlyArray<AttentionReason>;
   readonly spawnGeneration: string | null;
@@ -472,6 +480,8 @@ export const graphViewFor = <T extends GraphViewThread>(
     parentThreadId: thread.parentThreadId,
     role: thread.role,
     title: thread.title,
+    purpose: thread.purpose,
+    graphKey: thread.graphKey,
     planLane: thread.planLane,
     attention: thread.attention,
     spawnGeneration: thread.spawnGeneration,

@@ -27,7 +27,7 @@ import * as Effect from "effect/Effect";
 import type * as PlatformError from "effect/PlatformError";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
-import { requireProject, requireThread } from "./commandInvariants.ts";
+import { requireProject, requireThread, requireThreadAbsent } from "./commandInvariants.ts";
 import {
   requireGoal,
   requireGoalAbsent,
@@ -1063,6 +1063,197 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           createdAt: command.createdAt,
         },
       };
+    }
+
+    // Scaffold-first graph authoring (plan §1a + `workstream_brief`): attach the
+    // on-disk kickoff-brief pointer to a scaffolded child. Permissive by design
+    // — the "child has not started yet" precondition is a handler-level check
+    // (plan §1a); the decider only guarantees the target is a real sub-thread.
+    case "thread.kickoff-brief.set": {
+      const target = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (target.parentThreadId === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is a root; a kickoff brief applies only to a scaffolded sub-thread (root kickoffs use the handoff 'brief').`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.kickoff-brief-set",
+        payload: {
+          threadId: command.threadId,
+          kickoffBriefPath: command.kickoffBriefPath,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    // Scaffold-first graph authoring (plan §0): create a whole child graph
+    // atomically. Thread ids are preallocated and blockedBy/gate references are
+    // already resolved to ThreadIds by the HTTP handler; this decider owns the
+    // transactional graph-consistency validation against the union of the live
+    // sibling graph and the batch, then emits every `thread.created` in ONE
+    // engine transaction (the engine commits a command's whole event array
+    // atomically, so a rejection here creates nothing). Shared per-parent fields
+    // (projectId, goalId, runtimeMode, interactionMode, branch, worktreePath) are
+    // inherited from the parent thread — exactly what `workstream_spawn` copies
+    // from `current`.
+    case "thread.scaffold": {
+      const parent = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.parentThreadId,
+      });
+      const occurredAt = command.createdAt;
+      const reject = (detail: string) =>
+        new OrchestrationCommandInvariantError({ commandType: command.type, detail });
+
+      if (command.nodes.length === 0) {
+        return yield* reject("thread.scaffold carried no nodes; nothing to create.");
+      }
+
+      // Children of this parent. Key-uniqueness is "unique-forever": it spans
+      // every non-deleted child (active AND terminal). Edge targets must resolve
+      // to an ACTIVE sibling (non-archived), matching `areDependenciesSatisfied`.
+      const parentChildren = readModel.threads.filter(
+        (thread) => thread.deletedAt === null && thread.parentThreadId === command.parentThreadId,
+      );
+      const activeSiblingIds = new Set(
+        parentChildren.filter((thread) => thread.archivedAt === null).map((thread) => thread.id),
+      );
+      const existingKeys = new Set(
+        parentChildren
+          .map((thread) => thread.graphKey)
+          .filter((key): key is string => key !== null),
+      );
+
+      // UUID-shaped keys are rejected so a bare thread id pasted without the
+      // 'thread:' prefix fails loudly instead of silently becoming a key.
+      const uuidShaped = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const batchKeys = new Set<string>();
+      const batchIds = new Set<ThreadId>();
+      for (const node of command.nodes) {
+        if (uuidShaped.test(node.graphKey)) {
+          return yield* reject(
+            `Scaffold node key '${node.graphKey}' is UUID-shaped; keys must be symbolic (reference an existing thread with the 'thread:' prefix instead).`,
+          );
+        }
+        if (batchKeys.has(node.graphKey)) {
+          return yield* reject(
+            `Scaffold node key '${node.graphKey}' is duplicated within the batch; keys are unique per parent.`,
+          );
+        }
+        if (existingKeys.has(node.graphKey)) {
+          return yield* reject(
+            `Scaffold node key '${node.graphKey}' is already used by an existing child of this parent; keys are unique-forever and immutable.`,
+          );
+        }
+        if (batchIds.has(node.threadId)) {
+          return yield* reject(
+            `Scaffold node key '${node.graphKey}' reuses a thread id already allocated in this batch.`,
+          );
+        }
+        // Preallocated ids must not already exist.
+        yield* requireThreadAbsent({ readModel, command, threadId: node.threadId });
+        batchKeys.add(node.graphKey);
+        batchIds.add(node.threadId);
+      }
+
+      // Every blockedBy / gate-loop reference must resolve to a batch member or
+      // an active existing sibling (all same-parent), and never to self.
+      for (const node of command.nodes) {
+        const loopTargets = (node.routes ?? []).flatMap((route) =>
+          route.kind === "loop" && route.to !== undefined ? [route.to] : [],
+        );
+        for (const ref of [...(node.blockedBy ?? []), ...loopTargets]) {
+          if (ref === node.threadId) {
+            return yield* reject(
+              `Scaffold node '${node.graphKey}' cannot depend on / gate itself.`,
+            );
+          }
+          if (!batchIds.has(ref) && !activeSiblingIds.has(ref)) {
+            return yield* reject(
+              `Scaffold node '${node.graphKey}' references '${ref}', which is neither a node in this batch nor an active sibling of the parent. A dangling reference never gates — it would silently release.`,
+            );
+          }
+        }
+      }
+
+      // Cycle check across the union of existing sibling edges + batch edges.
+      const cycle = findDependencyCycle([
+        ...parentChildren
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => ({
+            id: thread.id,
+            parentThreadId: thread.parentThreadId,
+            blockedBy: thread.blockedBy,
+          })),
+        ...command.nodes.map((node) => ({
+          id: node.threadId,
+          parentThreadId: command.parentThreadId,
+          blockedBy: node.blockedBy ?? [],
+        })),
+      ]);
+      if (cycle !== null) {
+        return yield* reject(
+          `Scaffold would create a dependency cycle (${cycle.join(" → ")}); a cyclic set never releases.`,
+        );
+      }
+
+      // All batch checks passed — emit one thread.created per node. A node is
+      // born `ready` unless it names its own lane or the scaffold is `staged`.
+      const events: PlannedOrchestrationEvent[] = [];
+      for (const node of command.nodes) {
+        const planLane = node.planLane ?? (command.staged === true ? "planned" : "ready");
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: node.threadId,
+            occurredAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.created",
+          payload: {
+            threadId: node.threadId,
+            projectId: parent.projectId,
+            goalId: parent.goalId,
+            parentThreadId: command.parentThreadId,
+            role: node.role,
+            purpose: node.purpose,
+            graphKey: node.graphKey,
+            ...(node.blockedBy !== undefined ? { blockedBy: node.blockedBy } : {}),
+            ...(node.routes !== undefined ? { routes: node.routes } : {}),
+            ...(node.isolation !== undefined ? { isolation: node.isolation } : {}),
+            planLane,
+            ...(node.spawnGeneration !== undefined && node.spawnGeneration !== null
+              ? { spawnGeneration: node.spawnGeneration }
+              : {}),
+            ...(node.forkFromThreadId !== undefined && node.forkFromThreadId !== null
+              ? { forkFromThreadId: node.forkFromThreadId }
+              : {}),
+            title: node.title,
+            // The scaffold title is a curated label (mirrors workstream_spawn).
+            titleProvenance: "curated",
+            modelSelection: node.modelSelection,
+            runtimeMode: parent.runtimeMode,
+            interactionMode: parent.interactionMode,
+            branch: parent.branch,
+            worktreePath: parent.worktreePath,
+            createdAt: occurredAt,
+            updatedAt: occurredAt,
+          },
+        });
+      }
+      return events;
     }
 
     default: {

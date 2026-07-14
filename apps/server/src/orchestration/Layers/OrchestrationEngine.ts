@@ -94,6 +94,14 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "goal",
         aggregateId: command.goalId,
       };
+    case "thread.scaffold":
+      // A scaffold has no single threadId; attribute it to the parent thread
+      // whose child graph it creates (telemetry/receipt only — the committed
+      // receipt uses the last emitted event's aggregate id).
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.parentThreadId,
+      };
     default:
       return {
         aggregateKind: "thread",

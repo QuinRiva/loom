@@ -30,6 +30,8 @@ const node = (
   attention: [],
   role: null,
   title: null,
+  purpose: null,
+  graphKey: null,
   reportPath: null,
   blockedBy: [],
   lastActivityAt: null,
@@ -211,6 +213,18 @@ describe("graphViewFor", () => {
     expect(view.nodes.some((n) => n.id === "other")).toBe(false);
     expect(view.nodes.find((n) => n.id === "child-1")?.hasReport).toBe(true);
     expect(view.nodes.find((n) => n.id === "child-2")?.hasReport).toBe(false);
+    // Scaffold shape-review fields are projected through to the node.
+    const scaffolded = graphViewFor(tid("root-a"), [
+      node({ id: "root-a", role: "orchestrator" }),
+      node({
+        id: "child-1",
+        parentThreadId: tid("root-a"),
+        graphKey: "api",
+        purpose: "Adds the merge endpoint.",
+      }),
+    ]).nodes.find((n) => n.id === "child-1");
+    expect(scaffolded?.graphKey).toBe("api");
+    expect(scaffolded?.purpose).toBe("Adds the merge endpoint.");
     expect(view.lineageEdges).toContainEqual({ from: tid("root-a"), to: tid("child-1") });
     expect(view.lineageEdges).toContainEqual({ from: tid("child-2"), to: tid("grandchild") });
   });

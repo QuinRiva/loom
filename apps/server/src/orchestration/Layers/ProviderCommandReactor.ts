@@ -59,6 +59,7 @@ import {
   isProvisionedChildBranch,
 } from "../../project/WorktreeProvisioner.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
+import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 
@@ -1063,7 +1064,14 @@ const make = Effect.gen(function* () {
     // first turn reads as the kick-off plus the orchestrator's extra message. A
     // child whose kick-off already ran keeps `message.text` untouched (its branch
     // is provisioned, so this block never runs) — later prompts never re-deliver.
-    const kickoffBrief = thread.brief ?? thread.purpose;
+    // Scaffold plan §1: the kick-off brief now lives on disk (the event store
+    // holds only the `kickoffBriefPath` pointer), so read the file content here
+    // instead of the event-sourced `brief` string. Falls back to `brief ??
+    // purpose` for a legacy brief-less child whose pointer was never attached.
+    const kickoffBrief =
+      recoveredNeverStartedChild && thread.kickoffBriefPath !== null
+        ? Option.getOrNull(yield* readWorkstreamBriefAt(thread.kickoffBriefPath))
+        : (thread.brief ?? thread.purpose);
     const effectiveMessageText =
       recoveredNeverStartedChild && thread.role !== null && kickoffBrief !== null
         ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief })}\n\n${message.text}`

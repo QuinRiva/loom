@@ -473,6 +473,194 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(rows, [{ toolUses: 1 }]);
     }),
   );
+
+  it.effect(
+    "stamps dependencies_since on thread.dependencies-set and an activity/receipt append cannot move it (scaffold plan §3 gap c)",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const created = "2026-01-01T00:00:00.000Z";
+        const depsSetAt = "2026-01-01T00:05:00.000Z";
+        const receiptAt = "2026-01-01T00:10:00.000Z";
+        const threadId = ThreadId.make("thread-deps-since");
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-deps-1"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: created,
+          commandId: CommandId.make("cmd-deps-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-deps-1"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.make("project-deps-since"),
+            title: "Thread DepsSince",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: created,
+            updatedAt: created,
+          },
+        });
+
+        // A dependency-set event stamps the episode clock.
+        yield* eventStore.append({
+          type: "thread.dependencies-set",
+          eventId: EventId.make("evt-deps-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: depsSetAt,
+          commandId: CommandId.make("cmd-deps-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-deps-2"),
+          metadata: {},
+          payload: { threadId, blockedBy: [], updatedAt: depsSetAt },
+        });
+
+        // A later receipt-marker/activity append (the brief-needed wake writes
+        // exactly this) must NOT move dependencies_since — else it would re-arm
+        // the wake in a loop, the whole reason the clock is transition-derived.
+        yield* eventStore.append({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-deps-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: receiptAt,
+          commandId: CommandId.make("cmd-deps-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-deps-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make("activity-deps-receipt"),
+              tone: "info",
+              kind: "workstream.brief-needed",
+              summary: "Brief-needed notice delivered.",
+              payload: {},
+              turnId: null,
+              createdAt: receiptAt,
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const rows = yield* sql<{
+          readonly dependenciesSince: string | null;
+          readonly updatedAt: string;
+        }>`
+          SELECT dependencies_since AS "dependenciesSince", updated_at AS "updatedAt"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+        // dependencies_since holds the dependency-set time, NOT the later receipt;
+        // updated_at, by contrast, HAS advanced to the receipt (the re-arm trap).
+        assert.deepEqual(rows, [{ dependenciesSince: depsSetAt, updatedAt: receiptAt }]);
+      }),
+  );
+
+  it.effect(
+    "stamps fanin_since on thread.fanin-set and an activity/receipt append cannot move it (scaffold plan §3 gap d)",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const created = "2026-01-01T00:00:00.000Z";
+        const faninAt = "2026-01-01T00:05:00.000Z";
+        const receiptAt = "2026-01-01T00:10:00.000Z";
+        const threadId = ThreadId.make("thread-fanin-since");
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.make("evt-fanin-1"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: created,
+          commandId: CommandId.make("cmd-fanin-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-fanin-1"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.make("project-fanin-since"),
+            title: "Thread FaninSince",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: created,
+            updatedAt: created,
+          },
+        });
+
+        // A fan-in-settlement event stamps the episode clock.
+        yield* eventStore.append({
+          type: "thread.fanin-set",
+          eventId: EventId.make("evt-fanin-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: faninAt,
+          commandId: CommandId.make("cmd-fanin-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-fanin-2"),
+          metadata: {},
+          payload: { threadId, fanInState: "completed", updatedAt: faninAt },
+        });
+
+        // A later receipt-marker/activity append must NOT move fanin_since.
+        yield* eventStore.append({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-fanin-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: receiptAt,
+          commandId: CommandId.make("cmd-fanin-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-fanin-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make("activity-fanin-receipt"),
+              tone: "info",
+              kind: "workstream.brief-needed",
+              summary: "Brief-needed notice delivered.",
+              payload: {},
+              turnId: null,
+              createdAt: receiptAt,
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const rows = yield* sql<{
+          readonly faninSince: string | null;
+          readonly updatedAt: string;
+        }>`
+          SELECT fanin_since AS "faninSince", updated_at AS "updatedAt"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+        `;
+        // fanin_since holds the fan-in-set time, NOT the later receipt; updated_at
+        // has advanced to the receipt (the re-arm trap the clock must avoid).
+        assert.deepEqual(rows, [{ faninSince: faninAt, updatedAt: receiptAt }]);
+      }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
