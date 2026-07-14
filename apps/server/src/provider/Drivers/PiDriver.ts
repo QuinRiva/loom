@@ -715,6 +715,26 @@ export function slimPiToolPayloadData(input: {
 }
 
 /**
+ * Derive the human-readable one-liner for a tool call from its args: the
+ * command for shell tools, the search pattern/query, the file path, or the
+ * URL. This is what every adapter is expected to put in `payload.detail` —
+ * without it the work log shows a bare, inert tool name (e.g. "Bash").
+ */
+export function piToolDetail(args: Record<string, unknown> | undefined): string | undefined {
+  if (!args) return undefined;
+  const str = (value: unknown) => {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+  const command = str(args.command) ?? str(args.cmd);
+  if (command) return command.slice(0, 400);
+  const path = str(args.path) ?? str(args.filePath) ?? str(args.file);
+  const pattern = str(args.pattern) ?? str(args.query);
+  if (pattern) return (path ? `${pattern} ${path}` : pattern).slice(0, 400);
+  return (path ?? str(args.url) ?? str(args.title))?.slice(0, 400);
+}
+
+/**
  * Build the `item.{started,updated,completed}` payload for a pi tool lifecycle
  * message, correlating the start/update args (stashed in `toolArgs` by
  * toolCallId) into the completion payload. Pure aside from the stash map it
@@ -727,25 +747,30 @@ export function piToolItemPayload(
   itemType: ReturnType<typeof toolItemType>;
   status: "inProgress" | "completed" | "failed";
   title: string;
+  detail?: string;
   data?: unknown;
 } {
   const itemType = toolItemType(message.toolName);
   if (message.type === "tool_execution_end") {
     const stashed = toolArgs.get(message.toolCallId);
     toolArgs.delete(message.toolCallId);
+    const detail = piToolDetail(stashed);
     return {
       itemType,
       status: message.isError ? "failed" : "completed",
       title: message.toolName,
+      ...(detail ? { detail } : {}),
       data: mergeRawInput(message.result, stashed),
     };
   }
   const args = asArgsRecord(message.args);
   if (args) toolArgs.set(message.toolCallId, args);
+  const detail = piToolDetail(args ?? toolArgs.get(message.toolCallId));
   return {
     itemType,
     status: "inProgress",
     title: message.toolName,
+    ...(detail ? { detail } : {}),
     data:
       message.type === "tool_execution_update"
         ? (message.partialResult ?? message.args)
