@@ -375,4 +375,115 @@ describe("environment shell synchronization", () => {
       expect(yield* SubscriptionRef.get(loaderCalls)).toBe(0);
     }),
   );
+
+  // Regression: a warm IndexedDB cache whose afterSequence resume fails (e.g.
+  // the offline gap spans a schema migration that makes a stored event
+  // undecodable server-side, so the catch-up replay errors) must NOT wedge on
+  // the stale list forever. The client discards the poisoned cache, self-heals
+  // via the cold-path full snapshot over HTTP, and re-persists it.
+  it.effect("self-heals to the cold path when a warm-cache resume fails", () =>
+    Effect.gen(function* () {
+      const cachedSnapshot: OrchestrationShellSnapshot = {
+        snapshotSequence: 5,
+        goals: [],
+        projects: [],
+        threads: [],
+        updatedAt: "2026-06-06T00:00:00.000Z",
+      };
+      // The fresh snapshot loaded over HTTP once the cache is discarded.
+      const freshSnapshot: OrchestrationShellSnapshot = {
+        snapshotSequence: 42,
+        goals: [STUB_GOAL],
+        projects: [],
+        threads: [STUB_THREAD],
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      };
+      const coldEvents = yield* Queue.unbounded<OrchestrationShellStreamItem>();
+      const subscribeSequences = yield* SubscriptionRef.make<ReadonlyArray<number | undefined>>([]);
+      const loaderCalls = yield* SubscriptionRef.make(0);
+      const savedSnapshots = yield* SubscriptionRef.make<ReadonlyArray<OrchestrationShellSnapshot>>(
+        [],
+      );
+      const client = {
+        [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: { readonly afterSequence?: number }) =>
+          Stream.unwrap(
+            SubscriptionRef.update(subscribeSequences, (calls) => [
+              ...calls,
+              input.afterSequence,
+            ]).pipe(
+              Effect.as(
+                // The warm-cache resume (afterSequence === 5) errors, standing
+                // in for the poison event in the catch-up replay window. The
+                // cold-path resubscribe streams normally.
+                input.afterSequence === cachedSnapshot.snapshotSequence
+                  ? Stream.fail(new Error("undecodable shell event in catch-up replay"))
+                  : Stream.fromQueue(coldEvents),
+              ),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
+      const activeSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
+        Option.some(session(client)),
+      );
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: supervisorState,
+        session: activeSession,
+        prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+      const cache = Persistence.EnvironmentCacheStore.of({
+        loadShell: () => Effect.succeed(Option.some(cachedSnapshot)),
+        saveShell: (_environmentId, snapshot) =>
+          SubscriptionRef.update(savedSnapshots, (saved) => [...saved, snapshot]),
+        loadThread: () => Effect.succeed(Option.none()),
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeed(Option.none()),
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeed(Option.none()),
+        saveVcsRefs: () => Effect.void,
+        clear: () => Effect.void,
+      });
+      const snapshotLoader = ShellSnapshotLoader.of({
+        load: () =>
+          SubscriptionRef.update(loaderCalls, (count) => count + 1).pipe(
+            Effect.as(Option.some(freshSnapshot)),
+          ),
+      });
+      const shellState = yield* makeEnvironmentShellState().pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+        Effect.provideService(ShellSnapshotLoader, snapshotLoader),
+      );
+
+      // Drive the warm-cache failure → cold-path fallback, then flush the
+      // coalescing window and the debounced persistence.
+      for (let index = 0; index < 20; index += 1) {
+        yield* Effect.yieldNow;
+      }
+      yield* TestClock.adjust("20 millis");
+      for (let index = 0; index < 20; index += 1) {
+        yield* Effect.yieldNow;
+      }
+      yield* TestClock.adjust("500 millis");
+      for (let index = 0; index < 20; index += 1) {
+        yield* Effect.yieldNow;
+      }
+
+      // The poisoned cache was discarded and the cold-path HTTP loader used.
+      expect(yield* SubscriptionRef.get(loaderCalls)).toBe(1);
+      // First subscribe resumed from the warm cache (5); after it failed the
+      // client resubscribed from the fresh cold snapshot (42).
+      expect(yield* SubscriptionRef.get(subscribeSequences)).toEqual([5, 42]);
+      // The fresh snapshot replaced the stale cache and is live — no wedge.
+      const state = yield* SubscriptionRef.get(shellState);
+      expect(state.status).toBe("live");
+      expect(Option.getOrThrow(state.snapshot)).toEqual(freshSnapshot);
+      expect((yield* SubscriptionRef.get(savedSnapshots)).at(-1)).toEqual(freshSnapshot);
+    }),
+  );
 });

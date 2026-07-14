@@ -6,6 +6,7 @@ import {
   type ServerConfig,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -154,46 +155,88 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     yield* Queue.offer(persistence, nextSnapshot);
   });
 
-  yield* Effect.forkScoped(
-    Effect.gen(function* () {
-      // Establish the base shell snapshot to resume from, minimizing bytes over
-      // the wire:
-      // - Warm cache: reuse the cached snapshot (zero network) and resume via
-      //   `afterSequence` so we only receive shell events since the cached
-      //   sequence.
-      // - Cold cache: load the full shell snapshot over HTTP (gzip-compressible,
-      //   and off the socket), then resume via `afterSequence`.
-      // If no base can be established we fall back to the socket-embedded
-      // snapshot so the shell still synchronizes. Overlapping/replayed events are
-      // deduped by sequence in applyItems.
-      const base = Option.isSome(cachedSnapshot)
-        ? cachedSnapshot
-        : yield* Effect.gen(function* () {
-            const prepared = yield* SubscriptionRef.changes(supervisor.prepared).pipe(
-              Stream.filter(Option.isSome),
-              Stream.map((current) => current.value),
-              Stream.runHead,
-            );
-            return Option.isSome(prepared)
-              ? yield* snapshotLoader.load(prepared.value)
-              : Option.none<OrchestrationShellSnapshot>();
-          });
+  // Load the cold-path base: the full shell snapshot over HTTP (gzip-
+  // compressible, and off the socket). Used both when there is no cached
+  // snapshot and as the self-healing fallback when a warm cache cannot be
+  // resumed. If no base can be established we return none so the caller falls
+  // back to the socket-embedded snapshot.
+  const loadColdBase = Effect.fn("EnvironmentShellState.loadColdBase")(function* () {
+    const prepared = yield* SubscriptionRef.changes(supervisor.prepared).pipe(
+      Stream.filter(Option.isSome),
+      Stream.map((current) => current.value),
+      Stream.runHead,
+    );
+    return Option.isSome(prepared)
+      ? yield* snapshotLoader.load(prepared.value)
+      : Option.none<OrchestrationShellSnapshot>();
+  });
 
+  // loom: coalesce the live-stream leg into one state update per burst
+  // (groupedWithin) so a single command cascade renders once. The base snapshot
+  // is established via upstream's HTTP/afterSequence flow. On the cold path a
+  // replay failure is terminal and surfaces as an error; the warm-cache path
+  // (below) overrides that with self-healing.
+  const runShellSyncLeg = (base: Option.Option<OrchestrationShellSnapshot>) =>
+    Effect.gen(function* () {
       if (Option.isSome(base)) {
         yield* applyItems([{ kind: "snapshot", snapshot: base.value }]);
       }
-
       const subscribeInput = Option.match(base, {
         onNone: () => ({}),
         onSome: (snapshot) => ({ afterSequence: snapshot.snapshotSequence }),
       });
-
-      // loom: coalesce the live-stream leg into one state update per burst
-      // (groupedWithin) so a single command cascade renders once. The base
-      // snapshot above is established via upstream's HTTP/afterSequence flow.
       yield* subscribe(ORCHESTRATION_WS_METHODS.subscribeShell, subscribeInput, {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
       }).pipe(Stream.groupedWithin(64, "20 millis"), Stream.runForEach(applyItems));
+    });
+
+  yield* Effect.forkScoped(
+    Effect.gen(function* () {
+      // Establish the base shell snapshot to resume from, minimizing bytes over
+      // the wire. A warm cache reuses the cached snapshot (zero network) and
+      // resumes via `afterSequence`; a cold cache loads the full snapshot over
+      // HTTP first. Overlapping/replayed events are deduped by sequence in
+      // applyItems.
+      if (Option.isSome(cachedSnapshot)) {
+        // loom: self-heal a poisoned warm cache. A warm-cache `afterSequence`
+        // resume can fail permanently when the offline gap spans a schema
+        // migration that makes a stored event undecodable server-side — the
+        // catch-up replay errors, and because the same cache drives every
+        // reconnect the client would otherwise retry the identical replay and
+        // wedge on a stale thread list forever. On that failure we discard the
+        // cache and fall through to the cold path, whose fresh snapshot is
+        // re-persisted by applyItems (overwriting the poison). Worst case is a
+        // one-time slower load, not a permanent wedge.
+        yield* applyItems([{ kind: "snapshot", snapshot: cachedSnapshot.value }]);
+        const resumeFailed = yield* Deferred.make<void>();
+        yield* subscribe(
+          ORCHESTRATION_WS_METHODS.subscribeShell,
+          { afterSequence: cachedSnapshot.value.snapshotSequence },
+          {
+            onExpectedFailure: (cause) =>
+              Effect.logWarning(
+                "Could not resume the warm shell cache; discarding it and reloading a full snapshot.",
+              ).pipe(
+                Effect.annotateLogs({
+                  environmentId,
+                  ...safeErrorLogAttributes(Cause.squash(cause)),
+                }),
+                Effect.andThen(Deferred.succeed(resumeFailed, undefined)),
+                Effect.asVoid,
+              ),
+          },
+        ).pipe(
+          Stream.groupedWithin(64, "20 millis"),
+          Stream.runForEach(applyItems),
+          // The subscription leg never completes on its own; it is interrupted
+          // when the resume fails so control falls through to the cold path.
+          Effect.race(Deferred.await(resumeFailed)),
+        );
+      }
+
+      // Reached on a cold start, or after a warm-cache resume failed above and
+      // lost the race: load the full snapshot over HTTP and resume from it.
+      yield* runShellSyncLeg(yield* loadColdBase());
     }),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
