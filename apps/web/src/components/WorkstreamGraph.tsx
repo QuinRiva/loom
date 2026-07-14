@@ -8,6 +8,12 @@
 // packed as a measured block. Position encodes temporal/causal dispatch order;
 // status is colour only. Hand-rolled band layout + zero-dependency pan/zoom.
 //
+// Interaction (redesign): the cheapest gesture ENTERS a thread — clicking a node
+// opens its conversation. Hovering (~300ms) surfaces a quick-facts card and a
+// dependency highlight (the node's edges + neighbours light, the rest recede); a
+// small ⓘ affordance opens the lifecycle drawer. Done/cancelled nodes dim so the
+// live front is what the eye lands on. The canvas is sized to its content.
+//
 // If this ever becomes an EDITABLE orchestration canvas (drag to rewire, minimap),
 // refactor to React Flow — see docs/research/workstream-dag-visualization.md.
 
@@ -19,6 +25,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,6 +35,7 @@ import {
   computeForkJoinLayout,
   computeForkJoinViewBox,
   deriveConsultOverlay,
+  roundedPath,
   type ConsultEdge,
   type ExternalConsult,
   type LaidEdge,
@@ -55,6 +63,7 @@ import {
   WAITS_ON_STROKE,
 } from "../lib/workstreamPresentation";
 import type { SidebarThreadSummary } from "../types";
+import { WorkstreamQuickFacts } from "./WorkstreamQuickFacts";
 
 const SPINE_STROKE = "rgba(255,255,255,0.30)";
 // Thread fork (forkFromThreadId): a distinct violet for the “forked from”
@@ -62,6 +71,11 @@ const SPINE_STROKE = "rgba(255,255,255,0.30)";
 // consult (teal), loop, or waits-on (amber).
 const FORKED_FROM_STROKE = "#c084fc";
 const FORK_STROKE = "rgba(255,255,255,0.26)";
+// Done/cancelled cards recede to this opacity so the live front reads first
+// (matches the approved mockup's ~0.42). Overridden by the hover highlight.
+const RECEDE_OPACITY = 0.42;
+const FADE_OPACITY = 0.1;
+const HOVER_DELAY_MS = 300;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -81,16 +95,16 @@ export default function WorkstreamGraph({
   viewKey,
   threads,
   threadById,
-  selectedThreadId,
-  onSelectThread,
+  onOpenThread,
+  onInspectThread,
   onOpenDispatch,
 }: {
   /** Scoped root-thread key identifying this orchestration's saved view. */
   readonly viewKey: string;
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
-  readonly selectedThreadId: ThreadId | null;
-  readonly onSelectThread: (thread: SidebarThreadSummary) => void;
+  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onInspectThread: (thread: SidebarThreadSummary) => void;
   readonly onOpenDispatch: (
     threadId: ThreadId,
     anchorAtIso: string,
@@ -112,18 +126,25 @@ export default function WorkstreamGraph({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const { nodes, edges } = useMemo(() => computeForkJoinLayout(threads), [structureKey]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const base = useMemo(() => computeForkJoinViewBox(nodes), [structureKey]);
-
   // Consult overlay is derived live (not part of the memoised structural layout)
   // so newly-recorded consults appear without a re-layout — mirroring how loop
   // rounds are resolved at render time.
   const consultOverlay = useMemo(
-    () => deriveConsultOverlay(nodes, threadById),
-    [nodes, threadById],
+    () => deriveConsultOverlay(nodes, threadById, edges),
+    [nodes, threadById, edges],
+  );
+
+  // Bounds include routed edge geometry (loop + backward-consult channels and
+  // their badges) so a back-edge dipping below the last row is never clipped and
+  // its hit-target stays reachable. Consults are live, so they join here.
+  const base = useMemo(
+    () => computeForkJoinViewBox(nodes, edges, consultOverlay.edges),
+    [nodes, edges, consultOverlay],
   );
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const factsRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; vb: ViewBox } | null>(null);
   // Session-scoped saved view: re-opening a thread of this orchestration
   // restores the zoom/pan the user left it at instead of resetting
@@ -132,6 +153,14 @@ export default function WorkstreamGraph({
   const setGraphView = useWorkstreamUiStore((store) => store.setGraphView);
   const [viewBox, setViewBox] = useState<ViewBox>(saved?.viewBox ?? base);
   const [adjusted, setAdjusted] = useState(saved?.adjusted ?? false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The hovered thread (after the dwell) drives the quick-facts card + the
+  // dependency highlight. Position is set imperatively (below) to avoid
+  // re-rendering the whole SVG on every mousemove.
+  const [hovered, setHovered] = useState<{
+    readonly thread: SidebarThreadSummary;
+    readonly key: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!adjusted) setViewBox(base);
@@ -140,6 +169,80 @@ export default function WorkstreamGraph({
   useEffect(() => {
     setGraphView(viewKey, { viewBox, adjusted });
   }, [setGraphView, viewKey, viewBox, adjusted]);
+
+  // The set of node keys to keep lit while hovering: the hovered node plus every
+  // neighbour reachable across a structural or consult edge. Null ⇒ not hovering
+  // (nothing recedes for the highlight; the done/cancelled recession still runs).
+  const litKeys = useMemo(() => {
+    const hoveredKey = hovered?.key;
+    if (!hoveredKey) return null;
+    const lit = new Set<string>([hoveredKey]);
+    for (const edge of edges) {
+      if (edge.fromKey === hoveredKey || edge.toKey === hoveredKey) {
+        lit.add(edge.fromKey);
+        lit.add(edge.toKey);
+      }
+    }
+    for (const edge of consultOverlay.edges) {
+      if (edge.askerId === hoveredKey || edge.targetThreadId === hoveredKey) {
+        lit.add(edge.askerId);
+        lit.add(edge.targetThreadId);
+      }
+    }
+    return lit;
+  }, [hovered, edges, consultOverlay]);
+
+  // Pending facts position for a KEYBOARD focus (no cursor): captured from the
+  // focused element's rect and applied after the card mounts.
+  const focusPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+
+  const cancelHover = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    focusPosRef.current = null;
+    setHovered(null);
+  };
+  const scheduleHover = (thread: SidebarThreadSummary, key: string) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setHovered({ thread, key }), HOVER_DELAY_MS);
+  };
+  // Keyboard focus mirrors hover immediately (no dwell): show facts + highlight
+  // as soon as a node's open button is focused, positioned from its rect.
+  const focusHover = (thread: SidebarThreadSummary, key: string, el: Element) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    const rect = el.getBoundingClientRect();
+    focusPosRef.current = { clientX: rect.left + rect.width / 2, clientY: rect.bottom };
+    setHovered({ thread, key });
+  };
+  // Position the quick-facts card imperatively (cursor-relative, flipped to stay
+  // inside the shell), so tracking the pointer never re-renders the SVG.
+  const positionFacts = (event: { clientX: number; clientY: number }) => {
+    const shell = shellRef.current;
+    const card = factsRef.current;
+    if (!shell || !card) return;
+    const rect = shell.getBoundingClientRect();
+    const cardW = 236;
+    const cardH = card.offsetHeight || 180;
+    let x = event.clientX - rect.left + 16;
+    let y = event.clientY - rect.top + 14;
+    if (x + cardW > rect.width) x = Math.max(6, event.clientX - rect.left - cardW - 10);
+    if (y + cardH > rect.height) y = Math.max(6, rect.height - cardH - 10);
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+  };
+
+  useEffect(() => () => cancelHover(), []);
+  // Once the facts card has mounted for a keyboard focus, place it from the
+  // captured rect (mouse hover positions imperatively via mousemove instead).
+  useLayoutEffect(() => {
+    if (hovered && focusPosRef.current) {
+      positionFacts(focusPosRef.current);
+      focusPosRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hovered]);
 
   // Zoom about a client-space anchor (wheel cursor); button zooms centre.
   const zoomBy = (factor: number, client?: { x: number; y: number }) => {
@@ -201,14 +304,17 @@ export default function WorkstreamGraph({
     }
   };
 
+  const highlighting = litKeys !== null;
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-col items-center gap-3">
+    <div className="flex w-full flex-col items-center gap-3">
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
-        a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a
-        bridge to jump to where that wave was dispatched; click a node to inspect its history below.
+        a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a node
+        to open its thread; hover for its facts, and click <span aria-hidden>ⓘ</span> to inspect its
+        history.
       </p>
-      <div className="relative min-h-0 w-full flex-1">
+      <div className="relative w-full" ref={shellRef}>
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
           <GraphControlButton label="Zoom in" onClick={() => zoomBy(0.8)}>
             <ZoomInIcon className="size-3.5" />
@@ -222,9 +328,14 @@ export default function WorkstreamGraph({
         </div>
         <svg
           ref={svgRef}
-          className="h-full min-h-[240px] w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
+          className="w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
+          // Fit-to-content: the SVG's box mirrors the laid-out content's aspect
+          // ratio (capped), so a small graph is compact instead of floating in a
+          // tall dead canvas. Zoom/pan preserve the ratio, so this stays correct.
+          style={{ aspectRatio: `${base.w} / ${base.h}`, maxHeight: "60vh" }}
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-          role="img"
+          preserveAspectRatio="xMidYMid meet"
+          role="group"
           aria-label="Workstream fork–join graph"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -233,15 +344,32 @@ export default function WorkstreamGraph({
         >
           <defs>
             {/* One restrained pulse for human-blocking attention; stilled under
-                prefers-reduced-motion so it never becomes a motion nuisance. */}
+                prefers-reduced-motion so it never becomes a motion nuisance. The
+                highlight fade is likewise a plain opacity swap. */}
             <style>{`
               @keyframes wsAttentionPulse {
                 0%, 100% { stroke-opacity: 0.95; stroke-width: 1.4; }
                 50% { stroke-opacity: 0.28; stroke-width: 3.4; }
               }
               .ws-attention-pulse { animation: wsAttentionPulse 1.8s ease-in-out infinite; }
+              .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: opacity 0.18s; }
+              .ws-graph-inspect { opacity: 0; cursor: pointer; transition: opacity 0.12s; }
+              .ws-graph-node:hover .ws-graph-inspect,
+              .ws-graph-inspect:focus-within,
+              .ws-graph-inspect:focus-visible { opacity: 1; }
+              /* Visible keyboard focus for every SVG affordance (replaces the
+                 removed default outline), plus the graph control buttons. */
+              .ws-focus-ring { opacity: 0; }
+              .ws-graph-open:focus-visible, .ws-graph-inspect:focus-visible,
+              .ws-graph-bridge:focus-visible, .ws-graph-consult-edge:focus-visible { outline: none; }
+              .ws-graph-open:focus-visible .ws-focus-ring,
+              .ws-graph-inspect:focus-visible .ws-focus-ring,
+              .ws-graph-bridge:focus-visible .ws-focus-ring,
+              .ws-graph-consult-edge:focus-visible .ws-focus-ring { opacity: 1; }
               @media (prefers-reduced-motion: reduce) {
                 .ws-attention-pulse { animation: none; stroke-opacity: 0.9; }
+                .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: none; }
+                .ws-graph-inspect { transition: none; }
               }
             `}</style>
             <marker
@@ -272,7 +400,9 @@ export default function WorkstreamGraph({
               refX="6"
               refY="3"
             >
-              <path d="M0 0 L6 3 L0 6 z" fill={getLoopStroke(1)} />
+              {/* `context-stroke` makes the arrowhead inherit the loop path's
+                  live verdict-tinted stroke, so head and line always match. */}
+              <path d="M0 0 L6 3 L0 6 z" fill="context-stroke" />
             </marker>
             <marker
               id="workstream-consult-arrow"
@@ -286,21 +416,45 @@ export default function WorkstreamGraph({
             </marker>
           </defs>
           {edges.map((edge) => (
-            <GraphEdge key={edge.key} edge={edge} threadById={threadById} />
+            <GraphEdge
+              key={edge.key}
+              edge={edge}
+              threadById={threadById}
+              dimmed={highlighting && !isEdgeLit(edge, hovered?.key)}
+            />
           ))}
           {consultOverlay.edges.map((edge) => (
-            <ConsultGraphEdge key={edge.key} edge={edge} onOpenDispatch={onOpenDispatch} />
+            <ConsultGraphEdge
+              key={edge.key}
+              edge={edge}
+              onOpenDispatch={onOpenDispatch}
+              dimmed={
+                highlighting &&
+                edge.askerId !== hovered?.key &&
+                edge.targetThreadId !== hovered?.key
+              }
+            />
           ))}
           {nodes.map((node) =>
             node.kind === "bridge" ? (
-              <BridgeNode key={node.key} node={node} onOpenDispatch={onOpenDispatch} />
+              <BridgeNode
+                key={node.key}
+                node={node}
+                onOpenDispatch={onOpenDispatch}
+                dimmed={litKeys !== null && !litKeys.has(node.key)}
+              />
             ) : (
               <GraphNode
                 key={node.key}
                 node={node}
                 threadById={threadById}
-                selected={node.thread.id === selectedThreadId}
-                onSelectThread={onSelectThread}
+                dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
+                onOpenThread={onOpenThread}
+                onInspectThread={onInspectThread}
+                onHoverStart={(thread) => scheduleHover(thread, node.thread.id)}
+                onHoverMove={positionFacts}
+                onHoverEnd={cancelHover}
+                onFocusStart={(thread, el) => focusHover(thread, node.thread.id, el)}
                 externalConsult={consultOverlay.externalByAskerId.get(node.thread.id)}
               />
             ),
@@ -311,6 +465,9 @@ export default function WorkstreamGraph({
             </text>
           ) : null}
         </svg>
+        {hovered ? (
+          <WorkstreamQuickFacts ref={factsRef} thread={hovered.thread} threadById={threadById} />
+        ) : null}
       </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
         {COLUMN_ORDER.map((column) => (
@@ -355,33 +512,41 @@ export default function WorkstreamGraph({
   );
 }
 
+/** Whether a structural edge touches the hovered node key. */
+function isEdgeLit(edge: LaidEdge, hoveredKey: string | undefined): boolean {
+  return hoveredKey !== undefined && (edge.fromKey === hoveredKey || edge.toKey === hoveredKey);
+}
+
 function GraphEdge({
   edge,
   threadById,
+  dimmed,
 }: {
   readonly edge: LaidEdge;
   readonly threadById: ChildIndex;
+  readonly dimmed: boolean;
 }) {
+  const opacity = dimmed ? FADE_OPACITY : 1;
   if (edge.kind === "loop") {
-    // Return arrow of a review gate: reverse-direction, bowed BELOW the cards so
-    // it reads as a cycle against the forward waits-on edge. Stroke is tinted by
-    // the gate source's latest verdict (amber while rework pends, emerald once
-    // settled) over a violet round-depth base; the midpoint badge shows rounds
-    // vs cap. Both are resolved live from the source so the edge recolours
-    // without re-layout.
+    // Return arrow of a review gate: a shallow rounded orthogonal loop routed in
+    // the channel BELOW the gate pair (never a diagonal through a card body).
+    // Stroke is tinted by the gate source's latest verdict (amber while rework
+    // pends, emerald once settled) over a violet round-depth base; the badge on
+    // the straight channel run shows rounds vs cap. Both resolve live so the edge
+    // recolours without re-layout.
     const source = edge.sourceId ? threadById.get(edge.sourceId) : undefined;
     const rounds = source?.gateRounds ?? 0;
     const cap = source ? getGateLoopCap(source) : rounds;
     const stroke = source ? getLoopEdgeStroke(source) : getLoopStroke(rounds);
     const verdict = source?.lastOutcome?.outcome;
-    const midX = (edge.x1 + edge.x2) / 2;
-    const drop = 30;
-    // Cubic midpoint with both control points at +drop: avg(y) + 0.75 * drop.
-    const badgeY = (edge.y1 + edge.y2) / 2 + drop * 0.75;
+    const badge = edge.badge ?? { x: (edge.x1 + edge.x2) / 2, y: (edge.y1 + edge.y2) / 2 };
+    const d = edge.points
+      ? roundedPath(edge.points)
+      : `M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`;
     return (
-      <g>
+      <g className="ws-graph-edge" opacity={opacity}>
         <path
-          d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1 + drop}, ${midX} ${edge.y2 + drop}, ${edge.x2} ${edge.y2}`}
+          d={d}
           fill="none"
           markerEnd="url(#workstream-loop-arrow)"
           stroke={stroke}
@@ -396,10 +561,10 @@ function GraphEdge({
             stroke={stroke}
             strokeWidth="1"
             width={40}
-            x={midX - 20}
-            y={badgeY - 7.5}
+            x={badge.x - 20}
+            y={badge.y - 7.5}
           />
-          <text fill={stroke} fontSize="9" textAnchor="middle" x={midX} y={badgeY + 3}>
+          <text fill={stroke} fontSize="9" textAnchor="middle" x={badge.x} y={badge.y + 3}>
             {`⟲ ${rounds}/${cap}`}
           </text>
         </g>
@@ -409,6 +574,8 @@ function GraphEdge({
   if (edge.kind === "spine") {
     return (
       <line
+        className="ws-graph-edge"
+        opacity={opacity}
         stroke={SPINE_STROKE}
         strokeWidth="2"
         x1={edge.x1}
@@ -422,6 +589,8 @@ function GraphEdge({
     const midX = (edge.x1 + edge.x2) / 2;
     return (
       <path
+        className="ws-graph-edge"
+        opacity={opacity}
         d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
         fill="none"
         markerEnd="url(#workstream-arrow)"
@@ -433,6 +602,8 @@ function GraphEdge({
   const midX = (edge.x1 + edge.x2) / 2;
   return (
     <path
+      className="ws-graph-edge"
+      opacity={opacity}
       d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
       fill="none"
       markerEnd="url(#workstream-waits-arrow)"
@@ -446,9 +617,12 @@ function GraphEdge({
 // Directed consult cross-edge (dotted teal): the asker consulted the target's
 // frozen session. Clickable — reuses the dispatch-scroll mechanism to land on
 // the consult site in the asker's chat. A midpoint badge counts repeat consults.
+// A backward consult (target left of / above the asker) carries orthogonal
+// waypoints so it routes through a gutter instead of slicing a node.
 function ConsultGraphEdge({
   edge,
   onOpenDispatch,
+  dimmed,
 }: {
   readonly edge: ConsultEdge;
   readonly onOpenDispatch: (
@@ -456,13 +630,21 @@ function ConsultGraphEdge({
     anchorAtIso: string,
     expandConsultTargetId?: ThreadId,
   ) => void;
+  readonly dimmed: boolean;
 }) {
   const midX = (edge.x1 + edge.x2) / 2;
   const midY = (edge.y1 + edge.y2) / 2;
+  // Count badge rides the straight routed segment (carried on the edge) for a
+  // back-edge, or the endpoint midpoint for a forward spline.
+  const badge = edge.badge ?? { x: midX, y: midY };
   const open = () => onOpenDispatch(edge.askerId, edge.anchorAtIso, edge.targetThreadId);
+  const d = edge.points
+    ? roundedPath(edge.points)
+    : `M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`;
   return (
     <g
       className="ws-graph-consult-edge cursor-pointer outline-none"
+      opacity={dimmed ? FADE_OPACITY : 1}
       onClick={open}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -471,18 +653,22 @@ function ConsultGraphEdge({
         }
       }}
       role="button"
+      aria-label={`Consulted: ${edge.preview}`}
       tabIndex={0}
     >
       <title>{`Consulted: ${edge.preview}`}</title>
       {/* Invisible fat hit-target so the thin dotted line is easy to click. */}
+      <path d={d} fill="none" stroke="transparent" strokeWidth="10" />
       <path
-        d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+        className="ws-focus-ring"
+        d={d}
         fill="none"
-        stroke="transparent"
-        strokeWidth="10"
+        stroke="#38bdf8"
+        strokeWidth="3"
+        strokeOpacity="0.8"
       />
       <path
-        d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+        d={d}
         fill="none"
         markerEnd="url(#workstream-consult-arrow)"
         stroke={CONSULT_STROKE}
@@ -498,10 +684,10 @@ function ConsultGraphEdge({
             stroke={CONSULT_STROKE}
             strokeWidth="1"
             width={34}
-            x={midX - 17}
-            y={midY - 7.5}
+            x={badge.x - 17}
+            y={badge.y - 7.5}
           />
-          <text fill={CONSULT_STROKE} fontSize="9" textAnchor="middle" x={midX} y={midY + 3}>
+          <text fill={CONSULT_STROKE} fontSize="9" textAnchor="middle" x={badge.x} y={badge.y + 3}>
             {`×${edge.count}`}
           </text>
         </g>
@@ -513,14 +699,17 @@ function ConsultGraphEdge({
 function BridgeNode({
   node,
   onOpenDispatch,
+  dimmed,
 }: {
   readonly node: Extract<LaidNode, { kind: "bridge" }>;
   readonly onOpenDispatch: (orchestratorId: ThreadId, anchorAtIso: string) => void;
+  readonly dimmed: boolean;
 }) {
   const open = () => onOpenDispatch(node.orchestratorId, node.anchorAtIso);
   return (
     <g
-      className="ws-graph-node cursor-pointer outline-none"
+      className="ws-graph-node ws-graph-bridge cursor-pointer"
+      opacity={dimmed ? FADE_OPACITY : 1}
       onClick={open}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -529,6 +718,7 @@ function BridgeNode({
         }
       }}
       role="button"
+      aria-label={`Jump to where wave ${node.waveIndex} was dispatched`}
       tabIndex={0}
     >
       <title>{`Jump to where wave ${node.waveIndex} was dispatched`}</title>
@@ -541,6 +731,7 @@ function BridgeNode({
         x={node.x}
         y={node.y}
       />
+      <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={11} />
       <text
         fill="rgba(255,255,255,0.82)"
         fontSize="12"
@@ -567,14 +758,24 @@ function BridgeNode({
 function GraphNode({
   node,
   threadById,
-  selected,
-  onSelectThread,
+  dimmed,
+  onOpenThread,
+  onInspectThread,
+  onHoverStart,
+  onHoverMove,
+  onHoverEnd,
+  onFocusStart,
   externalConsult,
 }: {
   readonly node: Extract<LaidNode, { kind: "thread" }>;
   readonly threadById: ChildIndex;
-  readonly selected: boolean;
-  readonly onSelectThread: (thread: SidebarThreadSummary) => void;
+  readonly dimmed: boolean;
+  readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onInspectThread: (thread: SidebarThreadSummary) => void;
+  readonly onHoverStart: (thread: SidebarThreadSummary) => void;
+  readonly onHoverMove: (event: { clientX: number; clientY: number }) => void;
+  readonly onHoverEnd: () => void;
+  readonly onFocusStart: (thread: SidebarThreadSummary, el: Element) => void;
   readonly externalConsult: ExternalConsult | undefined;
 }) {
   // The laid-out node carries a STRUCTURAL snapshot (layout is memoised on a key
@@ -586,184 +787,265 @@ function GraphNode({
   const gateWait = getGateWaitLabel(thread, threadById);
   const attentionPulse = getAttentionPulse(thread);
   const fanInBadge = getFanInBadge(thread);
-  const select = () => onSelectThread(thread);
+  // Recession (design D): terminal cards dim so the live front reads first. The
+  // hover highlight overrides this — a lit terminal node returns to full, a
+  // faded one recedes further.
+  const recede = status.column === "done" || status.column === "cancelled";
+  const cardOpacity = dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1;
+  const open = () => onOpenThread(thread);
+  const inspect = () => onInspectThread(thread);
+  const roleLabel = getRoleLabel(thread);
   return (
+    // Container only (role=group) — the two affordances below are SIBLING
+    // buttons, never nested, so the tab order and screen-reader semantics are
+    // unambiguous. Pointer hover drives the facts card + dependency highlight.
     <g
-      className="ws-graph-node cursor-pointer outline-none"
-      onClick={select}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          select();
-        }
-      }}
-      role="button"
-      aria-pressed={selected}
-      tabIndex={0}
+      className="ws-graph-node"
+      role="group"
+      aria-label={`${roleLabel} ${thread.title}`}
+      onMouseEnter={() => onHoverStart(thread)}
+      onMouseMove={(event) => onHoverMove(event)}
+      onMouseLeave={onHoverEnd}
     >
-      <title>{`Goal: ${getPurpose(thread)}`}</title>
-      <rect
-        fill={status.graphFill}
-        height={node.h}
-        rx="10"
-        stroke={status.graphStroke}
-        strokeWidth={selected ? 2.4 : 1.4}
-        width={node.w}
-        x={node.x}
-        y={node.y}
-      />
-      {selected ? (
-        // Selection highlight: a bright inset ring so the inspected node reads
-        // clearly against its lane colour without shifting layout.
-        <rect
-          fill="none"
-          height={node.h + 6}
-          pointerEvents="none"
-          rx="12"
-          stroke="rgba(255,255,255,0.85)"
-          strokeWidth="1.2"
-          width={node.w + 6}
-          x={node.x - 3}
-          y={node.y - 3}
+      {/* Primary affordance: open the thread. Keyboard focus mirrors hover. */}
+      <g
+        className="ws-graph-open cursor-pointer"
+        role="button"
+        aria-label={`Open thread ${thread.title}`}
+        tabIndex={0}
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            open();
+          }
+        }}
+        onFocus={(event) => onFocusStart(thread, event.currentTarget)}
+        onBlur={onHoverEnd}
+      >
+        <title>{`Goal: ${getPurpose(thread)}`}</title>
+        <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={10} />
+        {/* Card visuals recede/fade as a unit; the button hit area stays crisp. */}
+        <g opacity={cardOpacity}>
+          <rect
+            fill={status.graphFill}
+            height={node.h}
+            rx="10"
+            stroke={status.graphStroke}
+            strokeWidth={1.4}
+            width={node.w}
+            x={node.x}
+            y={node.y}
+          />
+          {attentionPulse ? (
+            // Attention overlay ring in the flag's colour, pulsing to pull the eye
+            // to a node that needs a human — more than the board badge alone.
+            <rect
+              className="ws-attention-pulse"
+              fill="none"
+              height={node.h}
+              pointerEvents="none"
+              rx="10"
+              stroke={attentionPulse.stroke}
+              width={node.w}
+              x={node.x}
+              y={node.y}
+            >
+              <title>{attentionPulse.label}</title>
+            </rect>
+          ) : null}
+          <circle cx={node.x + 15} cy={node.y + 17} fill={status.graphStroke} r="4" />
+          <text fill={status.graphStroke} fontSize="12" x={node.x + 25} y={node.y + 21}>
+            {getRoleIcon(thread)}
+          </text>
+          <text
+            fill="rgba(255,255,255,0.9)"
+            fontSize="11"
+            fontWeight="600"
+            x={node.x + 43}
+            y={node.y + 21}
+          >
+            {truncateLabel(thread.title, 14)}
+          </text>
+          <text
+            fill="rgba(255,255,255,0.45)"
+            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+            fontSize="8.5"
+            x={node.x + 14}
+            y={node.y + 39}
+          >
+            {truncateLabel(getRoleLabel(thread), 13)} · {status.label}
+          </text>
+          {verdictChip ? (
+            <GatePill
+              fill={verdictChip.fill}
+              label={truncateLabel(verdictChip.label, 20)}
+              stroke={verdictChip.stroke}
+              xEnd={node.x + node.w - 6}
+              yCenter={node.y + node.h}
+            />
+          ) : null}
+          {gateWait ? (
+            // Straddles the TOP border so it never collides with the verdict chip
+            // (the pair can exceed the card width side by side). An active leg reads
+            // sky (live), a parked wait stays muted white.
+            <GatePill
+              fill={gateWait.active ? "#0d2231" : "#0d1117"}
+              label={gateWait.label}
+              stroke={gateWait.active ? "#38bdf8" : "rgba(255,255,255,0.4)"}
+              xEnd={node.x + node.w - 6}
+              yCenter={node.y}
+            />
+          ) : null}
+          {thread.forkFromThreadId ? (
+            // Thread fork: a distinct “forked from” glyph on the node (the source is
+            // often a root outside this workstream graph, so a badge reads more
+            // reliably than an edge). Hover names the source thread.
+            <g>
+              <title>{`Forked from ${
+                threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId
+              }`}</title>
+              <circle
+                cx={node.x + node.w - 12}
+                cy={node.y + node.h - 12}
+                fill="#0d1117"
+                r="8"
+                stroke={FORKED_FROM_STROKE}
+                strokeWidth="1"
+              />
+              <text
+                fill={FORKED_FROM_STROKE}
+                fontSize="10"
+                textAnchor="middle"
+                x={node.x + node.w - 12}
+                y={node.y + node.h - 8.5}
+              >
+                ⑂
+              </text>
+            </g>
+          ) : null}
+          {fanInBadge ? (
+            // Fan-in settlement of an isolated child's branch, in the same
+            // bottom-right slot pattern as the ⑂ fork-from badge; nudged left when
+            // they share the corner. Colour matches the card's fan-in chip.
+            <g>
+              <title>{`Fan-in: ${fanInBadge.label}`}</title>
+              <circle
+                cx={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+                cy={node.y + node.h - 12}
+                fill="#0d1117"
+                r="8"
+                stroke={fanInBadge.stroke}
+                strokeWidth="1"
+              />
+              <text
+                fill={fanInBadge.stroke}
+                fontSize="9"
+                textAnchor="middle"
+                x={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+                y={node.y + node.h - 8.5}
+              >
+                {fanInBadge.glyph}
+              </text>
+            </g>
+          ) : null}
+          {externalConsult ? (
+            // Out-of-tree consults have no node to point at, so annotate the asker
+            // with a teal consult glyph + count; the hover names the external targets.
+            <g>
+              <title>{`Consulted outside this graph: ${externalConsult.targetTitles.join(", ")}`}</title>
+              <circle
+                cx={node.x + node.w - 12}
+                cy={node.y + 12}
+                fill="#0d1117"
+                r="8"
+                stroke={CONSULT_STROKE}
+                strokeWidth="1"
+              />
+              <text
+                fill={CONSULT_STROKE}
+                fontSize="9"
+                textAnchor="middle"
+                x={node.x + node.w - 12}
+                y={node.y + 15}
+              >
+                {externalConsult.count > 9 ? "9+" : externalConsult.count}
+              </text>
+            </g>
+          ) : null}
+        </g>
+      </g>
+      {/* Sibling affordance: open the lifecycle drawer. Revealed on hover/focus
+          (opacity via the :hover / :focus-within rules in the style block). */}
+      <g
+        className="ws-graph-inspect cursor-pointer"
+        role="button"
+        aria-label={`Inspect lifecycle history for ${thread.title}`}
+        tabIndex={0}
+        onClick={(event) => {
+          event.stopPropagation();
+          inspect();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            event.stopPropagation();
+            inspect();
+          }
+        }}
+      >
+        <title>Inspect lifecycle history</title>
+        <circle
+          cx={node.x + node.w - 14}
+          cy={node.y + 13}
+          fill="#0d1117"
+          r="9"
+          stroke="rgba(255,255,255,0.55)"
         />
-      ) : null}
-      {attentionPulse ? (
-        // Attention overlay ring in the flag's colour, pulsing to pull the eye
-        // to a node that needs a human — more than the board badge alone.
-        <rect
-          className="ws-attention-pulse"
-          fill="none"
-          height={node.h}
-          pointerEvents="none"
-          rx="10"
-          stroke={attentionPulse.stroke}
-          width={node.w}
-          x={node.x}
-          y={node.y}
+        <text
+          fill="rgba(255,255,255,0.8)"
+          fontSize="11"
+          textAnchor="middle"
+          x={node.x + node.w - 14}
+          y={node.y + 16.5}
         >
-          <title>{attentionPulse.label}</title>
-        </rect>
-      ) : null}
-      <circle cx={node.x + 15} cy={node.y + 17} fill={status.graphStroke} r="4" />
-      <text fill={status.graphStroke} fontSize="12" x={node.x + 25} y={node.y + 21}>
-        {getRoleIcon(thread)}
-      </text>
-      <text
-        fill="rgba(255,255,255,0.9)"
-        fontSize="11"
-        fontWeight="600"
-        x={node.x + 43}
-        y={node.y + 21}
-      >
-        {truncateLabel(thread.title, 14)}
-      </text>
-      <text
-        fill="rgba(255,255,255,0.45)"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontSize="8.5"
-        x={node.x + 14}
-        y={node.y + 39}
-      >
-        {truncateLabel(getRoleLabel(thread), 13)} · {status.label}
-      </text>
-      {verdictChip ? (
-        <GatePill
-          fill={verdictChip.fill}
-          label={truncateLabel(verdictChip.label, 20)}
-          stroke={verdictChip.stroke}
-          xEnd={node.x + node.w - 6}
-          yCenter={node.y + node.h}
-        />
-      ) : null}
-      {gateWait ? (
-        // Straddles the TOP border so it never collides with the verdict chip
-        // (the pair can exceed the card width side by side). An active leg reads
-        // sky (live), a parked wait stays muted white.
-        <GatePill
-          fill={gateWait.active ? "#0d2231" : "#0d1117"}
-          label={gateWait.label}
-          stroke={gateWait.active ? "#38bdf8" : "rgba(255,255,255,0.4)"}
-          xEnd={node.x + node.w - 6}
-          yCenter={node.y}
-        />
-      ) : null}
-      {thread.forkFromThreadId ? (
-        // Thread fork: a distinct “forked from” glyph on the node (the source is
-        // often a root outside this workstream graph, so a badge reads more
-        // reliably than an edge). Hover names the source thread.
-        <g>
-          <title>{`Forked from ${
-            threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId
-          }`}</title>
-          <circle
-            cx={node.x + node.w - 12}
-            cy={node.y + node.h - 12}
-            fill="#0d1117"
-            r="8"
-            stroke={FORKED_FROM_STROKE}
-            strokeWidth="1"
-          />
-          <text
-            fill={FORKED_FROM_STROKE}
-            fontSize="10"
-            textAnchor="middle"
-            x={node.x + node.w - 12}
-            y={node.y + node.h - 8.5}
-          >
-            ⑂
-          </text>
-        </g>
-      ) : null}
-      {fanInBadge ? (
-        // Fan-in settlement of an isolated child's branch, in the same
-        // bottom-right slot pattern as the ⑂ fork-from badge; nudged left when
-        // they share the corner. Colour matches the card's fan-in chip.
-        <g>
-          <title>{`Fan-in: ${fanInBadge.label}`}</title>
-          <circle
-            cx={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
-            cy={node.y + node.h - 12}
-            fill="#0d1117"
-            r="8"
-            stroke={fanInBadge.stroke}
-            strokeWidth="1"
-          />
-          <text
-            fill={fanInBadge.stroke}
-            fontSize="9"
-            textAnchor="middle"
-            x={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
-            y={node.y + node.h - 8.5}
-          >
-            {fanInBadge.glyph}
-          </text>
-        </g>
-      ) : null}
-      {externalConsult ? (
-        // Out-of-tree consults have no node to point at, so annotate the asker
-        // with a teal consult glyph + count; the hover names the external targets.
-        <g>
-          <title>{`Consulted outside this graph: ${externalConsult.targetTitles.join(", ")}`}</title>
-          <circle
-            cx={node.x + node.w - 12}
-            cy={node.y + 12}
-            fill="#0d1117"
-            r="8"
-            stroke={CONSULT_STROKE}
-            strokeWidth="1"
-          />
-          <text
-            fill={CONSULT_STROKE}
-            fontSize="9"
-            textAnchor="middle"
-            x={node.x + node.w - 12}
-            y={node.y + 15}
-          >
-            {externalConsult.count > 9 ? "9+" : externalConsult.count}
-          </text>
-        </g>
-      ) : null}
+          ⓘ
+        </text>
+        <rect fill="transparent" height={22} width={22} x={node.x + node.w - 25} y={node.y + 2} />
+        <FocusRing x={node.x + node.w - 25} y={node.y + 2} w={22} h={22} rx={11} />
+      </g>
     </g>
+  );
+}
+
+/** A keyboard-focus outline for an SVG affordance, shown only on `:focus-visible`
+ * (driven by the `.ws-focus-ring` rules in the graph style block). */
+function FocusRing({
+  x,
+  y,
+  w,
+  h,
+  rx,
+}: {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly rx: number;
+}) {
+  return (
+    <rect
+      className="ws-focus-ring"
+      x={x - 3}
+      y={y - 3}
+      width={w + 6}
+      height={h + 6}
+      rx={rx + 2}
+      fill="none"
+      stroke="#38bdf8"
+      strokeWidth="2"
+      pointerEvents="none"
+    />
   );
 }
 
@@ -816,7 +1098,7 @@ function GraphControlButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="rounded-md border border-white/10 bg-black/40 p-1.5 text-white/55 backdrop-blur transition hover:bg-white/10 hover:text-white"
+      className="rounded-md border border-white/10 bg-black/40 p-1.5 text-white/55 outline-none backdrop-blur transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
     >
       {children}
     </button>

@@ -10,7 +10,7 @@ import {
   NetworkIcon,
   PlusIcon,
 } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { selectWorkstreamPanelState, useWorkstreamUiStore } from "../loom/workstreamUiStore";
 
@@ -43,7 +43,8 @@ import {
   STATUS_STYLES,
   truncateLabel,
 } from "../lib/workstreamPresentation";
-import { useThreadLifecycle, WorkstreamTimeline } from "./WorkstreamTimeline";
+import { useThreadLifecycle, WorkstreamLifecycleDrawer } from "./WorkstreamTimeline";
+import { WorkstreamActiveStrip } from "./WorkstreamActiveStrip";
 import { useThreadShells } from "../state/entities";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -120,10 +121,12 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
   const clearThreadAttention = useAtomCommand(threadEnvironment.clearAttention);
   const setThreadDependencies = useAtomCommand(threadEnvironment.setDependencies);
-  // Durable per-thread panel state (plan W2): view, node selection and the
-  // half-typed spawn form survive tab switches and navigation like every
-  // upstream per-thread surface. `isSpawning`/`error` and everything inside
-  // WorkstreamGraph (viewBox, drag refs) stay component-local (tier 4).
+  // Durable per-thread panel state (plan W2): view and the half-typed spawn
+  // form survive tab switches and navigation like every upstream per-thread
+  // surface. `isSpawning`/`error` and everything inside WorkstreamGraph
+  // (viewBox, drag refs) stay component-local (tier 4). Node SELECTION no
+  // longer exists: the redesign made node-click enter the thread, so the only
+  // panel-level per-thread UI state is the drawer target below.
   const panelRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
@@ -132,30 +135,34 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     selectWorkstreamPanelState(store.panelByThreadKey, panelRef),
   );
   const setViewState = useWorkstreamUiStore((store) => store.setView);
-  const setSelectedThreadIdState = useWorkstreamUiStore((store) => store.setSelectedThreadId);
   const updateSpawnDraft = useWorkstreamUiStore((store) => store.updateSpawnDraft);
   const clearSpawnDraft = useWorkstreamUiStore((store) => store.clearSpawnDraft);
   const view = panelState.view;
   const setView = (next: WorkstreamView) => {
     if (panelRef) setViewState(panelRef, next);
   };
-  // Graph selection: clicking a node selects it (highlight + lifecycle timeline
-  // below the canvas) rather than navigating — navigation moves to the timeline
-  // header's explicit "Open thread" button. The board's click=navigate is
-  // unchanged. A persisted selection may reference a thread no longer in the
-  // subtree (deleted, or a different orchestration): treat it as null at read
-  // time rather than writing back (derive, don't loop).
-  const selectedThreadId =
-    panelState.selectedThreadId && subtreeById.has(panelState.selectedThreadId)
-      ? panelState.selectedThreadId
-      : null;
-  const setSelectedThreadId = (next: ThreadId | null) => {
-    if (panelRef) setSelectedThreadIdState(panelRef, next);
-  };
+  // Graph gesture map (redesign): clicking a node ENTERS its thread (the cheapest
+  // gesture for the primary need); the lifecycle history is an opt-in behind the
+  // node's ⓘ affordance, which opens a right-side drawer. `inspectedThreadId` is
+  // the drawer target — deliberately component-local (tier 4), a transient
+  // inspection, unlike the durable view/spawn-draft state above.
+  const [inspectedThreadId, setInspectedThreadId] = useState<ThreadId | null>(null);
   // Lifecycle fetch + per-thread cache lives HERE (panel scope), not in the
-  // timeline component, so it survives Board⇄Graph view switches (the timeline
-  // unmounts on Board; the panel does not).
-  const lifecycleState = useThreadLifecycle(activeThread?.environmentId ?? null, selectedThreadId);
+  // drawer component, so it survives Board⇄Graph view switches and drawer
+  // open/close (the graph subtree unmounts on Board; the panel does not).
+  // Guard the drawer against a stale target: when the active workstream or
+  // environment changes (or the inspected thread leaves the subtree), the
+  // inspected id no longer belongs to what's on screen — reset it so the drawer
+  // never opens blank or queries the old thread against a new environment.
+  const inspectedInSubtree =
+    inspectedThreadId !== null && subtreeById.has(inspectedThreadId) ? inspectedThreadId : null;
+  useEffect(() => {
+    if (inspectedThreadId !== null && inspectedInSubtree === null) setInspectedThreadId(null);
+  }, [inspectedThreadId, inspectedInSubtree]);
+  const lifecycleState = useThreadLifecycle(
+    activeThread?.environmentId ?? null,
+    inspectedInSubtree,
+  );
   const { role, title, purpose } = panelState.spawnDraft;
   const setRole = (next: string) => panelRef && updateSpawnDraft(panelRef, { role: next });
   const setTitle = (next: string) => panelRef && updateSpawnDraft(panelRef, { title: next });
@@ -311,44 +318,55 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {view === "board" ? (
-          <WorkstreamBoard
-            threads={children}
-            childById={childById}
-            onOpenThread={openThread}
-            onSetLane={setLane}
-            onStop={stopThread}
-            onClearAttention={clearAttention}
-            onSetDependencies={setDependencies}
-          />
-        ) : (
-          <>
-            <Suspense
-              fallback={
-                <div className="flex h-40 items-center justify-center text-xs text-white/40">
-                  <Loader2Icon className="size-4 animate-spin" />
-                </div>
-              }
-            >
-              <WorkstreamGraph
-                key={graphViewKey}
-                viewKey={graphViewKey}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="h-full overflow-y-auto px-3 py-3">
+          {view === "board" ? (
+            <WorkstreamBoard
+              threads={children}
+              childById={childById}
+              onOpenThread={openThread}
+              onSetLane={setLane}
+              onStop={stopThread}
+              onClearAttention={clearAttention}
+              onSetDependencies={setDependencies}
+            />
+          ) : (
+            <>
+              <WorkstreamActiveStrip
                 threads={subtree}
                 threadById={subtreeById}
-                selectedThreadId={selectedThreadId}
-                onSelectThread={(thread) => setSelectedThreadId(thread.id)}
-                onOpenDispatch={openDispatch}
+                onOpenThread={openThread}
               />
-            </Suspense>
-            <WorkstreamTimeline
-              selectedThread={selectedThreadId ? subtreeById.get(selectedThreadId) : undefined}
-              state={lifecycleState}
-              onOpenThread={openThread}
-              onOpenDispatch={openDispatch}
-            />
-          </>
-        )}
+              <Suspense
+                fallback={
+                  <div className="flex h-40 items-center justify-center text-xs text-white/40">
+                    <Loader2Icon className="size-4 animate-spin" />
+                  </div>
+                }
+              >
+                <WorkstreamGraph
+                  key={graphViewKey}
+                  viewKey={graphViewKey}
+                  threads={subtree}
+                  threadById={subtreeById}
+                  onOpenThread={openThread}
+                  onInspectThread={(thread) => setInspectedThreadId(thread.id)}
+                  onOpenDispatch={openDispatch}
+                />
+              </Suspense>
+            </>
+          )}
+        </div>
+        {view === "graph" ? (
+          <WorkstreamLifecycleDrawer
+            open={inspectedInSubtree !== null}
+            thread={inspectedInSubtree ? subtreeById.get(inspectedInSubtree) : undefined}
+            state={lifecycleState}
+            onClose={() => setInspectedThreadId(null)}
+            onOpenThread={openThread}
+            onOpenDispatch={openDispatch}
+          />
+        ) : null}
       </div>
 
       <div className="border-t border-white/10 bg-black/20 px-3 py-3">

@@ -1,5 +1,5 @@
 import type { EnvironmentId, OrchestrationEvent, ThreadId } from "@t3tools/contracts";
-import { ArrowUpRightIcon, ExternalLinkIcon, Loader2Icon } from "lucide-react";
+import { ArrowUpRightIcon, ExternalLinkIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -19,11 +19,10 @@ export type LifecycleLoadState =
 
 /**
  * Fetch-on-selection + per-thread cache for the lifecycle timeline. Lives in the
- * *panel* (not the timeline component) so the cache survives Board⇄Graph view
- * switches — the timeline unmounts on Board, but the panel does not — and a
- * revisited selection is served from memory (result sets are tens of rows and
- * historical). Returns null when nothing is selected. Only re-fetches when the
- * selected thread changes; nothing polls.
+ * *panel* (not the drawer component) so the cache survives Board⇄Graph view
+ * switches and drawer open/close — a revisited thread is served from memory
+ * (result sets are tens of rows and historical). Returns null when nothing is
+ * inspected. Only re-fetches when the inspected thread changes; nothing polls.
  */
 export function useThreadLifecycle(
   environmentId: EnvironmentId | null,
@@ -65,21 +64,25 @@ export function useThreadLifecycle(
 }
 
 /**
- * Per-thread lifecycle timeline — the ordered journey (lane transitions,
- * outcomes, attention, rework rounds, fan-in) the latest-state read model
- * collapses away. Rendered as a panel section below the graph canvas (a sibling
- * of the lazy graph chunk, never inside the SVG). Purely presentational: the
- * panel owns the fetch/cache (see `useThreadLifecycle`) so it persists across
- * view switches. Quiet loading/error states never break the graph above.
+ * Per-thread lifecycle drawer — the ordered journey (lane transitions, outcomes,
+ * attention, rework rounds, fan-in) the latest-state read model collapses away.
+ * Slides in from the panel's right, OVERLAYING the graph rather than pushing it
+ * below the fold (a diagnostic opt-in, step 4 of the hierarchy of needs). The
+ * panel owns the fetch/cache (see `useThreadLifecycle`); this is purely
+ * presentational. Esc or a click on the backdrop dismisses it.
  */
-export function WorkstreamTimeline({
-  selectedThread,
+export function WorkstreamLifecycleDrawer({
+  thread,
   state,
+  open,
+  onClose,
   onOpenThread,
   onOpenDispatch,
 }: {
-  readonly selectedThread: SidebarThreadSummary | undefined;
+  readonly thread: SidebarThreadSummary | undefined;
   readonly state: LifecycleLoadState | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
   readonly onOpenDispatch: (threadId: ThreadId, anchorAtIso: string) => void;
 }) {
@@ -87,89 +90,156 @@ export function WorkstreamTimeline({
     () => (state?.status === "ready" ? buildThreadLifecycleRows(state.events) : []),
     [state],
   );
+  const asideRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  // The element focused before the drawer opened (the node's ⓘ button), so
+  // focus is restored to it on close.
+  const restoreFocusRef = useRef<Element | null>(null);
 
-  if (!selectedThread) {
-    return (
-      <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-center text-[11px] text-white/35">
-        Select a node above to inspect its lifecycle history.
-      </div>
-    );
-  }
+  // Modal focus lifecycle: on open, remember the trigger, move focus into the
+  // drawer, and contain Tab within it; on close, restore focus to the trigger.
+  // Esc dismisses. The closed drawer is `inert` (below) so it is never tabbable.
+  useEffect(() => {
+    if (!open) return;
+    restoreFocusRef.current = document.activeElement;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusables = asideRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusables || focusables.length === 0) return;
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // Restore focus to the trigger when the drawer closes.
+      if (restoreFocusRef.current instanceof HTMLElement) restoreFocusRef.current.focus();
+    };
+  }, [open, onClose]);
 
   return (
-    <div className="mt-3 rounded-xl border border-white/10 bg-black/20">
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-semibold text-white">{selectedThread.title}</div>
-          <div className="truncate text-[10.5px] text-white/40">
-            {getRoleLabel(selectedThread)} · lifecycle
+    <>
+      {/* Backdrop: dims the graph and captures the click-outside dismiss. */}
+      <div
+        aria-hidden
+        className={`absolute inset-0 z-20 bg-black/45 transition-opacity duration-200 motion-reduce:transition-none ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        onClick={onClose}
+      />
+      <aside
+        ref={asideRef}
+        // `inert` when closed removes the whole panel from the tab order + a11y
+        // tree (a translated-offscreen element is otherwise still tabbable).
+        inert={!open}
+        aria-hidden={!open}
+        aria-modal={open}
+        role="dialog"
+        aria-label="Lifecycle history"
+        className={`absolute inset-y-0 right-0 z-30 flex w-[340px] max-w-[85%] flex-col border-l border-white/20 bg-gradient-to-b from-[#10151d] to-[#0b0f15] shadow-[-20px_0_50px_rgba(0,0,0,0.5)] transition-transform duration-[260ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none ${
+          open ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-white">{thread?.title ?? "—"}</div>
+            <div className="truncate text-[10.5px] text-white/40">
+              {thread ? getRoleLabel(thread) : "sub-thread"} · lifecycle
+            </div>
           </div>
+          {thread ? (
+            <button
+              type="button"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+              onClick={() => onOpenThread(thread)}
+              title="Open this thread's conversation"
+            >
+              <ExternalLinkIcon className="size-3" />
+              Open thread
+            </button>
+          ) : null}
+          <button
+            ref={closeRef}
+            type="button"
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close lifecycle history"
+          >
+            <XIcon className="size-3.5" />
+          </button>
         </div>
-        <button
-          type="button"
-          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/10"
-          onClick={() => onOpenThread(selectedThread)}
-          title="Open this thread's conversation"
-        >
-          <ExternalLinkIcon className="size-3" />
-          Open thread
-        </button>
-      </div>
 
-      <div className="px-3 py-2">
-        {state?.status === "loading" ? (
-          <div className="flex items-center gap-2 py-3 text-[11px] text-white/40">
-            <Loader2Icon className="size-3.5 animate-spin" />
-            Loading history…
-          </div>
-        ) : state?.status === "error" ? (
-          <div className="py-3 text-[11px] text-white/40">Couldn&rsquo;t load history.</div>
-        ) : rows.length === 0 ? (
-          <div className="py-3 text-[11px] text-white/35">No lifecycle events recorded yet.</div>
-        ) : (
-          <ol className="flex flex-col">
-            {rows.map((row) => {
-              const tone = LIFECYCLE_TONE_STYLES[row.tone];
-              const content = (
-                <>
-                  <span className={`mt-1 size-2 shrink-0 rounded-full ${tone.dotClass}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className={`text-xs font-medium ${tone.textClass}`}>{row.label}</span>
-                    {row.detail ? (
-                      <span className="ml-1.5 text-[11px] text-white/45">{row.detail}</span>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+          {!thread ? null : state?.status === "loading" ? (
+            <div className="flex items-center gap-2 py-3 text-[11px] text-white/40">
+              <Loader2Icon className="size-3.5 animate-spin" />
+              Loading history…
+            </div>
+          ) : state?.status === "error" ? (
+            <div className="py-3 text-[11px] text-white/40">Couldn&rsquo;t load history.</div>
+          ) : rows.length === 0 ? (
+            <div className="py-3 text-[11px] text-white/35">No lifecycle events recorded yet.</div>
+          ) : (
+            <ol className="flex flex-col">
+              {rows.map((row) => {
+                const tone = LIFECYCLE_TONE_STYLES[row.tone];
+                const content = (
+                  <>
+                    <span className={`mt-1 size-2 shrink-0 rounded-full ${tone.dotClass}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className={`text-xs font-medium ${tone.textClass}`}>{row.label}</span>
+                      {row.detail ? (
+                        <span className="ml-1.5 text-[11px] text-white/45">{row.detail}</span>
+                      ) : null}
+                    </span>
+                    {row.deepLink ? (
+                      <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-white/30 group-hover:text-white/60" />
                     ) : null}
-                  </span>
-                  {row.deepLink ? (
-                    <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-white/30 group-hover:text-white/60" />
-                  ) : null}
-                  <span
-                    className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-white/35"
-                    title={row.at}
-                  >
-                    {formatRelativeAge(row.at)}
-                  </span>
-                </>
-              );
-              return (
-                <li key={row.key} className="border-l border-white/10 pl-3">
-                  {row.deepLink ? (
-                    <button
-                      type="button"
-                      className="group -ml-px flex w-full items-start gap-2 py-1.5 text-left outline-none"
-                      onClick={() => onOpenDispatch(selectedThread.id, row.at)}
-                      title="Jump to this point in the thread's conversation"
+                    <span
+                      className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-white/35"
+                      title={row.at}
                     >
-                      {content}
-                    </button>
-                  ) : (
-                    <div className="flex w-full items-start gap-2 py-1.5">{content}</div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </div>
-    </div>
+                      {formatRelativeAge(row.at)}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={row.key} className="border-l border-white/10 pl-3">
+                    {row.deepLink ? (
+                      <button
+                        type="button"
+                        className="group -ml-px flex w-full items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        onClick={() => onOpenDispatch(thread.id, row.at)}
+                        title="Jump to this point in the thread's conversation"
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      <div className="flex w-full items-start gap-2 py-1.5">{content}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }
