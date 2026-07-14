@@ -160,6 +160,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     brief,
     planLane: "planned",
     title: threadTitle,
+    titleProvenance: "curated", // loom: §4 handoff threadTitle is curated
     modelSelection: callerThread.modelSelection,
     runtimeMode: callerThread.runtimeMode,
     interactionMode: callerThread.interactionMode,
@@ -245,6 +246,7 @@ const handleGoalContinue = Effect.gen(function* () {
     brief: briefWithPredecessor,
     planLane: "planned",
     title: threadTitle,
+    titleProvenance: "curated", // loom: §4 continuation threadTitle is curated
     modelSelection: callerThread.modelSelection,
     runtimeMode: callerThread.runtimeMode,
     interactionMode: callerThread.interactionMode,

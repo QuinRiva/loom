@@ -95,6 +95,7 @@ describe("orchestration projector", () => {
         isolation: "shared" as const,
         fanInState: "none" as const,
         title: "demo",
+        titleProvenance: "curated" as const,
         modelSelection: {
           instanceId: "codex",
           model: "gpt-5-codex",
@@ -121,6 +122,54 @@ describe("orchestration projector", () => {
       },
     ]);
   });
+
+  // loom: §4 historical-event replay must agree with migration 057's backfill.
+  // A thread.created lacking titleProvenance infers it from the title, so a
+  // projection rebuild never flips an old placeholder's authority.
+  effectIt.effect("infers legacy title provenance on replay of pre-provenance thread.created", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const base = {
+        projectId: "project-1",
+        modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+        runtimeMode: "full-access" as const,
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const afterPlaceholder = yield* projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-placeholder",
+          occurredAt: now,
+          commandId: "cmd-placeholder",
+          payload: { threadId: "thread-placeholder", title: "New thread", ...base },
+        }),
+      );
+      const model = yield* projectEvent(
+        afterPlaceholder,
+        makeEvent({
+          sequence: 2,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-real",
+          occurredAt: now,
+          commandId: "cmd-real",
+          payload: { threadId: "thread-real", title: "Fix reconnect", ...base },
+        }),
+      );
+
+      const byId = new Map(model.threads.map((t) => [t.id, t.titleProvenance]));
+      expect(byId.get("thread-placeholder" as (typeof model.threads)[number]["id"])).toBe(
+        "default",
+      );
+      expect(byId.get("thread-real" as (typeof model.threads)[number]["id"])).toBe("curated");
+    }),
+  );
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = "2026-01-01T00:00:00.000Z";

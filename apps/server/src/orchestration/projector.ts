@@ -1,6 +1,6 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
 // loom: fork event delegation guard.
-import { isLoomOrchestrationEvent } from "@t3tools/contracts";
+import { inferLegacyTitleProvenance, isLoomOrchestrationEvent } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -312,6 +312,11 @@ export function projectEvent(
             forkFromThreadId: payload.forkFromThreadId ?? null,
             reportPath: null,
             title: payload.title,
+            // loom: §4 replay-safe: a historical thread.created lacking
+            // provenance infers it from the title (identical to migration 057
+            // + the pipeline), so a rebuild never disagrees with the DB backfill.
+            titleProvenance: payload.titleProvenance ?? inferLegacyTitleProvenance(payload.title),
+
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
@@ -378,6 +383,9 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.titleProvenance !== undefined
+              ? { titleProvenance: payload.titleProvenance }
+              : {}),
             ...(payload.modelSelection !== undefined
               ? { modelSelection: payload.modelSelection }
               : {}),

@@ -4194,19 +4194,12 @@ function ChatViewContent(props: ChatViewProps) {
     );
 
     let failure: AtomCommandResult<unknown, unknown> | null = null;
-    // Auto-title from first message
-    if (isFirstMessage && isServerThread) {
-      const titleResult = await updateThreadMetadata({
-        environmentId,
-        input: {
-          threadId: threadIdForSend,
-          title,
-        },
-      });
-      if (titleResult._tag === "Failure") {
-        failure = titleResult;
-      }
-    }
+    // loom: §4 the first-message title is no longer written authoritatively from
+    // the client (that raw `thread.meta.update` bypassed the server's provenance
+    // guard and let a seed clobber curated titles). The truncated seed rides on
+    // the turn-start `titleSeed` below; the server applies it as a `seed`-
+    // provenance title and upgrades it to a `derived` LLM interpretation — and a
+    // curated title (spawn/handoff/rename) is left untouched.
 
     if (failure === null && isServerThread) {
       const settingsResult = await persistThreadSettingsForNextTurn({

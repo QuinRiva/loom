@@ -1312,6 +1312,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     planLane,
     spawnGeneration,
     title,
+    titleProvenance: "curated", // loom: §4 the spawn title is a curated label
     modelSelection,
     runtimeMode: current.runtimeMode,
     interactionMode: current.interactionMode,
@@ -2046,6 +2047,7 @@ const handleSetThreadTitle = Effect.gen(function* () {
     commandId: CommandId.make(`server:set-thread-title:${yield* crypto.randomUUIDv4}`),
     threadId: scope.threadId,
     title,
+    titleProvenance: "curated", // loom: §4 set_thread_title is a human/tool rename
   } satisfies OrchestrationCommand);
 
   return HttpServerResponse.jsonUnsafe({

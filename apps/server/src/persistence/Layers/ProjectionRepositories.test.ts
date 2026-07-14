@@ -96,6 +96,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         isolation: "shared" as const,
         fanInState: "none" as const,
         title: "Null options thread",
+        titleProvenance: "curated" as const,
         modelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
