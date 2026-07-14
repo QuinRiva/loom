@@ -107,11 +107,19 @@ export const LoomClientSettingsFields = {
   reasoningDisplay: ReasoningDisplayMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_REASONING_DISPLAY_MODE)),
   ),
+  // One-shot durable auto-open of the goal-tasks / Workstream right-panel
+  // surfaces (loom UI, plan W1). Both default on: first-visit discovery is
+  // wanted without a manual + → tab per thread, and the per-thread one-shot
+  // flags make the cost a single non-overriding seed per thread.
+  autoOpenGoalTasksPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  autoOpenWorkstreamPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 } as const;
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
   reasoningDisplay: Schema.optionalKey(ReasoningDisplayMode),
+  autoOpenGoalTasksPanel: Schema.optionalKey(Schema.Boolean),
+  autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
 } as const;
 
 // Spread into `ServerSettings`.

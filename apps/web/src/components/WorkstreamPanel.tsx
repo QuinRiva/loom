@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 
+import { selectWorkstreamPanelState, useWorkstreamUiStore } from "../loom/workstreamUiStore";
+
 import { newThreadId } from "../lib/utils";
 import { formatCostUsd } from "../lib/contextWindow";
 import {
@@ -118,19 +120,46 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
   const clearThreadAttention = useAtomCommand(threadEnvironment.clearAttention);
   const setThreadDependencies = useAtomCommand(threadEnvironment.setDependencies);
-  const [view, setView] = useState<WorkstreamView>("graph");
+  // Durable per-thread panel state (plan W2): view, node selection and the
+  // half-typed spawn form survive tab switches and navigation like every
+  // upstream per-thread surface. `isSpawning`/`error` and everything inside
+  // WorkstreamGraph (viewBox, drag refs) stay component-local (tier 4).
+  const panelRef = useMemo(
+    () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
+    [activeThread],
+  );
+  const panelState = useWorkstreamUiStore((store) =>
+    selectWorkstreamPanelState(store.panelByThreadKey, panelRef),
+  );
+  const setViewState = useWorkstreamUiStore((store) => store.setView);
+  const setSelectedThreadIdState = useWorkstreamUiStore((store) => store.setSelectedThreadId);
+  const updateSpawnDraft = useWorkstreamUiStore((store) => store.updateSpawnDraft);
+  const clearSpawnDraft = useWorkstreamUiStore((store) => store.clearSpawnDraft);
+  const view = panelState.view;
+  const setView = (next: WorkstreamView) => {
+    if (panelRef) setViewState(panelRef, next);
+  };
   // Graph selection: clicking a node selects it (highlight + lifecycle timeline
   // below the canvas) rather than navigating — navigation moves to the timeline
   // header's explicit "Open thread" button. The board's click=navigate is
-  // unchanged.
-  const [selectedThreadId, setSelectedThreadId] = useState<ThreadId | null>(null);
+  // unchanged. A persisted selection may reference a thread no longer in the
+  // subtree (deleted, or a different orchestration): treat it as null at read
+  // time rather than writing back (derive, don't loop).
+  const selectedThreadId =
+    panelState.selectedThreadId && subtreeById.has(panelState.selectedThreadId)
+      ? panelState.selectedThreadId
+      : null;
+  const setSelectedThreadId = (next: ThreadId | null) => {
+    if (panelRef) setSelectedThreadIdState(panelRef, next);
+  };
   // Lifecycle fetch + per-thread cache lives HERE (panel scope), not in the
   // timeline component, so it survives Board⇄Graph view switches (the timeline
   // unmounts on Board; the panel does not).
   const lifecycleState = useThreadLifecycle(activeThread?.environmentId ?? null, selectedThreadId);
-  const [role, setRole] = useState("");
-  const [title, setTitle] = useState("");
-  const [purpose, setPurpose] = useState("");
+  const { role, title, purpose } = panelState.spawnDraft;
+  const setRole = (next: string) => panelRef && updateSpawnDraft(panelRef, { role: next });
+  const setTitle = (next: string) => panelRef && updateSpawnDraft(panelRef, { title: next });
+  const setPurpose = (next: string) => panelRef && updateSpawnDraft(panelRef, { purpose: next });
   const [isSpawning, setIsSpawning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,9 +260,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       setIsSpawning(false);
       return;
     }
-    setRole("");
-    setTitle("");
-    setPurpose("");
+    if (panelRef) clearSpawnDraft(panelRef);
     setIsSpawning(false);
     await navigate({
       to: "/$environmentId/$threadId",

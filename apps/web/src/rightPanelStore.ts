@@ -13,6 +13,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
+// loom: pure reducer for the durable one-shot auto-open seed (plan W1).
+import { seedRightPanelSurfaces, type SeedableSurfaceKind } from "./loom/seedRightPanelSurfaces";
 
 export const RIGHT_PANEL_KINDS = [
   "plan",
@@ -68,6 +70,12 @@ export interface ThreadRightPanelState {
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
   open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  // loom: single-transition auto-open seed; see loom/seedRightPanelSurfaces.ts.
+  seedSurfaces: (
+    ref: ScopedThreadRef,
+    kinds: readonly SeedableSurfaceKind[],
+    preferredActivation: SeedableSurfaceKind,
+  ) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openFileAbsolute: (ref: ScopedThreadRef, absolutePath: string, line?: number) => void;
@@ -303,6 +311,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             }
             return upsertSurface(current, singletonSurface(kind));
           }),
+        })),
+      // loom: durable one-shot auto-open seed (plan W1).
+      seedSurfaces: (ref, kinds, preferredActivation) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            seedRightPanelSurfaces(current, kinds, preferredActivation),
+          ),
         })),
       openBrowser: (ref, tabId) =>
         set((state) => ({
