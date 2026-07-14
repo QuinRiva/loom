@@ -36,6 +36,65 @@ import type { OrchestrationCommand, OrchestrationEvent } from "./orchestration.t
 // Standalone schemas / consts (relocated verbatim from orchestration.ts).
 // ---------------------------------------------------------------------------
 
+// loom: title provenance ladder (stale/empty-goal fix §4). Tracks how the
+// CURRENT title of a thread or goal was produced, lowest → highest authority:
+//   `default`  — the placeholder "New thread" (never a real subject).
+//   `seed`     — the truncated first user message (a rough client-side guess).
+//   `derived`  — the side-channel LLM interpretation of the thread's intent.
+//   `curated`  — a human/tool rename (set_thread_title, spawn/handoff titles,
+//                goal_update). Never overwritten by anything automatic.
+// Automatic writers may only replace a title whose provenance ranks strictly
+// below theirs; a `curated` title is immutable to automation. The rank helper
+// `titleProvenanceRank` and guard `canReplaceTitle` live below.
+export const TitleProvenance = Schema.Literals(["default", "seed", "derived", "curated"]);
+export type TitleProvenance = typeof TitleProvenance.Type;
+
+// loom: the placeholder title a fresh thread carries until it gains a real
+// subject. Single-sourced here so the decider, reactor, projector, pipeline and
+// migration all agree on which titles are "never a real subject".
+export const DEFAULT_THREAD_TITLE = "New thread";
+
+/**
+ * Conservative provenance for a title that arrives WITHOUT an explicit
+ * provenance — the single inference shared by every replay/backfill path
+ * (in-memory projector, durable pipeline, migration 057). The `"New thread"`
+ * placeholder never carried a real subject, so it is `default` (freely
+ * replaceable by automation); every other title is `curated` — the safe choice
+ * that automation may not clobber. Keeping this identical across all three
+ * paths is what stops a projection rebuild from disagreeing with the migration.
+ */
+export function inferLegacyTitleProvenance(title: string): TitleProvenance {
+  return title.trim() === DEFAULT_THREAD_TITLE ? "default" : "curated";
+}
+
+const TITLE_PROVENANCE_RANK: Record<TitleProvenance, number> = {
+  default: 0,
+  seed: 1,
+  derived: 2,
+  curated: 3,
+};
+
+export function titleProvenanceRank(provenance: TitleProvenance | undefined): number {
+  // A missing provenance is treated as `curated` — the conservative default so
+  // legacy/unlabelled titles are never clobbered by automation.
+  return provenance === undefined
+    ? TITLE_PROVENANCE_RANK.curated
+    : TITLE_PROVENANCE_RANK[provenance];
+}
+
+/**
+ * Whether a writer stamping `next` provenance may replace a title whose current
+ * provenance is `current`. `curated` always wins (a human/tool rename); every
+ * other writer needs to rank strictly above the current title.
+ */
+export function canReplaceTitle(
+  current: TitleProvenance | undefined,
+  next: TitleProvenance,
+): boolean {
+  if (next === "curated") return true;
+  return titleProvenanceRank(next) > titleProvenanceRank(current);
+}
+
 // Worktree isolation policy for a workstream sub-thread (worktree-isolation
 // design §1). `isolated` = own worktree + `ws/…` branch, merged back on
 // completion (fan-in); `shared` = runs in the parent's worktree (today's
@@ -227,6 +286,7 @@ export const OrchestrationGoal = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   tasks: Schema.Array(OrchestrationGoalTask),
   createdAt: IsoDateTime,
@@ -241,6 +301,7 @@ export const OrchestrationGoalShell = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   tasks: Schema.Array(OrchestrationGoalTask),
   createdAt: IsoDateTime,
@@ -297,6 +358,10 @@ export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
 // once (the fork fields are byte-identical between thread and shell).
 export const LoomThreadFields = {
   goalId: Schema.NullOr(GoalId),
+  // loom: §4 title provenance. Optional so dev seeds/tests may omit it; every
+  // live write path stamps it and the decider treats an absent value as
+  // `curated` (the conservative default that automation may not overwrite).
+  titleProvenance: Schema.optional(TitleProvenance),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   purpose: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -509,6 +574,10 @@ export const LoomThreadCreateCommandFields = {
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // loom: §4 provenance of the create-time title. Spawn/handoff titles are
+  // `curated`; the client bootstrap create leaves it absent (the decider then
+  // infers `default` for the "New thread" placeholder).
+  titleProvenance: Schema.optional(TitleProvenance),
   // Intrinsic run-condition carried at node creation: the dispatcher defers the
   // kick-off turn until every blockedBy thread is `done`. A dependency-bearing
   // create is validated at the decider boundary (self/root/dangling/cycle
@@ -538,6 +607,10 @@ export const LoomThreadMetaUpdateFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // loom: §4 provenance the writer is stamping onto a title change. The decider
+  // applies the title only when this rank may replace the current provenance;
+  // absent-with-title is treated as `curated` (a conservative human-ish write).
+  titleProvenance: Schema.optional(TitleProvenance),
 } as const;
 
 // Spread into `ThreadTurnStartCommand`. All three flags are server-only; see
@@ -588,6 +661,7 @@ export const LoomThreadCreatedPayloadFields = {
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   brief: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   planLane: Schema.optional(ThreadPlanLane),
   attention: Schema.optional(ThreadAttention),
   blockedBy: Schema.optional(Schema.Array(ThreadId)),
@@ -604,6 +678,7 @@ export const LoomThreadMetaUpdatedPayloadFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -619,6 +694,7 @@ const GoalCreateCommand = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
 });
@@ -629,6 +705,7 @@ const GoalMetaUpdateCommand = Schema.Struct({
   goalId: GoalId,
   slug: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
 });
 
@@ -836,6 +913,7 @@ export const GoalCreatedPayload = Schema.Struct({
   projectId: ProjectId,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.String,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -845,6 +923,7 @@ export const GoalMetaUpdatedPayload = Schema.Struct({
   goalId: GoalId,
   slug: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
+  titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
   description: Schema.optional(Schema.String),
   updatedAt: IsoDateTime,
 });

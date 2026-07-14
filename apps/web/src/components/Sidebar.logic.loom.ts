@@ -3,12 +3,7 @@
 // goal-grouping additions. Pure and generic over the thread type; consumed by
 // Sidebar.tsx and loom/SidebarGoalThreadList.tsx.
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
-import {
-  getThreadSortTimestamp,
-  sortThreads,
-  toSortableTimestamp,
-  type ThreadSortInput,
-} from "../lib/threadSort";
+import { getThreadSortTimestamp, sortThreads, type ThreadSortInput } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
 
 /**
@@ -86,7 +81,10 @@ export function buildSidebarGoalOrderedEntries<
   goals: readonly TGoal[];
   sortOrder: SidebarThreadSortOrder;
 }): SidebarOrderedEntry<TThread>[] {
-  const { goals, sortOrder, threads } = input;
+  // loom: §3 `goals` is no longer read here — only goals with threads render, and
+  // those goal ids come from the threads themselves. The param stays for API
+  // stability (callers still pass it; `knownGoalIds` drives compact detection).
+  const { sortOrder, threads } = input;
 
   const threadsByGoalId = new Map<string, TThread[]>();
   const looseThreads: TThread[] = [];
@@ -100,33 +98,26 @@ export function buildSidebarGoalOrderedEntries<
     }
   }
 
-  const goalById = new Map(goals.map((goal) => [goal.id, goal] as const));
-  const goalRecency = (goalThreads: readonly TThread[], goal: TGoal | undefined): number => {
-    if (goalThreads.length > 0) {
-      return goalThreads.reduce(
-        (latest, thread) => Math.max(latest, getThreadSortTimestamp(thread, sortOrder)),
-        Number.NEGATIVE_INFINITY,
-      );
-    }
-    if (sortOrder === "created_at") {
-      return toSortableTimestamp(goal?.createdAt) ?? Number.NEGATIVE_INFINITY;
-    }
-    return toSortableTimestamp(goal?.updatedAt ?? goal?.createdAt) ?? Number.NEGATIVE_INFINITY;
-  };
+  const goalRecency = (goalThreads: readonly TThread[]): number =>
+    goalThreads.reduce(
+      (latest, thread) => Math.max(latest, getThreadSortTimestamp(thread, sortOrder)),
+      Number.NEGATIVE_INFINITY,
+    );
 
-  // Every known goal appears (even with zero threads here), plus any orphan
-  // goalId referenced by a thread but missing from `goals` (defensive).
-  const goalIds = [
-    ...goals.map((goal) => goal.id),
-    ...[...threadsByGoalId.keys()].filter((goalId) => !goalById.has(goalId)),
-  ];
+  // loom: §3 only goals that actually have (root) threads in THIS list render a
+  // header. A goal with zero threads here — e.g. a stale/orphan goal, or one
+  // whose only threads are workstream children or archived — is omitted rather
+  // than rendered as a permanently empty header. `threadsByGoalId` keys cover
+  // both known goals with threads and any orphan goalId a thread references.
+  // Both the render and the Ctrl+N jump map consume this, so they stay aligned.
+  const goalIds = [...threadsByGoalId.keys()];
 
   const ranked: { entry: SidebarOrderedEntry<TThread>; timestamp: number; sortKey: string }[] = [
     ...goalIds.map((goalId) => {
       const goalThreads = sortThreads(threadsByGoalId.get(goalId) ?? [], sortOrder);
       return {
         entry: { kind: "goal" as const, goalId, threads: goalThreads },
-        timestamp: goalRecency(goalThreads, goalById.get(goalId)),
+        timestamp: goalRecency(goalThreads),
         sortKey: goalId,
       };
     }),

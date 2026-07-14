@@ -6899,6 +6899,85 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  // loom: §4 finding 1 — the bootstrap first-send path is the REAL local-draft
+  // creation. ws.ts stamps its title (the client's truncated first message) as
+  // `seed` at the trust boundary so the reactor may later upgrade it to the LLM
+  // `derived` title. Assert the dispatched thread.create carries that provenance
+  // (and the "New thread" placeholder stays `default`); this fails if the ws.ts
+  // stamping is removed.
+  it.effect("stamps bootstrap first-message title provenance as seed at the trust boundary", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              }),
+            readEvents: () => Stream.empty,
+          },
+        },
+      });
+
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const sendBootstrap = (threadId: string, messageId: string, title: string) =>
+        Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+              type: "thread.turn.start",
+              commandId: CommandId.make(`cmd-bootstrap-provenance-${threadId}`),
+              threadId: ThreadId.make(threadId),
+              message: {
+                messageId: MessageId.make(messageId),
+                role: "user",
+                text: "the actual first message body",
+                attachments: [],
+              },
+              modelSelection: defaultModelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              bootstrap: {
+                createThread: {
+                  projectId: defaultProjectId,
+                  title,
+                  modelSelection: defaultModelSelection,
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                  createdAt,
+                },
+              },
+              createdAt,
+            }),
+          ),
+        );
+
+      // A real first-message title (truncated user text) → `seed`.
+      yield* sendBootstrap(
+        "thread-bootstrap-seed",
+        "msg-seed",
+        "Investigate reconnect failures after restar...",
+      );
+      // The blank-context placeholder → `default`.
+      yield* sendBootstrap("thread-bootstrap-default", "msg-default", "New thread");
+
+      const creates = dispatchedCommands.filter(
+        (command): command is Extract<OrchestrationCommand, { type: "thread.create" }> =>
+          command.type === "thread.create",
+      );
+      const seedCreate = creates.find((c) => c.threadId === ThreadId.make("thread-bootstrap-seed"));
+      const defaultCreate = creates.find(
+        (c) => c.threadId === ThreadId.make("thread-bootstrap-default"),
+      );
+      assert.equal(seedCreate?.titleProvenance, "seed");
+      assert.equal(defaultCreate?.titleProvenance, "default");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc terminal methods", () =>
     Effect.gen(function* () {
       const snapshot = {

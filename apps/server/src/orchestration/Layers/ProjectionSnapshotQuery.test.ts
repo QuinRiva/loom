@@ -303,6 +303,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           isolation: "shared" as const,
           fanInState: "none" as const,
           title: "Thread 1",
+          titleProvenance: "curated" as const,
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
@@ -438,6 +439,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           isolation: "shared" as const,
           fanInState: "none" as const,
           title: "Thread 1",
+          titleProvenance: "curated" as const,
           modelSelection: {
             instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",

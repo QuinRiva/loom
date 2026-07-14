@@ -23,6 +23,7 @@ import {
   type AuthEnvironmentScope,
   AuthSessionId,
   CommandId,
+  DEFAULT_THREAD_TITLE,
   type DiscoveredLocalServerList,
   GoalId,
   type OrchestrationCommand,
@@ -726,6 +727,15 @@ const makeWsRpcLayer = (
                 // launch.
                 forkFromThreadId: bootstrap.createThread.forkFromThreadId ?? null,
                 title: bootstrap.createThread.title,
+                // loom: §4 trust boundary. The bootstrap create title is the
+                // client's truncated FIRST MESSAGE (a seed), never a human-typed
+                // curated title — so stamp it `seed` here rather than letting the
+                // decider conservatively infer `curated` from a non-placeholder
+                // title. This keeps the real local-draft first-send path
+                // automation-malleable so the reactor can upgrade it to the LLM
+                // `derived` title. A blank-context "New thread" stays `default`.
+                titleProvenance:
+                  bootstrap.createThread.title.trim() === DEFAULT_THREAD_TITLE ? "default" : "seed",
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,
                 interactionMode: bootstrap.createThread.interactionMode,

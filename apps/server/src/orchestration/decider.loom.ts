@@ -178,6 +178,10 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           projectId: command.projectId,
           slug: command.slug,
           title: command.title,
+          // loom: §4 title provenance. Goal titles always carry a real subject, so
+          // an unspecified provenance defaults to `curated`; the emergent-goal
+          // auto-create passes `derived` explicitly.
+          titleProvenance: command.titleProvenance ?? "curated",
           description: command.description ?? "",
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -209,7 +213,11 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
         payload: {
           goalId: command.goalId,
           ...(command.slug !== undefined ? { slug: command.slug } : {}),
-          ...(command.title !== undefined ? { title: command.title } : {}),
+          // loom: §4 a direct goal.meta.update (goal_update tool) is a curated
+          // rename unless the caller states otherwise.
+          ...(command.title !== undefined
+            ? { title: command.title, titleProvenance: command.titleProvenance ?? "curated" }
+            : {}),
           ...(command.description !== undefined ? { description: command.description } : {}),
           updatedAt: occurredAt,
         },

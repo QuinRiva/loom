@@ -4,6 +4,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import {
+  GoalId,
   ModelSelection,
   ProviderRuntimeEvent,
   ProviderSession,
@@ -435,6 +436,9 @@ describe("ProviderCommandReactor", () => {
         threadId: ThreadId.make("thread-1"),
         projectId: asProjectId("project-1"),
         title: "Thread",
+        // loom: §4 a fresh auto-titleable root — its placeholder title is still
+        // automation-malleable (default), so seed/derived writes may replace it.
+        titleProvenance: "default",
         modelSelection: modelSelection,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
@@ -667,15 +671,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.make("cmd-thread-title-seed"),
-        threadId: ThreadId.make("thread-1"),
-        title: seededTitle,
-      }),
-    );
-
+    // loom: §4 the client no longer writes the first-message title directly — the
+    // truncated seed rides on the turn-start `titleSeed`; the server applies it
+    // as a `seed`-provenance title, then the LLM upgrades it to `derived`.
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -766,15 +764,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.make("cmd-thread-title-formatted-seed"),
-        threadId: ThreadId.make("thread-1"),
-        title: seededTitle,
-      }),
-    );
-
+    // loom: §4 seed rides on turn-start `titleSeed` (see note above).
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -856,6 +846,319 @@ describe("ProviderCommandReactor", () => {
     });
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
   });
+
+  // loom: §4 finding 1 — the REAL bootstrap first-send path stamps the title
+  // `seed` server-side; the reactor must then be able to upgrade it to the LLM
+  // `derived` title. (thread-1 here stands in for a bootstrap-created thread.)
+  effectIt.effect("upgrades a seed-provenance first-message title to the derived LLM title", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      harness.generateStructured.mockReturnValue(
+        Effect.succeed({
+          title: "Reconnect backoff redesign",
+          goal: { title: "Generated goal", description: "Generated goal description" },
+          confidence: "low",
+        }),
+      );
+
+      // Simulate what ws.ts now does at bootstrap create: a first-message title
+      // stamped `seed` (not curated).
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("cmd-seed-title"),
+        threadId: ThreadId.make("thread-1"),
+        title: "Please redesign the reconnect backoff so it...",
+        titleProvenance: "seed",
+      });
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-seed-derived"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-seed-derived"),
+          role: "user",
+          text: "Please redesign the reconnect backoff so it is safer.",
+          attachments: [],
+        },
+        titleSeed: "Please redesign the reconnect backoff so it...",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() =>
+        waitFor(() => harness.generateStructured.mock.calls.length === 1),
+      );
+      yield* Effect.promise(() =>
+        waitFor(async () => {
+          const readModel = await harness.readModel();
+          return (
+            readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.title ===
+            "Reconnect backoff redesign"
+          );
+        }),
+      );
+    }),
+  );
+
+  // loom: §1 finding — Bug A lockdown: a goal-less workstream child kick-off must
+  // NEVER interpret intent (no text generation) and must NEVER create a goal.
+  effectIt.effect(
+    "does not interpret intent or create a goal for a goal-less workstream child",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        harness.generateStructured.mockReturnValue(
+          Effect.succeed({
+            title: "Should never be used",
+            goal: { title: "Should never be created", description: "" },
+            confidence: "high",
+          }),
+        );
+
+        // A child under thread-1, goal-less (the exact Bug A shape).
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-create-child"),
+          threadId: ThreadId.make("thread-child"),
+          projectId: asProjectId("project-1"),
+          parentThreadId: ThreadId.make("thread-1"),
+          goalId: null,
+          role: "coder",
+          title: "Child worker",
+          titleProvenance: "curated",
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5-codex"),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-child"),
+          threadId: ThreadId.make("thread-child"),
+          message: {
+            messageId: asMessageId("user-message-child"),
+            role: "user",
+            text: "Merge coder changes and open the PR.",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+        // The child ran its turn but never interpreted intent …
+        expect(harness.generateStructured).not.toHaveBeenCalled();
+        // … and no goal was created.
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        expect(readModel.goals).toHaveLength(0);
+        expect(
+          readModel.threads.find((entry) => entry.id === ThreadId.make("thread-child"))?.goalId,
+        ).toBeNull();
+      }),
+  );
+
+  // loom: §4 finding 3 — a goal-attached root whose title is still `seed` must be
+  // able to reach `derived` (title applied) WITHOUT creating a second goal.
+  effectIt.effect(
+    "upgrades a goal-attached root's seed title to derived without creating a goal",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        harness.generateStructured.mockReturnValue(
+          Effect.succeed({
+            title: "Refined subject line",
+            goal: { title: "Should not be created", description: "" },
+            confidence: "high",
+          }),
+        );
+
+        yield* harness.engine.dispatch({
+          type: "goal.create",
+          commandId: CommandId.make("cmd-existing-goal"),
+          goalId: GoalId.make("goal-existing"),
+          projectId: asProjectId("project-1"),
+          slug: "existing-goal",
+          title: "Existing Goal",
+          createdAt: now,
+        });
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-create-goal-root"),
+          threadId: ThreadId.make("thread-goal-root"),
+          projectId: asProjectId("project-1"),
+          parentThreadId: null,
+          goalId: GoalId.make("goal-existing"),
+          title: "raw first message seed for a goal-attached root...",
+          titleProvenance: "seed",
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5-codex"),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-goal-root"),
+          threadId: ThreadId.make("thread-goal-root"),
+          message: {
+            messageId: asMessageId("user-message-goal-root"),
+            role: "user",
+            text: "raw first message seed for a goal-attached root, expanded.",
+            attachments: [],
+          },
+          titleSeed: "raw first message seed for a goal-attached root...",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() =>
+          waitFor(() => harness.generateStructured.mock.calls.length === 1),
+        );
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const readModel = await harness.readModel();
+            return (
+              readModel.threads.find((entry) => entry.id === ThreadId.make("thread-goal-root"))
+                ?.title === "Refined subject line"
+            );
+          }),
+        );
+        // The derived title was applied, but no SECOND goal was created.
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        expect(readModel.goals).toHaveLength(1);
+      }),
+  );
+
+  // loom: §4 finding 2 — the exact Bug B failure mode. A goal-less root whose
+  // turn-2 message is a mid-conversation INSTRUCTION must force its goal from the
+  // OPENING context (first message + its attachments), never the triggering
+  // message. This inspects the second interpretation prompt directly.
+  effectIt.effect(
+    "forces the turn-2 goal from opening context, excluding the triggering message",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        // Turn 1 (low confidence): applies a derived title, creates NO goal.
+        // Turn 2+ (high confidence): forces the goal.
+        let interpretationCall = 0;
+        harness.generateStructured.mockImplementation(() => {
+          interpretationCall += 1;
+          return Effect.succeed(
+            interpretationCall === 1
+              ? {
+                  title: "Reconnect resume investigation",
+                  goal: { title: "placeholder", description: "placeholder" },
+                  confidence: "low",
+                }
+              : {
+                  title: "should not be applied on turn 2",
+                  goal: { title: "Reconnect resume", description: "Fix the resume spinner" },
+                  confidence: "high",
+                },
+          );
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-open-turn1"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-open-1"),
+            role: "user",
+            text: "Investigate why the session drops its reconnect on resume.",
+            attachments: [
+              {
+                type: "image",
+                id: "att-opening",
+                name: "opening-diagram.png",
+                mimeType: "image/png",
+                sizeBytes: 1024,
+              },
+            ],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        // Let turn-1 interpretation finish (title applied → in-flight lock freed)
+        // before triggering turn 2, so turn 2's interpretation is not deduped.
+        yield* Effect.promise(() =>
+          waitFor(() => harness.generateStructured.mock.calls.length === 1),
+        );
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const rm = await harness.readModel();
+            return (
+              rm.threads.find((t) => t.id === ThreadId.make("thread-1"))?.title ===
+              "Reconnect resume investigation"
+            );
+          }),
+        );
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-open-turn2"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-trigger-2"),
+            role: "user",
+            text: "Merge coder changes and open the PR.",
+            attachments: [
+              {
+                type: "image",
+                id: "att-trigger",
+                name: "pr-screenshot.png",
+                mimeType: "image/png",
+                sizeBytes: 2048,
+              },
+            ],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        // Turn 2 forces goal creation → interpretation runs a second time.
+        yield* Effect.promise(() =>
+          waitFor(() => harness.generateStructured.mock.calls.length === 2),
+        );
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const rm = await harness.readModel();
+            return rm.goals.length === 1;
+          }),
+        );
+
+        const turn2Prompt =
+          (harness.generateStructured.mock.calls[1]?.[0] as { prompt: string } | undefined)
+            ?.prompt ?? "";
+        // Opening objective + its attachment are the interpretation input …
+        expect(turn2Prompt).toContain("Investigate why the session drops its reconnect on resume.");
+        expect(turn2Prompt).toContain("opening-diagram.png");
+        // … the triggering instruction + its attachment are excluded.
+        expect(turn2Prompt).not.toContain("Merge coder changes");
+        expect(turn2Prompt).not.toContain("pr-screenshot.png");
+
+        // The forced goal was created from the opening objective.
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        expect(readModel.goals).toHaveLength(1);
+        expect(readModel.goals[0]?.title).toBe("Reconnect resume");
+      }),
+  );
 
   it("forwards codex model options through session start and turn send", async () => {
     const harness = await createHarness();

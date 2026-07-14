@@ -102,6 +102,7 @@ function assembleGoals(
     projectId: goal.projectId,
     slug: goal.slug,
     title: goal.title,
+    titleProvenance: goal.titleProvenance, // loom: §4 title provenance
     description: goal.description,
     tasks: buildGoalTaskTree(activeTasksByGoal.get(goal.goalId) ?? []),
     createdAt: goal.createdAt,
@@ -512,6 +513,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           project_id AS "projectId",
           slug,
           title,
+          title_provenance AS "titleProvenance",
           description,
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -568,6 +570,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           isolation,
           fan_in_state AS "fanInState",
           title,
+          title_provenance AS "titleProvenance",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -619,6 +622,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           isolation,
           fan_in_state AS "fanInState",
           title,
+          title_provenance AS "titleProvenance",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -672,6 +676,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           isolation,
           fan_in_state AS "fanInState",
           title,
+          title_provenance AS "titleProvenance",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -1135,6 +1140,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           isolation,
           fan_in_state AS "fanInState",
           title,
+          title_provenance AS "titleProvenance",
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
@@ -2007,6 +2013,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 isolation: row.isolation,
                 fanInState: row.fanInState,
                 title: row.title,
+                titleProvenance: row.titleProvenance, // loom: §4 title provenance
                 modelSelection: row.modelSelection,
                 runtimeMode: row.runtimeMode,
                 interactionMode: row.interactionMode,
@@ -2256,6 +2263,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   isolation: row.isolation,
                   fanInState: row.fanInState,
                   title: row.title,
+                  titleProvenance: row.titleProvenance, // loom: §4 title provenance
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
@@ -2460,6 +2468,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         isolation: row.isolation,
                         fanInState: row.fanInState,
                         title: row.title,
+                        titleProvenance: row.titleProvenance, // loom: §4 title provenance
                         modelSelection: row.modelSelection,
                         runtimeMode: row.runtimeMode,
                         interactionMode: row.interactionMode,
@@ -2620,6 +2629,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   isolation: row.isolation,
                   fanInState: row.fanInState,
                   title: row.title,
+                  titleProvenance: row.titleProvenance, // loom: §4 title provenance
                   modelSelection: row.modelSelection,
                   runtimeMode: row.runtimeMode,
                   interactionMode: row.interactionMode,
@@ -2930,6 +2940,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         isolation: threadRow.value.isolation,
         fanInState: threadRow.value.fanInState,
         title: threadRow.value.title,
+        titleProvenance: threadRow.value.titleProvenance, // loom: §4 title provenance
         modelSelection: threadRow.value.modelSelection,
         runtimeMode: threadRow.value.runtimeMode,
         interactionMode: threadRow.value.interactionMode,
@@ -3064,6 +3075,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             isolation: threadRow.value.isolation,
             fanInState: threadRow.value.fanInState,
             title: threadRow.value.title,
+            titleProvenance: threadRow.value.titleProvenance, // loom: §4 title provenance
             modelSelection: threadRow.value.modelSelection,
             runtimeMode: threadRow.value.runtimeMode,
             interactionMode: threadRow.value.interactionMode,

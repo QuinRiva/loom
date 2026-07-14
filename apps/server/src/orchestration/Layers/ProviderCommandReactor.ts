@@ -3,6 +3,9 @@ import {
   CommandId,
   EventId,
   GoalId,
+  DEFAULT_THREAD_TITLE, // loom: §4 title provenance guard
+  canReplaceTitle, // loom: §4 title provenance guard
+  titleProvenanceRank, // loom: §4 title provenance guard
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationGoal,
@@ -101,7 +104,6 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-const DEFAULT_THREAD_TITLE = "New thread";
 
 const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
@@ -139,18 +141,6 @@ export function providerErrorLabelFromInstanceHint(input: {
   return providerErrorLabel(
     input.instanceId ?? input.modelSelectionInstanceId ?? input.sessionProvider,
   );
-}
-
-function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
-  const trimmedCurrentTitle = currentTitle.trim();
-  if (trimmedCurrentTitle === DEFAULT_THREAD_TITLE) {
-    return true;
-  }
-
-  const trimmedTitleSeed = titleSeed?.trim();
-  return trimmedTitleSeed !== undefined && trimmedTitleSeed.length > 0
-    ? trimmedCurrentTitle === trimmedTitleSeed
-    : false;
 }
 
 function findProviderAdapterRequestError(
@@ -895,20 +885,26 @@ const make = Effect.gen(function* () {
     });
 
     const thread = yield* resolveThread(input.threadId);
-    // Bail if the thread vanished or already gained a goal during generation.
-    if (!thread || thread.goalId) return;
+    // Bail only if the thread vanished during generation. NOTE: unlike the
+    // original guard, we do NOT bail when a goal already exists — a goal-attached
+    // root (new thread under an existing goal) still needs its `derived` title
+    // applied so ambient retitling can reach `derived` and stop (§4 finding 3).
+    // The goal-creation half below is what the goalId guard gates, not titling.
+    if (!thread) return;
 
     if (input.applyTitle) {
       const title = sanitizeThreadTitle(interpretation.title);
-      if (title.length > 0) {
-        if (canReplaceThreadTitle(thread.title, input.titleSeed)) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.meta.update",
-            commandId: yield* serverCommandId("thread-title-rename"),
-            threadId: input.threadId,
-            title,
-          });
-        }
+      // loom: §4 the LLM interpretation is a `derived` write — it may replace a
+      // default/seed title but never a curated one (the decider enforces this
+      // too; checking here also avoids a pointless branch rename).
+      if (title.length > 0 && canReplaceTitle(thread.titleProvenance, "derived")) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: yield* serverCommandId("thread-title-rename"),
+          threadId: input.threadId,
+          title,
+          titleProvenance: "derived",
+        });
         // Keep the git branch consistent with the generated title: rename the
         // temporary worktree branch off the same title in one model call.
         yield* renameWorktreeBranchToTitle({
@@ -920,6 +916,9 @@ const make = Effect.gen(function* () {
       }
     }
 
+    // Goal creation is gated separately: a thread that already has a goal never
+    // gets a second one (its title was still applied above).
+    if (thread.goalId) return;
     if (!input.forceCreateGoal && interpretation.confidence !== "high") {
       return;
     }
@@ -951,6 +950,8 @@ const make = Effect.gen(function* () {
       projectId: thread.projectId,
       slug,
       title: goalTitle,
+      // loom: §4 an emergent goal is a `derived` title (LLM interpretation).
+      titleProvenance: "derived",
       ...(goalDescription.length > 0 ? { description: goalDescription } : {}),
       createdAt: input.createdAt,
     });
@@ -1068,31 +1069,73 @@ const make = Effect.gen(function* () {
         ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief })}\n\n${message.text}`
         : message.text;
 
-    const userMessageCount = thread.messages.filter((entry) => entry.role === "user").length;
-    const isFirstUserMessageTurn = userMessageCount === 1;
-    const generationInput = {
-      messageText: effectiveMessageText,
-      ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-      ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
-    };
+    const userMessages = thread.messages.filter((entry) => entry.role === "user");
+    const isFirstUserMessageTurn = userMessages.length === 1;
+    const titleSeed = toNonEmptyProviderInput(event.payload.titleSeed);
 
-    // Emergent goals ("every session has a goal" invariant): interpret intent on
-    // every user turn while the thread is still goal-less. Turn 1 is
-    // confidence-gated (create a goal only when confident); turn 2+ force the
-    // best-guess goal regardless of confidence. The per-thread in-flight lock in
-    // startThreadInterpretation dedups overlapping attempts, so this retries
-    // until a goal exists rather than giving up after a fixed turn (a turn-count
-    // gate here would strand a thread goal-less if the turn-1 interpretation was
-    // still in flight when turn 2 arrived). Threads spawned under an existing
-    // goal already have goalId set and are skipped.
-    if (!thread.goalId) {
-      yield* startThreadInterpretation({
-        threadId: event.payload.threadId,
-        applyTitle: isFirstUserMessageTurn,
-        forceCreateGoal: !isFirstUserMessageTurn,
-        createdAt: event.payload.createdAt,
-        ...generationInput,
-      });
+    // loom: §1 workstream children NEVER interpret intent: they inherit their
+    // goal from the parent (healed by the goal-attach-down cascade if spawned
+    // during a goal-less window) and their curated title from the spawn. Running
+    // the emergent-goal invariant on a child is exactly what created orphan
+    // child-only goals. Only roots interpret.
+    if (thread.parentThreadId === null) {
+      // §4 apply the client's title SEED immediately through the guarded path so
+      // the sidebar shows a real title before the slower LLM interpretation
+      // lands — but only while the title is still the "New thread" default and
+      // the seed itself carries more than the default.
+      if (
+        titleProvenanceRank(thread.titleProvenance) === 0 &&
+        titleSeed !== undefined &&
+        titleSeed !== DEFAULT_THREAD_TITLE
+      ) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.meta.update",
+            commandId: yield* serverCommandId("thread-title-seed"),
+            threadId: event.payload.threadId,
+            title: titleSeed,
+            titleProvenance: "seed",
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+      }
+
+      // Emergent goals ("every session has a goal" invariant): interpret intent
+      // while the thread still lacks a goal OR its title is still
+      // automation-malleable (default/seed). Turn 1 is confidence-gated (create
+      // a goal only when confident); turn 2+ force the best-guess goal. The
+      // per-thread in-flight lock dedups overlapping attempts, so this retries
+      // across turns rather than stranding a thread goal-less. Once a goal
+      // exists AND the title has reached `derived`/`curated`, ambient
+      // interpretation stops.
+      const needsGoal = !thread.goalId;
+      const titleMalleable = canReplaceTitle(thread.titleProvenance, "derived");
+      if (needsGoal || titleMalleable) {
+        // §4/Bug B: interpret from the OPENING CONTEXT — what the thread is
+        // ABOUT — not the message that happened to trigger this turn. On turn 1
+        // the triggering message IS the opening message, so it is the input. On
+        // turn 2+ the trigger is a mid-conversation instruction ("Merge coder
+        // changes") that must be EXCLUDED entirely, or it reproduces the bug of
+        // naming the goal after the instruction. We anchor on the first user
+        // message (which predates the trigger) and its attachments.
+        const openingMessage = userMessages[0];
+        const interpretationText = isFirstUserMessageTurn
+          ? effectiveMessageText
+          : (openingMessage?.text ?? effectiveMessageText);
+        const interpretationAttachments = isFirstUserMessageTurn
+          ? message.attachments
+          : openingMessage?.attachments;
+        yield* startThreadInterpretation({
+          threadId: event.payload.threadId,
+          applyTitle: titleMalleable,
+          forceCreateGoal: needsGoal && !isFirstUserMessageTurn,
+          createdAt: event.payload.createdAt,
+          messageText: interpretationText,
+          ...(interpretationAttachments !== undefined
+            ? { attachments: interpretationAttachments }
+            : {}),
+          ...(titleSeed !== undefined ? { titleSeed } : {}),
+        });
+      }
     }
 
     const handleTurnStartFailure = (cause: Cause.Cause<unknown>) => {
