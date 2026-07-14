@@ -46,6 +46,7 @@ import {
   ProjectReadAbsoluteFileError,
   ProjectReadFileError,
   ProjectSearchEntriesError,
+  ProjectStatPathsError,
   ProjectWriteFileError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
@@ -311,6 +312,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
   [WS_METHODS.projectsReadAbsoluteFile, AuthOrchestrationReadScope],
+  [WS_METHODS.projectsStatPaths, AuthOrchestrationReadScope],
   [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
   [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
   [WS_METHODS.shellOpenInEditor, AuthOrchestrationOperateScope],
@@ -1430,6 +1432,14 @@ const makeWsRpcLayer = (
                   }),
               ),
             ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsStatPaths]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsStatPaths,
+            workspaceFileSystem
+              .statPaths(input)
+              .pipe(Effect.mapError((cause) => new ProjectStatPathsError({ cause }))),
             { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
