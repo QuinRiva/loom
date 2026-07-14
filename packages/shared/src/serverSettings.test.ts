@@ -187,6 +187,31 @@ describe("serverSettings helpers", () => {
     });
   });
 
+  it("replaces workstreamModelProfiles wholesale when the patch key is present", () => {
+    const profile = (model: string) => ({
+      selection: createModelSelection(ProviderInstanceId.make("pi"), model),
+      scores: { horsepower: 7, goalOrientation: 7, thoroughness: 6, endurance: 7 },
+      costPerMtok: { input: 3, output: 15 },
+      agentic: "full" as const,
+    });
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      workstreamModelProfiles: { Fable: profile("fable"), Opus: profile("opus") },
+    };
+
+    // Absent key leaves the map untouched.
+    expect(applyServerSettingsPatch(current, {}).workstreamModelProfiles).toEqual(
+      current.workstreamModelProfiles,
+    );
+
+    // Present key replaces the whole map (the dropped `Opus` profile is gone).
+    expect(
+      applyServerSettingsPatch(current, {
+        workstreamModelProfiles: { Fable: profile("fable") },
+      }).workstreamModelProfiles,
+    ).toEqual({ Fable: profile("fable") });
+  });
+
   it("replaces providerInstances maps so omitted instance fields are cleared", () => {
     const codexId = ProviderInstanceId.make("codex");
     const current = {

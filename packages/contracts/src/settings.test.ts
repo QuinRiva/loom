@@ -174,6 +174,66 @@ describe("ServerSettingsPatch.workstreamModelPresets", () => {
   });
 });
 
+describe("ServerSettings.workstreamModelProfiles", () => {
+  const fable = {
+    selection: { instanceId: "pi", model: "anthropic/claude-fable-5" },
+    scores: { horsepower: 8, goalOrientation: 8, thoroughness: 6, endurance: 7 },
+    costPerMtok: { input: 5, output: 25 },
+    agentic: "full" as const,
+    unsuitableFor: ["security-sensitive" as const],
+    usableContext: 200000,
+    notes: "never route security/crypto/bio-adjacent work",
+  };
+
+  it("defaults to an empty record so configs without the key still decode", () => {
+    expect(DEFAULT_SERVER_SETTINGS.workstreamModelProfiles).toEqual({});
+    expect(decodeServerSettings({}).workstreamModelProfiles).toEqual({});
+  });
+
+  it("round-trips a populated profile map with required + optional fields", () => {
+    const decoded = decodeServerSettings({ workstreamModelProfiles: { "Fable 5": fable } });
+    expect(decoded.workstreamModelProfiles["Fable 5"]).toEqual(fable);
+  });
+
+  it("decodes a profile that omits every documentation-only field", () => {
+    const decoded = decodeServerSettings({
+      workstreamModelProfiles: {
+        Luna: {
+          selection: { instanceId: "pi", model: "openai-codex/gpt-5.6-luna" },
+          scores: { horsepower: 5, goalOrientation: 3, thoroughness: 5, endurance: 5 },
+          costPerMtok: { input: 1, output: 4 },
+          agentic: "bounded",
+        },
+      },
+    });
+    expect(decoded.workstreamModelProfiles.Luna?.agentic).toBe("bounded");
+    expect(decoded.workstreamModelProfiles.Luna?.usableContext).toBeUndefined();
+  });
+
+  it("rejects a score outside 1..10", () => {
+    expect(() =>
+      decodeServerSettings({
+        workstreamModelProfiles: {
+          Bad: {
+            selection: { instanceId: "pi", model: "x" },
+            scores: { horsepower: 11, goalOrientation: 5, thoroughness: 5, endurance: 5 },
+            costPerMtok: { input: 1, output: 1 },
+            agentic: "full",
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("treats workstreamModelProfiles as an optional whole-map replacement in a patch", () => {
+    expect(decodeServerSettingsPatch({}).workstreamModelProfiles).toBeUndefined();
+    const replacement = decodeServerSettingsPatch({
+      workstreamModelProfiles: { "Fable 5": fable },
+    });
+    expect(replacement.workstreamModelProfiles?.["Fable 5"]).toEqual(fable);
+  });
+});
+
 describe("ServerSettingsPatch string normalization", () => {
   it("trims string settings while decoding patches", () => {
     const patch = decodeServerSettingsPatch({

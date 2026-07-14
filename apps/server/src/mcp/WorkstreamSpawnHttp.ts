@@ -5,14 +5,19 @@ import {
   MAX_GATE_MAX_ROUNDS,
   MessageId,
   ModelSelection,
+  TaskShape,
   ThreadId,
   ThreadIsolation,
   ThreadPlanLane,
   isProviderAvailable,
+  type AccountUsageSnapshot,
   type OrchestrationCommand,
+  type ProfileUnsuitableFor,
   type ServerProvider,
+  type WorkstreamModelProfile,
   type WorkstreamRoute,
 } from "@t3tools/contracts";
+import { accountUsageRoutingKey } from "@t3tools/shared/accountUsage";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { roleDefaultIsolation } from "@t3tools/shared/workstreamIsolation";
 import * as Clock from "effect/Clock";
@@ -44,7 +49,11 @@ import {
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
-import { ProviderHealthRegistry } from "../provider/Services/ProviderHealthRegistry.ts";
+import { AccountUsageRegistry } from "../provider/Services/AccountUsageRegistry.ts";
+import {
+  aggregateAccountsBestRemaining,
+  ProviderHealthRegistry,
+} from "../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 import {
   formatResetHint,
@@ -71,6 +80,8 @@ interface WorkstreamSpawnRequest {
   readonly blockedBy?: unknown;
   readonly modelSelection?: unknown;
   readonly modelPreset?: unknown;
+  readonly taskShape?: unknown;
+  readonly sensitive?: unknown;
   readonly staged?: unknown;
   readonly gate?: unknown;
   readonly isolation?: unknown;
@@ -176,6 +187,7 @@ export type SelectionSource =
   | { readonly kind: "explicit" }
   | { readonly kind: "preset"; readonly name: string }
   | { readonly kind: "role-preset"; readonly role: string }
+  | { readonly kind: "task-shape"; readonly shape: TaskShape; readonly rationale: string }
   | { readonly kind: "inherited" };
 
 export type PresetResolution =
@@ -224,6 +236,453 @@ export const resolvePresetSelection = (input: {
         source: { kind: "role-preset", role: input.role },
       }
     : { kind: "selection", selection: input.parentSelection, source: { kind: "inherited" } };
+};
+
+// ---------------------------------------------------------------------------
+// Capability-based model selection by task SHAPE (plan §3–§4). Pure resolver
+// beside resolvePresetSelection: filter → rank → headroom-bucket → catalogue-
+// validate → categorical rationale. The per-shape tables ARE the specification.
+// ---------------------------------------------------------------------------
+
+export const TASK_SHAPES: ReadonlyArray<TaskShape> = ["explore", "thorough", "mechanical"];
+const VALID_TASK_SHAPES = new Set<TaskShape>(TASK_SHAPES);
+
+// Optional `sensitive` spawn marker → the profile `unsuitableFor` token it
+// excludes (v1: a single mapping). A parent passing `sensitive: "security"`
+// drops every profile carrying `security-sensitive` from the candidate set.
+const SENSITIVE_EXCLUSIONS: Record<string, ProfileUnsuitableFor> = {
+  security: "security-sensitive",
+};
+const VALID_SENSITIVITIES = new Set(Object.keys(SENSITIVE_EXCLUSIONS));
+
+/** Headroom bucket for a shape-filtered candidate (plan §4). */
+export type HeadroomBucket = "healthy" | "demoted" | "skipped";
+
+// Usage data older than this (or absent) is UNKNOWN ⇒ healthy: never demote on
+// stale/missing data (§4). Also the near-reset discount horizon — a binding
+// window resetting within it is not binding (the child barely dispatches before
+// it clears). The binding window's usedPercent at/above the demote threshold
+// buckets a candidate as `demoted`.
+const HEADROOM_STALE_MS = 15 * 60_000;
+const HEADROOM_RESET_DISCOUNT_MS = 15 * 60_000;
+const HEADROOM_DEMOTE_PERCENT = 90;
+
+export interface ShapeHeadroomInput {
+  readonly usage: ReadonlyArray<AccountUsageSnapshot>;
+  readonly isExhausted: (accountKey: string, modelId: string) => boolean;
+  readonly usageSourceInstances: ReadonlySet<string>;
+  readonly nowMs: number;
+}
+
+/** A window resets within the near-future discount horizon (valid future only). */
+const withinResetDiscount = (resetsAt: string | null, nowMs: number): boolean => {
+  if (resetsAt === null) return false;
+  const resetMs = Date.parse(resetsAt);
+  if (!Number.isFinite(resetMs)) return false;
+  const delta = resetMs - nowMs;
+  return delta > 0 && delta <= HEADROOM_RESET_DISCOUNT_MS;
+};
+
+/**
+ * The headroom bucket for one profile's selection (§4). `skipped` on an active
+ * hard-exhaustion mark (which also covers Codex `limitReached`, surfaced as a
+ * telemetry mark); `demoted` when the binding window is ≥90% and not about to
+ * reset; `healthy` otherwise — INCLUDING missing/stale data (never demote on
+ * unknown). Aggregation reuses the router's best-remaining view so a pooled
+ * instance is only as exhausted as its freshest account; scope is restricted to
+ * account-wide windows plus windows mapped to the selected model.
+ */
+export const headroomBucketFor = (
+  selection: ModelSelection,
+  input: ShapeHeadroomInput,
+): HeadroomBucket => {
+  const scope = subscriptionScopeForSelection(selection, input.usageSourceInstances);
+  if (scope.accountKey === null) return "healthy"; // API-billed — no subscription window
+  if (input.isExhausted(scope.accountKey, scope.modelId)) return "skipped";
+  const snapshot = aggregateAccountsBestRemaining(input.usage).find(
+    (s) => accountUsageRoutingKey(s) === scope.accountKey,
+  );
+  if (snapshot === undefined) return "healthy"; // missing data ⇒ unknown ⇒ healthy
+  // Freshness gates EVERYTHING derived from the snapshot (§4): data older than
+  // ~15 min (or an unparseable timestamp) is unknown ⇒ healthy. Only the ACTIVE
+  // health-registry mark (checked above, TTL-bounded) may still skip on old
+  // data; a raw snapshot has no TTL here, so honouring a stale `limitReached`
+  // or a stale percent would recreate the stale-state failure the rule prevents.
+  const observedMs = Date.parse(snapshot.observedAt);
+  if (!Number.isFinite(observedMs) || input.nowMs - observedMs > HEADROOM_STALE_MS) {
+    return "healthy"; // stale ⇒ unknown ⇒ healthy
+  }
+  // Explicit provider hard-exhaustion flag on FRESH data (§4: skipped is an
+  // active mark OR `limitReached`). best-remaining aggregation already ANDs it
+  // across pooled accounts, so a set flag here means EVERY account is spent.
+  if (snapshot.limitReached === true) return "skipped";
+  // In-scope windows: account-wide (unscoped) + windows mapped to this model.
+  // A window about to reset is discounted (not binding).
+  const binding = snapshot.windows.filter(
+    (window) =>
+      (window.scope === undefined || window.scope.modelId === scope.modelId) &&
+      !withinResetDiscount(window.resetsAt, input.nowMs),
+  );
+  const maxPercent = binding.reduce((max, window) => Math.max(max, window.usedPercent), -1);
+  return maxPercent >= HEADROOM_DEMOTE_PERCENT ? "demoted" : "healthy";
+};
+
+export interface ScoredCandidate {
+  readonly name: string;
+  readonly profile: WorkstreamModelProfile;
+}
+
+// A sort directive over candidates. Scores sort descending; cost ascending.
+type SortDirective = {
+  readonly get: (candidate: ScoredCandidate) => number;
+  readonly dir: "asc" | "desc";
+};
+
+const byScore = (key: keyof WorkstreamModelProfile["scores"]): SortDirective => ({
+  get: (candidate) => candidate.profile.scores[key],
+  dir: "desc",
+});
+const byCostInput: SortDirective = {
+  get: (candidate) => candidate.profile.costPerMtok.input,
+  dir: "asc",
+};
+
+interface ShapeResolver {
+  readonly filter: (profile: WorkstreamModelProfile) => boolean;
+  readonly sortKeys: ReadonlyArray<SortDirective>;
+}
+
+// Per-shape filter (floors) and ordering (§3). Oracle/unsuitableFor exclusions
+// are applied separately (never shape-specific).
+const SHAPE_RESOLVERS: Record<TaskShape, ShapeResolver> = {
+  explore: {
+    filter: (p) => p.agentic === "full" && p.scores.endurance >= 5,
+    sortKeys: [byScore("goalOrientation"), byScore("horsepower"), byScore("thoroughness")],
+  },
+  thorough: {
+    filter: (p) => p.agentic === "full",
+    sortKeys: [byScore("thoroughness"), byScore("horsepower"), byScore("goalOrientation")],
+  },
+  mechanical: {
+    filter: (p) => (p.agentic === "full" || p.agentic === "bounded") && p.scores.horsepower >= 5,
+    sortKeys: [byCostInput, byScore("horsepower")],
+  },
+};
+
+// Total order: the shape's keys, then the universal tie-breaks appended to every
+// sort — costPerMtok.input ↑, then profile name ↑. Without a strict total order
+// parallel spawns could flip-flop on runtime sort stability (§3).
+const compareCandidates =
+  (sortKeys: ReadonlyArray<SortDirective>) =>
+  (a: ScoredCandidate, b: ScoredCandidate): number => {
+    for (const key of sortKeys) {
+      const av = key.get(a);
+      const bv = key.get(b);
+      if (av !== bv) return key.dir === "asc" ? av - bv : bv - av;
+    }
+    if (a.profile.costPerMtok.input !== b.profile.costPerMtok.input) {
+      return a.profile.costPerMtok.input - b.profile.costPerMtok.input;
+    }
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  };
+
+export type ShapeResolution =
+  | {
+      readonly kind: "selection";
+      readonly selection: ModelSelection;
+      readonly profileName: string;
+      readonly bucket: HeadroomBucket;
+      readonly rationale: string;
+      readonly warnings: ReadonlyArray<string>;
+    }
+  | { readonly kind: "fall-through"; readonly warnings: ReadonlyArray<string> };
+
+// Best-bucket-first: pick from `healthy`, else `demoted`, else `skipped` (§3
+// step 3 — a nearly-exhausted right-shaped model beats refusing to spawn).
+const BUCKET_ORDER: ReadonlyArray<HeadroomBucket> = ["healthy", "demoted", "skipped"];
+
+// Categorical rationale only — no percentages/prices/scores in parent-facing
+// text (§3 step 5; the design's own information boundary). Two independent
+// clauses off the full bucketed decision: WHY a higher-ranked first choice was
+// passed over (if any), then the PICK's own headroom caveat (if any).
+const FIRST_CHOICE_LOSS: Record<HeadroomBucket, string> = {
+  healthy: "first choice unavailable", // pick != top with a healthy top ⇒ top was catalogue-invalid
+  demoted: "first choice on low headroom",
+  skipped: "first choice exhausted",
+};
+const PICK_CAVEAT: Record<HeadroomBucket, string> = {
+  healthy: "",
+  demoted: "running on low headroom",
+  skipped: "every shape match exhausted — the child waits for the earliest reset",
+};
+const shapeRationale = (input: {
+  readonly pickName: string;
+  readonly shape: TaskShape;
+  readonly pickBucket: HeadroomBucket;
+  readonly topName: string;
+  readonly topBucket: HeadroomBucket;
+}): string => {
+  const notes = [
+    input.pickName === input.topName ? "" : `${FIRST_CHOICE_LOSS[input.topBucket]} — substituted`,
+    PICK_CAVEAT[input.pickBucket],
+  ].filter((n) => n !== "");
+  return `${input.pickName} (${input.shape}${notes.length > 0 ? `; ${notes.join("; ")}` : ""})`;
+};
+
+const invalidProfileReason = (
+  validation: Exclude<ModelSelectionValidation, { readonly kind: "ok" }>,
+): string =>
+  validation.kind === "unknown-instance"
+    ? `instance "${validation.instanceId}" is not configured`
+    : `model "${validation.model}" is unknown for instance "${validation.instanceId}"`;
+
+/**
+ * The shape's filtered, totally-ordered candidate list (§3), BEFORE headroom
+ * bucketing: oracle/`unsuitableFor` exclusions + the shape floors, ranked by the
+ * shape keys plus universal tie-breaks. Exposed for the per-shape ranking
+ * snapshot test (§6.7) so a score edit surfaces its routing consequences.
+ */
+export const rankShapeCandidates = (input: {
+  readonly shape: TaskShape;
+  readonly sensitive?: string | undefined;
+  readonly profiles: Record<string, WorkstreamModelProfile>;
+}): ReadonlyArray<ScoredCandidate> => {
+  const exclusion =
+    input.sensitive === undefined ? undefined : SENSITIVE_EXCLUSIONS[input.sensitive];
+  const resolver = SHAPE_RESOLVERS[input.shape];
+  const candidates = Object.entries(input.profiles)
+    .map(([name, profile]) => ({ name, profile }))
+    .filter(
+      (candidate) =>
+        candidate.profile.agentic !== "oracle" &&
+        (exclusion === undefined || !(candidate.profile.unsuitableFor ?? []).includes(exclusion)) &&
+        resolver.filter(candidate.profile),
+    );
+  return [...candidates].sort(compareCandidates(resolver.sortKeys));
+};
+
+/**
+ * Resolve a task shape to a concrete selection (§3–§4). Empty profile map or an
+ * empty filtered candidate set ⇒ `fall-through` with a warning (never a hard
+ * failure — the shape is advisory; §3). A resolved pick is catalogue-validated
+ * like presets; an invalid pick drops to the next in bucket order, recording a
+ * per-skip warning so operator misconfiguration is never silent.
+ */
+export const resolveShapeSelection = (input: {
+  readonly shape: TaskShape;
+  readonly sensitive: string | undefined;
+  readonly profiles: Record<string, WorkstreamModelProfile>;
+  readonly catalogue: ReadonlyArray<ModelCatalogueEntry>;
+  readonly headroom: ShapeHeadroomInput;
+}): ShapeResolution => {
+  if (Object.keys(input.profiles).length === 0) {
+    return {
+      kind: "fall-through",
+      warnings: [
+        `taskShape "${input.shape}" requested but no workstreamModelProfiles are configured (see docs/operations/model-profiles.md) — falling through to the role preset / inherited model.`,
+      ],
+    };
+  }
+  const ranked = rankShapeCandidates({
+    shape: input.shape,
+    sensitive: input.sensitive,
+    profiles: input.profiles,
+  });
+  if (ranked.length === 0) {
+    return {
+      kind: "fall-through",
+      warnings: [
+        `taskShape "${input.shape}"${input.sensitive !== undefined ? ` (sensitive: ${input.sensitive})` : ""} matched no configured profile — falling through to the role preset / inherited model.`,
+      ],
+    };
+  }
+  const bucketed = ranked.map((candidate) => ({
+    candidate,
+    bucket: headroomBucketFor(candidate.profile.selection, input.headroom),
+  }));
+  // The top-ranked shape match (before headroom re-prioritises buckets) — the
+  // parent's "first choice", used to explain a headroom-driven substitution.
+  const top = bucketed[0]!;
+  // Best non-empty bucket first, keeping the ranked order within each bucket.
+  const ordered = BUCKET_ORDER.flatMap((bucket) =>
+    bucketed.filter((entry) => entry.bucket === bucket),
+  );
+  const warnings: string[] = [];
+  for (const entry of ordered) {
+    const validation = validateModelSelection(entry.candidate.profile.selection, input.catalogue);
+    if (validation.kind === "ok") {
+      return {
+        kind: "selection",
+        selection: entry.candidate.profile.selection,
+        profileName: entry.candidate.name,
+        bucket: entry.bucket,
+        rationale: shapeRationale({
+          pickName: entry.candidate.name,
+          shape: input.shape,
+          pickBucket: entry.bucket,
+          topName: top.candidate.name,
+          topBucket: top.bucket,
+        }),
+        warnings,
+      };
+    }
+    warnings.push(
+      `skipped profile "${entry.candidate.name}" (invalid: ${invalidProfileReason(validation)}).`,
+    );
+  }
+  return {
+    kind: "fall-through",
+    warnings: [
+      ...warnings,
+      `taskShape "${input.shape}" matched profile(s) but none reference a configured instance/model — falling through to the role preset / inherited model.`,
+    ],
+  };
+};
+
+/**
+ * The spawn model-selection precedence + boundary decode as ONE pure function
+ * (plan §3, §6.7): explicit > modelPreset > taskShape > role preset > inherit,
+ * with `taskShape`/`sensitive` decoded from raw request values. Extracted from
+ * the HTTP handler so the whole decision — 400s for schema-invalid tokens, the
+ * shape-ignored-under-override warnings, the categorical rationale, and the
+ * catalogue-invalid fallthrough — is unit-testable without an HTTP layer. The
+ * handler performs only the async `modelSelection` decode and passes the result
+ * in via {@link ExplicitSelectionDecode}.
+ */
+export interface ExplicitSelectionDecode {
+  /** `body.modelSelection !== undefined` (an explicit selection was supplied). */
+  readonly provided: boolean;
+  /** The decoded selection, or undefined when absent OR the decode failed. */
+  readonly decoded: ModelSelection | undefined;
+}
+
+export type SpawnModelResolution =
+  | { readonly kind: "error"; readonly message: string }
+  | {
+      readonly kind: "ok";
+      readonly selection: ModelSelection;
+      readonly source: SelectionSource;
+      readonly warnings: ReadonlyArray<string>;
+    };
+
+export const resolveSpawnModelSelection = (input: {
+  readonly explicit: ExplicitSelectionDecode;
+  readonly modelPreset: unknown;
+  readonly taskShape: unknown;
+  readonly sensitive: unknown;
+  readonly presets: Record<string, ModelSelection>;
+  readonly profiles: Record<string, WorkstreamModelProfile>;
+  readonly catalogue: ReadonlyArray<ModelCatalogueEntry>;
+  readonly presetNames: ReadonlyArray<string>;
+  readonly role: string;
+  readonly parentSelection: ModelSelection;
+  readonly headroom: ShapeHeadroomInput;
+}): SpawnModelResolution => {
+  // Boundary decode (§3): a SUPPLIED but non-enum / empty / non-string value is
+  // a schema-level typo ⇒ error. Absent ⇒ omitted (the normal path).
+  let taskShape: TaskShape | undefined;
+  if (input.taskShape !== undefined) {
+    const shape = trimString(input.taskShape);
+    if (shape === undefined || !VALID_TASK_SHAPES.has(shape as TaskShape)) {
+      return { kind: "error", message: `taskShape must be one of: ${TASK_SHAPES.join(", ")}.` };
+    }
+    taskShape = shape as TaskShape;
+  }
+  let sensitive: string | undefined;
+  if (input.sensitive !== undefined) {
+    const value = trimString(input.sensitive);
+    if (value === undefined || !VALID_SENSITIVITIES.has(value)) {
+      return {
+        kind: "error",
+        message: `sensitive must be one of: ${[...VALID_SENSITIVITIES].join(", ")}.`,
+      };
+    }
+    sensitive = value;
+  }
+
+  const warnings: string[] = [];
+  const presetSelection = trimString(input.modelPreset);
+  const roleOrInherit = (): { selection: ModelSelection; source: SelectionSource } => {
+    const preset = resolvePresetSelection({
+      presets: input.presets,
+      modelPreset: undefined,
+      role: input.role,
+      parentSelection: input.parentSelection,
+    });
+    // modelPreset is undefined, so this is always a `selection`.
+    return preset.kind === "selection"
+      ? { selection: preset.selection, source: preset.source }
+      : { selection: input.parentSelection, source: { kind: "inherited" } };
+  };
+
+  let resolved: { selection: ModelSelection; source: SelectionSource };
+  if (input.explicit.provided) {
+    if (input.explicit.decoded === undefined) {
+      return { kind: "error", message: "modelSelection is invalid." };
+    }
+    resolved = { selection: input.explicit.decoded, source: { kind: "explicit" } };
+    if (taskShape !== undefined) {
+      warnings.push(
+        `taskShape "${taskShape}" was ignored: an explicit modelSelection takes precedence.`,
+      );
+    }
+  } else if (presetSelection !== undefined) {
+    const preset = resolvePresetSelection({
+      presets: input.presets,
+      modelPreset: presetSelection,
+      role: input.role,
+      parentSelection: input.parentSelection,
+    });
+    if (preset.kind === "unknown-preset") {
+      return { kind: "error", message: unknownPresetMessage(preset.modelPreset, preset.available) };
+    }
+    resolved = { selection: preset.selection, source: preset.source };
+    if (taskShape !== undefined) {
+      warnings.push(
+        `taskShape "${taskShape}" was ignored: an explicit modelPreset takes precedence.`,
+      );
+    }
+  } else if (taskShape !== undefined) {
+    const shapeResult = resolveShapeSelection({
+      shape: taskShape,
+      sensitive,
+      profiles: input.profiles,
+      catalogue: input.catalogue,
+      headroom: input.headroom,
+    });
+    warnings.push(...shapeResult.warnings);
+    if (shapeResult.kind === "selection") {
+      resolved = {
+        selection: shapeResult.selection,
+        source: { kind: "task-shape", shape: taskShape, rationale: shapeResult.rationale },
+      };
+      warnings.push(`model selected by shape: ${shapeResult.rationale}.`);
+    } else {
+      resolved = roleOrInherit();
+    }
+  } else {
+    resolved = roleOrInherit();
+  }
+
+  // A configured preset / role default / shape profile can be stale and point at
+  // an instance this build no longer ships — validate every non-inherited source
+  // (a shape pick is already catalogue-checked inside the resolver; idempotent).
+  // The inherited parent selection is trusted (the parent is live).
+  if (resolved.source.kind !== "inherited") {
+    const validation = validateModelSelection(resolved.selection, input.catalogue);
+    if (validation.kind !== "ok") {
+      return {
+        kind: "error",
+        message: invalidModelSelectionMessage(
+          validation,
+          input.catalogue,
+          input.presetNames,
+          resolved.source,
+        ),
+      };
+    }
+  }
+  return { kind: "ok", selection: resolved.selection, source: resolved.source, warnings };
 };
 
 /**
@@ -525,6 +984,8 @@ const describeSource = (source: SelectionSource): string => {
       return `modelPreset "${source.name}" (resolved from server settings)`;
     case "role-preset":
       return `The role-default preset for role "${source.role}" (resolved from server settings)`;
+    case "task-shape":
+      return `The taskShape "${source.shape}" resolution (resolved from server settings profiles)`;
     case "inherited":
       return "The inherited (parent) model selection";
   }
@@ -566,6 +1027,34 @@ export const presetCatalogueOf = (
     instanceId: selection.instanceId,
     model: selection.model,
     valid: validateModelSelection(selection, catalogue).kind === "ok",
+  }));
+
+/**
+ * A compact capability-profile summary for the discovery surface (plan §6.5): a
+ * parent sees the profile NAME, its `agentic` flag, honest `usableContext`, and
+ * validity — enough to notice when a shape would pick an insufficient-context
+ * model and deliberately override. `spawnable` is false for oracle profiles
+ * (consultation-only). Scores/prices/usage stay server-side (the design's
+ * information boundary).
+ */
+export interface ProfileSummaryEntry {
+  readonly name: string;
+  readonly agentic: WorkstreamModelProfile["agentic"];
+  readonly usableContext?: number;
+  readonly valid: boolean;
+  readonly spawnable: boolean;
+}
+
+export const profileSummaryOf = (
+  profiles: Record<string, WorkstreamModelProfile>,
+  catalogue: ReadonlyArray<ModelCatalogueEntry>,
+): ReadonlyArray<ProfileSummaryEntry> =>
+  Object.entries(profiles).map(([name, profile]) => ({
+    name,
+    agentic: profile.agentic,
+    ...(profile.usableContext !== undefined ? { usableContext: profile.usableContext } : {}),
+    valid: validateModelSelection(profile.selection, catalogue).kind === "ok",
+    spawnable: profile.agentic !== "oracle",
   }));
 
 /**
@@ -656,11 +1145,13 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     (thread) => thread.parentThreadId === scope.threadId,
   );
 
-  // Model + thinking are intrinsic node config. Precedence:
+  // Model + thinking are intrinsic node config. Precedence (resolved by the pure
+  // resolveSpawnModelSelection below):
   //   1. explicit `modelSelection` (decoded; invalid → 400),
   //   2. named `modelPreset` (unknown → 400),
-  //   3. a preset keyed by the child's `role`,
-  //   4. inherit the parent's selection.
+  //   3. `taskShape` → capability-profile resolution (§3–§4),
+  //   4. a preset keyed by the child's `role`,
+  //   5. inherit the parent's selection.
   // Fail-fast validation front-runs the launch-time "unknown provider instance"
   // error that would otherwise strand the child. The catalogue is seeded with
   // every configured instance at registry build, so instance-id validation is
@@ -669,59 +1160,56 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
   const settings = yield* (yield* ServerSettingsService).getSettings;
   const presetNames = Object.keys(settings.workstreamModelPresets);
-  let modelSelection: ModelSelection;
-  if (body.modelSelection !== undefined) {
-    const decoded = yield* decodeModelSelection(body.modelSelection).pipe(
-      Effect.map(Option.some),
-      Effect.orElseSucceed(() => Option.none<ModelSelection>()),
-    );
-    if (Option.isNone(decoded)) return jsonError(400, "modelSelection is invalid.");
-    const validation = validateModelSelection(decoded.value, catalogue);
-    if (validation.kind !== "ok") {
-      return jsonError(
-        400,
-        invalidModelSelectionMessage(validation, catalogue, presetNames, { kind: "explicit" }),
-      );
-    }
-    modelSelection = decoded.value;
-  } else {
-    const resolved = resolvePresetSelection({
-      presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
-      modelPreset: trimString(body.modelPreset),
-      role,
-      parentSelection: current.modelSelection,
-    });
-    if (resolved.kind === "unknown-preset") {
-      return jsonError(400, unknownPresetMessage(resolved.modelPreset, resolved.available));
-    }
-    // A configured preset / role default can be stale and point at an instance
-    // this build no longer ships — that would create a dead child, the same
-    // failure the explicit check prevents. Validate it too. The inherited
-    // parent selection is trusted: the parent is live, so its instance is by
-    // construction configured.
-    if (resolved.source.kind !== "inherited") {
-      const validation = validateModelSelection(resolved.selection, catalogue);
-      if (validation.kind !== "ok") {
-        return jsonError(
-          400,
-          invalidModelSelectionMessage(validation, catalogue, presetNames, resolved.source),
+  const usageSourceSet = usageSourceInstances(settings.providerInstances);
+  // Live headroom facts shared by shape resolution and the exhaustion warning:
+  // the raw usage windows (for the ≥90% demotion) and the hard-exhaustion
+  // predicate (for skipping / the warning). Read once. Stale/missing data
+  // resolves to healthy inside the resolver.
+  const health = yield* ProviderHealthRegistry;
+  const isExhausted = exhaustionPredicate(yield* health.snapshot);
+  const headroom: ShapeHeadroomInput = {
+    usage: yield* (yield* AccountUsageRegistry).snapshot,
+    isExhausted,
+    usageSourceInstances: usageSourceSet,
+    nowMs: yield* Clock.currentTimeMillis,
+  };
+
+  // Precedence (plan §3): explicit modelSelection > modelPreset > taskShape >
+  // role preset > inherit — decoded/validated as ONE pure function so the whole
+  // decision is testable (§6.7). The handler only performs the async
+  // modelSelection decode and hands the result in.
+  const explicitDecoded =
+    body.modelSelection === undefined
+      ? undefined
+      : Option.getOrUndefined(
+          yield* decodeModelSelection(body.modelSelection).pipe(
+            Effect.map(Option.some),
+            Effect.orElseSucceed(() => Option.none<ModelSelection>()),
+          ),
         );
-      }
-    }
-    modelSelection = resolved.selection;
-  }
+  const resolution = resolveSpawnModelSelection({
+    explicit: { provided: body.modelSelection !== undefined, decoded: explicitDecoded },
+    modelPreset: body.modelPreset,
+    taskShape: body.taskShape,
+    sensitive: body.sensitive,
+    presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
+    profiles: settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
+    catalogue,
+    presetNames,
+    role,
+    parentSelection: current.modelSelection,
+    headroom,
+  });
+  if (resolution.kind === "error") return jsonError(400, resolution.message);
+  const modelSelection = resolution.selection;
+  const selectionWarnings = [...resolution.warnings];
 
   // Exhaustion-aware spawn warning (§7): consult the health registry for the
   // resolved selection (all precedence steps, explicit included). No selection
-  // rewriting (D6) — warn only.
+  // rewriting (D6) — warn only. Reuses the `isExhausted` predicate read above.
   const exhaustionWarnings: string[] = [];
-  const slugScope = subscriptionScopeForSelection(
-    modelSelection,
-    usageSourceInstances(settings.providerInstances),
-  );
+  const slugScope = subscriptionScopeForSelection(modelSelection, usageSourceSet);
   if (slugScope.accountKey !== null) {
-    const health = yield* ProviderHealthRegistry;
-    const isExhausted = exhaustionPredicate(yield* health.snapshot);
     if (isExhausted(slugScope.accountKey, slugScope.modelId)) {
       const until = yield* health.exhaustedUntil(slugScope.accountKey, slugScope.modelId);
       // Non-fatal: a settings read failure must not 500 a spawn that would
@@ -832,7 +1320,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  const warnings = [...graph.warnings, ...exhaustionWarnings];
+  const warnings = [...graph.warnings, ...selectionWarnings, ...exhaustionWarnings];
   return HttpServerResponse.jsonUnsafe({
     childThreadId,
     parentThreadId: scope.threadId,
@@ -1382,6 +1870,11 @@ const handleWorkstreamList = Effect.gen(function* () {
     modelCatalogue: catalogue,
     modelPresets: presetCatalogueOf(
       settings.workstreamModelPresets as Record<string, ModelSelection>,
+      catalogue,
+    ),
+    taskShapes: TASK_SHAPES,
+    modelProfiles: profileSummaryOf(
+      settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
       catalogue,
     ),
   };

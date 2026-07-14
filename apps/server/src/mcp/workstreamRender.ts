@@ -5,7 +5,20 @@
 // a live MCP session) is unit-testable. The output must be character-identical
 // to the historical extension output.
 
-import type { ModelCatalogueEntry, PresetCatalogueEntry } from "./WorkstreamSpawnHttp.ts";
+import type {
+  ModelCatalogueEntry,
+  PresetCatalogueEntry,
+  ProfileSummaryEntry,
+} from "./WorkstreamSpawnHttp.ts";
+
+// Stable one-line hint per task shape for the discovery surface. References task
+// characteristics, never model names, so it never goes stale (plan §3).
+const TASK_SHAPE_HINTS: Record<string, string> = {
+  explore: "open-ended/prototype work, vague objective, plan likely to change",
+  thorough:
+    "edge cases, migrations, hardening, review gates — missing a real issue is worse than noise",
+  mechanical: "bounded, self-contained, high-volume work: extraction, renames, formatting",
+};
 
 /** Suffix any warnings onto a confirmation line, one `Warning: …` per line. */
 export const appendWarnings = (
@@ -37,6 +50,8 @@ export interface WorkstreamListView {
   readonly waitsOnEdges?: ReadonlyArray<{ readonly from: string; readonly to: string }>;
   readonly modelCatalogue?: ReadonlyArray<ModelCatalogueEntry>;
   readonly modelPresets?: ReadonlyArray<PresetCatalogueEntry>;
+  readonly taskShapes?: ReadonlyArray<string>;
+  readonly modelProfiles?: ReadonlyArray<ProfileSummaryEntry>;
 }
 
 /**
@@ -101,8 +116,22 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
   for (const root of roots) emit(root, 0);
   const catalogue = Array.isArray(view.modelCatalogue) ? view.modelCatalogue : [];
   const modelPresets = Array.isArray(view.modelPresets) ? view.modelPresets : [];
-  if (catalogue.length > 0 || modelPresets.length > 0) {
+  const taskShapes = Array.isArray(view.taskShapes) ? view.taskShapes : [];
+  const modelProfiles = Array.isArray(view.modelProfiles) ? view.modelProfiles : [];
+  if (
+    catalogue.length > 0 ||
+    modelPresets.length > 0 ||
+    taskShapes.length > 0 ||
+    modelProfiles.length > 0
+  ) {
     lines.push("", "Model selection (for spawning children):");
+    if (taskShapes.length > 0) {
+      lines.push("  task shapes (pass one as taskShape; the server picks the model):");
+      for (const shape of taskShapes) {
+        const hint = TASK_SHAPE_HINTS[shape];
+        lines.push('    - "' + shape + '"' + (hint ? " — " + hint : ""));
+      }
+    }
     for (const entry of catalogue) {
       const models =
         Array.isArray(entry.models) && entry.models.length > 0
@@ -123,6 +152,26 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
       }
     } else {
       lines.push("  presets: none configured");
+    }
+    if (modelProfiles.length > 0) {
+      lines.push("  profiles (what taskShape resolves among):");
+      for (const profile of modelProfiles) {
+        // Compose the three markers independently (agentic/spawnability, usable
+        // context, catalogue validity) so none suppresses another — an invalid
+        // oracle shows both its non-spawnable status AND the invalid marker.
+        const agenticTag = profile.spawnable
+          ? " [" + profile.agentic + "]"
+          : " [" + profile.agentic + " — not spawnable; consultation only]";
+        const context =
+          typeof profile.usableContext === "number"
+            ? " usableContext=" + profile.usableContext
+            : "";
+        const invalid =
+          profile.valid === false
+            ? " [INVALID — points at an unconfigured instance/model; do not use]"
+            : "";
+        lines.push('    - "' + profile.name + '"' + agenticTag + context + invalid);
+      }
     }
   }
   return lines.join("\n");

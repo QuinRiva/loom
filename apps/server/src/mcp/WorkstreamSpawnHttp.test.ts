@@ -1,15 +1,28 @@
-import type { ModelSelection, ThreadId, ThreadIsolation, ThreadPlanLane } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ThreadId,
+  ThreadIsolation,
+  ThreadPlanLane,
+  WorkstreamModelProfile,
+} from "@t3tools/contracts";
+import type { AccountUsageSnapshot } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   hasThreadStarted,
+  headroomBucketFor,
   invalidModelSelectionMessage,
   modelCatalogueOf,
   presetCatalogueOf,
+  profileSummaryOf,
+  rankShapeCandidates,
   resolvePresetSelection,
+  resolveShapeSelection,
+  resolveSpawnModelSelection,
   validateModelSelection,
   validateSpawnGraph,
   type ModelCatalogueEntry,
+  type ShapeHeadroomInput,
 } from "./WorkstreamSpawnHttp.ts";
 
 const sel = (instanceId: string, model: string): ModelSelection =>
@@ -500,5 +513,733 @@ describe("hasThreadStarted", () => {
     expect(hasThreadStarted({ session: {}, latestUserMessageAt: "2026-01-01T00:00:00.000Z" })).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capability-based model selection (taskShape) — plan §3–§4.
+// ---------------------------------------------------------------------------
+
+const profile = (
+  model: string,
+  scores: {
+    horsepower: number;
+    goalOrientation: number;
+    thoroughness: number;
+    endurance: number;
+  },
+  agentic: WorkstreamModelProfile["agentic"],
+  costInput: number,
+  extra: Partial<WorkstreamModelProfile> = {},
+): WorkstreamModelProfile =>
+  ({
+    selection: { instanceId: "pi", model },
+    scores,
+    costPerMtok: { input: costInput, output: costInput * 4 },
+    agentic,
+    ...extra,
+  }) as WorkstreamModelProfile;
+
+// The initial matrix from plan §2 (operator-adjusted; Grok dropped). Costs are
+// representative — they only exercise the mechanical sort + universal tie-break.
+const INITIAL_MATRIX: Record<string, WorkstreamModelProfile> = {
+  "Fable 5": profile(
+    "anthropic/claude-fable-5",
+    { horsepower: 8, goalOrientation: 8, thoroughness: 6, endurance: 7 },
+    "full",
+    6,
+    { unsuitableFor: ["security-sensitive"], usableContext: 200000 },
+  ),
+  "Opus 4.8": profile(
+    "anthropic/claude-opus-4-8",
+    { horsepower: 7, goalOrientation: 7, thoroughness: 6, endurance: 7 },
+    "full",
+    5,
+  ),
+  "GPT-5.6 Sol": profile(
+    "openai-codex/gpt-5.6-sol",
+    { horsepower: 8, goalOrientation: 5, thoroughness: 8, endurance: 7 },
+    "full",
+    4,
+  ),
+  "GPT-5.6 Terra": profile(
+    "openai-codex/gpt-5.6-terra",
+    { horsepower: 7, goalOrientation: 5, thoroughness: 7, endurance: 6 },
+    "full",
+    3,
+  ),
+  "GPT-5.6 Luna": profile(
+    "openai-codex/gpt-5.6-luna",
+    { horsepower: 5, goalOrientation: 3, thoroughness: 5, endurance: 5 },
+    "bounded",
+    1,
+  ),
+  "Gemini 3.1 Pro": profile(
+    "google-vertex/gemini-3-1-pro",
+    { horsepower: 7, goalOrientation: 7, thoroughness: 3, endurance: 3 },
+    "oracle",
+    2,
+  ),
+  "Gemini 3.0 Flash": profile(
+    "google-vertex/gemini-3-0-flash",
+    { horsepower: 5, goalOrientation: 5, thoroughness: 2, endurance: 3 },
+    "oracle",
+    0.5,
+  ),
+};
+
+const matrixCatalogue = modelCatalogueOf([
+  provider(
+    "pi",
+    Object.values(INITIAL_MATRIX).map((p) => p.selection.model),
+  ),
+]);
+
+const names = (list: ReadonlyArray<{ readonly name: string }>) => list.map((c) => c.name);
+
+const healthy: ShapeHeadroomInput = {
+  usage: [],
+  isExhausted: () => false,
+  usageSourceInstances: new Set(),
+  nowMs: 0,
+};
+
+const withHeadroom = (over: Partial<ShapeHeadroomInput>): ShapeHeadroomInput => ({
+  ...healthy,
+  ...over,
+});
+
+describe("rankShapeCandidates (per-shape ranking snapshot over the initial matrix)", () => {
+  it("explore ranks by goalOrientation ↓, horsepower ↓, thoroughness ↓ (full, endurance ≥ 5)", () => {
+    expect(names(rankShapeCandidates({ shape: "explore", profiles: INITIAL_MATRIX }))).toEqual([
+      "Fable 5",
+      "Opus 4.8",
+      "GPT-5.6 Sol",
+      "GPT-5.6 Terra",
+    ]);
+  });
+
+  it("thorough ranks by thoroughness ↓, horsepower ↓, goalOrientation ↓ (full)", () => {
+    expect(names(rankShapeCandidates({ shape: "thorough", profiles: INITIAL_MATRIX }))).toEqual([
+      "GPT-5.6 Sol",
+      "GPT-5.6 Terra",
+      "Fable 5",
+      "Opus 4.8",
+    ]);
+  });
+
+  it("mechanical ranks by cost ↑, horsepower ↓ (full|bounded, horsepower ≥ 5)", () => {
+    expect(names(rankShapeCandidates({ shape: "mechanical", profiles: INITIAL_MATRIX }))).toEqual([
+      "GPT-5.6 Luna",
+      "GPT-5.6 Terra",
+      "GPT-5.6 Sol",
+      "Opus 4.8",
+      "Fable 5",
+    ]);
+  });
+
+  it("excludes oracle profiles from every shape", () => {
+    for (const shape of ["explore", "thorough", "mechanical"] as const) {
+      const ranked = names(rankShapeCandidates({ shape, profiles: INITIAL_MATRIX }));
+      expect(ranked).not.toContain("Gemini 3.1 Pro");
+      expect(ranked).not.toContain("Gemini 3.0 Flash");
+    }
+  });
+
+  it("applies the universal tie-break (cost ↑ then name ↑) on an all-equal-score tie", () => {
+    const scores = { horsepower: 7, goalOrientation: 7, thoroughness: 7, endurance: 7 };
+    const tied: Record<string, WorkstreamModelProfile> = {
+      Zeta: profile("pi/zeta", scores, "full", 5),
+      Alpha: profile("pi/alpha", scores, "full", 5),
+      Cheaper: profile("pi/cheaper", scores, "full", 2),
+    };
+    // Cheaper wins on cost; Alpha before Zeta on the lexicographic name tie-break.
+    expect(names(rankShapeCandidates({ shape: "explore", profiles: tied }))).toEqual([
+      "Cheaper",
+      "Alpha",
+      "Zeta",
+    ]);
+  });
+
+  it("drops profiles carrying the matching unsuitableFor token when sensitive is set", () => {
+    const ranked = names(
+      rankShapeCandidates({ shape: "explore", sensitive: "security", profiles: INITIAL_MATRIX }),
+    );
+    expect(ranked).not.toContain("Fable 5");
+    expect(ranked[0]).toBe("Opus 4.8");
+  });
+});
+
+describe("headroomBucketFor", () => {
+  const usageSnapshot = (
+    key: string,
+    windows: ReadonlyArray<{
+      kind: "primary" | "secondary";
+      usedPercent: number;
+      resetsAt: string | null;
+      scope?: { displayName: string; modelId?: string | null };
+    }>,
+    observedAt = "2026-01-01T00:00:00.000Z",
+    extra: { accountLabel?: string; limitReached?: boolean } = {},
+  ): AccountUsageSnapshot =>
+    ({
+      providerName: key,
+      providerInstanceId: null,
+      windows: windows.map((w) => ({ windowDurationMins: null, ...w })),
+      planType: null,
+      observedAt,
+      ...extra,
+    }) as AccountUsageSnapshot;
+
+  const nowMs = Date.parse("2026-01-01T00:05:00.000Z");
+
+  it("is healthy for an API-billed selection with no subscription account", () => {
+    expect(
+      headroomBucketFor({ instanceId: "pi", model: "google-vertex/x" } as ModelSelection, healthy),
+    ).toBe("healthy");
+  });
+
+  it("skips a selection whose account is hard-exhausted", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({ isExhausted: (account) => account === "claudeAgent", nowMs }),
+      ),
+    ).toBe("skipped");
+  });
+
+  it("demotes when the binding window is ≥ 90% and fresh", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot("claudeAgent", [{ kind: "primary", usedPercent: 92, resetsAt: null }]),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("demoted");
+  });
+
+  it("stays healthy below the demote threshold", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot("claudeAgent", [{ kind: "primary", usedPercent: 70, resetsAt: null }]),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+  });
+
+  it("never demotes on stale data (older than the freshness horizon)", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          // observedAt is >15 min before nowMs ⇒ unknown ⇒ healthy.
+          usage: [
+            usageSnapshot(
+              "claudeAgent",
+              [{ kind: "primary", usedPercent: 95, resetsAt: null }],
+              "2025-12-31T23:30:00.000Z",
+            ),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+  });
+
+  it("discounts a window resetting within the near-future horizon", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot("claudeAgent", [
+              // 99% but resets ~10 min out ⇒ not binding.
+              { kind: "primary", usedPercent: 99, resetsAt: "2026-01-01T00:15:00.000Z" },
+            ]),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+  });
+
+  it("ignores an exhausted window scoped to a different model", () => {
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot("claudeAgent", [
+              {
+                kind: "primary",
+                usedPercent: 99,
+                resetsAt: null,
+                scope: { displayName: "Fable", modelId: "claude-fable-5" },
+              },
+            ]),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+  });
+
+  it("uses the best-remaining account for a pooled instance", () => {
+    // Two pooled accounts of one usage-source instance: one nearly spent, one
+    // fresh. The router fails over between them, so the instance is only as
+    // exhausted as its freshest account ⇒ healthy.
+    const bucket = headroomBucketFor(
+      { instanceId: "pooled", model: "cliproxy/opus" } as ModelSelection,
+      withHeadroom({
+        usageSourceInstances: new Set(["pooled"]),
+        usage: [
+          {
+            providerName: "cliproxy",
+            providerInstanceId: "pooled",
+            accountLabel: "A",
+            windows: [
+              { kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null },
+            ],
+            planType: null,
+            observedAt: "2026-01-01T00:04:30.000Z",
+          },
+          {
+            providerName: "cliproxy",
+            providerInstanceId: "pooled",
+            accountLabel: "B",
+            windows: [
+              { kind: "primary", usedPercent: 20, resetsAt: null, windowDurationMins: null },
+            ],
+            planType: null,
+            observedAt: "2026-01-01T00:04:30.000Z",
+          },
+        ] as unknown as ReadonlyArray<AccountUsageSnapshot>,
+        nowMs,
+      }),
+    );
+    expect(bucket).toBe("healthy");
+  });
+
+  it("skips on an explicit limitReached flag even without a health mark", () => {
+    // §4: skipped is a hard mark OR limitReached. Guards registry lag when the
+    // authoritative usage snapshot already carries the flag.
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot(
+              "claudeAgent",
+              [{ kind: "primary", usedPercent: 10, resetsAt: null }],
+              "2026-01-01T00:04:30.000Z",
+              { limitReached: true },
+            ),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("skipped");
+  });
+
+  it("skips a pooled instance only when EVERY account reports limitReached", () => {
+    const pooled = (label: string, limitReached: boolean): AccountUsageSnapshot =>
+      ({
+        providerName: "cliproxy",
+        providerInstanceId: "pooled",
+        accountLabel: label,
+        windows: [{ kind: "primary", usedPercent: 10, resetsAt: null, windowDurationMins: null }],
+        planType: null,
+        observedAt: "2026-01-01T00:04:30.000Z",
+        limitReached,
+      }) as unknown as AccountUsageSnapshot;
+    const sel = { instanceId: "pooled", model: "cliproxy/opus" } as ModelSelection;
+    // One account still has headroom ⇒ best-remaining aggregation does NOT set
+    // the flag ⇒ not skipped.
+    expect(
+      headroomBucketFor(
+        sel,
+        withHeadroom({
+          usageSourceInstances: new Set(["pooled"]),
+          usage: [pooled("A", true), pooled("B", false)],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+    // Both accounts spent ⇒ aggregation ANDs to limitReached ⇒ skipped.
+    expect(
+      headroomBucketFor(
+        sel,
+        withHeadroom({
+          usageSourceInstances: new Set(["pooled"]),
+          usage: [pooled("A", true), pooled("B", true)],
+          nowMs,
+        }),
+      ),
+    ).toBe("skipped");
+  });
+
+  it("does NOT skip on a STALE limitReached flag without an active mark (freshness gates it)", () => {
+    // A raw snapshot has no TTL; honouring a stale limitReached would keep the
+    // model skipped after its mark/reset expired — the stale-state failure §4
+    // prevents. Stale ⇒ unknown ⇒ healthy.
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          usage: [
+            usageSnapshot(
+              "claudeAgent",
+              [{ kind: "primary", usedPercent: 10, resetsAt: null }],
+              "2025-12-31T23:30:00.000Z",
+              { limitReached: true },
+            ),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("healthy");
+  });
+
+  it("still skips a stale snapshot when an active health mark is present", () => {
+    // The active mark is TTL-bounded and checked before the snapshot, so it
+    // survives staleness independently.
+    expect(
+      headroomBucketFor(
+        { instanceId: "pi", model: "anthropic/claude-opus-4-8" } as ModelSelection,
+        withHeadroom({
+          isExhausted: (account) => account === "claudeAgent",
+          usage: [
+            usageSnapshot(
+              "claudeAgent",
+              [{ kind: "primary", usedPercent: 10, resetsAt: null }],
+              "2025-12-31T23:30:00.000Z",
+              { limitReached: true },
+            ),
+          ],
+          nowMs,
+        }),
+      ),
+    ).toBe("skipped");
+  });
+});
+
+describe("resolveShapeSelection", () => {
+  it("picks the top-ranked healthy profile and renders a categorical rationale", () => {
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles: INITIAL_MATRIX,
+      catalogue: matrixCatalogue,
+      headroom: healthy,
+    });
+    expect(result.kind).toBe("selection");
+    if (result.kind !== "selection") return;
+    expect(result.profileName).toBe("Fable 5");
+    expect(result.bucket).toBe("healthy");
+    // Categorical only: the profile name + shape, no usage %, price, or score.
+    expect(result.rationale).toBe("Fable 5 (explore)");
+    expect(result.rationale).not.toMatch(/%|\$|score|percent/i);
+  });
+
+  it("falls through with a warning when no profiles are configured", () => {
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles: {},
+      catalogue: matrixCatalogue,
+      headroom: healthy,
+    });
+    expect(result.kind).toBe("fall-through");
+    expect(result.warnings.join("\n")).toContain("no workstreamModelProfiles are configured");
+  });
+
+  it("falls through when the shape filter matches nothing (oracle-only set)", () => {
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles: {
+        "Gemini 3.1 Pro": INITIAL_MATRIX["Gemini 3.1 Pro"]!,
+        "Gemini 3.0 Flash": INITIAL_MATRIX["Gemini 3.0 Flash"]!,
+      },
+      catalogue: matrixCatalogue,
+      headroom: healthy,
+    });
+    expect(result.kind).toBe("fall-through");
+    expect(result.warnings.join("\n")).toContain("matched no configured profile");
+  });
+
+  it("skips a catalogue-invalid top pick and records a per-skip warning", () => {
+    // Catalogue without Fable's slug ⇒ the explore top pick is invalid; drop to Opus.
+    const catalogue = modelCatalogueOf([
+      provider(
+        "pi",
+        Object.values(INITIAL_MATRIX)
+          .map((p) => p.selection.model)
+          .filter((m) => m !== "anthropic/claude-fable-5"),
+      ),
+    ]);
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles: INITIAL_MATRIX,
+      catalogue,
+      headroom: healthy,
+    });
+    expect(result.kind === "selection" && result.profileName).toBe("Opus 4.8");
+    expect(result.warnings.join("\n")).toContain('skipped profile "Fable 5"');
+  });
+
+  it("prefers a healthy lower-ranked profile over a demoted higher-ranked one", () => {
+    const profiles: Record<string, WorkstreamModelProfile> = {
+      High: profile(
+        "anthropic/high",
+        { horsepower: 9, goalOrientation: 9, thoroughness: 9, endurance: 9 },
+        "full",
+        5,
+      ),
+      Low: profile(
+        "openai-codex/low",
+        { horsepower: 8, goalOrientation: 8, thoroughness: 8, endurance: 8 },
+        "full",
+        4,
+      ),
+    };
+    const catalogue = modelCatalogueOf([provider("pi", ["anthropic/high", "openai-codex/low"])]);
+    const nowMs = Date.parse("2026-01-01T00:05:00.000Z");
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles,
+      catalogue,
+      headroom: withHeadroom({
+        nowMs,
+        // High's account (claudeAgent) is demoted; Low's (codex) is fresh.
+        usage: [
+          {
+            providerName: "claudeAgent",
+            providerInstanceId: null,
+            windows: [
+              { kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null },
+            ],
+            planType: null,
+            observedAt: "2026-01-01T00:04:30.000Z",
+          },
+        ] as unknown as ReadonlyArray<AccountUsageSnapshot>,
+      }),
+    });
+    expect(result.kind === "selection" && result.profileName).toBe("Low");
+    expect(result.kind === "selection" && result.bucket).toBe("healthy");
+    // The rationale must explain the first choice was passed over for headroom,
+    // even though the PICK itself is healthy (finding 1).
+    expect(result.kind === "selection" && result.rationale).toBe(
+      "Low (explore; first choice on low headroom — substituted)",
+    );
+  });
+
+  it("picks the top demoted profile when no bucket is healthier, with a truthful rationale", () => {
+    const profiles: Record<string, WorkstreamModelProfile> = {
+      High: profile(
+        "anthropic/high",
+        { horsepower: 9, goalOrientation: 9, thoroughness: 9, endurance: 9 },
+        "full",
+        5,
+      ),
+      Low: profile(
+        "openai-codex/low",
+        { horsepower: 8, goalOrientation: 8, thoroughness: 8, endurance: 8 },
+        "full",
+        4,
+      ),
+    };
+    const catalogue = modelCatalogueOf([provider("pi", ["anthropic/high", "openai-codex/low"])]);
+    const nowMs = Date.parse("2026-01-01T00:05:00.000Z");
+    const demotedWindow = (key: string): AccountUsageSnapshot =>
+      ({
+        providerName: key,
+        providerInstanceId: null,
+        windows: [{ kind: "primary", usedPercent: 95, resetsAt: null, windowDurationMins: null }],
+        planType: null,
+        observedAt: "2026-01-01T00:04:30.000Z",
+      }) as AccountUsageSnapshot;
+    const result = resolveShapeSelection({
+      shape: "explore",
+      sensitive: undefined,
+      profiles,
+      catalogue,
+      headroom: withHeadroom({
+        nowMs,
+        usage: [demotedWindow("claudeAgent"), demotedWindow("codex")],
+      }),
+    });
+    expect(result.kind === "selection" && result.profileName).toBe("High");
+    expect(result.kind === "selection" && result.bucket).toBe("demoted");
+    // The pick IS the top choice, so the rationale must NOT claim a higher-ranked
+    // choice was passed over; it says every match is on low headroom (finding 1).
+    expect(result.kind === "selection" && result.rationale).toBe(
+      "High (explore; running on low headroom)",
+    );
+    expect(result.kind === "selection" && result.rationale).not.toContain("first choice");
+  });
+});
+
+describe("profileSummaryOf", () => {
+  it("summarises name, agentic flag, usableContext, validity, and spawnability", () => {
+    const summary = profileSummaryOf(
+      {
+        "Fable 5": INITIAL_MATRIX["Fable 5"]!,
+        "Gemini 3.1 Pro": INITIAL_MATRIX["Gemini 3.1 Pro"]!,
+      },
+      matrixCatalogue,
+    );
+    expect(summary).toEqual([
+      { name: "Fable 5", agentic: "full", usableContext: 200000, valid: true, spawnable: true },
+      { name: "Gemini 3.1 Pro", agentic: "oracle", valid: true, spawnable: false },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The spawn model-selection precedence + boundary decode (plan §3, §6.7).
+// ---------------------------------------------------------------------------
+
+describe("resolveSpawnModelSelection", () => {
+  // Presets must reference the `pi` instance the matrix catalogue knows, so the
+  // unified post-resolution catalogue validation accepts them.
+  const reviewerSel = sel("pi", "openai-codex/gpt-5.6-sol");
+  const localPresets: Record<string, ModelSelection> = {
+    reviewer: reviewerSel,
+    coder: sel("pi", "anthropic/claude-opus-4-8"),
+  };
+  const base = {
+    presets: localPresets,
+    profiles: INITIAL_MATRIX,
+    catalogue: matrixCatalogue,
+    presetNames: ["reviewer", "coder"],
+    role: "researcher",
+    parentSelection: parent,
+    headroom: healthy,
+  };
+  const call = (over: Partial<Parameters<typeof resolveSpawnModelSelection>[0]>) =>
+    resolveSpawnModelSelection({
+      explicit: { provided: false, decoded: undefined },
+      modelPreset: undefined,
+      taskShape: undefined,
+      sensitive: undefined,
+      ...base,
+      ...over,
+    });
+
+  it("rejects a schema-invalid taskShape value (non-string / empty / unknown) with a 400 message", () => {
+    for (const bad of [42, "", "  ", {}, true, "nonsense"]) {
+      const r = call({ taskShape: bad });
+      expect(r.kind).toBe("error");
+      expect(r.kind === "error" && r.message).toContain("taskShape must be one of");
+    }
+  });
+
+  it("rejects a schema-invalid sensitive value with a 400 message", () => {
+    for (const bad of [1, "", {}, "phi"]) {
+      const r = call({ sensitive: bad });
+      expect(r.kind).toBe("error");
+      expect(r.kind === "error" && r.message).toContain("sensitive must be one of");
+    }
+  });
+
+  it("resolves a valid taskShape to a profile pick", () => {
+    const r = call({ taskShape: "thorough" });
+    expect(r.kind === "ok" && r.source).toEqual({
+      kind: "task-shape",
+      shape: "thorough",
+      rationale: "GPT-5.6 Sol (thorough)",
+    });
+    expect(r.kind === "ok" && r.warnings.join("\n")).toContain("model selected by shape");
+  });
+
+  it("falls through to role/inherit (with a warning) for a valid shape and no profiles", () => {
+    const r = call({ taskShape: "explore", profiles: {} });
+    expect(r.kind === "ok" && r.source.kind).toBe("inherited");
+    expect(r.kind === "ok" && r.selection).toEqual(parent);
+    expect(r.kind === "ok" && r.warnings.join("\n")).toContain(
+      "no workstreamModelProfiles are configured",
+    );
+  });
+
+  it("falls through to a role preset when the shape matches nothing", () => {
+    // role 'reviewer' has a preset; explore over an oracle-only set matches nothing.
+    const r = call({
+      taskShape: "explore",
+      role: "reviewer",
+      profiles: {
+        "Gemini 3.1 Pro": INITIAL_MATRIX["Gemini 3.1 Pro"]!,
+      },
+    });
+    expect(r.kind === "ok" && r.source).toEqual({ kind: "role-preset", role: "reviewer" });
+    expect(r.kind === "ok" && r.selection).toEqual(reviewerSel);
+  });
+
+  it("honours precedence explicit > preset > shape > role > inherit", () => {
+    const explicitSel = sel("pi", "anthropic/claude-opus-4-8");
+    // explicit wins over everything and warns that the shape was ignored.
+    const withExplicit = call({
+      explicit: { provided: true, decoded: explicitSel },
+      modelPreset: "reviewer",
+      taskShape: "explore",
+    });
+    expect(withExplicit.kind === "ok" && withExplicit.source.kind).toBe("explicit");
+    expect(withExplicit.kind === "ok" && withExplicit.warnings.join("\n")).toContain(
+      "explicit modelSelection takes precedence",
+    );
+
+    // preset wins over shape and warns.
+    const withPreset = call({ modelPreset: "reviewer", taskShape: "explore" });
+    expect(withPreset.kind === "ok" && withPreset.source).toEqual({
+      kind: "preset",
+      name: "reviewer",
+    });
+    expect(withPreset.kind === "ok" && withPreset.warnings.join("\n")).toContain(
+      "explicit modelPreset takes precedence",
+    );
+
+    // shape wins over the role preset.
+    const withShape = call({ taskShape: "explore", role: "reviewer" });
+    expect(withShape.kind === "ok" && withShape.source.kind).toBe("task-shape");
+
+    // role preset wins over inherit when nothing else is supplied.
+    const withRole = call({ role: "reviewer" });
+    expect(withRole.kind === "ok" && withRole.source).toEqual({
+      kind: "role-preset",
+      role: "reviewer",
+    });
+
+    // nothing supplied and no role preset ⇒ inherit.
+    const inherited = call({ role: "researcher" });
+    expect(inherited.kind === "ok" && inherited.source.kind).toBe("inherited");
+  });
+
+  it("rejects an invalid explicit modelSelection decode with a 400", () => {
+    const r = call({ explicit: { provided: true, decoded: undefined } });
+    expect(r.kind === "error" && r.message).toBe("modelSelection is invalid.");
+  });
+
+  it("rejects an unknown modelPreset name with the available names", () => {
+    const r = call({ modelPreset: "nope" });
+    expect(r.kind === "error" && r.message).toContain('Unknown modelPreset "nope"');
+  });
+
+  it("rejects a catalogue-invalid explicit selection with a source-aware 400", () => {
+    const r = call({
+      explicit: { provided: true, decoded: sel("google-vertex-claude", "x") },
+    });
+    expect(r.kind === "error" && r.message).toContain("This modelSelection");
+    expect(r.kind === "error" && r.message).toContain("not a configured provider instance");
   });
 });
