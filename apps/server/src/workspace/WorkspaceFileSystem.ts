@@ -7,12 +7,15 @@
  *
  * @module WorkspaceFileSystem
  */
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 
 import type {
   ProjectReadAbsoluteFileInput,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectStatPathsInput,
+  ProjectStatPathsResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "@t3tools/contracts";
@@ -147,6 +150,13 @@ export class WorkspaceFileSystem extends Context.Service<
     readonly readAbsoluteFile: (
       input: ProjectReadAbsoluteFileInput,
     ) => Effect.Effect<ProjectReadFileResult, WorkspaceAbsoluteReadError>;
+    /**
+     * Batch existence probe: for each (absolute) path report whether it exists
+     * and, if so, whether it is a file or directory. Read-only and never
+     * fails per-path — a missing/unreadable/relative path is reported as
+     * `missing` rather than raising — so chat chips can verify targets cheaply.
+     */
+    readonly statPaths: (input: ProjectStatPathsInput) => Effect.Effect<ProjectStatPathsResult>;
     /**
      * Write a file relative to the workspace root.
      *
@@ -351,6 +361,44 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const statPaths: WorkspaceFileSystem["Service"]["statPaths"] = Effect.fn(
+    "WorkspaceFileSystem.statPaths",
+  )(function* (input) {
+    const entries = yield* Effect.forEach(
+      input.paths,
+      (requestedPath) =>
+        Effect.promise(async () => {
+          if (!path.isAbsolute(requestedPath)) {
+            return { path: requestedPath, kind: "missing" as const };
+          }
+          try {
+            // Follow symlinks (matching the read paths) so a chip's target kind
+            // reflects what a click would actually open.
+            const stat = await NodeFSP.stat(requestedPath);
+            if (stat.isDirectory()) {
+              return { path: requestedPath, kind: "directory" as const };
+            }
+            if (!stat.isFile()) {
+              // FIFOs/sockets/devices are not openable as files — not a chip.
+              return { path: requestedPath, kind: "other" as const };
+            }
+            // A regular file that stat can see but the read path cannot open
+            // (e.g. no read permission) must not become a clickable chip either.
+            try {
+              await NodeFSP.access(requestedPath, NodeFS.constants.R_OK);
+            } catch {
+              return { path: requestedPath, kind: "other" as const };
+            }
+            return { path: requestedPath, kind: "file" as const };
+          } catch {
+            return { path: requestedPath, kind: "missing" as const };
+          }
+        }),
+      { concurrency: 16 },
+    );
+    return { entries };
+  });
+
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
     "WorkspaceFileSystem.writeFile",
   )(function* (input) {
@@ -389,7 +437,7 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return WorkspaceFileSystem.of({ readFile, readAbsoluteFile, writeFile });
+  return WorkspaceFileSystem.of({ readFile, readAbsoluteFile, statPaths, writeFile });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

@@ -45,6 +45,7 @@ import {
   FileTagChipContent,
   ThreadTagChipContent,
 } from "./chat/FileTagChip";
+import { usePathExistence } from "./chat/usePathExistence";
 import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { hasSpecificPierreIconForFileName, syntheticFileNameForLanguageId } from "../pierre-icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -735,6 +736,9 @@ interface MarkdownFileLinkProps {
   threadRef?: ScopedThreadRef | undefined;
   onOpen: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  /** Directory targets swap the file actions for an explorer/copy behaviour. */
+  isDirectory?: boolean | undefined;
+  onOpenDirectory?: (() => void) | undefined;
   className?: string | undefined;
 }
 
@@ -1031,8 +1035,13 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   threadRef,
   onOpen,
   onOpenInBrowser,
+  isDirectory,
+  onOpenDirectory,
   className,
 }: MarkdownFileLinkProps) {
+  const handleOpenDirectory = useCallback(() => {
+    onOpenDirectory?.();
+  }, [onOpenDirectory]);
   const handleOpenInEditor = useCallback(() => {
     void (async () => {
       try {
@@ -1175,8 +1184,8 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       try {
         const clicked = await api.contextMenu.show(
           [
-            { id: "open", label: "Open in editor" },
-            ...(onOpenInBrowser
+            { id: "open", label: isDirectory ? "Open in files" : "Open in editor" },
+            ...(!isDirectory && onOpenInBrowser
               ? ([{ id: "open-in-browser", label: "Open in integrated browser" }] as const)
               : []),
             { id: "copy-relative", label: "Copy relative path" },
@@ -1186,6 +1195,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
 
         if (clicked === "open") {
+          if (isDirectory) {
+            handleOpenDirectory();
+            return;
+          }
           handleOpenInEditor();
           return;
         }
@@ -1207,7 +1220,16 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         );
       }
     },
-    [displayPath, handleCopy, handleOpenInBrowser, handleOpenInEditor, onOpenInBrowser, targetPath],
+    [
+      displayPath,
+      handleCopy,
+      handleOpenDirectory,
+      handleOpenInBrowser,
+      handleOpenInEditor,
+      isDirectory,
+      onOpenInBrowser,
+      targetPath,
+    ],
   );
 
   return (
@@ -1221,6 +1243,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (isDirectory) {
+                handleOpenDirectory();
+                return;
+              }
               if (onOpenInBrowser) {
                 handleOpenInBrowser();
                 return;
@@ -1262,6 +1288,8 @@ function areMarkdownFileLinkPropsEqual(
     previous.threadRef === next.threadRef &&
     previous.onOpen === next.onOpen &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
+    previous.isDirectory === next.isDirectory &&
+    previous.onOpenDirectory === next.onOpenDirectory &&
     previous.className === next.className
   );
 }
@@ -1337,6 +1365,61 @@ function ChatMarkdown({
     ];
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [inlineCodeFilePaths, markdownFileLinkMetaByHref]);
+  // Existence verification: a chip only becomes a clickable link once its
+  // resolved target is confirmed to exist. Candidates are the resolved absolute
+  // paths of every explicit-link and inline-code file reference in this message.
+  const statEnvironmentId = threadRef?.environmentId ?? environmentId;
+  const existenceCandidatePaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const meta of markdownFileLinkMetaByHref.values()) paths.add(meta.filePath);
+    for (const filePath of inlineCodeFilePaths) paths.add(filePath);
+    return [...paths];
+  }, [inlineCodeFilePaths, markdownFileLinkMetaByHref]);
+  const lookupPathExistence = usePathExistence(statEnvironmentId, existenceCandidatePaths);
+  // Verification is only possible with a connected environment; without one
+  // (e.g. the /preview harness) chips keep the prior syntactic-only behaviour.
+  const verifyExistence = statEnvironmentId !== null;
+  // Flicker strategy: render an unverified reference as inert plain code and
+  // *upgrade* it to a chip once existence resolves. This never shows a dead
+  // chip (code → chip is additive), at the cost of a brief plain-code state on
+  // first paint / during streaming — the safe direction for the failure modes
+  // this guards (chips that resolve to non-existent or directory targets).
+  const resolveChipMode = useCallback(
+    (filePath: string): "chip" | "directory" | "inert" => {
+      if (!verifyExistence) return "chip";
+      const existence = lookupPathExistence(filePath);
+      if (!existence || !existence.exists) return "inert";
+      return existence.isDirectory ? "directory" : "chip";
+    },
+    [lookupPathExistence, verifyExistence],
+  );
+  const openDirectoryTarget = useCallback(
+    (meta: MarkdownFileLinkMeta) => {
+      if (threadRef && meta.workspaceRelativePath !== null) {
+        useRightPanelStore.getState().open(threadRef, "files");
+        return;
+      }
+      // Out-of-workspace directory (or no thread context): copy the path instead
+      // of attempting a file read that would surface a broken error panel.
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
+      void navigator.clipboard.writeText(meta.targetPath).then(
+        () => {
+          toastManager.add({
+            type: "success",
+            title: "Directory path copied",
+            description: meta.targetPath,
+          });
+        },
+        (cause) => {
+          reportMarkdownActionFailure(
+            { operation: "copy-directory-path", target: meta.targetPath },
+            cause,
+          );
+        },
+      );
+    },
+    [threadRef],
+  );
   const markdownUrlTransform = useCallback((href: string) => {
     if (href.startsWith("thread://")) return href;
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
@@ -1522,6 +1605,13 @@ function ChatMarkdown({
           );
         }
 
+        const chipMode = resolveChipMode(fileLinkMeta.filePath);
+        if (chipMode === "inert") {
+          // Unverified or non-existent target: render the link text plainly so
+          // there is no dead click.
+          return <>{children}</>;
+        }
+        const isDirectory = chipMode === "directory";
         const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
         const labelParts = [fileLinkMeta.basename];
         if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
@@ -1547,12 +1637,15 @@ function ChatMarkdown({
             threadRef={threadRef}
             onOpen={openInPreferredEditor}
             onOpenInBrowser={
+              !isDirectory &&
               threadRef &&
               isPreviewSupportedInRuntime() &&
               isBrowserPreviewFile(fileLinkMeta.filePath)
                 ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
                 : undefined
             }
+            isDirectory={isDirectory}
+            onOpenDirectory={isDirectory ? () => openDirectoryTarget(fileLinkMeta) : undefined}
             className={props.className}
           />
         );
@@ -1577,6 +1670,17 @@ function ChatMarkdown({
           );
         }
 
+        const chipMode = resolveChipMode(inlineMeta.filePath);
+        if (chipMode === "inert") {
+          // Unverified or non-existent path reference: keep it as plain inline
+          // code so a plausible-but-wrong path never becomes a dead click.
+          return (
+            <code {...props} className={className}>
+              {children}
+            </code>
+          );
+        }
+        const isDirectory = chipMode === "directory";
         const parentSuffix = fileLinkParentSuffixByPath.get(inlineMeta.filePath);
         const labelParts = [inlineMeta.basename];
         if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
@@ -1602,12 +1706,15 @@ function ChatMarkdown({
             threadRef={threadRef}
             onOpen={openInPreferredEditor}
             onOpenInBrowser={
+              !isDirectory &&
               threadRef &&
               isPreviewSupportedInRuntime() &&
               isBrowserPreviewFile(inlineMeta.filePath)
                 ? () => openMarkdownFileInPreview(inlineMeta.filePath)
                 : undefined
             }
+            isDirectory={isDirectory}
+            onOpenDirectory={isDirectory ? () => openDirectoryTarget(inlineMeta) : undefined}
           />
         );
       },
@@ -1652,9 +1759,11 @@ function ChatMarkdown({
       isStreaming,
       markdownFileLinkMetaByHref,
       onTaskListChange,
+      openDirectoryTarget,
       openInPreferredEditor,
       openExternalLinkInPreview,
       openMarkdownFileInPreview,
+      resolveChipMode,
       resolveInlineCodeMeta,
       resolvedTheme,
       skills,

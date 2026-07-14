@@ -27,6 +27,8 @@ import type {
   ProjectReadAbsoluteFileInput,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectStatPathsInput,
+  ProjectStatPathsResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -1159,6 +1161,7 @@ export interface EnvironmentApi {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     readAbsoluteFile: (input: ProjectReadAbsoluteFileInput) => Promise<ProjectReadFileResult>;
+    statPaths: (input: ProjectStatPathsInput) => Promise<ProjectStatPathsResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
   };

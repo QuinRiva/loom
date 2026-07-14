@@ -1,3 +1,8 @@
+// Test-only: mkfifo has no Effect API and is only used to fabricate a
+// non-regular file for the statPaths kind check.
+// @effect-diagnostics-next-line nodeBuiltinImport:off
+import * as NodeChildProcess from "node:child_process";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -278,6 +283,102 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceAbsoluteReadError);
         expect(error).toMatchObject({ failure: "operation_failed", operation: "realpath-target" });
         expect((error.cause as NodeJS.ErrnoException).code).toBe("ENOENT");
+      }),
+    );
+  });
+
+  describe("statPaths", () => {
+    it.effect("reports files, directories, missing and non-absolute paths", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "verdict.md", "# verdict\n");
+        yield* fileSystem.makeDirectory(path.join(cwd, "reports"));
+        const filePath = path.join(cwd, "verdict.md");
+        const dirPath = path.join(cwd, "reports");
+        const missingPath = path.join(cwd, "missing.md");
+
+        const result = yield* workspaceFileSystem.statPaths({
+          paths: [filePath, dirPath, missingPath, "relative/not-absolute.md"],
+        });
+
+        expect(result.entries).toEqual([
+          { path: filePath, kind: "file" },
+          { path: dirPath, kind: "directory" },
+          { path: missingPath, kind: "missing" },
+          { path: "relative/not-absolute.md", kind: "missing" },
+        ]);
+      }),
+    );
+
+    it.effect("reports non-regular files (FIFO/socket/device) as other, not file", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const fifoPath = path.join(cwd, "pipe");
+        // Skip where mkfifo is unavailable (e.g. Windows) rather than probing a
+        // runtime global.
+        const madeFifo = yield* Effect.sync(() => {
+          try {
+            NodeChildProcess.execFileSync("mkfifo", [fifoPath]);
+            return true;
+          } catch {
+            return false;
+          }
+        });
+        if (!madeFifo) return;
+
+        const result = yield* workspaceFileSystem.statPaths({ paths: [fifoPath] });
+
+        // A FIFO exists but is not openable as a file — must not become a chip.
+        expect(result.entries).toEqual([{ path: fifoPath, kind: "other" }]);
+      }),
+    );
+
+    it.effect("reports an unreadable regular file as other", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const secretPath = path.join(cwd, "secret.md");
+        yield* writeTextFile(cwd, "secret.md", "# secret\n");
+        yield* fileSystem.chmod(secretPath, 0o000).pipe(Effect.orDie);
+        // If read access is still granted (e.g. running as root, which bypasses
+        // DAC), the unreadable case cannot be exercised — skip rather than assert.
+        const stillReadable = yield* fileSystem.access(secretPath, { readable: true }).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        );
+        if (stillReadable) return;
+
+        const result = yield* workspaceFileSystem.statPaths({ paths: [secretPath] });
+
+        expect(result.entries).toEqual([{ path: secretPath, kind: "other" }]);
+      }),
+    );
+
+    it.effect("follows symlinks to their target kind and never fails per-path", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "target.md", "# target\n");
+        yield* fileSystem.symlink(path.join(cwd, "target.md"), path.join(cwd, "link.md"));
+        yield* fileSystem.symlink(path.join(cwd, "nowhere.md"), path.join(cwd, "broken.md"));
+
+        const result = yield* workspaceFileSystem.statPaths({
+          paths: [path.join(cwd, "link.md"), path.join(cwd, "broken.md")],
+        });
+
+        expect(result.entries).toEqual([
+          { path: path.join(cwd, "link.md"), kind: "file" },
+          { path: path.join(cwd, "broken.md"), kind: "missing" },
+        ]);
       }),
     );
   });

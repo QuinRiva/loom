@@ -77,6 +77,9 @@ import {
   ProjectReadFileError,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectStatPathsError,
+  ProjectStatPathsInput,
+  ProjectStatPathsResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -167,6 +170,7 @@ export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
   projectsReadFile: "projects.readFile",
   projectsReadAbsoluteFile: "projects.readAbsoluteFile",
+  projectsStatPaths: "projects.statPaths",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
 
@@ -426,6 +430,12 @@ export const WsProjectsReadAbsoluteFileRpc = Rpc.make(WS_METHODS.projectsReadAbs
   payload: ProjectReadAbsoluteFileInput,
   success: ProjectReadFileResult,
   error: Schema.Union([ProjectReadAbsoluteFileError, EnvironmentAuthorizationError]),
+});
+
+export const WsProjectsStatPathsRpc = Rpc.make(WS_METHODS.projectsStatPaths, {
+  payload: ProjectStatPathsInput,
+  success: ProjectStatPathsResult,
+  error: Schema.Union([ProjectStatPathsError, EnvironmentAuthorizationError]),
 });
 
 export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
@@ -780,6 +790,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsReadAbsoluteFileRpc,
+  WsProjectsStatPathsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
