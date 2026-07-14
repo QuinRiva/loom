@@ -13,6 +13,8 @@
 
 import type { ThreadId } from "@t3tools/contracts";
 import { MaximizeIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
+
+import { useWorkstreamUiStore } from "../loom/workstreamUiStore";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -63,13 +65,28 @@ const FORK_STROKE = "rgba(255,255,255,0.26)";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+// The SVG letterboxes (preserveAspectRatio "meet") when its box aspect differs
+// from the viewBox, so pan/zoom maths must map through the effective scale and
+// centring offsets rather than assuming the viewBox fills the element.
+const viewTransform = (rect: DOMRect, vb: ViewBox) => {
+  const scale = Math.min(rect.width / vb.w, rect.height / vb.h);
+  return {
+    scale,
+    offsetX: (rect.width - vb.w * scale) / 2,
+    offsetY: (rect.height - vb.h * scale) / 2,
+  };
+};
+
 export default function WorkstreamGraph({
+  viewKey,
   threads,
   threadById,
   selectedThreadId,
   onSelectThread,
   onOpenDispatch,
 }: {
+  /** Scoped root-thread key identifying this orchestration's saved view. */
+  readonly viewKey: string;
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
   readonly selectedThreadId: ThreadId | null;
@@ -108,19 +125,38 @@ export default function WorkstreamGraph({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; vb: ViewBox } | null>(null);
-  const [viewBox, setViewBox] = useState<ViewBox>(base);
-  const [adjusted, setAdjusted] = useState(false);
+  // Session-scoped saved view: re-opening a thread of this orchestration
+  // restores the zoom/pan the user left it at instead of resetting
+  // (predictable interface). Reset view still snaps back to fit-all.
+  const saved = useWorkstreamUiStore.getState().graphViewByKey[viewKey];
+  const setGraphView = useWorkstreamUiStore((store) => store.setGraphView);
+  const [viewBox, setViewBox] = useState<ViewBox>(saved?.viewBox ?? base);
+  const [adjusted, setAdjusted] = useState(saved?.adjusted ?? false);
 
   useEffect(() => {
     if (!adjusted) setViewBox(base);
   }, [base, adjusted]);
 
-  const zoomBy = (factor: number, anchorX = 0.5, anchorY = 0.5) => {
+  useEffect(() => {
+    setGraphView(viewKey, { viewBox, adjusted });
+  }, [setGraphView, viewKey, viewBox, adjusted]);
+
+  // Zoom about a client-space anchor (wheel cursor); button zooms centre.
+  const zoomBy = (factor: number, client?: { x: number; y: number }) => {
     setAdjusted(true);
     setViewBox((vb) => {
       const w = clamp(vb.w * factor, base.w * 0.25, base.w * 4);
       const h = w * (vb.h / vb.w);
-      return { x: vb.x + (vb.w - w) * anchorX, y: vb.y + (vb.h - h) * anchorY, w, h };
+      let ax = 0.5;
+      let ay = 0.5;
+      const svg = svgRef.current;
+      if (client && svg) {
+        const rect = svg.getBoundingClientRect();
+        const { scale, offsetX, offsetY } = viewTransform(rect, vb);
+        ax = clamp((client.x - rect.left - offsetX) / (scale * vb.w), 0, 1);
+        ay = clamp((client.y - rect.top - offsetY) / (scale * vb.h), 0, 1);
+      }
+      return { x: vb.x + (vb.w - w) * ax, y: vb.y + (vb.h - h) * ay, w, h };
     });
   };
 
@@ -134,12 +170,7 @@ export default function WorkstreamGraph({
     if (!svg) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      zoomBy(
-        event.deltaY < 0 ? 0.88 : 1 / 0.88,
-        (event.clientX - rect.left) / rect.width,
-        (event.clientY - rect.top) / rect.height,
-      );
+      zoomBy(event.deltaY < 0 ? 0.88 : 1 / 0.88, { x: event.clientX, y: event.clientY });
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
@@ -156,10 +187,11 @@ export default function WorkstreamGraph({
     const drag = dragRef.current;
     if (!drag) return;
     const rect = event.currentTarget.getBoundingClientRect();
+    const { scale } = viewTransform(rect, drag.vb);
     setViewBox({
       ...drag.vb,
-      x: drag.vb.x - (event.clientX - drag.x) * (drag.vb.w / rect.width),
-      y: drag.vb.y - (event.clientY - drag.y) * (drag.vb.h / rect.height),
+      x: drag.vb.x - (event.clientX - drag.x) / scale,
+      y: drag.vb.y - (event.clientY - drag.y) / scale,
     });
   };
   const endPan = (event: ReactPointerEvent<SVGSVGElement>) => {
@@ -170,13 +202,13 @@ export default function WorkstreamGraph({
   };
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex h-full min-h-0 w-full flex-col items-center gap-3">
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
         a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a
         bridge to jump to where that wave was dispatched; click a node to inspect its history below.
       </p>
-      <div className="relative w-full">
+      <div className="relative min-h-0 w-full flex-1">
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
           <GraphControlButton label="Zoom in" onClick={() => zoomBy(0.8)}>
             <ZoomInIcon className="size-3.5" />
@@ -190,7 +222,7 @@ export default function WorkstreamGraph({
         </div>
         <svg
           ref={svgRef}
-          className="min-h-[240px] w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
+          className="h-full min-h-[240px] w-full touch-none cursor-grab rounded-xl border border-white/10 bg-black/20 active:cursor-grabbing"
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
           role="img"
           aria-label="Workstream fork–join graph"

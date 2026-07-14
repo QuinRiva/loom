@@ -1,4 +1,4 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
@@ -95,14 +95,18 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   // the root orchestrator, then return its full descendant subtree,
   // time-ordered. The shell list holds every thread in the environment, so
   // grandchildren are present.
+  const rootThreadId = useMemo(
+    () => (activeThread ? rootOf(activeThread.id, environmentShells) : null),
+    [environmentShells, activeThread],
+  );
   const subtree = useMemo(
     () =>
-      activeThread
-        ? subtreeOf(rootOf(activeThread.id, environmentShells), environmentShells).toSorted(
-            (left, right) => left.createdAt.localeCompare(right.createdAt),
+      rootThreadId
+        ? subtreeOf(rootThreadId, environmentShells).toSorted((left, right) =>
+            left.createdAt.localeCompare(right.createdAt),
           )
         : [],
-    [environmentShells, activeThread],
+    [environmentShells, rootThreadId],
   );
   const subtreeById = useMemo<ChildIndex>(
     () => new Map(subtree.map((thread) => [thread.id, thread])),
@@ -139,6 +143,11 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
   }
 
   const environmentId = activeThread.environmentId;
+  // Saved-view identity for the graph: every thread of an orchestration shares
+  // one graph, so the view follows the user across sibling threads.
+  const graphViewKey = scopedThreadKey(
+    scopeThreadRef(environmentId, rootThreadId ?? activeThread.id),
+  );
 
   const openThread = (thread: SidebarThreadSummary) =>
     navigate({
@@ -296,6 +305,8 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               }
             >
               <WorkstreamGraph
+                key={graphViewKey}
+                viewKey={graphViewKey}
                 threads={subtree}
                 threadById={subtreeById}
                 selectedThreadId={selectedThreadId}
