@@ -36,6 +36,10 @@ export interface WorkstreamListNode {
   readonly parentThreadId: string | null;
   readonly role: string | null;
   readonly title: string | null;
+  /** Symbolic scaffold key (unique-forever per parent), null for legacy/spawned nodes. */
+  readonly graphKey?: string | null;
+  /** Short scaffold purpose — the shape-review surface for the agent-facing list. */
+  readonly purpose?: string | null;
   readonly planLane: string;
   readonly attention?: ReadonlyArray<string>;
   readonly lastActivityAt?: string | null;
@@ -87,6 +91,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         ? " attention=" + node.attention.join("+")
         : "";
     const you = node.id === view.callerId ? " (you)" : "";
+    const key = node.graphKey ? " key=" + node.graphKey : "";
     lines.push(
       pad +
         "- " +
@@ -96,10 +101,13 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         (node.role ?? "thread") +
         '] "' +
         (node.title ?? "(untitled)") +
-        '" lane=' +
+        '"' +
+        key +
+        " lane=" +
         node.planLane +
         attention,
     );
+    if (node.purpose) lines.push(pad + "    purpose: " + node.purpose);
     if (node.lastActivityAt)
       lines.push(
         pad +

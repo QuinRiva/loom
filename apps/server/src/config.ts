@@ -36,6 +36,10 @@ export interface ServerDerivedPaths {
   // Stable per-thread Workstream completion reports (markdown). Lives under the
   // durable state dir, NOT the ephemeral worktree which gets reclaimed.
   readonly workstreamReportsDir: string;
+  // Scaffold-first graph authoring: stable per-thread kickoff-brief markdown
+  // files. Durable state dir (never the ephemeral worktree); the dispatcher
+  // reads the brief here at a child's first launch.
+  readonly workstreamBriefsDir: string;
   // Retained read-only consult_thread fork session jsonls (deep-inspection
   // artefacts). Sibling of workstreamReportsDir under the durable state dir.
   readonly workstreamConsultsDir: string;
@@ -103,6 +107,7 @@ export const deriveServerPaths = Effect.fn(function* (
   const dbPath = join(stateDir, "state.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
   const workstreamReportsDir = join(stateDir, "workstream-reports");
+  const workstreamBriefsDir = join(stateDir, "workstream-briefs");
   const workstreamConsultsDir = join(stateDir, "workstream-consults");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
@@ -116,6 +121,7 @@ export const deriveServerPaths = Effect.fn(function* (
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
     workstreamReportsDir,
+    workstreamBriefsDir,
     workstreamConsultsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -142,6 +148,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamReportsDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.workstreamBriefsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamConsultsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),

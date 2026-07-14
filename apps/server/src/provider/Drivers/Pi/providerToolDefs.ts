@@ -34,9 +34,9 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",
     description:
-      "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — roughly ≤6 words, leading with the distinguishing subject rather than a verb every sibling shares), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: { rework: thatChildThreadId }; gate.rework is automatically added to blockedBy. Model choice: for most spawns, pass NO model fields — the child takes a preset matching its role, or inherits this thread's model. Only when the task clearly matches one of three shapes should you pass taskShape ('explore' / 'thorough' / 'mechanical'), a single token the server resolves to a concrete model (never pick a model by name). modelSelection / modelPreset are escape hatches for the rare case you genuinely need a specific model. Full precedence: explicit modelSelection > modelPreset > taskShape > role preset > inherit this thread's model. A valid taskShape on a server with no matching profiles simply falls through to the role preset/inherit with a warning (never an error). Call workstream_list to see the task-shape vocabulary, profiles, presets, and the instance/model catalogue.",
+      "Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role (e.g. coder, reviewer), a short title (the card's name — roughly ≤6 words, leading with the distinguishing subject rather than a verb every sibling shares), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: { rework: thatChildThreadId }; gate.rework is automatically added to blockedBy. Model choice: for most spawns, pass NO model fields — the child takes a preset matching its role, or inherits this thread's model. Only when the task clearly matches one of three shapes should you pass taskShape ('explore' / 'thorough' / 'mechanical'), a single token the server resolves to a concrete model (never pick a model by name). modelSelection / modelPreset are escape hatches for the rare case you genuinely need a specific model. Full precedence: explicit modelSelection > modelPreset > taskShape > role preset > inherit this thread's model. A valid taskShape on a server with no matching profiles simply falls through to the role preset/inherit with a warning (never an error). Call workstream_list to see the task-shape vocabulary, profiles, presets, and the instance/model catalogue. For laying out a MULTI-NODE graph (or when you want a human to review the solution shape before paying for briefs), prefer workstream_scaffold + workstream_brief: scaffold defines the whole topology by symbolic key in one cheap call, then briefs are written just-in-time. workstream_spawn is the one-node shortcut (scaffold-one-node + brief in a single call).",
     promptSnippet:
-      "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override.",
+      "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override. For a multi-node graph prefer workstream_scaffold + workstream_brief.",
     promptGuidelines: [
       "Name the work with three distinct fields: title is a short label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions. Titles are read in role-labelled lists, so lead with the distinguishing subject, not a verb every sibling shares — 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.",
       "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
@@ -159,6 +159,167 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     fallbackText: "Spawned Workstream sub-thread.",
   },
   {
+    name: "workstream_scaffold",
+    label: "Scaffold Workstream Graph",
+    description:
+      "Author a whole T3 Code Workstream graph SHAPE in one call — the topology-first half of graph authoring. Each node carries only cheap metadata (key, role, title, purpose, and the same optional model/isolation fields as workstream_spawn) plus its blockedBy edges and gate, all referenced by SYMBOLIC KEY. Threads are created eagerly (real ids, visible in workstream_list immediately) but NONE can launch yet: a node launches only once it ALSO has a brief (workstream_brief). This lets you lay out the entire solution shape cheaply and instantly, get it reviewed, then write each node's token-heavy brief just-in-time in topological order — a late brief can reference the actual reports of upstream nodes that already finished. References: use the node's `key` for an intra-scaffold edge, or `thread:<id>` for an existing child; a bare UUID-shaped key is rejected (paste an existing id with the `thread:` prefix). Validation is all-or-nothing — on any error (duplicate key, dangling reference, dependency cycle) nothing is created and the error names the offending key. A later workstream_scaffold call is a DELTA: its blockedBy may reference existing children by key or `thread:` id, extending the live graph. Pass staged: true to create every node held (planned) for review before releasing with workstream_release.",
+    promptSnippet:
+      "lay out a whole child graph shape in one call (nodes with keys + blockedBy/gate edges, no briefs); each node then needs workstream_brief before it launches.",
+    promptGuidelines: [
+      "Author the SHAPE first: one workstream_scaffold call with every node (key + role + short title + purpose) and all blockedBy/gate edges by key. Then write briefs one at a time with workstream_brief in topological order — the first node launches as soon as its brief lands, and a downstream node's brief written after its dependencies finished can reference their actual reports.",
+      "Reference edges by symbolic key for nodes in this scaffold, or by `thread:<id>` for a pre-existing child. Keys are unique-forever per parent and immutable. Validation is all-or-nothing: a cycle or dangling reference creates nothing and names the offending key.",
+      "A gate is declared exactly as in workstream_spawn: gate: { rework: <key-or-thread:id> } on the reviewer node; gate.rework is auto-added to that node's blockedBy. Model fields (taskShape/modelPreset/modelSelection/sensitive) and isolation work per node exactly as in workstream_spawn — omit them for the normal path.",
+      "Use staged: true to hold the whole batch (planned) so a human can review the shape before any node runs; release it with workstream_release. A scaffolded node never launches on shape alone — it always waits for its brief too.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        staged: {
+          type: "boolean",
+          description:
+            "Create every node in this call held (plan lane 'planned') instead of released. Default false — nodes are 'ready' and launch once their dependencies clear AND they have a brief. Set true to lay out a graph for shape review before any node runs, then release with workstream_release.",
+        },
+        nodes: {
+          type: "array",
+          description:
+            "The nodes to create (or add, for a delta call). Each is a workstream_spawn node MINUS brief, PLUS a symbolic key. Briefs are attached separately with workstream_brief.",
+          items: {
+            type: "object",
+            properties: {
+              key: {
+                type: "string",
+                description:
+                  "Symbolic, unique-forever key for this node among the parent's children, used to reference it from other nodes' blockedBy/gate in the same or a later call. Immutable; must NOT be UUID-shaped (reference an existing thread with the 'thread:' prefix instead). Required.",
+              },
+              role: {
+                type: "string",
+                description: "Role label for the node, e.g. coder, reviewer, researcher. Required.",
+              },
+              title: {
+                type: "string",
+                description:
+                  "Short label naming the work at a glance (the card's bold name, ≤6 words) — lead with the distinguishing subject, not a verb every sibling shares. Required.",
+              },
+              purpose: {
+                type: "string",
+                description:
+                  "Short (1-3 sentence) summary shown on the sidebar card as the node's 'Goal' — the value the work delivers, not the mechanical steps. This plus title is what makes the scaffold render evaluable as a shape. Required.",
+              },
+              blockedBy: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "References this node waits on: a `key` of another node in this scaffold, or `thread:<id>` for a pre-existing child. The node does not start until every referenced thread reaches 'done'.",
+              },
+              gate: {
+                type: "object",
+                description:
+                  "Declare a review gate on this node (typically a reviewer): rework names the node it verifies (a key or `thread:<id>`). gate.rework is auto-added to this node's blockedBy. Routing is identical to workstream_spawn.",
+                properties: {
+                  rework: {
+                    type: "string",
+                    description:
+                      "The node this gate loops rework back to (the work under review) — a `key` in this scaffold or a `thread:<id>` of an existing sibling.",
+                  },
+                  maxRounds: {
+                    type: "number",
+                    description: "Maximum rework loops before the gate yields to you. Default 2.",
+                  },
+                },
+                required: ["rework"],
+                additionalProperties: false,
+              },
+              isolation: {
+                type: "string",
+                enum: ["isolated", "shared"],
+                description:
+                  "Worktree isolation, as in workstream_spawn. Omit to take the role default; a gated reviewer is always attached regardless.",
+              },
+              taskShape: {
+                type: "string",
+                enum: ["explore", "thorough", "mechanical"],
+                description:
+                  "Optional task-shape model hint, resolved by the server exactly as in workstream_spawn. Omit for the normal path (role preset / inherit).",
+              },
+              sensitive: {
+                type: "string",
+                enum: ["security"],
+                description:
+                  "Optional sensitivity marker paired with taskShape, as in workstream_spawn.",
+              },
+              modelPreset: {
+                type: "string",
+                description:
+                  "Escape hatch: a named model preset, overriding taskShape. As in workstream_spawn.",
+              },
+              modelSelection: {
+                type: "object",
+                description:
+                  "Escape hatch: an explicit model override for this node, taking precedence over taskShape/modelPreset. As in workstream_spawn.",
+                properties: {
+                  instanceId: { type: "string", description: "Configured provider instance id." },
+                  model: { type: "string", description: "Model slug for that instance." },
+                  options: {
+                    type: "array",
+                    description: "Optional per-model options, e.g. thinking level.",
+                    items: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                        value: { type: ["string", "boolean"] },
+                      },
+                      required: ["id", "value"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["instanceId", "model"],
+                additionalProperties: false,
+              },
+            },
+            required: ["key", "role", "title", "purpose"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["nodes"],
+      additionalProperties: false,
+    },
+    errorMode: "throw",
+    fallbackText: "Scaffolded Workstream graph.",
+  },
+  {
+    name: "workstream_brief",
+    label: "Brief Workstream Node",
+    description:
+      "Attach the kickoff brief — the full, self-contained first-turn instructions — to one scaffolded node, just-in-time. This is the second half of graph authoring: a node created by workstream_scaffold cannot launch until it has a brief (its launch precondition is dependencies-satisfied AND brief-present). Identify the node by its scaffold `key` or its thread id. Valid only on a direct child that has NOT started yet; on a started child it errors (steer a running child with workstream_prompt instead). Calling it again pre-launch overwrites (editing the brief before launch is the expected path). The brief is stored at a stable path the call returns; the kickoff reads the file's current content at launch, so writing briefs in topological order lets a late brief incorporate the actual reports of upstream nodes that already completed.",
+    promptSnippet:
+      "write one scaffolded node's kickoff brief (by key or thread id); the node launches once briefed and its deps are done. Overwrite allowed pre-launch.",
+    promptGuidelines: [
+      "After workstream_scaffold lays out the shape, brief nodes one at a time in topological order. The first node launches as soon as its brief lands; you are woken to brief the next node when its dependencies finish — exactly the moment their reports are available to fold into its brief.",
+      "A brief may only target a node you directly parent that has not started. To change what a running child does, use workstream_prompt (steer), not workstream_brief.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        node: {
+          type: "string",
+          description:
+            "The scaffolded node to brief: its symbolic `key` or its thread id (optionally `thread:`-prefixed). Must be a direct child that has not started.",
+        },
+        markdown: {
+          type: "string",
+          description:
+            "The full, self-contained kickoff brief (the node's first-turn instructions). Overwrites any existing brief pre-launch.",
+        },
+      },
+      required: ["node", "markdown"],
+      additionalProperties: false,
+    },
+    errorMode: "throw",
+    fallbackText: "Attached Workstream brief.",
+  },
+  {
     name: "workstream_set_lane",
     label: "Set Workstream Plan Lane",
     description:
@@ -273,7 +434,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "workstream_prompt",
     label: "Prompt Workstream Child",
     description:
-      "Send a markdown message to a DIRECT child Workstream thread you spawned. On an idle child (e.g. one you paused with workstream_stop) this starts the next turn with your message — the resume path. On a busy child with an open turn it becomes a queued steer, folded in between model rounds. A steer canNOT penetrate a blocked/hung tool call — if the child is stuck inside a tool call, workstream_stop it first, then workstream_prompt to restart it with guidance.",
+      "Send a markdown message to a DIRECT child Workstream thread you spawned. On an idle child (e.g. one you paused with workstream_stop) this starts the next turn with your message — the resume path. On a busy child with an open turn it becomes a queued steer, folded in between model rounds. A steer canNOT penetrate a blocked/hung tool call — if the child is stuck inside a tool call, workstream_stop it first, then workstream_prompt to restart it with guidance. On a scaffolded child that has NOT started: if it has a brief, your message is appended to that brief and the two compose its kickoff turn; if it has NO brief yet, the call is rejected with guidance to call workstream_brief first (briefing, not steering, is how an unstarted node gets its first turn).",
     promptSnippet:
       "send a message to a direct child: resumes an idle child or steers a busy one (a steer won't penetrate a hung tool call — stop first, then prompt).",
     promptGuidelines: [

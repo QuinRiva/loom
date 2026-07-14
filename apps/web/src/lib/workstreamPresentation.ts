@@ -45,6 +45,7 @@ export interface WorkstreamStatus {
 // between `in_progress` and `done`, and `cancelled` last (abandoned).
 export const COLUMN_ORDER: ReadonlyArray<WorkstreamColumnId> = [
   "planned",
+  "awaiting_brief",
   "ready",
   "blocked",
   "in_progress",
@@ -66,6 +67,7 @@ export const SETTABLE_LANES: ReadonlyArray<ThreadPlanLane> = [
 
 export const COLUMN_LABELS = {
   planned: "Planned · held",
+  awaiting_brief: "Awaiting brief · no kickoff yet",
   ready: "Ready",
   blocked: "Blocked · on upstream",
   in_progress: "In progress",
@@ -77,6 +79,7 @@ export const COLUMN_LABELS = {
 // Short labels for per-card badges and the lane setter.
 export const COLUMN_SHORT_LABELS = {
   planned: "Planned",
+  awaiting_brief: "Awaiting brief",
   ready: "Ready",
   blocked: "Blocked",
   in_progress: "In progress",
@@ -94,6 +97,18 @@ export const STATUS_STYLES = {
     leftBorderClass: "border-l-slate-400",
     graphStroke: "#94a3b8",
     graphFill: "rgba(148, 163, 184, 0.15)",
+  },
+  // Indigo family — a scaffolded node released but still awaiting its kickoff
+  // brief: distinct from slate `planned` (deliberately held) and cyan `ready`
+  // (briefed, about to run), signalling "needs a brief before it can dispatch".
+  awaiting_brief: {
+    textClass: "text-indigo-300",
+    borderClass: "border-indigo-400/35",
+    bgClass: "bg-indigo-400/10",
+    dotClass: "bg-indigo-400",
+    leftBorderClass: "border-l-indigo-400",
+    graphStroke: "#818cf8",
+    graphFill: "rgba(129, 140, 248, 0.15)",
   },
   ready: {
     textClass: "text-cyan-300",
@@ -377,11 +392,29 @@ const ROLE_ICONS: Record<string, string> = {
 };
 
 /**
+ * A scaffolded child that has been released (`ready`) but has no kickoff brief
+ * yet, so it cannot dispatch even once its dependencies clear (plan §5). Roots
+ * carry their kickoff as the `brief` string, never a `kickoffBriefPath`, so only
+ * children qualify; a held `planned` node stays `planned` (the deliberate hold
+ * dominates during the shape-review window).
+ */
+export function isAwaitingBrief(thread: SidebarThreadSummary): boolean {
+  return (
+    thread.parentThreadId !== null &&
+    thread.kickoffBriefPath === null &&
+    thread.planLane === "ready"
+  );
+}
+
+/**
  * The plan column a thread occupies on the board: its plan lane, with the
  * derived `blocked` substituted when a released `ready` thread is still waiting
- * on an unmet (not-`done`) sibling dependency. Self-deps are ignored and
- * dangling dep ids don't gate. A held `planned` thread stays `planned`
- * regardless of deps (it is not released yet); terminal lanes are unaffected.
+ * on an unmet (not-`done`) sibling dependency, and `awaiting_brief` when a
+ * released thread has no kickoff brief yet. Self-deps are ignored and dangling
+ * dep ids don't gate. Unmet deps win over the brief gate (matching the
+ * control-plane's deps-satisfied eligibility for the brief-needed wake). A held
+ * `planned` thread stays `planned` regardless of deps/brief (it is not released
+ * yet); terminal lanes are unaffected.
  */
 export function getEffectiveColumn(
   thread: SidebarThreadSummary,
@@ -393,7 +426,9 @@ export function getEffectiveColumn(
     const dep = childById.get(depId);
     return dep ? dep.planLane !== "done" : false;
   });
-  return blockedByUnmetDep ? "blocked" : "ready";
+  if (blockedByUnmetDep) return "blocked";
+  if (isAwaitingBrief(thread)) return "awaiting_brief";
+  return "ready";
 }
 
 export function getThreadStatus(
@@ -606,6 +641,7 @@ export function groupChildrenByColumn(
 ) {
   const groups: Record<WorkstreamColumnId, SidebarThreadSummary[]> = {
     planned: [],
+    awaiting_brief: [],
     ready: [],
     blocked: [],
     in_progress: [],

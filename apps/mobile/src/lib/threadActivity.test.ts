@@ -45,6 +45,8 @@ function makeThread(
     spawnGeneration: null,
     forkFromThreadId: null,
     reportPath: null,
+    kickoffBriefPath: null,
+    graphKey: null,
     routes: [],
     gateRounds: 0,
     pendingRework: false,

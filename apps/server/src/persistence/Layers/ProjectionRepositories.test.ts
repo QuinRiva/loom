@@ -89,6 +89,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         spawnGeneration: null,
         forkFromThreadId: null,
         reportPath: null,
+        graphKey: null,
+        kickoffBriefPath: null,
+        planLaneSince: null,
+        dependenciesSince: null,
+        faninSince: null,
         routes: [],
         gateRounds: 0,
         pendingRework: 0,
@@ -150,6 +155,85 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
       });
+    }),
+  );
+
+  // Scaffold-first graph authoring: graphKey (unique-forever) must round-trip
+  // through SQL so the decider's uniqueness check survives a restart (the
+  // command read model is hydrated from these columns), and kickoffBriefPath
+  // must round-trip so the dispatcher's brief gate reads a durable pointer.
+  it.effect("round-trips graphKey and kickoffBriefPath columns", () =>
+    Effect.gen(function* () {
+      const threads = yield* ProjectionThreadRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-scaffold-fields");
+
+      yield* threads.upsert({
+        threadId,
+        projectId: ProjectId.make("project-scaffold-fields"),
+        goalId: null,
+        parentThreadId: ThreadId.make("parent-scaffold"),
+        role: "coder",
+        purpose: null,
+        brief: null,
+        planLane: "ready" as const,
+        attention: [],
+        blockedBy: [],
+        spawnGeneration: null,
+        forkFromThreadId: null,
+        reportPath: null,
+        graphKey: "api",
+        kickoffBriefPath: "/tmp/briefs/api.md",
+        planLaneSince: null,
+        dependenciesSince: null,
+        faninSince: null,
+        routes: [],
+        gateRounds: 0,
+        pendingRework: 0,
+        lastOutcome: null,
+        isolation: "shared" as const,
+        fanInState: "none" as const,
+        title: "Scaffolded node",
+        titleProvenance: "curated" as const,
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-opus-4-6",
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        latestTurnId: null,
+        createdAt: "2026-03-24T00:00:00.000Z",
+        updatedAt: "2026-03-24T00:00:00.000Z",
+        archivedAt: null,
+        latestUserMessageAt: null,
+        pendingApprovalCount: 0,
+        pendingUserInputCount: 0,
+        hasActionableProposedPlan: 0,
+        cumulativeCostUsd: 0,
+        toolUses: null,
+        usedTokens: null,
+        maxTokens: null,
+        diffAdditions: null,
+        diffDeletions: null,
+        deletedAt: null,
+      });
+
+      const rows = yield* sql<{
+        readonly graphKey: string | null;
+        readonly kickoffBriefPath: string | null;
+      }>`
+        SELECT graph_key AS "graphKey", kickoff_brief_path AS "kickoffBriefPath"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.strictEqual(rows[0]?.graphKey, "api");
+      assert.strictEqual(rows[0]?.kickoffBriefPath, "/tmp/briefs/api.md");
+
+      const persisted = yield* threads.getById({ threadId });
+      assert.strictEqual(Option.getOrNull(persisted)?.graphKey, "api");
+      assert.strictEqual(Option.getOrNull(persisted)?.kickoffBriefPath, "/tmp/briefs/api.md");
     }),
   );
 });

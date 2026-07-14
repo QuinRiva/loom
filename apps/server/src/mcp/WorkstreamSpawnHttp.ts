@@ -48,6 +48,7 @@ import {
   resolveSessionFilePath,
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
+import { readWorkstreamBriefAt, writeWorkstreamBrief } from "../orchestration/workstreamBrief.ts";
 import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
 import { AccountUsageRegistry } from "../provider/Services/AccountUsageRegistry.ts";
 import {
@@ -85,6 +86,30 @@ interface WorkstreamSpawnRequest {
   readonly staged?: unknown;
   readonly gate?: unknown;
   readonly isolation?: unknown;
+}
+
+interface WorkstreamScaffoldNodeRequest {
+  readonly key?: unknown;
+  readonly role?: unknown;
+  readonly purpose?: unknown;
+  readonly title?: unknown;
+  readonly blockedBy?: unknown;
+  readonly modelSelection?: unknown;
+  readonly modelPreset?: unknown;
+  readonly taskShape?: unknown;
+  readonly sensitive?: unknown;
+  readonly gate?: unknown;
+  readonly isolation?: unknown;
+}
+
+interface WorkstreamScaffoldRequest {
+  readonly staged?: unknown;
+  readonly nodes?: unknown;
+}
+
+interface WorkstreamBriefRequest {
+  readonly node?: unknown;
+  readonly markdown?: unknown;
 }
 
 interface WorkstreamLaneRequest {
@@ -903,6 +928,65 @@ export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => 
   };
 };
 
+// Scaffold-first graph authoring (workstream-scaffold plan). A blockedBy /
+// gate.rework reference in a scaffold is EITHER a symbolic node key (a batch
+// node's key or an existing child's `graphKey`) OR an existing thread id written
+// with the `thread:` prefix. Parsing is deterministic by contract: a
+// `thread:`-prefixed string is always a thread id; everything else is a key; and
+// a bare UUID-shaped key is rejected loudly (a thread id pasted without the
+// prefix) rather than silently becoming a key.
+const SCAFFOLD_THREAD_REF_PREFIX = "thread:";
+const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type ScaffoldRefResolution =
+  | { readonly kind: "ok"; readonly id: ThreadId }
+  | { readonly kind: "error"; readonly message: string };
+
+/**
+ * Resolve one scaffold reference string to a ThreadId. `keyToId` maps every
+ * symbolic key the caller may reference (batch node keys + existing child
+ * graphKeys) to its thread id; `existingIds` is the set of active existing
+ * child ids a `thread:` reference may name. The decider re-validates the
+ * resolved graph atomically — this is the handler's early, friendly resolution.
+ */
+export const resolveScaffoldReference = (input: {
+  readonly ref: string;
+  readonly keyToId: ReadonlyMap<string, ThreadId>;
+  readonly existingIds: ReadonlySet<ThreadId>;
+}): ScaffoldRefResolution => {
+  const ref = input.ref.trim();
+  if (ref.startsWith(SCAFFOLD_THREAD_REF_PREFIX)) {
+    const id = ref.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim();
+    if (id.length === 0) {
+      return {
+        kind: "error",
+        message: `reference "${input.ref}" has an empty thread id after "thread:".`,
+      };
+    }
+    if (!input.existingIds.has(id as ThreadId)) {
+      return {
+        kind: "error",
+        message: `reference "${input.ref}" does not name an active existing child of this parent.`,
+      };
+    }
+    return { kind: "ok", id: id as ThreadId };
+  }
+  if (UUID_SHAPED.test(ref)) {
+    return {
+      kind: "error",
+      message: `reference "${ref}" is UUID-shaped but unprefixed — reference an existing thread with the "thread:" prefix, or use a symbolic key.`,
+    };
+  }
+  const resolved = input.keyToId.get(ref);
+  if (resolved === undefined) {
+    return {
+      kind: "error",
+      message: `reference "${ref}" is neither a node key in this scaffold nor an existing child's key.`,
+    };
+  }
+  return { kind: "ok", id: resolved };
+};
+
 const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
   `Unknown modelPreset "${name}". Available presets: ${
     available.length > 0 ? available.join(", ") : "none configured"
@@ -1321,6 +1405,20 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
+  // Scaffold-first dual-period rule (plan §1a): the dispatcher's brief gate now
+  // launches a child only once `kickoffBriefPath` is set, so a spawn must write
+  // its EFFECTIVE kickoff (`brief ?? purpose`, matching the historical
+  // promoteThread fallback) through to a brief file at spawn time — giving the
+  // dispatcher one read path and keeping legacy brief-less spawns launchable.
+  const kickoffBriefPath = yield* writeWorkstreamBrief(childThreadId, brief ?? purpose);
+  yield* engine.dispatch({
+    type: "thread.kickoff-brief.set",
+    commandId: CommandId.make(`server:workstream-spawn:set-brief:${yield* crypto.randomUUIDv4}`),
+    threadId: childThreadId,
+    kickoffBriefPath,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
   const warnings = [...graph.warnings, ...selectionWarnings, ...exhaustionWarnings];
   return HttpServerResponse.jsonUnsafe({
     childThreadId,
@@ -1336,6 +1434,412 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
         500,
         error instanceof Error ? error.message : "Failed to spawn Workstream sub-thread.",
       ),
+    ),
+  ),
+);
+
+// Scaffold-first graph authoring (workstream-scaffold plan). One call lays out
+// the whole child topology (or a delta) with cheap metadata only — no briefs.
+// Threads are created eagerly (real ids, visible immediately) but cannot launch
+// until each gets a brief (workstream_brief). The handler does schema/shape
+// checks, symbolic-key resolution, per-node model + warning resolution; the
+// decider owns the transactional all-or-nothing graph validation (unique keys,
+// no cycles, no dangling refs) and emits every thread.created in ONE engine
+// transaction.
+const handleWorkstreamScaffold = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamScaffoldRequest => ({})),
+  )) as WorkstreamScaffoldRequest;
+  if (!Array.isArray(body.nodes) || body.nodes.length === 0) {
+    return jsonError(400, "nodes must be a non-empty array of scaffold node objects.");
+  }
+  const staged = body.staged === true;
+
+  // Shape-parse + preallocate a thread id per node up front. Any shape error
+  // creates nothing and names the offending key.
+  const crypto = yield* Crypto.Crypto;
+  interface ParsedNode {
+    readonly key: string;
+    readonly threadId: ThreadId;
+    readonly role: string;
+    readonly purpose: string;
+    readonly title: string;
+    readonly raw: WorkstreamScaffoldNodeRequest;
+    readonly gateRework: string | undefined;
+    readonly gateMaxRounds: number | undefined;
+    readonly isolationOverride: string | undefined;
+  }
+  const parsed: ParsedNode[] = [];
+  const seenKeys = new Set<string>();
+  for (const rawNode of body.nodes as ReadonlyArray<unknown>) {
+    const node =
+      typeof rawNode === "object" && rawNode !== null && !Array.isArray(rawNode)
+        ? (rawNode as WorkstreamScaffoldNodeRequest)
+        : ({} as WorkstreamScaffoldNodeRequest);
+    const key = trimString(node.key);
+    if (!key) return jsonError(400, "each node requires a non-empty key.");
+    if (UUID_SHAPED.test(key)) {
+      return jsonError(
+        400,
+        `node key "${key}" is UUID-shaped; keys must be symbolic (reference an existing thread with the "thread:" prefix instead).`,
+      );
+    }
+    if (seenKeys.has(key)) {
+      return jsonError(
+        400,
+        `node key "${key}" is duplicated within the scaffold; keys are unique per parent.`,
+      );
+    }
+    seenKeys.add(key);
+    const role = trimString(node.role);
+    const purpose = trimString(node.purpose);
+    const title = trimString(node.title);
+    if (!role) return jsonError(400, `node "${key}": role is required.`);
+    if (!purpose) return jsonError(400, `node "${key}": purpose is required.`);
+    if (!title) return jsonError(400, `node "${key}": title is required.`);
+    if (
+      node.blockedBy !== undefined &&
+      (!Array.isArray(node.blockedBy) || !node.blockedBy.every((r) => trimString(r)))
+    ) {
+      return jsonError(
+        400,
+        `node "${key}": blockedBy must be an array of non-empty reference strings.`,
+      );
+    }
+    const gate =
+      typeof node.gate === "object" && node.gate !== null && !Array.isArray(node.gate)
+        ? (node.gate as { readonly rework?: unknown; readonly maxRounds?: unknown })
+        : undefined;
+    const gateRework = gate === undefined ? undefined : trimString(gate.rework);
+    if (node.gate !== undefined && (gate === undefined || !gateRework)) {
+      return jsonError(
+        400,
+        `node "${key}": gate must be an object with a non-empty rework reference.`,
+      );
+    }
+    if (
+      gate?.maxRounds !== undefined &&
+      (typeof gate.maxRounds !== "number" ||
+        !Number.isInteger(gate.maxRounds) ||
+        gate.maxRounds < 1 ||
+        gate.maxRounds > MAX_GATE_MAX_ROUNDS)
+    ) {
+      return jsonError(
+        400,
+        `node "${key}": gate.maxRounds must be an integer between 1 and ${MAX_GATE_MAX_ROUNDS}.`,
+      );
+    }
+    const isolationOverride = trimString(node.isolation);
+    if (
+      isolationOverride !== undefined &&
+      !VALID_SPAWN_ISOLATIONS.has(isolationOverride as ThreadIsolation)
+    ) {
+      return jsonError(
+        400,
+        `node "${key}": isolation must be one of: ${SPAWN_ISOLATIONS.join(", ")}.`,
+      );
+    }
+    parsed.push({
+      key,
+      threadId: ThreadId.make(yield* crypto.randomUUIDv4),
+      role,
+      purpose,
+      title,
+      raw: node,
+      gateRework,
+      gateMaxRounds: gate?.maxRounds as number | undefined,
+      isolationOverride,
+    });
+  }
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const parentDetail = yield* projection.getThreadDetailById(scope.threadId);
+  if (Option.isNone(parentDetail)) {
+    return jsonError(404, "Current provider thread was not found.");
+  }
+  const current = parentDetail.value;
+
+  const activeSnapshot = yield* projection.getShellSnapshot();
+  const activeChildren = activeSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === scope.threadId,
+  );
+  const archivedSnapshot = yield* projection.getArchivedShellSnapshot();
+  const archivedChildren = archivedSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === scope.threadId,
+  );
+
+  // Symbolic-reference surface: batch keys + existing children's graphKeys map
+  // to thread ids; `thread:` references resolve against active existing child
+  // ids. (The decider re-validates the resolved graph atomically.)
+  const keyToId = new Map<string, ThreadId>();
+  for (const node of parsed) keyToId.set(node.key, node.threadId);
+  for (const child of activeChildren) {
+    if (child.graphKey !== null && !keyToId.has(child.graphKey)) {
+      keyToId.set(child.graphKey, child.id);
+    }
+  }
+  const existingIds = new Set<ThreadId>(activeChildren.map((child) => child.id));
+
+  interface ResolvedNode extends ParsedNode {
+    readonly blockedByIds: ReadonlyArray<ThreadId>;
+    readonly gateReworkId: ThreadId | undefined;
+  }
+  const resolvedNodes: ResolvedNode[] = [];
+  for (const node of parsed) {
+    const refs = Array.isArray(node.raw.blockedBy)
+      ? node.raw.blockedBy.map((r) => (r as string).trim())
+      : [];
+    const blockedByIds: ThreadId[] = [];
+    for (const ref of refs) {
+      const resolution = resolveScaffoldReference({ ref, keyToId, existingIds });
+      if (resolution.kind === "error") {
+        return jsonError(400, `node "${node.key}": ${resolution.message} Nothing was created.`);
+      }
+      blockedByIds.push(resolution.id);
+    }
+    let gateReworkId: ThreadId | undefined;
+    if (node.gateRework !== undefined) {
+      const resolution = resolveScaffoldReference({ ref: node.gateRework, keyToId, existingIds });
+      if (resolution.kind === "error") {
+        return jsonError(
+          400,
+          `node "${node.key}": gate.rework ${resolution.message} Nothing was created.`,
+        );
+      }
+      gateReworkId = resolution.id;
+    }
+    resolvedNodes.push({ ...node, blockedByIds, gateReworkId });
+  }
+
+  // Batch nodes as dependency-siblings so per-node warning computation sees the
+  // whole graph (a gate/dep targeting another batch node resolves).
+  const batchSiblings: DependencySibling[] = resolvedNodes.map((node) => ({
+    id: node.threadId,
+    title: node.title,
+    role: node.role,
+    parentThreadId: scope.threadId,
+    planLane: staged ? "planned" : "ready",
+    blockedBy: node.blockedByIds,
+    session: null,
+    latestUserMessageAt: null,
+  }));
+
+  // Live model-selection facts read ONCE, then applied per node.
+  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
+  const settings = yield* (yield* ServerSettingsService).getSettings;
+  const presetNames = Object.keys(settings.workstreamModelPresets);
+  const usageSourceSet = usageSourceInstances(settings.providerInstances);
+  const health = yield* ProviderHealthRegistry;
+  const isExhausted = exhaustionPredicate(yield* health.snapshot);
+  const headroom: ShapeHeadroomInput = {
+    usage: yield* (yield* AccountUsageRegistry).snapshot,
+    isExhausted,
+    usageSourceInstances: usageSourceSet,
+    nowMs: yield* Clock.currentTimeMillis,
+  };
+
+  // One spawn generation for the whole batch (the parent's active turn, or a
+  // fresh singleton when authored out-of-turn) so the nodes join one wake.
+  const spawnGeneration = current.session?.activeTurnId ?? (yield* crypto.randomUUIDv4);
+  const warnings: string[] = [];
+  const commandNodes: Array<{
+    readonly threadId: ThreadId;
+    readonly graphKey: string;
+    readonly role: string;
+    readonly title: string;
+    readonly purpose: string;
+    readonly isolation: ThreadIsolation;
+    readonly blockedBy?: ReadonlyArray<ThreadId>;
+    readonly routes?: ReadonlyArray<WorkstreamRoute>;
+    readonly spawnGeneration: string;
+    readonly modelSelection: ModelSelection;
+  }> = [];
+  for (const node of resolvedNodes) {
+    const explicitDecoded =
+      node.raw.modelSelection === undefined
+        ? undefined
+        : Option.getOrUndefined(
+            yield* decodeModelSelection(node.raw.modelSelection).pipe(
+              Effect.map(Option.some),
+              Effect.orElseSucceed(() => Option.none<ModelSelection>()),
+            ),
+          );
+    const resolution = resolveSpawnModelSelection({
+      explicit: { provided: node.raw.modelSelection !== undefined, decoded: explicitDecoded },
+      modelPreset: node.raw.modelPreset,
+      taskShape: node.raw.taskShape,
+      sensitive: node.raw.sensitive,
+      presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
+      profiles: settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
+      catalogue,
+      presetNames,
+      role: node.role,
+      parentSelection: current.modelSelection,
+      headroom,
+    });
+    if (resolution.kind === "error")
+      return jsonError(400, `node "${node.key}": ${resolution.message}`);
+    for (const warning of resolution.warnings) warnings.push(`[${node.key}] ${warning}`);
+
+    const otherSiblings: DependencySibling[] = [
+      ...activeChildren,
+      ...batchSiblings.filter((sibling) => sibling.id !== node.threadId),
+    ];
+    const graph = validateSpawnGraph({
+      siblings: otherSiblings,
+      archivedSiblings: archivedChildren,
+      blockedBy: node.blockedByIds.length > 0 ? node.blockedByIds : undefined,
+      gateRework: node.gateReworkId,
+      gateMaxRounds: node.gateMaxRounds,
+      isolationOverride: node.isolationOverride as ThreadIsolation | undefined,
+      role: node.role,
+      newThreadId: node.threadId,
+    });
+    if (graph.kind === "rejected") return jsonError(400, `node "${node.key}": ${graph.message}`);
+    for (const warning of graph.warnings) warnings.push(`[${node.key}] ${warning}`);
+
+    const routes: ReadonlyArray<WorkstreamRoute> | undefined =
+      node.gateReworkId === undefined
+        ? undefined
+        : [
+            {
+              on: ["needs_rework"],
+              kind: "loop",
+              to: node.gateReworkId,
+              maxRounds: node.gateMaxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
+            },
+            { on: ["clean", "fixed_inline"], kind: "resolve" },
+          ];
+    const isolation: ThreadIsolation = graph.forceAttached
+      ? "attached"
+      : ((node.isolationOverride as ThreadIsolation | undefined) ??
+        roleDefaultIsolation(node.role));
+
+    commandNodes.push({
+      threadId: node.threadId,
+      graphKey: node.key,
+      role: node.role,
+      title: node.title,
+      purpose: node.purpose,
+      isolation,
+      ...(graph.blockedBy !== undefined ? { blockedBy: graph.blockedBy } : {}),
+      ...(routes !== undefined ? { routes } : {}),
+      spawnGeneration,
+      modelSelection: resolution.selection,
+    });
+  }
+
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.scaffold",
+    commandId: CommandId.make(`server:workstream-scaffold:${yield* crypto.randomUUIDv4}`),
+    parentThreadId: scope.threadId,
+    ...(staged ? { staged: true } : {}),
+    nodes: commandNodes,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  const nodes = resolvedNodes.map((node) => ({
+    key: node.key,
+    threadId: node.threadId,
+    title: node.title,
+  }));
+  return HttpServerResponse.jsonUnsafe({
+    parentThreadId: scope.threadId,
+    nodes,
+    ...(warnings.length > 0 ? { warnings } : {}),
+    rendered: appendWarnings(
+      `Scaffolded ${nodes.length} Workstream node(s): ${nodes
+        .map((node) => `${node.key} → ${node.threadId}`)
+        .join(", ")}. Each awaits a brief (workstream_brief) before it can launch.`,
+      warnings,
+    ),
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(
+        500,
+        error instanceof Error ? error.message : "Failed to scaffold the Workstream graph.",
+      ),
+    ),
+  ),
+);
+
+// Scaffold-first graph authoring: attach the kickoff brief to one scaffolded
+// node just-in-time. Valid only on a direct child that has NOT started; writes
+// the markdown atomically via the brief-storage module and event-sources the
+// path onto `kickoffBriefPath`, which is the second launch precondition (deps
+// satisfied AND brief present). Overwrite is allowed pre-launch.
+const handleWorkstreamBrief = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): WorkstreamBriefRequest => ({})),
+  )) as WorkstreamBriefRequest;
+  const nodeRef = trimString(body.node);
+  const markdown = typeof body.markdown === "string" ? body.markdown : undefined;
+  if (!nodeRef) return jsonError(400, "node is required (a direct child's key or thread id).");
+  if (markdown === undefined || markdown.trim().length === 0) {
+    return jsonError(400, "markdown is required.");
+  }
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const activeSnapshot = yield* projection.getShellSnapshot();
+  const children = activeSnapshot.threads.filter(
+    (thread) => thread.parentThreadId === scope.threadId,
+  );
+  const stripped = nodeRef.startsWith(SCAFFOLD_THREAD_REF_PREFIX)
+    ? nodeRef.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim()
+    : nodeRef;
+  const target = children.find((child) => child.id === stripped || child.graphKey === stripped);
+  if (target === undefined) {
+    return jsonError(
+      404,
+      `No direct child matches "${nodeRef}". A brief may only be attached to a thread you directly parent (by key or thread id).`,
+    );
+  }
+  if (hasThreadStarted(target)) {
+    return jsonError(
+      409,
+      `Child ${target.id} has already started — its kickoff is fixed. Use workstream_prompt to steer it.`,
+    );
+  }
+
+  const briefPath = yield* writeWorkstreamBrief(target.id, markdown);
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const crypto = yield* Crypto.Crypto;
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch({
+    type: "thread.kickoff-brief.set",
+    commandId: CommandId.make(`server:workstream-brief:${yield* crypto.randomUUIDv4}`),
+    threadId: target.id,
+    kickoffBriefPath: briefPath,
+    createdAt: now,
+  } satisfies OrchestrationCommand);
+
+  return HttpServerResponse.jsonUnsafe({
+    threadId: target.id,
+    briefPath,
+    rendered: `Attached kickoff brief to Workstream child ${target.id}${
+      target.graphKey !== null ? ` (${target.graphKey})` : ""
+    }. It launches once its dependencies are done.`,
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to attach the brief."),
     ),
   ),
 );
@@ -1601,6 +2105,31 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
     );
   }
 
+  // Scaffold-first (plan §1): a first-use prompt on an UNSTARTED child either
+  // composes the kickoff (briefed) or is rejected with guidance (unbriefed). A
+  // started child takes the plain steer/resume path below. Handler-level only —
+  // the plan explicitly rejects transactional first-turn enforcement.
+  const started = target.value.session !== null || target.value.messages.length > 0;
+  let kickoffText = message;
+  if (!started) {
+    if (target.value.kickoffBriefPath === null) {
+      return jsonError(
+        409,
+        `Child ${targetThreadId} has not been briefed yet — call workstream_brief to write its kickoff (it then launches once its dependencies clear). workstream_prompt steers an already-running child.`,
+      );
+    }
+    const brief = Option.getOrUndefined(
+      yield* readWorkstreamBriefAt(target.value.kickoffBriefPath),
+    );
+    if (brief === undefined) {
+      return jsonError(
+        409,
+        `Child ${targetThreadId} has a brief pointer but its file could not be read; re-attach it with workstream_brief.`,
+      );
+    }
+    kickoffText = `${brief}\n\n${message}`;
+  }
+
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
   const engine = yield* OrchestrationEngineService;
@@ -1616,7 +2145,7 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
       role: "user",
       // A parent orchestrator authored this steer/resume for a specific child.
       origin: "orchestrator",
-      text: message,
+      text: kickoffText,
       attachments: [],
     },
     runtimeMode: target.value.runtimeMode,
@@ -2068,6 +2597,16 @@ export const workstreamSpawnRouteLayer = HttpRouter.add(
   PROVIDER_TOOL_PATHS.workstream_spawn,
   handleWorkstreamSpawn,
 );
+export const workstreamScaffoldRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_scaffold,
+  handleWorkstreamScaffold,
+);
+export const workstreamBriefRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.workstream_brief,
+  handleWorkstreamBrief,
+);
 export const workstreamLaneRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.workstream_set_lane,
@@ -2121,6 +2660,8 @@ export const setThreadTitleRouteLayer = HttpRouter.add(
 
 export const layer = Layer.mergeAll(
   workstreamSpawnRouteLayer,
+  workstreamScaffoldRouteLayer,
+  workstreamBriefRouteLayer,
   workstreamLaneRouteLayer,
   workstreamAttentionRouteLayer,
   workstreamReleaseRouteLayer,

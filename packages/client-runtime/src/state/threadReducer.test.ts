@@ -51,6 +51,8 @@ const baseThread: OrchestrationThread = {
   spawnGeneration: null,
   forkFromThreadId: null,
   reportPath: null,
+  graphKey: null,
+  kickoffBriefPath: null,
   routes: [],
   gateRounds: 0,
   pendingRework: false,
@@ -225,6 +227,30 @@ describe("applyThreadDetailEvent", () => {
         expect(result.thread.branch).toBe("feature/demo");
         // Model selection should be unchanged since it wasn't in the payload
         expect(result.thread.modelSelection).toEqual(baseThread.modelSelection);
+      }
+    });
+  });
+
+  describe("thread.kickoff-brief-set", () => {
+    it("patches the kickoffBriefPath so the node leaves the awaiting-brief state", () => {
+      const result = applyThreadDetailEvent(baseThread, {
+        ...baseEventFields,
+        sequence: 5,
+        occurredAt: "2026-04-01T05:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "thread.kickoff-brief-set",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          kickoffBriefPath: "/briefs/thread-1.md",
+          updatedAt: "2026-04-01T05:00:00.000Z",
+        },
+      });
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.kickoffBriefPath).toBe("/briefs/thread-1.md");
+        expect(result.thread.updatedAt).toBe("2026-04-01T05:00:00.000Z");
       }
     });
   });

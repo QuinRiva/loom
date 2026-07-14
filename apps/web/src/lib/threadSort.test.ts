@@ -28,6 +28,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     spawnGeneration: null,
     forkFromThreadId: null,
     reportPath: null,
+    graphKey: null,
+    kickoffBriefPath: null,
     routes: [],
     gateRounds: 0,
     pendingRework: false,

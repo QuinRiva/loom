@@ -311,6 +311,11 @@ export function projectEvent(
             spawnGeneration: payload.spawnGeneration ?? null,
             forkFromThreadId: payload.forkFromThreadId ?? null,
             reportPath: null,
+            // loom: scaffold-first graph authoring. graphKey is seeded from the
+            // created payload (scaffold nodes carry it); a scaffold node is born
+            // unbriefed, but the payload field is honoured if a create ever seeds it.
+            graphKey: payload.graphKey ?? null,
+            kickoffBriefPath: payload.kickoffBriefPath ?? null,
             title: payload.title,
             // loom: §4 replay-safe: a historical thread.created lacking
             // provenance infers it from the title (identical to migration 057

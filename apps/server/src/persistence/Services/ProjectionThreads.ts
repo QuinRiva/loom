@@ -48,6 +48,30 @@ export const ProjectionThread = Schema.Struct({
   // not a fork). Read by the driver at first launch to fork the pi session.
   forkFromThreadId: Schema.NullOr(ThreadId),
   reportPath: Schema.NullOr(Schema.String),
+  // Scaffold-first graph authoring: the symbolic graph key (unique-forever per
+  // parent) and the on-disk kickoff-brief pointer. Both null for legacy
+  // spawns / roots and until a brief is attached.
+  graphKey: Schema.NullOr(Schema.String),
+  kickoffBriefPath: Schema.NullOr(Schema.String),
+  // Scaffold-first graph authoring (plan §3): timestamp of this thread's most
+  // recent plan-lane transition (its `thread.plan-lane-set` event, or creation
+  // lane when it never transitioned). The stable, transition-derived clock the
+  // brief-needed liveness episode reads — immune to the `updatedAt` re-arm loop
+  // because activity appends do not emit a lane-set. Null on rows predating the
+  // column.
+  planLaneSince: Schema.NullOr(IsoDateTime),
+  // Scaffold-first graph authoring (plan §3): timestamp of this thread's most
+  // recent dependency-set transition (its `thread.dependencies-set` event).
+  // Companion to `planLaneSince` for the re-enter-via-set_dependencies episode
+  // transition; stamped only by that event, never by an activity append. Null
+  // on rows predating the column / until the first dependency-set.
+  dependenciesSince: Schema.NullOr(IsoDateTime),
+  // Scaffold-first graph authoring (plan §3): timestamp of this thread's most
+  // recent fan-in-settlement transition (its `thread.fanin-set` event). Third
+  // companion to `planLaneSince`/`dependenciesSince`; stamped only by that event,
+  // never by an activity append. Null on rows predating the column / until the
+  // first fan-in-set.
+  faninSince: Schema.NullOr(IsoDateTime),
   // Review gates (design §8): route edges + projected loop counters.
   // `pendingRework` is stored as 0/1 (SQLite has no boolean).
   routes: Schema.Array(WorkstreamRoute),
