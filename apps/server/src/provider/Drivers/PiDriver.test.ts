@@ -8,6 +8,7 @@ import {
   piBackendLabel,
   piCatalogModels,
   piCommandsToSnapshot,
+  piToolDetail,
   piToolItemPayload,
   slimPiToolPayloadData,
 } from "./PiDriver.ts";
@@ -24,10 +25,28 @@ const start = (toolCallId: string, toolName: string, args: Record<string, unknow
 const end = (toolCallId: string, toolName: string, result: unknown): ToolMessage =>
   ({ type: "tool_execution_end", toolCallId, toolName, result, isError: false }) as ToolMessage;
 
+describe("piToolDetail", () => {
+  it("prefers the command, then pattern (with path), then path, url, title", () => {
+    expect(piToolDetail({ command: "git status" })).toBe("git status");
+    expect(piToolDetail({ pattern: "foo", path: "src" })).toBe("foo src");
+    expect(piToolDetail({ query: "how to frobnicate" })).toBe("how to frobnicate");
+    expect(piToolDetail({ path: "src/a.ts", limit: 10 })).toBe("src/a.ts");
+    expect(piToolDetail({ url: "https://example.com" })).toBe("https://example.com");
+    expect(piToolDetail({ title: "Fix spawn fallback" })).toBe("Fix spawn fallback");
+  });
+
+  it("returns undefined for missing/blank args and truncates long commands", () => {
+    expect(piToolDetail(undefined)).toBeUndefined();
+    expect(piToolDetail({})).toBeUndefined();
+    expect(piToolDetail({ command: "   " })).toBeUndefined();
+    expect(piToolDetail({ command: `echo ${"x".repeat(500)}` })).toHaveLength(400);
+  });
+});
+
 describe("piToolItemPayload", () => {
   it("correlates start args into the completed payload (bash command)", () => {
     const toolArgs = new Map<string, Record<string, unknown>>();
-    piToolItemPayload(start("c1", "bash", { command: "rg foo src" }), toolArgs);
+    const started = piToolItemPayload(start("c1", "bash", { command: "rg foo src" }), toolArgs);
     const completed = piToolItemPayload(
       end("c1", "bash", { content: [{ text: "out" }] }),
       toolArgs,
@@ -35,6 +54,9 @@ describe("piToolItemPayload", () => {
 
     expect(completed.itemType).toBe("command_execution");
     expect(completed.status).toBe("completed");
+    // start and end both carry the discriminating one-liner for the work log
+    expect(started.detail).toBe("rg foo src");
+    expect(completed.detail).toBe("rg foo src");
     const data = completed.data as Record<string, unknown>;
     expect(data.rawInput).toEqual({ command: "rg foo src" });
     // original result is preserved alongside the re-attached args
@@ -51,6 +73,8 @@ describe("piToolItemPayload", () => {
     const readDone = piToolItemPayload(end("r1", "read", { content: [] }), toolArgs);
     const editDone = piToolItemPayload(end("e1", "edit", { content: [] }), toolArgs);
 
+    expect(readDone.detail).toBe("src/a.ts");
+    expect(editDone.detail).toBe("src/b.ts");
     expect((readDone.data as Record<string, unknown>).rawInput).toEqual({ path: "src/a.ts" });
     expect((editDone.data as Record<string, unknown>).rawInput).toEqual({
       path: "src/b.ts",
@@ -61,7 +85,24 @@ describe("piToolItemPayload", () => {
   it("leaves the result untouched when no args were stashed", () => {
     const toolArgs = new Map<string, Record<string, unknown>>();
     const completed = piToolItemPayload(end("x", "bash", { content: [{ text: "out" }] }), toolArgs);
+    expect(completed.detail).toBeUndefined();
     expect(completed.data).toEqual({ content: [{ text: "out" }] });
+  });
+
+  it("keeps the detail on update messages by falling back to the stashed args", () => {
+    const toolArgs = new Map<string, Record<string, unknown>>();
+    piToolItemPayload(start("u1", "bash", { command: "pnpm test" }), toolArgs);
+    const updated = piToolItemPayload(
+      {
+        type: "tool_execution_update",
+        toolCallId: "u1",
+        toolName: "bash",
+        partialResult: { content: [{ text: "running..." }] },
+      } as ToolMessage,
+      toolArgs,
+    );
+    expect(updated.status).toBe("inProgress");
+    expect(updated.detail).toBe("pnpm test");
   });
 });
 
