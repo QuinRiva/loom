@@ -105,6 +105,46 @@ describe("renderWorkstreamList", () => {
     };
     expect(renderWorkstreamList(view)).toContain("  presets: none configured");
   });
+
+  it("renders the task-shape vocabulary and the compact profile summary", () => {
+    const view: WorkstreamListView = {
+      callerId: "root",
+      nodes: [{ id: "root", parentThreadId: null, role: null, title: "R", planLane: "ready" }],
+      modelCatalogue: [{ instanceId: "pi", models: ["a"] }],
+      modelPresets: [],
+      taskShapes: ["explore", "thorough", "mechanical"],
+      modelProfiles: [
+        { name: "Fable 5", agentic: "full", usableContext: 200000, valid: true, spawnable: true },
+        {
+          name: "Gemini 3.1 Pro",
+          agentic: "oracle",
+          usableContext: 1000000,
+          valid: true,
+          spawnable: false,
+        },
+        { name: "Stale", agentic: "full", valid: false, spawnable: true },
+        { name: "Dead Oracle", agentic: "oracle", valid: false, spawnable: false },
+      ],
+    };
+    const rendered = renderWorkstreamList(view);
+    expect(rendered).toContain(
+      "  task shapes (pass one as taskShape; the server picks the model):",
+    );
+    expect(rendered).toContain('    - "explore" — open-ended/prototype work');
+    expect(rendered).toContain("  profiles (what taskShape resolves among):");
+    expect(rendered).toContain('    - "Fable 5" [full] usableContext=200000');
+    // Oracle shows non-spawnable AND usableContext independently.
+    expect(rendered).toContain(
+      '    - "Gemini 3.1 Pro" [oracle — not spawnable; consultation only] usableContext=1000000',
+    );
+    expect(rendered).toContain(
+      '    - "Stale" [full] [INVALID — points at an unconfigured instance/model; do not use]',
+    );
+    // Invalid oracle shows BOTH the non-spawnable status and the invalid marker.
+    expect(rendered).toContain(
+      '    - "Dead Oracle" [oracle — not spawnable; consultation only] [INVALID — points at an unconfigured instance/model; do not use]',
+    );
+  });
 });
 
 describe("renderSubmitOutcome", () => {

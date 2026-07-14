@@ -86,6 +86,9 @@ export function applyServerSettingsPatch(
     ...(patch.workstreamModelPresets !== undefined
       ? { workstreamModelPresets: patch.workstreamModelPresets }
       : {}),
+    ...(patch.workstreamModelProfiles !== undefined
+      ? { workstreamModelProfiles: patch.workstreamModelProfiles }
+      : {}),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
     // Shallow-merge: scalar toggles replace when present; chains/pausedAccounts
     // replace wholesale (records/arrays have no coherent partial merge).
