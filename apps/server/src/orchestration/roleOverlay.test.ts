@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
+import { PROVIDER_TOOL_PATHS } from "../mcp/toolPaths.ts";
 import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 
 const fixtureRoot = (extraFiles: Record<string, string> = {}): string => {
@@ -47,7 +48,7 @@ describe("loadRoleOverlay", () => {
     ).toBeUndefined();
   });
 
-  it("parses skills (block list, resolved against projectRoot) and tools (inline list)", () => {
+  it("parses skills (block list, resolved against projectRoot) and tools (inline list, lifeline-unioned)", () => {
     const root = fixtureRoot({
       "planner.md": [
         "---",
@@ -61,8 +62,19 @@ describe("loadRoleOverlay", () => {
     expect(loadRoleOverlay({ role: "planner", projectRoot: root })).toEqual({
       prompt: "PLANNER OVERLAY",
       skills: [NodePath.join(root, "skills", "mdx-visual-plan")],
-      tools: ["read", "grep", "find", "ls"],
+      tools: ["read", "grep", "find", "ls", ...Object.keys(PROVIDER_TOOL_PATHS)],
     });
+  });
+
+  it("auto-unions the workstream/goal lifeline tools into a role allowlist without duplicating", () => {
+    const root = fixtureRoot({
+      "assessor.md": "---\ntools: [read_full, workstream_submit]\n---\nASSESSOR OVERLAY",
+    });
+    const overlay = loadRoleOverlay({ role: "assessor", projectRoot: root });
+    const lifeline = Object.keys(PROVIDER_TOOL_PATHS);
+    expect([...(overlay?.tools ?? [])].sort()).toEqual(["read_full", ...lifeline].sort());
+    // Every lifeline tool present exactly once, even when the role names one itself.
+    expect(overlay?.tools?.filter((tool) => tool === "workstream_submit")).toHaveLength(1);
   });
 
   it("frontmatter keys are each optional; body-only frontmatter file keeps just the prompt", () => {
