@@ -8,12 +8,15 @@
 
 ## Shipping changes (commit, PR, merge)
 
-Shipping is the `shipper` role's job — the canonical procedure (branch → commit →
-rebase → PR → merge → cleanup, plus this repo's fork/worktree gotchas) lives in
-`roles/shipper.md`. In a workstream, spawn a `shipper` child once the work is
-approved rather than running the release steps inline; outside a workstream,
-follow that file directly. Do not ship until the user has approved shipping the
-change.
+The canonical procedure (branch → commit → rebase → PR → merge → cleanup, plus
+this repo's fork/worktree gotchas) lives in
+[`docs/operations/shipping.md`](docs/operations/shipping.md) — the single source
+of truth. Run the mechanical sequence with `pnpm ship -m "<summary>"` (it is
+encoded in `scripts/ship.ts`); the `ship` skill loads the procedure inline and
+`roles/shipper.md` is the delegated path. In a workstream, spawn a `shipper`
+child once the work is approved or ship inline via the `ship` skill; outside a
+workstream, follow the doc directly. Do not ship until the user has approved
+shipping the change.
 
 ## Project Snapshot
 
