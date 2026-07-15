@@ -127,7 +127,12 @@ const ConsultCard = memo(function ConsultCard({ entry }: { entry: WorkLogEntry }
             answer.length > 0 ? (
               <div>
                 <div className={cn("relative overflow-hidden", answerClamped && "max-h-64")}>
-                  <ChatMarkdown text={answer} cwd={ctx.markdownCwd} skills={ctx.skills} />
+                  <ChatMarkdown
+                    text={answer}
+                    cwd={ctx.markdownCwd}
+                    threadRef={ctx.threadRef ?? undefined}
+                    skills={ctx.skills}
+                  />
                   {answerClamped ? (
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
                   ) : null}
