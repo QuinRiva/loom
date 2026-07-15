@@ -740,14 +740,17 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
-  if (detail) {
-    entry.detail = detail;
-  }
   if (commandPreview.command) {
     entry.command = commandPreview.command;
   }
   if (commandPreview.rawCommand) {
     entry.rawCommand = commandPreview.rawCommand;
+  }
+  // When the command was derived from `detail` (no structured command metadata),
+  // `detail` is the command echo rather than its output. Surfacing it again would
+  // render the command twice in the expanded body, so drop the duplicate.
+  if (detail && !detailDuplicatesCommand(detail, commandPreview)) {
+    entry.detail = detail;
   }
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
@@ -1214,6 +1217,20 @@ function isCommandToolDetail(payload: Record<string, unknown> | null, heading: s
     kind === "execute" ||
     title === "terminal" ||
     title === "ran command"
+  );
+}
+
+function detailDuplicatesCommand(
+  detail: string,
+  commandPreview: { command: string | null; rawCommand: string | null },
+): boolean {
+  const normalizedDetail = normalizePreviewForComparison(detail);
+  if (!normalizedDetail) {
+    return false;
+  }
+  return (
+    normalizedDetail === normalizePreviewForComparison(commandPreview.command) ||
+    normalizedDetail === normalizePreviewForComparison(commandPreview.rawCommand)
   );
 }
 
