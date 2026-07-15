@@ -1064,6 +1064,25 @@ describe("deriveWorkLogEntries", () => {
     );
   });
 
+  it("does not duplicate the command as detail when derived from detail fallback", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-tool-detail-echo",
+        kind: "tool.completed",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          title: "Bash",
+          detail: "git show --stat a652ba67c <exited with exit code 0>",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities);
+    expect(entry?.command).toBe("git show --stat a652ba67c");
+    expect(entry?.detail).toBeUndefined();
+  });
+
   it("does not unwrap shell commands when no wrapper flag is present", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
