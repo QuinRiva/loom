@@ -158,6 +158,34 @@ function markdownFixture(
   };
 }
 
+/**
+ * Reproduces the user-message bubble wrapper from `UserTimelineRow` in
+ * `MessagesTimeline.tsx` (right-aligned, bordered, `max-w-[80%]`) so the
+ * wide-table bleed can be exercised in the bordered-bubble context, not just
+ * the open assistant prose column.
+ */
+function userBubbleFixture(
+  id: string,
+  title: string,
+  text: string,
+  description?: string,
+): PreviewFixture {
+  return {
+    id,
+    title,
+    ...(description ? { description } : {}),
+    render: () => (
+      <TimelineLayoutFrame>
+        <div className="group flex flex-col items-end gap-1">
+          <div className="chat-user-bubble relative max-w-[80%] rounded-2xl border border-border bg-secondary p-3">
+            <ChatMarkdown text={text} cwd={undefined} className="text-foreground" />
+          </div>
+        </div>
+      </TimelineLayoutFrame>
+    ),
+  };
+}
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "chat-markdown",
@@ -200,6 +228,36 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       ),
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
+    ],
+  },
+  {
+    id: "user-message",
+    title: "User message bubble",
+    fixtures: [
+      userBubbleFixture(
+        "user-wide-table",
+        "Wide table in bubble",
+        WIDE_TABLE_MARKDOWN,
+        "A wide table inside the bordered user bubble should use the surrounding whitespace, not compress or break out of the border.",
+      ),
+      userBubbleFixture(
+        "user-narrow-table",
+        "Narrow table in bubble",
+        NARROW_TABLE_MARKDOWN,
+        "A small table must keep the bubble hugging its content, unchanged.",
+      ),
+      userBubbleFixture(
+        "user-long-prose",
+        "Long prose in bubble",
+        LONG_PROSE_MARKDOWN,
+        "Prose-only messages must keep today's readable width and not stretch.",
+      ),
+      userBubbleFixture(
+        "user-mixed-document",
+        "Mixed document in bubble",
+        MIXED_DOCUMENT_MARKDOWN,
+        "Prose stays at the readable measure while the wide table bleeds to use whitespace.",
+      ),
     ],
   },
 ];

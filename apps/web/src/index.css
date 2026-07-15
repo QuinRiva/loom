@@ -464,6 +464,50 @@ label:has(> select#reasoning-effort) select {
   transform: translateX(-50%);
 }
 
+/* User-message bubble wide-table bleed.
+
+   A user message renders its markdown inside a bordered, right-aligned bubble
+   (`.chat-user-bubble`, `max-w-[80%]`) rather than the open assistant prose
+   column. The generic table bleed above centres the table on the *bubble*, so a
+   wide table pokes out through the bubble's left border and is clipped off the
+   right edge — the surrounding whitespace goes unused. Here the BUBBLE itself
+   becomes the bleeding element instead: when it contains a wide block it grows
+   to hug that block (up to the same viewport budget), centred on the prose axis
+   so it uses the whitespace on both sides, with its border wrapping the whole
+   table. The table then lays out normally inside and scrolls only once it
+   exceeds the budget. Prose is capped to a readable measure so paragraphs keep
+   their width instead of stretching with the widened bubble.
+
+   Iterate on this against the `/preview` "User message bubble" fixtures. */
+.chat-user-bubble:has(.chat-markdown-table-container) {
+  --bleed-cap: 90rem;
+  --bleed-target: min(var(--bleed-cap), calc(var(--timeline-available-width, 100%) - 3rem));
+  /* Overflow the right-aligned column symmetrically, centred on the prose axis
+     (which is itself viewport-centred) so the bleed uses whitespace on both
+     sides. align-self wins over the parent's items-end for this bubble only. */
+  align-self: center;
+  width: max-content;
+  max-width: var(--bleed-target);
+}
+
+/* Inside a bleeding bubble the table must not break out of the border again:
+   fill the bubble and scroll within it beyond the budget. */
+.chat-user-bubble .chat-markdown .chat-markdown-table-container {
+  position: static;
+  left: auto;
+  width: 100%;
+  max-width: 100%;
+  transform: none;
+}
+
+/* Keep prose readable so it does not stretch the widened bubble. Code blocks
+   are excluded — they own their width and horizontal scroll. */
+.chat-user-bubble:has(.chat-markdown-table-container)
+  .chat-markdown
+  :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 36rem;
+}
+
 .chat-markdown h1,
 .chat-markdown h2,
 .chat-markdown h3,
