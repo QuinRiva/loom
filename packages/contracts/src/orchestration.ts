@@ -1348,11 +1348,17 @@ export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsRe
  * node-inspection pull returns tens of ordered rows rather than the whole
  * global stream. Runtime/tool signals (`thread.activity-appended`, reasoning,
  * turn plumbing) are deliberately excluded — they are not lifecycle.
+ *
+ * `thread.report-set` is included not as its own row but as the carrier of each
+ * submit's report path: it is emitted in the same transaction immediately
+ * before its `thread.outcome-recorded`, so the timeline fold attaches its path
+ * to that outcome row (per-round report links).
  */
 export const ORCHESTRATION_THREAD_LIFECYCLE_EVENT_TYPES = [
   "thread.plan-lane-set",
   "thread.attention-raised",
   "thread.attention-cleared",
+  "thread.report-set",
   "thread.outcome-recorded",
   "thread.route-taken",
   "thread.fanin-set",
