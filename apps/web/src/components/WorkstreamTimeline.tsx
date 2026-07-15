@@ -1,5 +1,5 @@
 import type { EnvironmentId, OrchestrationEvent, ThreadId } from "@t3tools/contracts";
-import { ArrowUpRightIcon, ExternalLinkIcon, Loader2Icon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, ExternalLinkIcon, FileTextIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -78,6 +78,7 @@ export function WorkstreamLifecycleDrawer({
   onClose,
   onOpenThread,
   onOpenDispatch,
+  onOpenReport,
 }: {
   readonly thread: SidebarThreadSummary | undefined;
   readonly state: LifecycleLoadState | null;
@@ -85,6 +86,7 @@ export function WorkstreamLifecycleDrawer({
   readonly onClose: () => void;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
   readonly onOpenDispatch: (threadId: ThreadId, anchorAtIso: string) => void;
+  readonly onOpenReport: (reportPath: string) => void;
 }) {
   const rows = useMemo(
     () => (state?.status === "ready" ? buildThreadLifecycleRows(state.events) : []),
@@ -163,15 +165,28 @@ export function WorkstreamLifecycleDrawer({
             </div>
           </div>
           {thread ? (
-            <button
-              type="button"
-              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
-              onClick={() => onOpenThread(thread)}
-              title="Open this thread's conversation"
-            >
-              <ExternalLinkIcon className="size-3" />
-              Open thread
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              {thread.reportPath ? (
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                  onClick={() => onOpenReport(thread.reportPath!)}
+                  title="Open this thread's completion report"
+                >
+                  <FileTextIcon className="size-3" />
+                  Report
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                onClick={() => onOpenThread(thread)}
+                title="Open this thread's conversation"
+              >
+                <ExternalLinkIcon className="size-3" />
+                Open thread
+              </button>
+            </div>
           ) : null}
           <button
             ref={closeRef}
@@ -220,19 +235,30 @@ export function WorkstreamLifecycleDrawer({
                   </>
                 );
                 return (
-                  <li key={row.key} className="border-l border-white/10 pl-3">
+                  <li key={row.key} className="flex items-stretch border-l border-white/10 pl-3">
                     {row.deepLink ? (
                       <button
                         type="button"
-                        className="group -ml-px flex w-full items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
                         onClick={() => onOpenDispatch(thread.id, row.at)}
                         title="Jump to this point in the thread's conversation"
                       >
                         {content}
                       </button>
                     ) : (
-                      <div className="flex w-full items-start gap-2 py-1.5">{content}</div>
+                      <div className="flex flex-1 items-start gap-2 py-1.5">{content}</div>
                     )}
+                    {row.reportPath ? (
+                      <button
+                        type="button"
+                        className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        onClick={() => onOpenReport(row.reportPath!)}
+                        title="Open this round's completion report"
+                        aria-label="Open this round's completion report"
+                      >
+                        <FileTextIcon className="size-3" />
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}

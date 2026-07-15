@@ -678,6 +678,14 @@ export interface LifecycleRow {
    * outcome) — control-plane-only rows (route-taken, fan-in) are not linked.
    */
   readonly deepLink: boolean;
+  /**
+   * Absolute path to the completion report this row's submit wrote, when one
+   * exists. Set only on outcome rows: a `thread.report-set` event is emitted in
+   * the same transaction immediately before its `thread.outcome-recorded`, so
+   * the fold carries the pending path onto the next outcome row — exposing each
+   * rework round's own handoff, not just the thread's latest pointer.
+   */
+  readonly reportPath?: string;
 }
 
 // Dot + text colour per tone, drawn from the same board/graph families.
@@ -813,10 +821,17 @@ export function buildThreadLifecycleRows(
 ): ReadonlyArray<LifecycleRow> {
   const rows: LifecycleRow[] = [];
   let previousLane: ThreadPlanLane | null = null;
+  // A submit emits `thread.report-set` immediately before its
+  // `thread.outcome-recorded` (same transaction); hold that path and hand it to
+  // the next outcome row so each round links to the report it produced.
+  let pendingReportPath: string | null = null;
   for (const event of events) {
     const key = event.eventId;
     const at = event.occurredAt;
     switch (event.type) {
+      case "thread.report-set":
+        pendingReportPath = event.payload.reportPath;
+        break;
       case "thread.plan-lane-set": {
         const body = describeLaneTransition(
           event.payload.planLane,
@@ -848,7 +863,13 @@ export function buildThreadLifecycleRows(
         });
         break;
       case "thread.outcome-recorded":
-        rows.push({ key, at, ...describeOutcome(event.payload) });
+        rows.push({
+          key,
+          at,
+          ...describeOutcome(event.payload),
+          ...(pendingReportPath !== null ? { reportPath: pendingReportPath } : {}),
+        });
+        pendingReportPath = null;
         break;
       case "thread.route-taken":
         rows.push({

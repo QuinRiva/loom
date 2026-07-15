@@ -51,6 +51,8 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { useLoomScrollStore } from "../loom/loomScrollStore";
+import { useRightPanelStore } from "../rightPanelStore";
+import { isAbsolutePreviewablePath } from "../markdown-links";
 
 type WorkstreamView = "board" | "graph";
 
@@ -203,6 +205,15 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
     });
+  };
+
+  // Open a sub-thread's completion report (an absolute markdown path outside any
+  // worktree) in the read-only file preview surface. Keyed to THIS panel's
+  // thread ref — the report belongs to a sub-thread, but the right panel shown
+  // is the open (parent) thread's, so its surface is where the artefact lands.
+  const openReport = (reportPath: string) => {
+    if (panelRef === null || !isAbsolutePreviewablePath(reportPath)) return;
+    useRightPanelStore.getState().openFileAbsolute(panelRef, reportPath);
   };
 
   // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
@@ -365,6 +376,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
             onClose={() => setInspectedThreadId(null)}
             onOpenThread={openThread}
             onOpenDispatch={openDispatch}
+            onOpenReport={openReport}
           />
         ) : null}
       </div>

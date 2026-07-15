@@ -366,4 +366,22 @@ describe("buildThreadLifecycleRows", () => {
     ]);
     expect(rows[0]).toMatchObject({ label: "Attention raised", tone: "amber", deepLink: false });
   });
+
+  it("attaches each round's report path to its following outcome row only", () => {
+    // Two gate rounds: every submit emits report-set immediately before its
+    // outcome-recorded, so each outcome row carries its own round's report and
+    // the pointer never leaks onto an unrelated row.
+    const rows = buildThreadLifecycleRows([
+      ev("a", "thread.plan-lane-set", { planLane: "in_progress" }),
+      ev("b", "thread.report-set", { reportPath: "/reports/t.round-1.md" }),
+      ev("c", "thread.outcome-recorded", { outcome: "needs_rework", decision: "loop", round: 1 }),
+      ev("d", "thread.report-set", { reportPath: "/reports/t.round-2.md" }),
+      ev("e", "thread.outcome-recorded", { outcome: "clean", decision: "resolve", round: 2 }),
+    ]);
+    // report-set itself never renders a row.
+    expect(rows.map((r) => r.label)).toEqual(["Started", "needs rework \u27f21", "clean"]);
+    expect(rows[0]?.reportPath).toBeUndefined();
+    expect(rows[1]?.reportPath).toBe("/reports/t.round-1.md");
+    expect(rows[2]?.reportPath).toBe("/reports/t.round-2.md");
+  });
 });
