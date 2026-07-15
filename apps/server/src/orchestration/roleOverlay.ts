@@ -2,8 +2,16 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { PROVIDER_TOOL_PATHS } from "../mcp/toolPaths.ts";
+
 const ROLE_OVERLAY_DIR = "roles";
 const DEFAULT_ROLE = "orchestrator";
+
+/** The lifeline tools every workstream thread must keep: the provider-tool
+ * extension's full name set (workstream_*, goal_*, consult_thread, …), sourced
+ * from the same table the extension is generated from — a tool added there
+ * automatically joins this union. */
+const LIFELINE_TOOLS: ReadonlyArray<string> = Object.keys(PROVIDER_TOOL_PATHS);
 
 export interface RoleOverlay {
   /** System-prompt overlay text (the markdown body after any frontmatter). */
@@ -11,16 +19,12 @@ export interface RoleOverlay {
   /** Skill paths from frontmatter, resolved to absolute paths against projectRoot
    * and passed to pi as repeated `--skill` args (additive to normal discovery). */
   readonly skills?: ReadonlyArray<string>;
-  /** Tool-name allowlist from frontmatter, passed to pi as `--tools`. CAVEAT: pi
-   * applies the allowlist to extension-registered tools too, so a list that omits
-   * the workstream tool names (workstream_submit, workstream_set_lane, …) severs
-   * the thread from the workstream.
-   *
-   * RESOLUTION (chosen, NOT YET IMPLEMENTED): the server will auto-union the
-   * workstream + goal extension tool names (workstream_*, goal_task_*, …) into
-   * any role `tools:` allowlist, so a role can restrict tools without losing its
-   * lifeline to the workstream. UNTIL THAT LANDS: do not set `tools:` on a role,
-   * or its threads lose the workstream/goal tools. */
+  /** Tool-name allowlist from frontmatter, passed to pi as `--tools`. pi applies
+   * the allowlist to extension-registered tools too, so the loader auto-unions
+   * the workstream + goal extension tool names (PROVIDER_TOOL_PATHS) into any
+   * role `tools:` list — a role restricts its working tools without losing its
+   * lifeline to the workstream. Role files therefore list only the tools the
+   * role actually works with. */
   readonly tools?: ReadonlyArray<string>;
 }
 
@@ -136,7 +140,7 @@ export const loadRoleOverlay = (input: {
       ...(skills.length > 0
         ? { skills: skills.map((skill) => NodePath.resolve(input.projectRoot, skill)) }
         : {}),
-      ...(tools.length > 0 ? { tools } : {}),
+      ...(tools.length > 0 ? { tools: [...new Set([...tools, ...LIFELINE_TOOLS])] } : {}),
     };
   } catch {
     return undefined; // ENOENT / unreadable → no overlay (permissive)
