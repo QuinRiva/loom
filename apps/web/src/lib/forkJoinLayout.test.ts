@@ -582,6 +582,56 @@ describe("back-edge routing", () => {
     expect(withEdges.y + withEdges.h).toBeGreaterThanOrEqual(channelBottom);
     expect(withEdges.y + withEdges.h).toBeGreaterThanOrEqual(nodesOnly.y + nodesOnly.h);
   });
+
+  it("draws a cross-wave dependency INVERSION (early node waiting on a later wave)", () => {
+    // An early-wave node re-gated (post-spawn) to wait on a later-spawned
+    // sibling: the spine implies the WRONG order, so this edge must be drawn as
+    // a routed back-edge (a within-wave-only layout would drop it, leaving the
+    // node "Blocked" with no visible reason).
+    const { nodes, edges } = computeForkJoinLayout([
+      thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" }),
+      // Wave 1: `doc` depends on the LATER assessor (the inversion).
+      thread({
+        id: "doc",
+        parentThreadId: "R",
+        spawnGeneration: "g1",
+        createdAt: "1",
+        blockedBy: ["assessor"],
+      }),
+      // Wave 2 (later generation): the replacement it now waits on.
+      thread({ id: "assessor", parentThreadId: "R", spawnGeneration: "g2", createdAt: "2" }),
+    ]);
+    const edge = edges.find((e) => e.kind === "blocked" && e.key === "blocked:doc:assessor");
+    expect(edge).toBeDefined();
+    // Direction: from the dependency (assessor) to the blocked node (doc).
+    expect(edge!.fromKey).toBe(tid("assessor"));
+    expect(edge!.toKey).toBe(tid("doc"));
+    // Routed orthogonally (waypoints), clear of every card.
+    expect(edge!.points).toBeDefined();
+    const threads = nodes.filter(
+      (n): n is Extract<LaidNode, { kind: "thread" }> => n.kind === "thread",
+    );
+    expect(polylineClearsAllNodes(edge!.points!, threads)).toBe(true);
+    // The dependency really is in a later wave (below on the spine).
+    expect(byId(nodes, "assessor")!.y).toBeGreaterThan(byId(nodes, "doc")!.y);
+  });
+
+  it("leaves a forward cross-wave dependency to the spine (no back-edge)", () => {
+    // A later-wave node waiting on an earlier-wave one is the NORMAL order the
+    // spine already encodes; drawing it would be redundant clutter.
+    const { edges } = computeForkJoinLayout([
+      thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" }),
+      thread({ id: "early", parentThreadId: "R", spawnGeneration: "g1", createdAt: "1" }),
+      thread({
+        id: "late",
+        parentThreadId: "R",
+        spawnGeneration: "g2",
+        createdAt: "2",
+        blockedBy: ["early"],
+      }),
+    ]);
+    expect(edges.some((e) => e.kind === "blocked")).toBe(false);
+  });
 });
 
 // Small helper: run the layout and return nodes plus a byId map for consult

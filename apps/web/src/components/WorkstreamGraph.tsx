@@ -599,12 +599,17 @@ function GraphEdge({
       />
     );
   }
+  // A cross-wave dependency inversion carries orthogonal waypoints (routed
+  // through a clear channel); a within-wave dep is a plain forward spline.
   const midX = (edge.x1 + edge.x2) / 2;
+  const d = edge.points
+    ? roundedPath(edge.points)
+    : `M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`;
   return (
     <path
       className="ws-graph-edge"
       opacity={opacity}
-      d={`M ${edge.x1} ${edge.y1} C ${midX} ${edge.y1}, ${midX} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+      d={d}
       fill="none"
       markerEnd="url(#workstream-waits-arrow)"
       stroke={WAITS_ON_STROKE}
