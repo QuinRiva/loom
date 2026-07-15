@@ -230,6 +230,11 @@ function layoutOrchestrator(
   const loopLanes = new BackEdgeLanes();
   let y = 0;
   let blockW = BRIDGE_W;
+  // Card centres + wave index for EVERY member across all waves, so a
+  // cross-wave dependency can be routed after the wave loop (the per-wave
+  // `memberCardCenter` only sees one wave at a time).
+  const centreByMember = new Map<ThreadId, Point>();
+  const waveIndexByMember = new Map<ThreadId, number>();
 
   waveOrder.forEach((waveMembers, waveIndex) => {
     const members = [...waveMembers].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -278,6 +283,10 @@ function layoutOrchestrator(
       cx += cl.colW + COL_GAP;
     }
     blockW = Math.max(blockW, cx - COL_GAP);
+    for (const [id, centre] of memberCardCenter) {
+      centreByMember.set(id, centre);
+      waveIndexByMember.set(id, waveIndex);
+    }
 
     const bridgeKey = `bridge:${orchestratorId}:${waveIndex}`;
     nodes.push({
@@ -380,6 +389,64 @@ function layoutOrchestrator(
     y += waveH + WAVE_GAP;
   });
 
+  // Cross-wave dependency inversions: a member waiting on a sibling that
+  // dispatches in a LATER wave (lower on the spine). A forward cross-wave dep
+  // (waiting on an EARLIER wave) is deliberately left undrawn — the spine's
+  // top-down order already encodes it. An inversion is the opposite: the spine
+  // implies the wrong order, so this is the one cross-wave edge that carries
+  // information and must be drawn (it arises when a node is re-gated after
+  // spawn, e.g. workstream_set_dependencies pointing an early node at a
+  // later-spawned replacement). Routed vertically through a clear side gutter
+  // (the long span rules out the below-channel route used for same-wave pairs;
+  // the dependency itself sits between the endpoints), deconflicted against the
+  // loop/consult lanes via the shared registry.
+  let blockH = Math.max(0, y - WAVE_GAP);
+  for (const child of children) {
+    const target = centreByMember.get(child.id);
+    const targetWave = waveIndexByMember.get(child.id);
+    if (target === undefined || targetWave === undefined) continue;
+    for (const dep of child.blockedBy) {
+      if (dep === child.id) continue;
+      const source = centreByMember.get(dep);
+      const sourceWave = waveIndexByMember.get(dep);
+      if (source === undefined || sourceWave === undefined || sourceWave <= targetWave) continue;
+      // Ports on the LEFT side of both cards, joined by a vertical run in the
+      // nearest gutter left of them that is both obstacle-clear and unclaimed.
+      const yTop = Math.min(source.y, target.y);
+      const yBot = Math.max(source.y, target.y);
+      const laneX = findFreeVerticalLane(
+        nodes,
+        loopLanes,
+        Math.min(source.x, target.x) - LANE_STEP,
+        yTop,
+        yBot,
+        new Set([child.id, dep]),
+      );
+      loopLanes.claimVertical(laneX, yTop, yBot);
+      const points: Point[] = [
+        { x: source.x, y: source.y },
+        { x: laneX, y: source.y },
+        { x: laneX, y: target.y },
+        { x: target.x, y: target.y },
+      ];
+      edges.push({
+        kind: "blocked",
+        key: `blocked:${child.id}:${dep}`,
+        fromKey: dep,
+        toKey: child.id,
+        points,
+        x1: points[0]!.x,
+        y1: points[0]!.y,
+        x2: points[points.length - 1]!.x,
+        y2: points[points.length - 1]!.y,
+      });
+      for (const p of points) {
+        blockW = Math.max(blockW, p.x);
+        blockH = Math.max(blockH, p.y);
+      }
+    }
+  }
+
   // The spine itself is the synthetic join→fork connector between waves.
   for (let i = 1; i < bridgeCenters.length; i += 1) {
     const from = bridgeCenters[i - 1]!;
@@ -396,7 +463,7 @@ function layoutOrchestrator(
     });
   }
 
-  return { nodes, edges, w: blockW, h: Math.max(0, y - WAVE_GAP) };
+  return { nodes, edges, w: blockW, h: blockH };
 }
 
 /**
