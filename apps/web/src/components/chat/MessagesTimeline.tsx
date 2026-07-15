@@ -928,7 +928,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     <div className="group flex flex-col items-end gap-1">
       <div
         className={cn(
-          "relative max-w-[80%] rounded-2xl border p-3",
+          "chat-user-bubble relative max-w-[80%] rounded-2xl border p-3",
           // Tint the container only (never the body text) so ChatMarkdown code
           // blocks and links keep their own colours — the spawn-card recipe.
           originLabel ? "border-info/30 bg-info/10" : "border-border bg-secondary",
