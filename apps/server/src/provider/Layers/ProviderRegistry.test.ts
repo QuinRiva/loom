@@ -178,24 +178,6 @@ function recordingMockSpawnerLayer(
   return { layer, commands };
 }
 
-function mockCommandSpawnerLayer(
-  handler: (
-    command: string,
-    args: ReadonlyArray<string>,
-  ) => { stdout: string; stderr: string; code: number },
-) {
-  return Layer.succeed(
-    ChildProcessSpawner.ChildProcessSpawner,
-    ChildProcessSpawner.make((command) => {
-      const cmd = command as unknown as {
-        command: string;
-        args: ReadonlyArray<string>;
-      };
-      return Effect.succeed(mockHandle(handler(cmd.command, cmd.args)));
-    }),
-  );
-}
-
 function failingSpawnerLayer(description: string) {
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
@@ -1051,251 +1033,119 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
-      // This test intentionally avoids `mockCommandSpawnerLayer` so the real
-      // `probeCodexAppServerProvider` path runs — including the full
-      // `codex app-server` RPC handshake via `CodexClient.layerChildProcess`.
-      // We point `binaryPath` at a name that cannot exist on any machine so
-      // the real `ChildProcessSpawner` deterministically returns ENOENT; the
-      // probe wraps that as `CodexAppServerSpawnError` and
-      // `checkCodexProviderStatus` turns it into the user-visible "not
-      // installed" error snapshot. If the aggregator's `syncLiveSources`
-      // breaks — the `codex_personal`-never-probes bug we are guarding
-      // against — that snapshot never lands in `getProviders` and the
-      // assertions below fail.
-      it.effect("propagates real Codex probe failures to the aggregator at boot", () =>
-        Effect.gen(function* () {
-          const missingBinary = `t3code_codex_missing_`;
-          const serverSettings = yield* makeMutableServerSettingsService(
-            decodeServerSettings(
-              deepMerge(encodedDefaultServerSettings, {
-                providers: {
-                  // Disable every built-in probe that would otherwise spawn
-                  // on the CI host. `enabled: false` short-circuits each
-                  // driver's probe *before* it touches the spawner, so the
-                  // test environment stays isolated from the dev
-                  // machine's PATH.
-                  codex: { enabled: false },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  grok: { enabled: false },
-                  opencode: { enabled: false },
-                },
-                // `providerInstances` keys are branded `ProviderInstanceId`;
-                // the branded index signature rejects plain string literals
-                // at the TS level even though the runtime schema happily
-                // accepts + decodes them. Cast the patch to `unknown` so
-                // the `Schema.decodeSync` below does the real validation.
-                providerInstances: {
-                  // Matches the shape the user had in `.t3/dev/settings.json`
-                  // when the bug was reported: a custom enabled Codex instance
-                  // pointing at a binary the server has to actually spawn.
-                  codex_personal: {
-                    driver: "codex",
-                    displayName: "Codex Personal",
-                    enabled: true,
-                    config: {
-                      binaryPath: missingBinary,
-                      homePath: `/tmp/${missingBinary}_home`,
-                    },
+      // loom: RETIRED — "propagates real Codex probe failures to the aggregator
+      // at boot". This guarded a real historical bug where a background probe
+      // FAILURE (codex spawning a missing binary → ENOENT → "not installed"
+      // error snapshot) failed to propagate into `getProviders` at boot via the
+      // aggregator's `syncLiveSources`. In the pi-only fork that behaviour is no
+      // longer representable: codex is not in `BUILT_IN_DRIVERS`, and the only
+      // shipped driver (pi) never probes at snapshot time — `makePiProvider`
+      // reports `status: "ready"` unconditionally and `enrichPiSnapshot` failures
+      // are swallowed by design, so there is no probe-failure state to aggregate.
+      // The only residue that still has a live behaviour behind it — an explicit
+      // `providerInstances` entry for an unshipped driver surfacing as an
+      // "unavailable" shadow in `getProviders` — is already covered by the
+      // "includes unavailable instance snapshots in getProviders" test below.
+
+      // loom: pi-flavoured rewrite of "re-probes when settings change the codex
+      // binaryPath". The behaviour still live in the pi-only world is the
+      // settings hot-reload pipeline: a `providers.pi.*` change flows through
+      // `SettingsWatcherLive.streamChanges` → `deriveProviderInstanceConfigMap`
+      // → `reconcile`, whose `entryEqual` diff tears down the live pi instance
+      // and rebuilds it, so the rebuilt instance's fresh snapshot (built from the
+      // NEW config) lands in `getProviders` via `syncLiveSources`. Pi has no
+      // spawn-at-probe step to intercept (its snapshot is synchronous and its
+      // enrichment spawns via raw `NodeChildProcess.spawn`, NOT the Effect
+      // `ChildProcessSpawner`), so we assert the rebuild through an observable
+      // config-derived field: `customModels` flows into the snapshot's `models`
+      // (`piModels` → `piCustomModels`). Seeing the new custom model appear
+      // proves the instance was rebuilt from the changed settings.
+      it.effect(
+        "rebuilds the pi instance when settings change so the new config takes effect",
+        () =>
+          Effect.gen(function* () {
+            const customModelSlug = "acme/pi-custom-model";
+            const serverSettings = yield* makeMutableServerSettingsService(
+              decodeServerSettings(
+                deepMerge(encodedDefaultServerSettings, {
+                  providers: {
+                    pi: { enabled: true, customModels: [] },
                   },
-                } as unknown as ContractServerSettings["providerInstances"],
-              }),
-            ),
-          );
-          const scope = yield* Scope.make();
-          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-          const providerRegistryLayer = ProviderRegistryLive.pipe(
-            Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-            Layer.provideMerge(
-              ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-            ),
-            Layer.provideMerge(
-              Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-            ),
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "t3-provider-registry-",
-              }),
-            ),
-            Layer.provideMerge(TestHttpClientLive),
-            Layer.provideMerge(
-              Layer.succeed(
-                ProviderEventLoggers.ProviderEventLoggers,
-                ProviderEventLoggers.NoOpProviderEventLoggers,
+                }),
               ),
-            ),
-            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-            // NO spawner mock — `ChildProcessSpawner` is supplied by the
-            // outer `NodeServices.layer` on `it.layer(...)` and will
-            // genuinely spawn a subprocess. The missing-binary ENOENT is
-            // what exercises the same failure mode as a misconfigured
-            // production `binaryPath`.
-          );
-          const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
-            Scope.provide(scope),
-          );
-
-          yield* Effect.gen(function* () {
-            const registry = yield* ProviderRegistry.ProviderRegistry;
-            let providers = yield* registry.getProviders;
-            for (
-              let attempts = 0;
-              attempts < 50 &&
-              providers.find((provider) => provider.instanceId === "codex_personal")?.status !==
-                "error";
-              attempts += 1
-            ) {
-              yield* Effect.yieldNow;
-              providers = yield* registry.getProviders;
-            }
-            const codexPersonal = providers.find(
-              (provider) => provider.instanceId === "codex_personal",
             );
-            assert.notStrictEqual(
-              codexPersonal,
-              undefined,
-              `Expected the aggregator to know about codex_personal; instead saw: ${providers
-                .map((provider) => provider.instanceId)
-                .join(", ")}`,
-            );
-            assert.strictEqual(
-              codexPersonal?.status,
-              "error",
-              "Real Codex probe against a missing binary should surface as 'error' in the aggregator",
-            );
-            assert.strictEqual(codexPersonal?.installed, false);
-            assert.strictEqual(
-              codexPersonal?.message,
-              "Codex CLI (`codex`) is not installed or not on PATH.",
-            );
-          }).pipe(Effect.provide(runtimeServices));
-        }),
-      );
-
-      // Guards the second half of the reported bug: changing
-      // `providers.codex.binaryPath` in settings must tear down the live
-      // instance and rebuild it so a fresh probe runs with the new binary.
-      // This test drives the real settings stream → registry reconcile →
-      // aggregator sync pipeline and asserts that `getProviders` reflects
-      // the new background probe's outcome.
-      //
-      it.effect("re-probes when settings change the codex binaryPath", () =>
-        Effect.gen(function* () {
-          const firstMissing = `t3code_codex_first_`;
-          const secondMissing = `t3code_codex_second_`;
-          const spawnedCommands: Array<string> = [];
-          const serverSettings = yield* makeMutableServerSettingsService(
-            decodeServerSettings(
-              deepMerge(encodedDefaultServerSettings, {
-                providers: {
-                  codex: { enabled: true, binaryPath: firstMissing },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  grok: { enabled: false },
-                  opencode: { enabled: false },
-                },
-              }),
-            ),
-          );
-          const scope = yield* Scope.make();
-          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-          const providerRegistryLayer = ProviderRegistryLive.pipe(
-            Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-            Layer.provideMerge(
-              ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-            ),
-            Layer.provideMerge(
-              Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-            ),
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "t3-provider-registry-",
-              }),
-            ),
-            Layer.provideMerge(TestHttpClientLive),
-            Layer.provideMerge(
-              Layer.succeed(
-                ProviderEventLoggers.ProviderEventLoggers,
-                ProviderEventLoggers.NoOpProviderEventLoggers,
+            const scope = yield* Scope.make();
+            yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+            const providerRegistryLayer = ProviderRegistryLive.pipe(
+              Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
+              Layer.provideMerge(
+                ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
               ),
-            ),
-            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-            Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
-              ChildProcessSpawner.make((command) => {
-                spawnedCommands.push((command as { readonly command: string }).command);
-                return spawner.spawn(command);
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          );
-          const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
-            Scope.provide(scope),
-          );
-
-          yield* Effect.gen(function* () {
-            const registry = yield* ProviderRegistry.ProviderRegistry;
-            // Boot-time probe: the default codex instance is enabled with
-            // `firstMissing`, so the real spawner yields ENOENT and the
-            // snapshot should be `status: "error"`.
-            let initialProviders = yield* registry.getProviders;
-            for (
-              let attempts = 0;
-              attempts < 50 &&
-              initialProviders.find((provider) => provider.instanceId === "codex")?.status !==
-                "error";
-              attempts += 1
-            ) {
-              yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
-              initialProviders = yield* registry.getProviders;
-            }
-            const initialCodex = initialProviders.find(
-              (provider) => provider.instanceId === "codex",
+              Layer.provideMerge(
+                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
+              ),
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3-provider-registry-",
+                }),
+              ),
+              Layer.provideMerge(TestHttpClientLive),
+              Layer.provideMerge(
+                Layer.succeed(
+                  ProviderEventLoggers.ProviderEventLoggers,
+                  ProviderEventLoggers.NoOpProviderEventLoggers,
+                ),
+              ),
+              Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+              Layer.provideMerge(NodeServices.layer),
             );
-            assert.strictEqual(initialCodex?.status, "error");
-            assert.strictEqual(initialCodex?.installed, false);
-            assert.deepStrictEqual(spawnedCommands, [firstMissing]);
+            const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
+              Scope.provide(scope),
+            );
 
-            // Drive a settings change. The Hydration layer's
-            // `SettingsWatcherLive` consumes this via `streamChanges`,
-            // calls `reconcile`, which rebuilds the codex instance (the
-            // envelope changed because `binaryPath` differs → `entryEqual`
-            // is false). The registry's `Stream.runForEach(
-            // instanceRegistry.streamChanges, () => syncLiveSources)`
-            // fires `syncLiveSources`, which subscribes and launches a fresh
-            // background refresh on the rebuilt instance.
-            yield* serverSettings.updateSettings({
-              providers: {
-                codex: { enabled: true, binaryPath: secondMissing },
-              },
-            });
+            yield* Effect.gen(function* () {
+              const registry = yield* ProviderRegistry.ProviderRegistry;
+              const initialProviders = yield* registry.getProviders;
+              const initialPi = initialProviders.find((provider) => provider.instanceId === "pi");
+              assert.strictEqual(initialPi?.status, "ready");
+              assert.strictEqual(
+                initialPi?.models.some((model) => model.slug === customModelSlug),
+                false,
+                "The custom model must not be present before the settings change.",
+              );
 
-            // Poll until the injected process boundary observes the new
-            // executable. This verifies the public settings-to-probe behavior
-            // without depending on timestamps assigned by TestClock.
-            const refreshed = yield* Effect.gen(function* () {
-              for (let attempts = 0; attempts < 60; attempts += 1) {
-                const providers = yield* registry.getProviders;
-                const codex = providers.find((provider) => provider.instanceId === "codex");
-                if (
-                  codex !== undefined &&
-                  codex.status === "error" &&
-                  spawnedCommands.includes(secondMissing)
-                ) {
-                  return providers;
+              // Settings change: the Hydration layer's `SettingsWatcherLive`
+              // consumes this via `streamChanges`, calls `reconcile`, whose
+              // `entryEqual` diff sees the changed `customModels` envelope, tears
+              // down the live pi instance and rebuilds it. The registry's
+              // `Stream.runForEach(instanceRegistry.streamChanges, () =>
+              // syncLiveSources)` then republishes the rebuilt snapshot.
+              yield* serverSettings.updateSettings({
+                providers: { pi: { customModels: [customModelSlug] } },
+              });
+
+              const refreshed = yield* Effect.gen(function* () {
+                for (let attempts = 0; attempts < 60; attempts += 1) {
+                  const providers = yield* registry.getProviders;
+                  const pi = providers.find((provider) => provider.instanceId === "pi");
+                  if (pi?.models.some((model) => model.slug === customModelSlug)) {
+                    return providers;
+                  }
+                  yield* TestClock.adjust("50 millis");
+                  yield* Effect.yieldNow;
                 }
-                yield* TestClock.adjust("50 millis");
-                yield* Effect.yieldNow;
-              }
-              return yield* registry.getProviders;
-            });
+                return yield* registry.getProviders;
+              });
 
-            const reprobedCodex = refreshed.find((provider) => provider.instanceId === "codex");
-            assert.deepStrictEqual(spawnedCommands, [firstMissing, secondMissing]);
-            assert.strictEqual(reprobedCodex?.status, "error");
-            assert.strictEqual(reprobedCodex?.installed, false);
-          }).pipe(Effect.provide(runtimeServices));
-        }),
+              const rebuiltPi = refreshed.find((provider) => provider.instanceId === "pi");
+              assert.strictEqual(rebuiltPi?.status, "ready");
+              assert.strictEqual(
+                rebuiltPi?.models.some((model) => model.slug === customModelSlug),
+                true,
+                "The rebuilt pi instance must expose the newly configured custom model.",
+              );
+            }).pipe(Effect.provide(runtimeServices));
+          }),
       );
 
       it.effect("includes unavailable instance snapshots in getProviders", () =>
@@ -1363,107 +1213,80 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
-      it.effect(
-        "keeps cursor disabled and skips probing when the provider setting is disabled",
-        () =>
-          Effect.gen(function* () {
-            const serverSettings = yield* makeMutableServerSettingsService(
-              decodeServerSettings(
-                deepMerge(encodedDefaultServerSettings, {
-                  providers: {
-                    codex: {
-                      enabled: false,
-                    },
-                    cursor: {
-                      enabled: false,
-                    },
-                    grok: {
-                      enabled: false,
-                    },
-                  },
-                }),
+      // loom: pi-flavoured rewrite of "keeps cursor disabled and skips probing
+      // when the provider setting is disabled". The upstream test asserted the
+      // registry lists all six legacy providers and that a disabled one reports
+      // `status: "disabled"` without its probe ever touching the spawner. In the
+      // pi-only fork the only shipped driver is pi, so the live registry-level
+      // contract is: `providers.pi.enabled: false` flows through hydration →
+      // `PiDriver.create` → `buildServerProvider` (which forces `status:
+      // "disabled"` when `enabled` is false) and surfaces in `getProviders`.
+      //
+      // The "skips probing" half is not registry-observable for pi: pi has no
+      // spawn-at-probe step, and its snapshot-enrichment (`enrichPiSnapshot`,
+      // which DOES early-return `if (!settings.enabled)`) spawns via raw
+      // `NodeChildProcess.spawn` rather than the Effect `ChildProcessSpawner`,
+      // so a spawner mock can neither see nor gate it. We therefore assert the
+      // observable contract — the disabled snapshot — and leave the "no spawn"
+      // guarantee to the enrichment early-return it depends on.
+      it.effect("surfaces the pi provider as disabled when its setting is disabled", () =>
+        Effect.gen(function* () {
+          const serverSettings = yield* makeMutableServerSettingsService(
+            decodeServerSettings(
+              deepMerge(encodedDefaultServerSettings, {
+                providers: {
+                  pi: { enabled: false },
+                },
+              }),
+            ),
+          );
+          const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+          const providerRegistryLayer = ProviderRegistryLive.pipe(
+            Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
+            Layer.provideMerge(
+              ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
+            ),
+            Layer.provideMerge(
+              Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
+            ),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "t3-provider-registry-",
+              }),
+            ),
+            Layer.provideMerge(TestHttpClientLive),
+            Layer.provideMerge(
+              Layer.succeed(
+                ProviderEventLoggers.ProviderEventLoggers,
+                ProviderEventLoggers.NoOpProviderEventLoggers,
               ),
-            );
-            let cursorSpawned = false;
-            const scope = yield* Scope.make();
-            yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-            const providerRegistryLayer = ProviderRegistryLive.pipe(
-              Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-              Layer.provideMerge(
-                ProviderHealthRegistryLive.pipe(Layer.provideMerge(AccountUsageRegistryLive)),
-              ),
-              Layer.provideMerge(
-                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-              ),
-              Layer.provideMerge(
-                ServerConfig.layerTest(process.cwd(), {
-                  prefix: "t3-provider-registry-",
-                }),
-              ),
-              Layer.provideMerge(TestHttpClientLive),
-              Layer.provideMerge(
-                Layer.succeed(
-                  ProviderEventLoggers.ProviderEventLoggers,
-                  ProviderEventLoggers.NoOpProviderEventLoggers,
-                ),
-              ),
-              Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-              Layer.provideMerge(
-                mockCommandSpawnerLayer((command, args) => {
-                  if (command === "agent") {
-                    cursorSpawned = true;
-                  }
-                  const joined = args.join(" ");
-                  if (joined === "--version") {
-                    return {
-                      stdout: `${command} 1.0.0\n`,
-                      stderr: "",
-                      code: 0,
-                    };
-                  }
-                  if (joined === "auth status") {
-                    return {
-                      stdout: '{"authenticated":true}\n',
-                      stderr: "",
-                      code: 0,
-                    };
-                  }
-                  throw new Error(`Unexpected args: ${command} ${joined}`);
-                }),
-              ),
-            );
-            const runtimeServices = yield* Layer.build(
-              Layer.mergeAll(
-                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-                providerRegistryLayer,
-              ),
-            ).pipe(Scope.provide(scope));
+            ),
+            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+            Layer.provideMerge(NodeServices.layer),
+          );
+          const runtimeServices = yield* Layer.build(
+            Layer.mergeAll(
+              Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
+              providerRegistryLayer,
+            ),
+          ).pipe(Scope.provide(scope));
 
-            yield* Effect.gen(function* () {
-              const registry = yield* ProviderRegistry.ProviderRegistry;
-              const providers = yield* registry.getProviders;
-              const cursorProvider = providers.find(
-                (provider) => provider.instanceId === ProviderInstanceId.make("cursor"),
-              );
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            const providers = yield* registry.getProviders;
+            const piProvider = providers.find(
+              (provider) => provider.instanceId === ProviderInstanceId.make("pi"),
+            );
 
-              assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
-                "claudeAgent",
-                "codex",
-                "cursor",
-                "grok",
-                "opencode",
-              ]);
-              assert.strictEqual(cursorProvider?.enabled, false);
-              assert.strictEqual(cursorProvider?.status, "disabled");
-              assert.strictEqual(
-                cursorProvider?.message,
-                "Cursor is disabled in T3 Code settings.",
-              );
-              assert.strictEqual(cursorSpawned, false);
-            }).pipe(Effect.provide(runtimeServices));
-          }),
+            assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
+              "pi",
+            ]);
+            assert.strictEqual(piProvider?.enabled, false);
+            assert.strictEqual(piProvider?.status, "disabled");
+          }).pipe(Effect.provide(runtimeServices));
+        }),
       );
-
       it.effect("skips codex probes entirely when the provider is disabled", () =>
         Effect.gen(function* () {
           const status = yield* checkCodexProviderStatus(disabledCodexSettings).pipe(
