@@ -1913,6 +1913,10 @@ it.effect(
       yield* sql`DELETE FROM projection_turns`;
       yield* sql`DELETE FROM projection_state`;
 
+      // Only one ACTIVE project may exist per workspace_root (migration 050's
+      // partial unique index), so the shared root is exercised via an active
+      // project plus a soft-deleted one — the legitimate way two projects can
+      // still share a root.
       yield* sql`
         INSERT INTO projection_projects (
           project_id,
@@ -1937,13 +1941,13 @@ it.effect(
           ),
           (
             'project-2',
-            'Shared Project 2',
+            'Shared Project 2 (deleted)',
             '/tmp/shared-root',
             '{"provider":"codex","model":"gpt-5-codex"}',
             '[]',
             '2026-04-04T00:00:02.000Z',
             '2026-04-04T00:00:03.000Z',
-            NULL
+            '2026-04-04T00:00:06.000Z'
           ),
           (
             'project-3',
@@ -1959,15 +1963,17 @@ it.effect(
 
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.deepStrictEqual(resolveCalls.toSorted(), ["/tmp/shared-root"]);
-      assert.equal(shellSnapshot.projects.length, 2);
+      assert.equal(shellSnapshot.projects.length, 1);
       assert.equal(shellSnapshot.projects[0]?.repositoryIdentity?.rootPath, "/tmp/shared-root");
-      assert.equal(shellSnapshot.projects[1]?.repositoryIdentity?.rootPath, "/tmp/shared-root");
 
       resolveCalls.length = 0;
 
       const fullSnapshot = yield* snapshotQuery.getSnapshot();
+      // Two projects share /tmp/shared-root but the resolver runs once per
+      // unique workspace root.
       assert.deepStrictEqual(resolveCalls.toSorted(), ["/tmp/deleted-root", "/tmp/shared-root"]);
       assert.equal(fullSnapshot.projects.length, 3);
+      assert.equal(fullSnapshot.projects[1]?.repositoryIdentity?.rootPath, "/tmp/shared-root");
       assert.equal(fullSnapshot.projects[2]?.repositoryIdentity?.rootPath, "/tmp/deleted-root");
     }).pipe(Effect.provide(layer));
   },
