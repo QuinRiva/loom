@@ -90,6 +90,8 @@ interface WorkstreamSpawnRequest {
   readonly staged?: unknown;
   readonly gate?: unknown;
   readonly isolation?: unknown;
+  // loom: forkFrom — source thread whose pi session this child forks at launch.
+  readonly forkFrom?: unknown;
 }
 
 interface WorkstreamScaffoldNodeRequest {
@@ -104,6 +106,8 @@ interface WorkstreamScaffoldNodeRequest {
   readonly sensitive?: unknown;
   readonly gate?: unknown;
   readonly isolation?: unknown;
+  // loom: forkFrom — key | thread:id of the source node/child to fork from.
+  readonly forkFrom?: unknown;
 }
 
 interface WorkstreamScaffoldRequest {
@@ -758,6 +762,9 @@ export interface SpawnGraphInput {
   readonly blockedBy: ReadonlyArray<ThreadId> | undefined;
   readonly gateRework: ThreadId | undefined;
   readonly gateMaxRounds?: number | undefined;
+  // loom: forkFrom (D3) — the fork source's implied dependency (added to
+  // blockedBy when absent). Mutually exclusive with gateRework at the handler.
+  readonly forkFrom?: ThreadId | undefined;
   readonly isolationOverride: ThreadIsolation | undefined;
   readonly role: string;
   readonly newThreadId?: ThreadId;
@@ -885,6 +892,27 @@ export const validateSpawnGraph = (input: SpawnGraphInput): SpawnGraphResult => 
     }
   }
 
+  // loom: forkFrom (D3) — the implied dependency. A fork must wait for its
+  // source to finish; the lane edge is what sequences the acknowledge-then-fork
+  // pattern (D7 additionally gates the launch on the source being idle). Mirror
+  // the gate.rework auto-add: append forkFrom to blockedBy when absent, with a
+  // warning, and never double-add. gate + forkFrom is rejected at the handler,
+  // so the two implied deps never both apply.
+  if (operation === "spawn" && input.forkFrom !== undefined) {
+    if (!activeById.has(input.forkFrom)) {
+      return {
+        kind: "rejected",
+        message: `forkFrom must name an active sibling: a thread this thread directly parents. Known children: ${knownChildrenMessage(validSiblings)}. Nothing was spawned.`,
+      };
+    }
+    if (!effectiveBlockedBy.includes(input.forkFrom)) {
+      effectiveBlockedBy = [...effectiveBlockedBy, input.forkFrom];
+      warnings.push(
+        `forkFrom ${input.forkFrom} was added to blockedBy automatically — a fork waits for its source thread to finish before it launches.`,
+      );
+    }
+  }
+
   for (const depId of effectiveBlockedBy) {
     const dep = activeById.get(depId);
     if (dep?.planLane === "cancelled") {
@@ -989,6 +1017,238 @@ export const resolveScaffoldReference = (input: {
     };
   }
   return { kind: "ok", id: resolved };
+};
+
+// loom: forkFrom (D2/D4) — spawn/scaffold surface validation. These pure
+// validators keep the fork identity rules (no role/model fields, pi-backed
+// source resolved via provider instance metadata, active-direct-child scope,
+// fork-edge acyclicity, order-independent fork-of-fork inheritance) testable in
+// isolation, matching this module's validator/sibling-test convention.
+
+/**
+ * Provider driver kind per configured instance id. The D4 pi-backed check reads
+ * this instead of `session.providerName` (rev-4 must-fix): an unlaunched source
+ * — e.g. an in-batch reader — has no session, but its resolved
+ * `modelSelection.instanceId` always maps to a driver here.
+ */
+export const instanceDriverKinds = (
+  providers: ReadonlyArray<ServerProvider>,
+): ReadonlyMap<string, string> =>
+  new Map(providers.map((provider) => [provider.instanceId, provider.driver as string]));
+
+const FORK_IDENTITY_FIELDS = [
+  "role",
+  "modelSelection",
+  "modelPreset",
+  "taskShape",
+  "sensitive",
+] as const;
+
+/**
+ * D2: a fork inherits its source's launch identity, so none of role /
+ * modelSelection / modelPreset / taskShape / sensitive may be combined with
+ * forkFrom — each is rejected (never silently ignored). Returns the rejection
+ * message when any offending field was provided, else undefined.
+ */
+export const forkIdentityFieldsRejection = (
+  provided: Readonly<Record<(typeof FORK_IDENTITY_FIELDS)[number], boolean>>,
+  nothingClause = "Nothing was spawned.",
+): string | undefined => {
+  const offenders = FORK_IDENTITY_FIELDS.filter((field) => provided[field]);
+  if (offenders.length === 0) return undefined;
+  const isOne = offenders.length === 1;
+  return `${offenders.join(", ")} cannot be combined with forkFrom: a fork inherits its source's launch identity (role, applied model + thinking level), so ${isOne ? "that field is" : "those fields are"} rejected rather than silently ignored. Remove ${isOne ? "it" : "them"} — the fork adopts the source's role and model. ${nothingClause}`;
+};
+
+export const forkFromGateConflictMessage = (nothingClause = "Nothing was spawned."): string =>
+  `gate and forkFrom cannot be combined: a forked child is a normal worker that inherits the source's session, not a gated reviewer — v1 does not compose the two (the attached-worktree promotion has no reasoned semantics here). Drop one. ${nothingClause}`;
+
+/** Shared pi-backed rejection so spawn and scaffold read identically. */
+export const forkSourceNotPiBackedMessage = (input: {
+  readonly forkFrom: ThreadId;
+  readonly title: string | null;
+  readonly instanceId: string;
+  readonly nothingClause: string;
+}): string =>
+  `forkFrom source ${input.forkFrom} ("${input.title ?? "(untitled)"}") runs on provider instance "${input.instanceId}", which is not pi-backed. Forking copies pi's native session transcript, so only a pi-backed source can be forked. ${input.nothingClause}`;
+
+export interface ForkIdentity {
+  readonly role: string | null;
+  readonly modelSelection: ModelSelection;
+}
+
+export type ForkSourceResolution =
+  | { readonly kind: "ok"; readonly id: ThreadId; readonly identity: ForkIdentity }
+  | { readonly kind: "rejected"; readonly message: string };
+
+interface ForkSourceSibling {
+  readonly id: ThreadId;
+  readonly title: string | null;
+  readonly role: string | null;
+  readonly modelSelection: ModelSelection;
+}
+
+/**
+ * Resolve a workstream_spawn `forkFrom` to a validated source (D4): an active
+ * direct child of the caller (archived → archived rejection; unknown → not-a-
+ * child), pi-backed (provider instance metadata, NOT session.providerName), and
+ * not the child being spawned. On success returns the source's inherited
+ * identity (role + applied model selection).
+ */
+export const resolveForkSource = (input: {
+  readonly forkFrom: ThreadId;
+  readonly newChildId: ThreadId;
+  readonly activeChildren: ReadonlyArray<ForkSourceSibling>;
+  readonly archivedChildren: ReadonlyArray<{
+    readonly id: ThreadId;
+    readonly title: string | null;
+  }>;
+  readonly instanceDrivers: ReadonlyMap<string, string>;
+}): ForkSourceResolution => {
+  if (input.forkFrom === input.newChildId) {
+    return {
+      kind: "rejected",
+      message: "forkFrom cannot name the child being spawned. Nothing was spawned.",
+    };
+  }
+  const active = input.activeChildren.find((child) => child.id === input.forkFrom);
+  if (active === undefined) {
+    const archived = input.archivedChildren.find((child) => child.id === input.forkFrom);
+    if (archived !== undefined) {
+      return {
+        kind: "rejected",
+        message: `forkFrom names ${archived.id} ("${archived.title ?? "(untitled)"}"), which is archived and no longer active — an archived thread cannot be forked. Nothing was spawned.`,
+      };
+    }
+    return {
+      kind: "rejected",
+      message: `forkFrom must name an active direct child of this thread — ${input.forkFrom} is not one. Known children: ${
+        input.activeChildren.length > 0
+          ? input.activeChildren
+              .map((child) => `${child.id} ("${child.title ?? "(untitled)"}")`)
+              .join(", ")
+          : "none"
+      }. Nothing was spawned.`,
+    };
+  }
+  if (input.instanceDrivers.get(active.modelSelection.instanceId) !== "pi") {
+    return {
+      kind: "rejected",
+      message: forkSourceNotPiBackedMessage({
+        forkFrom: input.forkFrom,
+        title: active.title,
+        instanceId: active.modelSelection.instanceId,
+        nothingClause: "Nothing was spawned.",
+      }),
+    };
+  }
+  return {
+    kind: "ok",
+    id: input.forkFrom,
+    identity: { role: active.role, modelSelection: active.modelSelection },
+  };
+};
+
+export interface ForkChainNode {
+  readonly key: string;
+  readonly id: ThreadId;
+  /** Resolved source id (batch node id or existing child id), or undefined. */
+  readonly forkFromId: ThreadId | undefined;
+}
+
+export type ForkChainResult =
+  | { readonly kind: "error"; readonly nodeKey: string; readonly message: string }
+  | { readonly kind: "ok"; readonly identityByKey: ReadonlyMap<string, ForkIdentity> };
+
+/**
+ * Phase 1 of the two-phase scaffold fork resolution (D4). Walks every fork
+ * node's edge to its ultimate source in array-order-independent (topological)
+ * fashion so a fork-of-a-fork inherits the same identity regardless of node
+ * order, and rejects self-forks, fork-edge cycles, and non-pi sources with a
+ * node-labelled error. `baseIdentityById` carries the concrete identity of
+ * every NON-fork batch node (its own role + resolved modelSelection) and every
+ * existing child a fork may point at. Returns the inherited identity of each
+ * fork node keyed by node key.
+ */
+export const resolveForkChains = (input: {
+  readonly nodes: ReadonlyArray<ForkChainNode>;
+  readonly baseIdentityById: ReadonlyMap<ThreadId, ForkIdentity>;
+  readonly instanceDrivers: ReadonlyMap<string, string>;
+}): ForkChainResult => {
+  const nodeById = new Map(input.nodes.map((node) => [node.id, node] as const));
+  const identityByKey = new Map<string, ForkIdentity>();
+  const resolvedById = new Map<ThreadId, ForkIdentity>();
+  const visiting = new Set<ThreadId>();
+  let failure: { readonly nodeKey: string; readonly message: string } | undefined;
+
+  const identityOf = (id: ThreadId): ForkIdentity | undefined => {
+    const cached = resolvedById.get(id);
+    if (cached !== undefined) return cached;
+    const base = input.baseIdentityById.get(id);
+    if (base !== undefined) return base;
+    const node = nodeById.get(id);
+    if (node === undefined || node.forkFromId === undefined) return undefined;
+    return resolveFork(node);
+  };
+
+  const resolveFork = (node: ForkChainNode): ForkIdentity | undefined => {
+    if (failure !== undefined) return undefined;
+    const forkFromId = node.forkFromId;
+    if (forkFromId === undefined) return input.baseIdentityById.get(node.id);
+    if (forkFromId === node.id) {
+      failure = {
+        nodeKey: node.key,
+        message: `node "${node.key}": forkFrom cannot name the node itself. Nothing was created.`,
+      };
+      return undefined;
+    }
+    const cached = resolvedById.get(node.id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(node.id)) {
+      failure = {
+        nodeKey: node.key,
+        message: `node "${node.key}": forkFrom forms a cycle (${node.key} → … → ${node.key}); a fork chain must terminate at a non-fork source. Nothing was created.`,
+      };
+      return undefined;
+    }
+    visiting.add(node.id);
+    const sourceIdentity = identityOf(forkFromId);
+    visiting.delete(node.id);
+    if (failure !== undefined) return undefined;
+    if (sourceIdentity === undefined) {
+      // resolveScaffoldReference validated the ref, so this is unreachable in
+      // the handler; kept as a loud guard rather than a silent undefined.
+      failure = {
+        nodeKey: node.key,
+        message: `node "${node.key}": forkFrom source could not be resolved. Nothing was created.`,
+      };
+      return undefined;
+    }
+    if (input.instanceDrivers.get(sourceIdentity.modelSelection.instanceId) !== "pi") {
+      failure = {
+        nodeKey: node.key,
+        message: `node "${node.key}": ${forkSourceNotPiBackedMessage({
+          forkFrom: forkFromId,
+          title: null,
+          instanceId: sourceIdentity.modelSelection.instanceId,
+          nothingClause: "Nothing was created.",
+        })}`,
+      };
+      return undefined;
+    }
+    resolvedById.set(node.id, sourceIdentity);
+    identityByKey.set(node.key, sourceIdentity);
+    return sourceIdentity;
+  };
+
+  for (const node of input.nodes) {
+    if (node.forkFromId === undefined) continue;
+    resolveFork(node);
+    if (failure !== undefined) {
+      return { kind: "error", nodeKey: failure.nodeKey, message: failure.message };
+    }
+  }
+  return { kind: "ok", identityByKey };
 };
 
 const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
@@ -1173,12 +1433,31 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   const purpose = trimString(body.purpose);
   const brief = trimString(body.brief);
   const title = trimString(body.title);
+  // loom: forkFrom — the source thread to fork this child's pi session from.
+  const forkFrom = trimString(body.forkFrom);
   // Default `ready` (runs once deps clear — current ergonomics); `staged: true`
   // creates a held `planned` node for the review-the-graph flow (design §3).
   const planLane: ThreadPlanLane = body.staged === true ? "planned" : "ready";
-  if (!role) return jsonError(400, "role is required.");
+  // loom: forkFrom (D2) — a fork inherits the source's role (and model), so role
+  // is NOT required (and is rejected below if supplied); a non-fork spawn still
+  // requires it.
+  if (!role && forkFrom === undefined) return jsonError(400, "role is required.");
   if (!purpose) return jsonError(400, "purpose is required.");
   if (!title) return jsonError(400, "title is required.");
+  // loom: forkFrom (D2/D4) — identity fields and gate are rejected, never
+  // silently ignored: the fork's identity comes from the source's launch record
+  // and gate + forkFrom has no v1 composition.
+  if (forkFrom !== undefined) {
+    const identityRejection = forkIdentityFieldsRejection({
+      role: role !== undefined,
+      modelSelection: body.modelSelection !== undefined,
+      modelPreset: body.modelPreset !== undefined,
+      taskShape: body.taskShape !== undefined,
+      sensitive: body.sensitive !== undefined,
+    });
+    if (identityRejection !== undefined) return jsonError(400, identityRejection);
+    if (body.gate !== undefined) return jsonError(400, forkFromGateConflictMessage());
+  }
   if (
     body.blockedBy !== undefined &&
     (!Array.isArray(body.blockedBy) || !body.blockedBy.every((id) => trimString(id)))
@@ -1245,88 +1524,121 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // every configured instance at registry build, so instance-id validation is
   // reliable from boot; model slugs are checked best-effort (only against a
   // populated per-instance catalogue).
-  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
-  const settings = yield* (yield* ServerSettingsService).getSettings;
-  const presetNames = Object.keys(settings.workstreamModelPresets);
-  const usageSourceSet = usageSourceInstances(settings.providerInstances);
-  // Live headroom facts shared by shape resolution and the exhaustion warning:
-  // the raw usage windows (for the ≥90% demotion) and the hard-exhaustion
-  // predicate (for skipping / the warning). Read once. Stale/missing data
-  // resolves to healthy inside the resolver.
-  const health = yield* ProviderHealthRegistry;
-  const isExhausted = exhaustionPredicate(yield* health.snapshot);
-  const headroom: ShapeHeadroomInput = {
-    usage: yield* (yield* AccountUsageRegistry).snapshot,
-    isExhausted,
-    usageSourceInstances: usageSourceSet,
-    nowMs: yield* Clock.currentTimeMillis,
-  };
+  const providers = yield* (yield* ProviderRegistry).getProviders;
+  // loom: forkFrom (D4) — pi-backed check reads provider instance metadata, not
+  // session.providerName (an unlaunched in-batch source has no session).
+  const instanceDrivers = instanceDriverKinds(providers);
 
-  // Precedence (plan §3): explicit modelSelection > modelPreset > taskShape >
-  // role preset > inherit — decoded/validated as ONE pure function so the whole
-  // decision is testable (§6.7). The handler only performs the async
-  // modelSelection decode and hands the result in.
-  const explicitDecoded =
-    body.modelSelection === undefined
-      ? undefined
-      : Option.getOrUndefined(
-          yield* decodeModelSelection(body.modelSelection).pipe(
-            Effect.map(Option.some),
-            Effect.orElseSucceed(() => Option.none<ModelSelection>()),
-          ),
-        );
-  const resolution = resolveSpawnModelSelection({
-    explicit: { provided: body.modelSelection !== undefined, decoded: explicitDecoded },
-    modelPreset: body.modelPreset,
-    taskShape: body.taskShape,
-    sensitive: body.sensitive,
-    presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
-    profiles: settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
-    catalogue,
-    presetNames,
-    role,
-    parentSelection: current.modelSelection,
-    headroom,
-  });
-  if (resolution.kind === "error") return jsonError(400, resolution.message);
-  const modelSelection = resolution.selection;
-  const selectionWarnings = [...resolution.warnings];
+  const crypto = yield* Crypto.Crypto;
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
 
-  // Exhaustion-aware spawn warning (§7): consult the health registry for the
-  // resolved selection (all precedence steps, explicit included). No selection
-  // rewriting (D6) — warn only. Reuses the `isExhausted` predicate read above.
+  // loom: forkFrom (D2) — a fork's role + applied model selection are inherited
+  // from the resolved source; a non-fork spawn resolves them from the precedence
+  // ladder below. `storedRole` is what lands on the child's thread record.
+  let modelSelection: ModelSelection;
+  let storedRole: string | null = role ?? null;
+  let forkFromId: ThreadId | undefined;
+  const selectionWarnings: string[] = [];
   const exhaustionWarnings: string[] = [];
-  const slugScope = subscriptionScopeForSelection(modelSelection, usageSourceSet);
-  if (slugScope.accountKey !== null) {
-    if (isExhausted(slugScope.accountKey, slugScope.modelId)) {
-      const until = yield* health.exhaustedUntil(slugScope.accountKey, slugScope.modelId);
-      // Non-fatal: a settings read failure must not 500 a spawn that would
-      // otherwise succeed; default to the schema default (failover enabled).
-      const failover = yield* (yield* ServerSettingsService).getSettings.pipe(
-        Effect.map((s) => ({
-          enabled: s.providerFailover.enabled,
-          chains: s.providerFailover.chains,
-        })),
-        Effect.orElseSucceed(() => ({ enabled: true, chains: undefined })),
-      );
-      // Name the concrete fallback when one is healthy (§7). Only a pi selection
-      // with failover on reroutes (§9); direct drivers always warn wait-to-reset.
-      const fallbackTarget =
-        failover.enabled && slugScope.isPiSubscriptionSlug
-          ? resolveFailoverTarget({
-              slug: modelSelection.model,
-              catalogue: piCatalogueFromProviders(yield* (yield* ProviderRegistry).getProviders),
-              isExhausted,
-              ...(failover.chains !== undefined ? { chains: failover.chains } : {}),
-            })
-          : undefined;
-      exhaustionWarnings.push(
-        buildSpawnExhaustionWarning({
-          slug: modelSelection.model,
-          resetHint: formatResetHint(until, yield* Clock.currentTimeMillis),
-          fallbackTarget,
-        }),
-      );
+
+  if (forkFrom !== undefined) {
+    const source = resolveForkSource({
+      forkFrom: ThreadId.make(forkFrom),
+      newChildId: childThreadId,
+      activeChildren,
+      archivedChildren,
+      instanceDrivers,
+    });
+    if (source.kind === "rejected") return jsonError(400, source.message);
+    forkFromId = source.id;
+    storedRole = source.identity.role;
+    modelSelection = source.identity.modelSelection;
+  } else {
+    const catalogue = modelCatalogueOf(providers);
+    const settings = yield* (yield* ServerSettingsService).getSettings;
+    const presetNames = Object.keys(settings.workstreamModelPresets);
+    const usageSourceSet = usageSourceInstances(settings.providerInstances);
+    // Live headroom facts shared by shape resolution and the exhaustion warning:
+    // the raw usage windows (for the ≥90% demotion) and the hard-exhaustion
+    // predicate (for skipping / the warning). Read once. Stale/missing data
+    // resolves to healthy inside the resolver.
+    const health = yield* ProviderHealthRegistry;
+    const isExhausted = exhaustionPredicate(yield* health.snapshot);
+    const headroom: ShapeHeadroomInput = {
+      usage: yield* (yield* AccountUsageRegistry).snapshot,
+      isExhausted,
+      usageSourceInstances: usageSourceSet,
+      nowMs: yield* Clock.currentTimeMillis,
+    };
+
+    // Precedence (plan §3): explicit modelSelection > modelPreset > taskShape >
+    // role preset > inherit — decoded/validated as ONE pure function so the whole
+    // decision is testable (§6.7). The handler only performs the async
+    // modelSelection decode and hands the result in.
+    const explicitDecoded =
+      body.modelSelection === undefined
+        ? undefined
+        : Option.getOrUndefined(
+            yield* decodeModelSelection(body.modelSelection).pipe(
+              Effect.map(Option.some),
+              Effect.orElseSucceed(() => Option.none<ModelSelection>()),
+            ),
+          );
+    const resolution = resolveSpawnModelSelection({
+      explicit: { provided: body.modelSelection !== undefined, decoded: explicitDecoded },
+      modelPreset: body.modelPreset,
+      taskShape: body.taskShape,
+      sensitive: body.sensitive,
+      presets: settings.workstreamModelPresets as Record<string, ModelSelection>,
+      profiles: settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
+      catalogue,
+      presetNames,
+      // In this branch forkFrom is unset, so the role-required guard above
+      // guarantees a role; `?? "thread"` only satisfies the type narrowing.
+      role: role ?? "thread",
+      parentSelection: current.modelSelection,
+      headroom,
+    });
+    if (resolution.kind === "error") return jsonError(400, resolution.message);
+    modelSelection = resolution.selection;
+    for (const warning of resolution.warnings) selectionWarnings.push(warning);
+
+    // Exhaustion-aware spawn warning (§7): consult the health registry for the
+    // resolved selection (all precedence steps, explicit included). No selection
+    // rewriting (D6) — warn only. Reuses the `isExhausted` predicate read above.
+    const slugScope = subscriptionScopeForSelection(modelSelection, usageSourceSet);
+    if (slugScope.accountKey !== null) {
+      if (isExhausted(slugScope.accountKey, slugScope.modelId)) {
+        const until = yield* health.exhaustedUntil(slugScope.accountKey, slugScope.modelId);
+        // Non-fatal: a settings read failure must not 500 a spawn that would
+        // otherwise succeed; default to the schema default (failover enabled).
+        const failover = yield* (yield* ServerSettingsService).getSettings.pipe(
+          Effect.map((s) => ({
+            enabled: s.providerFailover.enabled,
+            chains: s.providerFailover.chains,
+          })),
+          Effect.orElseSucceed(() => ({ enabled: true, chains: undefined })),
+        );
+        // Name the concrete fallback when one is healthy (§7). Only a pi selection
+        // with failover on reroutes (§9); direct drivers always warn wait-to-reset.
+        const fallbackTarget =
+          failover.enabled && slugScope.isPiSubscriptionSlug
+            ? resolveFailoverTarget({
+                slug: modelSelection.model,
+                catalogue: piCatalogueFromProviders(providers),
+                isExhausted,
+                ...(failover.chains !== undefined ? { chains: failover.chains } : {}),
+              })
+            : undefined;
+        exhaustionWarnings.push(
+          buildSpawnExhaustionWarning({
+            slug: modelSelection.model,
+            resetHint: formatResetHint(until, yield* Clock.currentTimeMillis),
+            fallbackTarget,
+          }),
+        );
+      }
     }
   }
 
@@ -1336,18 +1648,15 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     ? body.blockedBy.map((id) => ThreadId.make((id as string).trim()))
     : undefined;
 
-  const crypto = yield* Crypto.Crypto;
-  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-  const childThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
-
   const graph = validateSpawnGraph({
     siblings: activeChildren,
     archivedSiblings: archivedChildren,
     blockedBy,
     gateRework: gateRework === undefined ? undefined : ThreadId.make(gateRework),
     gateMaxRounds: gate?.maxRounds as number | undefined,
+    forkFrom: forkFromId,
     isolationOverride: isolationOverride as ThreadIsolation | undefined,
-    role,
+    role: storedRole ?? "thread",
     newThreadId: childThreadId,
   });
   if (graph.kind === "rejected") return jsonError(400, graph.message);
@@ -1377,7 +1686,7 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // the explicit override or takes the role default.
   const isolation: ThreadIsolation = graph.forceAttached
     ? "attached"
-    : ((isolationOverride as ThreadIsolation | undefined) ?? roleDefaultIsolation(role));
+    : ((isolationOverride as ThreadIsolation | undefined) ?? roleDefaultIsolation(storedRole));
 
   // Create-only: the WorkstreamDispatcher is the sole start authority and fires
   // the deferred kick-off turn once every `blockedBy` thread reaches `done`.
@@ -1391,11 +1700,14 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
     projectId: current.projectId,
     goalId: current.goalId ?? null,
     parentThreadId: scope.threadId,
-    role,
+    // loom: forkFrom (D2) — the stored role is the source's role for a fork.
+    role: storedRole,
     purpose,
     ...(brief !== undefined ? { brief } : {}),
     ...(graph.blockedBy !== undefined ? { blockedBy: graph.blockedBy } : {}),
     ...(routes !== undefined ? { routes } : {}),
+    // loom: forkFrom — the driver forks the source's pi session at first launch.
+    ...(forkFromId !== undefined ? { forkFromThreadId: forkFromId } : {}),
     isolation,
     planLane,
     spawnGeneration,
@@ -1471,13 +1783,15 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
   interface ParsedNode {
     readonly key: string;
     readonly threadId: ThreadId;
-    readonly role: string;
+    readonly role: string | undefined;
     readonly purpose: string;
     readonly title: string;
     readonly raw: WorkstreamScaffoldNodeRequest;
     readonly gateRework: string | undefined;
     readonly gateMaxRounds: number | undefined;
     readonly isolationOverride: string | undefined;
+    // loom: forkFrom — raw reference (key | thread:id), resolved in phase 1.
+    readonly forkFromRef: string | undefined;
   }
   const parsed: ParsedNode[] = [];
   const seenKeys = new Set<string>();
@@ -1504,9 +1818,34 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     const role = trimString(node.role);
     const purpose = trimString(node.purpose);
     const title = trimString(node.title);
-    if (!role) return jsonError(400, `node "${key}": role is required.`);
+    // loom: forkFrom (D2) — a fork node inherits role + model from its source, so
+    // role is NOT required (and identity/model fields + gate are rejected below).
+    const forkFromRef = trimString(node.forkFrom);
+    if (!role && forkFromRef === undefined)
+      return jsonError(400, `node "${key}": role is required.`);
     if (!purpose) return jsonError(400, `node "${key}": purpose is required.`);
     if (!title) return jsonError(400, `node "${key}": title is required.`);
+    if (forkFromRef !== undefined) {
+      const identityRejection = forkIdentityFieldsRejection(
+        {
+          role: role !== undefined,
+          modelSelection: node.modelSelection !== undefined,
+          modelPreset: node.modelPreset !== undefined,
+          taskShape: node.taskShape !== undefined,
+          sensitive: node.sensitive !== undefined,
+        },
+        "Nothing was created.",
+      );
+      if (identityRejection !== undefined) {
+        return jsonError(400, `node "${key}": ${identityRejection}`);
+      }
+      if (node.gate !== undefined) {
+        return jsonError(
+          400,
+          `node "${key}": ${forkFromGateConflictMessage("Nothing was created.")}`,
+        );
+      }
+    }
     if (
       node.blockedBy !== undefined &&
       (!Array.isArray(node.blockedBy) || !node.blockedBy.every((r) => trimString(r)))
@@ -1559,6 +1898,7 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       gateRework,
       gateMaxRounds: gate?.maxRounds as number | undefined,
       isolationOverride,
+      forkFromRef,
     });
   }
 
@@ -1590,10 +1930,34 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
   }
   const existingIds = new Set<ThreadId>(activeChildren.map((child) => child.id));
 
+  // loom: forkFrom (D4) — pi-backed check reads provider instance metadata (an
+  // unlaunched in-batch source has no session). Read providers/settings ONCE.
+  const providers = yield* (yield* ProviderRegistry).getProviders;
+  const instanceDrivers = instanceDriverKinds(providers);
+  const catalogue = modelCatalogueOf(providers);
+  const settings = yield* (yield* ServerSettingsService).getSettings;
+  const presetNames = Object.keys(settings.workstreamModelPresets);
+  const usageSourceSet = usageSourceInstances(settings.providerInstances);
+  const health = yield* ProviderHealthRegistry;
+  const isExhausted = exhaustionPredicate(yield* health.snapshot);
+  const headroom: ShapeHeadroomInput = {
+    usage: yield* (yield* AccountUsageRegistry).snapshot,
+    isExhausted,
+    usageSourceInstances: usageSourceSet,
+    nowMs: yield* Clock.currentTimeMillis,
+  };
+
   interface ResolvedNode extends ParsedNode {
     readonly blockedByIds: ReadonlyArray<ThreadId>;
     readonly gateReworkId: ThreadId | undefined;
+    readonly forkFromId: ThreadId | undefined;
   }
+
+  // ==== Phase 1 (D4): resolve every reference; resolve the fork-edge graph to a
+  // fixed point (fork-of-fork inheritance in topological, array-order-
+  // independent order); reject fork-edge cycles/self/non-pi with node-labelled
+  // 400s; materialise every implied `blockedBy` edge. Only after the whole batch
+  // is resolved does Phase 2 validate the complete effective graph. ====
   const resolvedNodes: ResolvedNode[] = [];
   for (const node of parsed) {
     const refs = Array.isArray(node.raw.blockedBy)
@@ -1618,53 +1982,34 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       }
       gateReworkId = resolution.id;
     }
-    resolvedNodes.push({ ...node, blockedByIds, gateReworkId });
+    let forkFromId: ThreadId | undefined;
+    if (node.forkFromRef !== undefined) {
+      const resolution = resolveScaffoldReference({ ref: node.forkFromRef, keyToId, existingIds });
+      if (resolution.kind === "error") {
+        return jsonError(
+          400,
+          `node "${node.key}": forkFrom ${resolution.message} Nothing was created.`,
+        );
+      }
+      forkFromId = resolution.id;
+    }
+    resolvedNodes.push({ ...node, blockedByIds, gateReworkId, forkFromId });
   }
 
-  // Batch nodes as dependency-siblings so per-node warning computation sees the
-  // whole graph (a gate/dep targeting another batch node resolves).
-  const batchSiblings: DependencySibling[] = resolvedNodes.map((node) => ({
-    id: node.threadId,
-    title: node.title,
-    role: node.role,
-    parentThreadId: scope.threadId,
-    planLane: staged ? "planned" : "ready",
-    blockedBy: node.blockedByIds,
-    session: null,
-    latestUserMessageAt: null,
-  }));
-
-  // Live model-selection facts read ONCE, then applied per node.
-  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
-  const settings = yield* (yield* ServerSettingsService).getSettings;
-  const presetNames = Object.keys(settings.workstreamModelPresets);
-  const usageSourceSet = usageSourceInstances(settings.providerInstances);
-  const health = yield* ProviderHealthRegistry;
-  const isExhausted = exhaustionPredicate(yield* health.snapshot);
-  const headroom: ShapeHeadroomInput = {
-    usage: yield* (yield* AccountUsageRegistry).snapshot,
-    isExhausted,
-    usageSourceInstances: usageSourceSet,
-    nowMs: yield* Clock.currentTimeMillis,
-  };
-
-  // One spawn generation for the whole batch (the parent's active turn, or a
-  // fresh singleton when authored out-of-turn) so the nodes join one wake.
-  const spawnGeneration = current.session?.activeTurnId ?? (yield* crypto.randomUUIDv4);
   const warnings: string[] = [];
-  const commandNodes: Array<{
-    readonly threadId: ThreadId;
-    readonly graphKey: string;
-    readonly role: string;
-    readonly title: string;
-    readonly purpose: string;
-    readonly isolation: ThreadIsolation;
-    readonly blockedBy?: ReadonlyArray<ThreadId>;
-    readonly routes?: ReadonlyArray<WorkstreamRoute>;
-    readonly spawnGeneration: string;
-    readonly modelSelection: ModelSelection;
-  }> = [];
+
+  // Base identities a fork may inherit: every existing child (its projected
+  // role + model selection) and every NON-fork batch node (its own role + the
+  // model selection resolved by the precedence ladder). Fork nodes are resolved
+  // FROM these by resolveForkChains.
+  const baseIdentityById = new Map<ThreadId, ForkIdentity>();
+  for (const child of activeChildren) {
+    baseIdentityById.set(child.id, { role: child.role, modelSelection: child.modelSelection });
+  }
+  const selectionByKey = new Map<string, ModelSelection>();
+  const roleByKey = new Map<string, string | null>();
   for (const node of resolvedNodes) {
+    if (node.forkFromId !== undefined) continue; // fork nodes inherit — phase-1b
     const explicitDecoded =
       node.raw.modelSelection === undefined
         ? undefined
@@ -1683,14 +2028,101 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       profiles: settings.workstreamModelProfiles as Record<string, WorkstreamModelProfile>,
       catalogue,
       presetNames,
-      role: node.role,
+      role: node.role ?? "thread",
       parentSelection: current.modelSelection,
       headroom,
     });
     if (resolution.kind === "error")
       return jsonError(400, `node "${node.key}": ${resolution.message}`);
     for (const warning of resolution.warnings) warnings.push(`[${node.key}] ${warning}`);
+    selectionByKey.set(node.key, resolution.selection);
+    roleByKey.set(node.key, node.role ?? null);
+    baseIdentityById.set(node.threadId, {
+      role: node.role ?? null,
+      modelSelection: resolution.selection,
+    });
+  }
 
+  // Phase 1b: resolve fork nodes' inherited identity over the whole batch
+  // (topological, so fork-of-fork is array-order-independent), rejecting
+  // self-forks, fork-edge cycles, and non-pi sources with node-labelled 400s.
+  const forkChains = resolveForkChains({
+    nodes: resolvedNodes.map((node) => ({
+      key: node.key,
+      id: node.threadId,
+      forkFromId: node.forkFromId,
+    })),
+    baseIdentityById,
+    instanceDrivers,
+  });
+  if (forkChains.kind === "error") return jsonError(400, forkChains.message);
+  for (const node of resolvedNodes) {
+    if (node.forkFromId === undefined) continue;
+    const identity = forkChains.identityByKey.get(node.key);
+    if (identity === undefined) {
+      return jsonError(
+        400,
+        `node "${node.key}": forkFrom source could not be resolved. Nothing was created.`,
+      );
+    }
+    selectionByKey.set(node.key, identity.modelSelection);
+    roleByKey.set(node.key, identity.role);
+  }
+
+  // Effective (implied-edge-materialised) blockedBy per node, and its effective
+  // role (inherited for forks). Both feed the whole-graph siblings so Phase 2's
+  // cycle check sees implied fork edges — an implied-edge cycle then surfaces as
+  // a node-labelled 400, not a generic decider 500.
+  const effectiveBlockedByByKey = new Map<string, ReadonlyArray<ThreadId>>();
+  for (const node of resolvedNodes) {
+    const effective =
+      node.forkFromId !== undefined && !node.blockedByIds.includes(node.forkFromId)
+        ? [...node.blockedByIds, node.forkFromId]
+        : node.blockedByIds;
+    effectiveBlockedByByKey.set(node.key, effective);
+  }
+
+  // Batch nodes as dependency-siblings so per-node validation sees the whole
+  // effective graph (a gate/dep/fork targeting another batch node resolves).
+  const batchSiblings: DependencySibling[] = resolvedNodes.map((node) => ({
+    id: node.threadId,
+    title: node.title,
+    role: roleByKey.get(node.key) ?? node.role ?? null,
+    parentThreadId: scope.threadId,
+    planLane: staged ? "planned" : "ready",
+    blockedBy: effectiveBlockedByByKey.get(node.key) ?? node.blockedByIds,
+    session: null,
+    latestUserMessageAt: null,
+  }));
+
+  // One spawn generation for the whole batch (the parent's active turn, or a
+  // fresh singleton when authored out-of-turn) so the nodes join one wake.
+  const spawnGeneration = current.session?.activeTurnId ?? (yield* crypto.randomUUIDv4);
+  const commandNodes: Array<{
+    readonly threadId: ThreadId;
+    readonly graphKey: string;
+    readonly role: string | null;
+    readonly title: string;
+    readonly purpose: string;
+    readonly isolation: ThreadIsolation;
+    readonly blockedBy?: ReadonlyArray<ThreadId>;
+    readonly routes?: ReadonlyArray<WorkstreamRoute>;
+    readonly spawnGeneration: string;
+    readonly modelSelection: ModelSelection;
+    readonly forkFromThreadId?: ThreadId;
+  }> = [];
+
+  // ==== Phase 2 (D4): validate the complete effective graph per node (the cycle
+  // check + validateSpawnGraph over all implied edges) and build the commands. ====
+  for (const node of resolvedNodes) {
+    const effectiveRole = roleByKey.get(node.key) ?? node.role ?? null;
+    const modelSelection = selectionByKey.get(node.key);
+    if (modelSelection === undefined) {
+      return jsonError(
+        400,
+        `node "${node.key}": model selection could not be resolved. Nothing was created.`,
+      );
+    }
     const otherSiblings: DependencySibling[] = [
       ...activeChildren,
       ...batchSiblings.filter((sibling) => sibling.id !== node.threadId),
@@ -1701,8 +2133,9 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       blockedBy: node.blockedByIds.length > 0 ? node.blockedByIds : undefined,
       gateRework: node.gateReworkId,
       gateMaxRounds: node.gateMaxRounds,
+      forkFrom: node.forkFromId,
       isolationOverride: node.isolationOverride as ThreadIsolation | undefined,
-      role: node.role,
+      role: effectiveRole ?? "thread",
       newThreadId: node.threadId,
     });
     if (graph.kind === "rejected") return jsonError(400, `node "${node.key}": ${graph.message}`);
@@ -1723,19 +2156,20 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     const isolation: ThreadIsolation = graph.forceAttached
       ? "attached"
       : ((node.isolationOverride as ThreadIsolation | undefined) ??
-        roleDefaultIsolation(node.role));
+        roleDefaultIsolation(effectiveRole));
 
     commandNodes.push({
       threadId: node.threadId,
       graphKey: node.key,
-      role: node.role,
+      role: effectiveRole,
       title: node.title,
       purpose: node.purpose,
       isolation,
       ...(graph.blockedBy !== undefined ? { blockedBy: graph.blockedBy } : {}),
       ...(routes !== undefined ? { routes } : {}),
+      ...(node.forkFromId !== undefined ? { forkFromThreadId: node.forkFromId } : {}),
       spawnGeneration,
-      modelSelection: resolution.selection,
+      modelSelection,
     });
   }
 

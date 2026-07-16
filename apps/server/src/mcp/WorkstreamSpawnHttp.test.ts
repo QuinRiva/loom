@@ -9,19 +9,25 @@ import type { AccountUsageSnapshot } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  forkIdentityFieldsRejection,
+  forkFromGateConflictMessage,
   hasThreadStarted,
   headroomBucketFor,
+  instanceDriverKinds,
   invalidModelSelectionMessage,
   modelCatalogueOf,
   presetCatalogueOf,
   profileSummaryOf,
   rankShapeCandidates,
+  resolveForkChains,
+  resolveForkSource,
   resolvePresetSelection,
   resolveScaffoldReference,
   resolveShapeSelection,
   resolveSpawnModelSelection,
   validateModelSelection,
   validateSpawnGraph,
+  type ForkIdentity,
   type ModelCatalogueEntry,
   type ShapeHeadroomInput,
 } from "./WorkstreamSpawnHttp.ts";
@@ -1280,5 +1286,312 @@ describe("resolveScaffoldReference (scaffold key/thread resolution)", () => {
   it("rejects an unknown symbolic key", () => {
     const r = resolveScaffoldReference({ ref: "ghost", keyToId, existingIds });
     expect(r.kind === "error" && r.message).toContain("neither a node key in this scaffold");
+  });
+});
+
+// loom: forkFrom (D2/D4) — spawn/scaffold surface validators.
+const drivers = new Map<string, string>([
+  ["pi", "pi"],
+  ["codex", "codex"],
+]);
+
+const forkSibling = (
+  value: string,
+  overrides: {
+    readonly role?: string | null;
+    readonly instanceId?: string;
+    readonly title?: string;
+  } = {},
+) => ({
+  id: id(value),
+  title: overrides.title ?? value,
+  role: overrides.role === undefined ? "assessor" : overrides.role,
+  modelSelection: sel(overrides.instanceId ?? "pi", `${value}-model`),
+});
+
+describe("forkIdentityFieldsRejection (D2)", () => {
+  const none = {
+    role: false,
+    modelSelection: false,
+    modelPreset: false,
+    taskShape: false,
+    sensitive: false,
+  };
+
+  it("returns undefined when no identity field is provided", () => {
+    expect(forkIdentityFieldsRejection(none)).toBeUndefined();
+  });
+
+  it("rejects each identity field individually and names it", () => {
+    for (const field of [
+      "role",
+      "modelSelection",
+      "modelPreset",
+      "taskShape",
+      "sensitive",
+    ] as const) {
+      const message = forkIdentityFieldsRejection({ ...none, [field]: true });
+      expect(message).toBeDefined();
+      expect(message).toContain(field);
+      expect(message).toContain("forkFrom");
+      expect(message).toContain("Nothing was spawned.");
+    }
+  });
+
+  it("lists every offending field when several are combined", () => {
+    const message = forkIdentityFieldsRejection({ ...none, role: true, taskShape: true });
+    expect(message).toContain("role");
+    expect(message).toContain("taskShape");
+  });
+
+  it("honours a custom nothing-clause (scaffold)", () => {
+    const message = forkIdentityFieldsRejection({ ...none, role: true }, "Nothing was created.");
+    expect(message).toContain("Nothing was created.");
+  });
+});
+
+describe("forkFromGateConflictMessage (D4)", () => {
+  it("names both gate and forkFrom", () => {
+    expect(forkFromGateConflictMessage()).toContain("gate and forkFrom");
+    expect(forkFromGateConflictMessage("Nothing was created.")).toContain("Nothing was created.");
+  });
+});
+
+describe("resolveForkSource (spawn, D4)", () => {
+  const base = {
+    newChildId: id("new-child"),
+    activeChildren: [forkSibling("reader"), forkSibling("other")],
+    archivedChildren: [{ id: id("gone"), title: "archived reader" }],
+    instanceDrivers: drivers,
+  };
+
+  it("resolves an active pi-backed direct child and inherits its identity", () => {
+    const r = resolveForkSource({ ...base, forkFrom: id("reader") });
+    expect(r.kind).toBe("ok");
+    expect(r.kind === "ok" && r.id).toBe(id("reader"));
+    expect(r.kind === "ok" && r.identity.role).toBe("assessor");
+    expect(r.kind === "ok" && r.identity.modelSelection.instanceId).toBe("pi");
+  });
+
+  it("rejects an unknown id as not-a-direct-child and lists known children", () => {
+    const r = resolveForkSource({ ...base, forkFrom: id("ghost") });
+    expect(r.kind === "rejected" && r.message).toContain("active direct child");
+    expect(r.kind === "rejected" && r.message).toContain("reader");
+  });
+
+  it("rejects an archived source with the archived rejection style", () => {
+    const r = resolveForkSource({ ...base, forkFrom: id("gone") });
+    expect(r.kind === "rejected" && r.message).toContain("archived");
+  });
+
+  it("rejects a non-pi source via provider instance metadata", () => {
+    const r = resolveForkSource({
+      ...base,
+      activeChildren: [forkSibling("reader", { instanceId: "codex" })],
+      forkFrom: id("reader"),
+    });
+    expect(r.kind === "rejected" && r.message).toContain("not pi-backed");
+  });
+
+  it("rejects forking the child being spawned (self)", () => {
+    const r = resolveForkSource({ ...base, forkFrom: id("new-child") });
+    expect(r.kind === "rejected" && r.message).toContain("child being spawned");
+  });
+});
+
+describe("validateSpawnGraph forkFrom implied dependency (D3)", () => {
+  const reader = sibling("reader", { role: "assessor" });
+
+  it("adds forkFrom to blockedBy with a warning when absent", () => {
+    const r = ok(
+      validateSpawnGraph({
+        siblings: [reader],
+        blockedBy: undefined,
+        gateRework: undefined,
+        forkFrom: reader.id,
+        isolationOverride: undefined,
+        role: "assessor",
+        newThreadId: id("fork"),
+      }),
+    );
+    expect(r.blockedBy).toEqual([reader.id]);
+    expect(r.warnings.some((w) => w.includes("forkFrom") && w.includes("added to blockedBy"))).toBe(
+      true,
+    );
+  });
+
+  it("does not double-add when forkFrom is already an explicit dependency", () => {
+    const r = ok(
+      validateSpawnGraph({
+        siblings: [reader],
+        blockedBy: [reader.id],
+        gateRework: undefined,
+        forkFrom: reader.id,
+        isolationOverride: undefined,
+        role: "assessor",
+        newThreadId: id("fork"),
+      }),
+    );
+    expect(r.blockedBy).toEqual([reader.id]);
+    expect(r.warnings.some((w) => w.includes("added to blockedBy"))).toBe(false);
+  });
+
+  it("rejects a forkFrom that is not an active sibling", () => {
+    const r = rejected(
+      validateSpawnGraph({
+        siblings: [reader],
+        blockedBy: undefined,
+        gateRework: undefined,
+        forkFrom: id("ghost"),
+        isolationOverride: undefined,
+        role: "assessor",
+        newThreadId: id("fork"),
+      }),
+    );
+    expect(r.message).toContain("forkFrom must name an active sibling");
+  });
+
+  it("reports an implied-edge cycle as a node-labelled rejection, not a 500", () => {
+    // A sibling X depends on the new fork child; the fork's implied edge points
+    // back at X → cycle only visible once the implied edge is materialised.
+    const x = sibling("x", { blockedBy: [id("fork")] });
+    const r = rejected(
+      validateSpawnGraph({
+        siblings: [x],
+        blockedBy: undefined,
+        gateRework: undefined,
+        forkFrom: x.id,
+        isolationOverride: undefined,
+        role: "assessor",
+        newThreadId: id("fork"),
+      }),
+    );
+    expect(r.message).toContain("cycle");
+  });
+});
+
+describe("instanceDriverKinds", () => {
+  it("maps instance id to driver kind", () => {
+    const map = instanceDriverKinds([
+      { instanceId: "pi", driver: "pi", models: [] } as never,
+      { instanceId: "codex", driver: "codex", models: [] } as never,
+    ]);
+    expect(map.get("pi")).toBe("pi");
+    expect(map.get("codex")).toBe("codex");
+  });
+});
+
+describe("resolveForkChains (scaffold two-phase, D4)", () => {
+  const piIdentity = (value: string, role: string | null = "assessor"): ForkIdentity => ({
+    role,
+    modelSelection: sel("pi", `${value}-model`),
+  });
+
+  it("resolves an in-batch key source and inherits its identity", () => {
+    const readerId = id("reader");
+    const r = resolveForkChains({
+      nodes: [
+        { key: "reader", id: readerId, forkFromId: undefined },
+        { key: "fork", id: id("fork"), forkFromId: readerId },
+      ],
+      baseIdentityById: new Map([[readerId, piIdentity("reader")]]),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind).toBe("ok");
+    const identity = r.kind === "ok" && r.identityByKey.get("fork");
+    expect(identity && identity.modelSelection.instanceId).toBe("pi");
+    expect(identity && identity.role).toBe("assessor");
+  });
+
+  it("resolves a thread:<id> (existing child) source from baseIdentityById", () => {
+    const existingId = id("wt_existing");
+    const r = resolveForkChains({
+      nodes: [{ key: "fork", id: id("fork"), forkFromId: existingId }],
+      baseIdentityById: new Map([[existingId, piIdentity("existing", "reader")]]),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind).toBe("ok");
+    const identity = r.kind === "ok" && r.identityByKey.get("fork");
+    expect(identity && identity.role).toBe("reader");
+  });
+
+  it("inherits fork-of-fork identity regardless of node array order", () => {
+    const readerId = id("reader");
+    const bId = id("b");
+    const aId = id("a");
+    const base = new Map([[readerId, piIdentity("reader", "lead")]]);
+    // A forks B forks reader. Author A BEFORE B to prove order-independence.
+    const r = resolveForkChains({
+      nodes: [
+        { key: "a", id: aId, forkFromId: bId },
+        { key: "b", id: bId, forkFromId: readerId },
+        { key: "reader", id: readerId, forkFromId: undefined },
+      ],
+      baseIdentityById: base,
+      instanceDrivers: drivers,
+    });
+    expect(r.kind).toBe("ok");
+    if (r.kind !== "ok") return;
+    expect(r.identityByKey.get("a")?.role).toBe("lead");
+    expect(r.identityByKey.get("b")?.role).toBe("lead");
+    expect(r.identityByKey.get("a")?.modelSelection).toEqual(sel("pi", "reader-model"));
+  });
+
+  it("rejects a self-fork with a node-labelled error", () => {
+    const r = resolveForkChains({
+      nodes: [{ key: "a", id: id("a"), forkFromId: id("a") }],
+      baseIdentityById: new Map(),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind === "error" && r.nodeKey).toBe("a");
+    expect(r.kind === "error" && r.message).toContain("itself");
+  });
+
+  it("rejects a fork-edge cycle with a node-labelled error", () => {
+    const r = resolveForkChains({
+      nodes: [
+        { key: "a", id: id("a"), forkFromId: id("b") },
+        { key: "b", id: id("b"), forkFromId: id("a") },
+      ],
+      baseIdentityById: new Map(),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind).toBe("error");
+    expect(r.kind === "error" && r.message).toContain("cycle");
+  });
+
+  it("rejects a non-pi source with a node-labelled error", () => {
+    const readerId = id("reader");
+    const r = resolveForkChains({
+      nodes: [
+        { key: "reader", id: readerId, forkFromId: undefined },
+        { key: "fork", id: id("fork"), forkFromId: readerId },
+      ],
+      baseIdentityById: new Map([
+        [readerId, { role: "assessor", modelSelection: sel("codex", "reader-model") }],
+      ]),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind === "error" && r.nodeKey).toBe("fork");
+    expect(r.kind === "error" && r.message).toContain("not pi-backed");
+  });
+
+  it("resolves the reader → three-fork acceptance shape (all inherit the reader)", () => {
+    const readerId = id("reader");
+    const r = resolveForkChains({
+      nodes: [
+        { key: "reader", id: readerId, forkFromId: undefined },
+        { key: "lens-a", id: id("lens-a"), forkFromId: readerId },
+        { key: "lens-b", id: id("lens-b"), forkFromId: readerId },
+        { key: "lens-c", id: id("lens-c"), forkFromId: readerId },
+      ],
+      baseIdentityById: new Map([[readerId, piIdentity("reader")]]),
+      instanceDrivers: drivers,
+    });
+    expect(r.kind).toBe("ok");
+    if (r.kind !== "ok") return;
+    for (const key of ["lens-a", "lens-b", "lens-c"]) {
+      expect(r.identityByKey.get(key)?.modelSelection).toEqual(sel("pi", "reader-model"));
+    }
   });
 });
