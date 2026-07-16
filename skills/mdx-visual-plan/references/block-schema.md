@@ -38,6 +38,7 @@ Props:
 - `filename` — `string` _(optional)_
 - `caption` — `string` _(optional)_
 - `maxLines` — `integer` _(optional)_
+- `wrap` — `boolean` _(optional)_
 
 ## `<DataModel>` — `data-model`
 
@@ -115,6 +116,7 @@ Props:
   - `lines` — `string` **(required)**
   - `label` — `string` _(optional)_
   - `note` — `string` **(required)**
+- `wrap` — `boolean` _(optional)_
 
 ## `<Diagram>` — `diagram`
 
@@ -163,6 +165,7 @@ Props:
 - `title` — `string` _(optional)_
 - `json` — `string` **(required)**
 - `collapsedDepth` — `integer` _(optional)_
+- `wrap` — `boolean` _(optional)_
 
 ## `<Callout>` — `callout`
 
@@ -222,6 +225,7 @@ Props:
   - `lines` — `string` **(required)**
   - `label` — `string` _(optional)_
   - `note` — `string` **(required)**
+- `wrap` — `boolean` _(optional)_
 
 ## `<OpenApi>` — `openapi-spec`
 
@@ -303,6 +307,48 @@ Props:
 - `from` — `string` **(required)**
 - `to` — `string` **(required)**
 - `label` — `string` _(optional)_
+
+## `<FieldDiff>` — `field-diff`
+
+Props:
+
+- `title` — `string` _(optional)_
+- `beforeLabel` — `string` _(optional)_
+- `afterLabel` — `string` _(optional)_
+- `fields` — `object[]` **(required)**
+  - `name` — `string` **(required)**
+  - `before` — `string | null` _(optional)_
+  - `after` — `string | null` _(optional)_
+  - `kept` — `boolean` _(optional)_
+  - `note` — `string` _(optional)_
+
+## `<Details>` — `details`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+Props:
+
+- `summary` — `string` **(required)**
+- `open` — `boolean` _(optional)_
+
+## `<Card>` — `card`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+Props:
+
+- `heading` — `string` **(required)**
+- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `badge` — `string` _(optional)_
+- `meta` — `string[]` _(optional)_
+
+## `<ReviewChoice>` — `review-choice`
+
+Props:
+
+- `itemId` — `string` **(required)**
+- `label` — `string` _(optional)_
+- `placeholder` — `string` _(optional)_
 
 ## `<Columns>` — `columns`
 

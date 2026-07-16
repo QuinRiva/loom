@@ -5,6 +5,7 @@ import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { useShikiHtml } from "../shiki";
+import { WrapToggle } from "./wrapToggle";
 
 /**
  * The primitive `<Code>` block — one syntax-highlighted snippet. Reuses the
@@ -20,6 +21,8 @@ export interface CodeData {
   filename?: string;
   caption?: string;
   maxLines?: number;
+  /** Initial soft-wrap state (§5). Toggleable in the header regardless. */
+  wrap?: boolean;
 }
 
 export const codeSchema = z.object({
@@ -28,6 +31,7 @@ export const codeSchema = z.object({
   filename: z.string().trim().max(400).optional(),
   caption: z.string().trim().max(400).optional(),
   maxLines: z.number().int().min(0).max(2000).optional(),
+  wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<CodeData>;
 
 export const codeMdx: BlockMdxConfig<CodeData> = {
@@ -37,6 +41,7 @@ export const codeMdx: BlockMdxConfig<CodeData> = {
     language: data.language,
     caption: data.caption,
     maxLines: data.maxLines,
+    wrap: data.wrap,
     code: data.code,
   }),
   fromAttrs: (attrs) =>
@@ -46,20 +51,30 @@ export const codeMdx: BlockMdxConfig<CodeData> = {
       filename: attrs.string("filename"),
       caption: attrs.string("caption"),
       maxLines: attrs.number("maxLines"),
+      wrap: attrs.bool("wrap"),
     }) as CodeData,
 };
 
 const DEFAULT_CODE_MAX_LINES = 30;
 
-function CodeBody({ code, language }: { code: string; language: string }) {
+function CodeBody({ code, language, wrap }: { code: string; language: string; wrap: boolean }) {
   const html = useShikiHtml(code, language);
 
   if (html === null) {
-    return <pre className="overflow-x-auto p-3 font-mono text-xs">{code}</pre>;
+    return (
+      <pre
+        className={cn(
+          "overflow-x-auto p-3 font-mono text-xs",
+          wrap && "whitespace-pre-wrap break-words",
+        )}
+      >
+        {code}
+      </pre>
+    );
   }
   return (
     <div
-      className="plan-code-shiki overflow-x-auto p-3 text-xs"
+      className={cn("plan-code-shiki overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -71,6 +86,7 @@ export function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
   const maxLines = data.maxLines ?? DEFAULT_CODE_MAX_LINES;
   const collapsible = maxLines > 0 && lines.length > maxLines;
   const [expanded, setExpanded] = useState(false);
+  const [wrap, setWrap] = useState(data.wrap ?? false);
   const shownCode = collapsible && !expanded ? lines.slice(0, maxLines).join("\n") : data.code;
 
   return (
@@ -79,13 +95,14 @@ export function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
       data-plan-block-type="code"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      {(data.filename || language !== "text") && (
-        <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-          <span className="truncate font-mono">{data.filename ?? ""}</span>
-          <span className="shrink-0 uppercase tracking-wide">{language}</span>
-        </figcaption>
-      )}
-      <CodeBody code={shownCode} language={language} />
+      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
+          <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
+        </div>
+      </figcaption>
+      <CodeBody code={shownCode} language={language} wrap={wrap} />
       {collapsible && (
         <button
           type="button"

@@ -90,6 +90,15 @@ describe("lintPlanSource", () => {
     ).toEqual([]);
   });
 
+  it("flags duplicate <ReviewChoice itemId> as an error but allows distinct ids", async () => {
+    expect(
+      await errorText('<ReviewChoice itemId="a1" />\n\n<ReviewChoice itemId="a1" />'),
+    ).toContain("Duplicate <ReviewChoice");
+    expect(
+      await lintPlanSource('<ReviewChoice itemId="a1" />\n\n<ReviewChoice itemId="a2" />'),
+    ).toEqual([]);
+  });
+
   it("enforces nesting rules and warns on phantom container children", async () => {
     expect(await errorText('<Tab label="t">x</Tab>')).toContain("direct child");
     expect(

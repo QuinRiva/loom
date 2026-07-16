@@ -1,10 +1,11 @@
 import { IconColumns, IconFileDiff, IconList } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { WrapToggle } from "./wrapToggle";
 
 /**
  * The `<Diff>` block — a GitHub-style before/after line diff, unified or split.
@@ -32,6 +33,8 @@ export interface DiffData {
   after: string;
   mode?: DiffMode;
   annotations?: DiffAnnotation[];
+  /** Initial soft-wrap state (§5). Toggleable in the header regardless. */
+  wrap?: boolean;
 }
 
 const lineRefSchema = z
@@ -54,6 +57,7 @@ export const diffSchema = z.object({
   after: z.string().max(100_000),
   mode: z.enum(["unified", "split"]).optional(),
   annotations: z.array(diffAnnotationSchema).max(80).optional(),
+  wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<DiffData>;
 
 export const diffMdx: BlockMdxConfig<DiffData> = {
@@ -65,6 +69,7 @@ export const diffMdx: BlockMdxConfig<DiffData> = {
     before: data.before,
     after: data.after,
     annotations: data.annotations,
+    wrap: data.wrap,
   }),
   fromAttrs: (attrs) =>
     ({
@@ -74,6 +79,7 @@ export const diffMdx: BlockMdxConfig<DiffData> = {
       before: attrs.string("before") ?? "",
       after: attrs.string("after") ?? "",
       annotations: attrs.array<DiffAnnotation>("annotations"),
+      wrap: attrs.bool("wrap"),
     }) as DiffData,
 };
 
@@ -246,13 +252,23 @@ function parseLineStart(lines: string): number {
   return Number.parseInt(lines.split("-")[0]?.trim() ?? "0", 10) || 0;
 }
 
-function DiffLine({ row, side }: { row?: DiffRow | undefined; side?: "old" | "new" | undefined }) {
-  if (!row) return <div className="min-h-5 bg-muted/30" />;
+function DiffLine({
+  row,
+  side,
+  wrap,
+  className,
+}: {
+  row?: DiffRow | undefined;
+  side?: "old" | "new" | undefined;
+  wrap: boolean;
+  className?: string;
+}) {
+  if (!row) return <div className={cn("min-h-5 bg-muted/30", className)} />;
   const no = side === "old" ? row.oldNo : side === "new" ? row.newNo : undefined;
   const sign = side === "old" ? "−" : side === "new" ? "+" : SIGN[row.kind];
   const showSign = side ? row.kind !== "context" : true;
   return (
-    <div className={cn("flex min-h-5 leading-5", ROW_BG[row.kind])}>
+    <div className={cn("flex min-h-5 leading-5", ROW_BG[row.kind], className)}>
       {side ? (
         <span className={cn(LINE_NO, "w-[3rem]")}>{no ?? ""}</span>
       ) : (
@@ -266,7 +282,14 @@ function DiffLine({ row, side }: { row?: DiffRow | undefined; side?: "old" | "ne
       >
         {showSign ? sign : " "}
       </span>
-      <span className="whitespace-pre px-2 text-foreground">{row.text || " "}</span>
+      <span
+        className={cn(
+          "px-2 text-foreground",
+          wrap ? "min-w-0 flex-1 whitespace-pre-wrap break-words" : "whitespace-pre",
+        )}
+      >
+        {row.text || " "}
+      </span>
     </div>
   );
 }
@@ -278,6 +301,7 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
   );
   const [mode, setMode] = useState<DiffMode>(data.mode ?? "split");
   const [showAll, setShowAll] = useState(false);
+  const [wrap, setWrap] = useState(data.wrap ?? false);
   const annotations = useMemo(
     () =>
       [...(data.annotations ?? [])].sort(
@@ -322,6 +346,7 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
             label="Split"
           />
         </div>
+        <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
       </figcaption>
 
       {unchanged ? (
@@ -329,22 +354,27 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           No changes
         </div>
       ) : mode === "split" ? (
-        <div className="flex overflow-x-auto font-mono text-xs">
-          <div className="min-w-0 flex-1 border-r border-border">
-            {shownPairs.map((pair) => (
-              <DiffLine key={`old-${pairKey(pair)}`} row={pair.left} side="old" />
-            ))}
-          </div>
-          <div className="min-w-0 flex-1">
-            {shownPairs.map((pair) => (
-              <DiffLine key={`new-${pairKey(pair)}`} row={pair.right} side="new" />
-            ))}
-          </div>
+        // One CSS grid (1fr 1fr) so each SplitRow pair shares a grid row and its
+        // left/right cells stay height-aligned when one side wraps taller. When
+        // not wrapping, cells grow to content and the grid scrolls horizontally;
+        // when wrapping, `min-w-0 flex-1` on the text span lets cells shrink and
+        // wrap. `pairSplitRows`, the truncation button, and annotations are
+        // unchanged.
+        <div
+          className="grid overflow-x-auto font-mono text-xs"
+          style={{ gridTemplateColumns: "1fr 1fr" }}
+        >
+          {shownPairs.map((pair) => (
+            <Fragment key={pairKey(pair)}>
+              <DiffLine row={pair.left} side="old" wrap={wrap} className="border-r border-border" />
+              <DiffLine row={pair.right} side="new" wrap={wrap} />
+            </Fragment>
+          ))}
         </div>
       ) : (
         <div className="overflow-x-auto font-mono text-xs">
           {shownRows.map((row) => (
-            <DiffLine key={rowKey(row)} row={row} />
+            <DiffLine key={rowKey(row)} row={row} wrap={wrap} />
           ))}
         </div>
       )}

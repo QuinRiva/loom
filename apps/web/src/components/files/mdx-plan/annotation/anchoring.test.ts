@@ -8,6 +8,7 @@ import {
   anchorForCanvasPoint,
   anchorForWireframeNode,
   anchorFromRange,
+  collapsedSurfaceFor,
   enclosingBlock,
   resolveAnchor,
   resolveCanvasAnchor,
@@ -318,5 +319,56 @@ describe("anchoring — canvas board coordinate", () => {
     document.body.innerHTML = `<div data-plan-root></div>`;
     const r = document.querySelector("[data-plan-root]")!;
     expect(resolveAnchor(anchorForCanvasPoint({ x: 1, y: 2 }), r)).toBeNull();
+  });
+});
+
+describe("anchoring — collapsed surfaces (closed details / hidden tab panels)", () => {
+  it("classifies a node inside a closed <details> to its summary, null once open", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <details class="d1"><summary>Evidence</summary><p class="buried">hidden text</p></details>
+    </div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    const details = r.querySelector("details") as HTMLDetailsElement;
+    const node = r.querySelector(".buried")!.firstChild!;
+    const surface = collapsedSurfaceFor(node, r)!;
+    expect(surface).not.toBeNull();
+    expect(surface.detailsToOpen).toContain(details);
+    expect(surface.badgeElement.tagName).toBe("SUMMARY");
+    // An OPEN details is visible → not collapsed.
+    details.open = true;
+    expect(collapsedSurfaceFor(node, r)).toBeNull();
+  });
+
+  it("badges the OUTERMOST closed details when nested two deep", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <details class="outer"><summary>Outer</summary>
+        <details class="inner"><summary>Inner</summary><p class="deep">x</p></details>
+      </details>
+    </div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    const outerSummary = r.querySelector(".outer > summary")!;
+    const node = r.querySelector(".deep")!.firstChild!;
+    const surface = collapsedSurfaceFor(node, r)!;
+    expect(surface.detailsToOpen).toHaveLength(2);
+    expect(surface.badgeElement).toBe(outerSummary);
+  });
+
+  it("classifies a node inside a hidden tab panel to its controlling tab", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <button role="tab" id="t1" aria-controls="p1">One</button>
+      <div role="tabpanel" id="p1" hidden><p class="tabbed">x</p></div>
+    </div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    const tab = r.querySelector("#t1")!;
+    const node = r.querySelector(".tabbed")!.firstChild!;
+    const surface = collapsedSurfaceFor(node, r)!;
+    expect(surface.tabsToActivate).toContain(tab);
+    expect(surface.badgeElement).toBe(tab);
+  });
+
+  it("returns null when no collapsed surface encloses the node", () => {
+    document.body.innerHTML = `<div data-plan-root><p class="plain">visible</p></div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    expect(collapsedSurfaceFor(r.querySelector(".plain")!.firstChild!, r)).toBeNull();
   });
 });
