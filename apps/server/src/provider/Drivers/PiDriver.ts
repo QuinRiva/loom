@@ -85,6 +85,7 @@ import {
   createPiRpcProcess,
   type PiRpcCommandInfo,
   type PiRpcProcess,
+  type PiRpcProcessOptions,
   type PiRpcStdoutEvent,
   type PiRpcStdoutMessage,
 } from "../Layers/Pi/RpcProcess.ts";
@@ -96,6 +97,16 @@ import {
 } from "../Layers/Pi/SessionIdSanitiser.ts";
 import { ensurePiProviderToolExtension } from "./Pi/providerToolExtension.ts";
 import { piSessionIdForThread, resolveSessionFilePath } from "../piSessionFiles.ts";
+// loom: forkFrom launch-identity capture/replay + kickoff-delivered marker (D2/D8).
+import {
+  deleteLaunchIdentity,
+  isKickoffDelivered,
+  markKickoffDelivered,
+  readLaunchIdentity,
+  resolveForkLaunchArgs,
+  updateLaunchIdentityApplied,
+  writeLaunchIdentity,
+} from "../../orchestration/workstreamLaunchIdentity.ts";
 import {
   T3_QUOTA_FAILOVER_DELAY_MS,
   T3_RETRY_DELAYS_MS,
@@ -840,11 +851,15 @@ function imageAttachments(
   });
 }
 
-function makePiAdapter(input: {
+export function makePiAdapter(input: {
   readonly instanceId: ProviderInstanceId;
   readonly settings: PiSettings;
   readonly serverConfig: ServerConfig["Service"];
   readonly events: Queue.Queue<ProviderRuntimeEvent>;
+  // loom: forkFrom — injectable pi process factory (defaults to the real
+  // createPiRpcProcess). Lets driver-boundary tests capture the argv/forkFrom a
+  // launch produces and drive the stream without spawning a real pi binary.
+  readonly createProcess?: (options: PiRpcProcessOptions) => Promise<PiRpcProcess>;
   // Shared slug -> context-window map populated by `enrichPiSnapshot` from pi's
   // live catalogue; read synchronously here to set token-usage `maxTokens`.
   readonly modelContextWindows: Map<string, number>;
@@ -866,6 +881,9 @@ function makePiAdapter(input: {
   | ProviderAdapterValidationError
 > {
   const sessions = new Map<ThreadId, ActivePiSession>();
+  // loom: forkFrom (D2/D8) — durable per-thread launch-identity sidecars +
+  // kickoff-delivered markers live under this dir.
+  const launchIdentityDir = input.serverConfig.workstreamLaunchIdentityDir;
   const emit = (event: ProviderRuntimeEvent) =>
     Queue.offer(input.events, event).pipe(Effect.asVoid);
   const requireSession = (
@@ -1149,6 +1167,46 @@ function makePiAdapter(input: {
       }
     });
 
+  // loom: D2 — persist the APPLIED selection (model slug + thinking level) that
+  // served a turn's final round onto the thread's launch-identity record. A fork
+  // replays this as the selection that most recently consumed the shared prefix.
+  // BEST-EFFORT: a state-dir write failure must NOT suppress turn completion (a
+  // suppressed completion would leave the projection/forks permanently running);
+  // it forfeits only future cache identity for a fork of this thread, which is
+  // logged and surfaces downstream as a loud fork-launch refusal (missing
+  // record).
+  // Run a synchronous best-effort disk write, returning the failure message (or
+  // undefined on success) WITHOUT throwing into the Effect — the launch-identity
+  // sidecar/marker are cache optimisations whose write must never fail a launch,
+  // a turn settlement, or a send.
+  const trySyncWrite = (run: () => void): string | undefined => {
+    try {
+      run();
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+
+  const persistServedModel = (
+    session: ActivePiSession,
+    model: string | undefined,
+    thinkingLevel: string | undefined,
+  ) =>
+    Effect.gen(function* () {
+      const failure = trySyncWrite(() =>
+        updateLaunchIdentityApplied(launchIdentityDir, session.session.threadId, {
+          model,
+          thinkingLevel,
+        }),
+      );
+      if (failure !== undefined)
+        yield* Effect.logWarning("forkFrom: failed to persist launch identity at settlement", {
+          threadId: session.session.threadId,
+          error: failure,
+        });
+    });
+
   // Settle the open turn as completed/interrupted (events are built while the
   // turn id is still set, then the id is cleared).
   const completeTurn = (
@@ -1157,9 +1215,19 @@ function makePiAdapter(input: {
     raw?: ProviderRuntimeEvent["raw"],
   ): Effect.Effect<void> => {
     const done = emit({ ...sessionBase(session, raw), type: "turn.completed", payload: { state } });
+    // loom: D2 write order — snapshot the applied selection that served this
+    // turn's final round BEFORE settleRetry restores the pre-fallback original,
+    // advance the launch-identity record, THEN emit turn.completed. The
+    // dispatcher's source-idle re-trigger derives from that event, so emitting
+    // first would let a fork read a stale (pre-reroute) selection.
+    const servedModel = session.session.model;
+    const servedThinkingLevel = session.thinkingLevel;
     session.activeTurnId = undefined;
     updateSession(session, { status: "ready", activeTurnId: undefined });
-    return settleRetry(session).pipe(Effect.andThen(done));
+    return persistServedModel(session, servedModel, servedThinkingLevel).pipe(
+      Effect.andThen(settleRetry(session)),
+      Effect.andThen(done),
+    );
   };
 
   // Terminal failure path (mirrors ClaudeAdapter): a runtime.error with class
@@ -1185,9 +1253,17 @@ function makePiAdapter(input: {
         }),
       ),
     );
+    // loom: D2 — a source can be lane-`done` via workstream_submit yet have its
+    // provider turn settle in error afterwards; apply the same settlement update
+    // here so a fork replays the selection that actually last consumed the prefix.
+    const servedModel = session.session.model;
+    const servedThinkingLevel = session.thinkingLevel;
     session.activeTurnId = undefined;
     updateSession(session, { status: "error", activeTurnId: undefined });
-    return settleRetry(session).pipe(Effect.andThen(events));
+    return persistServedModel(session, servedModel, servedThinkingLevel).pipe(
+      Effect.andThen(settleRetry(session)),
+      Effect.andThen(events),
+    );
   };
 
   // Timer callback body: re-dispatch the failed turn (optionally after the
@@ -1783,9 +1859,34 @@ function makePiAdapter(input: {
           if (slugRoutesToAnthropic(effectiveSlug))
             yield* Effect.sync(() => sanitisePiSessionForThread(startInput.threadId));
         }
+        // loom: forkFrom (D2) — a fork child's FIRST launch replays the SOURCE's
+        // captured launch identity verbatim (final argv appendSystemPrompt /
+        // tools / skills) instead of the reactor-composed values, which are
+        // mutable intent and would break prefix-identity caching. Detected by
+        // the same fork-once condition the launch closure uses: a fork source is
+        // set and the child has no session file yet. A missing record (source
+        // predates the feature, was force-`done` without launching, or its
+        // session was deleted) is a readable refusal, not a silent divergence.
+        const forkFirstLaunch =
+          startInput.forkFromThreadId !== undefined &&
+          resolveSessionFilePath(piSessionIdForThread(startInput.threadId)) === undefined;
+        const forkRecord =
+          forkFirstLaunch && startInput.forkFromThreadId !== undefined
+            ? readLaunchIdentity(launchIdentityDir, startInput.forkFromThreadId)
+            : undefined;
+        if (forkFirstLaunch && forkRecord === undefined) {
+          return yield* new ProviderAdapterProcessError({
+            provider: DRIVER_KIND,
+            threadId: startInput.threadId,
+            detail:
+              `Cannot fork thread '${startInput.forkFromThreadId}': it has no captured launch identity. ` +
+              `The source predates the forkFrom feature, was never actually launched, or its session/record is missing. ` +
+              `A fork must inherit the source's launched system prompt and model to preserve the shared cacheable prefix.`,
+          });
+        }
         const launch = (): Promise<PiRpcProcess> => {
           const mcpSession = McpProviderSession.readMcpProviderSession(startInput.threadId);
-          const appendSystemPrompt = appendSystemPrompts(
+          const composedAppendSystemPrompt = appendSystemPrompts(
             mcpSession ? PI_WORK_MODEL_SYSTEM_PROMPT : undefined,
             startInput.appendSystemPrompt,
           );
@@ -1804,7 +1905,47 @@ function makePiAdapter(input: {
               ? (resolveSessionFilePath(piSessionIdForThread(startInput.forkFromThreadId)) ??
                 piSessionIdForThread(startInput.forkFromThreadId))
               : undefined;
-          return createPiRpcProcess({
+          // loom: forkFrom (D2) — replay the source's final argv verbatim on the
+          // fork's first launch (no re-prepend, no reactor recomposition).
+          // `forkRecord` is defined only for the first launch; a later resume
+          // recomputes forkSource === undefined and recomposes normally.
+          const { appendSystemPrompt, skills, tools } = resolveForkLaunchArgs({
+            forkRecord: forkSource !== undefined ? forkRecord : undefined,
+            composedAppendSystemPrompt,
+            startSkills: startInput.skills,
+            startTools: startInput.tools,
+          });
+          // loom: D2 — capture this launch's identity at the createPiRpcProcess
+          // boundary. `appendSystemPrompt` is the FINAL argv bytes (post work-
+          // model prepend), so a fork replaying it must not re-prepend. The
+          // model is the launch intent; turn settlement advances it to the model
+          // that actually served each turn. BEST-EFFORT: a state-dir write
+          // failure must NEVER reject an otherwise-good launch (this runs for
+          // EVERY pi thread, forks and non-forks alike). A lost record forfeits
+          // only a future fork's cache identity, which surfaces as that fork's
+          // loud missing-record launch refusal rather than a silent divergence.
+          try {
+            writeLaunchIdentity(launchIdentityDir, startInput.threadId, {
+              providerInstanceId: input.instanceId,
+              model: startInput.modelSelection?.model,
+              options: startInput.modelSelection?.options?.map((option) => ({
+                id: option.id,
+                value: option.value,
+              })),
+              appendSystemPrompt,
+              tools: tools && tools.length > 0 ? [...tools] : undefined,
+              skills: skills && skills.length > 0 ? [...skills] : undefined,
+            });
+          } catch {
+            // loom: forkFrom (D2) — capture failed for THIS launch. Any record
+            // left on disk is from a PRIOR launch and may carry stale argv/model
+            // that no longer matches what pi is about to run; invalidate it so a
+            // fork reads a MISSING record (loud refusal) rather than silently
+            // replaying stale identity. The current launch proceeds regardless
+            // (identity capture is a cache optimisation, never a launch gate).
+            deleteLaunchIdentity(launchIdentityDir, startInput.threadId);
+          }
+          return (input.createProcess ?? createPiRpcProcess)({
             binaryPath: input.settings.binaryPath,
             platform,
             cwd: piCwd,
@@ -1814,10 +1955,8 @@ function makePiAdapter(input: {
             sessionId: piSessionIdForThread(startInput.threadId),
             ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
-            ...(startInput.skills && startInput.skills.length > 0
-              ? { skills: startInput.skills }
-              : {}),
-            ...(startInput.tools && startInput.tools.length > 0 ? { tools: startInput.tools } : {}),
+            ...(skills && skills.length > 0 ? { skills } : {}),
+            ...(tools && tools.length > 0 ? { tools } : {}),
             ...(mcpSession
               ? { extensions: [ensurePiProviderToolExtension(input.serverConfig.stateDir)] }
               : {}),
@@ -2022,6 +2161,26 @@ function makePiAdapter(input: {
                   cause,
                 }),
             });
+            // loom: D8 — the moment pi ACCEPTS a prompt, persist the positive
+            // kickoff-delivered marker. Its absence (a pre-dispatch quota
+            // exhaustion fails before this line; a provider-guard fork refusal /
+            // restart-cleared start never reaches it) is what makes a kickoff
+            // replay-eligible; a delivered-then-errored first turn has the marker
+            // and is never re-delivered. Written once per session (cheap
+            // existence check keeps later turns off the write path). BEST-EFFORT:
+            // pi has ALREADY accepted the prompt, so a marker write failure must
+            // NOT be reported as a send failure (that would risk duplicate work);
+            // log and continue — at worst a later resume re-delivers the kickoff.
+            if (!isKickoffDelivered(launchIdentityDir, turnInput.threadId)) {
+              const markerFailure = trySyncWrite(() =>
+                markKickoffDelivered(launchIdentityDir, turnInput.threadId),
+              );
+              if (markerFailure !== undefined)
+                yield* Effect.logWarning("forkFrom: failed to persist kickoff-delivered marker", {
+                  threadId: turnInput.threadId,
+                  error: markerFailure,
+                });
+            }
             return { threadId: turnInput.threadId, turnId } satisfies ProviderTurnStartResult;
           }),
         ),
