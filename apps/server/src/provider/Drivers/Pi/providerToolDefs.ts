@@ -43,14 +43,15 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "For most spawns omit every model field — the child takes a role-matched preset or inherits this thread's model; that is the normal path. Reach for taskShape only when the work materially fits one of three shapes: 'explore' (open-ended/prototype, vague objective, plan likely to change), 'thorough' (edge cases, migrations, hardening, review gates — missing a real issue is worse than noise), or 'mechanical' (bounded, self-contained, high-volume: extraction, renames, formatting). The server then picks the model — don't guess model names. Add sensitive: 'security' on security/crypto/bio-adjacent work so the resolver avoids models whose safety classifier would interrupt the run. modelSelection / modelPreset are escape hatches for genuine exceptions only.",
       "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole graph for review before any tokens are spent, then workstream_release the held subtree to let it run.",
       "To put a coder under review, spawn the coder first, then spawn a reviewer with gate: { rework: coderId }. gate.rework is automatically added to blockedBy, so the reviewer waits for the coder before running. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong).",
-      "When several children must analyse the SAME large corpus through different lenses, use forkFrom instead of re-reading it N times: spawn one reader child to read the corpus and end its turn with a bare acknowledgement, then spawn N children with forkFrom: readerId — each forks the reader's session (byte-identical prefix → provider cache hits + comparable verdicts) and its brief carries only its own lens. Don't pass role/model fields on a fork (identity is inherited); forkFrom auto-adds the reader to blockedBy; launch the forks together so they share the cache window.",
+      "When several children must analyse the SAME large corpus through different lenses, use forkFrom instead of re-reading it N times: spawn one reader child to read the corpus and end its turn with a bare acknowledgement, then spawn N children with forkFrom: readerId — each forks the reader's session (byte-identical prefix → comparable verdicts, and prompt-cache reuse when launched together on a cache-supporting provider path) and its brief carries only its own lens. Don't pass role/model fields on a fork (identity is inherited); forkFrom auto-adds the reader to blockedBy; launch the forks together so they share the cache window.",
     ],
     parameters: {
       type: "object",
       properties: {
         role: {
           type: "string",
-          description: "Role label for the child agent, e.g. coder, reviewer, researcher.",
+          description:
+            "Role label for the child agent, e.g. coder, reviewer, researcher. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).",
         },
         purpose: {
           type: "string",
@@ -95,7 +96,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         forkFrom: {
           type: "string",
           description:
-            "Fork this child's pi session from an existing active direct child (the 'source') at its first launch, so the child starts from a byte-identical copy of the source's transcript. Use it for acknowledge-then-fork fan-out: one reader child reads a large shared corpus and ends its turn with a bare acknowledgement, then you fork N children off it — each fork's brief carries only its differentiated lens/task. The identical prefix means provider prompt-cache hits on every fork and verdict comparability (the forks reason from literally the same context). Identity is INHERITED from the source: do NOT pass role / modelSelection / modelPreset / taskShape / sensitive (each is rejected, not ignored) — the fork adopts the source's role and applied model; purpose + title are still required per fork. forkFrom is auto-added to blockedBy (a fork waits for its source to finish). Cannot be combined with gate. Cache note: the cache is time-limited, so release/launch the forks together promptly — scattering their launches over hours forfeits the cache (correctness is unaffected). Worktree: prefer the default (shared) so the copied transcript's file paths stay valid; only use isolation:'isolated' if the forks write code (an isolated fork's copied transcript still references the source's worktree paths).",
+            "Fork this child's pi session from an existing active direct child (the 'source') at its first launch, so the child starts from a byte-identical copy of the source's transcript. Use it for acknowledge-then-fork fan-out: one reader child reads a large shared corpus and ends its turn with a bare acknowledgement, then you fork N children off it — each fork's brief carries only its differentiated lens/task. The identical prefix enables provider prompt-cache reuse across the forks when they launch together on a cache-supporting provider path (cache hits are not guaranteed — they depend on the path), and gives verdict comparability regardless (the forks reason from literally the same context). Identity is INHERITED from the source: do NOT pass role / modelSelection / modelPreset / taskShape / sensitive (each is rejected, not ignored) — the fork adopts the source's role and applied model; purpose + title are still required per fork. forkFrom is auto-added to blockedBy (a fork waits for its source to finish). Cannot be combined with gate. Cache note: the cache is time-limited, so release/launch the forks together promptly — scattering their launches over hours forfeits the cache (correctness is unaffected). Worktree: prefer the default (shared) so the copied transcript's file paths stay valid; only use isolation:'isolated' if the forks write code (an isolated fork's copied transcript still references the source's worktree paths).",
         },
         staged: {
           type: "boolean",
@@ -158,7 +159,10 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
           additionalProperties: false,
         },
       },
-      required: ["role", "purpose", "title"],
+      // role is required for a normal spawn but MUST be omitted with forkFrom
+      // (identity is inherited); that conditional requirement is enforced by the
+      // handler, so role is not in the unconditional `required` set.
+      required: ["purpose", "title"],
       additionalProperties: false,
     },
     errorMode: "throw",
@@ -199,7 +203,8 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               },
               role: {
                 type: "string",
-                description: "Role label for the node, e.g. coder, reviewer, researcher. Required.",
+                description:
+                  "Role label for the node, e.g. coder, reviewer, researcher. Required for a normal node; OMIT it on a fork node (forkFrom set) — the fork inherits the source's role, and passing role with forkFrom is rejected.",
               },
               title: {
                 type: "string",
@@ -238,7 +243,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               forkFrom: {
                 type: "string",
                 description:
-                  "Fork this node's pi session from a source node/child at launch, so it starts from a byte-identical copy of the source's transcript — a `key` of another node in this scaffold (typically the reader node) or `thread:<id>` for an existing child. This is the acknowledge-then-fork shape as ONE call: a reader node that reads the shared corpus, then N fork nodes (forkFrom: reader) each carrying only their lens brief — identical prefixes give provider cache hits and verdict comparability. Identity is INHERITED from the source: do NOT set role / modelSelection / modelPreset / taskShape / sensitive on a fork node (each is rejected); purpose + title are still required. forkFrom is auto-added to the node's blockedBy, and cannot be combined with gate. Fork-of-fork is allowed and resolves order-independently; a fork-edge cycle is rejected. Stage the reader + forks together and release them together so the forks launch in one dispatcher pass (the cache is time-limited; scattering launches forfeits it, correctness unaffected). Prefer shared isolation (the default) unless the forks write code — an isolated fork's copied transcript still references the source's worktree paths.",
+                  "Fork this node's pi session from a source node/child at launch, so it starts from a byte-identical copy of the source's transcript — a `key` of another node in this scaffold (typically the reader node) or `thread:<id>` for an existing child. This is the acknowledge-then-fork shape as ONE call: a reader node that reads the shared corpus, then N fork nodes (forkFrom: reader) each carrying only their lens brief — identical prefixes give verdict comparability (and enable prompt-cache reuse when launched together on a cache-supporting provider path). Identity is INHERITED from the source: do NOT set role / modelSelection / modelPreset / taskShape / sensitive on a fork node (each is rejected); purpose + title are still required. forkFrom is auto-added to the node's blockedBy, and cannot be combined with gate. Fork-of-fork is allowed and resolves order-independently; a fork-edge cycle is rejected. Stage the reader + forks together and release them together so the forks launch in one dispatcher pass (the cache is time-limited; scattering launches forfeits it, correctness unaffected). Prefer shared isolation (the default) unless the forks write code — an isolated fork's copied transcript still references the source's worktree paths.",
               },
               isolation: {
                 type: "string",
@@ -288,7 +293,10 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
                 additionalProperties: false,
               },
             },
-            required: ["key", "role", "title", "purpose"],
+            // role is required for a normal node but MUST be omitted on a fork
+            // node (forkFrom set); the handler enforces that conditional rule, so
+            // role is not in the unconditional `required` set.
+            required: ["key", "title", "purpose"],
             additionalProperties: false,
           },
         },

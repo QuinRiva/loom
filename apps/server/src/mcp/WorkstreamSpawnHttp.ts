@@ -1251,6 +1251,58 @@ export const resolveForkChains = (input: {
   return { kind: "ok", identityByKey };
 };
 
+export type ScaffoldForkReferenceResolution =
+  | { readonly kind: "ok"; readonly id: ThreadId }
+  | { readonly kind: "error"; readonly message: string };
+
+/**
+ * Resolve a scaffold `forkFrom` reference (D4). Wraps `resolveScaffoldReference`
+ * and, when a `thread:<id>` reference names an ARCHIVED existing child, returns
+ * the archived-style rejection instead of the generic "not an active child"
+ * message — so a source archived between authoring calls is distinguishable from
+ * a wrong / non-child id. Every message is node-labelled and ends
+ * "Nothing was created."
+ */
+export const resolveScaffoldForkReference = (input: {
+  readonly ref: string;
+  readonly nodeKey: string;
+  readonly keyToId: ReadonlyMap<string, ThreadId>;
+  readonly existingIds: ReadonlySet<ThreadId>;
+  readonly archived: ReadonlyArray<{ readonly id: ThreadId; readonly title: string | null }>;
+}): ScaffoldForkReferenceResolution => {
+  const resolution = resolveScaffoldReference({
+    ref: input.ref,
+    keyToId: input.keyToId,
+    existingIds: input.existingIds,
+  });
+  if (resolution.kind === "ok") return { kind: "ok", id: resolution.id };
+  const ref = input.ref.trim();
+  if (ref.startsWith(SCAFFOLD_THREAD_REF_PREFIX)) {
+    const id = ref.slice(SCAFFOLD_THREAD_REF_PREFIX.length).trim() as ThreadId;
+    const archived = input.archived.find((thread) => thread.id === id);
+    if (archived !== undefined) {
+      return {
+        kind: "error",
+        message: `node "${input.nodeKey}": forkFrom names ${archived.id} ("${archived.title ?? "(untitled)"}"), which is archived and no longer active — an archived thread cannot be forked. Nothing was created.`,
+      };
+    }
+  }
+  return {
+    kind: "error",
+    message: `node "${input.nodeKey}": forkFrom ${resolution.message} Nothing was created.`,
+  };
+};
+
+/**
+ * Node-label + house-style suffix for a scaffold rejection whose text came from
+ * `validateSpawnGraph` (which speaks the spawn dialect, "Nothing was spawned.").
+ * Scaffold rejections — including an implied-fork-edge cycle surfaced in Phase 2
+ * — must read as node-labelled with the scaffold's "Nothing was created." suffix,
+ * never leak a generic decider 500.
+ */
+export const scaffoldNodeRejectionMessage = (nodeKey: string, graphMessage: string): string =>
+  `node "${nodeKey}": ${graphMessage.replace(/Nothing was spawned\.$/, "Nothing was created.")}`;
+
 const unknownPresetMessage = (name: string, available: ReadonlyArray<string>): string =>
   `Unknown modelPreset "${name}". Available presets: ${
     available.length > 0 ? available.join(", ") : "none configured"
@@ -1449,7 +1501,10 @@ const handleWorkstreamSpawn = Effect.gen(function* () {
   // and gate + forkFrom has no v1 composition.
   if (forkFrom !== undefined) {
     const identityRejection = forkIdentityFieldsRejection({
-      role: role !== undefined,
+      // Presence from the RAW field, not the trimmed value: `role: ""` is a
+      // PROVIDED identity field and must be rejected (D2 — never silently
+      // ignored), even though trimString would collapse it to undefined.
+      role: body.role !== undefined,
       modelSelection: body.modelSelection !== undefined,
       modelPreset: body.modelPreset !== undefined,
       taskShape: body.taskShape !== undefined,
@@ -1828,7 +1883,8 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     if (forkFromRef !== undefined) {
       const identityRejection = forkIdentityFieldsRejection(
         {
-          role: role !== undefined,
+          // Raw presence (D2): a provided `role`, even empty, is rejected.
+          role: node.role !== undefined,
           modelSelection: node.modelSelection !== undefined,
           modelPreset: node.modelPreset !== undefined,
           taskShape: node.taskShape !== undefined,
@@ -1984,13 +2040,16 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
     }
     let forkFromId: ThreadId | undefined;
     if (node.forkFromRef !== undefined) {
-      const resolution = resolveScaffoldReference({ ref: node.forkFromRef, keyToId, existingIds });
-      if (resolution.kind === "error") {
-        return jsonError(
-          400,
-          `node "${node.key}": forkFrom ${resolution.message} Nothing was created.`,
-        );
-      }
+      // forkFrom-specific resolution so an archived `thread:<id>` source gets the
+      // archived rejection style (D4), not the generic "not an active child".
+      const resolution = resolveScaffoldForkReference({
+        ref: node.forkFromRef,
+        nodeKey: node.key,
+        keyToId,
+        existingIds,
+        archived: archivedChildren,
+      });
+      if (resolution.kind === "error") return jsonError(400, resolution.message);
       forkFromId = resolution.id;
     }
     resolvedNodes.push({ ...node, blockedByIds, gateReworkId, forkFromId });
@@ -2138,7 +2197,8 @@ const handleWorkstreamScaffold = Effect.gen(function* () {
       role: effectiveRole ?? "thread",
       newThreadId: node.threadId,
     });
-    if (graph.kind === "rejected") return jsonError(400, `node "${node.key}": ${graph.message}`);
+    if (graph.kind === "rejected")
+      return jsonError(400, scaffoldNodeRejectionMessage(node.key, graph.message));
     for (const warning of graph.warnings) warnings.push(`[${node.key}] ${warning}`);
 
     const routes: ReadonlyArray<WorkstreamRoute> | undefined =

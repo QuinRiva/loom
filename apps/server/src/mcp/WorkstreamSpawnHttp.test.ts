@@ -22,7 +22,9 @@ import {
   resolveForkChains,
   resolveForkSource,
   resolvePresetSelection,
+  resolveScaffoldForkReference,
   resolveScaffoldReference,
+  scaffoldNodeRejectionMessage,
   resolveShapeSelection,
   resolveSpawnModelSelection,
   validateModelSelection,
@@ -1593,5 +1595,87 @@ describe("resolveForkChains (scaffold two-phase, D4)", () => {
     for (const key of ["lens-a", "lens-b", "lens-c"]) {
       expect(r.identityByKey.get(key)?.modelSelection).toEqual(sel("pi", "reader-model"));
     }
+  });
+});
+
+describe("resolveScaffoldForkReference (scaffold forkFrom, D4)", () => {
+  const keyToId = new Map<string, ThreadId>([["reader", id("wt_reader")]]);
+  const existingIds = new Set<ThreadId>([id("wt_existing")]);
+  const archived = [{ id: id("wt_archived"), title: "old reader" }];
+
+  it("resolves an in-batch key source", () => {
+    const r = resolveScaffoldForkReference({
+      ref: "reader",
+      nodeKey: "fork",
+      keyToId,
+      existingIds,
+      archived,
+    });
+    expect(r).toEqual({ kind: "ok", id: id("wt_reader") });
+  });
+
+  it("resolves a thread:<id> existing-child source", () => {
+    const r = resolveScaffoldForkReference({
+      ref: "thread:wt_existing",
+      nodeKey: "fork",
+      keyToId,
+      existingIds,
+      archived,
+    });
+    expect(r).toEqual({ kind: "ok", id: id("wt_existing") });
+  });
+
+  it("gives the archived rejection style for an archived thread:<id> source", () => {
+    const r = resolveScaffoldForkReference({
+      ref: "thread:wt_archived",
+      nodeKey: "fork",
+      keyToId,
+      existingIds,
+      archived,
+    });
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.message).toContain('node "fork":');
+    expect(r.message).toContain("archived");
+    expect(r.message.endsWith("Nothing was created.")).toBe(true);
+  });
+
+  it("falls back to a node-labelled generic rejection for a wrong/non-child id", () => {
+    const r = resolveScaffoldForkReference({
+      ref: "thread:wt_ghost",
+      nodeKey: "fork",
+      keyToId,
+      existingIds,
+      archived,
+    });
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.message).toContain('node "fork":');
+    expect(r.message).toContain("does not name an active existing child");
+    expect(r.message.endsWith("Nothing was created.")).toBe(true);
+  });
+});
+
+describe("scaffoldNodeRejectionMessage (D4 node-labelled, scaffold suffix)", () => {
+  it("node-labels a validateSpawnGraph rejection and rewrites the spawn suffix", () => {
+    // Build a real implied-edge cycle through the spawn validator: sibling X
+    // depends on the fork child, the fork's implied edge points back at X.
+    const x = sibling("x", { blockedBy: [id("fork")] });
+    const graph = validateSpawnGraph({
+      siblings: [x],
+      blockedBy: undefined,
+      gateRework: undefined,
+      forkFrom: x.id,
+      isolationOverride: undefined,
+      role: "assessor",
+      newThreadId: id("fork"),
+    });
+    expect(graph.kind).toBe("rejected");
+    if (graph.kind !== "rejected") return;
+    const message = scaffoldNodeRejectionMessage("fork", graph.message);
+    expect(message.startsWith('node "fork":')).toBe(true);
+    expect(message).toContain("cycle");
+    expect(message.endsWith("Nothing was created.")).toBe(true);
+    expect(message).not.toContain("Nothing was spawned.");
   });
 });
