@@ -104,7 +104,11 @@ export function WorkstreamLifecycleDrawer({
   useEffect(() => {
     if (!open) return;
     restoreFocusRef.current = document.activeElement;
-    closeRef.current?.focus();
+    // preventScroll: at this moment the drawer is still translated off-screen
+    // (the slide-in has just started); a plain focus() makes the browser scroll
+    // the overflow-hidden panel container sideways to reveal it, visibly
+    // shunting the graph left before it bounces back.
+    closeRef.current?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
@@ -130,7 +134,8 @@ export function WorkstreamLifecycleDrawer({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       // Restore focus to the trigger when the drawer closes.
-      if (restoreFocusRef.current instanceof HTMLElement) restoreFocusRef.current.focus();
+      if (restoreFocusRef.current instanceof HTMLElement)
+        restoreFocusRef.current.focus({ preventScroll: true });
     };
   }, [open, onClose]);
 

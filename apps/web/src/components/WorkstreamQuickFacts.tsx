@@ -9,6 +9,7 @@ import {
   getGateLoopCap,
   getGateWaitLabel,
   getLastActivityAt,
+  getPurpose,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
@@ -50,6 +51,11 @@ export const WorkstreamQuickFacts = forwardRef<
       </div>
       <div className="mt-0.5 line-clamp-2 text-[13px] font-semibold leading-snug text-white">
         {thread.title}
+      </div>
+      {/* The goal used to live in a native <title> tooltip on the node, which
+          fought this card (two simultaneous tooltips); it belongs here. */}
+      <div className="mt-1 line-clamp-3 text-[11px] leading-snug text-white/55">
+        {getPurpose(thread)}
       </div>
 
       <dl className="mt-2 flex flex-col gap-1">

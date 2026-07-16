@@ -52,7 +52,6 @@ import {
   getGateWaitLabel,
   getLoopEdgeStroke,
   getLoopStroke,
-  getPurpose,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
@@ -195,6 +194,11 @@ export default function WorkstreamGraph({
   // Pending facts position for a KEYBOARD focus (no cursor): captured from the
   // focused element's rect and applied after the card mounts.
   const focusPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  // Last pointer position, tracked continuously so the card can be placed the
+  // moment it mounts: the dwell timer often fires while the pointer is
+  // STATIONARY, and waiting for the next mousemove leaves the card unpositioned
+  // (it flashed at a stale corner) until the pointer twitches.
+  const pointerPosRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
   const cancelHover = () => {
     if (hoverTimerRef.current) {
@@ -234,13 +238,14 @@ export default function WorkstreamGraph({
   };
 
   useEffect(() => () => cancelHover(), []);
-  // Once the facts card has mounted for a keyboard focus, place it from the
-  // captured rect (mouse hover positions imperatively via mousemove instead).
+  // Place the card the moment it mounts: from the focused element's rect for a
+  // keyboard focus, else from the last tracked pointer position. Mousemove then
+  // keeps it tracking imperatively.
   useLayoutEffect(() => {
-    if (hovered && focusPosRef.current) {
-      positionFacts(focusPosRef.current);
-      focusPosRef.current = null;
-    }
+    if (!hovered) return;
+    const at = focusPosRef.current ?? pointerPosRef.current;
+    if (at) positionFacts(at);
+    focusPosRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hovered]);
 
@@ -452,7 +457,10 @@ export default function WorkstreamGraph({
                 onOpenThread={onOpenThread}
                 onInspectThread={onInspectThread}
                 onHoverStart={(thread) => scheduleHover(thread, node.thread.id)}
-                onHoverMove={positionFacts}
+                onHoverMove={(event) => {
+                  pointerPosRef.current = { clientX: event.clientX, clientY: event.clientY };
+                  positionFacts(event);
+                }}
                 onHoverEnd={cancelHover}
                 onFocusStart={(thread, el) => focusHover(thread, node.thread.id, el)}
                 externalConsult={consultOverlay.externalByAskerId.get(node.thread.id)}
@@ -797,6 +805,13 @@ function GraphNode({
   // faded one recedes further.
   const recede = status.column === "done" || status.column === "cancelled";
   const cardOpacity = dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1;
+  // Bottom-right badge row: every relationship badge (fork, fan-in, consult)
+  // left-packs into the same corner, keeping the top-right corner free for the
+  // ⓘ control — a badge is information, ⓘ is an action, and the action must
+  // sit at a stable position on every node regardless of which badges exist.
+  const forkBadgeX = node.x + node.w - 12;
+  const fanInBadgeX = forkBadgeX - (thread.forkFromThreadId ? 20 : 0);
+  const consultBadgeX = fanInBadgeX - (fanInBadge ? 20 : 0);
   const open = () => onOpenThread(thread);
   const inspect = () => onInspectThread(thread);
   const roleLabel = getRoleLabel(thread);
@@ -828,7 +843,6 @@ function GraphNode({
         onFocus={(event) => onFocusStart(thread, event.currentTarget)}
         onBlur={onHoverEnd}
       >
-        <title>{`Goal: ${getPurpose(thread)}`}</title>
         <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={10} />
         {/* Card visuals recede/fade as a unit; the button hit area stays crisp. */}
         <g opacity={cardOpacity}>
@@ -922,7 +936,7 @@ function GraphNode({
                 fill={FORKED_FROM_STROKE}
                 fontSize="10"
                 textAnchor="middle"
-                x={node.x + node.w - 12}
+                x={forkBadgeX}
                 y={node.y + node.h - 8.5}
               >
                 ⑂
@@ -936,7 +950,7 @@ function GraphNode({
             <g>
               <title>{`Fan-in: ${fanInBadge.label}`}</title>
               <circle
-                cx={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+                cx={fanInBadgeX}
                 cy={node.y + node.h - 12}
                 fill="#0d1117"
                 r="8"
@@ -947,7 +961,7 @@ function GraphNode({
                 fill={fanInBadge.stroke}
                 fontSize="9"
                 textAnchor="middle"
-                x={node.x + node.w - (thread.forkFromThreadId ? 32 : 12)}
+                x={fanInBadgeX}
                 y={node.y + node.h - 8.5}
               >
                 {fanInBadge.glyph}
@@ -960,8 +974,8 @@ function GraphNode({
             <g>
               <title>{`Consulted outside this graph: ${externalConsult.targetTitles.join(", ")}`}</title>
               <circle
-                cx={node.x + node.w - 12}
-                cy={node.y + 12}
+                cx={consultBadgeX}
+                cy={node.y + node.h - 12}
                 fill="#0d1117"
                 r="8"
                 stroke={CONSULT_STROKE}
@@ -971,8 +985,8 @@ function GraphNode({
                 fill={CONSULT_STROKE}
                 fontSize="9"
                 textAnchor="middle"
-                x={node.x + node.w - 12}
-                y={node.y + 15}
+                x={consultBadgeX}
+                y={node.y + node.h - 8.5}
               >
                 {externalConsult.count > 9 ? "9+" : externalConsult.count}
               </text>
@@ -999,23 +1013,29 @@ function GraphNode({
           }
         }}
       >
-        <title>Inspect lifecycle history</title>
+        {/* Fixed top-right slot on every node — badges live in the bottom-right
+            row, so this control's position never varies with badge presence.
+            Drawn as vector strokes (dot + stem), not a ⓘ text glyph, so it
+            renders crisply at every zoom and doesn't double-ring the circle.
+            No native <title>: the facts card is already open on node hover and
+            names this action; a browser tooltip on top of it reads as two
+            duelling tooltips. */}
         <circle
           cx={node.x + node.w - 14}
           cy={node.y + 13}
           fill="#0d1117"
-          r="9"
-          stroke="rgba(255,255,255,0.55)"
+          r="8.5"
+          stroke="rgba(255,255,255,0.45)"
         />
-        <text
-          fill="rgba(255,255,255,0.8)"
-          fontSize="11"
-          textAnchor="middle"
-          x={node.x + node.w - 14}
-          y={node.y + 16.5}
-        >
-          ⓘ
-        </text>
+        <circle cx={node.x + node.w - 14} cy={node.y + 9.6} fill="rgba(255,255,255,0.85)" r="1.1" />
+        <rect
+          fill="rgba(255,255,255,0.85)"
+          height={5.4}
+          rx={0.8}
+          width={1.6}
+          x={node.x + node.w - 14.8}
+          y={node.y + 11.8}
+        />
         <rect fill="transparent" height={22} width={22} x={node.x + node.w - 25} y={node.y + 2} />
         <FocusRing x={node.x + node.w - 25} y={node.y + 2} w={22} h={22} rx={11} />
       </g>
