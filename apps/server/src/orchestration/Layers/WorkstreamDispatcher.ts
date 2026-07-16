@@ -50,13 +50,19 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
-import { isThreadIdle } from "../threadIdle.ts";
+import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
+// loom: forkFrom (D2/D7) — fork-source-idle promotion gate + captured-selection
+// persistence.
+import { ModelSelection } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+import { ServerConfig } from "../../config.ts";
+import { readLaunchIdentity } from "../workstreamLaunchIdentity.ts";
 import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
 import {
   ProcessResourceMonitor,
   type ProcessTreeActivity,
 } from "../../diagnostics/ProcessResourceMonitor.ts";
-import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
+import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 
 /**
  * Pure "promote ready" selection: every un-started sub-thread whose `blockedBy`
@@ -1585,12 +1591,18 @@ const parkCommandId = (parentId: ThreadId, episode: string): string =>
 const parkBlockCommandId = (parentId: ThreadId, episode: string): string =>
   `${parkCommandId(parentId, episode)}:block`;
 
+// loom: forkFrom (D2) — hoisted decoder (no per-call inline schema compile).
+const decodeCapturedSelection = Schema.decodeUnknownEffect(ModelSelection);
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const worktreeProvisioner = yield* WorktreeProvisioner;
+  // loom: forkFrom (D2/D7) — launch-identity records live under this dir.
+  const serverConfig = yield* ServerConfig;
+  const launchIdentityDir = serverConfig.workstreamLaunchIdentityDir;
 
   // Does a command id have an accepted receipt? Backs the durable handled-check,
   // so a fresh process (empty cache) still recomputes the true handled set from
@@ -1820,9 +1832,117 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
+  // loom: forkFrom (D2 authority) — persist the SOURCE's captured
+  // instance/model/options onto a fork child BEFORE its kickoff turn-start, so
+  // the reactor's per-turn selection reassertion and the exhaustion sweep's
+  // readiness check both key off the model that actually consumed the shared
+  // prefix rather than the fork child's inherited placeholder selection. Safe
+  // against the reactor's started-thread model guard because the fork child has
+  // no session yet. A missing/model-less record is left to the driver's
+  // fork-launch refusal (D2) — nothing to persist here.
+  // Returns:
+  //  - "missing": no captured record on disk — promotion proceeds so the DRIVER
+  //    issues its loud missing-record fork-launch refusal (D2 deterministic
+  //    refusal), which is strictly better than a silent stale-selection launch.
+  //  - "ok": the captured selection was durably persisted onto the fork child.
+  //  - "defer": a record EXISTS but the captured selection could not be built
+  //    or persisted (invalid record / model-less / meta.update failed). The
+  //    driver would NOT refuse (the record exists), so launching would silently
+  //    apply the child's stale placeholder selection and forfeit the cache.
+  //    Do NOT kick this pass; log and retry on the next pass.
+  const persistForkSelection = Effect.fn("persistForkSelection")(function* (
+    thread: OrchestrationThreadShell,
+  ) {
+    if (thread.forkFromThreadId === null) return "ok" as const;
+    const record = readLaunchIdentity(launchIdentityDir, thread.forkFromThreadId);
+    if (record === undefined) return "missing" as const;
+    if (record.model === undefined) return "defer" as const;
+    const captured = yield* decodeCapturedSelection({
+      instanceId: record.providerInstanceId,
+      model: record.model,
+      ...(record.options && record.options.length > 0 ? { options: record.options } : {}),
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (captured === undefined) return "defer" as const;
+    return yield* orchestrationEngine
+      .dispatch({
+        type: "thread.meta.update",
+        commandId: yield* serverCommandId("fork-selection"),
+        threadId: thread.id,
+        modelSelection: captured,
+      } satisfies OrchestrationCommand)
+      .pipe(
+        Effect.as("ok" as const),
+        Effect.catch(() => Effect.succeed("defer" as const)),
+      );
+  });
+
+  // loom: forkFrom (D2/D7) — a fork whose captured selection could not be built
+  // or persisted (invalid/model-less record, or a meta.update failure) must not
+  // launch on its stale placeholder selection, but must NOT sit silently `ready`
+  // either. Raise a deduped needs_guidance flag (deterministic id → receipt-
+  // deduped, so re-runs never re-raise) so the parent/board sees it and can
+  // repair (re-spawn the fork). The periodic dispatch re-pass keeps retrying, so
+  // a transient meta.update failure self-heals (the flag clears when the child
+  // finally launches).
+  const parkForkForUnpersistedSelection = Effect.fn("parkForkForUnpersistedSelection")(function* (
+    thread: OrchestrationThreadShell,
+  ) {
+    const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(
+          `server:workstream-dispatcher:fork-selection-unpersisted:${thread.id}`,
+        ),
+        threadId: thread.id,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(Effect.ignoreCause({ log: true }));
+  });
+
   const promoteReadyThreads = Effect.fn("promoteReadyThreads")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    for (const thread of selectThreadsToDispatch(snapshot.threads)) {
+    const selected = selectThreadsToDispatch(snapshot.threads);
+    // loom: forkFrom (D7) — a fork child whose own pi session file does not yet
+    // exist may only be promoted once its SOURCE is idle; otherwise `pi --fork`
+    // would copy a mid-turn transcript and the persisted kickoff would strand it
+    // (the provider guard fires too late to retry). Sharing shouldRefuseForkLaunch's
+    // exact predicate keeps this dispatch gate and the provider backstop from
+    // drifting. A deferred fork stays ready/un-kicked; the source going idle
+    // emits thread.session-set, which re-runs this pass — no new trigger wiring.
+    const hasForkPending = selected.some((thread) => thread.forkFromThreadId !== null);
+    const pendingTurnStartThreadIds = hasForkPending
+      ? yield* projectionSnapshotQuery.getPendingTurnStartThreadIds()
+      : new Set<ThreadId>();
+    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
+    for (const thread of selected) {
+      if (thread.forkFromThreadId !== null) {
+        const source = threadsById.get(thread.forkFromThreadId);
+        if (
+          shouldRefuseForkLaunch({
+            forkFromThreadId: thread.forkFromThreadId,
+            childSessionFileExists:
+              resolveSessionFilePath(piSessionIdForThread(thread.id)) !== undefined,
+            source,
+            pendingTurnStartThreadIds,
+          })
+        )
+          continue; // source mid-turn — defer; re-runs on the source's thread.session-set
+        // loom: forkFrom (D2 authority) — never kick on an unpersisted selection.
+        const persisted = yield* persistForkSelection(thread);
+        if (persisted === "defer") {
+          yield* Effect.logWarning(
+            "forkFrom: captured selection not durably persisted; deferring fork kickoff",
+            { threadId: thread.id, forkFromThreadId: thread.forkFromThreadId },
+          );
+          // Surface it (deduped) so it is not silently stuck; the periodic
+          // re-pass retries and clears the flag on eventual launch.
+          yield* parkForkForUnpersistedSelection(thread);
+          continue; // do NOT launch on the stale placeholder selection
+        }
+        // "ok" (persisted) or "missing" (driver issues the loud D2 refusal).
+      }
       yield* promoteThread(thread);
     }
   });

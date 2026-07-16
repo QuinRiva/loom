@@ -40,6 +40,12 @@ export interface ServerDerivedPaths {
   // files. Durable state dir (never the ephemeral worktree); the dispatcher
   // reads the brief here at a child's first launch.
   readonly workstreamBriefsDir: string;
+  // loom: forkFrom launch-identity sidecars + kickoff-delivered markers. Stable
+  // per-thread JSON files written by the pi driver at the createPiRpcProcess
+  // boundary and read at a fork child's first launch to replay the source's
+  // byte-identical argv/selection. Durable state dir (never the ephemeral
+  // worktree); survives restarts because the marker is not a projection.
+  readonly workstreamLaunchIdentityDir: string;
   // Retained read-only consult_thread fork session jsonls (deep-inspection
   // artefacts). Sibling of workstreamReportsDir under the durable state dir.
   readonly workstreamConsultsDir: string;
@@ -108,6 +114,8 @@ export const deriveServerPaths = Effect.fn(function* (
   const attachmentsDir = join(stateDir, "attachments");
   const workstreamReportsDir = join(stateDir, "workstream-reports");
   const workstreamBriefsDir = join(stateDir, "workstream-briefs");
+  // loom: forkFrom launch-identity sidecars + kickoff-delivered markers.
+  const workstreamLaunchIdentityDir = join(stateDir, "workstream-launch-identity");
   const workstreamConsultsDir = join(stateDir, "workstream-consults");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
@@ -122,6 +130,7 @@ export const deriveServerPaths = Effect.fn(function* (
     attachmentsDir,
     workstreamReportsDir,
     workstreamBriefsDir,
+    workstreamLaunchIdentityDir, // loom:
     workstreamConsultsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -149,6 +158,8 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamReportsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamBriefsDir, { recursive: true }),
+      // loom:
+      fs.makeDirectory(derivedPaths.workstreamLaunchIdentityDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamConsultsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),

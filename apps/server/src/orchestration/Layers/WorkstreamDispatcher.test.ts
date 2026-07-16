@@ -96,6 +96,8 @@ import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { reconcileStartupStaleSessionState } from "../../loom/startup.ts";
+// loom: forkFrom (D2/D7) tests.
+import { writeLaunchIdentity } from "../workstreamLaunchIdentity.ts";
 
 const now = "2026-06-24T00:00:00.000Z";
 
@@ -5748,6 +5750,325 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
               c.type === "thread.activity.append" && c.activity.kind === "workstream.brief-needed",
           );
           expect(markers).toHaveLength(2);
+        }),
+      ),
+  );
+});
+
+// loom: forkFrom (D2 authority + D7 dispatch gate). Drives the assembled
+// dispatcher layer through the review's exact race sequence: a fork child whose
+// source is still mid-turn is NOT kicked; once the source goes idle (surfaced as
+// thread.session-set), exactly one kickoff fires with forkFromThreadId intact,
+// preceded by the captured-selection meta.update.
+describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () => {
+  const SOURCE_ID = "aaaaaaaa-0000-4000-8000-000000000001" as ThreadId;
+  const FORK_ID = "bbbbbbbb-0000-4000-8000-000000000002" as ThreadId;
+
+  // A source that is mid-turn (running with an active turn) → not idle.
+  const runningSource = (): OrchestrationThreadShell =>
+    shell({
+      id: SOURCE_ID as unknown as string,
+      parentThreadId: "root-fork" as unknown as ThreadId,
+      role: "reader",
+      planLane: "in_progress",
+      latestUserMessageAt: now,
+      session: runningSession({
+        threadId: SOURCE_ID,
+        status: "running",
+        activeTurnId: "t-src" as TurnId,
+      }),
+    });
+
+  const forkChild = (kickoffBriefPath: string): OrchestrationThreadShell =>
+    shell({
+      id: FORK_ID as unknown as string,
+      parentThreadId: "root-fork" as unknown as ThreadId,
+      role: "assessor",
+      purpose: "judge the corpus through lens A",
+      planLane: "ready",
+      session: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath,
+      // The implied dependency (D3): the fork waits on its source's lane.
+      blockedBy: [SOURCE_ID],
+      forkFromThreadId: SOURCE_ID,
+    });
+
+  const buildForkLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+  ) =>
+    Layer.unwrap(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(new Set());
+        const shellSnapshot = Effect.map(Ref.get(threadsRef), (threads) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        }));
+        const engine = {
+          readEvents: () => Stream.empty,
+          dispatch: (command: OrchestrationCommand) =>
+            Effect.gen(function* () {
+              dispatched.push(command);
+              // Mirror production: a kickoff persists the child's first user
+              // message (so the next pass no longer selects it), and a session
+              // set updates the source's session + republishes session-set to
+              // re-run the pass.
+              if (command.type === "thread.turn.start") {
+                yield* Ref.update(threadsRef, (threads) =>
+                  threads.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, latestUserMessageAt: now }
+                      : thread,
+                  ),
+                );
+              }
+              if (command.type === "thread.session.set") {
+                yield* Ref.update(threadsRef, (threads) =>
+                  threads.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, session: command.session }
+                      : thread,
+                  ),
+                );
+                yield* PubSub.publish(events, {
+                  type: "thread.session-set",
+                } as OrchestrationEvent);
+              }
+              // A workstream_submit lands the source's terminal lane; the
+              // dispatcher reacts to thread.plan-lane-set (releasing the fork's
+              // dependency) even though the source's provider turn is still
+              // finishing.
+              if (command.type === "thread.plan-lane.set") {
+                yield* Ref.update(threadsRef, (threads) =>
+                  threads.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, planLane: command.planLane }
+                      : thread,
+                  ),
+                );
+                yield* PubSub.publish(events, {
+                  type: "thread.plan-lane-set",
+                } as OrchestrationEvent);
+              }
+              return { sequence: dispatched.length };
+            }),
+          streamDomainEvents: Stream.fromPubSub(events),
+          subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        } as unknown as OrchestrationEngineShape;
+        const snapshotQuery = {
+          getShellSnapshot: () => shellSnapshot,
+          getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+        } as unknown as ProjectionSnapshotQueryShape;
+        const receipts = {
+          upsert: () => Effect.void,
+          getByCommandId: () => Effect.succeed(Option.none()),
+        };
+        // One config+platform layer instance, shared (memoised by reference) by
+        // both the dispatcher's deps and the outer surface, so the test body
+        // writes the launch-identity record and brief into the SAME dirs the
+        // dispatcher reads.
+        const configLayer = ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3-workstream-forkfrom-",
+        }).pipe(Layer.provideMerge(NodeServices.layer));
+        const deps = Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          configLayer,
+        );
+        return Layer.mergeAll(
+          WorkstreamDispatcherLive.pipe(Layer.provide(deps)),
+          Layer.succeed(OrchestrationEngineService, engine),
+          configLayer,
+        );
+      }),
+    );
+
+  const idleDoneSource = (): OrchestrationThreadShell =>
+    shell({
+      id: SOURCE_ID as unknown as string,
+      parentThreadId: "root-fork" as unknown as ThreadId,
+      role: "reader",
+      planLane: "done",
+      latestUserMessageAt: now,
+      session: runningSession({ threadId: SOURCE_ID, status: "ready", activeTurnId: null }),
+    });
+
+  effectIt.effect(
+    "defers WITHOUT launching and raises needs_guidance when the captured selection cannot be persisted (D2 authority + D7 no-strand)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([]);
+          yield* Effect.gen(function* () {
+            const config = yield* ServerConfig;
+            const fs = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            // A model-less source record → no captured selection can be built →
+            // persistForkSelection returns "defer".
+            writeLaunchIdentity(config.workstreamLaunchIdentityDir, SOURCE_ID, {
+              providerInstanceId: "google-vertex",
+              model: undefined,
+              options: undefined,
+              appendSystemPrompt: "WORK_MODEL\n\nreader overlay",
+              tools: undefined,
+              skills: undefined,
+            });
+            yield* fs.makeDirectory(config.workstreamBriefsDir, { recursive: true });
+            const briefPath = path.join(config.workstreamBriefsDir, "fork-defer-brief.md");
+            yield* fs.writeFileString(briefPath, "Judge the corpus.");
+            // Source is already idle + done: the fork's dependency is satisfied
+            // and the idle gate passes, so it reaches persistForkSelection.
+            yield* Ref.set(threadsRef, [idleDoneSource(), forkChild(briefPath)]);
+
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // It must NOT launch on the stale placeholder selection...
+            expect(
+              dispatched.filter(
+                (command) => command.type === "thread.turn.start" && command.threadId === FORK_ID,
+              ),
+            ).toHaveLength(0);
+            // ...and must not sit silently: a deduped needs_guidance flag is raised.
+            const raises = dispatched.filter(
+              (command) =>
+                command.type === "thread.attention.raise" && command.threadId === FORK_ID,
+            );
+            expect(raises.length).toBeGreaterThanOrEqual(1);
+            const raise = raises[0]!;
+            if (raise.type !== "thread.attention.raise")
+              throw new Error("expected attention.raise");
+            expect(raise.reason).toBe("needs_guidance");
+            expect(raise.commandId).toContain("fork-selection-unpersisted");
+          }).pipe(Effect.provide(buildForkLayer(dispatched, threadsRef)));
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "the D7 race: submit(done) while source running → lane event, no kick → source idle → exactly one kickoff with captured selection",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([]);
+          yield* Effect.gen(function* () {
+            const config = yield* ServerConfig;
+            const fs = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            // The source's captured launch identity (what a fork must replay).
+            writeLaunchIdentity(config.workstreamLaunchIdentityDir, SOURCE_ID, {
+              providerInstanceId: "google-vertex",
+              model: "google-vertex-claude/claude-opus-4-8",
+              options: [{ id: "thinkingLevel", value: "high" }],
+              appendSystemPrompt: "WORK_MODEL\n\nreader overlay",
+              tools: ["read", "grep"],
+              skills: undefined,
+            });
+            // A readable kickoff brief on disk (promoteThread reads it verbatim).
+            yield* fs.makeDirectory(config.workstreamBriefsDir, { recursive: true });
+            const briefPath = path.join(config.workstreamBriefsDir, "fork-child-brief.md");
+            yield* fs.writeFileString(briefPath, "Judge the corpus through lens A.");
+            // Start state: the source is mid-turn and NOT yet done, so the fork's
+            // implied dependency (blockedBy: [source]) is unsatisfied.
+            yield* Ref.set(threadsRef, [runningSource(), forkChild(briefPath)]);
+
+            const dispatcher = yield* WorkstreamDispatcher;
+            const engine = yield* OrchestrationEngineService;
+            const forkStarts = () =>
+              dispatched.filter(
+                (command) => command.type === "thread.turn.start" && command.threadId === FORK_ID,
+              );
+            const forkMetaUpdates = () =>
+              dispatched.filter(
+                (command) => command.type === "thread.meta.update" && command.threadId === FORK_ID,
+              );
+
+            yield* dispatcher.start();
+            // (0) Fork's dependency is unsatisfied (source not done) → not even
+            // selected: no kickoff.
+            yield* dispatcher.drain;
+            expect(forkStarts()).toHaveLength(0);
+
+            // (1) workstream_submit lands the source's terminal lane WHILE its
+            // provider turn is still running. The dispatcher reacts to the
+            // plan-lane-set (dependency released) but the fork-source-idle gate
+            // defers the launch — no kickoff, nothing persisted yet.
+            yield* engine.dispatch({
+              type: "thread.plan-lane.set",
+              commandId: CommandId.make("test:source-done"),
+              threadId: SOURCE_ID,
+              planLane: "done",
+              createdAt: now,
+            } as OrchestrationCommand);
+            yield* dispatcher.drain;
+            expect(forkStarts()).toHaveLength(0);
+            expect(forkMetaUpdates()).toHaveLength(0);
+
+            // (2) The source's provider turn completes → session-set(idle). The
+            // dispatcher's thread.session-set subscription re-runs the deferred
+            // pass and the fork now promotes.
+            yield* engine.dispatch({
+              type: "thread.session.set",
+              commandId: CommandId.make("test:source-idle"),
+              threadId: SOURCE_ID,
+              session: runningSession({
+                threadId: SOURCE_ID,
+                status: "ready",
+                activeTurnId: null,
+              }),
+              createdAt: now,
+            } as OrchestrationCommand);
+            yield* dispatcher.drain;
+
+            // Exactly ONE kickoff for the fork, carrying the COMPOSED child
+            // prompt, with the fork provenance still intact on the thread.
+            const starts = forkStarts();
+            expect(starts).toHaveLength(1);
+            const kickoff = starts[0]!;
+            if (kickoff.type !== "thread.turn.start") throw new Error("expected turn.start");
+            expect(kickoff.message.text).toContain("assessor sub-thread");
+            const forkAfter = (yield* Ref.get(threadsRef)).find((t) => t.id === FORK_ID);
+            expect(forkAfter?.forkFromThreadId).toBe(SOURCE_ID);
+
+            // The SOURCE's captured instance/model/options were persisted onto
+            // the fork child BEFORE its kickoff (D2 authority).
+            const metaUpdates = forkMetaUpdates();
+            expect(metaUpdates).toHaveLength(1);
+            const meta = metaUpdates[0]!;
+            if (meta.type !== "thread.meta.update") throw new Error("expected meta.update");
+            expect(meta.modelSelection?.model).toBe("google-vertex-claude/claude-opus-4-8");
+            expect(meta.modelSelection?.instanceId).toBe("google-vertex");
+            expect(meta.modelSelection?.options).toEqual([{ id: "thinkingLevel", value: "high" }]);
+            expect(dispatched.indexOf(meta)).toBeLessThan(dispatched.indexOf(kickoff));
+
+            // (3) A further pass does not double-kick (the kickoff persisted the
+            // fork's first user message).
+            yield* engine.dispatch({
+              type: "thread.session.set",
+              commandId: CommandId.make("test:source-idle-2"),
+              threadId: SOURCE_ID,
+              session: runningSession({
+                threadId: SOURCE_ID,
+                status: "ready",
+                activeTurnId: null,
+              }),
+              createdAt: now,
+            } as OrchestrationCommand);
+            yield* dispatcher.drain;
+            expect(forkStarts()).toHaveLength(1);
+          }).pipe(Effect.provide(buildForkLayer(dispatched, threadsRef)));
         }),
       ),
   );

@@ -49,6 +49,10 @@ import {
 } from "../orchestration/threadResolve.ts";
 import { writeWorkstreamReport } from "../orchestration/workstreamReport.ts";
 import { readWorkstreamBriefAt, writeWorkstreamBrief } from "../orchestration/workstreamBrief.ts";
+import { kickoffTextForPrompt } from "../orchestration/workstreamChildPrompt.ts";
+// loom: forkFrom (D7/D8) — undelivered-kickoff detection + fork-source-idle guard.
+import { isKickoffDelivered } from "../orchestration/workstreamLaunchIdentity.ts";
+import { shouldRefuseForkLaunch } from "../orchestration/threadIdle.ts";
 import { piSessionIdForThread } from "../provider/piSessionFiles.ts";
 import { AccountUsageRegistry } from "../provider/Services/AccountUsageRegistry.ts";
 import {
@@ -2105,13 +2109,22 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
     );
   }
 
-  // Scaffold-first (plan §1): a first-use prompt on an UNSTARTED child either
-  // composes the kickoff (briefed) or is rejected with guidance (unbriefed). A
-  // started child takes the plain steer/resume path below. Handler-level only —
-  // the plan explicitly rejects transactional first-turn enforcement.
-  const started = target.value.session !== null || target.value.messages.length > 0;
+  // Scaffold-first (plan §1) + forkFrom (D8): a prompt on a child whose kickoff
+  // was never DELIVERED to pi (re)composes the kickoff; a child that has already
+  // received its kickoff takes the plain steer/resume path below. The predicate
+  // is the persisted kickoff-delivered marker, NOT session/message presence: a
+  // backstop-refused fork or an exhausted first turn has a persisted user
+  // message yet an absent marker and a brief that never reached the transcript.
+  // An assistant message is an additional SOUND delivered-signal (pi only
+  // produces output for a delivered prompt) that self-heals threads predating
+  // the marker. Handler-level only — the plan rejects transactional first-turn
+  // enforcement.
+  const { workstreamLaunchIdentityDir } = yield* ServerConfig;
+  const kickoffDelivered =
+    isKickoffDelivered(workstreamLaunchIdentityDir, targetThreadId) ||
+    target.value.messages.some((entry) => entry.role === "assistant");
   let kickoffText = message;
-  if (!started) {
+  if (!kickoffDelivered) {
     if (target.value.kickoffBriefPath === null) {
       return jsonError(
         409,
@@ -2127,7 +2140,41 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
         `Child ${targetThreadId} has a brief pointer but its file could not be read; re-attach it with workstream_brief.`,
       );
     }
-    kickoffText = `${brief}\n\n${message}`;
+    // loom: forkFrom (D7) — an unstarted/undelivered fork child must not launch
+    // while its source is mid-turn: `pi --fork` would copy an unclosed session.
+    // This plain-prompt path bypasses the release/dependency gates, so without
+    // this guard it would re-open the stranding hole the dispatcher gate closes.
+    if (
+      target.value.forkFromThreadId !== null &&
+      resolveSessionFilePath(piSessionIdForThread(targetThreadId)) === undefined
+    ) {
+      const pendingTurnStartThreadIds = yield* projection.getPendingTurnStartThreadIds();
+      const source = Option.getOrUndefined(
+        yield* projection.getThreadDetailById(target.value.forkFromThreadId),
+      );
+      if (
+        shouldRefuseForkLaunch({
+          forkFromThreadId: target.value.forkFromThreadId,
+          childSessionFileExists: false,
+          source,
+          pendingTurnStartThreadIds,
+        })
+      ) {
+        return jsonError(
+          409,
+          `Fork source ${target.value.forkFromThreadId} is mid-turn; forking now would copy an unclosed session. Wait for it to go idle, then workstream_prompt this child again to deliver its kickoff and launch the fork.`,
+        );
+      }
+    }
+    // Compose the SAME kickoff the dispatcher would send (D8) — role framing +
+    // completion contract — not the raw brief (falls back to the raw brief only
+    // for a role-less legacy child).
+    kickoffText = kickoffTextForPrompt({
+      delivered: false,
+      role: target.value.role,
+      brief,
+      message,
+    });
   }
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));

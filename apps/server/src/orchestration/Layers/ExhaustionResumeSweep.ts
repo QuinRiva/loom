@@ -11,7 +11,9 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
@@ -25,6 +27,12 @@ import { exhaustionPredicate, piCatalogueFromProviders } from "../../provider/fa
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+// loom: forkFrom (D8) — re-deliver an undelivered kickoff on resume instead of
+// the generic "continue", so a first-turn quota stall never drops the brief.
+import { ServerConfig } from "../../config.ts";
+import { isKickoffDelivered } from "../workstreamLaunchIdentity.ts";
+import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
+import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import {
   ExhaustionResumeSweep,
   type ExhaustionResumeSweepShape,
@@ -75,6 +83,42 @@ export const buildExhaustionResumePrompt = (): string =>
   ].join("\n");
 
 /**
+ * loom: forkFrom (D8) — resume framing for a thread whose kickoff was NEVER
+ * delivered to pi (first-turn quota exhaustion, provider-guard fork refusal, or
+ * a restart-cleared pending start). The generic {@link buildExhaustionResumePrompt}
+ * "continue where you left off" is silent corruption here: nothing was left off,
+ * and for a fork the copied source transcript never received the lens brief. So
+ * re-deliver the SAME composed kickoff the dispatcher would have sent.
+ */
+export const buildUndeliveredKickoffResumePrompt = (composedKickoff: string): string =>
+  [
+    "[T3 Code control plane — automated resume after a provider limit reset; not a message from the user]",
+    "",
+    "The provider usage limit that stalled your FIRST turn has reset, and your kickoff brief was never delivered. Start now from the brief below:",
+    "",
+    composedKickoff,
+  ].join("\n");
+
+/**
+ * loom: forkFrom (D8) — pure resume-text decision. Re-deliver the composed
+ * kickoff ONLY when it was never delivered AND the thread still has the role +
+ * brief needed to recompose it; otherwise the generic continue. A delivered
+ * (marker-present) kickoff always takes the generic path — this is what keeps a
+ * delivered-then-errored first turn from being re-prepended. Exposed for unit
+ * tests so the branch is a hard regression surface.
+ */
+export const resolveExhaustionResumeText = (input: {
+  readonly delivered: boolean;
+  readonly role: string | null;
+  readonly brief: string | undefined;
+}): string =>
+  input.delivered || input.role === null || input.brief === undefined
+    ? buildExhaustionResumePrompt()
+    : buildUndeliveredKickoffResumePrompt(
+        workstreamChildPrompt({ role: input.role, brief: input.brief }),
+      );
+
+/**
  * Pure resume decision for one quota-stalled thread. Resume iff the global
  * toggle is on, the intended provider is no longer exhausted, and the per-thread
  * cooldown has elapsed. Caller filters the projection down to genuinely stalled
@@ -95,6 +139,10 @@ export const decideResume = (input: {
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const projection = yield* ProjectionSnapshotQuery;
+  const launchIdentityDir = (yield* ServerConfig).workstreamLaunchIdentityDir; // loom:
+  // loom: captured so the D8 brief re-read below carries no FileSystem
+  // requirement into `start` (whose shape is Scope-only).
+  const fileSystem = yield* FileSystem.FileSystem;
   const health = yield* ProviderHealthRegistry;
   const providerRegistry = yield* ProviderRegistry;
   const settings = yield* ServerSettingsService;
@@ -108,6 +156,23 @@ const make = Effect.gen(function* () {
     thread: OrchestrationThreadShell,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    // loom: forkFrom (D8) — if this thread's kickoff was never delivered to pi,
+    // resume by re-delivering the composed kickoff (brief re-read from disk),
+    // not the generic continue. General, not fork-conditional: any child whose
+    // kickoff hit exhaustion has the same dropped-brief bug.
+    const delivered =
+      thread.role === null ||
+      thread.kickoffBriefPath === null ||
+      isKickoffDelivered(launchIdentityDir, thread.id);
+    const brief =
+      !delivered && thread.kickoffBriefPath !== null
+        ? Option.getOrUndefined(
+            yield* readWorkstreamBriefAt(thread.kickoffBriefPath).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+            ),
+          )
+        : undefined;
+    const resumeText = resolveExhaustionResumeText({ delivered, role: thread.role, brief });
     yield* engine.dispatch({
       type: "thread.turn.start",
       commandId: CommandId.make(`server:exhaustion-resume:turn:${thread.id}:${Date.parse(now)}`),
@@ -116,7 +181,7 @@ const make = Effect.gen(function* () {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
         origin: "control_notice",
-        text: buildExhaustionResumePrompt(),
+        text: resumeText,
         attachments: [],
       },
       runtimeMode: thread.runtimeMode,
