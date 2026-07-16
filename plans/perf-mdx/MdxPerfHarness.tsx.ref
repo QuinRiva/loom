@@ -1,0 +1,152 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { DraftId } from "~/composerDraftStore";
+
+import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { anchorFromRange, resolveAnchor } from "../components/files/mdx-plan/annotation/anchoring";
+import { MdxPlanRenderer } from "../components/files/mdx-plan/MdxPlanRenderer";
+
+// Raw doc sources (dev-only scratch; see plans/perf-mdx/gen.mjs).
+import doc05 from "./perf-docs/doc-0.5.mdx?raw";
+import doc1 from "./perf-docs/doc-1.mdx?raw";
+import doc3 from "./perf-docs/doc-3.mdx?raw";
+import doc6 from "./perf-docs/doc-6.mdx?raw";
+
+const DOCS: Record<string, string> = { "0.5": doc05, "1": doc1, "3": doc3, "6": doc6 };
+
+type Mode = "renderer" | "annotation";
+
+interface RunState {
+  sizeKey: string;
+  mode: Mode;
+  runId: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const w = globalThis as any;
+
+export function MdxPerfHarness() {
+  const [run, setRun] = useState<RunState | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const t0Ref = useRef(0);
+  const heap0Ref = useRef(0);
+
+  const start = useCallback((sizeKey: string, mode: Mode) => {
+    return new Promise<void>((resolve) => {
+      w.__mdxPerf._resolve = resolve;
+      setRun((prev) => ({ sizeKey, mode, runId: (prev?.runId ?? 0) + 1 }));
+    });
+  }, []);
+
+  // Register control surface for browser_evaluate driving.
+  useEffect(() => {
+    w.__mdxPerf = w.__mdxPerf ?? {};
+    w.__mdxPerf.start = start;
+    w.__mdxPerf.clear = () => setRun(null);
+    // Measure the annotation hot path: one flatten()+serialize and one resolve.
+    w.__mdxPerf.measureAnchoring = (occurrenceFromEnd = 1) => {
+      const root = containerRef.current?.querySelector("[data-plan-root]");
+      if (!root) return { error: "no root" };
+      // Select a text span deep in the document (inside the last-but-N card prose).
+      const cards = root.querySelectorAll('[data-plan-block-type="card"] .prose-plan p');
+      const target = cards[Math.max(0, cards.length - occurrenceFromEnd)];
+      if (!target) return { error: "no target" };
+      const range = document.createRange();
+      const textNode = target.firstChild;
+      if (!textNode) return { error: "no text node" };
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, Math.min(40, textNode.textContent?.length ?? 0));
+
+      const s0 = performance.now();
+      const result = anchorFromRange(range, root);
+      const serializeMs = performance.now() - s0;
+      if (!result) return { error: "no anchor" };
+
+      const r0 = performance.now();
+      resolveAnchor(result.anchor, root);
+      const resolveMs = performance.now() - r0;
+
+      return {
+        serializeMs: Number(serializeMs.toFixed(2)),
+        resolveMs: Number(resolveMs.toFixed(2)),
+        anchorKind: result.anchor.anchorKind,
+      };
+    };
+    return () => {
+      delete w.__mdxPerf.start;
+    };
+  }, [start]);
+
+  // On each run: record t0/heap, observe until the plan root is populated, then
+  // capture metrics and resolve the pending start() promise.
+  useEffect(() => {
+    if (!run) return;
+    const container = containerRef.current;
+    if (!container) return;
+    t0Ref.current = performance.now();
+    heap0Ref.current = w.performance?.memory?.usedJSHeapSize ?? 0;
+
+    let done = false;
+    const finish = () => {
+      const root = container.querySelector("[data-plan-root]");
+      if (!root || root.childElementCount === 0 || done) return;
+      done = true;
+      // Wait one more frame so layout/paint of the block tree is included.
+      requestAnimationFrame(() => {
+        const interactiveMs = performance.now() - t0Ref.current;
+        const heap1 = w.performance?.memory?.usedJSHeapSize ?? 0;
+        const allNodes = root.querySelectorAll("*").length;
+        const blocks = root.querySelectorAll("[data-plan-block-id]").length;
+        const details = root.querySelectorAll('[data-plan-block-type="details"]').length;
+        // Count DOM nodes that live INSIDE closed <details> (are they mounted?).
+        let nodesInClosedDetails = 0;
+        root.querySelectorAll("details:not([open])").forEach((d) => {
+          nodesInClosedDetails += d.querySelectorAll("*").length;
+        });
+        w.__mdxPerf.last = {
+          sizeKey: run.sizeKey,
+          mode: run.mode,
+          runId: run.runId,
+          interactiveMs: Number(interactiveMs.toFixed(0)),
+          domNodes: allNodes,
+          blocks,
+          details,
+          nodesInClosedDetails,
+          heapDeltaMB: Number(((heap1 - heap0Ref.current) / 1024 / 1024).toFixed(1)),
+          heapUsedMB: Number((heap1 / 1024 / 1024).toFixed(1)),
+        };
+        observer.disconnect();
+        w.__mdxPerf._resolve?.();
+      });
+    };
+    const observer = new MutationObserver(finish);
+    observer.observe(container, { childList: true, subtree: true });
+    finish();
+    return () => observer.disconnect();
+  }, [run]);
+
+  const source = run ? DOCS[run.sizeKey] : undefined;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 border-b border-border px-4 py-2 text-xs text-muted-foreground">
+        MDX perf harness — drive via window.__mdxPerf.start(size, mode). Current:{" "}
+        {run ? `${run.sizeKey}MB / ${run.mode} #${run.runId}` : "idle"}
+      </div>
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-auto">
+        {run && source ? (
+          run.mode === "annotation" ? (
+            <MdxPlanAnnotationLayer
+              key={run.runId}
+              source={source}
+              filePath={`perf-${run.sizeKey}.mdx`}
+              composerDraftTarget={DraftId.make("mdx-perf")}
+            />
+          ) : (
+            <MdxPlanRenderer key={run.runId} source={source} />
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}

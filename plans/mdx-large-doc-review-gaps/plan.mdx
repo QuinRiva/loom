@@ -1,0 +1,219 @@
+---
+manager_sessions:
+  - id: 85a82458-9a78-47d1-8b91-df4a783dd96b
+    role: plan
+    authored_at: 2026-07-16T23:40:02.949Z
+---
+
+# Make MDX-only defensible for large decision documents
+
+The `mdx-visual-plan` / `mdx-visual-recap` skills are meant to fully replace bespoke
+self-contained HTML documents as the review surface, yet the PE-1593 taxonomy campaign
+still ships an HTML beside every MDX. Two sub-thread investigations (a field-by-field
+content diff of the tier-(b) pair, and renderer measurements at 0.5–6 MB) establish why:
+the block vocabulary is already sufficient — **the renderer and transport are not**. A
+fully evidence-embedded decision document crosses 1 MiB, and today anything over 1 MiB is
+unviewable. This plan fixes the size pipeline, closes the one real vocabulary gap (a
+filterable table), adds the decision counter a 140-item batch needs, and updates the skill
+so authors embed evidence instead of linking out.
+
+**Done means:** the tier-(b) decision doc can be authored as a single `.mdx` with all
+evidence embedded (well over 1 MiB), open in the plan panel without a main-thread freeze,
+scroll and annotate responsively, and capture per-item decisions — verified by re-authoring
+a representative slice with full production entries and rendering it live.
+
+## Evidence: where the walls are
+
+The content diff found 14 differences between the tier-(b) HTML and MDX; **11 are
+authoring gaps** the existing vocabulary (`Card`, `Details`, `FieldDiff`, `ReviewChoice`)
+already closes, 1 is superseded by turn injection, and only 2 are genuine renderer gaps
+(table filtering; a live decision counter the review-blocks spec explicitly deferred
+"until a real doc needs it" — a 140-item tier-(b) rewrite is that doc). MDX already beats
+HTML on decision capture: `ReviewChoice` serialises into the next review turn, where the
+HTML needs a copy-to-clipboard export.
+
+The renderer measurements (synthetic tier-(b)-shaped docs: cards containing prose,
+`FieldDiff`, `Details`-wrapped ~16 KB `Json`, `ReviewChoice`, plus 200–300-row tables):
+
+<Table
+  columns={["Size", "Cards", "Compile+eval (median)", "Mount to interactive", "DOM nodes", "Nodes inside closed Details"]}
+  rows={[
+    ["0.5 MB", "20", "329 ms", "1,245 ms", "6,756", "2,920 (43%)"],
+    ["1 MB", "41", "1,422 ms", "2,237 ms", "12,409", "5,986 (48%)"],
+    ["3 MB", "123", "4,227 ms", "6,131 ms", "31,795", "17,958 (56%)"],
+    ["6 MB", "246", "8,358 ms", "12,173 ms", "60,874", "35,916 (59%)"],
+  ]}
+/>
+
+Four bottlenecks, in order of severity:
+
+1. **The 1 MiB read cap chops the source.** `WorkspaceFileSystem.readFile` reads
+   `min(size, PROJECT_READ_FILE_MAX_BYTES)` and flags `truncated`, but
+   `FilePreviewPanel` routes `.mdx` to the rendered path regardless — the compiler
+   receives chopped source and throws (`Could not parse expression with acorn`). The user
+   sees the truncation banner **and** a red "This plan could not be rendered." card with
+   zero content. The motivating 1.25 MB artefact is 100% unviewable today.
+2. **Compile+evaluate blocks the main thread** — ~2.2 s at 1 MB, ~12 s at 6 MB. The tab
+   is frozen for the whole duration (the `evaluate()` CPU work is synchronous inside its
+   promise).
+3. **`Details` children are fully mounted while collapsed** — 43–59% of all DOM nodes sit
+   inside closed drill-downs the reviewer may never open. Pure render/memory waste that
+   grows with evidence weight.
+4. **The annotation overlay is O(comments × whole document)**: every `resolveAnchor`
+   re-flattens the entire DOM, and the layer full-recomputes on **every** mutation. At
+   6 MB with ~30 comments, one `Details` toggle costs ~200 ms.
+
+Scroll is a non-issue (p95 16.9 ms frames on the 6 MB DOM), so block-level virtualisation
+is **not** needed — the cheap fixes below suffice.
+
+## What changes
+
+<FileTree
+  title="Change map"
+  entries={[
+    { path: "apps/server/src/workspace/WorkspaceFileSystem.ts", change: "modified", note: "per-request maxBytes budget, clamped to an 8 MiB plan-file ceiling" },
+    { path: "packages/contracts/src/project.ts", change: "modified", note: "optional maxBytes on ProjectReadFileInput" },
+    { path: "apps/web/src/components/files/FilePreviewPanel.tsx", change: "modified", note: "request the large budget for .mdx; never compile a still-truncated source" },
+    { path: "apps/web/src/components/files/mdx-plan/compileWorker.ts", change: "added", note: "compile() in a Web Worker; run() stays on the main thread" },
+    { path: "apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx", change: "modified", note: "use the worker path + a compiling indicator; keep compilePlanMdx export for the linter" },
+    { path: "apps/web/src/components/files/mdx-plan/blocks/details.tsx", change: "modified", note: "lazy-mount children until first open" },
+    { path: "apps/web/src/components/files/mdx-plan/annotation/anchoring.ts", change: "modified", note: "share one flatten() per resolve pass" },
+    { path: "apps/web/src/components/files/mdx-plan/annotation/MdxPlanAnnotationLayer.tsx", change: "modified", note: "pass shared flatten; eager-mount escape hatch when pending comments exist; decision counter chip" },
+    { path: "apps/web/src/components/files/mdx-plan/blocks/table.tsx", change: "modified", note: "optional filterable prop (client-side text filter)" },
+    { path: "apps/web/src/components/files/mdx-plan/planLint.ts", change: "modified", note: "size-budget warning" },
+    { path: "skills/mdx-doc-core/references/document-quality.md", change: "modified", note: "size budget + evidence-embedding guidance" },
+    { path: "skills/mdx-visual-recap/SKILL.md", change: "modified", note: "self-containment now unqualified; filterable table + counter in the skeleton" },
+  ]}
+/>
+
+## Approach
+
+### A — Transport: let a big plan reach the renderer intact
+
+**A1. Never compile truncated source.** In `FilePreviewPanel`, when `file.data.truncated`
+is true and the file is `.mdx`, force the source view (the existing virtualised path) with
+the existing truncation banner. This is the correctness guard independent of any cap
+raise: chopped MDX must never reach `compilePlanMdx`.
+
+**A2. Per-request read budget.** Add optional `maxBytes` to `ProjectReadFileInput`
+(`packages/contracts/src/project.ts`); `WorkspaceFileSystem.readFile` clamps it to a new
+`PROJECT_READ_FILE_PLAN_MAX_BYTES = 8 MiB` ceiling and keeps the current 1 MiB default
+when absent. `FilePreviewPanel` passes the large budget for `.mdx` files only. Existing
+callers are untouched (the field is optional), and payload exposure is bounded because
+only the plan path requests more. 8 MiB is deliberately above any plausible decision doc
+(the largest observed artefact is 1.25 MB; 6 MB renders acceptably after B-phase fixes)
+without inviting unbounded reads.
+
+### B — Renderer: keep the tab responsive at evidence scale
+
+**B1. Compile off the main thread.** Split the current `evaluate()` into
+`compile()` in a dedicated Web Worker (Vite `?worker`, same pattern as
+`DiffWorkerPoolProvider`) and `run()` on the main thread — the parse/transform dominates
+the cost; the run step just instantiates the module. The worker bundles our remark plugins
+(`remarkGfm`, `remarkRejectCodeEscapes`, `remarkUnknownBlockFallback` — all pure), so the
+security guard is unchanged and still applies before anything executable exists.
+`MdxPlanRenderer` shows a lightweight "compiling…" state instead of `null` while waiting.
+The synchronous `compilePlanMdx` export remains for `planLint.ts` (Node has no such
+constraint); both paths share one options module so the plugin sets cannot drift.
+
+**B2. Lazy-mount `Details` children.** Render children only once first opened, then keep
+them mounted (state, e.g. an opened-once flag, survives collapse so re-opening is
+instant). This halves initial DOM/render cost on evidence-heavy docs. One coupling to
+handle: a **persisted** comment anchored inside a never-opened `Details` would resolve as
+`detached` instead of `collapsed` (the text nodes do not exist yet). Escape hatch: when the
+annotation layer has pending `mdx-anchor` comments for the file, it renders the plan with
+an eager-mount context flag — correctness preserved in exactly the rare case that needs
+it, lazy everywhere else. New annotations are unaffected (you cannot select hidden text).
+
+**B3. Amortise overlay recompute.** `resolveAnchor` gains an optional pre-flattened
+document argument; the layer's `recompute()` flattens once and shares it across all
+comments (today: once per comment). This turns the O(comments × document) pass into
+O(document + comments), directly removing the ~200 ms-per-toggle cliff. The
+mutation-observer trigger itself stays (rAF-debounced already); further caching is not
+justified by the measurements.
+
+### C — Vocabulary: the two real gaps
+
+**C1. `Table filterable`.** Optional boolean prop on the `Table` block: renders a small
+text input above the grid that filters rows client-side (case-insensitive substring across
+cells, matching the HTML doc's `filterRows()` affordance), with a filtered/total row count.
+Schema, `toAttrs`/`fromAttrs`, and the generated `block-schema.md` pick it up through the
+existing registry plumbing.
+
+**C2. Decision counter.** The review-blocks spec deferred the aggregate counter until "a
+real doc needs it"; a 140-item tier-(b) batch is that doc. Minimal cut: when a rendered
+document contains `ReviewChoice` blocks, the annotation layer shows a small sticky chip —
+"N of M decided" — computed from the existing review-choice draft store (the data is
+already there; this is presentation only). No bulk actions, no toolbar.
+
+### D — Skill and lint
+
+- `skills/mdx-doc-core/references/document-quality.md`: add a short **size budget**
+  passage — evidence-embedded documents are expected to reach a few MB and the renderer
+  carries that; embed full records under `Details` + `Json` rather than linking out; keep
+  single `Json` payloads to tens of KB each (the measured comfortable shape).
+- `skills/mdx-visual-recap/SKILL.md`: state the self-containment rule without the size
+  caveat, and add `filterable` tables + the decision counter to the decision-document
+  skeleton.
+- `planLint.ts`: warn when the source exceeds 6 MB (approaching the 8 MiB transport
+  ceiling and multi-second compile even off-thread); error above 8 MiB (would truncate).
+
+## Scope and non-goals
+
+- **No block-level virtualisation** — measured scroll performance does not justify it.
+- **No rewrite of the PE-1593 generators** — the campaign adopts MDX-only itself once this
+  lands; the validation slice below proves the capability, not the migration.
+- **No compile caching** — worth considering later; off-thread compile alone removes the
+  freeze, and re-opens are already tolerable at the sizes that matter.
+- **No bulk decision actions** ("accept all remaining") — the counter is presentation only.
+
+## Verification
+
+1. Unit: existing `mdxPlan.test.ts` / `planLint.test.ts` suites extended for `maxBytes`
+   clamping, truncated-`.mdx` routing, lazy `Details` (mount-on-open, eager flag),
+   shared-flatten resolution, `Table filterable`, and the lint size thresholds.
+   `vp check` and `vp run typecheck` pass.
+2. Perf re-run: the kept harness (`plans/perf-mdx/gen.mjs`, `bench-compile.mjs`,
+   `MdxPerfHarness.tsx.ref`) re-measured at 1 MB and 3 MB — main thread must stay
+   interactive during compile, and a `Details` toggle with 30 comments must recompute in
+   well under 50 ms.
+3. End-to-end (the real workflow): re-author a representative tier-(b) slice — pack 2's 9
+   tokens plus the T-5 ruling, each with the **full production taxonomy entries** embedded
+   under `Details` + `Json` and a `ReviewChoice` per item, deliberately exceeding 1 MiB —
+   as a single `.mdx`. Open it live via the dev-verify recipe: it renders without a freeze,
+   the master table filters, decisions tick the counter, and an annotation inside an opened
+   drill-down survives collapse as a `collapsed` badge. Lint passes.
+
+## Open decisions
+
+<QuestionForm
+  questions={[
+    {
+      "id": "cap-mechanism",
+      "title": "Read-cap mechanism for large plan files",
+      "mode": "single",
+      "options": [
+        { "id": "maxbytes", "label": "Optional maxBytes on ProjectReadFileInput, clamped server-side (recommended)", "recommended": true, "detail": "Only the .mdx preview path requests the 8 MiB budget; every other caller keeps the 1 MiB default. Smallest exposure, one optional contract field." },
+        { "id": "global", "label": "Raise the global cap to 8 MiB for all reads", "detail": "No contract change, but every file preview pays the payload cost." }
+      ]
+    },
+    {
+      "id": "counter",
+      "title": "Decision counter — reopen the spec's deferral now?",
+      "mode": "single",
+      "options": [
+        { "id": "build", "label": "Build the minimal sticky chip now (recommended)", "recommended": true, "detail": "A 140-item tier-(b) batch is the real doc the deferral was waiting for; the data already lives in the draft store." },
+        { "id": "defer", "label": "Keep it deferred", "detail": "Ship size + filter fixes only; revisit after the first large batch runs through." }
+      ]
+    },
+    {
+      "id": "table-sort",
+      "title": "Should the filterable Table also sort by clicking column headers?",
+      "mode": "single",
+      "options": [
+        { "id": "filter-only", "label": "Filter only (recommended)", "recommended": true, "detail": "Matches the HTML affordance being replaced; smallest cut." },
+        { "id": "filter-sort", "label": "Filter + header-click sort", "detail": "You have preferred header-click sorting in past table work; adds modest complexity now rather than later." }
+      ]
+    }
+  ]}
+/>
