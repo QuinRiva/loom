@@ -1,7 +1,39 @@
 # Document quality bar
 
-The `SKILL.md` "Discipline" and "Shape of a good plan" sections are the summary;
-this is the depth. Read it before authoring the prose body of a plan.
+This is the shared quality core for every MDX-document genre — plans
+(`mdx-visual-plan`) and recaps / decision-review batches (`mdx-visual-recap`).
+The genre `SKILL.md` files carry the trigger, the genre discipline, and the
+skeleton; this file carries the depth that does not vary by genre. Read it
+before authoring the prose body of any document.
+
+## Choose the representation
+
+Before reaching for a block, match the content to the representation that reads
+best — this is the single most important authoring decision, and getting it
+wrong is what makes a document lose to a hand-built HTML artefact. Pick from the
+table, then consult [`block-schema.md`](block-schema.md) for the exact props.
+
+| Content                                | Representation                                                        |
+| -------------------------------------- | --------------------------------------------------------------------- |
+| A few fields of a record change        | `<FieldDiff>`                                                         |
+| Line-oriented source change            | `<Diff>`                                                              |
+| N similar items each needing a verdict | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table>`         |
+| Bulk evidence / full records           | `<Details>` + `<Json>`/`<Code>` inside, `wrap` for prose-heavy values |
+| Balanced judgement calls (few)         | bottom `<QuestionForm>` with `recommended`                            |
+| Typed entities / API ops / change map  | `<DataModel>` / `<Endpoint>` / `<FileTree>`                           |
+| Genuine 2-D structure                  | `<Diagram>` / `<Mermaid>`                                             |
+
+Two distinctions worth stating outright, because both are common mistakes:
+
+- **`<FieldDiff>` vs `<Diff>`.** Use `<FieldDiff>` when the change is a few
+  fields of a record/config — it wraps long values and aligns them per field.
+  Use `<Diff>` **only** when the change is genuinely line-oriented source code.
+  A JSON string in a line diff (one horizontally-scrolled line, twice) is the
+  anti-pattern `<FieldDiff>` exists to retire.
+- **`<Card>` per item vs one flat list.** When a document reviews N similar
+  items each needing a verdict, give each item its own `<Card tone>` so the
+  reviewer triages the batch by colour at a glance, with the per-item evidence
+  and decision surface inside the card.
 
 ## A serious technical plan, not marketing
 
@@ -95,6 +127,38 @@ Prefer native blocks for normal plans. `<HtmlBlock>` (static, no JS) and
 the primary home for a UI mockup that belongs in a `<Screen>`/`<DesignBoard>`, and
 never a "proof that custom HTML works" density demo. Author their HTML against the
 sandbox theme tokens so it reads in dark mode too.
+
+## Self-containment: never link out for evidence
+
+A reviewer must be able to decide every item **without leaving the document**.
+Never point them at a companion file, external HTML, or another artefact for
+evidence the decision depends on — embed it in the document, behind a
+`<Details>` drill-down when it is bulky (full production records, raw packs,
+long logs). A document that says "see the attached HTML for the before/after"
+has already lost: the drill-down, not the companion file, is the mechanism.
+This is the one rule the motivating tier-A plan violated — it linked out to a
+companion HTML doc for its own evidence.
+
+## Reader-experience final checklist
+
+Before handing back any document, read it as the reviewer will and check every
+line of this list — it is the bar that most directly separates a document worth
+annotating from a mechanically-valid one:
+
+- **No horizontal scrolling at desktop width.** Any long string is wrapped or
+  wrap-toggleable (`<FieldDiff>` always wraps; `<Code>`/`<Json>`/`<Diff>` carry
+  a wrap toggle, and `wrap` ships them wrapped when the values are prose-heavy).
+- **Every item in a batch is visually triaged by tone at a glance** — a
+  `<Card tone>` whose colour maps to the verdict class, not 31 identical grey
+  headings.
+- **All evidence needed to decide an item is inside the document** (drill-down,
+  not a companion file — see self-containment above).
+- **Every decision the reviewer must make has an in-document capture surface** —
+  a `<ReviewChoice>` per item, a `<QuestionForm>` for balanced calls, or span
+  annotations — never a "reply in chat with your verdicts" instruction.
+- **The first viewport states what is being decided and what happens on
+  sign-off** — for a decision doc, a top `<Callout tone="decision">` with the
+  review protocol and the silence-defaults rule.
 
 ## Before handoff, open the plan and check it
 

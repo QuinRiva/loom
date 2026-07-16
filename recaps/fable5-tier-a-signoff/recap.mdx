@@ -1,0 +1,1724 @@
+# Fable 5 tier-A taxonomy sign-off — condition ⇔ necessity
+
+A verdict batch over **31 tier-(a) items** from the Fable 5 naive-taxonomy critique (§4.5–4.6). Each item is a place where the production lease taxonomy's own conditionality convention is internally inconsistent — a `relationship_role`'s `necessity` (or a `containment_context`'s `expected_presence`) and its `condition` field disagree about whether the edge is conditional. The `survey_plan` item (E-1) is a modelling question, not a mismatch. An assessor read every production pack in full and authored the exact replacement text; **nothing is applied yet** — your sign-off here is the gate, after which a deterministic apply step writes each accepted change verbatim into production.
+
+<Callout tone="decision">
+  **Review protocol.** Every item carries its verdict, the decisive before/after (`<FieldDiff>`), the verbatim production evidence (drill-down), and an **Accept / Reject / Discuss** control. **Silence means you accept the recommendation** — only record a choice on the items you want to reject or discuss. On sign-off, each accepted item's `Proposed` values are written verbatim into production; rejected/discussed items are held. The five genuinely balanced direction-calls the assessor flagged are gathered again as concrete either/or questions in **Balanced calls** at the foot of the document — answer those only if you prefer the alternative.
+</Callout>
+
+<Callout tone="info">
+  **The convention being tested.** `condition` states *when* an edge applies and, per the schema,
+  belongs on a `conditional` entry **and only there**. Two defect shapes: a **non-`conditional`
+  level carrying a `condition`** (packs A, C) and a **`conditional` level missing its `condition`**
+  (packs B, D). The verdict is never "just make the two fields line up" — it is a semantic call
+  about which field is actually wrong. **NECESSITY_WRONG**: the edge really is conditional → promote
+  the level, keep/author the condition. **CONDITION_WRONG**: the level is right → the "condition" is
+  applicability/descriptive/tautological prose, so drop it or fold it into a description (or, for
+  B/D, demote the level). **OTHER_DEFECT**: the mismatch is a red herring; the real defect is
+  structural (E-1).
+</Callout>
+
+## The batch at a glance
+
+Tally: **NECESSITY_WRONG 18 · CONDITION_WRONG 12 · OTHER_DEFECT 1** · UNEXPRESSIBLE 0 · UNSURE 0. Five items (⚑) are genuinely balanced and most worth your attention: **A-1, B-2, C-4, C-7, C-8**.
+
+<Table
+  columns={["Item", "Type / edge", "Verdict", "Conf.", "Recommendation"]}
+  density="compact"
+  rows={[
+    [
+      "A-1",
+      "as_built_drawing.systems_baseline_for_inspection",
+      "NECESSITY_WRONG",
+      "med ⚑",
+      "→conditional; sharpen condition",
+    ],
+    [
+      "A-2",
+      "bank_guarantee.security_top_up_receipt",
+      "CONDITION_WRONG",
+      "high",
+      "drop role condition (dup of target)",
+    ],
+    [
+      "A-3",
+      "casual_car_park_licence.recurring_fee_payment_automation",
+      "CONDITION_WRONG",
+      "high",
+      "move condition → target applicability",
+    ],
+    [
+      "A-4",
+      "general_licence_agreement.scope_expansion_annex",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "A-5",
+      "notice_to_guarantor.attornment_companion",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "A-6",
+      "o_and_m_manual.fitout_operational_compliance",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "A-7",
+      "payment_claim.settlement_evidence",
+      "CONDITION_WRONG",
+      "high",
+      "drop role condition (tautology)",
+    ],
+    [
+      "A-8",
+      "payment_claim.claimant_credential_verification",
+      "CONDITION_WRONG",
+      "high",
+      "drop role condition (dup of target)",
+    ],
+    [
+      "A-9",
+      "traffic_management_diagram.governs_lease_traffic_operations",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "A-10",
+      "vending_machine_licence.financial_security_backing",
+      "CONDITION_WRONG",
+      "high",
+      "drop role condition (rarity ≠ gate)",
+    ],
+    [
+      "B-1",
+      "inventory_report.make_good_asset_baseline",
+      "NECESSITY_WRONG",
+      "high",
+      "author condition (level kept)",
+    ],
+    [
+      "B-2",
+      "outgoings_audit_report.outgoings_audit_verification",
+      "CONDITION_WRONG",
+      "med-high ⚑",
+      "demote →expected (alt: optional)",
+    ],
+    [
+      "B-3",
+      "trade_waste_approval.discharge_compliance_evidence",
+      "NECESSITY_WRONG",
+      "high",
+      "author condition (level kept)",
+    ],
+    [
+      "C-1",
+      "capital_items_list ⊂ deed_of_assignment",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "C-2",
+      "finishes_schedule ⊂ fitout_design_package",
+      "CONDITION_WRONG",
+      "med-high",
+      "drop condition → description",
+    ],
+    [
+      "C-3",
+      "inventory_report ⊂ lease_agreement",
+      "NECESSITY_WRONG",
+      "high",
+      "→conditional; keep condition",
+    ],
+    [
+      "C-4",
+      "media_content_criteria_schedule ⊂ general_licence_agreement",
+      "CONDITION_WRONG",
+      "med ⚑",
+      "drop → description (alt: promote)",
+    ],
+    [
+      "C-5",
+      "negotiation_table ⊂ incentive_and_fitout_deed",
+      "CONDITION_WRONG",
+      "med-high",
+      "drop condition (elective noise)",
+    ],
+    [
+      "C-6",
+      "repair_and_maintenance_schedule ⊂ o_and_m_manual",
+      "CONDITION_WRONG",
+      "med-high",
+      "drop → description (form discriminator)",
+    ],
+    [
+      "C-7",
+      "seating_area_licence ⊂ incentive_and_fitout_deed",
+      "CONDITION_WRONG",
+      "med ⚑",
+      "drop → description (alt: promote)",
+    ],
+    [
+      "C-8",
+      "seating_area_licence ⊂ heads_of_agreement",
+      "CONDITION_WRONG",
+      "med ⚑",
+      "drop → description (alt: promote)",
+    ],
+    [
+      "D-1",
+      "elevation_drawing ⊂ scope_of_works_schedule",
+      "NECESSITY_WRONG",
+      "med-high",
+      "author condition",
+    ],
+    [
+      "D-2",
+      "equipment_manifest ⊂ general_licence_agreement",
+      "NECESSITY_WRONG",
+      "med-high",
+      "author condition",
+    ],
+    [
+      "D-3",
+      "fire_safety_schedule ⊂ certificate_of_occupancy",
+      "NECESSITY_WRONG",
+      "high",
+      "author condition",
+    ],
+    [
+      "D-4",
+      "insurance_policy_endorsement ⊂ insurance_policy_schedule",
+      "NECESSITY_WRONG",
+      "med-high",
+      "author condition",
+    ],
+    [
+      "D-5",
+      "radio_frequency_report ⊂ telecommunications_licence",
+      "NECESSITY_WRONG",
+      "high",
+      "author condition",
+    ],
+    ["D-6", "signage_licence ⊂ lease_agreement", "NECESSITY_WRONG", "high", "author condition"],
+    ["D-7", "signage_licence ⊂ variation_table", "NECESSITY_WRONG", "med-high", "author condition"],
+    [
+      "D-8",
+      "telecommunications_installation_requirements ⊂ service_connection_licence",
+      "NECESSITY_WRONG",
+      "med-high",
+      "author condition",
+    ],
+    [
+      "D-9",
+      "telecommunications_installation_requirements ⊂ storage_licence",
+      "NECESSITY_WRONG",
+      "med-high",
+      "author condition",
+    ],
+    [
+      "E-1",
+      "survey_plan ⊂ lease_agreement ×3",
+      "OTHER_DEFECT",
+      "high",
+      "merge 3 → 1 (compaction-safe)",
+    ],
+  ]}
+/>
+
+## Items
+
+### Pack A — role: non-conditional necessity **with** a condition (10)
+
+<Card
+  id="item-a-1"
+  heading="A-1 · as_built_drawing.systems_baseline_for_inspection"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: medium", "promote to conditional; sharpen condition", "⚑ balanced call"]}
+>
+  The counterpart `thermographic_survey_report.spatial_and_systems_baseline_input` already models this edge as `conditional` with a crisp building-wide-vs-single-asset gate, and every other gated role on `as_built_drawing` is `conditional`. Promote and sharpen the flabby condition to the counterpart's frame.
+
+<FieldDiff
+  title="as_built_drawing.systems_baseline_for_inspection"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "Applies where a downstream technical inspection report (e.g. a thermographic survey of switchboards and distribution boards) relies on the as-built record to identify, locate, or contextualise the components it inspects.",
+      after:
+        "When a downstream building-wide or multi-tenancy technical inspection — e.g. a thermographic survey of switchboards and distribution boards — relies on the as-built record to locate and identify the components it inspects; single-asset scans typically do not.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `thermographic_survey_report.spatial_and_systems_baseline_input`: `necessity: "conditional"`, condition gated on "building-wide or multi-tenancy thermographic surveys rather than single-asset scans".
+    - In-entry house style: `as_built_drawing`'s other gated roles (`tenancy_alteration_evidence`, `occupancy_certification_technical_basis`, `permit_engineering_compliance_evidence`) are all `conditional`; its one non-gated role carries `condition: null`.
+    - **Charitable alternative (ruled out, but the reason it is ⚑):** keep `optional` and drop the condition, reading the as-built side as merely incidental to a general record — defensible, hence medium confidence.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-1 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"systems_baseline_for_inspection\",\n  \"relationship_type\": \"informs\",\n  \"necessity\": \"optional\",\n  \"condition\": \"Applies where a downstream technical inspection report (e.g. a thermographic survey of switchboards and distribution boards) relies on the as-built record to identify, locate, or contextualise the components it inspects.\",\n  \"purpose_description\": \"Provides the objective record of installed engineering systems (switchboard locations, cabling pathways, equipment schedules) that downstream technical-inspection contractors use as the analytical baseline when planning and reporting inspections of those systems.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"thermographic_survey_report\",\n      \"counterpart_role_id\": \"spatial_and_systems_baseline_input\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-1" label="A-1" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-2"
+  heading="A-2 · bank_guarantee.security_top_up_receipt"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high", "drop role condition (duplicates target applicability)"]}
+>
+  The role-level condition duplicates the "when" already carried at the target's `applicability_condition`. The mirror-twin role `security_top_up` is `optional` with no condition — the house-correct template. Drop the role condition; keep `optional`.
+
+<FieldDiff
+  title="bank_guarantee.security_top_up_receipt"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the original guarantee's secured exposure increases mid-term (rent review, renewal, expansion) and the parties elect to issue an incremental top-up bond rather than re-issue the original at the higher amount.",
+      after: null,
+      note: "Content preserved at the target applicability_condition.",
+    },
+    {
+      name: "target.applicability_condition",
+      before:
+        "When a supplementary guarantee is issued naming this instrument as its parent via the 'Top up for Liability No:' reference.",
+      after:
+        "When a supplementary guarantee is issued naming this instrument as its parent via the 'Top up for Liability No:' reference.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Mirror-twin `bank_guarantee.security_top_up`: `optional`, **no** role condition, "when" at target level — the corrected template.
+    - `bank_guarantee`'s other optional roles (`security_terms_modification`, `status_verification`, `security_administration`) all carry no condition; its conditional roles all carry one.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-2 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"security_top_up_receipt\",\n  \"relationship_type\": \"supplemented_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"When the original guarantee's secured exposure increases mid-term (rent review, renewal, expansion) and the parties elect to issue an incremental top-up bond rather than re-issue the original at the higher amount.\",\n  \"purpose_description\": \"Receives a supplementary top-up bank guarantee issued alongside this original instrument that bridges a shortfall in the required security sum without cancelling or amending the original — the top-up names this guarantee by Liability/Reference Number as its 'Top up for' parent.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"bank_guarantee\",\n      \"counterpart_role_id\": \"security_top_up\",\n      \"applicability_condition\": \"When a supplementary guarantee is issued naming this instrument as its parent via the 'Top up for Liability No:' reference.\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-2" label="A-2" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-3"
+  heading="A-3 · casual_car_park_licence.recurring_fee_payment_automation"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high", "relocate condition → target applicability_condition"]}
+>
+  Payment-method election is genuine applicability, but production models it at the target level with a non-conditional role (the counterpart `direct_debit_request.automated_payment_authorization` is `expected`). Move the content to the target's currently-null `applicability_condition`; keep `optional`.
+
+<FieldDiff
+  title="casual_car_park_licence.recurring_fee_payment_automation"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the licensee elects to automate monthly licence-fee payments via a direct debit authorisation rather than invoice/BPay.",
+      after: null,
+    },
+    {
+      name: "target.direct_debit_request.applicability_condition",
+      before: null,
+      after:
+        "When the licensee elects to automate monthly licence-fee payments by direct debit rather than by invoice/BPay.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `direct_debit_request.automated_payment_authorization`: `necessity: "expected"`, `condition: null`, per-target applicability; its `casual_car_park_licence` target reads "When the DDR is executed to automate parking fees under a casual/month-to-month car park licence."
+
+    <Details summary="Verbatim production record">
+      <Json title="A-3 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"recurring_fee_payment_automation\",\n  \"relationship_type\": \"operationalised_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"When the licensee elects to automate monthly licence-fee payments via a direct debit authorisation rather than invoice/BPay.\",\n  \"purpose_description\": \"Accepts a Direct Debit Request as the banking mechanism that operationalises the recurring monthly licence-fee covenant of the casual parking arrangement, enabling automated periodic debits of the per-bay fee from the licensee's nominated account.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"direct_debit_request\",\n      \"counterpart_role_id\": \"automated_payment_authorization\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-3" label="A-3" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-4"
+  heading="A-4 · general_licence_agreement.scope_expansion_annex"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: high", "promote to conditional; keep condition"]}
+>
+  "Only when the licence is structured as a master portfolio licence" is a hard structural gate — the edge genuinely does not apply to ordinary single-site licences. Every other "Only when…" role on this type is `conditional`; `scope_expansion_annex` is the lone `optional` outlier. Promote.
+
+<FieldDiff
+  title="general_licence_agreement.scope_expansion_annex"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "Only when the licence is structured as a master portfolio licence whose physical scope can be expanded to additional buildings by a downstream annexure notice rather than by re-papering the master.",
+      after:
+        "Only when the licence is structured as a master portfolio licence whose physical scope can be expanded to additional buildings by a downstream annexure notice rather than by re-papering the master.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Every other "Only when…" role on `general_licence_agreement` (`primary_tenancy_supplement`, `performance_security_holder`, `lifecycle_modification_basis`, `early_termination_instrument`, `pre_contractual_commercial_basis`, `renewal_option_recipient`, `variable_fee_reporting_input`) is `conditional`.
+    - Counterpart `additional_building_notice.additional_building_annex` is `required`; that type's own containment `⊂ general_licence_agreement` is `conditional` ("Present when the master licence … is scoped to a multi-property portfolio").
+
+    <Details summary="Verbatim production record">
+      <Json title="A-4 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"scope_expansion_annex\",\n  \"relationship_type\": \"extended_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"Only when the licence is structured as a master portfolio licence whose physical scope can be expanded to additional buildings by a downstream annexure notice rather than by re-papering the master.\",\n  \"purpose_description\": \"Receives downstream annexure notices that formally extend the licence's physical scope to newly acquired or developed buildings while importing the master's commercial, operational, and liability terms onto the new site without re-papering.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"additional_building_notice\",\n      \"counterpart_role_id\": \"additional_building_annex\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-4" label="A-4" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-5"
+  heading="A-5 · notice_to_guarantor.attornment_companion"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: high", "promote to conditional; keep condition"]}
+>
+  A genuine matched-pair conditional: the edge fires only when an affected tenancy AND a third-party guarantor AND a building-sale event coincide. The counterpart and the sibling role are both `conditional`.
+
+<FieldDiff
+  title="notice_to_guarantor.attornment_companion"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "A contemporaneous attornment notice is issued to the tenant from the same building-sale event. Issued as a matched pair when both an affected tenancy and a third-party guarantor exist under the sold property.",
+      after:
+        "A contemporaneous attornment notice is issued to the tenant from the same building-sale event. Issued as a matched pair when both an affected tenancy and a third-party guarantor exist under the sold property.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `attornment_notice.matched_pair_companion`: `conditional`, same matched-pair condition.
+    - Sibling `notice_to_guarantor.guarantor_lease_transition_notification` is `conditional` with the same "A … exists … AND …" grammatical form.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-5 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"attornment_companion\",\n  \"relationship_type\": \"supplements\",\n  \"necessity\": \"optional\",\n  \"condition\": \"A contemporaneous attornment notice is issued to the tenant from the same building-sale event. Issued as a matched pair when both an affected tenancy and a third-party guarantor exist under the sold property.\",\n  \"purpose_description\": \"Operates alongside the contemporaneous attornment notice to complete the post-sale notification cycle — the attornment notice notifies the tenant of the rent-redirection while this notice notifies the guarantor of the indemnity assignment.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"attornment_notice\",\n      \"counterpart_role_id\": \"matched_pair_companion\"\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-5" label="A-5" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-6"
+  heading="A-6 · o_and_m_manual.fitout_operational_compliance"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: high", "promote to conditional; keep condition"]}
+>
+  The condition self-declares its own conditionality — "not all leases require it" — directly contradicting the `expected` level. The counterpart is `conditional` and both sibling roles on this type are `conditional`. Promote.
+
+<FieldDiff
+  title="o_and_m_manual.fitout_operational_compliance"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "expected",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "Applies where the lease or fit-out covenant mandates delivery of as-installed operations & maintenance documentation at practical completion or works handover; not all leases require it.",
+      after:
+        "Applies where the lease or fit-out covenant mandates delivery of as-installed operations & maintenance documentation at practical completion or works handover; not all leases require it.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `lease_agreement.technical_compliance_evidence`: `conditional`; its `o_and_m_manual` target applicability: "When the lease requires handover of as-installed plant manuals."
+    - Both sibling roles (`incorporates_trade_compliance_certificates`, `fire_system_spatial_baseline`) are `conditional`.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-6 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"fitout_operational_compliance\",\n  \"relationship_type\": \"provides_evidence_for\",\n  \"necessity\": \"expected\",\n  \"condition\": \"Applies where the lease or fit-out covenant mandates delivery of as-installed operations & maintenance documentation at practical completion or works handover; not all leases require it.\",\n  \"purpose_description\": \"Supplies the as-installed technical record (equipment schedules, warranties, subcontractor contacts, operational and maintenance instructions) required by the lease or fit-out covenant to evidence that building services have been completed, commissioned and documented at practical completion / works handover.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"lease_agreement\",\n      \"counterpart_role_id\": \"technical_compliance_evidence\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-6" label="A-6" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-7"
+  heading="A-7 · payment_claim.settlement_evidence"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high", "drop role condition (tautology; target applicability holds)"]}
+>
+  The condition is the §8.6 tautology ("when a settlement doc is produced" ≈ "when the target exists") and explicitly argues absence is normal ("many … without any … document"). Both targets already carry their own `applicability_condition`s. Keep `optional`; drop.
+
+<FieldDiff
+  title="payment_claim.settlement_evidence"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When a discrete settlement-evidencing document … is produced alongside the claim's life-cycle; many SOPA claims are settled by bank transfer without any co-present settlement document being preserved …",
+      after: null,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterparts `payment_receipt.obligation_settlement` and `remittance_advice.payment_settlement_notification` are both `required`, no role condition, per-target applicability.
+    - `payment_claim`'s other optional role (`internal_payment_authorization`) carries no condition. Judged together with A-8.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-7 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"settlement_evidence\",\n  \"relationship_type\": \"settled_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"When a discrete settlement-evidencing document (a payment receipt or a remittance advice) is produced alongside the claim's life-cycle; many SOPA claims are settled by bank transfer without any co-present settlement document being preserved in the property-management file.\",\n  \"purpose_description\": \"Receives the downstream settlement-evidencing instrument (payment receipt or remittance advice) that records the claim's outstanding statutory demand having been discharged, closing the SOPA response window.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"payment_receipt\",\n      \"counterpart_role_id\": \"obligation_settlement\",\n      \"applicability_condition\": \"When settlement is evidenced by a formal payee-issued receipt rather than bank-transfer records alone.\",\n      \"parent_relationship_contexts\": []\n    },\n    {\n      \"target_type_id\": \"remittance_advice\",\n      \"counterpart_role_id\": \"payment_settlement_notification\",\n      \"applicability_condition\": \"When the payor issues a discrete remittance advice notifying settlement of the SOPA claim rather than relying on the receipt-only pathway.\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-7" label="A-7" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-8"
+  heading="A-8 · payment_claim.claimant_credential_verification"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high", "drop role condition (duplicates target applicability)"]}
+>
+  The role condition duplicates the matching target `applicability_condition`; the counterpart keeps `expected` with none. Drop; keep `optional`. Same bar as A-7 (both `payment_claim` optional roles).
+
+<FieldDiff
+  title="payment_claim.claimant_credential_verification"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When acceptance of the SOPA-format progress claim is conditioned on independent verification of the issuing contractor's statutory registration …",
+      after: null,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `practitioner_registration_extract.practitioner_credential_verification`: `expected`, no role condition, per-target applicability ("When verifying the issuing contractor's registration as a precondition for accepting a SOPA-format progress claim").
+
+    <Details summary="Verbatim production record">
+      <Json title="A-8 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"claimant_credential_verification\",\n  \"relationship_type\": \"verified_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"When acceptance of the SOPA-format progress claim is conditioned on independent verification of the issuing contractor's statutory registration (typical in jurisdictions where unregistered practitioners cannot validly issue payment claims under Security of Payment legislation, and at engagement-onboarding when no prior credential check exists).\",\n  \"purpose_description\": \"Receives independent statutory-registration evidence confirming that the contractor issuing the SOPA claim holds the active practitioner registration legally required to undertake the works billed and to validly serve the claim under Security of Payment legislation.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"practitioner_registration_extract\",\n      \"counterpart_role_id\": \"practitioner_credential_verification\",\n      \"applicability_condition\": \"When the SOPA claim acceptance process requires per-claim or per-engagement verification of the contractor's statutory registration.\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-8" label="A-8" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-9"
+  heading="A-9 · traffic_management_diagram.governs_lease_traffic_operations"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: high", "promote to conditional; keep condition"]}
+>
+  The diagram *governs* lease traffic operations only when the lease incorporates it by reference — a genuine gate, since most traffic diagrams are standalone WHS artefacts never incorporated. The counterpart governance edge is `conditional`.
+
+<FieldDiff
+  title="traffic_management_diagram.governs_lease_traffic_operations"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "When a lease incorporates the diagram (or its parent Traffic Management Plan appendix set) by reference to bind tenant vehicular operations in shared zones.",
+      after:
+        "When a lease incorporates the diagram (or its parent Traffic Management Plan appendix set) by reference to bind tenant vehicular operations in shared zones.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `lease_agreement.specialised_operational_governance`: `conditional`; its `traffic_management_diagram` target applicability: "When traffic management requires a diagrammatic plan."
+
+    <Details summary="Verbatim production record">
+      <Json title="A-9 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"governs_lease_traffic_operations\",\n  \"relationship_type\": \"governs\",\n  \"necessity\": \"optional\",\n  \"condition\": \"When a lease incorporates the diagram (or its parent Traffic Management Plan appendix set) by reference to bind tenant vehicular operations in shared zones.\",\n  \"purpose_description\": \"Binds the tenant's vehicular operations on site by visually fixing the spatial location of mandated safety controls (signage, line marking, bollards, pedestrian crossings, speed humps) that lease clauses incorporate by reference as the operative traffic-safety regime.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"lease_agreement\",\n      \"counterpart_role_id\": \"specialised_operational_governance\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-9" label="A-9" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-a-10"
+  heading="A-10 · vending_machine_licence.financial_security_backing"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high", "drop role condition (\"uncommon but observed\" = optional)"]}
+>
+  The condition's own words — "uncommon … but observed" — are the textbook definition of `optional` (rare, take-it-or-leave), not a conditional gate. The secured-by-`bank_guarantee` family is modelled corpus-wide as a non-conditional role plus target applicability. Keep `optional`; drop. Consistent with A-2.
+
+<FieldDiff
+  title="vending_machine_licence.financial_security_backing"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "Only when the vending-machine licence mandates a bond / cash-equivalent security … uncommon for standard institutional vending grants but observed in higher-value or multi-machine portfolio licences.",
+      after: null,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `bank_guarantee.contract_performance_security`: `required`, ~18 targets each with `applicability_condition`; the `vending_machine_licence` target reads "When the vending-machine licence requires a bond against equipment removal or fee default."
+    - `vending_machine_licence`'s other optional role (`hazard_placement_mapping`) carries no condition.
+
+    <Details summary="Verbatim production record">
+      <Json title="A-10 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"financial_security_backing\",\n  \"relationship_type\": \"secured_by\",\n  \"necessity\": \"optional\",\n  \"condition\": \"Only when the vending-machine licence mandates a bond / cash-equivalent security against equipment-removal exposure, make-good liability, or fee default — uncommon for standard institutional vending grants but observed in higher-value or multi-machine portfolio licences.\",\n  \"purpose_description\": \"Is backed, where the licence mandates a financial bond, by an on-demand financial undertaking from a bank or insurer in favour of the licensor up to a stated maximum sum, drawable on licensee default of fee, make-good, or equipment-decommissioning obligations.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"bank_guarantee\",\n      \"counterpart_role_id\": \"contract_performance_security\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="a-10" label="A-10" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+### Pack B — role: `conditional` **without** a condition (3)
+
+<Card
+  id="item-b-1"
+  heading="B-1 · inventory_report.make_good_asset_baseline"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack B", "confidence: high", "author missing condition (level kept)"]}
+>
+  Both sides agree the edge is conditional — inventory informs make-good only where landlord FF&E exists — but the inventory side lost its condition. The level is correct; mirror the counterpart's gate.
+
+<FieldDiff
+  title="inventory_report.make_good_asset_baseline"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the demise includes landlord-provided FF&E whose presence and identity must be reconciled against the make-good schedule's yield-up tasks.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `make_good_schedule.asset_baseline_reconciliation`: `conditional`, "When the demise includes landlord-provided FF&E whose presence/identity must be reconciled at yield-up."
+    - Cross-item: consistent with C-3 (both rest on inventory reports being FF&E-gated).
+
+    <Details summary="Verbatim production record">
+      <Json title="B-1 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"make_good_asset_baseline\",\n  \"relationship_type\": \"informs\",\n  \"necessity\": \"conditional\",\n  \"purpose_description\": \"The inventory report establishes the present quantitative asset baseline (landlord-provided FF&E and chattels) that informs the make-good schedule's restoration and removal tasks at yield-up. Inverse of the make-good schedule's asset_baseline_reconciliation role.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"make_good_schedule\",\n      \"counterpart_role_id\": \"asset_baseline_reconciliation\",\n      \"parent_relationship_contexts\": []\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="b-1" label="B-1" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-b-2"
+  heading="B-2 · outgoings_audit_report.outgoings_audit_verification"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack B", "confidence: medium-high", "demote level →expected (alt: optional)", "⚑ balanced call"]}
+>
+  No document-scoreable circumstance gates this edge — an outgoings audit certifies the pool the reconciliation is derived from; that is a default validation, not a conditional. The two sides disagree on level (conditional vs the counterpart's `expected`). Demote to `expected` for counterpart symmetry.
+
+<FieldDiff
+  title="outgoings_audit_report.outgoings_audit_verification"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "conditional",
+      after: "expected",
+    },
+    {
+      name: "relationship_type",
+      before: "audits",
+      after: "audits",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `outgoings_reconciliation_statement.outgoings_audit_verification`: `necessity: "expected"`, `relationship_type: "validated_by"`, no condition.
+    - The audit report's primary role (`outgoings_expense_verification → lease_agreement`) is `required`; this secondary edge is `expected`.
+    - **Charitable alternative (why ⚑):** if you read the audit→reconciliation edge as incidental from the audit's side, `optional` is the fallback. Assessor recommends `expected`; the direction is offered in Balanced calls.
+
+    <Details summary="Verbatim production record">
+      <Json title="B-2 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"outgoings_audit_verification\",\n  \"relationship_type\": \"audits\",\n  \"necessity\": \"conditional\",\n  \"purpose_description\": \"Independently audits and verifies the building-wide outgoings / expense-pool reconciliation, confirming the reconciled actual outgoings against the lease's recoverable-expense provisions for the audit period.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"outgoings_reconciliation_statement\",\n      \"counterpart_role_id\": \"outgoings_audit_verification\"\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="b-2" label="B-2" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-b-3"
+  heading="B-3 · trade_waste_approval.discharge_compliance_evidence"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack B", "confidence: high", "author missing condition (level kept)"]}
+>
+  A trade waste approval covers food/grease, laboratory AND cooling-tower cases; the edge to the cooling-tower compliance record applies only in the cooling-tower/sewer-blowdown case — genuinely conditional. Level correct; author the omitted gate.
+
+<FieldDiff
+  title="trade_waste_approval.discharge_compliance_evidence"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "necessity",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the trade waste approval authorises cooling-tower blowdown / bleed discharge to the public sewer and requires ongoing evidence of the RMP-mandated water-treatment regime.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Counterpart `cooling_tower_compliance_record.trade_waste_discharge_evidence`: `conditional`, gated on cooling-tower blowdown to the public sewer.
+    - One of a deliberate opposite-direction pair between the two types — not a duplication defect.
+
+    <Details summary="Verbatim production record">
+      <Json title="B-3 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"role_id\": \"discharge_compliance_evidence\",\n  \"relationship_type\": \"requires_evidence_from\",\n  \"necessity\": \"conditional\",\n  \"purpose_description\": \"Requires ongoing compliance evidence — a risk-management plan / audit documenting that cooling-tower blowdown disposal to sewer stayed within the approval's chemical, temperature and flow limits — substantiating that the building operated within its trade-waste authorisation for the period.\",\n  \"acceptable_targets\": [\n    {\n      \"target_type_id\": \"cooling_tower_compliance_record\",\n      \"counterpart_role_id\": \"trade_waste_discharge_evidence\"\n    }\n  ]\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="b-3" label="B-3" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+### Pack C — containment: non-conditional presence **with** a condition (8)
+
+<Card
+  id="item-c-1"
+  heading="C-1 · capital_items_list ⊂ deed_of_assignment"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack C", "confidence: high", "promote presence to conditional; keep condition"]}
+>
+  Presence is gated on the assignment actually transferring physical assets — many assignments are pure leasehold-interest transfers. A genuine conditional, consistent with this child's two other containments (both `conditional`).
+
+<FieldDiff
+  title="capital_items_list ⊂ deed_of_assignment"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "conditional",
+    },
+    {
+      name: "condition",
+      before:
+        "Present when a lease assignment transfers specific operational assets (e.g. pallet racking, workstations) between outgoing and incoming tenants and the deed needs an itemised inventory …",
+      after:
+        "Present when a lease assignment transfers specific operational assets (e.g. pallet racking, workstations) between outgoing and incoming tenants and the deed needs an itemised inventory …",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - `capital_items_list`'s other containments (`⊂ lease_agreement`, `⊂ incentive_and_fitout_deed`) are both `conditional` with parallel "Present when …" asset-gating conditions.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-1 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"deed_of_assignment\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"Present when a lease assignment transfers specific operational assets (e.g. pallet racking, workstations) between outgoing and incoming tenants and the deed needs an itemised inventory with consideration values and ownership designations.\",\n  \"containment_description\": \"An itemised asset-transfer schedule attached to a deed of assignment, enumerating the operational assets (racking systems, workstations, fixtures) whose ownership transfers under the assignment and the consideration ($) attached to each.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-1" label="C-1" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-2"
+  heading="C-2 · finishes_schedule ⊂ fitout_design_package"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium-high", "drop condition → fold into containment_description"]}
+>
+  A fitout_design_package *is* the pre-construction design submission for landlord approval — the condition restates the host rather than gating presence. Keep `expected` (a finishes schedule is a soft-default component); fold the substance into the description.
+
+<FieldDiff
+  title="finishes_schedule ⊂ fitout_design_package"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "expected",
+      after: "expected",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When submitted as part of the pre-construction design submission for landlord approval.",
+      after: null,
+    },
+    {
+      name: "containment_description",
+      before:
+        "Embedded as the material-specification tabular schedule within a tenant fit-out design package, providing the proprietary product codes, suppliers, paints, and hardware specifications that the design review process audits.",
+      after:
+        "Embedded as the material-specification tabular schedule within a tenant fit-out design package submitted for pre-construction landlord approval, providing the proprietary product codes, suppliers, paints, and hardware specifications that the design review process audits.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - `finishes_schedule`'s other three containments (`condition_report`, `architectural_drawing`, `lease_agreement`) are `conditional`; this `fitout_design_package` one is its `expected` core home.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-2 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"fitout_design_package\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"expected\",\n  \"condition\": \"When submitted as part of the pre-construction design submission for landlord approval.\",\n  \"containment_description\": \"Embedded as the material-specification tabular schedule within a tenant fit-out design package, providing the proprietary product codes, suppliers, paints, and hardware specifications that the design review process audits.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-2" label="C-2" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-3"
+  heading="C-3 · inventory_report ⊂ lease_agreement"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack C", "confidence: high", "promote presence to conditional; keep condition"]}
+>
+  Most leases (cold-shell / tenant-fitout) carry no landlord FF&E, so an inventory report is present only under the FF&E gate — `expected` overstates presence. Every other `inventory_report` containment is `conditional`; this lease context is the outlier. (`containment_certainty: "definitive"` is a separate axis and is unchanged.)
+
+<FieldDiff
+  title="inventory_report ⊂ lease_agreement"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "expected",
+      after: "conditional",
+    },
+    {
+      name: "containment_certainty",
+      before: "definitive",
+      after: "definitive",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the demise includes landlord-provided FF&E — typically fitted, turnkey, or 'plug-and-play' spec-suite tenancies.",
+      after:
+        "When the demise includes landlord-provided FF&E — typically fitted, turnkey, or 'plug-and-play' spec-suite tenancies.",
+      kept: true,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Every other `inventory_report` containment (`condition_report`, `incentive_and_fitout_deed`, `sublease_agreement`, `fitout_design_package`) is `conditional`.
+    - Cross-item: aligns with B-1 (both rest on FF&E-gating).
+
+    <Details summary="Verbatim production record">
+      <Json title="C-3 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"lease_agreement\",\n  \"containment_certainty\": \"definitive\",\n  \"expected_presence\": \"expected\",\n  \"condition\": \"When the demise includes landlord-provided FF&E — typically fitted, turnkey, or 'plug-and-play' spec-suite tenancies.\",\n  \"containment_description\": \"A technical manifest or schedule of landlord-provided FF&E physically bound as an annexure or schedule within a commercial, retail, or industrial lease agreement, establishing the asset baseline the tenant must maintain, insure, and yield up.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-3" label="C-3" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-4"
+  heading="C-4 · media_content_criteria_schedule ⊂ general_licence_agreement"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium", "drop condition → description (alt: promote)", "⚑ balanced call"]}
+>
+  The condition is parent-type **scoping** prose — it describes *which* generic licences this explicitly-"Secondary fallback" home covers, and largely restates the description. Respect the author's deliberate primary-conditional / fallback-optional two-tier design; keep `optional`, fold scope into the description.
+
+<FieldDiff
+  title="media_content_criteria_schedule ⊂ general_licence_agreement"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "containment_certainty",
+      before: "possible",
+      after: "possible",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the parent is a generic licence agreement (not specifically a digital media licence) that incidentally licenses content-display rights …",
+      after: null,
+    },
+    {
+      name: "containment_description",
+      before:
+        "Secondary fallback containment: embedded schedule of a generic licence agreement that licenses content-display rights but is not itself a digital_media_licence.",
+      after:
+        "Secondary fallback containment: an embedded schedule of a generic (non-digital-media) licence agreement that incidentally licenses content-display rights — e.g. a promotional-area or activation licence with embedded content-conflict provisions.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - The primary containment (`⊂ digital_media_licence`) is `conditional`; this is the explicitly "Secondary fallback" home at `possible` certainty / `optional` presence.
+    - **Charitable alternative (why ⚑):** promoting to `conditional` to match the primary is fully defensible — "generic licence that licenses content-display rights" is a scoreable gate. Assessor leans demote because the text reads as fallback-scope description and even within the gate the schedule is only `possible`. Direction offered in Balanced calls.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-4 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"general_licence_agreement\",\n  \"containment_certainty\": \"possible\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"When the parent is a generic licence agreement (not specifically a digital media licence) that incidentally licenses content-display rights — e.g. promotional-area or activation licences with embedded content-conflict provisions.\",\n  \"containment_description\": \"Secondary fallback containment: embedded schedule of a generic licence agreement that licenses content-display rights but is not itself a digital_media_licence.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-4" label="C-4" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-5"
+  heading="C-5 · negotiation_table ⊂ incentive_and_fitout_deed"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium-high", "drop condition (elective noise)"]}
+>
+  "When the parties wish to record …" is elective — exactly what `optional` already encodes (the §8.6 conditional-as-default-noise pattern). Keep `optional`; drop the condition (its content is already in the description).
+
+<FieldDiff
+  title="negotiation_table ⊂ incentive_and_fitout_deed"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the parties wish to record the evolution of the commercial deal as a schedule appended to the executed deed.",
+      after: null,
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - `negotiation_table` has only this one containment; its two roles are both `optional`; `sibling_discriminators` frames it as a "historical log … with no operative force".
+
+    <Details summary="Verbatim production record">
+      <Json title="C-5 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"incentive_and_fitout_deed\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"When the parties wish to record the evolution of the commercial deal as a schedule appended to the executed deed.\",\n  \"containment_description\": \"A historical schedule logging clause-by-clause requested amendments and landlord responses, embedded within the incentive/works deed whose drafting it documents.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-5" label="C-5" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-6"
+  heading="C-6 · repair_and_maintenance_schedule ⊂ o_and_m_manual"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium-high", "drop condition → description (form discriminator)"]}
+>
+  This is a **form discriminator** (periodic-task-list-in-O&M vs duty-matrix-in-lease) distinguishing the two homes — it belongs in the description, not a `condition`. Keep `optional`.
+
+<FieldDiff
+  title="repair_and_maintenance_schedule ⊂ o_and_m_manual"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "When the schedule appears as a periodic-task list (daily/weekly/monthly servicing routines) inside an operations & maintenance manual rather than as a bilateral landlord/tenant duty matrix inside a lease.",
+      after: null,
+    },
+    {
+      name: "containment_description",
+      before:
+        "The maintenance schedule appears as a periodic tasking sheet embedded within an O&M manual, listing routine servicing intervals for building services.",
+      after:
+        "The maintenance schedule appears as a periodic tasking sheet embedded within an O&M manual — daily/weekly/monthly servicing routines for building services — rather than as a bilateral landlord/tenant duty matrix inside a lease.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - The primary containment (`⊂ lease_agreement`) is `expected` with no condition — the canonical home; this `o_and_m_manual` case is the secondary form.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-6 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"o_and_m_manual\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"When the schedule appears as a periodic-task list (daily/weekly/monthly servicing routines) inside an operations & maintenance manual rather than as a bilateral landlord/tenant duty matrix inside a lease.\",\n  \"containment_description\": \"The maintenance schedule appears as a periodic tasking sheet embedded within an O&M manual, listing routine servicing intervals for building services.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-6" label="C-6" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-7"
+  heading="C-7 · seating_area_licence ⊂ incentive_and_fitout_deed"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium", "drop condition → description (alt: promote)", "⚑ balanced call"]}
+>
+  `seating_area_licence` is `conditional` in its formal-grant hosts (lease, deed_of_variation) and `optional` in its preliminary/incidental hosts (incentive deed, HoA) — the author tiers presence by host formality. In an incentive deed the grant is incidental; keep `optional`, fold into the description.
+
+<FieldDiff
+  title="seating_area_licence ⊂ incentive_and_fitout_deed"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "Present when a tenant requires access to an adjacent or common-area seating space during a fitout or incentive period covered by the incentive deed.",
+      after: null,
+    },
+    {
+      name: "containment_description",
+      before:
+        "A non-exclusive seating-area licence embedded within an incentive deed governing fitout or other tenant-incentive arrangements.",
+      after:
+        "A non-exclusive seating-area licence embedded within an incentive deed governing fitout or other tenant-incentive arrangements, granting access to an adjacent or common-area seating space during the fitout or incentive period.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - `seating_area_licence` is `conditional` in `lease_agreement`/`deed_of_variation` (formal grant) and `optional` in `incentive_and_fitout_deed`/`heads_of_agreement` (preliminary tier).
+    - **Charitable alternative (why ⚑):** promoting to `conditional` to match the lease/variation siblings is defensible; assessor keeps the softer `optional` tier deliberately. Judged with C-8. Direction offered in Balanced calls.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-7 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"incentive_and_fitout_deed\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"Present when a tenant requires access to an adjacent or common-area seating space during a fitout or incentive period covered by the incentive deed.\",\n  \"containment_description\": \"A non-exclusive seating-area licence embedded within an incentive deed governing fitout or other tenant-incentive arrangements.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-7" label="C-7" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-c-8"
+  heading="C-8 · seating_area_licence ⊂ heads_of_agreement"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack C", "confidence: medium", "drop condition → description (alt: promote)", "⚑ balanced call"]}
+>
+  The condition describes the HoA-stage form ("captured in a preliminary instrument prior to lease execution") — descriptive and near-tautological with the containment itself. Keep `optional` (preliminary-host tier); fold into the description. Judged consistently with C-7.
+
+<FieldDiff
+  title="seating_area_licence ⊂ heads_of_agreement"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "optional",
+      after: "optional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before:
+        "Present when negotiated seating rights are documented in a pre-lease heads-of-agreement to be drafted into the final lease.",
+      after: null,
+    },
+    {
+      name: "containment_description",
+      before:
+        "A draft non-exclusive seating-area licence captured in a preliminary heads-of-agreement instrument prior to lease execution.",
+      after:
+        "A draft non-exclusive seating-area licence captured in a preliminary heads-of-agreement instrument prior to lease execution, recording negotiated seating rights to be drafted into the final lease.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Same child as C-7, both preliminary-tier hosts; both flagged as promote-arguable. Direction offered in Balanced calls.
+
+    <Details summary="Verbatim production record">
+      <Json title="C-8 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"heads_of_agreement\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"optional\",\n  \"condition\": \"Present when negotiated seating rights are documented in a pre-lease heads-of-agreement to be drafted into the final lease.\",\n  \"containment_description\": \"A draft non-exclusive seating-area licence captured in a preliminary heads-of-agreement instrument prior to lease execution.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="c-8" label="C-8" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+### Pack D — containment: `conditional` **without** a condition (9)
+
+<Card
+  id="item-d-1"
+  heading="D-1 · elevation_drawing ⊂ scope_of_works_schedule"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  The child's sibling `⊂ architectural_drawing` is `conditional` with a condition; `scope_of_works_schedule` itemises works by trade, so elevations appear only for built-form/façade works. Level correct; author the gate.
+
+<FieldDiff
+  title="elevation_drawing ⊂ scope_of_works_schedule"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the landlord's scope of works includes façade, shopfront, or built-form elements whose design intent is specified by elevation drawings, rather than a services-only or finishes-only works scope.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Sibling `elevation_drawing ⊂ architectural_drawing` is `conditional` WITH a condition — the pattern to mirror.
+
+    <Details summary="Verbatim production record">
+      <Json title="D-1 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"scope_of_works_schedule\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"A vertical cross-section drawing delivered inside a schedule of landlord works as visual specification of the design intent the landlord undertakes to deliver.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-1" label="D-1" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-2"
+  heading="D-2 · equipment_manifest ⊂ general_licence_agreement"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  `equipment_manifest`'s only containment; `general_licence_agreement` is a broad residual/fallback host — a manifest appears only when the licence grants equipment-installation rights. Author the gate.
+
+<FieldDiff
+  title="equipment_manifest ⊂ general_licence_agreement"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the licence grants rights to install technical or mechanical equipment whose items are enumerated in an embedded manifest (e.g. telecommunications, AV, or plant-installation licences), rather than a licence over space or activities alone.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - `general_licence_agreement` is a broad residual host; the manifest is present only under the equipment-installation gate.
+
+    <Details summary="Verbatim production record">
+      <Json title="D-2 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"general_licence_agreement\",\n  \"containment_certainty\": \"definitive\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Equipment manifest embedded as a structural schedule within the licence agreement that grants the rights to install the listed technical assets.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-2" label="D-2" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-3"
+  heading="D-3 · fire_safety_schedule ⊂ certificate_of_occupancy"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: high", "author missing condition (level kept)"]}
+>
+  The description already states the gate — the Victorian Maintenance Determination variant appended at occupancy-permit issue. The child's primary home `⊂ annual_fire_safety_statement` is `required`; this is the jurisdiction-specific secondary home. Author the gate.
+
+<FieldDiff
+  title="fire_safety_schedule ⊂ certificate_of_occupancy"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the occupancy permit is issued in a jurisdiction (notably Victoria) that appends the essential-safety-measures Maintenance Determination to the Certificate of Occupancy / Certificate of Final Inspection at the point of permit issue.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Description states the gate: "The Victorian Maintenance Determination variant … appended … at the point of occupancy permit issue."
+    - Primary containment `⊂ annual_fire_safety_statement` is `required` (correctly non-conditional).
+
+    <Details summary="Verbatim production record">
+      <Json title="D-3 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"certificate_of_occupancy\",\n  \"containment_certainty\": \"definitive\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"The Victorian Maintenance Determination variant of this concept is structurally appended as an audit-sheet sub-part to a Certificate of Occupancy / Certificate of Final Inspection, establishing the forward-looking ESM maintenance regime at the point of occupancy permit issue.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-3" label="D-3" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-4"
+  heading="D-4 · insurance_policy_endorsement ⊂ insurance_policy_schedule"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  The sibling `⊂ certificate_of_currency` carries the exact gate to mirror — a distinct endorsement section must be physically bundled; routine inline notings are not endorsements. Author it.
+
+<FieldDiff
+  title="insurance_policy_endorsement ⊂ insurance_policy_schedule"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "Only when a distinct named endorsement / policy-amendment section is embedded within the schedule; routine inline interested-party or noting notations are NOT endorsements.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Sibling `⊂ certificate_of_currency`: "Only when a separate endorsement schedule/policy amendment is physically bundled; routine inline interested-party/noting notations are NOT endorsements."
+
+    <Details summary="Verbatim production record">
+      <Json title="D-4 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"insurance_policy_schedule\",\n  \"containment_certainty\": \"likely\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Physically embedded as an inline section within an insurance policy schedule, where the schedule is the top-level proof artefact delivered for the tenant. The endorsement appears as a named sub-section of the schedule rather than a separate file.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-4" label="D-4" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-5"
+  heading="D-5 · radio_frequency_report ⊂ telecommunications_licence"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: high", "author missing condition (level kept)"]}
+>
+  The description states the gate explicitly — the report evidences a telco-licence document only when bound as that licence's annexure. Corroborated by the child's own roles. Author it.
+
+<FieldDiff
+  title="radio_frequency_report ⊂ telecommunications_licence"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the RF / EME-safety report is bound as a named annexure to the telecommunications licence (a defined term and the subject of an operative licence covenant), rather than filed as a free-standing portfolio-wide site-safety folder referenced by no specific licence.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Description: "the report evidences a telecommunications-licence document ONLY when it is that licence's annexure."
+    - Corroborated by the child's roles `radiation_safety_disclosure` and `governs_rf_safety_operations`.
+
+    <Details summary="Verbatim production record">
+      <Json title="D-5 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"telecommunications_licence\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Physically bound as a named annexure (e.g., Annexure B) within a telecommunications licence, where the report is a defined term of the licence and the subject of an operative covenant on the licensee: it is the licence's authoritative RF/EME-safety verification content layer, supplying the ARPANSA/ACMA-aligned exclusion-zone modelling and emission measurements that demonstrate the licensed carrier's antenna installation complies with the licence's RF-safety regime. The report retains its own independent technical authority when embedded — the embedding is a filing convention, and the same analytical artefact is also filed as a portfolio-wide free-standing site-safety folder referenced by no specific licence. This containment_context is the canonical encoding of the report-evidences-licence relationship: because the report evidences a telecommunications-licence document ONLY when it is that licence's annexure, the evidentiary function and the physical embedding are the same edge and are recorded here rather than duplicated as a separate functional role.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-5" label="D-5" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-6"
+  heading="D-6 · signage_licence ⊂ lease_agreement"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: high", "author missing condition (level kept)"]}
+>
+  The description states the gate — signage rights embedded rather than granted by standalone deed. Corroborated by the child's role `ancillary_branding_grant`, which contrasts the standalone-deed variant with the embedded one. Author it.
+
+<FieldDiff
+  title="signage_licence ⊂ lease_agreement"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the signage rights are embedded within the lease agreement (as special conditions, reference schedules, or signage-area clauses) rather than granted by a standalone signage deed or licence.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Description: "when the rights are embedded rather than granted by standalone deed."
+    - Corroborated by role `ancillary_branding_grant` contrasting standalone-deed vs embedded ("captured by containment_contexts").
+
+    <Details summary="Verbatim production record">
+      <Json title="D-6 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"lease_agreement\",\n  \"containment_certainty\": \"definitive\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Signage licence rights physically embedded within a primary lease agreement (under special conditions, reference schedules, signage-area clauses, or variation tables) granting tenant branding rights coterminous with the head lease, when the rights are embedded rather than granted by standalone deed.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-6" label="D-6" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-7"
+  heading="D-7 · signage_licence ⊂ variation_table"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  Bespoke negotiated signage concessions introduced via a variation table that amends the lease's standard terms. Judged with D-6 (same child, distinct host gate). Author it.
+
+<FieldDiff
+  title="signage_licence ⊂ variation_table"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When bespoke signage rights are introduced or amended through a variation table that departs from the lease's standard signage terms, rather than embedded in the lease body or granted by standalone deed.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Description: "physically embedded in a variation table that amends the primary lease's standard terms, typically as bespoke negotiated signage concessions."
+
+    <Details summary="Verbatim production record">
+      <Json title="D-7 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"variation_table\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Signage licence rights physically embedded in a variation table that amends the primary lease's standard terms, typically as bespoke negotiated signage concessions.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-7" label="D-7" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-8"
+  heading="D-8 · telecommunications_installation_requirements ⊂ service_connection_licence"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  The primary home `⊂ telecommunications_licence` is `expected` (canonical, correctly non-conditional); this is the host-variant secondary case. Author the gate.
+
+<FieldDiff
+  title="telecommunications_installation_requirements ⊂ service_connection_licence"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the installation requirements are embedded within a service-connection (utility / service-provider) licence rather than a pure telecommunications licence.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Primary containment `⊂ telecommunications_licence` is `expected`; description: "Same engineering schedule … inside a service-connection licence … rather than a pure telecommunications licence."
+
+    <Details summary="Verbatim production record">
+      <Json title="D-8 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"service_connection_licence\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Same engineering schedule observed embedded inside a service-connection licence (utility/service-provider variant of the telecom licence shape) rather than a pure telecommunications licence.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-8" label="D-8" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+<Card
+  id="item-d-9"
+  heading="D-9 · telecommunications_installation_requirements ⊂ storage_licence"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack D", "confidence: medium-high", "author missing condition (level kept)"]}
+>
+  Applies where the licensee's storage allocation in a comms riser / MDF cupboard requires the site-wide cabling standards to bind them. Judged with D-8 (same child, distinct host gate). Author it.
+
+<FieldDiff
+  title="telecommunications_installation_requirements ⊂ storage_licence"
+  beforeLabel="Current (production)"
+  afterLabel="Proposed"
+  fields={[
+    {
+      name: "expected_presence",
+      before: "conditional",
+      after: "conditional",
+      kept: true,
+    },
+    {
+      name: "condition",
+      before: null,
+      after:
+        "When the storage allocation sits within a communications riser / MDF cupboard (or similar comms space) whose licensee must be bound by the site-wide cabling and installation standards.",
+    },
+  ]}
+/>
+
+  <Details summary="Evidence & reasoning">
+    - Description: "typically where the licensee's storage allocation in a comms riser / MDF cupboard requires the site-wide cabling standards to be enforceable against them."
+
+    <Details summary="Verbatim production record">
+      <Json title="D-9 — offending record (production)" wrap collapsedDepth={2} json={"{\n  \"parent_type_id\": \"storage_licence\",\n  \"containment_certainty\": \"contextual\",\n  \"expected_presence\": \"conditional\",\n  \"containment_description\": \"Same engineering schedule observed appended to a storage-area licence — typically where the licensee's storage allocation in a comms riser / MDF cupboard requires the site-wide cabling standards to be enforceable against them as a condition of the storage licence.\"\n}"} />
+    </Details>
+
+  </Details>
+
+  <ReviewChoice itemId="d-9" label="D-9" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+### Pack E — `survey_plan` multi-context modelling question (1)
+
+<Card
+  id="item-e-1"
+  heading="E-1 · survey_plan ⊂ lease_agreement (×3 → ×1)"
+  tone="accent"
+  badge="OTHER_DEFECT · structural"
+  meta={["Pack E", "confidence: high", "merge 3 → 1 (compaction-safe)"]}
+>
+  Production carries **three** parallel `lease_agreement` contexts on `survey_plan`, identical but for sector (retail/GLAR, office/NLA, industrial/GLA). This is not a field mismatch — it is a structural modelling question. **Recommendation: merge the three into one context** whose condition enumerates the sector→measure mapping.
+
+Three reasons, grounded in the full entry:
+
+1. **Compaction is decisive.** The compact build keys parents on `parent_type_id`; three identical `lease_agreement` entries collapse to three identical lines with the distinguishing `condition`/`description` dropped — precisely the §4.6 corruption. Every _other_ host in `survey_plan.containment_contexts` appears exactly once; only `lease_agreement` is tripled. One merged context is the only shape that survives compaction legibly.
+2. **Classifier actionability gains nothing from three.** Routing keys on `parent_type_id`, identical across all three. The sector→measure distinction is _content extracted from the plan itself_ (already in the `survey_plan` description and the `demised_premises_area_definition` role), not a routing decision.
+3. **No distinct extractable content is lost.** All three descriptions say the same thing; only the measure token differs, and the merged prose carries all three. Not UNEXPRESSIBLE — the mapping is cleanly expressible as one context.
+
+<Columns>
+  <Column label="Current — 3 parallel contexts">
+    <Json
+      title="survey_plan.containment_contexts (lease_agreement ×3)"
+      wrap
+      collapsedDepth={2}
+      json={
+        '[\n  {\n    "parent_type_id": "lease_agreement",\n    "containment_certainty": "definitive",\n    "expected_presence": "conditional",\n    "condition": "When the host lease is a retail tenancy; the plan certifies GLAR for the shop or kiosk footprint.",\n    "containment_description": "Physically bound within a retail lease, certifying the GLAR of the demised shop / kiosk."\n  },\n  {\n    "parent_type_id": "lease_agreement",\n    "containment_certainty": "definitive",\n    "expected_presence": "conditional",\n    "condition": "When the host lease is an office tenancy; the plan certifies NLA for the suite.",\n    "containment_description": "Physically bound within a commercial office lease, certifying the NLA of the suite."\n  },\n  {\n    "parent_type_id": "lease_agreement",\n    "containment_certainty": "definitive",\n    "expected_presence": "conditional",\n    "condition": "When the host lease is industrial; the plan certifies GLA for warehouse / hardstand.",\n    "containment_description": "Physically bound within an industrial lease, certifying the GLA of warehouse and hardstand."\n  }\n]'
+      }
+    />
+  </Column>
+  <Column label="Proposed — 1 merged context">
+    <Json
+      title="survey_plan.containment_contexts (lease_agreement ×1)"
+      wrap
+      collapsedDepth={2}
+      json={
+        '{\n  "parent_type_id": "lease_agreement",\n  "containment_certainty": "definitive",\n  "expected_presence": "conditional",\n  "condition": "When the lease defines the demised premises by an annexed cadastral-surveyor-certified area plan rather than by a textual area statement alone; the certified measure follows the tenancy sector — GLAR for retail (shop/kiosk), NLA for a commercial office suite, and GLA for an industrial warehouse/hardstand.",\n  "containment_description": "Physically bound within a lease agreement as the cadastral-surveyor-certified plan of the demised premises, certifying the lettable area under the measurement standard appropriate to the tenancy sector: GLAR (retail shop/kiosk), NLA (office suite), or GLA (industrial warehouse and hardstand)."\n}'
+      }
+    />
+  </Column>
+</Columns>
+
+<Details summary="Evidence & reasoning">
+  - All three current contexts share `containment_certainty: "definitive"`, `expected_presence:
+  "conditional"`; they differ only by sector and measure (GLAR / NLA / GLA). - Every other host
+  (`agreement_to_lease`, `sublease_agreement`, `easement_instrument`, `telecommunications_licence`,
+  `car_parking_licence`, …) appears exactly once; only `lease_agreement` is tripled. - **Not
+  UNEXPRESSIBLE:** the protocol floats `survey_plan` as the archetype of multi-valued applicability,
+  but the sector→measure mapping is content, not a routing distinction the schema must encode three
+  times.
+</Details>
+
+  <ReviewChoice itemId="e-1" label="E-1" placeholder="Prefer keeping three contexts, or a different merged shape?…" />
+</Card>
+
+## Balanced calls
+
+These are the handful of genuinely balanced direction-calls flagged above (⚑) plus the rollout choice. Every other item defaults to its recommendation on silence — answer here only where you prefer the alternative direction; your per-item Accept/Reject/Discuss above still governs sign-off.
+
+<QuestionForm
+  questions={[
+    {
+      id: "q-a1",
+      title: "A-1 · as_built_drawing.systems_baseline_for_inspection — which direction?",
+      mode: "single",
+      options: [
+        {
+          id: "promote",
+          label: "Promote to conditional + sharpen the condition",
+          recommended: true,
+          detail:
+            "Assessor recommendation; matches the conditional counterpart and the type's house style.",
+        },
+        {
+          id: "drop",
+          label: "Keep optional, drop the condition",
+          detail: "Read the as-built side as incidental to a general record.",
+        },
+      ],
+    },
+    {
+      id: "q-b2",
+      title: "B-2 · outgoings_audit_report.outgoings_audit_verification — which level?",
+      mode: "single",
+      options: [
+        {
+          id: "expected",
+          label: "Demote to expected",
+          recommended: true,
+          detail: "Counterpart symmetry (the reconciliation side is expected/validated_by).",
+        },
+        {
+          id: "optional",
+          label: "Demote to optional",
+          detail: "If the audit→reconciliation edge is incidental from the audit's side.",
+        },
+      ],
+    },
+    {
+      id: "q-c4",
+      title:
+        "C-4 · media_content_criteria_schedule ⊂ general_licence_agreement — demote or promote?",
+      mode: "single",
+      options: [
+        {
+          id: "demote",
+          label: "Keep optional, fold scope into description",
+          recommended: true,
+          detail:
+            "Respects the author's primary-conditional / fallback-optional two-tier design; only possible even within the gate.",
+        },
+        {
+          id: "promote",
+          label: "Promote to conditional, keep the condition",
+          detail: '"Generic licence that licenses content-display rights" is a scoreable gate.',
+        },
+      ],
+    },
+    {
+      id: "q-seating",
+      title:
+        "C-7 & C-8 · seating_area_licence in preliminary hosts (incentive deed, HoA) — demote or promote? (both together)",
+      mode: "single",
+      options: [
+        {
+          id: "demote",
+          label: "Keep optional, fold into description (both)",
+          recommended: true,
+          detail:
+            "Respects the author's presence-tiering: conditional in formal-grant hosts, optional in preliminary ones.",
+        },
+        {
+          id: "promote",
+          label: "Promote both to conditional",
+          detail:
+            "Match the lease/deed_of_variation siblings; treat the host-stage prose as a real gate.",
+        },
+      ],
+    },
+    {
+      id: "q-rollout",
+      title: "Apply the accepted changes in one batch or stage them by pack?",
+      mode: "single",
+      options: [
+        {
+          id: "batch",
+          label: "One batch",
+          recommended: true,
+          detail:
+            "30 field edits + 1 structural merge, all independent and verbatim; no ordering dependency.",
+        },
+        {
+          id: "staged",
+          label: "Stage by pack",
+          detail:
+            "Apply A/B (roles) first, then C/D (containment), then E (structural) after a spot-check.",
+        },
+      ],
+    },
+  ]}
+/>
+
+## On sign-off
+
+Accepted items are written verbatim by the deterministic apply step: the `Proposed` panel of each `<FieldDiff>` is the exact production value (a `null` after means the field is removed; a `kept` field is untouched). For E-1 the three `lease_agreement` contexts are replaced by the single merged object; all other `survey_plan` contexts are unchanged. Rejected or discussed items are held for a follow-up turn.

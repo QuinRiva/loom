@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { useShikiHtml } from "../shiki";
+import { WrapToggle } from "./wrapToggle";
 
 /**
  * The `<AnnotatedCode>` block — a code walkthrough with margin notes keyed to
@@ -27,6 +28,8 @@ export interface AnnotatedCodeData {
   language?: string;
   filename?: string;
   annotations: CodeAnnotation[];
+  /** Initial soft-wrap state (§5). Toggleable in the header regardless. */
+  wrap?: boolean;
 }
 
 const annotationSchema = z.object({
@@ -44,6 +47,7 @@ export const annotatedCodeSchema = z.object({
   language: z.string().trim().max(40).optional(),
   filename: z.string().trim().max(400).optional(),
   annotations: z.array(annotationSchema).max(80),
+  wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<AnnotatedCodeData>;
 
 export const annotatedCodeMdx: BlockMdxConfig<AnnotatedCodeData> = {
@@ -53,6 +57,7 @@ export const annotatedCodeMdx: BlockMdxConfig<AnnotatedCodeData> = {
     language: data.language,
     code: data.code,
     annotations: data.annotations,
+    wrap: data.wrap,
   }),
   fromAttrs: (attrs) =>
     ({
@@ -60,6 +65,7 @@ export const annotatedCodeMdx: BlockMdxConfig<AnnotatedCodeData> = {
       language: attrs.string("language"),
       filename: attrs.string("filename"),
       annotations: attrs.array<CodeAnnotation>("annotations") ?? [],
+      wrap: attrs.bool("wrap"),
     }) as AnnotatedCodeData,
 };
 
@@ -68,14 +74,31 @@ function parseLineStart(lines: string): number {
   return Number.parseInt(lines.split("-")[0]?.trim() ?? "0", 10) || 0;
 }
 
-function AnnotatedCodeBody({ code, language }: { code: string; language: string }) {
+function AnnotatedCodeBody({
+  code,
+  language,
+  wrap,
+}: {
+  code: string;
+  language: string;
+  wrap: boolean;
+}) {
   const html = useShikiHtml(code, language);
   if (html === null) {
-    return <pre className="overflow-x-auto p-3 font-mono text-xs">{code}</pre>;
+    return (
+      <pre
+        className={cn(
+          "overflow-x-auto p-3 font-mono text-xs",
+          wrap && "whitespace-pre-wrap break-words",
+        )}
+      >
+        {code}
+      </pre>
+    );
   }
   return (
     <div
-      className="plan-code-shiki overflow-x-auto p-3 text-xs"
+      className={cn("plan-code-shiki overflow-x-auto p-3 text-xs", wrap && "plan-code-wrap")}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -83,6 +106,7 @@ function AnnotatedCodeBody({ code, language }: { code: string; language: string 
 
 export function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeData>) {
   const language = data.language?.trim() || "text";
+  const [wrap, setWrap] = useState(data.wrap ?? false);
   const annotations = useMemo(
     () =>
       [...(data.annotations ?? [])].sort(
@@ -97,13 +121,14 @@ export function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<Annotate
       data-plan-block-type="annotated-code"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      {(data.filename || language !== "text") && (
-        <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-          <span className="truncate font-mono">{data.filename ?? ""}</span>
-          <span className="shrink-0 uppercase tracking-wide">{language}</span>
-        </figcaption>
-      )}
-      <AnnotatedCodeBody code={data.code} language={language} />
+      <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
+          <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
+        </div>
+      </figcaption>
+      <AnnotatedCodeBody code={data.code} language={language} wrap={wrap} />
       {annotations.length > 0 && (
         <div className="border-t border-border/60 bg-muted/20 px-3 py-2">
           <ol className="flex flex-col gap-2">

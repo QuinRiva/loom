@@ -138,6 +138,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   }
 
   const authoredIds = new Map<string, Point | undefined>();
+  const reviewChoiceIds = new Map<string, Point | undefined>();
   const boardStack: BoardScope[] = [];
   const mermaidChecks: Array<{ source: string; node: MdastNode }> = [];
 
@@ -320,6 +321,22 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
 
     // Per-block content checks.
     const data = result.data as Record<string, unknown>;
+    // `<ReviewChoice itemId>` must be unique per file: the id is the aggregation
+    // key for its deterministic `mdx-review:` comment, so a duplicate silently
+    // collapses two widgets onto one decision. The registry-derived checks cannot
+    // infer this semantic rule (it is the one lint addition for these blocks).
+    if (tag === "ReviewChoice" && typeof data.itemId === "string" && data.itemId) {
+      const first = reviewChoiceIds.get(data.itemId);
+      if (reviewChoiceIds.has(data.itemId)) {
+        findings.push({
+          severity: "error",
+          ...at(node),
+          message: `Duplicate <ReviewChoice itemId="${data.itemId}"> (first used at line ${first?.line ?? "?"}) — both widgets collapse onto one review comment; give each item a unique itemId.`,
+        });
+      } else {
+        reviewChoiceIds.set(data.itemId, node.position?.start);
+      }
+    }
     const board = boardStack.at(-1);
     if (tag === "Connector" && board) {
       for (const key of ["from", "to"] as const) {

@@ -1,0 +1,123 @@
+# Tier-A taxonomy sign-off (fixture)
+
+A worked decision-review document exercising the review blocks: `<Card>` tones,
+`<FieldDiff>` (null / absent / kept fields), nested `<Details>` drill-downs,
+`<ReviewChoice>` per item, and a wrap-toggled `<Json>`. Used by the renderer
+tests and as the exemplar's worked example.
+
+<Callout tone="decision">
+  **Review protocol.** Each item below carries a proposed change, the decisive
+  evidence behind it, and an Accept / Reject / Discuss control. **Silence means
+  you accept the recommendation** — only record a choice for the items you want
+  to reject or discuss. Sign-off completes when the rejects/discussions are
+  resolved.
+</Callout>
+
+<Table
+  columns={["Item", "Field", "Verdict class", "Recommendation"]}
+  rows={[
+    ["A-1", "as_built_drawing.necessity", "NECESSITY_WRONG", "promote to conditional"],
+    ["A-2", "as_built_drawing.condition", "CONDITION_WRONG", "author a crisp gate"],
+    ["A-3", "fire_door.inspection_frequency", "UNEXPRESSIBLE", "flag for discussion"],
+    ["A-4", "switchboard.containment", "OTHER_DEFECT", "reject — already correct"],
+  ]}
+/>
+
+## Items
+
+<Card
+  id="item-a1"
+  heading="A-1 · as_built_drawing.necessity"
+  tone="success"
+  badge="NECESSITY_WRONG"
+  meta={["Pack A", "confidence: medium", "promote / author-condition"]}
+>
+  The counterpart models this edge as genuinely conditional with a crisp gate;
+  the production value understates it as optional.
+
+  <FieldDiff
+    title="as_built_drawing.systems_baseline_for_inspection"
+    beforeLabel="Current (production)"
+    afterLabel="Proposed"
+    fields={[
+      { "name": "necessity", "before": "optional", "after": "conditional" },
+      {
+        "name": "condition",
+        "before": null,
+        "after": "When a downstream technical inspection relies on the as-built record to locate the components it inspects."
+      },
+      { "name": "containment_description", "after": "Introduced only in the proposed state." },
+      { "name": "containment_certainty", "before": "definitive", "after": "definitive", "kept": true }
+    ]}
+  />
+
+  <Details summary="Drill down — full production entries">
+    <Json
+      title="as_built_drawing (production)"
+      wrap
+      json={"{\n  \"necessity\": \"optional\",\n  \"condition\": null,\n  \"containment_certainty\": \"definitive\"\n}"}
+    />
+
+    <Details summary="Counterpart pack excerpt">
+      The counterpart's condition string is a single-sentence gate keyed on a
+      downstream inspection dependency.
+    </Details>
+  </Details>
+
+  <ReviewChoice itemId="a1" label="A-1" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card
+  id="item-a2"
+  heading="A-2 · as_built_drawing.condition"
+  tone="info"
+  badge="CONDITION_WRONG"
+  meta={["Pack A", "confidence: high"]}
+>
+  The existing condition is a 300-character run-on; the proposal tightens it to a
+  crisp, testable gate without changing scope.
+
+  <ReviewChoice itemId="a2" label="A-2" />
+</Card>
+
+<Card
+  id="item-a3"
+  heading="A-3 · fire_door.inspection_frequency"
+  tone="warning"
+  badge="UNEXPRESSIBLE"
+  meta={["Pack B", "confidence: low", "needs discussion"]}
+>
+  The frequency depends on occupancy class, which the current schema cannot
+  express. Flagged for discussion rather than a mechanical edit.
+
+  <ReviewChoice itemId="a3" label="A-3" placeholder="Proposed schema extension…" />
+</Card>
+
+<Card
+  id="item-a4"
+  heading="A-4 · switchboard.containment"
+  tone="risk"
+  badge="OTHER_DEFECT"
+  meta={["Pack B", "confidence: high", "reject"]}
+>
+  The flagged mismatch is a false positive — production already matches the
+  counterpart. Recommend rejecting this item.
+
+  <ReviewChoice itemId="a4" label="A-4" />
+</Card>
+
+## Balanced calls
+
+<QuestionForm
+  questions={[
+    {
+      "id": "rollout",
+      "title": "Apply the accepted promotions in one batch or stage them?",
+      "mode": "single",
+      "options": [
+        { "id": "batch", "label": "One batch", "recommended": true, "detail": "All accepted items ship together." },
+        { "id": "staged", "label": "Stage by pack", "detail": "Pack A first, Pack B after review." }
+      ]
+    }
+  ]}
+/>

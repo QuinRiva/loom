@@ -84,6 +84,8 @@ export const NON_PROSE_BLOCK_TYPES = new Set([
   "checklist",
   "table",
   "visual-questions",
+  "field-diff",
+  "review-choice",
   "diff",
   "openapi-spec",
   "mermaid",
@@ -110,7 +112,10 @@ function targetKindForBlock(blockType: string | null): PlanCommentTargetKind {
       return "table";
     case "question-form":
     case "visual-questions":
+    case "review-choice":
       return "control";
+    case "field-diff":
+      return "table";
     case "wireframe":
     case "design":
       return "wireframe";
@@ -171,6 +176,51 @@ export function enclosingBlock(node: Node): { element: Element; id: string; type
     id: element.getAttribute("data-plan-block-id") ?? "",
     type: element.getAttribute("data-plan-block-type") ?? "",
   };
+}
+
+/** The visible surface + collapse actions for a node whose overlay geometry is
+ * hidden inside a closed `<details>` / hidden tab panel. Walks the ancestor chain
+ * collecting every closed disclosure and hidden tab panel enclosing the node; the
+ * badge is placed on the OUTERMOST such surface's visible handle (a closed
+ * details' `<summary>`, or the tab button controlling a hidden panel), since an
+ * inner surface's own handle is itself hidden by the outer one. Returns `null`
+ * when the node is not enclosed by any collapsed surface — i.e. genuinely detached
+ * (or clipped for another reason, which stays out of scope). The layer uses this
+ * to classify a zero-rects annotation as `collapsed` (discoverable) rather than
+ * `detached`, and to open the enclosing surfaces on navigate. */
+export interface CollapsedSurface {
+  /** Nearest VISIBLE element to badge on (outermost surface's handle). */
+  badgeElement: Element;
+  /** Closed `<details>` ancestors to open on navigate. */
+  detailsToOpen: HTMLDetailsElement[];
+  /** Tab buttons to activate (click) on navigate for hidden panels. */
+  tabsToActivate: HTMLElement[];
+}
+
+export function collapsedSurfaceFor(node: Node, root: Element): CollapsedSurface | null {
+  const detailsToOpen: HTMLDetailsElement[] = [];
+  const tabsToActivate: HTMLElement[] = [];
+  let badgeElement: Element | null = null;
+  let el: Element | null = asElement(node);
+  while (el && el !== root) {
+    if (el instanceof HTMLDetailsElement && !el.open) {
+      detailsToOpen.push(el);
+      const summary = el.querySelector(":scope > summary");
+      badgeElement = summary ?? el; // outermost wins (loop runs inner → outer)
+    } else if (el.getAttribute("role") === "tabpanel" && (el as HTMLElement).hidden) {
+      const panelId = el.id;
+      const tab = panelId
+        ? root.querySelector<HTMLElement>(`[role="tab"][aria-controls="${escapeId(panelId)}"]`)
+        : null;
+      if (tab) {
+        tabsToActivate.push(tab);
+        badgeElement = tab;
+      }
+    }
+    el = el.parentElement;
+  }
+  if (detailsToOpen.length === 0 && tabsToActivate.length === 0) return null;
+  return { badgeElement: badgeElement ?? root, detailsToOpen, tabsToActivate };
 }
 
 /** Nearest preceding heading = the "section" a node belongs to. A nested block's
