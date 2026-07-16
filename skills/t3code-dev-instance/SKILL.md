@@ -98,6 +98,15 @@ grep -m1 pairingUrl "$T3CODE_HOME/server.out"   # or tail -f the *.out files
 - Use **one hostname consistently** for everything (prefer `localhost`, since
   Vite is bound with `--host`). Do not mix `localhost` and `127.0.0.1`.
 
+### Saving screenshot evidence
+
+`browser_take_screenshot` returns the image inline by default (visible in the
+transcript only). When a brief asks for screenshot **evidence you can reference
+from a report or diff later**, pass the `filename` parameter — the image is
+written to that path (relative paths resolve against cwd; parent dirs are
+created) and the saved absolute path is returned in the result. Write evidence
+under the run's output dir (e.g. a `_debug` subdir), not `/tmp`.
+
 ## 5. Seeding ledger-backed views (e.g. /usage)
 
 Views like `/usage` read from projection tables. Seed the DB at
