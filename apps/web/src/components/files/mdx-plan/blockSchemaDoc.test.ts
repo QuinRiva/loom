@@ -19,7 +19,7 @@ import { generateBlockSchemaDoc } from "./blockSchemaDoc";
  */
 const DOC_PATH = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
-  "../../../../../../skills/mdx-visual-plan/references/block-schema.md",
+  "../../../../../../skills/mdx-doc-core/references/block-schema.md",
 );
 
 describe("block-schema.md reference", () => {

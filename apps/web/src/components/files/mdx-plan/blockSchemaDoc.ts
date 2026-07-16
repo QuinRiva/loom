@@ -1,5 +1,5 @@
 /**
- * Generates `skills/mdx-visual-plan/references/block-schema.md` by introspecting
+ * Generates `skills/mdx-doc-core/references/block-schema.md` by introspecting
  * the LIVE zod schemas in the plan-block registry. The reference is therefore
  * authoritative and regenerable, and `blockSchemaDoc.test.ts` fails CI if the
  * checked-in file drifts from the schemas — which is exactly the failure that

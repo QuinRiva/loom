@@ -43,6 +43,50 @@ something, and terse Problem/Solution/Why prose in the codebase's vocabulary. It
 closes with a verification step and a bottom `<QuestionForm>` only if the next
 direction is genuinely open.
 
+## A good decision-review skeleton (recap genre)
+
+A verdict batch — e.g. a taxonomy sign-off over N items, an audit, a PR-style
+review — is a `mdx-visual-recap` artefact, not a plan. It reads, top to bottom:
+
+1. **The review protocol** — a top `<Callout tone="decision">` stating what is
+   being decided, how to record a verdict, and the **silence = accept the
+   recommendation** convention. This is the first viewport: the reviewer learns
+   what sign-off means before scrolling.
+2. **A compact all-items `<Table>`** — one row per item (id, subject, verdict
+   class, recommendation) so the whole batch is scannable at a glance before the
+   detail.
+3. **One `<Card>` per item**, tone = verdict class (colour is triage, meaning
+   rides the badge/heading), a `badge` naming the class and `meta` chips for
+   pack / confidence / recommended action. Inside each card, in order:
+   - one or two sentences of verdict prose — why this recommendation;
+   - the decisive evidence: a `<FieldDiff>` for the record change (null / absent
+     / kept fields carry meaning), never a line `<Diff>` of a JSON string;
+   - a `<Details>` drill-down holding the bulk evidence (full production entry,
+     counterpart pack) — embedded, never linked out;
+   - a `<ReviewChoice itemId>` capturing the per-item Accept / Reject / Discuss.
+4. **A bottom `<QuestionForm>`** for only the genuinely balanced calls (rollout
+   strategy, a schema question) — not a second copy of the per-item decisions.
+
+The worked fixture for this skeleton lives at
+`plans/mdx-review-blocks/plan.mdx` in the repo — read it as the concrete
+example of every review block in situ.
+
+## A good recap skeleton (recap genre)
+
+A recap of a finished change (a branch, a thread's work) reads:
+
+1. **A UI-impact headline** — wireframes (`<Screen>` / `<Columns>` before/after),
+   but only when the diff changed rendered UI; skip it for pure backend work.
+2. **A 1–3 paragraph outcome narrative** — what changed and why, in the
+   codebase's vocabulary.
+3. **Contract changes** — `<DataModel>` / `<Endpoint>` for any schema or API
+   delta.
+4. **A `<FileTree>` with change flags** — the change map.
+5. **`## Key changes`** as one horizontal `<TabsBlock>` of `<Diff>` /
+   `<AnnotatedCode>`, **3–8 tabs, ~150 lines per excerpt**, each with a one-line
+   summary and a few line annotations. Optionally a `<ReviewChoice>` per tab
+   when the recap doubles as a review gate.
+
 ## Named anti-patterns (never produce these)
 
 - **Hard-coded hex instead of tokens.** A wireframe `html` with
