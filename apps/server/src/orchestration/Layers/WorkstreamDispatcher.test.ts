@@ -1417,34 +1417,37 @@ describe("terminalEpisodeKey (delta reported-marker episode)", () => {
 describe("startup stale session reconciliation", () => {
   const PARENT_ID = "parent-startup-reconcile" as ThreadId;
   const CHILD_ID = "child-startup-reconcile" as ThreadId;
+  const defaultThreads = (): ReadonlyArray<OrchestrationThreadShell> => [
+    shell({
+      id: PARENT_ID,
+      parentThreadId: null,
+      session: runningSession({
+        threadId: PARENT_ID,
+        status: "running",
+        activeTurnId: "turn-lost-completion" as TurnId,
+      }),
+    }),
+    shell({
+      id: CHILD_ID,
+      parentThreadId: PARENT_ID,
+      spawnGeneration: "gen-startup",
+      planLane: "done",
+      latestUserMessageAt: now,
+      reportPath: "child-startup-reconcile.md",
+      session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
+    }),
+  ];
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
     providerSessions: ReadonlyArray<ProviderSession> = [],
+    threadsSeed: ReadonlyArray<OrchestrationThreadShell> = defaultThreads(),
+    failTurnStart = false,
   ) =>
     Layer.unwrap(
       Effect.gen(function* () {
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
         const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(new Set());
-        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
-          shell({
-            id: PARENT_ID,
-            parentThreadId: null,
-            session: runningSession({
-              threadId: PARENT_ID,
-              status: "running",
-              activeTurnId: "turn-lost-completion" as TurnId,
-            }),
-          }),
-          shell({
-            id: CHILD_ID,
-            parentThreadId: PARENT_ID,
-            spawnGeneration: "gen-startup",
-            planLane: "done",
-            latestUserMessageAt: now,
-            reportPath: "child-startup-reconcile.md",
-            session: runningSession({ threadId: CHILD_ID, status: "ready", activeTurnId: null }),
-          }),
-        ]);
+        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>(threadsSeed);
         const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
           snapshotSequence: 1,
           goals: [],
@@ -1456,6 +1459,11 @@ describe("startup stale session reconciliation", () => {
           readEvents: () => Stream.empty,
           dispatch: (command: OrchestrationCommand) =>
             Effect.gen(function* () {
+              // Per-thread isolation probe: simulate a failed/deferred resume
+              // dispatch so tests can prove the sweep swallows it and carries on.
+              if (failTurnStart && command.type === "thread.turn.start") {
+                return yield* Effect.die(new Error("simulated turn-start dispatch failure"));
+              }
               if (command.type === "thread.session.set") {
                 yield* Ref.update(threads, (current) =>
                   current.map((thread) =>
@@ -1517,6 +1525,9 @@ describe("startup stale session reconciliation", () => {
           Layer.succeed(ProviderService, providerService),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationEngineService, engine),
+          // Surface Crypto (via NodeServices) to `reconcileStartupStaleSessionState`,
+          // which needs it for the restart-continuation message/boot ids.
+          NodeServices.layer,
         );
       }),
     );
@@ -1545,8 +1556,14 @@ describe("startup stale session reconciliation", () => {
             expect(reconcile.session.status).toBe("ready");
             expect(reconcile.session.activeTurnId).toBeNull();
 
+            // Assert the DISPATCHER's generation wake specifically — exclude the
+            // reconcile's own restart-continuation turn-start (which also targets
+            // this interrupted parent) so this test cannot false-green on it.
             const wake = dispatched.find(
-              (command) => command.type === "thread.turn.start" && command.threadId === PARENT_ID,
+              (command) =>
+                command.type === "thread.turn.start" &&
+                command.threadId === PARENT_ID &&
+                !command.commandId.startsWith("server:startup-turn-continue:"),
             );
             expect(wake).toBeDefined();
             expect(wake?.type === "thread.turn.start" ? wake.requireIdle : false).toBe(true);
@@ -1572,6 +1589,222 @@ describe("startup stale session reconciliation", () => {
         expect(dispatched).toEqual([]);
       }),
     ),
+  );
+
+  // ─── Restart turn-continuation (Option 1) ──────────────────────────────────
+  const WORKER_ID = "worker-startup-reconcile" as ThreadId;
+  const turnStartsFor = (dispatched: ReadonlyArray<OrchestrationCommand>, id: ThreadId) =>
+    dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === id);
+
+  effectIt.effect("resumes an interrupted leaf sub-thread (no children) after restart", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(
+              dispatched,
+              [],
+              [
+                shell({
+                  id: WORKER_ID,
+                  parentThreadId: "some-parent" as ThreadId,
+                  planLane: "in_progress" as ThreadPlanLane,
+                  session: runningSession({
+                    threadId: WORKER_ID,
+                    status: "running",
+                    activeTurnId: "turn-interrupted" as TurnId,
+                  }),
+                }),
+              ],
+            ),
+          ),
+        );
+        // Reset first, then a resume turn-start.
+        expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(true);
+        const resumes = turnStartsFor(dispatched, WORKER_ID);
+        expect(resumes).toHaveLength(1);
+        const resume = resumes[0];
+        if (resume?.type !== "thread.turn.start") throw new Error("expected turn-start");
+        expect(resume.commandId.startsWith("server:startup-turn-continue:")).toBe(true);
+        expect(resume.requireIdle).toBe(true);
+        expect(resume.setInProgress).toBeUndefined();
+        expect(resume.reopen).toBeUndefined();
+        expect(resume.message.origin).toBe("control_notice");
+      }),
+    ),
+  );
+
+  effectIt.effect("resets but does NOT resume a stuck-running session with no active turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(
+              dispatched,
+              [],
+              [
+                shell({
+                  id: WORKER_ID,
+                  parentThreadId: "some-parent" as ThreadId,
+                  session: runningSession({
+                    threadId: WORKER_ID,
+                    status: "running",
+                    activeTurnId: null,
+                  }),
+                }),
+              ],
+            ),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does NOT resume an interrupted thread parked on a human (pending approval)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [],
+                [
+                  shell({
+                    id: WORKER_ID,
+                    parentThreadId: "some-parent" as ThreadId,
+                    hasPendingApprovals: true,
+                    session: runningSession({
+                      threadId: WORKER_ID,
+                      status: "running",
+                      activeTurnId: "turn-interrupted" as TurnId,
+                    }),
+                  }),
+                ],
+              ),
+            ),
+          );
+          expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(true);
+          expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+        }),
+      ),
+  );
+
+  effectIt.effect("does NOT resume an interrupted thread already flagged for attention", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(
+              dispatched,
+              [],
+              [
+                shell({
+                  id: WORKER_ID,
+                  parentThreadId: "some-parent" as ThreadId,
+                  attention: ["needs_guidance"],
+                  session: runningSession({
+                    threadId: WORKER_ID,
+                    status: "running",
+                    activeTurnId: "turn-interrupted" as TurnId,
+                  }),
+                }),
+              ],
+            ),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  // Inactive/abandoned threads: reset only, never resumed (reviving hidden or
+  // explicitly abandoned work is wrong). `done` remains resumable (covered by
+  // the leaf-worker/parent cases above via a non-terminal lane).
+  const interruptedShellWith = (
+    overrides: Omit<Partial<OrchestrationThreadShell>, "id">,
+  ): OrchestrationThreadShell =>
+    shell({
+      id: WORKER_ID,
+      parentThreadId: "some-parent" as ThreadId,
+      session: runningSession({
+        threadId: WORKER_ID,
+        status: "running",
+        activeTurnId: "turn-interrupted" as TurnId,
+      }),
+      ...overrides,
+    });
+
+  // `deletedAt` lives on the command read-model thread, not the shell type, so
+  // it is attached via a cast; `archivedAt`/`planLane` are shell fields.
+  for (const [label, thread] of [
+    ["archived", interruptedShellWith({ archivedAt: now })],
+    ["cancelled", interruptedShellWith({ planLane: "cancelled" as ThreadPlanLane })],
+    [
+      "soft-deleted",
+      { ...interruptedShellWith({}), deletedAt: now } as unknown as OrchestrationThreadShell,
+    ],
+  ] as const) {
+    effectIt.effect(`resets but does NOT resume an interrupted ${label} thread`, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(buildLayer(dispatched, [], [thread])),
+          );
+          expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(true);
+          expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+        }),
+      ),
+    );
+  }
+
+  effectIt.effect(
+    "isolates a failed resume dispatch per-thread: the sweep still reconciles others",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const OTHER_ID = "worker-startup-reconcile-2" as ThreadId;
+          const dispatched: Array<OrchestrationCommand> = [];
+          // Both threads are interrupted; every resume turn-start is made to fail.
+          // The sweep must swallow each failure and still reset BOTH sessions.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [],
+                [
+                  interruptedShellWith({}),
+                  shell({
+                    id: OTHER_ID,
+                    parentThreadId: "some-parent" as ThreadId,
+                    session: runningSession({
+                      threadId: OTHER_ID,
+                      status: "running",
+                      activeTurnId: "turn-interrupted-2" as TurnId,
+                    }),
+                  }),
+                ],
+                true,
+              ),
+            ),
+          );
+          // Reset happened for both despite the resume failures (no thread stranded).
+          const resetIds = dispatched
+            .filter((c) => c.type === "thread.session.set")
+            .map((c) => c.threadId);
+          expect(resetIds).toContain(WORKER_ID);
+          expect(resetIds).toContain(OTHER_ID);
+        }),
+      ),
   );
 });
 
