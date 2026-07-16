@@ -527,11 +527,26 @@ const make = Effect.gen(function* () {
       const source = Option.getOrUndefined(
         yield* projectionSnapshotQuery.getThreadDetailById(thread.forkFromThreadId),
       );
+      const childSessionFileExists =
+        resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined;
+      // loom: forkFrom (D2 deterministic refusal) — at the fork's FIRST launch,
+      // an unresolvable source (archived or deleted after spawn-time validation;
+      // getThreadDetailById returns only ACTIVE threads) must be refused, not
+      // permitted. `shouldRefuseForkLaunch` deliberately permits an unknown
+      // source (it gates idleness, not existence), and a stale on-disk
+      // sidecar/session for the archived source would otherwise let the fork
+      // launch from a source no longer owned/visible. Refuse loudly here.
+      if (!childSessionFileExists && source === undefined) {
+        return yield* new ProviderAdapterRequestError({
+          provider: preferredProvider,
+          method: "thread.turn.start",
+          detail: `Cannot fork thread '${thread.forkFromThreadId}': the source thread is no longer active (archived or deleted after this fork was created). Re-spawn the fork from a live source.`,
+        });
+      }
       if (
         shouldRefuseForkLaunch({
           forkFromThreadId: thread.forkFromThreadId,
-          childSessionFileExists:
-            resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined,
+          childSessionFileExists,
           source,
           pendingTurnStartThreadIds,
         })
@@ -539,7 +554,14 @@ const make = Effect.gen(function* () {
         return yield* new ProviderAdapterRequestError({
           provider: preferredProvider,
           method: "thread.turn.start",
-          detail: `Cannot fork thread '${thread.forkFromThreadId}' while it is mid-turn — the fork copies its live session and would capture an unclosed tool call. Wait for that thread's current turn to finish, then send again.`,
+          // loom: forkFrom (D7 backstop) — the dispatch gate normally defers a
+          // fork until its source is idle; this fires only on the residual race
+          // (the source started a NEW turn between the dispatcher check and this
+          // launch). It surfaces loudly as thread.turn-start-failed + error
+          // attention. The repair is made brief-safe by D8: once the source is
+          // idle, `workstream_prompt` on this child re-delivers the composed
+          // kickoff (the lens brief is never lost).
+          detail: `Cannot fork thread '${thread.forkFromThreadId}' while it is mid-turn — the fork copies its live session and would capture an unclosed tool call. Once that thread's current turn finishes, send this child a workstream_prompt to (re)deliver its kickoff brief and launch the fork.`,
         });
       }
     }
