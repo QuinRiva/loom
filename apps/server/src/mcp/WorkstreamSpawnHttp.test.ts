@@ -23,8 +23,10 @@ import {
   resolveForkSource,
   resolvePresetSelection,
   resolveScaffoldForkReference,
+  resolveScaffoldGraph,
   resolveScaffoldReference,
   scaffoldNodeRejectionMessage,
+  type ScaffoldGraphNode,
   resolveShapeSelection,
   resolveSpawnModelSelection,
   validateModelSelection,
@@ -1677,5 +1679,127 @@ describe("scaffoldNodeRejectionMessage (D4 node-labelled, scaffold suffix)", () 
     expect(message).toContain("cycle");
     expect(message.endsWith("Nothing was created.")).toBe(true);
     expect(message).not.toContain("Nothing was spawned.");
+  });
+});
+
+describe("resolveScaffoldGraph (two-phase composition boundary, D4)", () => {
+  const gNode = (
+    key: string,
+    o: {
+      readonly forkFromRef?: string;
+      readonly blockedByRefs?: ReadonlyArray<string>;
+      readonly role?: string;
+      readonly baseInstance?: string;
+    } = {},
+  ): ScaffoldGraphNode => ({
+    key,
+    threadId: id(`wt_${key}`),
+    role: o.forkFromRef !== undefined ? undefined : (o.role ?? "assessor"),
+    title: key,
+    purpose: `${key} purpose`,
+    blockedByRefs: o.blockedByRefs ?? [],
+    gateReworkRef: undefined,
+    gateMaxRounds: undefined,
+    isolationOverride: undefined,
+    forkFromRef: o.forkFromRef,
+    baseSelection:
+      o.forkFromRef !== undefined ? undefined : sel(o.baseInstance ?? "pi", `${key}-model`),
+  });
+
+  const run = (nodes: ReadonlyArray<ScaffoldGraphNode>) =>
+    resolveScaffoldGraph({
+      parentThreadId: id("parent"),
+      nodes,
+      activeChildren: [],
+      archivedChildren: [],
+      instanceDrivers: drivers,
+      staged: false,
+    });
+
+  // Every permutation of the three fork-chain keys, so inheritance is proven
+  // array-order-INDEPENDENT through the whole composition (not one reversal).
+  const permute = <T>(xs: ReadonlyArray<T>): ReadonlyArray<ReadonlyArray<T>> =>
+    xs.length <= 1
+      ? [xs]
+      : xs.flatMap((x, i) =>
+          permute([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]),
+        );
+
+  it("rejects an IMPLIED-edge-only cycle (a.blockedBy=[fork] + fork.forkFrom=a) as a node-labelled 400, no dispatch", () => {
+    // Neither node states a cycle explicitly; it exists ONLY because the fork's
+    // implied blockedBy edge is materialised into the effective graph.
+    const result = run([
+      gNode("a", { blockedByRefs: ["fork"] }),
+      gNode("fork", { forkFromRef: "a" }),
+    ]);
+    expect(result.kind).toBe("error");
+    if (result.kind !== "error") return;
+    expect(result.message).toMatch(/^node "(a|fork)":/);
+    expect(result.message).toContain("cycle");
+    expect(result.message.endsWith("Nothing was created.")).toBe(true);
+    // A pure function cannot dispatch — the invalid command is unreachable by
+    // construction, which is the "before dispatch" guarantee the review asks for.
+  });
+
+  it("inherits fork-of-fork identity + effective deps identically across ALL node orderings", () => {
+    const keys = ["a", "b", "reader"] as const;
+    const build = (order: ReadonlyArray<string>) => {
+      const byKey: Record<string, ScaffoldGraphNode> = {
+        reader: gNode("reader", { role: "lead", baseInstance: "pi" }),
+        b: gNode("b", { forkFromRef: "reader" }),
+        a: gNode("a", { forkFromRef: "b" }),
+      };
+      return order.map((k) => {
+        const node = byKey[k];
+        if (node === undefined) throw new Error(`no node ${k}`);
+        return node;
+      });
+    };
+    for (const order of permute(keys)) {
+      const result = run(build(order));
+      expect(result.kind).toBe("ok");
+      if (result.kind !== "ok") continue;
+      const byKey = new Map(result.nodes.map((n) => [n.key, n]));
+      const a = byKey.get("a");
+      const b = byKey.get("b");
+      // Both forks inherit the reader's role + applied model, whatever the order.
+      expect(a?.role).toBe("lead");
+      expect(b?.role).toBe("lead");
+      expect(a?.modelSelection).toEqual(sel("pi", "reader-model"));
+      expect(b?.modelSelection).toEqual(sel("pi", "reader-model"));
+      // Effective (implied) dependencies: a waits on b, b waits on reader.
+      expect(a?.blockedBy).toContain(id("wt_b"));
+      expect(b?.blockedBy).toContain(id("wt_reader"));
+      // Provenance carried through to the command input.
+      expect(a?.forkFromThreadId).toBe(id("wt_b"));
+      expect(b?.forkFromThreadId).toBe(id("wt_reader"));
+    }
+  });
+
+  it("resolves the reader → three-fork acceptance shape through the full assembly", () => {
+    const result = run([
+      gNode("reader", { baseInstance: "pi" }),
+      gNode("lens-a", { forkFromRef: "reader" }),
+      gNode("lens-b", { forkFromRef: "reader" }),
+      gNode("lens-c", { forkFromRef: "reader" }),
+    ]);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const byKey = new Map(result.nodes.map((n) => [n.key, n]));
+    for (const key of ["lens-a", "lens-b", "lens-c"]) {
+      const fork = byKey.get(key);
+      expect(fork?.modelSelection).toEqual(sel("pi", "reader-model"));
+      expect(fork?.forkFromThreadId).toBe(id("wt_reader"));
+      expect(fork?.blockedBy).toContain(id("wt_reader")); // implied dependency
+    }
+  });
+
+  it("rejects a fork whose in-batch source is non-pi, node-labelled, before dispatch", () => {
+    const result = run([
+      gNode("reader", { baseInstance: "codex" }),
+      gNode("fork", { forkFromRef: "reader" }),
+    ]);
+    expect(result.kind === "error" && result.message).toContain('node "fork":');
+    expect(result.kind === "error" && result.message).toContain("not pi-backed");
   });
 });
