@@ -1339,6 +1339,33 @@ label:has(> select#reasoning-effort) select {
 }
 
 /* -------------------------------------------------------------------------- */
+/* MDX plan wrap toggle (§5): Shiki emits its own <pre>, so the wrap state is a  */
+/* class the block toggles on the code container; the diff/json spans toggle     */
+/* whitespace utilities inline. Keeps long strings/JSON from forcing h-scroll.   */
+/* -------------------------------------------------------------------------- */
+.plan-code-wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MDX plan <Details> (§2): native disclosure, chevron rotates on open, and the  */
+/* default summary marker is suppressed in favour of the chevron icon.          */
+/* -------------------------------------------------------------------------- */
+.plan-details > summary {
+  list-style: none;
+}
+.plan-details > summary::-webkit-details-marker {
+  display: none;
+}
+.plan-details-chevron {
+  transition: transform 0.15s ease;
+}
+.plan-details[open] > summary .plan-details-chevron {
+  transform: rotate(90deg);
+}
+
+/* -------------------------------------------------------------------------- */
 /* MDX plan container blocks (Wave B6): Columns + Tabs                          */
 /* Containers render nested plan *blocks* as children (MDX-native nesting), so   */
 /* there is no untrusted-HTML surface here — only layout.                       */

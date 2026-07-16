@@ -5,6 +5,7 @@ import { z } from "zod";
 import { cn } from "~/lib/utils";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { WrapToggle } from "./wrapToggle";
 
 /**
  * The `<Json>` block — a collapsible JSON tree. `json` is the JSON *as a string*
@@ -17,12 +18,15 @@ export interface JsonData {
   title?: string;
   json: string;
   collapsedDepth?: number;
+  /** Initial soft-wrap state (§5). Toggleable in the header regardless. */
+  wrap?: boolean;
 }
 
 export const jsonSchema = z.object({
   title: z.string().trim().max(200).optional(),
   json: z.string().max(200_000),
   collapsedDepth: z.number().int().min(0).max(20).optional(),
+  wrap: z.boolean().optional(),
 }) as unknown as z.ZodType<JsonData>;
 
 export const jsonMdx: BlockMdxConfig<JsonData> = {
@@ -31,12 +35,14 @@ export const jsonMdx: BlockMdxConfig<JsonData> = {
     title: data.title,
     json: data.json,
     collapsedDepth: data.collapsedDepth,
+    wrap: data.wrap,
   }),
   fromAttrs: (attrs) =>
     ({
       json: attrs.string("json") ?? "",
       title: attrs.string("title"),
       collapsedDepth: attrs.number("collapsedDepth"),
+      wrap: attrs.bool("wrap"),
     }) as JsonData,
 };
 
@@ -58,12 +64,14 @@ function JsonNode({
   depth,
   collapsedDepth,
   isLast,
+  wrap,
 }: {
   name?: string | undefined;
   value: unknown;
   depth: number;
   collapsedDepth: number;
   isLast: boolean;
+  wrap: boolean;
 }) {
   const isContainer = value !== null && typeof value === "object";
   const [open, setOpen] = useState(depth < collapsedDepth);
@@ -72,7 +80,10 @@ function JsonNode({
 
   if (!isContainer) {
     return (
-      <div style={{ paddingLeft: `${depth * 14}px` }} className="whitespace-nowrap">
+      <div
+        style={{ paddingLeft: `${depth * 14}px` }}
+        className={cn(wrap ? "whitespace-pre-wrap break-words" : "whitespace-nowrap")}
+      >
         {keyLabel}
         {name !== undefined && <span className="text-muted-foreground">: </span>}
         <Scalar value={value} />
@@ -123,6 +134,7 @@ function JsonNode({
               depth={depth + 1}
               collapsedDepth={collapsedDepth}
               isLast={index === entries.length - 1}
+              wrap={wrap}
             />
           ))}
           <div style={{ paddingLeft: `${depth * 14}px` }} className="text-muted-foreground">
@@ -136,6 +148,7 @@ function JsonNode({
 }
 
 export function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
+  const [wrap, setWrap] = useState(data.wrap ?? false);
   const parsed = useMemo(() => {
     try {
       return { ok: true as const, value: JSON.parse(data.json) as unknown };
@@ -150,11 +163,10 @@ export function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
       data-plan-block-type="json-explorer"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      {data.title && (
-        <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {data.title}
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">{data.title ?? ""}</span>
+        <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
+      </div>
       {parsed.ok ? (
         <div className="overflow-x-auto p-3 font-mono text-xs leading-relaxed">
           <JsonNode
@@ -162,6 +174,7 @@ export function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
             depth={0}
             collapsedDepth={data.collapsedDepth ?? DEFAULT_COLLAPSED_DEPTH}
             isLast
+            wrap={wrap}
           />
         </div>
       ) : (

@@ -1,5 +1,5 @@
 /**
- * Generates `skills/mdx-visual-plan/references/block-schema.md` by introspecting
+ * Generates `skills/mdx-doc-core/references/block-schema.md` by introspecting
  * the LIVE zod schemas in the plan-block registry. The reference is therefore
  * authoritative and regenerable, and `blockSchemaDoc.test.ts` fails CI if the
  * checked-in file drifts from the schemas — which is exactly the failure that
@@ -20,15 +20,26 @@ function def(zt: any): AnyDef {
   return zt?._def;
 }
 
-/** Peel ZodOptional / ZodDefault, tracking optionality + any default value. */
-function unwrap(zt: any): { inner: any; optional: boolean; defaultValue?: unknown } {
+/** Peel ZodOptional / ZodNullable / ZodDefault, tracking optionality, nullability
+ * (rendered as `T | null`, so the reference matches the schema — a nullable prop
+ * distinguishes present-null from absent), and any default value. */
+function unwrap(zt: any): {
+  inner: any;
+  optional: boolean;
+  nullable: boolean;
+  defaultValue?: unknown;
+} {
   let cur = zt;
   let optional = false;
+  let nullable = false;
   let defaultValue: unknown;
   for (;;) {
     const tn = def(cur)?.typeName;
-    if (tn === "ZodOptional" || tn === "ZodNullable") {
-      optional = optional || tn === "ZodOptional";
+    if (tn === "ZodOptional") {
+      optional = true;
+      cur = def(cur).innerType;
+    } else if (tn === "ZodNullable") {
+      nullable = true;
       cur = def(cur).innerType;
     } else if (tn === "ZodDefault") {
       optional = true;
@@ -38,7 +49,7 @@ function unwrap(zt: any): { inner: any; optional: boolean; defaultValue?: unknow
       break;
     }
   }
-  return { inner: cur, optional, defaultValue };
+  return { inner: cur, optional, nullable, defaultValue };
 }
 
 /** A one-line type label for a fully-unwrapped schema node. */
@@ -85,8 +96,9 @@ function shapeOf(objSchema: any): Record<string, any> {
 function renderProps(objSchema: any, indent: string, childrenField?: string): string[] {
   const lines: string[] = [];
   for (const [name, raw] of Object.entries(shapeOf(objSchema))) {
-    const { inner, optional, defaultValue } = unwrap(raw);
-    const parts = [`${indent}- \`${name}\` — \`${typeLabel(inner)}\``];
+    const { inner, optional, nullable, defaultValue } = unwrap(raw);
+    const typeStr = nullable ? `${typeLabel(inner)} | null` : typeLabel(inner);
+    const parts = [`${indent}- \`${name}\` — \`${typeStr}\``];
     parts.push(optional ? "_(optional)_" : "**(required)**");
     if (defaultValue !== undefined) parts.push(`default \`${JSON.stringify(defaultValue)}\``);
     if (name === childrenField)

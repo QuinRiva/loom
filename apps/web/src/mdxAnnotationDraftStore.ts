@@ -48,6 +48,17 @@ export function questionAnswerDraftKey(
   return `${draftTargetKey(target)}\u0000question\u0000${filePath}\u0000${questionId}`;
 }
 
+/** Composite localStorage key for one target's structured decision draft to one
+ * `<ReviewChoice>` item (see `reviewChoices.ts` — the value is the JSON-encoded
+ * `PlanReviewChoice`; the paired review comment gates whether it counts). */
+export function reviewChoiceDraftKey(
+  target: ScopedThreadRef | DraftId,
+  filePath: string,
+  itemId: string,
+): string {
+  return `${draftTargetKey(target)}\u0000review\u0000${filePath}\u0000${itemId}`;
+}
+
 export const useMdxAnnotationDraftStore = create<MdxAnnotationDraftStoreState>()(
   persist(
     (set, get) => ({

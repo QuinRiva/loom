@@ -2,6 +2,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
+// The in-repo review-blocks fixture, imported raw so the test drives the REAL
+// render pipeline against the REAL file (Vite `?raw`).
+import reviewFixtureSource from "../../../../../../plans/mdx-review-blocks/plan.mdx?raw";
+
+import { FieldDiffRead } from "./blocks/fieldDiff";
 import { compilePlanMdx } from "./MdxPlanRenderer";
 import { PLAN_BLOCK_COMPONENTS, PLAN_BLOCKS, parsePlanBlock, serializePlanBlock } from "./registry";
 
@@ -202,6 +207,82 @@ describe("mdx-plan block round-trip", () => {
     };
     expect(roundTrip("Json", data)).toEqual(data);
   });
+
+  it("round-trips a FieldDiff block (null present vs absent vs kept fields)", () => {
+    const data = {
+      title: "record.field",
+      beforeLabel: "Current",
+      afterLabel: "Proposed",
+      fields: [
+        { name: "necessity", before: "optional", after: "conditional" },
+        { name: "condition", before: null, after: "a crisp gate" },
+        { name: "introduced", after: "only after" },
+        { name: "certainty", before: "definitive", after: "definitive", kept: true },
+      ],
+    };
+    expect(roundTrip("FieldDiff", data)).toEqual(data);
+  });
+
+  it("round-trips a Details block (summary + open)", () => {
+    expect(roundTrip("Details", { summary: "Full entry", open: true })).toEqual({
+      summary: "Full entry",
+      open: true,
+    });
+  });
+
+  it("round-trips a Card block (heading + tone + badge + meta)", () => {
+    const data = {
+      heading: "A-1 · necessity",
+      tone: "success" as const,
+      badge: "NECESSITY_WRONG",
+      meta: ["Pack A", "confidence: medium"],
+    };
+    expect(roundTrip("Card", data)).toEqual(data);
+  });
+
+  it("round-trips a ReviewChoice block", () => {
+    const data = { itemId: "a1", label: "A-1", placeholder: "Why, if rejecting…" };
+    expect(roundTrip("ReviewChoice", data)).toEqual(data);
+  });
+
+  it("emits <FieldDiff> in panel order so a single column stacks into two panels", () => {
+    // The DOM order must be: Before label → all before values → After label →
+    // all after values (the sm+ grid then column-flows this into aligned rows).
+    // If it interleaves, grid-cols-1 below the breakpoint no longer stacks two
+    // complete labelled panels (round-1 defect).
+    const html = renderToStaticMarkup(
+      createElement(FieldDiffRead, {
+        data: {
+          beforeLabel: "CURRENT_LABEL",
+          afterLabel: "PROPOSED_LABEL",
+          fields: [
+            { name: "f1", before: "BVAL1", after: "AVAL1" },
+            { name: "f2", before: "BVAL2", after: "AVAL2" },
+          ],
+        },
+        blockId: undefined,
+      }),
+    );
+    const order = ["CURRENT_LABEL", "BVAL1", "BVAL2", "PROPOSED_LABEL", "AVAL1", "AVAL2"];
+    const positions = order.map((token) => html.indexOf(token));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("round-trips the authored wrap prop on Code / AnnotatedCode / Json / Diff", () => {
+    expect(roundTrip("Code", { code: "x\n", wrap: true })).toEqual({ code: "x\n", wrap: true });
+    expect(roundTrip("AnnotatedCode", { code: "x\n", annotations: [], wrap: true })).toEqual({
+      code: "x\n",
+      annotations: [],
+      wrap: true,
+    });
+    expect(roundTrip("Json", { json: "{}", wrap: true })).toEqual({ json: "{}", wrap: true });
+    expect(roundTrip("Diff", { before: "a\n", after: "b\n", wrap: true })).toEqual({
+      before: "a\n",
+      after: "b\n",
+      wrap: true,
+    });
+  });
 });
 
 const GOOD = [
@@ -251,6 +332,47 @@ describe("mdx-plan security model", () => {
     expect(html).toContain('data-plan-block-type="diff"');
     expect(html).toContain('data-plan-block-type="visual-questions"');
     expect(html).toContain('data-plan-block-type="openapi-spec"');
+  });
+
+  it("renders the review blocks (Card/FieldDiff/Details/ReviewChoice) through the registry", async () => {
+    const source = [
+      '<Card heading="A-1" tone="success" badge="OK" meta={["Pack A"]}>',
+      "",
+      "Body prose for the item.",
+      "",
+      '<FieldDiff title="r" fields={[{ "name": "n", "before": null, "after": "x" }]} />',
+      "",
+      '<Details summary="More">',
+      "",
+      "Hidden evidence.",
+      "",
+      "</Details>",
+      "",
+      '<ReviewChoice itemId="a1" label="A-1" />',
+      "",
+      "</Card>",
+    ].join("\n");
+    const Content = await compilePlanMdx(source);
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    expect(html).toContain('data-plan-block-type="card"');
+    expect(html).toContain('data-plan-block-type="field-diff"');
+    expect(html).toContain('data-plan-block-type="details"');
+    expect(html).toContain('data-plan-block-type="review-choice"');
+    // present-null renders italic null; the after value renders verbatim.
+    expect(html).toContain("null");
+    expect(html).toContain("A-1");
+  });
+
+  it("compiles the in-repo review-blocks fixture end-to-end", async () => {
+    const Content = await compilePlanMdx(reviewFixtureSource); // throws on unknown tag / guard reject
+    const html = renderToStaticMarkup(
+      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+    );
+    for (const type of ["card", "field-diff", "details", "review-choice", "json-explorer"]) {
+      expect(html).toContain(`data-plan-block-type="${type}"`);
+    }
   });
 
   it("rejects imports/exports at compile", async () => {

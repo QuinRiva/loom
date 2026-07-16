@@ -1,5 +1,5 @@
 import type { PlanCommentAnchor } from "@t3tools/contracts";
-import { GripVertical, MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
+import { Eye, GripVertical, MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -8,6 +8,7 @@ import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import {
   annotationDraftKey,
   questionAnswerDraftKey,
+  reviewChoiceDraftKey,
   useMdxAnnotationDraftStore,
 } from "~/mdxAnnotationDraftStore";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -27,7 +28,24 @@ import {
   type PlanQuestionAnswersApi,
   questionAnswerCommentId,
 } from "../questionAnswers";
-import { anchorForBlockElement, anchorFromRange, blockSelector, resolveAnchor } from "./anchoring";
+import {
+  EMPTY_REVIEW_CHOICE,
+  formatReviewChoiceText,
+  isEmptyReviewChoice,
+  isReviewChoiceCommentId,
+  parseReviewChoiceDraft,
+  PlanReviewChoicesContext,
+  type PlanReviewChoicesApi,
+  reviewChoiceCommentId,
+} from "../reviewChoices";
+import {
+  anchorForBlockElement,
+  anchorFromRange,
+  blockSelector,
+  collapsedSurfaceFor,
+  type CollapsedSurface,
+  resolveAnchor,
+} from "./anchoring";
 
 /**
  * Annotation layer over a rendered MDX plan. Adds the reviewer experience the
@@ -66,7 +84,12 @@ interface Overlay {
   comment: MdxAnchorReviewCommentContext;
   boxes: Box[];
   badge: { top: number; left: number };
-  detached: boolean;
+  /** `resolved` = visible highlight; `collapsed` = hidden inside a closed
+   * `<details>` / tab panel (badge on the enclosing surface, open-on-navigate);
+   * `detached` = anchor no longer resolves at all. */
+  state: "resolved" | "collapsed" | "detached";
+  /** Present only for `collapsed`: the surfaces to reveal on navigate. */
+  collapsed?: CollapsedSurface;
 }
 
 interface ComposerState {
@@ -156,7 +179,10 @@ export function MdxPlanAnnotationLayer({
   // composer chips), not as highlight overlays/badges — only freeform annotation
   // comments feed the overlay pipeline below.
   const comments = useMemo(
-    () => fileComments.filter((c) => !isQuestionAnswerCommentId(c.id)),
+    () =>
+      fileComments.filter(
+        (c) => !isQuestionAnswerCommentId(c.id) && !isReviewChoiceCommentId(c.id),
+      ),
     [fileComments],
   );
 
@@ -217,6 +243,63 @@ export function MdxPlanAnnotationLayer({
     ],
   );
 
+  // Interactive decision surface for `<ReviewChoice>` blocks — mirror of the
+  // question-answer channel above: a verdict/note upserts a deterministic-id
+  // (`mdx-review:…`) review comment (the wire truth) while the structured
+  // verdict/note persist in the annotation draft store.
+  const reviewChoices = useMemo<PlanReviewChoicesApi>(
+    () => ({
+      getChoice: (itemId) => {
+        if (!fileComments.some((c) => c.id === reviewChoiceCommentId(filePath, itemId))) {
+          return EMPTY_REVIEW_CHOICE;
+        }
+        return parseReviewChoiceDraft(
+          annotationDrafts[reviewChoiceDraftKey(composerDraftTarget, filePath, itemId)] ?? null,
+        );
+      },
+      setChoice: (item, blockElement, choice) => {
+        const draftKey = reviewChoiceDraftKey(composerDraftTarget, filePath, item.itemId);
+        const commentId = reviewChoiceCommentId(filePath, item.itemId);
+        if (isEmptyReviewChoice(choice)) {
+          clearAnnotationDraft(draftKey);
+          removeReviewComment(composerDraftTarget, commentId);
+          return;
+        }
+        setAnnotationDraft(draftKey, JSON.stringify(choice));
+        const anchored =
+          blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
+        const anchor: PlanCommentAnchor = anchored?.anchor ?? {
+          anchorKind: "visual",
+          targetKind: "control",
+          blockType: "review-choice",
+        };
+        const label = item.label ?? item.itemId;
+        addReviewComment(composerDraftTarget, {
+          kind: "mdx-anchor",
+          id: commentId,
+          filePath,
+          sectionId: anchor.sectionId ?? `file:${filePath}`,
+          sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
+          rangeLabel: `review: ${item.itemId}`,
+          text: formatReviewChoiceText(label, choice),
+          anchor,
+          quotedText: label,
+        });
+      },
+    }),
+    [
+      fileComments,
+      annotationDrafts,
+      composerDraftTarget,
+      filePath,
+      root,
+      addReviewComment,
+      removeReviewComment,
+      setAnnotationDraft,
+      clearAnnotationDraft,
+    ],
+  );
+
   // Track the rendered plan root (a direct child of the wrapper) as it appears
   // after the async MDX compile / on re-render.
   useEffect(() => {
@@ -241,7 +324,7 @@ export function MdxPlanAnnotationLayer({
       comment,
       boxes: [],
       badge: { top: 0, left: 0 },
-      detached: true,
+      state: "detached",
     });
     setOverlays(
       comments.map((comment) => {
@@ -260,13 +343,34 @@ export function MdxPlanAnnotationLayer({
           width: rect.width,
           height: rect.height,
         })).filter((box) => box.width > 0 && box.height > 0);
+        if (boxes.length === 0) {
+          // Zero rects: an anchor inside a closed <details> / hidden tab panel is
+          // COLLAPSED (badge on the enclosing surface, revealed on navigate), not
+          // detached. Anything else with no rects is genuinely detached.
+          const surface = collapsedSurfaceFor(range.startContainer, root);
+          if (surface) {
+            const rect = surface.badgeElement.getBoundingClientRect();
+            return {
+              id: comment.id,
+              comment,
+              boxes: [],
+              badge: {
+                top: rect.top - wrapperRect.top,
+                left: rect.right - wrapperRect.left - 8,
+              },
+              state: "collapsed",
+              collapsed: surface,
+            };
+          }
+          return detachedOverlay(comment);
+        }
         const last = boxes[boxes.length - 1];
         return {
           id: comment.id,
           comment,
           boxes,
           badge: last ? { top: last.top, left: last.left + last.width } : { top: 0, left: 0 },
-          detached: boxes.length === 0,
+          state: "resolved",
         };
       }),
     );
@@ -436,7 +540,62 @@ export function MdxPlanAnnotationLayer({
     }
   };
 
-  const detached = overlays.filter((overlay) => overlay.detached);
+  const detached = overlays.filter((overlay) => overlay.state === "detached");
+
+  // Group collapsed annotations by the surface they badge onto, so several
+  // hidden comments behind one closed <details>/tab collapse to one counted
+  // badge (the enclosing surface stays discoverable).
+  const collapsedGroups = useMemo(() => {
+    const groups: { key: string; top: number; left: number; overlays: Overlay[] }[] = [];
+    for (const overlay of overlays) {
+      if (overlay.state !== "collapsed" || !overlay.collapsed) continue;
+      const existing = groups.find(
+        (group) => group.overlays[0]!.collapsed!.badgeElement === overlay.collapsed!.badgeElement,
+      );
+      if (existing) existing.overlays.push(overlay);
+      else
+        groups.push({
+          key: overlay.id,
+          top: overlay.badge.top,
+          left: overlay.badge.left,
+          overlays: [overlay],
+        });
+    }
+    return groups;
+  }, [overlays]);
+
+  // Open every enclosing <details> / activate the tab for a collapsed group, then
+  // (after the layout settles + observers recompute) scroll the now-visible
+  // anchor into view. This is a user navigation action — the ONLY place details
+  // `open` is mutated — never overlay recomputation.
+  const revealCollapsed = useCallback(
+    (group: { overlays: Overlay[] }) => {
+      for (const overlay of group.overlays) {
+        overlay.collapsed?.detailsToOpen.forEach((el) => {
+          el.open = true;
+        });
+        overlay.collapsed?.tabsToActivate.forEach((tab) => tab.click());
+      }
+      requestAnimationFrame(() => {
+        const first = group.overlays[0];
+        if (first && root) {
+          try {
+            const range = first.comment.anchor ? resolveAnchor(first.comment.anchor, root) : null;
+            const node = range?.startContainer;
+            const el =
+              node?.nodeType === Node.ELEMENT_NODE
+                ? (node as Element)
+                : (node?.parentElement ?? null);
+            el?.scrollIntoView({ block: "center", behavior: "smooth" });
+          } catch {
+            /* best-effort scroll */
+          }
+        }
+        recompute();
+      });
+    },
+    [root, recompute],
+  );
 
   return (
     <div
@@ -476,7 +635,9 @@ export function MdxPlanAnnotationLayer({
       }}
     >
       <PlanQuestionAnswersContext.Provider value={questionAnswers}>
-        <MdxPlanRenderer source={source} />
+        <PlanReviewChoicesContext.Provider value={reviewChoices}>
+          <MdxPlanRenderer source={source} />
+        </PlanReviewChoicesContext.Provider>
       </PlanQuestionAnswersContext.Provider>
 
       {/* Highlight overlays for each pending annotation (non-interactive). */}
@@ -494,7 +655,7 @@ export function MdxPlanAnnotationLayer({
 
       {/* Numbered badges — click to open a comment card. */}
       {overlays.map((overlay, index) =>
-        overlay.detached ? null : (
+        overlay.state !== "resolved" ? null : (
           <button
             key={overlay.id}
             type="button"
@@ -508,9 +669,26 @@ export function MdxPlanAnnotationLayer({
         ),
       )}
 
+      {/* Collapsed-annotation badges — comments hidden inside a closed <details>
+          or tab panel. Click reveals the enclosing surface(s) and scrolls to the
+          highlight; a count when several collapse onto one surface. */}
+      {collapsedGroups.map((group) => (
+        <button
+          key={`collapsed-${group.key}`}
+          type="button"
+          aria-label={`Reveal ${group.overlays.length} hidden comment${group.overlays.length > 1 ? "s" : ""}`}
+          className="absolute z-20 flex h-5 -translate-y-1 items-center gap-0.5 rounded-full bg-amber-500/80 px-1.5 text-[10px] font-bold text-white shadow ring-2 ring-background hover:bg-amber-500"
+          style={{ top: group.top, left: group.left }}
+          onClick={() => revealCollapsed(group)}
+        >
+          <Eye className="size-3" />
+          {group.overlays.length}
+        </button>
+      ))}
+
       {/* Comment card for an opened badge. */}
       {overlays.map((overlay) =>
-        openCardId === overlay.id && !overlay.detached ? (
+        openCardId === overlay.id && overlay.state === "resolved" ? (
           <AnnotationCard
             key={`card-${overlay.id}`}
             top={overlay.badge.top + 20}

@@ -53,22 +53,29 @@ proposed here rather than force-wired.
 
 ### A — Repo-owned skill, opt-in install _(recommended now)_
 
-Keep `skills/mdx-visual-plan/SKILL.md` version-controlled in the repo. Activate
-per environment by copying or symlinking it into a provider skill directory:
+Keep the skill directories version-controlled in the repo. The authoring
+capability is now **three sibling directories** — two genre skills
+(`skills/mdx-visual-plan`, `skills/mdx-visual-recap`) over one shared reference
+core (`skills/mdx-doc-core`, referenced by the genre skills via
+`../mdx-doc-core` and therefore not a skill itself). Activate per environment by
+symlinking all three into a provider skill directory as siblings (so the
+`../mdx-doc-core` traversal resolves):
 
-- Codex: `~/.codex/skills/mdx-visual-plan/` (the shared-home `skills/` dir the
-  layout already manages) → surfaced automatically via `skills/list`.
-- Claude Code: `~/.claude/skills/mdx-visual-plan/`, or a project `.claude/skills/`.
+- Codex: `~/.codex/skills/{mdx-visual-plan,mdx-visual-recap,mdx-doc-core}/` (the
+  shared-home `skills/` dir the layout already manages) → the two genre skills
+  are surfaced automatically via `skills/list`.
+- Claude Code: `~/.claude/skills/`, or a project `.claude/skills/`.
 
 **Pros:** zero code change; uses the provider's native discovery; the skill is
 reviewed and diffs like any other repo file; trivially reversible. **Cons:**
 activation is a manual step, so it is opt-in rather than on by default.
 
-**Turnkey enablement.** `scripts/enable-mdx-plan-skill.sh [codex|claude|all]`
-symlinks `skills/mdx-visual-plan/` into the chosen provider skill dir
-(`~/.codex/skills/` and/or `~/.claude/skills/`). It is idempotent and reversible
-(delete the link); a symlink means skill edits track the repo live. Reload the
-provider session afterwards so it re-lists skills.
+**Turnkey enablement.** `scripts/enable-mdx-doc-skills.sh [codex|claude|all]`
+symlinks all three skill dirs (`mdx-visual-plan`, `mdx-visual-recap`,
+`mdx-doc-core`) into the chosen provider skill dir (`~/.codex/skills/` and/or
+`~/.claude/skills/`). It is idempotent and reversible (delete the links); a
+symlink means skill edits track the repo live. Reload the provider session
+afterwards so it re-lists skills.
 
 ### B — Ship + auto-install into the shared Codex home
 

@@ -64,13 +64,17 @@ Server state lives at `$T3CODE_HOME/dev/` (the `dev` subdir is used whenever
 
 ## 3. Start the web (Vite)
 
-The **same** `VITE_DEV_SERVER_URL` must be set here too. Bind with `--host` so
+The **same** `VITE_DEV_SERVER_URL` must be set here too. Run Vite from
+`apps/web` (from the repo root it serves a 404 for `/`), bind with `--host` so
 `localhost` resolves cleanly, and point the client at the server port:
 
 ```sh
-VITE_DEV_SERVER_URL=$WEB_URL \
-VITE_HTTP_URL=http://localhost:$SERVER_PORT VITE_WS_URL=ws://localhost:$SERVER_PORT \
-vp dev --port $WEB_PORT --host > "$T3CODE_HOME/web.out" 2>&1 &
+(
+  cd apps/web
+  VITE_DEV_SERVER_URL=$WEB_URL \
+  VITE_HTTP_URL=http://localhost:$SERVER_PORT VITE_WS_URL=ws://localhost:$SERVER_PORT \
+  vp dev --port $WEB_PORT --host > "$T3CODE_HOME/web.out" 2>&1
+) &
 ```
 
 ## 4. Wait for readiness, then authenticate
@@ -93,6 +97,15 @@ grep -m1 pairingUrl "$T3CODE_HOME/server.out"   # or tail -f the *.out files
   real content before concluding anything is broken.
 - Use **one hostname consistently** for everything (prefer `localhost`, since
   Vite is bound with `--host`). Do not mix `localhost` and `127.0.0.1`.
+
+### Saving screenshot evidence
+
+`browser_take_screenshot` returns the image inline by default (visible in the
+transcript only). When a brief asks for screenshot **evidence you can reference
+from a report or diff later**, pass the `filename` parameter — the image is
+written to that path (relative paths resolve against cwd; parent dirs are
+created) and the saved absolute path is returned in the result. Write evidence
+under the run's output dir (e.g. a `_debug` subdir), not `/tmp`.
 
 ## 5. Seeding ledger-backed views (e.g. /usage)
 
@@ -135,5 +148,6 @@ notes — never fall back to a broad `pkill`.
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Page loads but API calls fail — `net::ERR_FAILED` on `/api/auth/session`            | `localhost` vs `127.0.0.1` mismatch between page origin and configured URLs                                                                                                          | Use ONE hostname everywhere; prefer `localhost` (Vite bound with `--host`).                                                                          |
 | `Access-Control-Allow-Origin must not be wildcard when credentials mode is include` | **The key gotcha.** `VITE_DEV_SERVER_URL` missing on the **web** side (or server side) — client treats the backend as cross-origin/credentialless even after server CORS looks fixed | Set the **same** `VITE_DEV_SERVER_URL=$WEB_URL` on **both** server and web, then restart both.                                                       |
+| First Add project after pairing fails with `<host> is not connected`                | Local-environment WebSocket auth can take a few seconds to settle after pairing                                                                                                      | Reload once after auth (a usage gauge appearing means the WS is connected), then retry.                                                              |
 | Stuck on `/pair`; retry says `Invalid pairing token`                                | Pairing tokens are **one-time**; a setup mistake already consumed it                                                                                                                 | Restart the scratch **server** to print a fresh `pairingUrl`; open that.                                                                             |
 | HTTP 500 `fetch-session-state` on first load after manual seeding                   | Seed rows violate a projection schema                                                                                                                                                | `projection_projects.scripts_json` must be `'[]'` not `'{}'`; `projection_threads.model_selection_json` must be non-null (see §5). Fix rows, reload. |
