@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
+import * as NodeFS from "node:fs";
 const require = (await import("node:module")).createRequire(new URL("../../apps/web/package.json", import.meta.url));
 const { evaluate } = await import(require.resolve("@mdx-js/mdx"));
 const remarkGfm = (await import(require.resolve("remark-gfm"))).default;
 const runtime = await import(require.resolve("react/jsx-runtime"));
 const opts = { ...runtime, remarkPlugins: [remarkGfm], development: false };
 const CAP = 1024*1024;
-const full = readFileSync(new URL("doc-1.mdx", import.meta.url), "utf8");
+const full = NodeFS.readFileSync(new URL("doc-1.mdx", import.meta.url), "utf8");
 const buf = Buffer.from(full, "utf8");
 console.log("full bytes", buf.length, "> cap", buf.length > CAP);
 const truncated = buf.subarray(0, CAP).toString("utf8"); // server slices bytes then decodes

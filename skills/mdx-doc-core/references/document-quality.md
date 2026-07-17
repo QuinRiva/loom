@@ -139,6 +139,26 @@ has already lost: the drill-down, not the companion file, is the mechanism.
 This is the one rule the motivating tier-A plan violated — it linked out to a
 companion HTML doc for its own evidence.
 
+## Size budget: embed freely, the renderer carries it
+
+There is **no size reason to link out**. A fully evidence-embedded decision
+document is expected to reach a few MB, and the renderer carries that: `.mdx`
+plans compile off the main thread and collapsed `<Details>` mount lazily, so an
+evidence-heavy document opens and stays responsive. Embed the full record under
+`<Details>` + `<Json>` rather than referencing it. Two practical bounds:
+
+- Keep a **single `<Json>` payload to tens of KB** each (the measured
+  comfortable shape); split a giant blob across several drill-downs rather than
+  one enormous one.
+- The transport ceiling is **8 MiB** of source. `planLint` **warns above 6 MB**
+  (compile stays multi-second even off-thread) and **errors above 8 MiB** (the
+  preview would truncate it before the renderer). A batch that large should be
+  split into per-pack documents, not thinned by linking evidence out.
+
+A filterable master `<Table>` (`filterable` prop) keeps a large batch navigable
+without paying for the evidence up front — the rows filter and sort client-side
+while the bulk stays in the collapsed drill-downs.
+
 ## Reader-experience final checklist
 
 Before handing back any document, read it as the reviewer will and check every

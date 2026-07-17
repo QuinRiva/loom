@@ -1,7 +1,7 @@
 // Measures the compilePlanMdx path (evaluate = compile + eval) per doc size, in Node.
 // Replicates MdxPlanRenderer.evaluateOptions: remarkGfm + the two guard walks.
-import { readFileSync } from "node:fs";
-import { performance } from "node:perf_hooks";
+import * as NodeFS from "node:fs";
+import * as NodePerfHooks from "node:perf_hooks";
 
 const require = (await import("node:module")).createRequire(
   new URL("../../apps/web/package.json", import.meta.url),
@@ -42,12 +42,12 @@ const options = {
 const sizes = process.argv.slice(2);
 console.log("size_MB\tbytes\tcompile+eval_ms (median of 5)");
 for (const mb of sizes) {
-  const src = readFileSync(new URL(`doc-${mb}.mdx`, import.meta.url), "utf8");
+  const src = NodeFS.readFileSync(new URL(`doc-${mb}.mdx`, import.meta.url), "utf8");
   const times = [];
   for (let i = 0; i < 5; i++) {
-    const t0 = performance.now();
+    const t0 = NodePerfHooks.performance.now();
     await evaluate(src, options);
-    times.push(performance.now() - t0);
+    times.push(NodePerfHooks.performance.now() - t0);
   }
   times.sort((a, b) => a - b);
   const median = times[2];

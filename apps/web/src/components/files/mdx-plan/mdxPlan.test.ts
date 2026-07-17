@@ -8,6 +8,7 @@ import reviewFixtureSource from "../../../../../../plans/mdx-review-blocks/plan.
 
 import { FieldDiffRead } from "./blocks/fieldDiff";
 import { compilePlanMdx } from "./MdxPlanRenderer";
+import { PlanEagerMountContext } from "./planEagerMount";
 import { PLAN_BLOCK_COMPONENTS, PLAN_BLOCKS, parsePlanBlock, serializePlanBlock } from "./registry";
 
 /**
@@ -367,8 +368,15 @@ describe("mdx-plan security model", () => {
 
   it("compiles the in-repo review-blocks fixture end-to-end", async () => {
     const Content = await compilePlanMdx(reviewFixtureSource); // throws on unknown tag / guard reject
+    // `<Details>` mounts children lazily (mount-on-open); render under the
+    // eager-mount context so the collapsed drill-down content (the `<Json>`)
+    // materialises — exactly what the annotation layer does when comments exist.
     const html = renderToStaticMarkup(
-      createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+      createElement(
+        PlanEagerMountContext.Provider,
+        { value: true },
+        createElement(Content, { components: PLAN_BLOCK_COMPONENTS }),
+      ),
     );
     for (const type of ["card", "field-diff", "details", "review-choice", "json-explorer"]) {
       expect(html).toContain(`data-plan-block-type="${type}"`);

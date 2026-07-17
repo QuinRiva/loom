@@ -1,36 +1,30 @@
-import { evaluate, type EvaluateOptions } from "@mdx-js/mdx";
 import { Component, type ErrorInfo, type ReactNode, useEffect, useRef, useState } from "react";
-import * as runtime from "react/jsx-runtime";
-import remarkGfm from "remark-gfm";
+import { LoaderCircle } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
-import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
+import CompileWorker from "./compileWorker?worker";
+import { compilePlanMdx, type PlanMdxComponent, runPlanModule } from "./mdxCompileOptions";
+import type { CompileRequest, CompileResponse } from "./compileWorker";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 /**
- * Secure runtime MDX renderer for `.mdx` plan files. Compiles + evaluates MDX in
- * the browser (`@mdx-js/mdx` `evaluate`) and renders only through the closed
- * plan-block registry. This is a NEW render path for `.mdx`; the `.md`
- * react-markdown path (`ChatMarkdown`) is untouched.
+ * Secure runtime MDX renderer for `.mdx` plan files. Compiles MDX OFF the main
+ * thread (a dedicated Web Worker) and instantiates + renders the result on the
+ * main thread through the closed plan-block registry. This is a NEW render path
+ * for `.mdx`; the `.md` react-markdown path (`ChatMarkdown`) is untouched.
  *
- * Security model (replaces `rehype-sanitize` for this path), 3 layers:
- *   1. Closed component registry — MDX resolves custom JSX names only from
- *      {@link PLAN_BLOCK_COMPONENTS}; nothing else is reachable.
- *   2. remark guard — rejects `import`/`export` (`mdxjsEsm`) and raw
- *      `{expression}` bodies (`mdxFlow/TextExpression`) at compile time, AND
- *      rejects any *attribute*-value expression that is not a static literal
- *      (`code={fetch(...)}`, sequence/IIFE tricks), so plan source cannot smuggle
- *      executable JS. JSON-literal attribute expressions — `entities={[…]}`,
- *      `data={{…}}`, `code={"…"}` — remain allowed; that is the block wire format.
- *   3. Unknown-component fallback — a remark pass rewrites any capitalized JSX
- *      tag not in the registry to the inline `UnknownPlanBlock` error card
- *      (attrs/children dropped), so one bad tag cannot reach MDX's
- *      `_missingMdxReference` throw and kill the whole document.
+ * The security model + remark guards live in {@link ./mdxCompileOptions}; the
+ * worker applies the exact same guard set during compile (before any executable
+ * module exists), and the linter/tests reuse the same module — so the two paths
+ * cannot drift. Per decision D2 the render accepts `unsafe-eval` (`run(...)` uses
+ * the `Function` constructor) under a strict CSP; the app sets no CSP today. The
+ * guard + closed registry bound the eval surface to our own trusted components.
  *
- * Per decision D2 this accepts `unsafe-eval` (the `Function` constructor) under a
- * strict CSP; the app sets no CSP today. The remark guard + closed registry
- * bound the eval surface to our own trusted components.
+ * Off-thread compile keeps the tab interactive while an evidence-heavy decision
+ * document (multi-MB) compiles — the parse/transform dominates the cost, and it
+ * no longer blocks the main thread. A lightweight "compiling…" placeholder shows
+ * until the module is ready.
  *
  * Annotation hook (Phase 2): the rendered output lives under one stable
  * container (`data-plan-root`, exposed via `containerRef`), and every block —
@@ -41,96 +35,55 @@ import { PLAN_BLOCK_COMPONENTS } from "./registry";
  * without re-architecting this renderer.
  */
 
-const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
-
-type GuardNode = {
-  type: string;
-  name?: string | null;
-  children?: unknown[];
-  attributes?: Array<{ type?: string; name?: string; value?: unknown }>;
-};
+export { compilePlanMdx } from "./mdxCompileOptions";
 
 /**
- * remark plugin: at compile time reject import/export + raw `{expression}`
- * bodies, and reject any attribute-value expression that is not a static literal.
- * The last part is load-bearing for the security model: `code={…}` attribute
- * expressions compile to executable JS and are NOT reached by the body-node walk,
- * so without this an author could run arbitrary browser JS via any `.mdx`.
+ * One shared compile worker for all rendered plans (compile is stateless and
+ * request-multiplexed by id). Lazily created on first use and kept for the
+ * page's lifetime — plans open one at a time, so a pool is unwarranted. Falls
+ * back to `null` in environments without Worker support (SSR/tests), where
+ * {@link compileInWorker} degrades to the main-thread `compilePlanMdx`.
  */
-function remarkRejectCodeEscapes() {
-  return (tree: GuardNode) => {
-    const walk = (node: GuardNode) => {
-      if (DISALLOWED_MDX_NODES.has(node.type)) {
-        throw new Error(
-          `Disallowed MDX construct: ${node.type}. Imports and raw {expressions} are not permitted in plans.`,
-        );
+let sharedWorker: Worker | null = null;
+let workerUnavailable = false;
+const pending = new Map<number, (response: CompileResponse) => void>();
+let requestCounter = 0;
+
+function getCompileWorker(): Worker | null {
+  if (workerUnavailable) return null;
+  if (sharedWorker) return sharedWorker;
+  try {
+    const worker = new CompileWorker();
+    worker.addEventListener("message", (event: MessageEvent<CompileResponse>) => {
+      const resolve = pending.get(event.data.id);
+      if (resolve) {
+        pending.delete(event.data.id);
+        resolve(event.data);
       }
-      for (const attr of node.attributes ?? []) {
-        // A spread attribute ({...expr}) is an arbitrary expression too — without
-        // this it compiles straight into the JSX call and executes at render.
-        if (attr?.type === "mdxJsxExpressionAttribute") {
-          throw new Error(
-            "Disallowed MDX spread attribute: {...expression} is not permitted in plans.",
-          );
-        }
-        if (attr?.type === "mdxJsxAttribute" && attr.value && typeof attr.value === "object") {
-          assertLiteralAttributeExpression(attr.name ?? "?", attr.value as MdxAttrExpression);
-        }
-      }
-      for (const child of node.children ?? []) {
-        walk(child as GuardNode);
-      }
-    };
-    walk(tree);
-  };
+    });
+    sharedWorker = worker;
+    return worker;
+  } catch {
+    // No Worker support (SSR / some test envs) — caller falls back on-thread.
+    workerUnavailable = true;
+    return null;
+  }
 }
 
-const MDX_JSX_NODE_TYPES = new Set(["mdxJsxFlowElement", "mdxJsxTextElement"]);
-
-/**
- * remark plugin: rewrite any capitalized JSX tag that is not in the closed
- * registry to the `UnknownPlanBlock` error card (original tag preserved as its
- * `tag` attr; other attrs and children dropped). Runs AFTER the code-escape
- * guard, so smuggled attribute expressions are still rejected doc-wide rather
- * than silently discarded here. Lowercase (HTML) tags are left to MDX.
- */
-function remarkUnknownBlockFallback() {
-  return (tree: GuardNode) => {
-    const walk = (node: GuardNode) => {
-      for (const child of node.children ?? []) {
-        walk(child as GuardNode);
-      }
-      if (
-        MDX_JSX_NODE_TYPES.has(node.type) &&
-        node.name &&
-        /^[A-Z]/.test(node.name) &&
-        !(node.name in PLAN_BLOCK_COMPONENTS)
-      ) {
-        node.attributes = [{ type: "mdxJsxAttribute", name: "tag", value: node.name }];
-        node.name = "UnknownPlanBlock";
-        node.children = [];
-      }
-    };
-    walk(tree);
-  };
-}
-
-type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
-
-const evaluateOptions = {
-  ...runtime,
-  remarkPlugins: [remarkGfm, remarkRejectCodeEscapes, remarkUnknownBlockFallback],
-  development: false,
-} as unknown as EvaluateOptions;
-
-/**
- * Compile + evaluate MDX plan source to a renderable component, applying the
- * remark guard. Rejects (throws) on disallowed constructs or compile errors.
- * Exported for verification; the component below uses it internally.
- */
-export async function compilePlanMdx(source: string): Promise<PlanMdxComponent> {
-  const module = await evaluate(source, evaluateOptions);
-  return module.default as unknown as PlanMdxComponent;
+/** Compile off the main thread when a worker is available, else on-thread. */
+async function compileInWorker(source: string): Promise<PlanMdxComponent> {
+  const worker = getCompileWorker();
+  if (!worker) return compilePlanMdx(source);
+  const id = ++requestCounter;
+  const code = await new Promise<string>((resolve, reject) => {
+    pending.set(id, (response) => {
+      if (response.ok) resolve(response.code);
+      else reject(new Error(response.error));
+    });
+    const request: CompileRequest = { id, source };
+    worker.postMessage(request);
+  });
+  return runPlanModule(code);
 }
 
 /**
@@ -184,6 +137,19 @@ interface MdxPlanRendererProps {
   className?: string;
 }
 
+function PlanCompilingNotice() {
+  return (
+    <div
+      className="mx-auto flex max-w-4xl items-center gap-2 px-6 py-5 text-sm text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      <LoaderCircle className="size-4 animate-spin" />
+      Compiling plan…
+    </div>
+  );
+}
+
 function PlanErrorNotice({ message }: { message: string }) {
   return (
     <div className="mx-auto max-w-4xl px-6 py-5">
@@ -198,18 +164,24 @@ function PlanErrorNotice({ message }: { message: string }) {
 export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
   const [content, setContent] = useState<{ Component: PlanMdxComponent } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compiling, setCompiling] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
     setError(null);
-    void compilePlanMdx(source)
+    setCompiling(true);
+    void compileInWorker(source)
       .then((Component) => {
-        if (active) setContent({ Component });
+        if (active) {
+          setContent({ Component });
+          setCompiling(false);
+        }
       })
       .catch((cause: unknown) => {
         if (active) {
           setContent(null);
+          setCompiling(false);
           setError(cause instanceof Error ? cause.message : String(cause));
         }
       });
@@ -226,7 +198,7 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
     return <PlanErrorNotice message={error} />;
   }
   if (content === null) {
-    return null;
+    return compiling ? <PlanCompilingNotice /> : null;
   }
 
   const { Component: MdxContent } = content;

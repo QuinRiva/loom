@@ -89,6 +89,14 @@ the attached HTML for the before/after" has already lost: the `<Details>`
 drill-down, not the companion file, is the mechanism. This is the single rule
 that most separates a self-contained MDX artefact from a linked-out one.
 
+This rule is **unqualified — there is no size exemption**. A fully
+evidence-embedded decision document is expected to reach a few MB, and the
+renderer carries it (off-main-thread compile, lazy `<Details>`). Embed the full
+records; do not thin the evidence or link out because the document is large. The
+only size limit is the 8 MiB transport ceiling `planLint` enforces (warn >6 MB,
+error >8 MiB) — a batch that big should be split into per-pack documents. See
+the **size budget** passage in `document-quality.md`.
+
 ## Block vocabulary and reference core
 
 The block vocabulary, wire contract, quality bar, and routing/checklist guidance
@@ -122,8 +130,13 @@ A verdict batch (like a tier-A taxonomy sign-off) reads, top to bottom:
    choices, so the "silence = accept" convention is document policy stated here,
    not in the widget. This is the first viewport: what is being decided and what
    sign-off means.
-2. **A compact all-items `<Table>`** — one row per item (id, subject, verdict
-   class, recommendation), so the whole batch is scannable before the detail.
+2. **A compact all-items `<Table filterable>`** — one row per item (id, subject,
+   verdict class, recommendation), so the whole batch is scannable before the
+   detail. Mark it `filterable` for a large batch: it adds a client-side row
+   filter and header-click sort (asc → desc → unsorted, numeric-aware) so the
+   reviewer can jump to a subject or sort by verdict class without scrolling the
+   whole batch. The evidence stays in each item's collapsed drill-down, so the
+   table stays cheap.
 3. **One `<Card>` per item**, `tone` = the verdict class (colour is triage only;
    meaning rides the `badge`/heading), with `meta` chips for pack / confidence /
    recommended action. Inside each card, in order:
@@ -134,6 +147,13 @@ A verdict batch (like a tier-A taxonomy sign-off) reads, top to bottom:
      entry, counterpart pack) — never a link out;
    - a `<ReviewChoice itemId>` (unique id per document) capturing the per-item
      Accept / Reject / Discuss decision.
+
+   When a document contains `<ReviewChoice>` items the renderer shows a sticky
+   **"N of M decided"** counter automatically — no authoring needed; it tracks
+   progress through a large batch. (The "silence = accept" rule still means an
+   undecided item ships the recommendation; the counter only reflects explicit
+   decisions recorded so far.)
+
 4. **A bottom `<QuestionForm>`** for only the genuinely balanced calls (rollout
    strategy, a schema question) — not a second copy of the per-item decisions.
 

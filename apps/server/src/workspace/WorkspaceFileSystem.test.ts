@@ -78,6 +78,61 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect("keeps the default 1 MiB cap when no maxBytes is requested", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const size = 1024 * 1024 + 4096; // just over the default cap
+        yield* writeTextFile(cwd, "big.mdx", "a".repeat(size));
+
+        const result = yield* workspaceFileSystem.readFile({ cwd, relativePath: "big.mdx" });
+
+        expect(result.byteLength).toBe(size);
+        expect(result.truncated).toBe(true);
+        expect(result.contents.length).toBe(1024 * 1024);
+      }),
+    );
+
+    it.effect("honours a per-request maxBytes for large plan files", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const size = 1024 * 1024 + 4096; // over the default, under the plan ceiling
+        yield* writeTextFile(cwd, "plan.mdx", "a".repeat(size));
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "plan.mdx",
+          maxBytes: 8 * 1024 * 1024,
+        });
+
+        expect(result.byteLength).toBe(size);
+        expect(result.truncated).toBe(false);
+        expect(result.contents.length).toBe(size);
+      }),
+    );
+
+    it.effect("clamps maxBytes to the 8 MiB plan ceiling", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const planCeiling = 8 * 1024 * 1024;
+        const size = planCeiling + 4096; // above even the ceiling
+        yield* writeTextFile(cwd, "huge.mdx", "a".repeat(size));
+
+        // Request far beyond the ceiling; the server must clamp to 8 MiB.
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "huge.mdx",
+          maxBytes: 64 * 1024 * 1024,
+        });
+
+        expect(result.byteLength).toBe(size);
+        expect(result.truncated).toBe(true);
+        expect(result.contents.length).toBe(planCeiling);
+      }),
+    );
+
     it.effect("rejects reads outside the workspace root", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

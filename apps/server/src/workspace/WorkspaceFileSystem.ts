@@ -32,6 +32,14 @@ import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+/**
+ * Upper bound a per-request `maxBytes` can raise the read cap to (8 MiB). Only
+ * the `.mdx` plan preview opts in; the ceiling keeps an oversized/hostile
+ * request from reading unbounded bytes into memory. Deliberately above any
+ * plausible decision document (largest observed artefact ~1.25 MB) yet far
+ * below a runaway read.
+ */
+const PROJECT_READ_FILE_PLAN_MAX_BYTES = 8 * 1024 * 1024;
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -221,6 +229,7 @@ export const make = Effect.gen(function* () {
   const readTextFromRealPath = <E>(
     realTargetPath: string,
     resultRelativePath: string,
+    maxBytes: number,
     errors: {
       readonly operation: (operation: ReadOperation, cause: unknown) => E;
       readonly notFile: () => E;
@@ -242,7 +251,7 @@ export const make = Effect.gen(function* () {
             return yield* Effect.fail(errors.notFile());
           }
 
-          const bytesToRead = Math.min(stat.size, PROJECT_READ_FILE_MAX_BYTES);
+          const bytesToRead = Math.min(stat.size, maxBytes);
           const buffer = Buffer.alloc(bytesToRead);
           const { bytesRead } = yield* Effect.tryPromise({
             try: () => handle.read(buffer, 0, bytesToRead, 0),
@@ -257,7 +266,7 @@ export const make = Effect.gen(function* () {
             relativePath: resultRelativePath,
             contents: new TextDecoder("utf-8").decode(fileBytes),
             byteLength: stat.size,
-            truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
+            truncated: stat.size > maxBytes,
           };
         }),
       (handle) =>
@@ -313,9 +322,15 @@ export const make = Effect.gen(function* () {
       });
     }
 
+    // A caller may request a larger budget (only the `.mdx` plan preview does),
+    // clamped to the plan ceiling; absent it, the default 1 MiB cap applies.
+    const maxBytes = input.maxBytes
+      ? Math.min(input.maxBytes, PROJECT_READ_FILE_PLAN_MAX_BYTES)
+      : PROJECT_READ_FILE_MAX_BYTES;
+
     return yield* readTextFromRealPath<
       WorkspaceFileSystemOperationError | WorkspacePathNotFileError | WorkspaceBinaryFileError
-    >(realTargetPath, target.relativePath, {
+    >(realTargetPath, target.relativePath, maxBytes, {
       operation: (operation, cause) =>
         new WorkspaceFileSystemOperationError({
           workspaceRoot: input.cwd,
@@ -367,6 +382,7 @@ export const make = Effect.gen(function* () {
     return yield* readTextFromRealPath<WorkspaceAbsoluteReadError>(
       realTargetPath,
       input.absolutePath,
+      PROJECT_READ_FILE_MAX_BYTES,
       {
         operation: (operation, cause) =>
           new WorkspaceAbsoluteReadError({

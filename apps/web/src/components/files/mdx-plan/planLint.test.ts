@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { compilePlanMdx } from "./MdxPlanRenderer";
-import { lintPlanSource } from "./planLint";
+import { lintPlanSource, planSizeFinding } from "./planLint";
 
 /**
  * Contract test for the plan validator — authoring agents rely on it to gate
@@ -104,6 +104,23 @@ describe("lintPlanSource", () => {
     expect(
       await warningText('<TabsBlock>\n  <Callout tone="info">not a tab</Callout>\n</TabsBlock>'),
     ).toContain("phantom");
+  });
+
+  it("warns approaching, and errors above, the transport size ceiling", async () => {
+    // Test the pure threshold fn directly — parsing/compiling a multi-MB doc is
+    // exactly the slow path this budget warns about.
+    expect(planSizeFinding("x".repeat(1024 * 1024))).toBeNull(); // under 6 MB
+    const warn = planSizeFinding("x".repeat(7 * 1024 * 1024)); // 6 MB – 8 MiB
+    expect(warn?.severity).toBe("warning");
+    expect(warn?.message).toContain("approaching the 8 MiB transport ceiling");
+    const err = planSizeFinding("x".repeat(9 * 1024 * 1024)); // above 8 MiB
+    expect(err?.severity).toBe("error");
+    expect(err?.message).toContain("above the 8 MiB transport ceiling");
+    // lintPlanSource fast-fails the over-ceiling case: exactly the size error,
+    // no parse/compile of a doomed document.
+    const findings = await lintPlanSource(`# Plan\n\n${"x".repeat(9 * 1024 * 1024)}\n`);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.message).toContain("above the 8 MiB transport ceiling");
   });
 
   it("warns on ragged tables and sanitiser-stripped wireframe HTML", async () => {

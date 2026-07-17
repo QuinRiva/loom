@@ -191,6 +191,7 @@ Props:
 - `columns` — `string[]` **(required)**
 - `rows` — `string[][]` **(required)**
 - `density` — `"compact" | "normal" | "relaxed"` _(optional)_
+- `filterable` — `boolean` _(optional)_
 
 ## `<VisualQuestions>` — `visual-questions`
 

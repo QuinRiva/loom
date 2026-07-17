@@ -132,6 +132,15 @@ interface TextSpan {
   end: number;
 }
 
+/** A document flattened to its concatenated text + a prefix-offset index over
+ * the source text nodes. Produced once per overlay recompute pass and shared
+ * across every text-quote {@link resolveAnchor} so the pass is O(document +
+ * comments) rather than O(comments × document). */
+export interface FlattenedDocument {
+  text: string;
+  spans: TextSpan[];
+}
+
 function collectTextNodes(root: Node): Text[] {
   const walker = root.ownerDocument!.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
@@ -144,7 +153,7 @@ function collectTextNodes(root: Node): Text[] {
 }
 
 /** Flatten a subtree's text nodes into one string + a prefix-offset index. */
-function flatten(root: Node): { text: string; spans: TextSpan[] } {
+export function flattenDocument(root: Node): FlattenedDocument {
   let text = "";
   const spans = collectTextNodes(root).map((node) => {
     const start = text.length;
@@ -295,7 +304,7 @@ export function anchorFromRange(
     };
   }
 
-  const { text, spans } = flatten(root);
+  const { text, spans } = flattenDocument(root);
   const offsetOf = (node: Node, nodeOffset: number): number => {
     const span = spans.find((s) => s.node === node);
     return (span ? span.start : 0) + nodeOffset;
@@ -461,7 +470,11 @@ export function resolveCanvasAnchor(
 /** Re-resolve an anchor to a live `Range`, or `null` when it is detached.
  * Canvas coordinate anchors have no element — resolve those via
  * {@link resolveCanvasAnchor} instead (this returns `null` for them). */
-export function resolveAnchor(anchor: PlanCommentAnchor, root: Element): Range | null {
+export function resolveAnchor(
+  anchor: PlanCommentAnchor,
+  root: Element,
+  flattened?: FlattenedDocument,
+): Range | null {
   if (anchor.anchorKind === "wireframe") {
     if (!anchor.targetSelector) return null;
     let artboard: Element | null;
@@ -494,7 +507,7 @@ export function resolveAnchor(anchor: PlanCommentAnchor, root: Element): Range |
 
   const quote = anchor.textQuote;
   if (!quote) return null;
-  const { text, spans } = flatten(root);
+  const { text, spans } = flattened ?? flattenDocument(root);
   if (spans.length === 0) return null;
 
   const hits: number[] = [];
