@@ -46,6 +46,11 @@ export interface ServerDerivedPaths {
   // byte-identical argv/selection. Durable state dir (never the ephemeral
   // worktree); survives restarts because the marker is not a projection.
   readonly workstreamLaunchIdentityDir: string;
+  // Debugging-only: per-thread effective-prompt debug sidecars (markdown). The
+  // pi capture extension writes the fully assembled LLM prompt here, broken
+  // down by section, fire-and-forget on each agent start. Durable state dir
+  // (never the ephemeral worktree); the web UI opens it via the file viewer.
+  readonly workstreamPromptDebugDir: string;
   // Retained read-only consult_thread fork session jsonls (deep-inspection
   // artefacts). Sibling of workstreamReportsDir under the durable state dir.
   readonly workstreamConsultsDir: string;
@@ -116,6 +121,8 @@ export const deriveServerPaths = Effect.fn(function* (
   const workstreamBriefsDir = join(stateDir, "workstream-briefs");
   // loom: forkFrom launch-identity sidecars + kickoff-delivered markers.
   const workstreamLaunchIdentityDir = join(stateDir, "workstream-launch-identity");
+  // Debugging-only effective-prompt debug sidecars (see ServerDerivedPaths).
+  const workstreamPromptDebugDir = join(stateDir, "prompt-debug");
   const workstreamConsultsDir = join(stateDir, "workstream-consults");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
@@ -131,6 +138,7 @@ export const deriveServerPaths = Effect.fn(function* (
     workstreamReportsDir,
     workstreamBriefsDir,
     workstreamLaunchIdentityDir, // loom:
+    workstreamPromptDebugDir,
     workstreamConsultsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -160,6 +168,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.workstreamBriefsDir, { recursive: true }),
       // loom:
       fs.makeDirectory(derivedPaths.workstreamLaunchIdentityDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.workstreamPromptDebugDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.workstreamConsultsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),

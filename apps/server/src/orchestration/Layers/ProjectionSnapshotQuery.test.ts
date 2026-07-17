@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import {
   CheckpointRef,
   EventId,
@@ -7,12 +8,16 @@ import {
   TurnId,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { ServerConfig, layerTest as serverConfigLayerTest } from "../../config.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
@@ -29,6 +34,11 @@ const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(
+      serverConfigLayerTest(process.cwd(), { prefix: "psq-test" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
@@ -1877,6 +1887,85 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         );
       }),
   );
+
+  it.effect(
+    "exposes a promptDebugPath for pi-session threads and omits it for other providers",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_thread_sessions`;
+
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, title, workspace_root, default_model_selection_json,
+            scripts_json, created_at, updated_at, deleted_at
+          ) VALUES (
+            'project-1', 'Project 1', '/tmp/project-1',
+            '{"provider":"pi","model":"claude-opus-4-8"}', '[]',
+            '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:01.000Z', NULL
+          )
+        `;
+
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, title, model_selection_json, runtime_mode,
+            interaction_mode, branch, worktree_path, latest_turn_id,
+            latest_user_message_at, pending_approval_count, pending_user_input_count,
+            has_actionable_proposed_plan, created_at, updated_at, deleted_at
+          ) VALUES
+            ('thread-pi', 'project-1', 'Pi Thread', '{"provider":"pi","model":"claude-opus-4-8"}',
+             'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
+             '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL),
+            ('thread-pi-nofile', 'project-1', 'Pi Thread No File', '{"provider":"pi","model":"claude-opus-4-8"}',
+             'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
+             '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL),
+            ('thread-codex', 'project-1', 'Codex Thread', '{"provider":"codex","model":"gpt-5-codex"}',
+             'full-access', 'default', NULL, NULL, NULL, NULL, 0, 0, 0,
+             '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL)
+        `;
+
+        yield* sql`
+          INSERT INTO projection_thread_sessions (
+            thread_id, status, provider_name, provider_session_id,
+            provider_thread_id, runtime_mode, active_turn_id, last_error, updated_at
+          ) VALUES
+            ('thread-pi', 'running', 'pi', NULL, NULL, 'full-access', NULL, NULL,
+             '2026-02-24T00:00:07.000Z'),
+            ('thread-pi-nofile', 'running', 'pi', NULL, NULL, 'full-access', NULL, NULL,
+             '2026-02-24T00:00:07.000Z'),
+            ('thread-codex', 'running', 'codex', NULL, NULL, 'full-access', NULL, NULL,
+             '2026-02-24T00:00:07.000Z')
+        `;
+
+        // Only thread-pi has a sidecar on disk; thread-pi-nofile is a pi thread
+        // that has not produced a capture yet. The path must surface ONLY when
+        // the file exists, so a not-yet-launched / failed-capture thread never
+        // renders a dead UI link.
+        const promptDebugDir = (yield* ServerConfig).workstreamPromptDebugDir;
+        NodeFS.mkdirSync(promptDebugDir, { recursive: true });
+        NodeFS.writeFileSync(NodePath.join(promptDebugDir, "thread-pi.md"), "# capture", "utf8");
+
+        const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+        const byId = (id: string) => shellSnapshot.threads.find((t) => t.id === ThreadId.make(id));
+        const piThread = byId("thread-pi");
+        assert.ok(
+          piThread?.promptDebugPath,
+          "pi thread with a sidecar should expose promptDebugPath",
+        );
+        assert.ok(
+          piThread!.promptDebugPath!.endsWith("prompt-debug/thread-pi.md"),
+          `unexpected promptDebugPath: ${piThread!.promptDebugPath}`,
+        );
+        // pi thread WITHOUT a sidecar file: no path (would be a dead link).
+        assert.equal(byId("thread-pi-nofile")?.promptDebugPath, undefined);
+        // Non-pi thread: no path regardless of any file.
+        assert.equal(byId("thread-codex")?.promptDebugPath, undefined);
+      }),
+  );
 });
 
 it.effect(
@@ -1902,6 +1991,11 @@ it.effect(
         }),
       ),
       Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(
+        serverConfigLayerTest(process.cwd(), { prefix: "psq-test" }).pipe(
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
     );
 
     return Effect.gen(function* () {

@@ -1,5 +1,12 @@
 import type { EnvironmentId, OrchestrationEvent, ThreadId } from "@t3tools/contracts";
-import { ArrowUpRightIcon, ExternalLinkIcon, FileTextIcon, Loader2Icon, XIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  BugIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  Loader2Icon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -8,6 +15,7 @@ import {
   getRoleLabel,
   LIFECYCLE_TONE_STYLES,
 } from "../lib/workstreamPresentation";
+import { isAbsolutePreviewablePath } from "../markdown-links";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
 import type { SidebarThreadSummary } from "../types";
@@ -180,6 +188,20 @@ export function WorkstreamLifecycleDrawer({
                 >
                   <FileTextIcon className="size-3" />
                   Report
+                </button>
+              ) : null}
+              {/* Debugging-only: open the effective-prompt debug sidecar (the
+                  full LLM prompt this pi thread sent, by section). Present only
+                  for pi threads; reuses the generic open-absolute-path handler. */}
+              {thread.promptDebugPath && isAbsolutePreviewablePath(thread.promptDebugPath) ? (
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                  onClick={() => onOpenReport(thread.promptDebugPath!)}
+                  title="Open this thread's effective-prompt debug capture"
+                >
+                  <BugIcon className="size-3" />
+                  Prompt
                 </button>
               ) : null}
               <button
