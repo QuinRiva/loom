@@ -837,7 +837,8 @@ const make = Effect.gen(function* () {
   // Rename the temporary `t3code/<hash>` worktree branch to a slug derived from
   // the generated thread title, so branch and title stay consistent. Guards:
   // temp-branch-only (never touch a user-named branch), collision-safe via
-  // renameBranch, and no-ops when the slug already matches. Internally
+  // renameBranch, no-ops when the slug already matches, and SHARED-WORKTREE-safe
+  // (never rename a branch this thread only inherited — see below). Internally
   // failure-isolated so a git failure leaves the temp branch intact and never
   // aborts the surrounding interpretation (e.g. emergent-goal creation). The
   // worktree DIRECTORY is intentionally left as the hash dir.
@@ -852,6 +853,18 @@ const make = Effect.gen(function* () {
     }
     const oldBranch = input.branch;
     const cwd = input.worktreePath;
+    // Shared-worktree guard: a thread_fork / goal_continue thread INHERITS a live
+    // thread's worktree + branch rather than provisioning its own. Its title is
+    // still (re)derived, which used to fire this rename and move the branch out
+    // from under the source thread (and any children sharing that worktree),
+    // stranding their recorded branch. Only rename a branch this thread solely
+    // owns: bail if any OTHER live thread shares this worktree path.
+    const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
+    const sharesWorktree = readModel.threads.some(
+      (other) =>
+        other.id !== input.threadId && other.deletedAt === null && other.worktreePath === cwd,
+    );
+    if (sharesWorktree) return;
     const targetBranch = buildGeneratedWorktreeBranchName(input.title);
     if (targetBranch === oldBranch) return;
 
