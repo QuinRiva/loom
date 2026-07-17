@@ -457,6 +457,13 @@ export const LoomThreadFields = {
 // shell-only projection fields.
 export const LoomThreadShellFields = {
   ...LoomThreadFields,
+  // Debugging-only surface: absolute path to this thread's effective-prompt
+  // debug sidecar (the full LLM system+user prompt this pi thread sent,
+  // broken down by section), written fire-and-forget by the pi capture
+  // extension. Computed deterministically server-side for pi threads (absent
+  // for other drivers) so the web UI can open it via the absolute-path file
+  // viewer. Optional on the wire — absent for non-pi threads / older snapshots.
+  promptDebugPath: Schema.optional(Schema.String),
   /**
    * Short human-readable description of the most recent activity for this
    * thread — the latest assistant-narration text, truncated to roughly one

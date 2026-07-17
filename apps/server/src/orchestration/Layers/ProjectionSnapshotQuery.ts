@@ -54,6 +54,12 @@ import {
   toPersistenceSqlError,
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
+import { ServerConfig } from "../../config.ts";
+import {
+  promptDebugSidecarFileName,
+  promptDebugSidecarPath,
+  readPromptDebugSidecarNames,
+} from "../workstreamPromptDebug.ts";
 import { OrchestrationEventPersistedRowSchema } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
@@ -451,6 +457,11 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const repositoryIdentityResolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+  // Debugging-only: dir holding per-thread effective-prompt debug sidecars. The
+  // pi capture extension writes them fire-and-forget; the path is deterministic
+  // from this dir + threadId, so pi threads can expose it to the UI without any
+  // event/projector/DB column. Non-pi threads get no path (no sidecar).
+  const promptDebugDir = (yield* ServerConfig).workstreamPromptDebugDir;
   const repositoryIdentityResolutionConcurrency = 4;
   const resolveRepositoryIdentitiesForProjects = Effect.fn(
     "ProjectionSnapshotQuery.resolveRepositoryIdentitiesForProjects",
@@ -2458,6 +2469,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               );
               const consultsByThread = groupConsultSummaries(consultRows);
+              // Debugging-only: which pi threads actually have a sidecar on disk.
+              // One directory read per snapshot; a thread's promptDebugPath is
+              // surfaced only when its file exists, so a capture failure / not-
+              // yet-launched thread never renders a dead link in the UI.
+              const promptDebugNames = readPromptDebugSidecarNames(promptDebugDir);
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -2485,6 +2501,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         spawnGeneration: row.spawnGeneration,
                         forkFromThreadId: row.forkFromThreadId,
                         reportPath: row.reportPath,
+                        // Debugging-only effective-prompt sidecar path. Only pi
+                        // threads write it (the capture extension is pi-only), and
+                        // only surface it once the file exists on disk so the UI
+                        // never shows a dead link for a capture failure / a thread
+                        // that has not launched yet.
+                        ...(sessionByThread.get(row.threadId)?.providerName === "pi" &&
+                        promptDebugNames.has(promptDebugSidecarFileName(row.threadId))
+                          ? {
+                              promptDebugPath: promptDebugSidecarPath(promptDebugDir, row.threadId),
+                            }
+                          : {}),
                         graphKey: row.graphKey,
                         kickoffBriefPath: row.kickoffBriefPath,
                         routes: row.routes,

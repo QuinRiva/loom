@@ -107,6 +107,8 @@ import {
   updateLaunchIdentityApplied,
   writeLaunchIdentity,
 } from "../../orchestration/workstreamLaunchIdentity.ts";
+// Debugging-only: deterministic path for the effective-prompt debug sidecar.
+import { promptDebugSidecarPath } from "../../orchestration/workstreamPromptDebug.ts";
 import {
   T3_QUOTA_FAILOVER_DELAY_MS,
   T3_RETRY_DELAYS_MS,
@@ -1969,6 +1971,15 @@ export function makePiAdapter(input: {
                     ...process.env,
                     T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
                     T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
+                    // Debugging-only: the effective-prompt capture extension
+                    // writes the fully assembled prompt to this sidecar on each
+                    // agent start (fire-and-forget; a write failure only loses
+                    // debug data). Deterministic path, mirrored by the
+                    // projection query so the UI can open it.
+                    T3_PROMPT_DEBUG_PATH: promptDebugSidecarPath(
+                      input.serverConfig.workstreamPromptDebugDir,
+                      startInput.threadId,
+                    ),
                   }
                 : process.env,
               piCwd,
