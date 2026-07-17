@@ -16,7 +16,6 @@ interface GoalHandoffRequest {
   readonly title?: unknown;
   readonly brief?: unknown;
   readonly description?: unknown;
-  readonly threadTitle?: unknown;
   readonly project?: unknown;
 }
 
@@ -67,14 +66,10 @@ const handleGoalHandoff = Effect.gen(function* () {
   )) as GoalHandoffRequest;
   const title = trimString(body.title);
   const brief = trimString(body.brief);
+  const description = trimString(body.description);
   if (!title) return jsonError(400, "title is required.");
   if (!brief) return jsonError(400, "brief is required.");
-  // description may be provided but empty; omit it when blank.
-  const description = trimString(body.description);
-  // The staged root session launches from a brief, not a first user message, so
-  // it never auto-titles itself. Honour an explicit sidebar name from the
-  // authoring agent; fall back to the goal title when omitted.
-  const threadTitle = trimString(body.threadTitle) ?? title;
+  if (!description) return jsonError(400, "description is required.");
 
   const projectRef = trimString(body.project);
 
@@ -141,7 +136,7 @@ const handleGoalHandoff = Effect.gen(function* () {
       projectId: targetProject.id,
       slug,
       title,
-      ...(description !== undefined ? { description } : {}),
+      description,
       createdAt: now,
     }) satisfies OrchestrationCommand,
   );
@@ -156,11 +151,11 @@ const handleGoalHandoff = Effect.gen(function* () {
     projectId: targetProject.id,
     goalId,
     parentThreadId: null,
-    purpose: title,
+    purpose: description,
     brief,
     planLane: "planned",
-    title: threadTitle,
-    titleProvenance: "curated", // loom: §4 handoff threadTitle is curated
+    title,
+    titleProvenance: "curated", // loom: §4 handoff thread title is the goal title (curated)
     modelSelection: callerThread.modelSelection,
     runtimeMode: callerThread.runtimeMode,
     interactionMode: callerThread.interactionMode,
@@ -173,7 +168,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     goalId,
     threadId,
     slug,
-    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${threadTitle}) in project '${targetProject.title}'. The human launches it with one send.`,
+    rendered: `Handed off new goal ${goalId} with staged session ${threadId} (${title}) in project '${targetProject.title}'. The human launches it with one send.`,
   });
 }).pipe(
   Effect.catch((error: unknown) =>

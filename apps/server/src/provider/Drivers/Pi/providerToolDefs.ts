@@ -761,38 +761,34 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_handoff",
     label: "Hand Off New Goal",
     description:
-      "Hand off a separate, out-of-scope piece of work as its OWN new goal and a staged (held) root session. Use when you discover follow-up work that deserves to run independently rather than as a task under THIS goal. Creates a new goal and a parent-less session pre-loaded with your brief, then leaves it for the human to launch with a single send (which provisions a fresh worktree). Pass threadTitle to name the session's sidebar card — a short label leading with the distinguishing subject (defaults to the goal title). Defaults to this thread's project; pass project (a project title or id) only when the work belongs elsewhere — inbox/concierge threads MUST pass it, since their own project is a mailbox, not a workspace (an invalid project errors back with the list of valid ones). Returns the new goalId + threadId.",
-    promptSnippet:
-      "hand off discovered out-of-scope work as a new goal + a staged root session pre-loaded with a brief.",
-    promptGuidelines: [
-      "Use this for genuinely separate work that should run concurrently in its own goal/session — not for tasks that belong under this thread's existing goal (use goal_task_add for those).",
-      "The brief becomes the new session's first turn: write it as a complete, self-contained kickoff prompt, not a one-line summary.",
-      "The session is created held; the human launches it. You do NOT start it and no worktree is provisioned until the human sends.",
-      "The handoff lands in THIS thread's project unless you pass project. If your thread is an inbox/concierge (its project is not where real work lives), always pass project — the work's home repo, not yours.",
-      "Name the sidebar card with threadTitle: a short (≤6-word) label that leads with the distinguishing subject of the work, not a generic verb — 'Receipt-dedup migration', not 'Do the migration'. Omit it only when the goal title already reads well as the card.",
-    ],
+      "Hand off a separate, out-of-scope piece of work as its OWN new goal. Not for tasks that belong under this thread's existing goal (use goal_task_add instead). Use when you discover follow-up work that can be actioned by an independent agent. The receiving agent is highly capable and will plan and orchestrate the solution itself.",
+    promptSnippet: "hand off discovered out-of-scope work as a new goal",
+    promptGuidelines: ["The new session is created held. Tell the user it is staged and waiting."],
     parameters: {
       type: "object",
       properties: {
-        title: { type: "string", description: "The new goal's title. Required." },
+        title: {
+          type: "string",
+          description:
+            "A short (≤6-word) noun-phrase label that leads with the distinguishing subject of the work, not a generic verb. Names the goal.",
+        },
         brief: {
           type: "string",
           description:
-            "The handoff/kickoff prompt that becomes the new session's first turn. Required; write it self-contained.",
+            "The handoff/kickoff prompt that becomes the new session's first turn. Write it as a self-contained problem/goal statement: context, motivation, constraints, and pointers to where things live. State *what* and *why*, never *how*; the receiving agent plans its own approach. If the user expressed a preferred approach, present it as an option to investigate, not a prescription.",
         },
-        description: { type: "string", description: "Optional short goal objective paragraph." },
-        threadTitle: {
+        description: {
           type: "string",
           description:
-            "Optional sidebar name for the staged root session: a short (≤6-word) label that leads with the distinguishing subject of the work rather than a generic verb. Defaults to the goal title when omitted.",
+            "One or two sentences stating the objective that the developer is trying to achieve. Focus on the business value or pain-point rather than the technical implementation.",
         },
         project: {
           type: "string",
           description:
-            "Optional target project (title or id) when the work belongs in a different project than this thread's. The staged session's worktree is provisioned from that project's workspace at launch. Required for inbox/concierge threads. An unknown or ambiguous value errors back with the list of active projects.",
+            "Optional target project (title or id) when the work belongs in a different project than this thread's.",
         },
       },
-      required: ["title", "brief"],
+      required: ["title", "brief", "description"],
       additionalProperties: false,
     },
     errorMode: "soft",
