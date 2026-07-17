@@ -1,8 +1,9 @@
 import { IconChevronRight } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useContext, useEffect, useState } from "react";
 import { z } from "zod";
 
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
+import { PlanEagerMountContext } from "../planEagerMount";
 
 /**
  * The `<Details>` block (§2) — a collapsible `passChildren` container for
@@ -16,6 +17,14 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
  * collapsed-annotation "open on navigate" affordance sets `details.open = true`)
  * flows back into React state through the native `toggle` event — the layer never
  * has to mutate `open` during overlay recomputation.
+ *
+ * Children are mounted lazily — not until the disclosure is first opened — then
+ * kept mounted (an opened-once flag survives collapse, so re-opening is instant).
+ * On an evidence-heavy document this roughly halves the initial DOM/render cost,
+ * since 40–60% of nodes live inside drill-downs a reviewer may never open. The
+ * {@link PlanEagerMountContext} escape hatch forces eager mounting when the
+ * annotation layer has pending comments that may be anchored inside a closed
+ * `<Details>` (so they resolve as `collapsed`, not `detached`).
  */
 
 export interface DetailsData {
@@ -37,13 +46,31 @@ export const detailsMdx: BlockMdxConfig<DetailsData> = {
 };
 
 export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<DetailsData>) {
-  const [open, setOpen] = useState(data.open ?? false);
+  const eager = useContext(PlanEagerMountContext);
+  const initialOpen = data.open ?? false;
+  const [open, setOpen] = useState(initialOpen);
+  // Once opened (or eager, or authored-open), children stay mounted so a
+  // re-open is instant and their state survives a collapse.
+  const [mounted, setMounted] = useState(eager || initialOpen);
+  // Latch on eager becoming true AFTER first render too: the surrounding
+  // FilePreviewPanel is keyed by environment (not thread), so this instance
+  // survives a thread switch that flips the eager flag false → true as the
+  // active draft's comments change. Mount-and-retain then, so a persisted
+  // comment inside a never-opened disclosure resolves as `collapsed`, not
+  // `detached`. Retained if eager later flips back to false.
+  useEffect(() => {
+    if (eager) setMounted(true);
+  }, [eager]);
   return (
     <details
       data-plan-block-id={blockId}
       data-plan-block-type="details"
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => {
+        const isOpen = event.currentTarget.open;
+        setOpen(isOpen);
+        if (isOpen) setMounted(true);
+      }}
       className="plan-details my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
       <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium text-foreground select-none hover:bg-muted/40">
@@ -51,7 +78,7 @@ export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<Deta
         <span className="min-w-0">{data.summary}</span>
       </summary>
       <div className="prose-plan border-t border-border/60 px-3 py-2 text-sm">
-        {children as ReactNode}
+        {mounted ? (children as ReactNode) : null}
       </div>
     </details>
   );

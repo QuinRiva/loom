@@ -18,6 +18,7 @@ import {
 } from "~/reviewCommentContext";
 
 import { MdxPlanRenderer } from "../MdxPlanRenderer";
+import { PlanEagerMountContext } from "../planEagerMount";
 import {
   EMPTY_QUESTION_ANSWER,
   formatQuestionAnswerText,
@@ -44,6 +45,7 @@ import {
   blockSelector,
   collapsedSurfaceFor,
   type CollapsedSurface,
+  flattenDocument,
   resolveAnchor,
 } from "./anchoring";
 
@@ -175,6 +177,20 @@ export function MdxPlanAnnotationLayer({
     () => (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath)),
     [draft?.reviewComments, filePath],
   );
+  // Decision counter (C2): a 140-item tier-(b) batch is the real doc the review-
+  // blocks spec deferred this for. `M` = every <ReviewChoice> authored in the
+  // source (stable regardless of lazy-mount state inside <Details>); `N` = the
+  // items with a persisted decision (the review-choice comment is the wire truth
+  // for "decided"). Presentation only — no bulk actions.
+  const reviewChoiceTotal = useMemo(
+    () => (source.match(/<ReviewChoice[\s/>]/g) ?? []).length,
+    [source],
+  );
+  const decidedCount = useMemo(
+    () => fileComments.filter((c) => isReviewChoiceCommentId(c.id)).length,
+    [fileComments],
+  );
+
   // Question-answer comments are shown by the question blocks themselves (and as
   // composer chips), not as highlight overlays/badges — only freeform annotation
   // comments feed the overlay pipeline below.
@@ -319,6 +335,10 @@ export function MdxPlanAnnotationLayer({
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
+    // Flatten the document ONCE per pass and share it across every text-quote
+    // resolve, turning an O(comments × document) pass into O(document + comments)
+    // — this removes the per-toggle recompute cliff on evidence-heavy docs.
+    const flattened = flattenDocument(root);
     const detachedOverlay = (comment: MdxAnchorReviewCommentContext): Overlay => ({
       id: comment.id,
       comment,
@@ -332,7 +352,7 @@ export function MdxPlanAnnotationLayer({
         // instead of throwing during render and taking down the whole layer.
         let range: Range | null;
         try {
-          range = comment.anchor ? resolveAnchor(comment.anchor, root) : null;
+          range = comment.anchor ? resolveAnchor(comment.anchor, root, flattened) : null;
         } catch {
           return detachedOverlay(comment);
         }
@@ -634,9 +654,22 @@ export function MdxPlanAnnotationLayer({
         setHoverBlock(null);
       }}
     >
+      {reviewChoiceTotal > 0 ? (
+        <div className="pointer-events-none sticky top-2 z-30 flex justify-end pr-2">
+          <span className="pointer-events-auto rounded-full border border-border bg-background/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
+            {decidedCount} of {reviewChoiceTotal} decided
+          </span>
+        </div>
+      ) : null}
+
       <PlanQuestionAnswersContext.Provider value={questionAnswers}>
         <PlanReviewChoicesContext.Provider value={reviewChoices}>
-          <MdxPlanRenderer source={source} />
+          {/* Force eager <Details> mounting only when annotation comments exist,
+              so a comment anchored inside a closed drill-down resolves as
+              `collapsed` rather than `detached`. Lazy everywhere else. */}
+          <PlanEagerMountContext.Provider value={comments.length > 0}>
+            <MdxPlanRenderer source={source} />
+          </PlanEagerMountContext.Provider>
         </PlanReviewChoicesContext.Provider>
       </PlanQuestionAnswersContext.Provider>
 

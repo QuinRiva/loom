@@ -10,6 +10,7 @@ import {
   anchorFromRange,
   collapsedSurfaceFor,
   enclosingBlock,
+  flattenDocument,
   resolveAnchor,
   resolveCanvasAnchor,
 } from "./anchoring";
@@ -65,6 +66,21 @@ describe("anchoring — text-quote round-trip", () => {
     expect(res?.anchor.sectionTitle).toBe("Overview"); // nearest preceding heading
     expect(res?.quotedText).toBe("shared cache");
     expect(resolveAnchor(res!.anchor, root)?.toString()).toBe("shared cache");
+  });
+});
+
+describe("anchoring — shared flatten (B3)", () => {
+  it("resolves identically whether or not a pre-flattened doc is supplied", () => {
+    const res = anchorFromRange(rangeForText("shared cache", 1), root);
+    expect(res?.anchor.anchorKind).toBe("text");
+    // One flatten pass, shared across resolves (the layer does this once per
+    // recompute) — must produce the same range as an unshared resolve.
+    const flattened = flattenDocument(root);
+    const shared = resolveAnchor(res!.anchor, root, flattened);
+    const unshared = resolveAnchor(res!.anchor, root);
+    expect(shared?.toString()).toBe("shared cache");
+    expect(shared?.toString()).toBe(unshared?.toString());
+    expect(shared?.startOffset).toBe(unshared?.startOffset);
   });
 });
 

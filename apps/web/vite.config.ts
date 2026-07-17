@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Vite config runs at build time before any Effect runtime exists; it reads the pnpm store to alias a worker-unsafe dep.
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -7,7 +8,39 @@ import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 import pkg from "./package.json" with { type: "json" };
 
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+
 import { loadRepoEnv } from "../../scripts/lib/public-config";
+
+// The `.mdx` plan compiler runs in a Web Worker (compileWorker.ts). Vite bundles
+// workers with the `browser` export condition, which for
+// `decode-named-character-reference` (a micromark dep) resolves to a build that
+// touches `document` at module load — crashing in the DOM-less worker. Its
+// `default`/`worker` condition is a DOM-free, canonical implementation, so alias
+// the specifier to that build everywhere (identical decoding, no DOM).
+function resolveDecodeNamedCharacterReferenceNodeBuild(): string {
+  const repoRoot = NodePath.resolve(
+    NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
+    "../..",
+  );
+  const pnpmDir = NodePath.join(repoRoot, "node_modules", ".pnpm");
+  const match = NodeFS.readdirSync(pnpmDir).find((dir) =>
+    dir.startsWith("decode-named-character-reference@"),
+  );
+  if (!match) {
+    throw new Error("Could not locate decode-named-character-reference in the pnpm store");
+  }
+  return NodePath.join(
+    pnpmDir,
+    match,
+    "node_modules",
+    "decode-named-character-reference",
+    "index.js",
+  );
+}
+const decodeNamedCharacterReferenceNode = resolveDecodeNamedCharacterReferenceNodeBuild();
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -133,6 +166,9 @@ export default defineConfig(() => {
     resolve: {
       tsconfigPaths: true,
       dedupe: ["react", "react-dom"],
+      alias: {
+        "decode-named-character-reference": decodeNamedCharacterReferenceNode,
+      },
     },
     experimental: {
       bundledDev,

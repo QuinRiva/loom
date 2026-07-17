@@ -5,7 +5,7 @@ import { unified } from "unified";
 import { z } from "zod";
 
 import { attributeValue, type MdxAttrExpression } from "./mdxAttrs";
-import { compilePlanMdx } from "./MdxPlanRenderer";
+import { compilePlanMdx } from "./mdxCompileOptions";
 import { planBlockByTag } from "./registry";
 import { sanitizeWireframeHtml } from "./sanitizeWireframeHtml";
 
@@ -55,6 +55,31 @@ interface JsxAttrNode {
 }
 
 const mdxParser = unified().use(remarkParse).use(remarkGfm).use(remarkMdx);
+
+/**
+ * Source-size budget. The `.mdx` preview reads up to an 8 MiB transport ceiling
+ * ({@link PROJECT_READ_FILE_PLAN_MAX_BYTES} on the server); a source above it is
+ * truncated before the renderer and fails to open, so it is an error. Approaching
+ * the ceiling keeps compile multi-second even off the main thread, so warn early.
+ */
+const PLAN_SIZE_WARN_BYTES = 6 * 1024 * 1024;
+const PLAN_SIZE_ERROR_BYTES = 8 * 1024 * 1024;
+
+export function planSizeFinding(source: string): PlanLintFinding | null {
+  const byteLength = new TextEncoder().encode(source).length;
+  if (byteLength <= PLAN_SIZE_WARN_BYTES) return null;
+  const mb = (byteLength / 1024 / 1024).toFixed(1);
+  if (byteLength > PLAN_SIZE_ERROR_BYTES) {
+    return {
+      severity: "error",
+      message: `Plan source is ${mb} MB, above the 8 MiB transport ceiling — the preview would truncate it before the renderer and fail to open. Split the document or trim embedded evidence.`,
+    };
+  }
+  return {
+    severity: "warning",
+    message: `Plan source is ${mb} MB, approaching the 8 MiB transport ceiling — compile stays multi-second even off the main thread. Consider splitting the document or trimming embedded evidence.`,
+  };
+}
 
 const at = (
   node: { position?: { start: Point } } | undefined,
@@ -130,6 +155,14 @@ interface BoardScope {
 
 export async function lintPlanSource(source: string): Promise<PlanLintFinding[]> {
   const findings: PlanLintFinding[] = [];
+  const sizeFinding = planSizeFinding(source);
+  if (sizeFinding) {
+    // A source above the transport ceiling would be truncated before the
+    // renderer, so it cannot be viewed regardless of its contents — fail fast
+    // rather than parse + compile a multi-MB doc that is doomed anyway.
+    if (sizeFinding.severity === "error") return [sizeFinding];
+    findings.push(sizeFinding);
+  }
   let tree: MdastNode;
   try {
     tree = mdxParser.parse(source) as MdastNode;

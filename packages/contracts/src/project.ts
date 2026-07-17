@@ -121,6 +121,13 @@ export class ProjectListEntriesError extends Schema.TaggedErrorClass<ProjectList
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  /**
+   * Optional per-request read budget in bytes. Clamped server-side to a plan
+   * ceiling (see `PROJECT_READ_FILE_PLAN_MAX_BYTES`); when absent the default
+   * 1 MiB cap applies. Only the `.mdx` plan preview requests the larger budget,
+   * so payload exposure stays bounded for every other caller.
+   */
+  maxBytes: Schema.optional(PositiveInt),
 });
 export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
 

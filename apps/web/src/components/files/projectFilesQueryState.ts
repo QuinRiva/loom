@@ -34,10 +34,11 @@ export function getProjectFileQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
+  maxBytes?: number,
 ) {
   return projectEnvironment.readFile({
     environmentId,
-    input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH },
+    input: { cwd, relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH, maxBytes },
   });
 }
 
@@ -158,8 +159,9 @@ export function useProjectFileQuery(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
+  maxBytes?: number,
 ): ProjectQueryState<ProjectReadFileResult> {
-  const atom = getProjectFileQueryAtom(environmentId, cwd, relativePath);
+  const atom = getProjectFileQueryAtom(environmentId, cwd, relativePath, maxBytes);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);

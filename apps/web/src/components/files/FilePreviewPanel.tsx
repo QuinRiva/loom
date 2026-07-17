@@ -89,6 +89,13 @@ interface FilePreviewPanelProps {
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const FILE_SAVE_DEBOUNCE_MS = 500;
+/**
+ * Read budget requested for `.mdx` plan previews (8 MiB — the server clamps to
+ * its plan ceiling). A fully evidence-embedded decision document crosses the
+ * 1 MiB default cap; only this path opts into the larger payload, so every other
+ * preview keeps the default exposure.
+ */
+const MDX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
 const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
 const FILE_LINK_REVEAL_UNSAFE_CSS = `
   [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
@@ -672,7 +679,17 @@ export default function FilePreviewPanel({
   // Out-of-workspace files are addressed by absolute path and served by a
   // distinct read-only RPC; workspace files keep their optimistic/edit layer.
   const isAbsolute = absolutePath !== null;
-  const workspaceFile = useProjectFileQuery(environmentId, cwd, isAbsolute ? null : relativePath);
+  // Request the larger read budget for `.mdx` plans only, so an evidence-heavy
+  // decision document reaches the renderer intact instead of being chopped at
+  // the 1 MiB default cap.
+  const workspaceReadMaxBytes =
+    relativePath && isMdxPreviewFile(relativePath) ? MDX_PREVIEW_MAX_BYTES : undefined;
+  const workspaceFile = useProjectFileQuery(
+    environmentId,
+    cwd,
+    isAbsolute ? null : relativePath,
+    workspaceReadMaxBytes,
+  );
   const absoluteFile = useProjectAbsoluteFileQuery(environmentId, absolutePath);
   const file = isAbsolute ? absoluteFile : workspaceFile;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
@@ -688,8 +705,14 @@ export default function FilePreviewPanel({
   // still opens as source (rendered on demand). Either way a reveal-to-line
   // forces source unless the user's explicit choice matches this reveal.
   const explicitView = markdownView.path === relativePath ? markdownView.mode : null;
+  // A still-truncated `.mdx` must never reach the compiler — chopped source
+  // throws and shows a content-less error card over the truncation banner. Force
+  // the source view (the existing virtualised path) until the full budget read
+  // lands. This is the correctness guard independent of the cap raise.
+  const mdxTruncated = isMdx && (file.data?.truncated ?? false);
   const renderMarkdown =
     isMarkdown &&
+    !mdxTruncated &&
     (revealLine === null || markdownView.revealRequestId === revealRequestId) &&
     (explicitView ? explicitView === "rendered" : isMdx);
   const canOpenInBrowser =
@@ -864,7 +887,8 @@ export default function FilePreviewPanel({
       ) : null}
       {relativePath && file.data?.truncated ? (
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-          Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
+          Preview limited to the first {!isAbsolute && workspaceReadMaxBytes ? "8 MB" : "1 MB"} of a{" "}
+          {file.data.byteLength.toLocaleString()} byte file.
         </div>
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
