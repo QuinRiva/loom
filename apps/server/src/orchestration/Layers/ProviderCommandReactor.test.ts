@@ -847,6 +847,94 @@ describe("ProviderCommandReactor", () => {
     expect(harness.refreshStatus.mock.calls[0]?.[0]).toBe("/tmp/provider-project-worktree");
   });
 
+  // A thread_fork / goal_continue thread INHERITS a live thread's worktree +
+  // branch. Its title is still (re)derived, but the branch rename must be
+  // SKIPPED — renaming it would move the branch out from under the source
+  // thread (and any children) that share the same worktree.
+  effectIt.effect(
+    "does not rename an inherited worktree branch shared with another live thread",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        const sharedWorktree = "/tmp/shared-fork-worktree";
+        const sharedBranch = "t3code/1234abcd";
+
+        // Source thread already occupies the shared worktree + temp branch.
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-source-thread"),
+          threadId: ThreadId.make("source-thread"),
+          projectId: asProjectId("project-1"),
+          title: "Source thread",
+          titleProvenance: "curated",
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5-codex"),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: sharedBranch,
+          worktreePath: sharedWorktree,
+          createdAt: now,
+        });
+
+        // The fork inherits that same worktree + branch (thread-1 stands in).
+        yield* harness.engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make("cmd-fork-branch"),
+          threadId: ThreadId.make("thread-1"),
+          branch: sharedBranch,
+          worktreePath: sharedWorktree,
+        });
+
+        harness.generateStructured.mockReturnValue(
+          Effect.succeed({
+            title: "Add a safer reconnect backoff",
+            goal: { title: "Generated goal", description: "Generated goal description" },
+            confidence: "low",
+          }),
+        );
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-fork"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-fork"),
+            role: "user",
+            text: "Add a safer reconnect backoff.",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        // The title is still derived and applied...
+        yield* Effect.promise(() =>
+          waitFor(() => harness.generateStructured.mock.calls.length === 1),
+        );
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const readModel = await harness.readModel();
+            return (
+              readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.title ===
+              "Add a safer reconnect backoff"
+            );
+          }),
+        );
+
+        // ...but the shared branch is left untouched.
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.renameBranch).not.toHaveBeenCalled();
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        expect(
+          readModel.threads.find((entry) => entry.id === ThreadId.make("source-thread"))?.branch,
+        ).toBe(sharedBranch);
+        expect(
+          readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.branch,
+        ).toBe(sharedBranch);
+      }),
+  );
+
   // loom: §4 finding 1 — the REAL bootstrap first-send path stamps the title
   // `seed` server-side; the reactor must then be able to upgrade it to the LLM
   // `derived` title. (thread-1 here stands in for a bootstrap-created thread.)
