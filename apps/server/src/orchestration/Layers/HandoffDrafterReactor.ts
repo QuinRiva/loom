@@ -202,12 +202,19 @@ const make = Effect.gen(function* () {
         });
         // Surface a stop that has been stuck past the grace window (a failing/
         // lost side effect) so it is not silently re-attempted forever. The
-        // awaiting-stop clock is the drafter's most recent lane transition
-        // (≈ when we set `done`); falls back to creation on legacy rows.
-        const awaitingSince = drafter.planLaneSince ?? drafter.createdAt;
-        const awaitingMs = nowMs - Date.parse(awaitingSince);
-        if (Number.isFinite(awaitingMs) && awaitingMs > HANDOFF_STOP_STUCK_GRACE_MS) {
-          yield* raiseGuidance(drafter.id, "stop-stuck");
+        // awaiting-stop clock is `planLaneSince`, but it is ONLY a settlement
+        // clock once the input snapshot already reads `done` — a re-arm AFTER a
+        // prior pass set the lane. On the FIRST (`in_progress`) success pass
+        // `planLaneSince` is still the kickoff's `in_progress` stamp, so aging
+        // against it would falsely flag a healthy but long drafting turn as
+        // broken. We therefore only age the wait on a `done` snapshot; the
+        // initial pass just dispatches `done` + the stop and defers any
+        // stuck-surfacing to the next re-arm (when the lane reads `done`).
+        if (drafter.planLane === "done" && drafter.planLaneSince !== null) {
+          const awaitingMs = nowMs - Date.parse(drafter.planLaneSince);
+          if (Number.isFinite(awaitingMs) && awaitingMs > HANDOFF_STOP_STUCK_GRACE_MS) {
+            yield* raiseGuidance(drafter.id, "stop-stuck");
+          }
         }
         return;
       }
