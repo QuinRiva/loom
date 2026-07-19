@@ -514,6 +514,51 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  // `/handoff` fork-drafter (finding 3): a non-zero handoff_count must round-trip
+  // through BOTH the shell snapshot and the thread-detail assembler (the detail
+  // path previously omitted the field, silently reporting 0 via decode-default).
+  it.effect("round-trips a non-zero handoffCount through shell and thread detail", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:01.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, role, title, model_selection_json, runtime_mode,
+          interaction_mode, handoff_count, created_at, updated_at, deleted_at
+        ) VALUES (
+          'drafter-1', 'project-1', 'handoff-drafter', 'Handoff: fix retry',
+          '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+          2, '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL
+        )
+      `;
+
+      const detail = yield* snapshotQuery.getThreadDetailById(ThreadId.make("drafter-1"));
+      assert.equal(detail._tag, "Some");
+      if (detail._tag === "Some") {
+        assert.equal(detail.value.handoffCount, 2);
+      }
+
+      const shell = yield* snapshotQuery.getShellSnapshot();
+      const drafterShell = shell.threads.find((thread) => thread.id === "drafter-1");
+      assert.equal(drafterShell?.handoffCount, 2);
+    }),
+  );
+
   it.effect("reads one thread's ordered lifecycle events, scoped and filtered", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

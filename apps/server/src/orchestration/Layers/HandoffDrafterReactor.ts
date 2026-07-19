@@ -66,6 +66,16 @@ export type HandoffSettlementAction =
   | { readonly kind: "success"; readonly turnId: string }
   | { readonly kind: "guidance"; readonly reasonKey: string };
 
+/** Epoch-ms the kickoff began: the running turn's start, else the drafter's creation. */
+const kickoffStartedMs = (drafter: OrchestrationThreadShell): number => {
+  const iso =
+    drafter.latestTurn !== null
+      ? (drafter.latestTurn.startedAt ?? drafter.latestTurn.requestedAt)
+      : drafter.createdAt;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? Date.parse(drafter.createdAt) : ms;
+};
+
 export const classifyHandoffSettlement = (
   drafter: OrchestrationThreadShell,
   nowMs: number,
@@ -85,20 +95,30 @@ export const classifyHandoffSettlement = (
     return { kind: "guidance", reasonKey: `zero:${latestTurn.turnId}` };
   }
 
-  // No kickoff turn ever landed. turn-start-failed resets the session to ready
-  // with a lastError but produces no turn (D6 leg 2) ⇒ surface immediately.
-  // Otherwise the kickoff is in flight (wait) or hung past grace (leg 3).
-  if (latestTurn === null && !isSessionRunning(drafter)) {
-    if (hasNeedsGuidance(drafter)) return { kind: "none" };
-    if (drafter.session?.lastError != null) {
-      return { kind: "guidance", reasonKey: "turn-start-failed" };
-    }
-    const ageMs = nowMs - Date.parse(drafter.createdAt);
-    if (Number.isFinite(ageMs) && ageMs > graceMs) {
-      return { kind: "guidance", reasonKey: "kickoff-hung" };
-    }
+  // Non-terminal kickoff (no turn yet, or a still-running/starting turn). Never
+  // re-raise once already surfaced.
+  if (hasNeedsGuidance(drafter)) return { kind: "none" };
+
+  // turn-start-failed (D6 leg 2): the launch failed before any turn landed, so
+  // the session is reset to ready with a `lastError` and no turn will follow ⇒
+  // surface immediately rather than waiting out the grace window.
+  if (latestTurn === null && !isSessionRunning(drafter) && drafter.session?.lastError != null) {
+    return { kind: "guidance", reasonKey: "turn-start-failed" };
   }
-  // latestTurn running, session running, or kickoff in flight within grace.
+
+  // Hung backstop (D6 leg 3): ANY non-terminal kickoff still unsettled past the
+  // grace window — crucially INCLUDING a `starting`/`running` turn that never
+  // completes (the common provider/model/tool hang), not just the never-started
+  // shape. Timer-driven (the caller passes a clock `nowMs`), not a render-time
+  // comparison. Legs 1–2 catch the fast failures; this only fires for a truly
+  // stuck kickoff, so a generous grace keeps false positives off healthy long
+  // drafting turns.
+  if (nowMs - kickoffStartedMs(drafter) > graceMs) {
+    return { kind: "guidance", reasonKey: "kickoff-hung" };
+  }
+
+  // Kickoff in flight within grace, or a terminal turn whose session has not yet
+  // left running (transient) ⇒ wait for the next re-arm.
   return { kind: "none" };
 };
 
@@ -106,46 +126,48 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
-  const dispatchDeterministic = (id: string, command: OrchestrationCommand) =>
-    orchestrationEngine.dispatch(command).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("handoff drafter settlement dispatch failed", {
-              commandId: id,
-              cause: Cause.pretty(cause),
-            }),
-      ),
-    );
+  // Dispatch WITHOUT swallowing: a failure propagates so the current settlement
+  // sequence ABORTS before its next prerequisite (never archive after a failed
+  // stop). The per-thread catch in `runPass` logs it and the next tick retries.
+  // Re-dispatching an already-accepted deterministic id is a benign engine
+  // receipt no-op (not a failure), so retries and re-arms are idempotent.
+  const dispatch = (command: OrchestrationCommand) => orchestrationEngine.dispatch(command);
 
-  // Success (≥1 handoff): converge lane `done` → session stop → archive. All
-  // three carry deterministic ids keyed by drafter + settled turn, so the
-  // engine receipt store makes each at-most-once and a crash between steps
-  // re-runs safely (archive makes later passes skip the now-archived drafter).
-  // The explicit session stop is mandatory: decider archive is metadata-only,
-  // so without it every settled drafter would leak a live pi process. It is a
-  // command (routed to the ProviderCommandReactor), NOT the client WS archive
-  // handler's cleanup.
+  // Success (≥1 handoff): converge lane `done` → session stop → archive, driven
+  // by PROJECTED session state so archive can never race ahead of the actual
+  // provider stop. The stop is asynchronous (ProviderCommandReactor) and its
+  // thread lookup excludes archived rows, so archiving first would strand a live
+  // pi process. Therefore: request the stop and RETURN while the session is
+  // still live; the resulting `thread.session-set stopped` re-arms a pass, and
+  // only THEN (session absent or `stopped`) do we archive. Deterministic ids
+  // keyed by drafter + settled turn make every step at-most-once, so a crash
+  // between steps (or the startup/periodic reconciliation pass) converges.
   const settleSuccess = (drafter: OrchestrationThreadShell, turnId: string) =>
     Effect.gen(function* () {
       const now = yield* nowIso;
       const doneId = `server:handoff-settle:done:${drafter.id}:${turnId}`;
-      yield* dispatchDeterministic(doneId, {
+      yield* dispatch({
         type: "thread.plan-lane.set",
         commandId: CommandId.make(doneId),
         threadId: drafter.id,
         planLane: "done",
         createdAt: now,
       });
-      const stopId = `server:handoff-settle:stop:${drafter.id}:${turnId}`;
-      yield* dispatchDeterministic(stopId, {
-        type: "thread.session.stop",
-        commandId: CommandId.make(stopId),
-        threadId: drafter.id,
-        createdAt: now,
-      });
+      // Stop-before-archive: while the session is still live, request the stop
+      // and defer the archive to a later pass (re-armed by the stopped
+      // session-set). Only archive once the stop is projected.
+      if (drafter.session !== null && drafter.session.status !== "stopped") {
+        const stopId = `server:handoff-settle:stop:${drafter.id}:${turnId}`;
+        yield* dispatch({
+          type: "thread.session.stop",
+          commandId: CommandId.make(stopId),
+          threadId: drafter.id,
+          createdAt: now,
+        });
+        return;
+      }
       const archiveId = `server:handoff-settle:archive:${drafter.id}:${turnId}`;
-      yield* dispatchDeterministic(archiveId, {
+      yield* dispatch({
         type: "thread.archive",
         commandId: CommandId.make(archiveId),
         threadId: drafter.id,
@@ -158,7 +180,7 @@ const make = Effect.gen(function* () {
   const raiseGuidance = (drafterId: OrchestrationThreadShell["id"], reasonKey: string) =>
     Effect.gen(function* () {
       const id = `server:handoff-settle:guidance:${drafterId}:${reasonKey}`;
-      yield* dispatchDeterministic(id, {
+      yield* dispatch({
         type: "thread.attention.raise",
         commandId: CommandId.make(id),
         threadId: drafterId,

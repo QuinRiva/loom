@@ -3165,6 +3165,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             maxTokens: threadRow.value.maxTokens,
             diffAdditions: threadRow.value.diffAdditions,
             diffDeletions: threadRow.value.diffDeletions,
+            handoffCount: threadRow.value.handoffCount,
             createdAt: threadRow.value.createdAt,
             updatedAt: threadRow.value.updatedAt,
             archivedAt: threadRow.value.archivedAt,

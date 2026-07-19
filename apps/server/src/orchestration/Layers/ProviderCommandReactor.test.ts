@@ -712,6 +712,60 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.title).toBe("Generated title");
   });
 
+  // loom: `/handoff` fork-drafter (finding 4) — a goal-less handoff-drafter root
+  // must NOT enter ordinary emergent-goal/title interpretation: doing so would
+  // spend a model call and attach an orphan goal that survives the drafter's own
+  // archive, violating “only the staged destination remains”.
+  it("does not interpret intent/goal for a goal-less handoff-drafter root", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-drafter-create"),
+        threadId: ThreadId.make("thread-drafter"),
+        projectId: asProjectId("project-1"),
+        parentThreadId: null,
+        role: "handoff-drafter",
+        goalId: null,
+        title: "Handoff: fix retry",
+        titleProvenance: "curated",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-drafter-turn"),
+        threadId: ThreadId.make("thread-drafter"),
+        message: {
+          messageId: asMessageId("drafter-msg"),
+          role: "user",
+          text: "draft a handoff for the retry logic",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length >= 1);
+    await harness.drain();
+
+    // No interpretation round-trip was issued, and no orphan goal was attached.
+    expect(harness.generateStructured.mock.calls.length).toBe(0);
+    const readModel = await harness.readModel();
+    const drafter = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-drafter"));
+    expect(drafter?.goalId).toBeNull();
+    expect(readModel.goals.length).toBe(0);
+  });
+
   it("does not overwrite an existing custom thread title on the first turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
