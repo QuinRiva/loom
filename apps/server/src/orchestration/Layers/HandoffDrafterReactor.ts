@@ -7,6 +7,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -39,6 +40,15 @@ export const HANDOFF_RECONCILIATION_INTERVAL_MS = 60_000;
  * stuck kickoff, so it can afford to be slow.
  */
 export const HANDOFF_HUNG_GRACE_MS = 300_000;
+
+/**
+ * Grace before a drafter whose settlement is stuck AWAITING the provider stop
+ * (lane `done`, ≥1 handoff, but the session stubbornly never reaches `stopped`
+ * — a failing/lost `stopSession` side effect) is surfaced with `needs_guidance`.
+ * The stop keeps being re-attempted every pass regardless; this only makes a
+ * permanently stuck stop visible rather than silently retried forever.
+ */
+export const HANDOFF_STOP_STUCK_GRACE_MS = 300_000;
 
 const isTerminalTurnState = (state: string): boolean =>
   state === "completed" || state === "interrupted" || state === "error";
@@ -123,6 +133,7 @@ export const classifyHandoffSettlement = (
 };
 
 const make = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -133,50 +144,10 @@ const make = Effect.gen(function* () {
   // receipt no-op (not a failure), so retries and re-arms are idempotent.
   const dispatch = (command: OrchestrationCommand) => orchestrationEngine.dispatch(command);
 
-  // Success (≥1 handoff): converge lane `done` → session stop → archive, driven
-  // by PROJECTED session state so archive can never race ahead of the actual
-  // provider stop. The stop is asynchronous (ProviderCommandReactor) and its
-  // thread lookup excludes archived rows, so archiving first would strand a live
-  // pi process. Therefore: request the stop and RETURN while the session is
-  // still live; the resulting `thread.session-set stopped` re-arms a pass, and
-  // only THEN (session absent or `stopped`) do we archive. Deterministic ids
-  // keyed by drafter + settled turn make every step at-most-once, so a crash
-  // between steps (or the startup/periodic reconciliation pass) converges.
-  const settleSuccess = (drafter: OrchestrationThreadShell, turnId: string) =>
-    Effect.gen(function* () {
-      const now = yield* nowIso;
-      const doneId = `server:handoff-settle:done:${drafter.id}:${turnId}`;
-      yield* dispatch({
-        type: "thread.plan-lane.set",
-        commandId: CommandId.make(doneId),
-        threadId: drafter.id,
-        planLane: "done",
-        createdAt: now,
-      });
-      // Stop-before-archive: while the session is still live, request the stop
-      // and defer the archive to a later pass (re-armed by the stopped
-      // session-set). Only archive once the stop is projected.
-      if (drafter.session !== null && drafter.session.status !== "stopped") {
-        const stopId = `server:handoff-settle:stop:${drafter.id}:${turnId}`;
-        yield* dispatch({
-          type: "thread.session.stop",
-          commandId: CommandId.make(stopId),
-          threadId: drafter.id,
-          createdAt: now,
-        });
-        return;
-      }
-      const archiveId = `server:handoff-settle:archive:${drafter.id}:${turnId}`;
-      yield* dispatch({
-        type: "thread.archive",
-        commandId: CommandId.make(archiveId),
-        threadId: drafter.id,
-      });
-    });
-
-  // Failure (zero handoffs / turn-start failed / hung): raise needs_guidance so
-  // the broken drafter is surfaced (roots have no other rail). Deterministic id
-  // keyed by the settlement reason so it is raised at most once per episode.
+  // Failure / stuck (zero handoffs / turn-start failed / hung kickoff / stop
+  // stuck): raise needs_guidance so the broken drafter is surfaced (roots have
+  // no other rail). Deterministic id keyed by the reason so it is raised at most
+  // once per episode.
   const raiseGuidance = (drafterId: OrchestrationThreadShell["id"], reasonKey: string) =>
     Effect.gen(function* () {
       const id = `server:handoff-settle:guidance:${drafterId}:${reasonKey}`;
@@ -189,11 +160,70 @@ const make = Effect.gen(function* () {
       });
     });
 
+  // Success (≥1 handoff): converge lane `done` → session stop → archive, driven
+  // by PROJECTED session state so archive can never race ahead of the actual
+  // provider stop (round-1 MF-1): the stop runs asynchronously in the
+  // ProviderCommandReactor, whose thread lookup excludes archived rows, so
+  // archiving first would strand a live pi process. We therefore request the
+  // stop and RETURN while the session is still live; only once the session is
+  // projected `stopped` do we archive.
+  //
+  // Crucially the stop command carries a FRESH id each attempt (round-2 MF-1).
+  // A DETERMINISTIC id would, after the engine accepts it once, make every retry
+  // a receipt no-op that never re-publishes the `thread.session-stop-requested`
+  // event — and that provider stop is a LIVE-STREAM-ONLY side effect with no
+  // replay: if `stopSession` fails (swallowed as a warning) or the process
+  // crashes before the reactor consumes the event, the session stays `ready`
+  // forever and the drafter is never archived. A fresh id re-publishes the event
+  // on every reconciliation pass, so the ProviderCommandReactor re-attempts the
+  // real stop (idempotent — it skips `stopSession` once `status === "stopped"`)
+  // until it takes, which then re-arms the archive. `done`/`archive` stay
+  // deterministic (projection-only, no lost side effect). A persistently stuck
+  // stop is surfaced via `needs_guidance` after a grace window so it is never
+  // silently retried out of sight.
+  const settleSuccess = (drafter: OrchestrationThreadShell, turnId: string, nowMs: number) =>
+    Effect.gen(function* () {
+      const now = yield* nowIso;
+      const doneId = `server:handoff-settle:done:${drafter.id}:${turnId}`;
+      yield* dispatch({
+        type: "thread.plan-lane.set",
+        commandId: CommandId.make(doneId),
+        threadId: drafter.id,
+        planLane: "done",
+        createdAt: now,
+      });
+      if (drafter.session !== null && drafter.session.status !== "stopped") {
+        const nonce = yield* crypto.randomUUIDv4;
+        yield* dispatch({
+          type: "thread.session.stop",
+          commandId: CommandId.make(`server:handoff-settle:stop:${drafter.id}:${turnId}:${nonce}`),
+          threadId: drafter.id,
+          createdAt: now,
+        });
+        // Surface a stop that has been stuck past the grace window (a failing/
+        // lost side effect) so it is not silently re-attempted forever. The
+        // awaiting-stop clock is the drafter's most recent lane transition
+        // (≈ when we set `done`); falls back to creation on legacy rows.
+        const awaitingSince = drafter.planLaneSince ?? drafter.createdAt;
+        const awaitingMs = nowMs - Date.parse(awaitingSince);
+        if (Number.isFinite(awaitingMs) && awaitingMs > HANDOFF_STOP_STUCK_GRACE_MS) {
+          yield* raiseGuidance(drafter.id, "stop-stuck");
+        }
+        return;
+      }
+      const archiveId = `server:handoff-settle:archive:${drafter.id}:${turnId}`;
+      yield* dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make(archiveId),
+        threadId: drafter.id,
+      });
+    });
+
   const settleDrafter = (drafter: OrchestrationThreadShell, nowMs: number) => {
     const action = classifyHandoffSettlement(drafter, nowMs);
     switch (action.kind) {
       case "success":
-        return settleSuccess(drafter, action.turnId);
+        return settleSuccess(drafter, action.turnId, nowMs);
       case "guidance":
         return raiseGuidance(drafter.id, action.reasonKey);
       case "none":
