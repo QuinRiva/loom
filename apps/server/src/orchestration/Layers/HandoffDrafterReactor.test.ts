@@ -342,14 +342,18 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
   // that never reaches `stopped`) must be SURFACED with needs_guidance, not
   // silently retried out of sight — while still re-attempting the stop and never
   // archiving.
+  // The stop-stuck clock is only meaningful once the input snapshot ALREADY
+  // reads `done` (a re-arm after a prior pass set the lane) — then `planLaneSince`
+  // is a durable settlement-start stamp.
   effectIt.effect("surfaces a persistently stuck stop after the grace window", () =>
     Effect.gen(function* () {
-      // Awaiting-stop began an hour before “now” ⇒ well past the 5-min grace.
+      // Settlement (lane `done`) began an hour before “now” ⇒ well past the grace.
       yield* TestClock.setTime(STUCK_NOW_MS);
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
         handoffCount: 1,
         session: readySession(),
+        planLane: "done",
         planLaneSince: "2026-07-19T12:00:00.000Z",
       });
       const dispatched = yield* runReactorOnce(drafter);
@@ -360,21 +364,47 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
     }),
   );
 
-  // round-2 MF-1: a within-grace awaiting-stop does NOT surface (no premature
-  // needs_guidance while the stop is still landing).
+  // A within-grace settlement wait does NOT surface (no premature needs_guidance
+  // while the stop is still landing).
   effectIt.effect("does not surface a stop that is still within the grace window", () =>
     Effect.gen(function* () {
-      // Awaiting-stop began only a minute before “now” ⇒ comfortably within grace.
+      // Settlement (lane `done`) began only a minute before “now” ⇒ within grace.
       yield* TestClock.setTime(STUCK_NOW_MS);
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
         handoffCount: 1,
         session: readySession(),
+        planLane: "done",
         planLaneSince: "2026-07-19T12:59:00.000Z",
       });
       const dispatched = yield* runReactorOnce(drafter);
       expect(types(dispatched)).toContain("thread.session.stop");
       expect(types(dispatched)).not.toContain("thread.attention.raise");
+    }),
+  );
+
+  // Regression (final MF): a healthy but LONG drafting turn — lane still
+  // `in_progress` with a kickoff `planLaneSince` older than the grace window —
+  // must NOT be flagged broken on its first settlement pass. The stop is
+  // requested; NO needs_guidance is raised (the stuck clock only ages a `done`
+  // snapshot). Preserves the invisible-when-healthy contract.
+  effectIt.effect("does not surface on the first (in_progress) pass of a long healthy turn", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(STUCK_NOW_MS);
+      const drafter = makeDrafter({
+        latestTurn: turn("completed"),
+        handoffCount: 1,
+        session: readySession(),
+        // Kickoff lane transition an hour ago, but the lane is still in_progress
+        // (this is the first settlement pass) — aging against it would be wrong.
+        planLane: "in_progress",
+        planLaneSince: "2026-07-19T12:00:00.000Z",
+      });
+      const dispatched = yield* runReactorOnce(drafter);
+      expect(types(dispatched)).toContain("thread.plan-lane.set");
+      expect(types(dispatched)).toContain("thread.session.stop");
+      expect(types(dispatched)).not.toContain("thread.attention.raise");
+      expect(types(dispatched)).not.toContain("thread.archive");
     }),
   );
 });
