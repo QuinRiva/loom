@@ -478,6 +478,21 @@ export const WorkstreamRemoveWorktreeResult = Schema.Struct({
 });
 export type WorkstreamRemoveWorktreeResult = typeof WorkstreamRemoveWorktreeResult.Type;
 
+// `/handoff` fork-drafter (plan D2/D4): the human's composer intercept sends
+// this application operation; the message never becomes a turn on the source.
+// The server forks the source into a throwaway `handoff-drafter` root and
+// injects the drafter kickoff as its first turn.
+export const HandoffDraftInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  explanation: TrimmedNonEmptyString,
+});
+export type HandoffDraftInput = typeof HandoffDraftInput.Type;
+
+export const HandoffDraftResult = Schema.Struct({
+  drafterThreadId: ThreadId,
+});
+export type HandoffDraftResult = typeof HandoffDraftResult.Type;
+
 // Static meter → backend-provider-id map. A meter scope key is a gauge account
 // key (`providerInstanceId ?? providerName`); the poller emits "claudeAgent" for
 // the Anthropic OAuth subscription meter and "codex" for the Codex subscription.

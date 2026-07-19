@@ -914,6 +914,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             maxTokens: null,
             diffAdditions: null,
             diffDeletions: null,
+            // `/handoff` fork-drafter (plan D5): every thread starts with zero
+            // recorded handoffs; the drafter's `thread.handoff-recorded` events
+            // increment it.
+            handoffCount: 0,
             deletedAt: null,
           });
           return;
@@ -1218,6 +1222,24 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...fromRow.value,
             gateRounds: event.payload.round,
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        // `/handoff` fork-drafter (plan D5): each recorded handoff durably bumps
+        // the drafter's count. Read-modify-write off the current row; a missing
+        // thread is a no-op (mirrors the in-memory projector).
+        case "thread.handoff-recorded": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            handoffCount: existingRow.value.handoffCount + 1,
+            updatedAt: event.payload.createdAt,
           });
           return;
         }

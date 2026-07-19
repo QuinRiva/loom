@@ -29,6 +29,8 @@ import {
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  MessageId,
+  ModelSelection,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
@@ -131,9 +133,18 @@ import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
+import {
+  buildHandoffDraftTurnStart,
+  capturedDrafterSelectionCandidate,
+} from "./loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
+import { readLaunchIdentity } from "./orchestration/workstreamLaunchIdentity.ts"; // loom:
+import { isThreadIdle } from "./orchestration/threadIdle.ts"; // loom:
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+// loom: `/handoff` fork-drafter (plan D4) — validate a source's captured
+// launch-identity selection before seeding the drafter with it.
+const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -736,8 +747,17 @@ const makeWsRpcLayer = (
                 // title. This keeps the real local-draft first-send path
                 // automation-malleable so the reactor can upgrade it to the LLM
                 // `derived` title. A blank-context "New thread" stays `default`.
+                //
+                // loom: `/handoff` fork-drafter (plan D4) — a server-injected
+                // bootstrap may supply an explicit CURATED provenance (the
+                // drafter title is curated, not a first-message seed) so the
+                // auto-title reactor never renames a drafter. Honour it when
+                // present; otherwise keep the seed/default inference.
                 titleProvenance:
-                  bootstrap.createThread.title.trim() === DEFAULT_THREAD_TITLE ? "default" : "seed",
+                  bootstrap.createThread.titleProvenance ??
+                  (bootstrap.createThread.title.trim() === DEFAULT_THREAD_TITLE
+                    ? "default"
+                    : "seed"),
                 modelSelection: bootstrap.createThread.modelSelection,
                 runtimeMode: bootstrap.createThread.runtimeMode,
                 interactionMode: bootstrap.createThread.interactionMode,
@@ -930,6 +950,91 @@ const makeWsRpcLayer = (
                   ? cause
                   : new OrchestrationDispatchCommandError({
                       message: "Failed to dispatch orchestration command",
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        // loom: `/handoff` fork-drafter (plan D2/D4). Human composer intercept
+        // → fork the source into a throwaway `handoff-drafter` ROOT and inject
+        // the drafter kickoff as its first turn via the existing bootstrap
+        // turn-start path. The source transcript is never touched. Validation
+        // mirrors the fork guard: pi-only source, source idle (the composer
+        // disables the command while running; this is the backstop),
+        // non-empty explanation (schema-enforced).
+        [WS_METHODS.serverHandoffDraft]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverHandoffDraft,
+            Effect.gen(function* () {
+              const failValidation = (message: string) =>
+                new OrchestrationDispatchCommandError({ message });
+
+              const source = yield* projectionSnapshotQuery.getThreadDetailById(
+                input.sourceThreadId,
+              );
+              if (Option.isNone(source)) {
+                return yield* failValidation("The source thread for this handoff was not found.");
+              }
+              const sourceThread = source.value;
+
+              // Pi-only: only the pi driver honours `forkFromThreadId`
+              // (`pi --fork`). Mirror ThreadForkHttp's guard rather than
+              // promising context that another driver would silently drop.
+              if (sourceThread.session?.providerName !== "pi") {
+                return yield* failValidation(
+                  "Only pi-backed threads can be handed off (the drafter relies on pi's native session fork).",
+                );
+              }
+
+              // Source-idle: forking a mid-turn jsonl would capture an unclosed
+              // tool call. The composer disables /handoff while the source is
+              // running; this rejects the residual race with a clear error.
+              const pendingTurnStartThreadIds =
+                yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+              if (
+                !isThreadIdle(sourceThread, pendingTurnStartThreadIds) ||
+                (sourceThread.latestTurn !== null && sourceThread.latestTurn.state === "running")
+              ) {
+                return yield* failValidation(
+                  "This thread is mid-turn; wait for it to finish before handing off (forking a live session would corrupt its context).",
+                );
+              }
+
+              // Model policy (plan D4): prefer the source's captured
+              // launch-identity selection (what actually consumed the cacheable
+              // prefix); schema-validate it (branding + instance existence) and
+              // fall back to the projected selection on any failure, mirroring
+              // the dispatcher's fork re-seed.
+              const candidate = capturedDrafterSelectionCandidate(
+                readLaunchIdentity(config.workstreamLaunchIdentityDir, sourceThread.id),
+              );
+              const selection =
+                candidate === undefined
+                  ? sourceThread.modelSelection
+                  : yield* decodeModelSelection(candidate).pipe(
+                      Effect.orElseSucceed(() => sourceThread.modelSelection),
+                    );
+
+              const drafterThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
+              const command = buildHandoffDraftTurnStart({
+                source: sourceThread,
+                explanation: input.explanation,
+                drafterThreadId,
+                modelSelection: selection,
+                commandId: CommandId.make(`server:handoff-draft:${yield* crypto.randomUUIDv4}`),
+                messageId: MessageId.make(yield* crypto.randomUUIDv4),
+                now: yield* nowIso,
+              });
+
+              yield* dispatchNormalizedCommand(command);
+              return { drafterThreadId };
+            }).pipe(
+              Effect.mapError((cause) =>
+                isOrchestrationDispatchCommandError(cause)
+                  ? cause
+                  : new OrchestrationDispatchCommandError({
+                      message: "Failed to start the handoff drafter",
                       cause,
                     }),
               ),

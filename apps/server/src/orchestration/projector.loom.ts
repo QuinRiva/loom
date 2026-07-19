@@ -30,6 +30,7 @@ import {
   ThreadAttentionClearedPayload,
   ThreadDependenciesSetPayload,
   ThreadFanInSetPayload,
+  ThreadHandoffRecordedPayload,
   ThreadReportSetPayload,
   ThreadKickoffBriefSetPayload,
   ThreadOutcomeRecordedPayload,
@@ -441,6 +442,29 @@ export function projectLoomEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    // `/handoff` fork-drafter (plan D5): each recorded handoff bumps the
+    // drafter's durable count. Read-modify-write off the current thread record
+    // (mirrors the SQL projection); a missing thread is a no-op.
+    case "thread.handoff-recorded":
+      return decodeForEvent(
+        ThreadHandoffRecordedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              handoffCount: thread.handoffCount + 1,
+              updatedAt: payload.createdAt,
+            }),
+          };
+        }),
       );
 
     case "thread.report-set":

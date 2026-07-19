@@ -606,6 +606,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
@@ -663,6 +664,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -722,6 +724,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -1191,6 +1194,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -2059,6 +2063,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 maxTokens: row.maxTokens,
                 diffAdditions: row.diffAdditions,
                 diffDeletions: row.diffDeletions,
+                handoffCount: row.handoffCount,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 archivedAt: row.archivedAt,
@@ -2311,6 +2316,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   maxTokens: row.maxTokens,
                   diffAdditions: row.diffAdditions,
                   diffDeletions: row.diffDeletions,
+                  handoffCount: row.handoffCount,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -2534,6 +2540,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         maxTokens: row.maxTokens,
                         diffAdditions: row.diffAdditions,
                         diffDeletions: row.diffDeletions,
+                        handoffCount: row.handoffCount,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
                         archivedAt: row.archivedAt,
@@ -2700,6 +2707,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   maxTokens: row.maxTokens,
                   diffAdditions: row.diffAdditions,
                   diffDeletions: row.diffDeletions,
+                  handoffCount: row.handoffCount,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -3016,6 +3024,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         maxTokens: threadRow.value.maxTokens,
         diffAdditions: threadRow.value.diffAdditions,
         diffDeletions: threadRow.value.diffDeletions,
+        handoffCount: threadRow.value.handoffCount,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
         archivedAt: threadRow.value.archivedAt,

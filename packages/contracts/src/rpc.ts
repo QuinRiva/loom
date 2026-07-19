@@ -143,6 +143,8 @@ import {
   WorkstreamWorktreesResult,
   WorkstreamRemoveWorktreeInput,
   WorkstreamRemoveWorktreeResult,
+  HandoffDraftInput,
+  HandoffDraftResult,
   ServerUsageBreakdownError,
   ServerUsageBreakdownInput,
   ServerUsageBreakdownResult,
@@ -240,6 +242,9 @@ export const WS_METHODS = {
   serverSignalProcess: "server.signalProcess",
   serverGetWorkstreamWorktrees: "server.getWorkstreamWorktrees",
   serverRemoveWorkstreamWorktree: "server.removeWorkstreamWorktree",
+  // `/handoff` fork-drafter (plan D2/D4): human composer intercept → fork the
+  // source into a throwaway drafter root + inject its kickoff turn.
+  serverHandoffDraft: "server.handoffDraft",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -374,6 +379,12 @@ export const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
     error: EnvironmentAuthorizationError,
   },
 );
+
+export const WsServerHandoffDraftRpc = Rpc.make(WS_METHODS.serverHandoffDraft, {
+  payload: HandoffDraftInput,
+  success: HandoffDraftResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
 
 export const WsCloudGetRelayClientStatusRpc = Rpc.make(WS_METHODS.cloudGetRelayClientStatus, {
   payload: Schema.Struct({}),
@@ -795,6 +806,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSignalProcessRpc,
   WsServerGetWorkstreamWorktreesRpc,
   WsServerRemoveWorkstreamWorktreeRpc,
+  WsServerHandoffDraftRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   WsSourceControlLookupRepositoryRpc,

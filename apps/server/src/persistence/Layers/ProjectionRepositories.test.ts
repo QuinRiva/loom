@@ -124,6 +124,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
+        handoffCount: 0,
         deletedAt: null,
       });
 
@@ -217,6 +218,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
+        handoffCount: 0,
         deletedAt: null,
       });
 
