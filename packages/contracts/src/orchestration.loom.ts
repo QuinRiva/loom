@@ -451,6 +451,14 @@ export const LoomThreadFields = {
   diffDeletions: Schema.NullOr(NonNegativeInt).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // `/handoff` fork-drafter (plan §4 Phase 1): count of `goal_handoff` calls a
+  // handoff-drafter root has durably recorded (a `thread.handoff-recorded`
+  // event per placed destination). The settlement reactor reads it at the
+  // drafter's turn end: ≥1 ⇒ converge done→stop→archive, 0 ⇒ raise
+  // needs_guidance. Durable (survives restart) precisely because it is
+  // event-projected rather than an in-memory tally. Additive, decode-defaulted
+  // to 0 so every pre-handoff snapshot loads.
+  handoffCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
 } as const;
 
 // Spread into `OrchestrationThreadShell`: the common fork fields plus the two
@@ -717,6 +725,12 @@ export const LoomBootstrapCreateThreadFields = {
   // Thread fork (MVP): the UI's fork affordance seeds a draft thread carrying
   // the source id; the first-send bootstrap create relays it into thread.create.
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  // `/handoff` fork-drafter (plan D4): a server-injected bootstrap (the drafter
+  // launch) supplies a CURATED title, not the client's truncated first-message
+  // seed. When present the dispatcher stamps it verbatim instead of inferring
+  // seed/default from the title text, so the auto-title reactor never renames a
+  // drafter. Absent on the ordinary local-draft first-send path (stays seed).
+  titleProvenance: Schema.optional(TitleProvenance),
 } as const;
 
 // Spread into `ThreadCreatedPayload`.
@@ -904,6 +918,20 @@ const ThreadConsultRecordCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// `/handoff` fork-drafter (plan D5): stamp one durable handoff marker on a
+// drafter thread after `GoalHandoffHttp` has created the staged destination.
+// Internal (server composes it from the goal_handoff chokepoint); a client
+// cannot forge a handoff record. The decider derives `thread.handoff-recorded`;
+// the projector increments `handoffCount`.
+const ThreadHandoffRecordCommand = Schema.Struct({
+  type: Schema.Literal("thread.handoff.record"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  destinationGoalId: GoalId,
+  destinationThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 // Review gates (design §3): the single terminal call. Carries the on-disk
 // report pointer (the HTTP handler wrote the markdown) plus a structured
 // outcome; the decider derives the report-set + outcome-recorded + lane events
@@ -982,6 +1010,7 @@ export const LoomInternalCommandMembers = [
   ThreadFanInSetCommand,
   ThreadMessageReasoningCompleteCommand,
   ThreadConsultRecordCommand,
+  ThreadHandoffRecordCommand,
   ThreadWorkSubmitCommand,
   ThreadTurnStartFailCommand,
   ThreadKickoffBriefSetCommand,
@@ -1199,6 +1228,18 @@ export const ThreadConsultRecordedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// `/handoff` fork-drafter (plan D5): one durable marker per `goal_handoff` call
+// a handoff-drafter placed. Aggregate = the drafter thread. Carries the
+// destination goal/thread ids so the marker is auditable and the settlement
+// reactor's read model can project a count. Stamped only AFTER the staged
+// destination is created (never speculatively).
+export const ThreadHandoffRecordedPayload = Schema.Struct({
+  threadId: ThreadId,
+  destinationGoalId: GoalId,
+  destinationThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 // Review gates (design §3.2): one record per submit — the outcome token, the
 // routing verdict the decider reached, and the loop round it applies to.
 export const ThreadOutcomeRecordedPayload = Schema.Struct({
@@ -1316,6 +1357,11 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
+      type: Schema.Literal("thread.handoff-recorded"),
+      payload: ThreadHandoffRecordedPayload,
+    }),
+    Schema.Struct({
+      ...base,
       type: Schema.Literal("thread.outcome-recorded"),
       payload: ThreadOutcomeRecordedPayload,
     }),
@@ -1353,6 +1399,7 @@ export const LOOM_EVENT_TYPES = [
   "thread.message-reasoning",
   "thread.turn-start-failed",
   "thread.consult-recorded",
+  "thread.handoff-recorded",
   "thread.report-set",
   "thread.kickoff-brief-set",
   "thread.outcome-recorded",
@@ -1412,6 +1459,7 @@ export const LOOM_COMMAND_TYPES = [
   "thread.message.reasoning.complete",
   "thread.work.submit",
   "thread.consult.record",
+  "thread.handoff.record",
   "thread.fanin.set",
   "thread.turn-start.fail",
   "thread.kickoff-brief.set",

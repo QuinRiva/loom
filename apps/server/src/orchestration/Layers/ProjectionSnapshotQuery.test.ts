@@ -344,6 +344,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
+          handoffCount: 0,
           deletedAt: null,
           messages: [
             {
@@ -501,6 +502,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
+          handoffCount: 0,
         },
       ]);
 

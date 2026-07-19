@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
+import { HANDOFF_DRAFTER_ROLE, appendDrafterConsultPointer } from "../loom/handoffDraft.ts";
 import { buildGoalCreateCommand } from "../orchestration/goalTaskCommands.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -80,6 +81,15 @@ const handleGoalHandoff = Effect.gen(function* () {
   }
   const callerThread = caller.value;
 
+  // `/handoff` fork-drafter (plan D5): a handoff-drafter caller places one or
+  // more handoffs in a single turn. Append a consult pointer so the receiving
+  // agent can drill into the drafter's frozen fork of the originating session
+  // for anything this (deliberately focused) brief omits.
+  const isDrafterCaller = callerThread.role === HANDOFF_DRAFTER_ROLE;
+  const briefForDestination = isDrafterCaller
+    ? appendDrafterConsultPointer(brief, callerThread.id)
+    : brief;
+
   const snapshot = yield* projection.getSnapshot();
   const activeProjects = snapshot.projects.filter((project) => project.deletedAt === null);
 
@@ -152,7 +162,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     goalId,
     parentThreadId: null,
     purpose: description,
-    brief,
+    brief: briefForDestination,
     planLane: "planned",
     title,
     titleProvenance: "curated", // loom: §4 handoff thread title is the goal title (curated)
@@ -163,6 +173,22 @@ const handleGoalHandoff = Effect.gen(function* () {
     worktreePath: null,
     createdAt: now,
   } satisfies OrchestrationCommand);
+
+  // `/handoff` fork-drafter (plan D5): stamp a durable handoff marker on the
+  // drafter AFTER the staged destination exists, carrying the destination
+  // goal/thread ids. This is the settlement reactor's turn-end signal (≥1 ⇒
+  // converge+archive). NO lane change or archive here — a drafter may place
+  // several handoffs in one turn; settlement happens once, at turn end.
+  if (isDrafterCaller) {
+    yield* engine.dispatch({
+      type: "thread.handoff.record",
+      commandId: CommandId.make(`server:goal-handoff:record-handoff:${yield* crypto.randomUUIDv4}`),
+      threadId: callerThread.id,
+      destinationGoalId: goalId,
+      destinationThreadId: threadId,
+      createdAt: now,
+    } satisfies OrchestrationCommand);
+  }
 
   return HttpServerResponse.jsonUnsafe({
     goalId,

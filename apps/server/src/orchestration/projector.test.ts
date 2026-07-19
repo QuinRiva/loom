@@ -112,6 +112,7 @@ describe("orchestration projector", () => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
+        handoffCount: 0,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
@@ -124,6 +125,76 @@ describe("orchestration projector", () => {
       },
     ]);
   });
+
+  // loom: `/handoff` fork-drafter (plan D5) — each thread.handoff-recorded bumps
+  // the drafter's durable handoffCount (the settlement reactor's turn-end input).
+  effectIt.effect("increments handoffCount on thread.handoff-recorded", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const created = yield* projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "drafter-1",
+          occurredAt: now,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "drafter-1",
+            projectId: "project-1",
+            title: "Handoff: fix retry",
+            role: "handoff-drafter",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      expect(created.threads[0]?.handoffCount).toBe(0);
+
+      const recordOnce = yield* projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.handoff-recorded",
+          aggregateKind: "thread",
+          aggregateId: "drafter-1",
+          occurredAt: now,
+          commandId: "cmd-record-1",
+          payload: {
+            threadId: "drafter-1",
+            destinationGoalId: "goal-1",
+            destinationThreadId: "dest-1",
+            createdAt: now,
+          },
+        }),
+      );
+      expect(recordOnce.threads[0]?.handoffCount).toBe(1);
+
+      const recordTwice = yield* projectEvent(
+        recordOnce,
+        makeEvent({
+          sequence: 3,
+          type: "thread.handoff-recorded",
+          aggregateKind: "thread",
+          aggregateId: "drafter-1",
+          occurredAt: now,
+          commandId: "cmd-record-2",
+          payload: {
+            threadId: "drafter-1",
+            destinationGoalId: "goal-2",
+            destinationThreadId: "dest-2",
+            createdAt: now,
+          },
+        }),
+      );
+      expect(recordTwice.threads[0]?.handoffCount).toBe(2);
+    }),
+  );
 
   // loom: §4 historical-event replay must agree with migration 057's backfill.
   // A thread.created lacking titleProvenance infers it from the title, so a

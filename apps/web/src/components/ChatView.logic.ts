@@ -60,6 +60,7 @@ export function buildLocalDraftThread(
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
+    handoffCount: 0,
     title: "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,

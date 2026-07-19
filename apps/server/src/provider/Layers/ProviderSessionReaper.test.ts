@@ -132,6 +132,7 @@ function makeReadModel(
       maxTokens: null,
       diffAdditions: null,
       diffDeletions: null,
+      handoffCount: 0,
       latestTurn: null,
       messages: [],
       session: thread.session

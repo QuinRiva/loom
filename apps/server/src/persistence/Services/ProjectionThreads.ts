@@ -108,6 +108,9 @@ export const ProjectionThread = Schema.Struct({
   // Null when unknown (no checkpoint yet) so the UI suppresses the chip.
   diffAdditions: Schema.NullOr(NonNegativeInt),
   diffDeletions: Schema.NullOr(NonNegativeInt),
+  // `/handoff` fork-drafter (plan D5): count of `goal_handoff` calls this thread
+  // has placed as a handoff-drafter (0 for every non-drafter thread).
+  handoffCount: NonNegativeInt,
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
