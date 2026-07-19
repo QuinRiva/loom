@@ -12,7 +12,7 @@ How to write (and audit) the text surfaces of a provider tool definition
 documentation. It is a distributed prompt whose fragments are read at different
 decision moments with different salience. Documentation optimises for a reader
 seeking understanding; a tool def must optimise for a generator making choices.
-The test for every sentence is behavioural: what will a model *do* after
+The test for every sentence is behavioural: what will a model _do_ after
 reading this, at the moment it reads it?
 
 ## The decision-moment model
@@ -21,12 +21,12 @@ Each text surface lands in a different place in the model's context and is
 salient at a different moment. Place every rule at the surface read at its
 binding moment.
 
-| Surface | Lands in | Binding moment | Carries |
-| --- | --- | --- | --- |
-| `promptSnippet` | System prompt, "Available tools" line | Discovery | One line: this capability exists. Nothing else. |
-| `description` | Tool schema in the tools array | Selection ("should I call this?") | What it does, when to use it, when NOT to (name the alternative tool for the rejected branch). |
-| Parameter descriptions | Tool schema, per field | Composition (while generating that field's value) | Format, register, and content rules for that field. |
-| `promptGuidelines` | System prompt, "Guidelines" bullets | Ambient, every turn | Only rules that bind *outside* the call itself, chiefly duties after the call returns, when the schema has lost salience. |
+| Surface                | Lands in                              | Binding moment                                    | Carries                                                                                                                   |
+| ---------------------- | ------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `promptSnippet`        | System prompt, "Available tools" line | Discovery                                         | One line: this capability exists. Nothing else.                                                                           |
+| `description`          | Tool schema in the tools array        | Selection ("should I call this?")                 | What it does, when to use it, when NOT to (name the alternative tool for the rejected branch).                            |
+| Parameter descriptions | Tool schema, per field                | Composition (while generating that field's value) | Format, register, and content rules for that field.                                                                       |
+| `promptGuidelines`     | System prompt, "Guidelines" bullets   | Ambient, every turn                               | Only rules that bind _outside_ the call itself, chiefly duties after the call returns, when the schema has lost salience. |
 
 Ambient cost: `promptGuidelines` are injected into every turn of every thread
 that has the tool registered, paid overwhelmingly by turns that never call the
@@ -76,7 +76,7 @@ is "must be ambiently present even when the model is not calling it".
    each component correct, the composition broken (tool text shapes a brief;
    the brief lands as a first message; a precedence rule elsewhere decides
    what wins). When auditing a tool, follow its arguments to where they land
-   and read the rules in force *there*.
+   and read the rules in force _there_.
 
 7. **Own or reference, never paraphrase, a shared contract.** When two tools
    carry the same field (spawn and scaffold nodes) or one defines itself

@@ -38,12 +38,8 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptSnippet:
       "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override. For a multi-node graph prefer workstream_scaffold + workstream_brief.",
     promptGuidelines: [
-      "Name the work with three distinct fields: title is a short label (the card name, ≤6 words), purpose is the one-sentence why (the card's Goal), and brief is the full self-contained instructions. Titles are read in role-labelled lists, so lead with the distinguishing subject, not a verb every sibling shares — 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.",
-      "To run work in order (e.g. a reviewer that waits on a coder), spawn the upstream child first, then spawn the dependent with blockedBy set to the upstream child's id.",
-      "For most spawns omit every model field — the child takes a role-matched preset or inherits this thread's model; that is the normal path. Reach for taskShape only when the work materially fits one of three shapes: 'explore' (open-ended/prototype, vague objective, plan likely to change), 'thorough' (edge cases, migrations, hardening, review gates — missing a real issue is worse than noise), or 'mechanical' (bounded, self-contained, high-volume: extraction, renames, formatting). The server then picks the model — don't guess model names. Add sensitive: 'security' on security/crypto/bio-adjacent work so the resolver avoids models whose safety classifier would interrupt the run. modelSelection / modelPreset are escape hatches for genuine exceptions only.",
-      "By default a spawned child is released and runs once its dependencies clear. Pass staged: true to create it held (planned) instead — use this to lay out a whole graph for review before any tokens are spent, then workstream_release the held subtree to let it run.",
-      "To put a coder under review, spawn the coder first, then spawn a reviewer with gate: { rework: coderId }. gate.rework is automatically added to blockedBy, so the reviewer waits for the coder before running. The review loop then runs in the control plane without you — 'needs_rework' loops the coder (round-capped, default 2), 'clean'/'fixed_inline' resolve the gate and complete both threads. Wire downstream work on the reviewer (or both), never the coder alone: a rework round can reopen the coder's done. You are woken once at gate resolution, or earlier if the gate yields (round cap, approach wrong).",
-      "When several children must analyse the SAME large corpus through different lenses, use forkFrom instead of re-reading it N times: spawn one reader child to read the corpus and end its turn with a bare acknowledgement, then spawn N children with forkFrom: readerId — each forks the reader's session (byte-identical prefix → comparable verdicts, and prompt-cache reuse when launched together on a cache-supporting provider path) and its brief carries only its own lens. Don't pass role/model fields on a fork (identity is inherited); forkFrom auto-adds the reader to blockedBy; launch the forks together so they share the cache window.",
+      "A gated pair runs its review loop in the control plane without you: once you spawn the reviewer with gate: { rework: coderId }, 'needs_rework' loops the coder (round-capped, default 2) and 'clean'/'fixed_inline' resolve both. Wire downstream work on the reviewer (or both), never the coder alone, because a rework round can reopen the coder's done; you are woken once at gate resolution, or earlier if the gate yields.",
+      "A staged (planned) graph does not run until you release it: pass staged: true to lay the whole shape out for review before any tokens are spent, then workstream_release the held subtree to let it run.",
     ],
     parameters: {
       type: "object",
@@ -56,23 +52,23 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         purpose: {
           type: "string",
           description:
-            "Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value/outcome the work delivers — why it matters and how to judge it — not the mechanical actions. The role badge already conveys that (e.g.) code is being written, so do not restate the role or lead with 'Implement…'/'Review…'; lead with the capability, fix, or decision the work produces. Put the detailed instructions in brief. Required.",
+            "Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value/outcome the work delivers (why it matters and how to judge it), not the mechanical actions. The role badge already conveys that (e.g.) code is being written, so do not restate the role or lead with 'Implement…'/'Review…'; lead with the capability, fix, or decision the work produces. Put the detailed instructions in brief.",
         },
         brief: {
           type: "string",
           description:
-            "Full, self-contained prompt for the child's first turn (optional; defaults to purpose). Use this for the complete kickoff instructions so the short purpose stays a clean summary.",
+            "Full, self-contained first-turn prompt that becomes the child's assignment (optional; defaults to purpose, which suffices only when the purpose already says everything). Write it to stand on its own: the child acts on what the brief says, not on context you can see but it cannot. State the outcome it owes and the contract it works under (the goal and why it matters, the constraints, the definition of done, where the relevant code and artefacts live), and leave how to deliver that outcome to the child's role rather than scripting the steps; an over-prescribed brief that dictates every step turns a capable delegate into a transcriber, and for a delegating role like an orchestrator it can re-scope the recipient into doing the work inline.",
         },
         title: {
           type: "string",
           description:
-            "Short label naming the work at a glance — the card's bold name, roughly ≤6 words. Titles appear in lists already labelled with the role, so lead with the distinguishing subject rather than a verb shared by every sibling: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'; a specific verb is fine when it carries meaning ('Fix spawn title fallback'). Distinct from purpose, which is the one-sentence why. Required.",
+            "Short label naming the work at a glance, the card's bold name, roughly ≤6 words. Titles appear in lists already labelled with the role, so lead with the distinguishing subject rather than a verb shared by every sibling: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'; a specific verb is fine when it carries meaning ('Fix spawn title fallback'). Distinct from purpose, which is the one-sentence why.",
         },
         blockedBy: {
           type: "array",
           items: { type: "string" },
           description:
-            "Optional thread ids this child waits on. The child is created but does not start until every listed thread reaches 'done'.",
+            "Optional thread ids this child waits on; the child is created but does not start until every listed thread reaches 'done'. To run work in order (e.g. a reviewer after a coder), spawn the upstream child first, then set blockedBy to its id.",
         },
         gate: {
           type: "object",
@@ -96,7 +92,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         forkFrom: {
           type: "string",
           description:
-            "Fork this child's pi session from an existing active direct child (the 'source') at its first launch, so the child starts from a byte-identical copy of the source's transcript. Use it for acknowledge-then-fork fan-out: one reader child reads a large shared corpus and ends its turn with a bare acknowledgement, then you fork N children off it — each fork's brief carries only its differentiated lens/task. The identical prefix enables provider prompt-cache reuse across the forks when they launch together on a cache-supporting provider path (cache hits are not guaranteed — they depend on the path), and gives verdict comparability regardless (the forks reason from literally the same context). Identity is INHERITED from the source: do NOT pass role / modelSelection / modelPreset / taskShape / sensitive (each is rejected, not ignored) — the fork adopts the source's role and applied model; purpose + title are still required per fork. forkFrom is auto-added to blockedBy (a fork waits for its source to finish). Cannot be combined with gate. Cache note: the cache is time-limited, so release/launch the forks together promptly — scattering their launches over hours forfeits the cache (correctness is unaffected). Worktree: prefer the default (shared) so the copied transcript's file paths stay valid; only use isolation:'isolated' if the forks write code (an isolated fork's copied transcript still references the source's worktree paths).",
+            "Fork this child's session from an existing active direct child (the source) at launch: the child starts from a byte-identical copy of the source's transcript. This is the acknowledge-then-fork fan-out: one reader child reads a large shared corpus and ends with a bare acknowledgement, then each fork carries only its own lens in its brief, so every fork reasons from the same context (comparable verdicts, plus prompt-cache reuse when they launch together on a cache-supporting path). Identity is inherited: do NOT pass role / modelSelection / modelPreset / taskShape / sensitive (each is rejected); purpose and title are still required per fork. forkFrom is auto-added to blockedBy and cannot be combined with gate. Launch the forks together (the cache window is time-limited). Prefer the default shared worktree so the copied transcript's paths stay valid; use isolation:'isolated' only if the forks write code.",
         },
         staged: {
           type: "boolean",
@@ -113,7 +109,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
           type: "string",
           enum: ["explore", "thorough", "mechanical"],
           description:
-            "Optional. Omit it for most spawns (the child takes a role-matched preset or inherits this thread's model — the normal path). Pass a shape ONLY when the work materially fits one of these rows, and the server resolves a concrete model (no model-name guessing): 'explore' — open-ended/prototype work, vague objective, plan likely to change; 'thorough' — edge cases, migrations, hardening, review gates, anywhere missing a real issue is worse than noise; 'mechanical' — bounded, self-contained, high-volume work (extraction, renames, formatting), NOT long-context extraction (use 'thorough'). Overridden by modelSelection/modelPreset; ignored (with a warning) when either is also given. A valid shape with no matching server profiles falls through to the role preset/inherit — never an error.",
+            "Server-resolved model hint; omit for most spawns (the child takes a role-matched preset or inherits this thread's model). Pass a shape only when the work materially fits one: 'explore' (open-ended or prototype work, vague objective, plan likely to change); 'thorough' (edge cases, migrations, hardening, review gates, anywhere missing a real issue is worse than noise); 'mechanical' (bounded, self-contained, high-volume work like extraction, renames, or formatting, but NOT long-context extraction, which wants 'thorough'). The server picks the concrete model, so never guess a model name; a shape with no matching server profile falls through to the role preset (never an error). Precedence with the escape hatches is in this tool's description.",
         },
         sensitive: {
           type: "string",
@@ -124,12 +120,12 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         modelPreset: {
           type: "string",
           description:
-            "Escape hatch for a genuine exception: a named model preset (resolved to a configured ModelSelection on the server), overriding taskShape. Preset names are deployment-specific — see modelPresets in workstream_list. Ignored when modelSelection is given; an unknown name is rejected with the available names. Most spawns should omit this and let the role preset / inherited model apply.",
+            "Escape hatch for a genuine exception: a named model preset (resolved to a configured ModelSelection on the server). Preset names are deployment-specific (see modelPresets in workstream_list); an unknown name is rejected with the available names. Omit on the normal path so the role preset or inherited model applies.",
         },
         modelSelection: {
           type: "object",
           description:
-            "Escape hatch for a genuine exception: an explicit model override for the child, taking precedence over taskShape, modelPreset, and the role default. Most spawns should omit this (and taskShape) and let the role preset / inherited model apply. Omit to fall back to taskShape / modelPreset / the role preset / this thread's model.",
+            "Escape hatch for a genuine exception: an explicit model override for the child (its precedence over the other model fields is in this tool's description). Omit on the normal path so taskShape, the role preset, or the inherited model applies.",
           properties: {
             instanceId: {
               type: "string",
@@ -199,7 +195,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               key: {
                 type: "string",
                 description:
-                  "Symbolic, unique-forever key for this node among the parent's children, used to reference it from other nodes' blockedBy/gate in the same or a later call. Immutable; must NOT be UUID-shaped (reference an existing thread with the 'thread:' prefix instead). Required.",
+                  "Symbolic, unique-forever key for this node among the parent's children, used to reference it from other nodes' blockedBy/gate in the same or a later call. Immutable; must NOT be UUID-shaped (reference an existing thread with the 'thread:' prefix instead).",
               },
               role: {
                 type: "string",
@@ -209,12 +205,12 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               title: {
                 type: "string",
                 description:
-                  "Short label naming the work at a glance (the card's bold name, ≤6 words) — lead with the distinguishing subject, not a verb every sibling shares. Required.",
+                  "Short label naming the work at a glance (the card's bold name, ≤6 words); lead with the distinguishing subject, not a verb every sibling shares.",
               },
               purpose: {
                 type: "string",
                 description:
-                  "Short (1-3 sentence) summary shown on the sidebar card as the node's 'Goal' — the value the work delivers, not the mechanical steps. This plus title is what makes the scaffold render evaluable as a shape. Required.",
+                  "Short (1-3 sentence) summary shown on the sidebar card as the node's 'Goal': the value the work delivers, not the mechanical steps. This plus title is what makes the scaffold render evaluable as a shape.",
               },
               blockedBy: {
                 type: "array",
@@ -243,7 +239,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
               forkFrom: {
                 type: "string",
                 description:
-                  "Fork this node's pi session from a source node/child at launch, so it starts from a byte-identical copy of the source's transcript — a `key` of another node in this scaffold (typically the reader node) or `thread:<id>` for an existing child. This is the acknowledge-then-fork shape as ONE call: a reader node that reads the shared corpus, then N fork nodes (forkFrom: reader) each carrying only their lens brief — identical prefixes give verdict comparability (and enable prompt-cache reuse when launched together on a cache-supporting provider path). Identity is INHERITED from the source: do NOT set role / modelSelection / modelPreset / taskShape / sensitive on a fork node (each is rejected); purpose + title are still required. forkFrom is auto-added to the node's blockedBy, and cannot be combined with gate. Fork-of-fork is allowed and resolves order-independently; a fork-edge cycle is rejected. Stage the reader + forks together and release them together so the forks launch in one dispatcher pass (the cache is time-limited; scattering launches forfeits it, correctness unaffected). Prefer shared isolation (the default) unless the forks write code — an isolated fork's copied transcript still references the source's worktree paths.",
+                  "Fork this node's session from a source at launch, so it starts from a byte-identical copy of the source's transcript. The fork contract is as in workstream_spawn's forkFrom. Scaffold-specific only: the source is a `key` in this scaffold (typically the reader node) or `thread:<id>` for an existing child; this expresses the whole acknowledge-then-fork shape in ONE call (a reader node plus N fork nodes with forkFrom: reader, each carrying only its lens brief); fork-of-fork is allowed and resolves order-independently while a fork-edge cycle is rejected; and staging the reader and forks together lets them launch in one dispatcher pass.",
               },
               isolation: {
                 type: "string",
@@ -311,7 +307,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "workstream_brief",
     label: "Brief Workstream Node",
     description:
-      "Attach the kickoff brief — the full, self-contained first-turn instructions — to one scaffolded node, just-in-time. This is the second half of graph authoring: a node created by workstream_scaffold cannot launch until it has a brief (its launch precondition is dependencies-satisfied AND brief-present). Identify the node by its scaffold `key` or its thread id. Valid only on a direct child that has NOT started yet; on a started child it errors (steer a running child with workstream_prompt instead). Calling it again pre-launch overwrites (editing the brief before launch is the expected path). The brief is stored at a stable path the call returns; the kickoff reads the file's current content at launch, so writing briefs in topological order lets a late brief incorporate the actual reports of upstream nodes that already completed.",
+      "Attach the kickoff brief that becomes a scaffolded node's first-turn assignment (its recipient contract and register are on the markdown parameter), just-in-time. This is the second half of graph authoring: a node created by workstream_scaffold cannot launch until it has a brief (its launch precondition is dependencies-satisfied AND brief-present). Identify the node by its scaffold `key` or its thread id. Valid only on a direct child that has NOT started yet; on a started child it errors (steer a running child with workstream_prompt instead). Calling it again pre-launch overwrites (editing the brief before launch is the expected path). The brief is stored at a stable path the call returns; the kickoff reads the file's current content at launch, so writing briefs in topological order lets a late brief incorporate the actual reports of upstream nodes that already completed.",
     promptSnippet:
       "write one scaffolded node's kickoff brief (by key or thread id); the node launches once briefed and its deps are done. Overwrite allowed pre-launch.",
     promptGuidelines: [
@@ -329,7 +325,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         markdown: {
           type: "string",
           description:
-            "The full, self-contained kickoff brief (the node's first-turn instructions). Overwrites any existing brief pre-launch.",
+            "The node's full, self-contained kickoff brief, which becomes its first-turn assignment. It follows the same contract as workstream_spawn's brief; write it to that field's guidance. Overwrites any existing brief pre-launch.",
         },
       },
       required: ["node", "markdown"],
@@ -346,9 +342,8 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptSnippet:
       "advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'cancelled' cascades to the whole subtree and stops in-flight turns; 'in_progress' is automatic.",
     promptGuidelines: [
-      "Do NOT set 'done' to complete your own work — finish with workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output (on a gated reviewer it dissolves the gate; on a gated CODER mid-rework it does NOT — the coder's next submit still routes to the reviewer, and only a reviewer-side done/cancelled dissolves the gate). Set 'cancelled' to abandon work (dependents stay blocked); cancelling cascades to the entire subtree below the target and interrupts any running turns, so one cancel kills a runaway branch.",
-      "Use 'ready'/'planned' to release or hold staged work. Omit threadId to advance your own plan; you may only set the lane on your own thread or threads you directly parent.",
-      "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane — raise attention with workstream_request_attention.",
+      "Do NOT set 'done' to finish your own work; use workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output, and 'cancelled' for abandoning work (it cascades to the whole subtree and stops in-flight turns).",
+      "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane; raise attention with workstream_request_attention instead.",
     ],
     parameters: {
       type: "object",
@@ -378,9 +373,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptSnippet:
       "flag that a human is needed — 'awaiting_acceptance' (your output needs sign-off before done) or 'needs_guidance' (you're stuck).",
     promptGuidelines: [
-      "Raise 'awaiting_acceptance' only when a HUMAN must accept your output before completion — not merely because a reviewer thread exists (that case is just 'done', which releases the reviewer).",
-      "Raise 'needs_guidance' when you genuinely cannot proceed without a human. Don't sit silently halted — either advance the plan, or raise attention.",
-      "Omit threadId to flag your own thread; you may only raise attention on your own thread or threads you directly parent.",
+      "Raise attention only when a HUMAN is needed: 'awaiting_acceptance' when your output needs sign-off before completion (not merely because a reviewer thread exists; that case is just 'done', which releases the reviewer), or 'needs_guidance' when you genuinely cannot proceed. Do not sit silently halted: advance the plan, or raise attention.",
     ],
     parameters: {
       type: "object",
@@ -465,7 +458,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       type: "object",
       properties: {
         threadId: { type: "string", description: "Id of the direct child thread to prompt." },
-        message: { type: "string", description: "The markdown message to send to the child." },
+        message: {
+          type: "string",
+          description:
+            "The markdown message to send to the child; its register depends on where it lands (the description says which case applies). A steer folded into a busy child's running turn is a course-correction, not a fresh assignment, or it can re-scope work already under way; a message to an idle child starts its next turn (the resume path); on an unstarted node it is appended to that node's brief and composes the kickoff, so write it to workstream_spawn's brief contract.",
+        },
       },
       required: ["threadId", "message"],
       additionalProperties: false,
@@ -481,7 +478,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptSnippet:
       "submit your report + outcome in one terminal call: plain completion → done; 'needs_human' → human flag; any other outcome → routed, with unmatched non-rework outcomes yielding to your orchestrator.",
     promptGuidelines: [
-      "End your work with ONE call to workstream_submit: a self-contained markdown report (what you did, key results/decisions, anything the parent must act on — a deliberate handoff, not a transcript dump) plus an outcome. Do not call workstream_set_lane to finish.",
+      "End your work with ONE call to workstream_submit: your report plus an outcome. Do not call workstream_set_lane to finish.",
       "Plain success → omit outcome. Cannot proceed without a human → outcome 'needs_human'. Concluded with something other than plain success (approach wrong, blocked on a decision) → a short outcome token explaining it; the control plane hands you to your orchestrator.",
       "Read the tool result: it echoes the routing decision. 'yielded' or a rework route means you are NOT done yet.",
     ],
@@ -491,7 +488,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         markdown: {
           type: "string",
           description:
-            "The markdown report to hand back — stored on disk and shown to whoever receives your work next (parent orchestrator, or the gate counterpart in a review loop).",
+            "The markdown report to hand back, stored on disk and shown to whoever receives your work next (your parent orchestrator, or the gate counterpart in a review loop). Make it a deliberate handoff: what you did, the key results and decisions, and anything the parent must act on, not a transcript dump.",
         },
         outcome: {
           type: "string",
@@ -591,7 +588,8 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         },
         question: {
           type: "string",
-          description: "The question to answer from the target thread's frozen session context.",
+          description:
+            "The question to answer from the target thread's frozen session context. That fork shares none of your context, so make the question self-contained: name what you are asking about rather than referring to your own thread's state.",
         },
       },
       required: ["question"],
@@ -615,7 +613,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       properties: {
         title: {
           type: "string",
-          description: "The new sidebar title for this thread. Required; non-empty.",
+          description: "The new sidebar title for this thread (non-empty).",
         },
       },
       required: ["title"],
@@ -635,7 +633,6 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "Use this to branch the CONVERSATION (keep the context, explore an alternate direction) — not to delegate sub-work (workstream_spawn) and not to start a fresh-context next phase (goal_continue).",
       "The fork carries no brief: its first message is the divergent continuation. It is created held; a single send launches it and forks the session at that moment.",
       "Forking is refused while this thread is mid-turn (the session file is being written). Fork between turns.",
-      "Name the sidebar card with threadTitle: a short (≤6-word) label for the divergent line of work. Defaults to this thread's title + ' (fork)'.",
     ],
     parameters: {
       type: "object",
@@ -683,7 +680,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     parameters: {
       type: "object",
       properties: {
-        text: { type: "string", description: "The task text. Required." },
+        text: { type: "string", description: "The task text." },
         parentTaskId: {
           type: "string",
           description:
@@ -717,7 +714,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       properties: {
         taskId: {
           type: "string",
-          description: "Id of the task to update. Required; must belong to this thread's goal.",
+          description: "Id of the task to update; must belong to this thread's goal.",
         },
         text: { type: "string", description: "New task text (rename)." },
         done: { type: "boolean", description: "Mark the task done (true) or reopen it (false)." },
@@ -748,7 +745,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       properties: {
         taskId: {
           type: "string",
-          description: "Id of the task to delete. Required; must belong to this thread's goal.",
+          description: "Id of the task to delete; must belong to this thread's goal.",
         },
       },
       required: ["taskId"],
