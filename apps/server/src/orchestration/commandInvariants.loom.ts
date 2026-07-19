@@ -27,25 +27,6 @@ function invariantError(commandType: string, detail: string): OrchestrationComma
   });
 }
 
-export function requireActiveWorkspaceRootAvailable(input: {
-  readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
-  readonly workspaceRoot: string;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  const existing = input.readModel.projects.find(
-    (project) => project.deletedAt === null && project.workspaceRoot === input.workspaceRoot,
-  );
-  if (existing === undefined) {
-    return Effect.void;
-  }
-  return Effect.fail(
-    invariantError(
-      input.command.type,
-      `An active project ('${existing.id}') already exists for workspace root '${input.workspaceRoot}'.`,
-    ),
-  );
-}
-
 export function findGoalById(
   readModel: OrchestrationReadModel,
   goalId: GoalId,

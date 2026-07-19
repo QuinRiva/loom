@@ -62,6 +62,7 @@ export function useNewThreadHandler() {
          *   *different* goal re-seeds the context (typed text survives).
          */
         contextMode?: "overwrite" | "seed";
+        replace?: boolean;
       },
     ): Promise<void> => {
       const {
@@ -146,6 +147,7 @@ export function useNewThreadHandler() {
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: reusableStoredDraftThread.draftId },
+            replace: options?.replace ?? false,
           });
         })();
       }
@@ -209,6 +211,7 @@ export function useNewThreadHandler() {
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId },
+          replace: options?.replace ?? false,
         });
       })();
     },

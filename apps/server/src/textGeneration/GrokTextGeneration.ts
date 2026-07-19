@@ -1,3 +1,4 @@
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -38,6 +39,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
   grokSettings: GrokSettings,
   environment: NodeJS.ProcessEnv = process.env,
 ) {
+  const crypto = yield* Crypto.Crypto;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const runGrokJson = <S extends Schema.Top>({
@@ -62,7 +64,7 @@ export const makeGrokTextGeneration = Effect.fn("makeGrokTextGeneration")(functi
         childProcessSpawner: commandSpawner,
         cwd,
         clientInfo: { name: "t3-code-git-text", version: "0.0.0" },
-      });
+      }).pipe(Effect.provideService(Crypto.Crypto, crypto));
 
       yield* runtime.handleSessionUpdate((notification) => {
         const update = notification.update;

@@ -1105,9 +1105,10 @@ const makeWsRpcLayer = (
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
           // loom: connect-gap-aware thread subscription on upstream's HTTP-snapshot
-          // + afterSequence resume flow (#3719). The transient reasoning bus is
-          // pre-subscribed before the snapshot/catch-up so mid-fetch reasoning
-          // chunks buffer and drain onto the snapshot instead of being lost.
+          // + afterSequence resume flow (#3719, #4079). Both the durable domain
+          // events AND the transient reasoning bus are pre-buffered into upstream's
+          // single connect-gap queue before the snapshot/catch-up, so mid-fetch
+          // items drain onto the snapshot instead of being lost.
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeThread,
             Effect.gen(function* () {
@@ -1126,17 +1127,13 @@ const makeWsRpcLayer = (
 
               // loom: transient ephemeral reasoning chunks for this thread. These
               // never touch the event store; they drive live "Thinking… ⟷ Thought
-              // for Xs" display. Subscribe to the bus HERE — before the snapshot
-              // fetch / catch-up replay below — so any chunks published during
-              // that window buffer in the subscription queue and drain AFTER the
-              // snapshot element (the client applies the snapshot as a
-              // whole-thread replace, so buffered deltas land on top of it). This
-              // closes the connect-gap where mid-fetch reasoning would otherwise
-              // be lost until the durable finalization event.
-              // `observeRpcStreamEffect` runs this effect in the stream's scope,
-              // so the subscription lives for the stream's lifetime. The durable
-              // `thread.message-reasoning` event in liveStream is authoritative
-              // (REPLACE full text) on finalization.
+              // for Xs" display. Acquire the bus subscription HERE — before the
+              // snapshot fetch / catch-up replay below — so any chunks published
+              // during that window buffer in the subscription queue
+              // (ReasoningStreamBus.subscribe is scoped for exactly this). The
+              // durable `thread.message-reasoning` event in liveStream is
+              // authoritative (REPLACE full text) on finalization; these deltas
+              // only drive the live "Thinking…" display.
               const reasoningSubscription = yield* reasoningStreamBus.subscribe;
               const reasoningStream = Stream.fromSubscription(reasoningSubscription).pipe(
                 Stream.filter((payload) => payload.threadId === input.threadId),
@@ -1145,6 +1142,22 @@ const makeWsRpcLayer = (
                   payload,
                 })),
               );
+
+              // Attach live delivery before reading either replay or snapshot state.
+              // Otherwise an event published while the snapshot is loading is lost.
+              // loom: the transient reasoning stream is forked into this SAME
+              // buffer, so reasoning deltas ride upstream's connect-gap queue (one
+              // pre-subscribed buffer that drains AFTER the snapshot element — the
+              // client applies the snapshot as a whole-thread replace, so buffered
+              // deltas land on top of it) rather than a separate late merge.
+              const liveBuffer = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
+              yield* Effect.forkScoped(
+                liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
+              );
+              yield* Effect.forkScoped(
+                reasoningStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
+              );
+              const bufferedLiveStream = Stream.fromQueue(liveBuffer);
 
               // When the client already loaded the snapshot over HTTP it passes
               // that snapshot's sequence, and we resume the live subscription by
@@ -1165,33 +1178,23 @@ const makeWsRpcLayer = (
               // so a global cap could otherwise omit this thread's events.
               if (input.afterSequence !== undefined) {
                 const afterSequence = input.afterSequence;
-                return Stream.unwrap(
-                  Effect.gen(function* () {
-                    const liveBuffer = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
-                    yield* Effect.forkScoped(
-                      liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
-                    );
-                    const catchUpStream = orchestrationEngine
-                      .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
-                      .pipe(
-                        Stream.filter(isThisThreadDetailEvent),
-                        Stream.map((event) => ({ kind: "event" as const, event })),
-                        Stream.mapError(
-                          (cause) =>
-                            new OrchestrationGetSnapshotError({
-                              message: `Failed to replay thread ${input.threadId} events`,
-                              cause,
-                            }),
-                        ),
-                      );
-                    // loom: merge transient reasoning deltas into the resumed live
-                    // leg so reasoning still streams on the afterSequence path.
-                    return Stream.concat(
-                      catchUpStream,
-                      Stream.merge(Stream.fromQueue(liveBuffer), reasoningStream),
-                    );
-                  }),
-                );
+                const catchUpStream = orchestrationEngine
+                  .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
+                  .pipe(
+                    Stream.filter(isThisThreadDetailEvent),
+                    Stream.map((event) => ({ kind: "event" as const, event })),
+                    Stream.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: `Failed to replay thread ${input.threadId} events`,
+                          cause,
+                        }),
+                    ),
+                  );
+                // loom: bufferedLiveStream already carries the transient reasoning
+                // deltas (forked into the shared buffer above), so reasoning still
+                // streams on the afterSequence resume path.
+                return Stream.concat(catchUpStream, bufferedLiveStream);
               }
 
               const snapshot = yield* projectionSnapshotQuery
@@ -1218,8 +1221,9 @@ const makeWsRpcLayer = (
                   kind: "snapshot" as const,
                   snapshot: snapshot.value,
                 }),
-                // loom: merge transient reasoning deltas into the live leg.
-                Stream.merge(liveStream, reasoningStream),
+                // loom: bufferedLiveStream carries both durable events and the
+                // transient reasoning deltas forked into the shared buffer above.
+                bufferedLiveStream,
               );
             }),
             { "rpc.aggregate": "orchestration" },
