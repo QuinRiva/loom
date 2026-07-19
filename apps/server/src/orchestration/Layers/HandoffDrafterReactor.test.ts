@@ -1,7 +1,10 @@
 import {
+  CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
   ProjectId,
   ProviderInstanceId,
   type OrchestrationCommand,
+  type OrchestrationEvent,
   type OrchestrationLatestTurn,
   type OrchestrationSession,
   type OrchestrationThreadShell,
@@ -13,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import { TestClock } from "effect/testing";
 import { it as effectIt } from "@effect/vitest";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -22,12 +26,23 @@ import {
   classifyHandoffSettlement,
 } from "./HandoffDrafterReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
+import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
+import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import { ServerConfig } from "../../config.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { HandoffDrafterReactor } from "../Services/HandoffDrafterReactor.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts";
 
 const NOW = "2026-07-19T12:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
+// Fixed “now” for the TestClock-driven awaiting-stop grace tests (computed at
+// module scope so no Date access happens inside Effect code).
+const STUCK_NOW_MS = Date.parse("2026-07-19T13:00:00.000Z");
 
 const runningSession: OrchestrationSession = {
   threadId: "drafter" as ThreadId,
@@ -296,5 +311,147 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
       expect((raise as { reason?: string } | undefined)?.reason).toBe("needs_guidance");
       expect(types(dispatched)).not.toContain("thread.archive");
     }),
+  );
+
+  const stopCommandId = (commands: ReadonlyArray<OrchestrationCommand>) =>
+    commands.find((c) => c.type === "thread.session.stop")?.commandId;
+
+  // round-2 MF-1: each reconciliation pass over a still-live session must issue a
+  // FRESH stop command id. A fixed/deterministic id would, after the engine
+  // accepts it once, make every retry a receipt no-op that never re-publishes the
+  // provider stop — so a failed/lost stop side effect would strand the drafter
+  // forever. Distinct ids across passes prove the retry actually redelivers.
+  effectIt.effect("re-attempts the stop with a FRESH id on each pass (redelivery)", () =>
+    Effect.gen(function* () {
+      const drafter = makeDrafter({
+        latestTurn: turn("completed"),
+        handoffCount: 1,
+        session: readySession(),
+      });
+      const first = yield* runReactorOnce(drafter);
+      const second = yield* runReactorOnce(drafter);
+      const id1 = stopCommandId(first);
+      const id2 = stopCommandId(second);
+      expect(id1).toBeDefined();
+      expect(id2).toBeDefined();
+      expect(id1).not.toBe(id2);
+    }),
+  );
+
+  // round-2 MF-1: a stop stuck past the grace window (a failing/lost side effect
+  // that never reaches `stopped`) must be SURFACED with needs_guidance, not
+  // silently retried out of sight — while still re-attempting the stop and never
+  // archiving.
+  effectIt.effect("surfaces a persistently stuck stop after the grace window", () =>
+    Effect.gen(function* () {
+      // Awaiting-stop began an hour before “now” ⇒ well past the 5-min grace.
+      yield* TestClock.setTime(STUCK_NOW_MS);
+      const drafter = makeDrafter({
+        latestTurn: turn("completed"),
+        handoffCount: 1,
+        session: readySession(),
+        planLaneSince: "2026-07-19T12:00:00.000Z",
+      });
+      const dispatched = yield* runReactorOnce(drafter);
+      expect(types(dispatched)).toContain("thread.session.stop");
+      const raise = dispatched.find((c) => c.type === "thread.attention.raise");
+      expect((raise as { reason?: string } | undefined)?.reason).toBe("needs_guidance");
+      expect(types(dispatched)).not.toContain("thread.archive");
+    }),
+  );
+
+  // round-2 MF-1: a within-grace awaiting-stop does NOT surface (no premature
+  // needs_guidance while the stop is still landing).
+  effectIt.effect("does not surface a stop that is still within the grace window", () =>
+    Effect.gen(function* () {
+      // Awaiting-stop began only a minute before “now” ⇒ comfortably within grace.
+      yield* TestClock.setTime(STUCK_NOW_MS);
+      const drafter = makeDrafter({
+        latestTurn: turn("completed"),
+        handoffCount: 1,
+        session: readySession(),
+        planLaneSince: "2026-07-19T12:59:00.000Z",
+      });
+      const dispatched = yield* runReactorOnce(drafter);
+      expect(types(dispatched)).toContain("thread.session.stop");
+      expect(types(dispatched)).not.toContain("thread.attention.raise");
+    }),
+  );
+});
+
+// Real-engine test (real OrchestrationEngine + receipt store + projection over
+// in-memory SQLite): proves the mechanism the round-2 MF-1 fix depends on — a
+// DETERMINISTIC command id is deduped by the receipt store (a lost side effect
+// is never re-published), whereas a FRESH id per attempt re-publishes the
+// provider stop, so reconciliation genuinely re-attempts it.
+const realEngineLayer = OrchestrationEngineLive.pipe(
+  Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+  Layer.provide(OrchestrationProjectionPipelineLive),
+  Layer.provide(OrchestrationEventStoreLive),
+  Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+  Layer.provide(RepositoryIdentityResolver.layer),
+  Layer.provide(SqlitePersistenceMemory),
+  Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3code-handoff-conv-" })),
+  Layer.provide(NodeServices.layer),
+);
+
+const stopCommand = (id: string): OrchestrationCommand => ({
+  type: "thread.session.stop",
+  commandId: CommandId.make(id),
+  threadId: "drafter-1" as ThreadId,
+  createdAt: NOW,
+});
+
+describe("HandoffDrafterReactor stop redelivery (real engine receipt store)", () => {
+  effectIt.effect("a deterministic stop id is deduped; fresh ids each re-publish the stop", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-project-create"),
+        projectId: ProjectId.make("project-1"),
+        title: "Project 1",
+        workspaceRoot: "/tmp/project-1",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt: NOW,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-create"),
+        threadId: "drafter-1" as ThreadId,
+        projectId: ProjectId.make("project-1"),
+        role: HANDOFF_DRAFTER_ROLE,
+        title: "Handoff: fix retry",
+        titleProvenance: "curated",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt: NOW,
+      });
+
+      const countStops = engine.readEvents(0, 10_000).pipe(
+        Stream.filter(
+          (event: OrchestrationEvent) => event.type === "thread.session-stop-requested",
+        ),
+        Stream.runCount,
+      );
+
+      // A DETERMINISTIC id dispatched twice (a lost side effect would retry) —
+      // the second is a receipt no-op, so only ONE stop event is published.
+      yield* engine.dispatch(stopCommand("server:handoff-settle:stop:drafter-1:turn-1"));
+      yield* engine.dispatch(stopCommand("server:handoff-settle:stop:drafter-1:turn-1"));
+      expect(yield* countStops).toBe(1);
+
+      // FRESH ids per attempt re-publish the stop, so reconciliation genuinely
+      // re-attempts the provider stop.
+      yield* engine.dispatch(stopCommand("server:handoff-settle:stop:drafter-1:turn-1:nonce-a"));
+      yield* engine.dispatch(stopCommand("server:handoff-settle:stop:drafter-1:turn-1:nonce-b"));
+      expect(yield* countStops).toBe(3);
+    }).pipe(Effect.provide(realEngineLayer)),
   );
 });

@@ -88,18 +88,16 @@ At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-th
 
 ```ts
 const dispatchDeterministic = (id: string, command: OrchestrationCommand) =>
-  orchestrationEngine
-    .dispatch(command)
-    .pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("handoff drafter settlement dispatch failed", {
-              commandId: id,
-              cause: Cause.pretty(cause),
-            }),
-      ),
-    );
+  orchestrationEngine.dispatch(command).pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.logWarning("handoff drafter settlement dispatch failed", {
+            commandId: id,
+            cause: Cause.pretty(cause),
+          }),
+    ),
+  );
 
 // ... done ...
 yield * dispatchDeterministic(stopId, { type: "thread.session.stop" /* ... */ });
