@@ -1003,9 +1003,18 @@ const makeWsRpcLayer = (
 
               // Model policy (plan D4): prefer the source's captured
               // launch-identity selection (what actually consumed the cacheable
-              // prefix); schema-validate it (branding + instance existence) and
-              // fall back to the projected selection on any failure, mirroring
-              // the dispatcher's fork re-seed.
+              // prefix). Degraded fallback (deliberate, and unlike the
+              // dispatcher's DEFER): a missing/model-less/undecodable capture
+              // falls back to the projected `sourceThread.modelSelection` — a
+              // valid selection the source already launched with (exactly what
+              // `thread_fork` ships). This is a one-shot HUMAN action, so
+              // deferring (as the dispatcher's promotion loop does) would mean
+              // rejecting the handoff, worse UX than a correct-but-not-cache-
+              // optimal model. `ModelSelection` decode proves shape/branding but
+              // NOT that the instance is still configured; a genuinely dead
+              // instance surfaces downstream as `thread.turn-start-failed` → the
+              // settlement reactor raises needs_guidance (D6 leg 2), never a
+              // silent success.
               const candidate = capturedDrafterSelectionCandidate(
                 readLaunchIdentity(config.workstreamLaunchIdentityDir, sourceThread.id),
               );
