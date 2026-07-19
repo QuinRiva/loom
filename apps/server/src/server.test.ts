@@ -271,6 +271,26 @@ const makeShellSnapshotWithThreads = (threads: ReadonlyArray<OrchestrationThread
   updatedAt: "1970-01-01T00:00:00.000Z",
 });
 
+// A minimal thread domain event that flows through toShellStreamEvent's
+// getThreadShellById lookup branch (used by the shell catch-up silent-drop
+// tests).
+const makeThreadUnarchivedEvent = (
+  sequence: number,
+  threadId: ThreadId,
+): Extract<OrchestrationEvent, { type: "thread.unarchived" }> => ({
+  sequence,
+  eventId: EventId.make(`event-${sequence}`),
+  aggregateKind: "thread",
+  aggregateId: threadId,
+  occurredAt: "2026-07-19T00:08:00.000Z",
+  commandId: null,
+  causationEventId: null,
+  correlationId: null,
+  metadata: {},
+  type: "thread.unarchived",
+  payload: { threadId, updatedAt: "2026-07-19T00:08:00.000Z" },
+});
+
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
   OtlpSerialization.layerJson,
@@ -5792,6 +5812,445 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assertTrue(result.failure.cause instanceof Error);
       assert.include(result.failure.cause.message, projectionError.message);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: shell catch-up silent-drop fix (see plans/2026-07-19-shell-catchup-silent-drop.md).
+  // These two tests exercise the fix's bounded retry, whose exponential backoff
+  // uses real Effect.sleep server-side. That never advances under it.effect's
+  // TestClock (and it.live is unavailable inside this it.layer block), so the
+  // whole body runs under TestClock.withLive — the live clock lets the ~75ms
+  // backoff elapse. The socket/RPC machinery already works under real time.
+  it.effect(
+    "fails the shell subscription instead of silently dropping an event whose projection lookup fails",
+    () =>
+      Effect.gen(function* () {
+        // The canonical dropped thread from the incident: created via the Slack
+        // bridge while a client was offline, then dropped by a transient lookup
+        // failure during that client's catch-up.
+        const gapThreadId = ThreadId.make("2238e38b-6d72-491d-b85b-caf239a366c2");
+        const okThreadId = ThreadId.make("thread-ok");
+        const lookupError = new PersistenceSqlError({
+          operation: "ProjectionSnapshotQuery.getThreadShellById:test",
+          detail: "transient contention on the busy cockpit DB",
+        });
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              readEvents: () =>
+                Stream.make(
+                  makeThreadUnarchivedEvent(1, gapThreadId),
+                  makeThreadUnarchivedEvent(2, okThreadId),
+                ),
+            },
+            projectionSnapshotQuery: {
+              getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 2 }),
+              getThreadShellById: (threadId) =>
+                threadId === gapThreadId
+                  ? Effect.fail(lookupError)
+                  : Effect.succeed(
+                      Option.some(makeDefaultOrchestrationThreadShell({ id: threadId })),
+                    ),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const result = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 0 }).pipe(
+              Stream.runCollect,
+            ),
+          ).pipe(Effect.result),
+        );
+
+        // Today's code SUCCEEDS yielding only the second event — the silent
+        // omission whose sequence advance seals the gap. The fix must fail loudly
+        // (before yielding either) so the client's round-1 self-heal fires.
+        assertTrue(result._tag === "Failure");
+        assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
+      }).pipe(TestClock.withLive, Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // Runs under TestClock.withLive so the retry's real backoff elapses (see note above).
+  it.effect("absorbs a transient projection-lookup failure via retry during shell catch-up", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-transient");
+      let attempts = 0;
+      const lookupError = new PersistenceSqlError({
+        operation: "ProjectionSnapshotQuery.getThreadShellById:test",
+        detail: "transient blip",
+      });
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => Stream.make(makeThreadUnarchivedEvent(1, threadId)),
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
+            // Fails on the first two attempts, succeeds on the third — within the
+            // 3-attempt retry budget, so the client sees no failure.
+            getThreadShellById: (id) =>
+              Effect.suspend(() => {
+                attempts += 1;
+                return attempts <= 2
+                  ? Effect.fail(lookupError)
+                  : Effect.succeed(Option.some(makeDefaultOrchestrationThreadShell({ id })));
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 0 }).pipe(
+            Stream.runCollect,
+          ),
+        ).pipe(Effect.map((chunk) => Array.from(chunk))),
+      );
+
+      assert.equal(items.length, 1);
+      assert.equal(items[0]?.kind, "thread-upserted");
+      assert.equal(attempts, 3);
+    }).pipe(TestClock.withLive, Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("keeps a genuinely-absent projection row silent during shell catch-up", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-absent");
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => Stream.make(makeThreadUnarchivedEvent(1, threadId)),
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
+            // A *successful* Option.none is the legitimate row-absent signal and
+            // must stay silent (the other half of the lookup-failed/row-absent
+            // taxonomy) — guards against over-correcting the fix into failing here.
+            getThreadShellById: () => Effect.succeed(Option.none()),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 0 }).pipe(
+            Stream.runCollect,
+          ),
+        ).pipe(Effect.map((chunk) => Array.from(chunk))),
+      );
+
+      assert.deepEqual(items, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "serves a fresh snapshot instead of replaying when the shell catch-up gap exceeds the cap",
+    () =>
+      Effect.gen(function* () {
+        let readEventsCalled = false;
+        const threadId = ThreadId.make("thread-snap");
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              readEvents: () => {
+                readEventsCalled = true;
+                return Stream.empty;
+              },
+            },
+            projectionSnapshotQuery: {
+              getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 5000 }),
+              getShellSnapshot: () =>
+                Effect.succeed(
+                  makeShellSnapshotWithThreads([
+                    makeDefaultOrchestrationThreadShell({ id: threadId }),
+                  ]),
+                ),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const items = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            // gap = 5000 - 10 = 4990 > SHELL_CATCHUP_MAX_EVENTS (500).
+            client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 10 }).pipe(
+              Stream.runCollect,
+            ),
+          ).pipe(Effect.map((chunk) => Array.from(chunk))),
+        );
+
+        assert.equal(items.length, 1);
+        assert.equal(items[0]?.kind, "snapshot");
+        assertTrue(!readEventsCalled);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("replays exactly the sampled gap window (limit == gap) when within the cap", () =>
+    Effect.gen(function* () {
+      const readLimits: Array<number | undefined> = [];
+      const threadId = ThreadId.make("thread-replay");
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: (from, limit) => {
+              readLimits.push(limit);
+              return Stream.make(makeThreadUnarchivedEvent(from + 1, threadId));
+            },
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 3 }),
+            getThreadShellById: (id) =>
+              Effect.succeed(Option.some(makeDefaultOrchestrationThreadShell({ id }))),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 0 }).pipe(
+            Stream.runCollect,
+          ),
+        ).pipe(Effect.map((chunk) => Array.from(chunk))),
+      );
+
+      // The cap must be enforced at the read, not just at the branch: the limit
+      // passed to readEvents equals the sampled gap (3 - 0), so a permitted
+      // replay covers precisely (afterSequence, snapshotSequence].
+      assert.deepEqual(readLimits, [3]);
+      assert.equal(items.length, 1);
+      assert.equal(items[0]?.kind, "thread-upserted");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves a snapshot when the client's afterSequence is ahead of the server", () =>
+    Effect.gen(function* () {
+      let readEventsCalled = false;
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readEvents: () => {
+              readEventsCalled = true;
+              return Stream.empty;
+            },
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 5 }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          // afterSequence (42) > snapshotSequence (5): restored backup / reset.
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({ afterSequence: 42 }).pipe(
+            Stream.runCollect,
+          ),
+        ).pipe(Effect.map((chunk) => Array.from(chunk))),
+      );
+
+      assert.equal(items.length, 1);
+      assert.equal(items[0]?.kind, "snapshot");
+      assertTrue(!readEventsCalled);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: connect-gap regression (design §5 test 5). Pins the eager
+  // subscribeDomainEvents ordering: the live PubSub subscription must attach
+  // BEFORE the snapshot read so an event committed during the snapshot load
+  // window buffers in the subscription queue and drains AFTER the snapshot item,
+  // instead of falling into a silent connect-gap. A Deferred gates the snapshot
+  // stub so the ordering is deterministic (no timing races): the coordinator
+  // fiber waits until the snapshot load is in flight — which, in the fixed code,
+  // proves the eager subscribe already ran — then publishes the live event and
+  // releases the gate. Reverting ws.ts to a lazy Stream.fromPubSub attach makes
+  // this fail (the event lands on neither leg).
+  it.effect(
+    "delivers an event published during snapshot load after the snapshot (no-afterSequence flow)",
+    () =>
+      Effect.gen(function* () {
+        const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotInFlight = yield* Deferred.make<void>();
+        const releaseSnapshot = yield* Deferred.make<void>();
+        const threadId = ThreadId.make("thread-connect-gap");
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+                Stream.fromSubscription(subscription),
+              ),
+            },
+            projectionSnapshotQuery: {
+              // Signal that the snapshot load has started (eager subscribe is
+              // already done in the fixed code), then block until released.
+              getShellSnapshot: () =>
+                Deferred.succeed(snapshotInFlight, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseSnapshot)),
+                  Effect.as(makeShellSnapshotWithThreads([])),
+                ),
+              getThreadShellById: (id) =>
+                Effect.succeed(Option.some(makeDefaultOrchestrationThreadShell({ id }))),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const items = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              yield* Deferred.await(snapshotInFlight).pipe(
+                Effect.andThen(
+                  PubSub.publish(eventPubSub, makeThreadUnarchivedEvent(100, threadId)),
+                ),
+                Effect.andThen(Deferred.succeed(releaseSnapshot, undefined)),
+                Effect.forkChild,
+              );
+              return yield* client[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(
+                Stream.take(2),
+                Stream.runCollect,
+                Effect.map((chunk) => Array.from(chunk)),
+              );
+            }),
+          ),
+        );
+
+        assert.equal(items.length, 2);
+        assert.equal(items[0]?.kind, "snapshot");
+        const delivered = items[1];
+        assert.equal(delivered?.kind, "thread-upserted");
+        if (delivered?.kind === "thread-upserted") {
+          assert.equal(delivered.thread.id, threadId);
+        }
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: same connect-gap invariant on the capped fallback (gap > cap) — the
+  // snapshot-serving afterSequence branch must inherit the eager-attach ordering
+  // too, not just the ordinary flow.
+  it.effect(
+    "delivers an event published during snapshot load after the snapshot (capped fallback)",
+    () =>
+      Effect.gen(function* () {
+        const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotInFlight = yield* Deferred.make<void>();
+        const releaseSnapshot = yield* Deferred.make<void>();
+        const threadId = ThreadId.make("thread-connect-gap-capped");
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+                Stream.fromSubscription(subscription),
+              ),
+              // Should never be read: gap (5000 - 10) exceeds the cap, so the
+              // fallback serves a snapshot rather than replaying.
+              readEvents: () => Stream.empty,
+            },
+            projectionSnapshotQuery: {
+              getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 5000 }),
+              getShellSnapshot: () =>
+                Deferred.succeed(snapshotInFlight, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseSnapshot)),
+                  Effect.as(makeShellSnapshotWithThreads([])),
+                ),
+              getThreadShellById: (id) =>
+                Effect.succeed(Option.some(makeDefaultOrchestrationThreadShell({ id }))),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const items = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              yield* Deferred.await(snapshotInFlight).pipe(
+                Effect.andThen(
+                  PubSub.publish(eventPubSub, makeThreadUnarchivedEvent(6000, threadId)),
+                ),
+                Effect.andThen(Deferred.succeed(releaseSnapshot, undefined)),
+                Effect.forkChild,
+              );
+              return yield* client[ORCHESTRATION_WS_METHODS.subscribeShell]({
+                afterSequence: 10,
+              }).pipe(
+                Stream.take(2),
+                Stream.runCollect,
+                Effect.map((chunk) => Array.from(chunk)),
+              );
+            }),
+          ),
+        );
+
+        assert.equal(items.length, 2);
+        assert.equal(items[0]?.kind, "snapshot");
+        const delivered = items[1];
+        assert.equal(delivered?.kind, "thread-upserted");
+        if (delivered?.kind === "thread-upserted") {
+          assert.equal(delivered.thread.id, threadId);
+        }
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: error-preserving buffering shape (design §5 test 5 variant). A buffered
+  // live event whose projection lookup fails persistently must FAIL the
+  // subscription with OrchestrationGetSnapshotError — not hang and not silently
+  // vanish. This is the guard against a fork-into-value-queue shape, which would
+  // amputate the mapper's error channel (killing a detached producer fibre while
+  // the value-only queue just stops). Runs under TestClock.withLive because the
+  // failing lookup exhausts the real-backoff retry before propagating.
+  it.effect("fails the subscription when a buffered live event's lookup fails persistently", () =>
+    Effect.gen(function* () {
+      const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+      const snapshotInFlight = yield* Deferred.make<void>();
+      const releaseSnapshot = yield* Deferred.make<void>();
+      const threadId = ThreadId.make("thread-connect-gap-poison");
+      const lookupError = new PersistenceSqlError({
+        operation: "ProjectionSnapshotQuery.getThreadShellById:test",
+        detail: "persistent contention on the buffered live event",
+      });
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+              Stream.fromSubscription(subscription),
+            ),
+          },
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Deferred.succeed(snapshotInFlight, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseSnapshot)),
+                Effect.as(makeShellSnapshotWithThreads([])),
+              ),
+            getThreadShellById: () => Effect.fail(lookupError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            yield* Deferred.await(snapshotInFlight).pipe(
+              Effect.andThen(PubSub.publish(eventPubSub, makeThreadUnarchivedEvent(100, threadId))),
+              Effect.andThen(Deferred.succeed(releaseSnapshot, undefined)),
+              Effect.forkChild,
+            );
+            return yield* client[ORCHESTRATION_WS_METHODS.subscribeShell]({}).pipe(
+              Stream.take(2),
+              Stream.runCollect,
+            );
+          }).pipe(Effect.result),
+        ),
+      );
+
+      // The buffered live event's error channel survives the buffering window:
+      // the subscription fails loudly rather than hanging or omitting the event.
+      assertTrue(result._tag === "Failure");
+      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
+    }).pipe(TestClock.withLive, Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("enriches replayed project events with repository identity metadata", () =>
