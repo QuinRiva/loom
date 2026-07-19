@@ -46,6 +46,7 @@ import { renderGoalTaskTree } from "../goalTaskRender.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { shouldRefuseForkLaunch } from "../threadIdle.ts";
+import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
 import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 import {
   ProviderCommandReactor,
@@ -1132,7 +1133,14 @@ const make = Effect.gen(function* () {
     // during a goal-less window) and their curated title from the spawn. Running
     // the emergent-goal invariant on a child is exactly what created orphan
     // child-only goals. Only roots interpret.
-    if (thread.parentThreadId === null) {
+    //
+    // loom: `/handoff` fork-drafter (plan D3/D6) — a handoff-drafter root is
+    // ALSO excluded: it is a throwaway fork with a curated title and either the
+    // source's goal or (legitimately) none. Emergent-goal interpretation on a
+    // goal-less drafter would spend a model call AND attach an orphan goal that
+    // survives its own archive (the goal-attach decider requires existence, not
+    // active state), violating “only the staged destination remains”.
+    if (thread.parentThreadId === null && thread.role !== HANDOFF_DRAFTER_ROLE) {
       // §4 apply the client's title SEED immediately through the guarded path so
       // the sidebar shows a real title before the slower LLM interpretation
       // lands — but only while the title is still the "New thread" default and

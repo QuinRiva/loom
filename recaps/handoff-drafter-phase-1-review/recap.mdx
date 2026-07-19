@@ -1,0 +1,292 @@
+# Phase 1 gate review — handoff drafter server core
+
+<Callout tone="decision">
+  **Recommendation: needs rework.** Four must-fix defects prevent Phase 1 from meeting its airtight
+  lifecycle and contract claims. Silence accepts the recommendations below; use each item’s Accept /
+  Reject / Discuss control only to override or qualify it.
+</Callout>
+
+The root-fork launch shape, source-transcript isolation, additive event/migration work, both handoff-count projectors, and `GoalHandoffHttp`’s post-destination marker placement are sound. The gate fails on stop/archive ordering, incomplete hung detection, an omitted detail-snapshot field, and goal-less drafter roots entering ordinary root intent interpretation.
+
+<Table
+  filterable
+  density="compact"
+  columns={["ID", "Severity", "Subject", "Recommendation"]}
+  rows={[
+    [
+      "MF-1",
+      "Must-fix",
+      "Session stop / archive",
+      "Archive only after a projected stopped session; abort the sequence on prerequisite failure",
+    ],
+    [
+      "MF-2",
+      "Must-fix",
+      "Hung-turn backstop",
+      "Apply the grace window to started/running kickoffs too",
+    ],
+    [
+      "MF-3",
+      "Must-fix",
+      "Detail snapshot contract",
+      "Map and test non-zero handoffCount in thread detail",
+    ],
+    [
+      "MF-4",
+      "Must-fix",
+      "Goal-less root interpretation",
+      "Exclude handoff-drafter roots from automatic intent/goal interpretation",
+    ],
+    [
+      "NTH-1",
+      "Nice-to-have",
+      "Captured-model fallback",
+      "Either fail loud on unusable captures or label the degraded policy honestly",
+    ],
+  ]}
+/>
+
+<Card
+  heading="MF-1 · Archive can win the race against provider-session stop"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["confidence: high", "core invariant: no leaked pi process", "recovery: server restart/manual cleanup"]}
+>
+  `settleSuccess` commits `thread.session.stop` and immediately commits `thread.archive`. The stop command only publishes an asynchronous request; the provider worker later resolves the thread through an **active-only** query. If archive projects first, that resolution returns no thread and pi is never stopped. A transient stop-dispatch failure is also logged and swallowed, after which archive still commits and removes the drafter from reconciliation.
+
+<FieldDiff
+  title="Successful settlement ordering"
+  beforeLabel="Required invariant"
+  afterLabel="Commit c426290b5"
+  fields={[
+    {
+      name: "stop prerequisite",
+      before: "Provider stop is durably confirmed before archive",
+      after: "Stop request event is merely queued",
+    },
+    {
+      name: "archive gate",
+      before: "session.status === stopped",
+      after: "No gate; archive dispatch follows immediately",
+    },
+    {
+      name: "failure behaviour",
+      before: "Retry without hiding the drafter",
+      after: "Log and continue to archive",
+    },
+    {
+      name: "restart convergence",
+      before: "Unarchived state remains scannable until stop confirmation",
+      after: "Archived drafter is excluded from startup/periodic scans",
+    },
+  ]}
+/>
+
+  <Details summary="Embedded code evidence">
+
+At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/HandoffDrafterReactor.ts:109-152`, dispatch failures are converted to warnings and the three commands are issued in one pass:
+
+```ts
+const dispatchDeterministic = (id: string, command: OrchestrationCommand) =>
+  orchestrationEngine
+    .dispatch(command)
+    .pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("handoff drafter settlement dispatch failed", {
+              commandId: id,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
+
+// ... done ...
+yield * dispatchDeterministic(stopId, { type: "thread.session.stop" /* ... */ });
+yield * dispatchDeterministic(archiveId, { type: "thread.archive" /* ... */ });
+```
+
+At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProviderCommandReactor.ts:1362-1394`, the actual stop happens later. Its thread lookup is `getThreadDetailById`; `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts:1199-1203` filters `archived_at IS NULL`.
+
+The provider worker consumes only the live event stream at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProviderCommandReactor.ts:1455-1471`; it has no startup replay of missed stop requests.
+
+  </Details>
+
+**Consequence if unchanged:** a successful handoff can leave an archived live pi process. Make settlement state-driven across passes: request stop, wait until `session.status === "stopped"` is projected, then archive. A failed prerequisite must stop the sequence. Add an engine-backed ordering/restart test; the pure classifier test cannot prove this asynchronous contract.
+
+  <ReviewChoice itemId="mf-1-stop-before-archive" label="MF-1" placeholder="Why, if rejecting or discussing this finding…" />
+</Card>
+
+<Card
+  heading="MF-2 · The five-minute backstop misses real running hangs"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["confidence: high", "core invariant: visible when broken", "recovery: manual discovery + interrupt"]}
+>
+  The grace calculation is reached only when `latestTurn === null` and the session is not running. Once the provider has emitted `turn.started`, a stuck model/tool/provider turn remains `running` forever and can never raise `needs_guidance`.
+
+<FieldDiff
+  title="Hung-kickoff classification"
+  beforeLabel="Plan D6"
+  afterLabel="Commit c426290b5"
+  fields={[
+    {
+      name: "pre-start hang",
+      before: "Surface after grace",
+      after: "Surfaced after grace",
+      kept: true,
+    },
+    { name: "starting session hang", before: "Surface after grace", after: "Returns none forever" },
+    { name: "running turn hang", before: "Surface after grace", after: "Returns none forever" },
+    {
+      name: "test coverage",
+      before: "Aged in-flight kickoff",
+      after: "Only latestTurn:null/session:null is aged",
+    },
+  ]}
+/>
+
+  <Details summary="Embedded code evidence">
+
+At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/HandoffDrafterReactor.ts:79-102`, terminal turns settle, but age is checked only in the `latestTurn === null && !isSessionRunning` branch. The explicit tail comment says a `latestTurn` running or a session running returns `none`.
+
+The only expiry test at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/HandoffDrafterReactor.test.ts:153-165` constructs `latestTurn:null, session:null`; the running test at lines 112-115 does not advance past the grace window.
+
+  </Details>
+
+**Consequence if unchanged:** the common “started but never ended” failure stays hidden indefinitely and can retain its provider process. Apply the grace window to every unarchived drafter whose kickoff has not reached a terminal turn, including `starting` and `running`, and add an aged-running-turn test.
+
+  <ReviewChoice itemId="mf-2-running-hang" label="MF-2" placeholder="Why, if rejecting or discussing this finding…" />
+</Card>
+
+<Card
+  heading="MF-3 · Thread detail silently resets handoffCount to zero"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["confidence: high", "scope: contract consistency", "recovery: local mapping + regression test"]}
+>
+  SQL selects `handoff_count`, and shell/full snapshots map it, but the detail assembler omits the property. Because the contract supplies a decode default of zero, type/runtime checks stay green and every detail read reports zero after one or more recorded handoffs.
+
+<FieldDiff
+  title="handoffCount read-model surfaces"
+  beforeLabel="Contract"
+  afterLabel="Commit c426290b5"
+  fields={[
+    {
+      name: "shell snapshot",
+      before: "Projected non-negative count",
+      after: "Mapped correctly",
+      kept: true,
+    },
+    {
+      name: "full snapshot",
+      before: "Projected non-negative count",
+      after: "Mapped correctly",
+      kept: true,
+    },
+    {
+      name: "thread detail",
+      before: "Projected non-negative count",
+      after: "Omitted; decode-default becomes 0",
+    },
+    {
+      name: "detail regression test",
+      before: "Assert non-zero survives assembly",
+      after: "Fixture asserts only the default 0",
+    },
+  ]}
+/>
+
+  <Details summary="Embedded code evidence">
+
+`/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts:3132-3168` copies adjacent metrics (`toolUses`, `usedTokens`, `diffAdditions`, `diffDeletions`) into the detail object but never copies `threadRow.value.handoffCount`.
+
+The SQL row does contain it at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts:1180-1198`. The existing detail equality fixture at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.test.ts:450-513` seeds only `handoffCount: 0`, so the decode default masks the omission.
+
+  </Details>
+
+**Consequence if unchanged:** detail subscriptions and future Phase 3 consumers cannot observe multiple handoffs, contradicting the advertised read-model contract. Map the field and test a non-zero detail value.
+
+  <ReviewChoice itemId="mf-3-detail-count" label="MF-3" placeholder="Why, if rejecting or discussing this finding…" />
+</Card>
+
+<Card
+  heading="MF-4 · Goal-less drafter roots enter ordinary root intent interpretation"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["confidence: high", "core invariant: only destination remains visible", "trigger: source goalId is null"]}
+>
+  The drafter is intentionally a root. The ordinary turn-start path runs intent interpretation for every root that lacks a goal, without excluding `role === "handoff-drafter"`. That background interpreter may create and attach an unrelated goal for the utility thread. If it finishes after settlement has archived the drafter, `thread.meta.update` still accepts the archived thread, leaving an active goal whose only thread is hidden.
+
+<FieldDiff
+  title="Goal-less source path"
+  beforeLabel="Required behaviour"
+  afterLabel="Commit c426290b5"
+  fields={[
+    {
+      name: "drafter goal",
+      before: "Remain null when the source has no goal",
+      after: "May be auto-created by root intent interpretation",
+    },
+    {
+      name: "visible artefact",
+      before: "Only staged destination",
+      after: "Race can leave an active orphan goal",
+    },
+    {
+      name: "background model work",
+      before: "One drafter turn",
+      after: "Additional intent-interpreter call",
+    },
+    {
+      name: "archived-thread mutation",
+      before: "No post-settlement attachment",
+      after: "thread.meta.update requires existence, not active state",
+    },
+  ]}
+/>
+
+  <Details summary="Embedded code evidence">
+
+At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/ProviderCommandReactor.ts:1119-1181`, every `parentThreadId === null` thread computes `needsGoal = !thread.goalId` and starts interpretation when `needsGoal || titleMalleable`; role is not considered.
+
+At `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/decider.ts:579-655`, `thread.meta.update` calls `requireThread`, not `requireThreadNotArchived`, so the asynchronous interpreter can attach its newly created goal after the drafter has archived.
+
+  </Details>
+
+**Consequence if unchanged:** handing off from a legitimate goal-less source can create a visible empty goal and extra model work, violating “only the staged destination remains”. Exclude handoff-drafter roots from ordinary intent/title/goal interpretation and cover the goal-less launch path.
+
+  <ReviewChoice itemId="mf-4-root-interpretation" label="MF-4" placeholder="Why, if rejecting or discussing this finding…" />
+</Card>
+
+<Card
+  heading="NTH-1 · Captured-selection fallback is a degraded policy, not dispatcher parity"
+  tone="warning"
+  badge="NICE-TO-HAVE"
+  meta={["confidence: high", "impact: cache/model identity", "core handoff still usually succeeds"]}
+>
+  A model-less or invalid launch-identity record silently falls back to the projected selection. The dispatcher instead defers an existing unusable record because projected intent can differ from the model/options that consumed the source prefix. The plan allowed a degraded copy-only fallback, but the implementation report calls this the preferred captured policy and the code comment claims dispatcher parity.
+
+  <Details summary="Embedded code evidence">
+
+The fallback is at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/loom/handoffDraft.ts:80-94` and `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/ws.ts:1004-1017`. Dispatcher behaviour is documented and implemented at `/home/Carl/.t3/cockpit/worktrees/t3code-37c2b9a0/ws-t3code-design-cleaner-thread-handoffs-coder-36c852f5/apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts:1835-1865`.
+
+  </Details>
+
+Either fail/surface when an existing capture cannot yield a valid selection, or explicitly document and test the degraded fallback. Also remove the “instance existence” claim: `ModelSelection` decoding validates shape; provider resolution validates configured instances later.
+
+  <ReviewChoice itemId="nth-1-selection-fallback" label="NTH-1" placeholder="Why, if rejecting or discussing this suggestion…" />
+</Card>
+
+## Judgement calls
+
+- **Root isolation:** accepted. `parentThreadId:null` keeps the drafter out of dispatcher selection, parent wake/digest, fan-in, and root-skipping liveness rails; no path found that writes the source transcript.
+- **Goal cascade:** acceptable for source `done` or `archived`: an active source keeps the goal open, while archiving the source deliberately makes eventual goal archive consistent. A source **delete** during drafting is a narrow semantic edge: the live drafter prevents the delete-time goal cascade, then drafter settlement archives rather than deletes the goal. Recovery is cheap, so this is not a gate blocker, but an engine-backed lifecycle test should pin the chosen behaviour.
+- **Integration depth:** no longer acceptable for settlement. The pure classifier/builder/decider tests all pass yet miss MF-1’s cross-worker race. The rework should add an engine-backed stop-confirmation/restart test rather than another pure test only.
+
+## Verification run
+
+- Focused handoff/decider/projector suites: **38/38 passed**.
+- `vp run typecheck`: **passed**.
+- `vp check`: **passed** with 19 pre-existing warnings and no errors.
+- Full `vp test apps/server`: **2138 passed, 1 failed** on the unrelated timing-sensitive `GrokAdapter` prompt-completion test; rerunning that file alone passed **20/20**. This is not attributed to commit `c426290b5`.
