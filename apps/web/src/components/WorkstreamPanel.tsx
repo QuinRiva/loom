@@ -18,6 +18,7 @@ import { newThreadId } from "../lib/utils";
 import { formatCostUsd } from "../lib/contextWindow";
 import {
   ATTENTION_STYLES,
+  buildNodeContextMenuItems,
   type ChildIndex,
   COLUMN_LABELS,
   COLUMN_ORDER,
@@ -53,6 +54,7 @@ import type { SidebarThreadSummary, Thread } from "../types";
 import { useLoomScrollStore } from "../loom/loomScrollStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { isAbsolutePreviewablePath } from "../markdown-links";
+import { readLocalApi } from "../localApi";
 
 type WorkstreamView = "board" | "graph";
 
@@ -144,10 +146,12 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     if (panelRef) setViewState(panelRef, next);
   };
   // Graph gesture map (redesign): clicking a node ENTERS its thread (the cheapest
-  // gesture for the primary need); the lifecycle history is an opt-in behind the
-  // node's ⓘ affordance, which opens a right-side drawer. `inspectedThreadId` is
-  // the drawer target — deliberately component-local (tier 4), a transient
-  // inspection, unlike the durable view/spawn-draft state above.
+  // gesture for the primary need); secondary actions (View history, Open report,
+  // Release, Clear flags, Stop) live in a right-click context menu
+  // (`handleNodeContextMenu` below). "View history" opens the right-side
+  // lifecycle drawer. `inspectedThreadId` is the drawer target — deliberately
+  // component-local (tier 4), a transient inspection, unlike the durable
+  // view/spawn-draft state above.
   const [inspectedThreadId, setInspectedThreadId] = useState<ThreadId | null>(null);
   // Lifecycle fetch + per-thread cache lives HERE (panel scope), not in the
   // drawer component, so it survives Board⇄Graph view switches and drawer
@@ -238,6 +242,42 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
 
   const setDependencies = (threadId: ThreadId, blockedBy: ReadonlyArray<ThreadId>) => {
     void setThreadDependencies({ environmentId, input: { threadId, blockedBy: [...blockedBy] } });
+  };
+
+  // Graph node right-click / keyboard-menu handler. Reuses the app's canonical
+  // context-menu mechanism (`localApi.contextMenu.show` → native desktop menu /
+  // DOM fallback with Escape, outside-click, viewport clamp), exactly like
+  // ThreadTabsStrip — so there is no bespoke menu component and no menu-open
+  // state. Every action maps to a handler this panel already owns.
+  const handleNodeContextMenu = async (
+    thread: SidebarThreadSummary,
+    position: { x: number; y: number },
+  ) => {
+    const api = readLocalApi();
+    if (!api) return;
+    const action = await api.contextMenu.show(buildNodeContextMenuItems(thread), position);
+    switch (action) {
+      case "open":
+        openThread(thread);
+        break;
+      case "history":
+        setInspectedThreadId(thread.id);
+        break;
+      case "report":
+        if (thread.reportPath) openReport(thread.reportPath);
+        break;
+      case "release":
+        setLane(thread.id, "ready");
+        break;
+      case "clear-flags":
+        clearAttention(thread.id);
+        break;
+      case "stop":
+        stopThread(thread.id);
+        break;
+      case null:
+        break;
+    }
   };
 
   const spawnChild = async () => {
@@ -361,7 +401,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                   threads={subtree}
                   threadById={subtreeById}
                   onOpenThread={openThread}
-                  onInspectThread={(thread) => setInspectedThreadId(thread.id)}
+                  onNodeContextMenu={(thread, pos) => void handleNodeContextMenu(thread, pos)}
                   onOpenDispatch={openDispatch}
                 />
               </Suspense>

@@ -3,16 +3,24 @@ import { ThreadId } from "@t3tools/contracts";
 import type { SidebarThreadSummary } from "../types";
 import type { OrchestrationEvent } from "@t3tools/contracts";
 import {
+  buildNodeContextMenuItems,
   buildThreadLifecycleRows,
   describeOutcomeVerdict,
+  formatCompactAge,
   formatDiffMetric,
+  formatToolUses,
   getAttentionPulse,
   getEffectiveColumn,
   getFanInBadge,
   getFanInChip,
   getGateWaitLabel,
   getLoopEdgeStroke,
+  getNodeFooter,
+  getProviderModelParts,
+  getProviderTint,
   isAwaitingBrief,
+  STATUS_STYLES,
+  WAITS_ON_STROKE,
 } from "./workstreamPresentation";
 import type { ChildIndex } from "./workstreamPresentation";
 
@@ -253,6 +261,135 @@ describe("getGateWaitLabel", () => {
 
   it("returns null off a gate", () => {
     expect(getGateWaitLabel(summary({ routes: [] }), new Map())).toBeNull();
+  });
+});
+
+describe("formatCompactAge", () => {
+  const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+  it("buckets seconds/minutes/hours/days with no ' ago' suffix", () => {
+    expect(formatCompactAge(iso(23_000))).toBe("23s");
+    expect(formatCompactAge(iso(4 * 60_000))).toBe("4m");
+    expect(formatCompactAge(iso(3 * 3_600_000))).toBe("3h");
+    expect(formatCompactAge(iso(2 * 86_400_000))).toBe("2d");
+  });
+  it("returns — for an unparseable timestamp", () => {
+    expect(formatCompactAge("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatToolUses", () => {
+  it("passes small counts through and caps above 999", () => {
+    expect(formatToolUses(0)).toBe("0");
+    expect(formatToolUses(16)).toBe("16");
+    expect(formatToolUses(999)).toBe("999");
+    expect(formatToolUses(1000)).toBe("999+");
+    expect(formatToolUses(4321)).toBe("999+");
+  });
+});
+
+describe("getProviderTint", () => {
+  it("maps a known slug case-insensitively", () => {
+    expect(getProviderTint("pi")).toBe("#38bdf8");
+    expect(getProviderTint("VERTEX")).toBe("#60a5fa");
+    expect(getProviderTint("OpenAI")).toBe("#19c37d");
+  });
+  it("is deterministic for an unknown slug (same in twice ⇒ same out)", () => {
+    const once = getProviderTint("my-custom-instance");
+    expect(getProviderTint("my-custom-instance")).toBe(once);
+    // Drawn from the fixed fallback palette.
+    expect(["#60a5fa", "#e879a6", "#19c37d", "#d9895a", "#a78bfa", "#2dd4bf"]).toContain(once);
+  });
+  it("two different unknowns still land in the palette", () => {
+    const a = getProviderTint("alpha-instance");
+    const b = getProviderTint("zeta-instance");
+    for (const tint of [a, b])
+      expect(["#60a5fa", "#e879a6", "#19c37d", "#d9895a", "#a78bfa", "#2dd4bf"]).toContain(tint);
+  });
+});
+
+describe("getProviderModelParts", () => {
+  it("uses instanceId as provider and the slug tail as model", () => {
+    expect(
+      getProviderModelParts({
+        instanceId: "vertex",
+        model: "google-vertex-claude/claude-opus-4-8",
+      } as never),
+    ).toEqual({ provider: "vertex", model: "claude-opus-4-8" });
+  });
+});
+
+describe("getNodeFooter", () => {
+  const running = (over: Partial<SidebarThreadSummary>) =>
+    summary({ toolUses: 16, latestTurn: { state: "running" }, ...over } as never);
+  it("is null for not-yet-run and terminal columns", () => {
+    for (const column of [
+      "planned",
+      "awaiting_brief",
+      "ready",
+      "blocked",
+      "done",
+      "cancelled",
+    ] as const) {
+      expect(getNodeFooter(running({}), column)).toBeNull();
+    }
+  });
+  it("is present for in_progress (live) and yielded (not live)", () => {
+    const inprog = getNodeFooter(running({}), "in_progress");
+    expect(inprog).toMatchObject({ toolLabel: "16", live: true });
+    expect(typeof inprog?.age).toBe("string");
+    const yielded = getNodeFooter(summary({ toolUses: 31 }), "yielded");
+    expect(yielded).toMatchObject({ toolLabel: "31", live: false });
+  });
+  it("toolLabel is null when the provider reports no count", () => {
+    expect(getNodeFooter(summary({ toolUses: null }), "in_progress")?.toolLabel).toBeNull();
+  });
+});
+
+describe("buildNodeContextMenuItems", () => {
+  const ids = (thread: SidebarThreadSummary) =>
+    buildNodeContextMenuItems(thread).map((item) => item.id);
+  it("always offers open + history as the base set", () => {
+    expect(ids(summary({ planLane: "done", reportPath: null, attention: [] }))).toEqual([
+      "open",
+      "history",
+    ]);
+  });
+  it("adds report only when a reportPath exists", () => {
+    expect(ids(summary({ reportPath: "/r.md", attention: [] }))).toContain("report");
+    expect(ids(summary({ reportPath: null, attention: [] }))).not.toContain("report");
+  });
+  it("adds release only for a planned node", () => {
+    expect(ids(summary({ planLane: "planned", reportPath: null, attention: [] }))).toContain(
+      "release",
+    );
+    expect(ids(summary({ planLane: "ready", reportPath: null, attention: [] }))).not.toContain(
+      "release",
+    );
+  });
+  it("adds clear-flags only when attention is flagged", () => {
+    expect(ids(summary({ reportPath: null, attention: ["needs_guidance"] }))).toContain(
+      "clear-flags",
+    );
+  });
+  it("adds a destructive stop only when running", () => {
+    const running = summary({
+      reportPath: null,
+      attention: [],
+      latestTurn: { state: "running" },
+    } as never);
+    const stop = buildNodeContextMenuItems(running).find((item) => item.id === "stop");
+    expect(stop).toMatchObject({ destructive: true });
+    expect(ids(summary({ reportPath: null, attention: [] }))).not.toContain("stop");
+  });
+});
+
+describe("palette steel drift-guard", () => {
+  it("pins blocked + waits-on to the v2 steel hexes", () => {
+    expect(STATUS_STYLES.blocked.graphStroke).toBe("#6d86a6");
+    expect(STATUS_STYLES.blocked.graphFill).toBe("rgba(109, 134, 166, 0.16)");
+    expect(STATUS_STYLES.blocked.dotClass).toBe("bg-[#6d86a6]");
+    expect(STATUS_STYLES.blocked.textClass).toBe("text-[#9fb4cf]");
+    expect(WAITS_ON_STROKE).toBe("#6d86a6");
   });
 });
 
