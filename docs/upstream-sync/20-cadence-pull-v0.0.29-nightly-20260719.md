@@ -294,3 +294,92 @@ a separate docs commit on top so it can cite the final merge hash.
 DiffPanel working-tree diff (`/api/vcs/diff`), `pinnedCollapsedThread`, Pi-only
 driver registry (upstream's new multi-provider registry test dropped for this
 reason), deferred read-only Goals/tasks UI. Left untouched.
+
+## Post-pull integration — loom PR #115 (shell catch-up silent-drop) into the `subscribeShell` seam
+
+While this pull sat ready but unpushed, loom's own **PR #115 "eliminate silent
+shell-event drops in catch-up replay"** landed on `origin/main` (moving its tip
+from `228513737` to `eac5582d8`; the single squashed fix is `e96c98662`). Because
+this pull had already re-engineered the `ws.ts` connect-gap/buffering machinery,
+#115 was integrated via a **normal `git merge origin/main`** on the sync branch
+(no rebase, no amend of the upstream merge `48a3f2cd1`). Integration merge commit
+**`d77df9c79`**, parents `f306dd458` (sync-branch tip) and `eac5582d8`
+(`origin/main`); the upstream merge topology is untouched (`48a3f2cd1^2` still
+`53e3c98a5`).
+
+### The collision was narrower than feared — different handlers, not the same one
+
+The brief anticipated a three-way rewrite of the _same_ `subscribeShell`. In fact
+the two sides restructured **different handlers that share the same buffering
+design vocabulary**:
+
+- **PR #115** rewrote `subscribeShell` + the fallible `toShellStreamEvent` (the
+  per-event projection lookup).
+- **This pull's #4079 rehome** rewrote `subscribeThread` (re-homing loom's
+  transient reasoning stream onto upstream's single connect-gap buffer).
+
+So `apps/server/src/ws.ts` **auto-merged with zero conflicts** — the two edits
+never overlapped textually. The only conflict was in `apps/server/src/server.test.ts`,
+where both sides appended new `it.effect` tests at the same location and git
+tangled the two blocks (each ends in a similar `withWsRpcClient` shape). Resolved
+as a **union**: the complete `"buffers thread events published while the initial
+snapshot loads"` test (this pull) followed by all of #115's shell-catch-up tests
+(fail-loud, transient-absorb, row-absent-silent, gap-cap, connect-gap-during-load
+
+- its error-preserving variant).
+
+### Every #115 correctness guarantee verified present after the merge
+
+All of #115's load-bearing pieces survive verbatim in the merged `subscribeShell`
+(`ws.ts`), each still `// loom:`-tagged:
+
+1. **Fail-loud lookup taxonomy** — the four `Effect.orElseSucceed(() => Option.none())`
+   swallows are gone; `toShellStreamEvent` is fallible in `ProjectionRepositoryError`
+   and each branch uses `Effect.retry(shellLookupRetry)` (exponential 25ms × 2). A
+   _failed_ lookup stays loud (→ `OrchestrationGetSnapshotError` → client self-heal);
+   a _successful_ `Option.none` stays silent (the goal branch still emits
+   `goal-removed` from it). Verified by the "fails … instead of silently dropping"
+   and "keeps a genuinely-absent projection row silent" tests.
+2. **Eager PubSub attach before any cursor/snapshot read** via
+   `orchestrationEngine.subscribeDomainEvents`, with `toShellStreamEvent` mapped on
+   the consuming `liveLeg` stream (error → `OrchestrationGetSnapshotError`), never
+   forked into a value-only queue — the error channel survives the buffering window.
+3. **Bounded catch-up** — cursor sampled _after_ the eager attach;
+   `SHELL_CATCHUP_MAX_EVENTS = 500`; client-ahead (`afterSequence > snapshotSequence`)
+   and `gap > cap` both fall to a fresh snapshot; otherwise `readEvents(afterSequence, gap)`
+   reads exactly the sampled interval (not `MAX_SAFE_INTEGER`).
+
+This pull's `subscribeThread` (#4079 rehome) is likewise intact: `bufferedLiveStream`
+carries durable events + transient reasoning deltas through one pre-subscribed
+buffer. The two handlers deliberately use _different_ live-attach shapes —
+`subscribeShell` maps its fallible projector on the raw consuming stream (never a
+value queue, per #115's error-channel argument), while `subscribeThread` forks its
+**infallible** items into an unbounded queue — and this divergence is correct: only
+`subscribeShell`'s mapper can fail, so only it needs the raw-stream shape.
+
+### Client-side coherence
+
+`packages/client-runtime/src/state/shell.ts` + `shell-sync.test.ts` came from #115
+alone (this pull did not touch them) and auto-merged. The client reducer's
+mid-stream-`snapshot` wholesale-replace and the warm-cache self-heal-on-failure
+line up with the merged server behaviour: a persistent lookup failure now fails the
+stream loudly, and the client discards its warm cache → fresh snapshot. Shell-sync
+suite: **6/6 pass**.
+
+### Gates + tests + smoke (integration merge `d77df9c79`)
+
+- **typecheck** `vp run typecheck` — 0 errors (15 projects; suggestions only).
+- **build** `pnpm build` — exit 0.
+- **check** `vp check` — 0 errors, 21 pre-existing warnings.
+- **server** `apps/server/src/server.test.ts` — **113/113 pass** (full file, the
+  integration seam), including all #115 shell tests + this pull's thread-buffer test.
+- **client** `shell-sync.test.ts` — **6/6 pass**.
+- **smoke** built `bin.mjs` on port **13967** against a _copy_ of
+  `~/.t3/cockpit/userdata/state.sqlite` (1.1 GB) under a temp `--base-dir`/`T3CODE_HOME`;
+  live cockpit untouched. **"Migrations ran successfully"** (`migrations: []`),
+  `GET /` → **200**, no errors; process killed, copy removed, port confirmed free.
+- Node **22.23.1** (≥22.16 satisfied).
+
+No guarantee had to be dropped — the merged shape expresses all of #115's
+fail-loud + bounded-catch-up semantics alongside this pull's #4079-aligned
+`subscribeThread`.
