@@ -11,7 +11,15 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
+import {
+  AppWindow,
+  ChevronRight,
+  Code2,
+  Eye,
+  FolderTree,
+  Globe2,
+  LoaderCircle,
+} from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,6 +32,8 @@ import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorag
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
+import { useRightPanelStore } from "~/rightPanelStore";
+import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import { resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Toggle } from "~/components/ui/toggle";
@@ -717,6 +727,14 @@ export default function FilePreviewPanel({
     (explicitView ? explicitView === "rendered" : isMdx);
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
+  // Web-runtime counterpart to the desktop browser button: render an in-
+  // workspace HTML artefact in the sandboxed viewer surface. Gated mutually
+  // exclusively with `canOpenInBrowser` via `isPreviewSupportedInRuntime()`.
+  const canOpenInViewer =
+    relativePath !== null &&
+    !isAbsolute &&
+    !isPreviewSupportedInRuntime() &&
+    isArtifactViewerPath(relativePath);
   const openInEditorPath = relativePath ? resolvePathLinkTarget(relativePath, cwd) : null;
   const breadcrumbs = useMemo(
     () =>
@@ -862,6 +880,27 @@ export default function FilePreviewPanel({
                 }
               />
               <TooltipPopup>Open file in preview browser</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {canOpenInViewer && relativePath ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Toggle
+                    className="shrink-0"
+                    pressed={false}
+                    onPressedChange={() =>
+                      useRightPanelStore.getState().openArtifact(threadRef, relativePath)
+                    }
+                    aria-label="Open preview"
+                    variant="ghost"
+                    size="sm"
+                  >
+                    <AppWindow className="size-3.5" />
+                  </Toggle>
+                }
+              />
+              <TooltipPopup>Open preview</TooltipPopup>
             </Tooltip>
           ) : null}
           <Tooltip>

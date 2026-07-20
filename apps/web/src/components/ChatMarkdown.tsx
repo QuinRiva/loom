@@ -94,6 +94,7 @@ import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
+import { isArtifactViewerPath } from "./artifact/artifactView";
 import {
   isBrowserPreviewFile,
   openFileInPreview,
@@ -864,6 +865,12 @@ interface MarkdownFileLinkProps {
   threadRef?: ScopedThreadRef | undefined;
   onOpen: (targetPath: string) => Promise<AtomCommandResult<unknown, unknown>>;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
+  /**
+   * Web-runtime counterpart to `onOpenInBrowser`: renders the artefact in the
+   * sandboxed viewer surface. The two are mutually exclusive (browser on
+   * desktop, viewer on web), so at most one is ever set.
+   */
+  onOpenInViewer?: (() => void) | undefined;
   /** Directory targets swap the file actions for an explorer/copy behaviour. */
   isDirectory?: boolean | undefined;
   onOpenDirectory?: (() => void) | undefined;
@@ -1130,6 +1137,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   threadRef,
   onOpen,
   onOpenInBrowser,
+  onOpenInViewer,
   isDirectory,
   onOpenDirectory,
   className,
@@ -1342,6 +1350,10 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
                 handleOpenDirectory();
                 return;
               }
+              if (onOpenInViewer) {
+                onOpenInViewer();
+                return;
+              }
               if (onOpenInBrowser) {
                 handleOpenInBrowser();
                 return;
@@ -1383,6 +1395,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.threadRef === next.threadRef &&
     previous.onOpen === next.onOpen &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
+    previous.onOpenInViewer === next.onOpenInViewer &&
     previous.isDirectory === next.isDirectory &&
     previous.onOpenDirectory === next.onOpenDirectory &&
     previous.className === next.className
@@ -1701,6 +1714,20 @@ function ChatMarkdown({
               ? () => openMarkdownFileInPreview(meta.filePath)
               : undefined
           }
+          onOpenInViewer={
+            !isDirectory &&
+            threadRef &&
+            !isPreviewSupportedInRuntime() &&
+            isArtifactViewerPath(meta.filePath) &&
+            meta.workspaceRelativePath !== null
+              ? () => {
+                  const relative = meta.workspaceRelativePath;
+                  if (threadRef && relative) {
+                    useRightPanelStore.getState().openArtifact(threadRef, relative);
+                  }
+                }
+              : undefined
+          }
           isDirectory={isDirectory}
           onOpenDirectory={isDirectory ? () => openDirectoryTarget(meta) : undefined}
         />
@@ -1874,6 +1901,20 @@ function ChatMarkdown({
                 ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
                 : undefined
             }
+            onOpenInViewer={
+              !isDirectory &&
+              threadRef &&
+              !isPreviewSupportedInRuntime() &&
+              isArtifactViewerPath(fileLinkMeta.filePath) &&
+              fileLinkMeta.workspaceRelativePath !== null
+                ? () => {
+                    const relative = fileLinkMeta.workspaceRelativePath;
+                    if (threadRef && relative) {
+                      useRightPanelStore.getState().openArtifact(threadRef, relative);
+                    }
+                  }
+                : undefined
+            }
             isDirectory={isDirectory}
             onOpenDirectory={isDirectory ? () => openDirectoryTarget(fileLinkMeta) : undefined}
             className={props.className}
@@ -1934,6 +1975,20 @@ function ChatMarkdown({
               isPreviewSupportedInRuntime() &&
               isBrowserPreviewFile(inlineMeta.filePath)
                 ? () => openMarkdownFileInPreview(inlineMeta.filePath)
+                : undefined
+            }
+            onOpenInViewer={
+              !isDirectory &&
+              threadRef &&
+              !isPreviewSupportedInRuntime() &&
+              isArtifactViewerPath(inlineMeta.filePath) &&
+              inlineMeta.workspaceRelativePath !== null
+                ? () => {
+                    const relative = inlineMeta.workspaceRelativePath;
+                    if (threadRef && relative) {
+                      useRightPanelStore.getState().openArtifact(threadRef, relative);
+                    }
+                  }
                 : undefined
             }
             isDirectory={isDirectory}

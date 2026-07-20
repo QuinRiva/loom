@@ -361,6 +361,7 @@ const PreviewPanel = lazy(() =>
 const DiffPanel = lazy(() => import("./DiffPanel"));
 const FilePreviewPanel = lazy(() => import("./files/FilePreviewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("./files/AbsoluteDirectoryPanel"));
+const ArtifactViewPanel = lazy(() => import("./artifact/ArtifactViewPanel"));
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   "input",
@@ -1471,6 +1472,8 @@ function ChatViewContent(props: ChatViewProps) {
     activeRightPanelSurface?.kind === "files" ? activeRightPanelSurface : null;
   const activeDirectorySurface =
     activeRightPanelSurface?.kind === "dir" ? activeRightPanelSurface : null;
+  const activeArtifactSurface =
+    activeRightPanelSurface?.kind === "artifact" ? activeRightPanelSurface : null;
   const activePreviewState = useThreadPreviewState(activeThreadRef);
   const panelTerminalIds = useMemo(
     () =>
@@ -5380,6 +5383,17 @@ function ChatViewContent(props: ChatViewProps) {
         activeThread={activeThread ?? undefined}
         activeProjectId={activeProject?.id}
       />
+    ) : activeArtifactSurface && activeProject ? (
+      <Suspense fallback={null}>
+        <ArtifactViewPanel
+          key={activeArtifactSurface.id}
+          environmentId={activeProject.environmentId}
+          threadRef={activeThreadRef}
+          relativePath={activeArtifactSurface.relativePath}
+          reloadRequestId={activeArtifactSurface.reloadRequestId}
+          onOpenSource={openFileSurface}
+        />
+      </Suspense>
     ) : activeDirectorySurface ? (
       <Suspense fallback={null}>
         <AbsoluteDirectoryPanel
