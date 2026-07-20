@@ -9,6 +9,8 @@ description: >-
   and interactive prototypes) instead of a chat-only prose plan. Use when a plan
   is worth reviewing and annotating in-app and the work is approval-gated. For a
   recap of work already done, or a decision/review batch, use mdx-visual-recap.
+pi_global: true
+pi_global_requires: [mdx-doc-core]
 ---
 
 # MDX Visual Plans

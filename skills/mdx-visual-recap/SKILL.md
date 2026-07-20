@@ -9,6 +9,8 @@ description: >-
   describes or reviews existing changes and the reviewer must triage items and
   record decisions in-app. For a forward-looking implementation plan of work not
   yet written, use mdx-visual-plan.
+pi_global: true
+pi_global_requires: [mdx-doc-core]
 ---
 
 # MDX Visual Recaps & decision documents
