@@ -233,6 +233,7 @@ import {
   buildThreadTurnInterruptInput,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
+  decideHandoffSend,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   getStartedThreadModelChangeBlockReason,
@@ -1027,6 +1028,7 @@ function ChatViewContent(props: ChatViewProps) {
     reportFailure: false,
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
+  const draftHandoff = useAtomCommand(serverEnvironment.handoffDraft, { reportFailure: false });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -4016,6 +4018,52 @@ function ChatViewContent(props: ChatViewProps) {
         composerPreviewAnnotations.length +
         composerReviewComments.length,
     });
+    // `/handoff <explanation>` is intercepted here at the real send authority
+    // (plan D2): it must NEVER become a turn on the source thread. Every
+    // recognised branch returns, so fall-through to `beginLocalDispatch` /
+    // optimistic insertion / `startThreadTurn` is structurally impossible. It
+    // runs before the plan-follow-up branch so `/handoff` is caught even while
+    // a plan-follow-up prompt is showing.
+    const handoffDecision = decideHandoffSend({
+      trimmedPrompt: trimmed,
+      hasAttachmentsOrContexts:
+        composerImages.length > 0 ||
+        composerTerminalContexts.length > 0 ||
+        composerElementContexts.length > 0 ||
+        composerPreviewAnnotations.length > 0 ||
+        composerReviewComments.length > 0,
+    });
+    if (handoffDecision.kind !== "not-handoff") {
+      const sourceThreadId = activeThread.id;
+      // Empty explanation or blocked context: surface inline, preserve the
+      // draft, and never send.
+      if (handoffDecision.kind === "empty-error" || handoffDecision.kind === "blocked-context") {
+        setThreadError(sourceThreadId, handoffDecision.message);
+        return;
+      }
+      const handoffResult = await draftHandoff({
+        environmentId,
+        input: { sourceThreadId, explanation: handoffDecision.explanation },
+      });
+      if (handoffResult._tag === "Failure") {
+        // Preserve the draft; surface the server error inline (source not found
+        // / non-pi / mid-turn busy arrive as OrchestrationDispatchCommandError).
+        if (!isAtomCommandInterrupted(handoffResult)) {
+          const error = squashAtomCommandFailure(handoffResult);
+          setThreadError(
+            sourceThreadId,
+            error instanceof Error ? error.message : "Could not hand off this work.",
+          );
+        }
+        return;
+      }
+      // Success: clear the composer only now.
+      setThreadError(sourceThreadId, null);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
     if (showPlanFollowUpPrompt && activeProposedPlan) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,

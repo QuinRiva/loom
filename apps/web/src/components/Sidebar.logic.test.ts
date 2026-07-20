@@ -22,6 +22,7 @@ import {
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./Sidebar.logic";
 import {
+  type AttentionReason,
   EnvironmentId,
   OrchestrationLatestTurn,
   ProjectId,
@@ -598,6 +599,7 @@ describe("isContextMenuPointerDown", () => {
 
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
+    attention: [] as ReadonlyArray<AttentionReason>,
     hasActionableProposedPlan: false,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
@@ -616,6 +618,18 @@ describe("resolveThreadStatusPill", () => {
       updatedAt: "2026-03-09T10:00:00.000Z",
     },
   };
+
+  it("surfaces a needs-guidance attention flag above every other status", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          attention: ["needs_guidance"],
+          hasPendingApprovals: true,
+        },
+      }),
+    ).toMatchObject({ label: "Needs Attention", pulse: false });
+  });
 
   it("shows pending approval before all other statuses", () => {
     expect(

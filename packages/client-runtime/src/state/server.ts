@@ -389,5 +389,12 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:remove-workstream-worktree",
       tag: WS_METHODS.serverRemoveWorkstreamWorktree,
     }),
+    // `/handoff` fork-drafter (plan D2/D4): a dedicated RPC, NOT a dispatch
+    // command. The composer intercept calls this so the human's explanation
+    // never becomes a turn on the source thread.
+    handoffDraft: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:handoff-draft",
+      tag: WS_METHODS.serverHandoffDraft,
+    }),
   };
 }
