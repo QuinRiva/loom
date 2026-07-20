@@ -7,6 +7,10 @@
       "types": "./src/accountUsage.ts",
       "import": "./src/accountUsage.ts"
     },
+    "./projectFavicon": {
+      "types": "./src/projectFavicon.ts",
+      "import": "./src/projectFavicon.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

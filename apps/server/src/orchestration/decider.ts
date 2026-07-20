@@ -18,6 +18,7 @@ import type * as PlatformError from "effect/PlatformError";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   listThreadsByProjectId,
+  requireActiveProjectWorkspaceRootAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -30,7 +31,6 @@ import {
   findGoalById,
   listGoalsByProjectId,
   requireActiveGoalInProject,
-  requireActiveWorkspaceRootAvailable,
 } from "./commandInvariants.loom.ts";
 import { projectEvent } from "./projector.ts";
 import { describeUnsatisfiedDependency } from "@t3tools/shared/workstreamDependencies";
@@ -189,14 +189,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // a restart storm) each have a private read model and can both pass this
       // check — they are caught structurally by the partial unique index on
       // projection_projects(workspace_root) WHERE deleted_at IS NULL (migration
-      // 049), which rolls back the losing create's transaction. A soft-deleted
+      // 050), which rolls back the losing create's transaction. A soft-deleted
       // project for the path does not block re-creation.
-      // loom: workspace-root-availability invariant (fork addition to an
-      // upstream case).
-      yield* requireActiveWorkspaceRootAvailable({
+      yield* requireActiveProjectWorkspaceRootAbsent({
         readModel,
         command,
         workspaceRoot: command.workspaceRoot,
+        exceptProjectId: command.projectId,
       });
 
       return {
@@ -225,6 +224,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
+      if (command.workspaceRoot !== undefined) {
+        yield* requireActiveProjectWorkspaceRootAbsent({
+          readModel,
+          command,
+          workspaceRoot: command.workspaceRoot,
+          exceptProjectId: command.projectId,
+        });
+      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({

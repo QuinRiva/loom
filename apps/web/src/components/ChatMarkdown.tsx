@@ -32,7 +32,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
-import type { Components } from "react-markdown";
+import type { Components, Options as ReactMarkdownOptions } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -65,6 +65,7 @@ import {
   serializeTableElementToCsv,
   serializeTableElementToMarkdown,
 } from "../markdown-clipboard";
+import { remarkNormalizeListItemIndentation } from "../markdown-list-indentation";
 import {
   type MarkdownFileLinkMeta,
   type TextPathSpan,
@@ -180,6 +181,24 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
     href: [...(defaultSchema.protocols?.href ?? []), "file", "thread"],
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
+
+const CHAT_MARKDOWN_REMARK_PLUGINS = [
+  remarkGfm,
+  remarkNormalizeListItemIndentation,
+  remarkPreserveCodeMeta,
+] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+
+const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
+  remarkGfm,
+  remarkNormalizeListItemIndentation,
+  remarkBreaks,
+  remarkPreserveCodeMeta,
+] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+
+const CHAT_MARKDOWN_REHYPE_PLUGINS = [
+  rehypeRaw,
+  [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
+] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
@@ -1991,18 +2010,17 @@ function ChatMarkdown({
     >
       <ReactMarkdown
         remarkPlugins={
-          lineBreaks
-            ? [remarkGfm, remarkBreaks, remarkPreserveCodeMeta]
-            : [remarkGfm, remarkPreserveCodeMeta]
+          lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS
         }
-        rehypePlugins={[
-          rehypeRaw,
-          [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
-          // Prose path-linking is deferred until streaming completes, so the
-          // text is not re-split on every streamed parse (matches the brief's
-          // "no per-token rescans"); the completed message runs it once.
-          ...(isStreaming ? [] : [rehypeChatFilePaths]),
-        ]}
+        rehypePlugins={
+          // loom (#79): reuse upstream's extracted rehype constant, appending the
+          // prose path-linking plugin only once streaming completes so the text
+          // is not re-split on every streamed parse (no per-token rescans); the
+          // completed message runs it once.
+          isStreaming
+            ? CHAT_MARKDOWN_REHYPE_PLUGINS
+            : [...CHAT_MARKDOWN_REHYPE_PLUGINS, rehypeChatFilePaths]
+        }
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
