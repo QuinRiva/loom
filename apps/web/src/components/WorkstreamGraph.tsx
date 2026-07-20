@@ -3,15 +3,17 @@
 // where a wave = the children of one (parentThreadId, spawnGeneration) — the set
 // the engine spawns before it next regains control. Waves stack down a neutral
 // solid spine ordered by each wave's earliest child; within a wave, children sit
-// in dependency columns and real `blockedBy` edges are dashed-amber cross-edges.
+// in dependency columns and real `blockedBy` edges are dashed-steel cross-edges.
 // Nesting (a child that itself spawns) is the same layout applied recursively and
 // packed as a measured block. Position encodes temporal/causal dispatch order;
 // status is colour only. Hand-rolled band layout + zero-dependency pan/zoom.
 //
 // Interaction (redesign): the cheapest gesture ENTERS a thread — clicking a node
 // opens its conversation. Hovering (~300ms) surfaces a quick-facts card and a
-// dependency highlight (the node's edges + neighbours light, the rest recede); a
-// small ⓘ affordance opens the lifecycle drawer. Done/cancelled nodes dim so the
+// dependency highlight (the node's edges + neighbours light, the rest recede);
+// right-clicking a node (or Shift+F10 / the ContextMenu key on a focused node)
+// opens a state-aware context menu of secondary actions. Running/yielded nodes
+// carry a compact live footer (⚒ tools · age). Done/cancelled nodes dim so the
 // live front is what the eye lands on. The canvas is sized to its content.
 //
 // If this ever becomes an EDITABLE orchestration canvas (drag to rewire, minimap),
@@ -52,6 +54,7 @@ import {
   getGateWaitLabel,
   getLoopEdgeStroke,
   getLoopStroke,
+  getNodeFooter,
   getRoleIcon,
   getRoleLabel,
   getThreadStatus,
@@ -67,7 +70,7 @@ import { WorkstreamQuickFacts } from "./WorkstreamQuickFacts";
 const SPINE_STROKE = "rgba(255,255,255,0.30)";
 // Thread fork (forkFromThreadId): a distinct violet for the “forked from”
 // lineage glyph, not conflated with the fork-join spine (FORK_STROKE below),
-// consult (teal), loop, or waits-on (amber).
+// consult (teal), loop, or waits-on (steel).
 const FORKED_FROM_STROKE = "#c084fc";
 const FORK_STROKE = "rgba(255,255,255,0.26)";
 // Done/cancelled cards recede to this opacity so the live front reads first
@@ -95,7 +98,7 @@ export default function WorkstreamGraph({
   threads,
   threadById,
   onOpenThread,
-  onInspectThread,
+  onNodeContextMenu,
   onOpenDispatch,
 }: {
   /** Scoped root-thread key identifying this orchestration's saved view. */
@@ -103,7 +106,10 @@ export default function WorkstreamGraph({
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onInspectThread: (thread: SidebarThreadSummary) => void;
+  readonly onNodeContextMenu: (
+    thread: SidebarThreadSummary,
+    position: { x: number; y: number },
+  ) => void;
   readonly onOpenDispatch: (
     threadId: ThreadId,
     anchorAtIso: string,
@@ -315,9 +321,8 @@ export default function WorkstreamGraph({
     <div className="flex w-full flex-col items-center gap-3">
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
-        a wave sit to its right, with dashed amber &ldquo;waits-on&rdquo; cross-edges. Click a node
-        to open its thread; hover for its facts, and click <span aria-hidden>ⓘ</span> to inspect its
-        history.
+        a wave sit to its right, with dashed steel &ldquo;waits-on&rdquo; cross-edges. Click a node
+        to open its thread; hover for its facts; right-click for actions.
       </p>
       <div className="relative w-full" ref={shellRef}>
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
@@ -357,24 +362,21 @@ export default function WorkstreamGraph({
                 50% { stroke-opacity: 0.28; stroke-width: 3.4; }
               }
               .ws-attention-pulse { animation: wsAttentionPulse 1.8s ease-in-out infinite; }
+              @keyframes wsFooterPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+              .ws-footer-live { animation: wsFooterPulse 1.8s ease-in-out infinite; }
               .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: opacity 0.18s; }
-              .ws-graph-inspect { opacity: 0; cursor: pointer; transition: opacity 0.12s; }
-              .ws-graph-node:hover .ws-graph-inspect,
-              .ws-graph-inspect:focus-within,
-              .ws-graph-inspect:focus-visible { opacity: 1; }
               /* Visible keyboard focus for every SVG affordance (replaces the
                  removed default outline), plus the graph control buttons. */
               .ws-focus-ring { opacity: 0; }
-              .ws-graph-open:focus-visible, .ws-graph-inspect:focus-visible,
+              .ws-graph-open:focus-visible,
               .ws-graph-bridge:focus-visible, .ws-graph-consult-edge:focus-visible { outline: none; }
               .ws-graph-open:focus-visible .ws-focus-ring,
-              .ws-graph-inspect:focus-visible .ws-focus-ring,
               .ws-graph-bridge:focus-visible .ws-focus-ring,
               .ws-graph-consult-edge:focus-visible .ws-focus-ring { opacity: 1; }
               @media (prefers-reduced-motion: reduce) {
                 .ws-attention-pulse { animation: none; stroke-opacity: 0.9; }
+                .ws-footer-live { animation: none; opacity: 1; }
                 .ws-graph-node, .ws-graph-edge, .ws-graph-consult-edge { transition: none; }
-                .ws-graph-inspect { transition: none; }
               }
             `}</style>
             <marker
@@ -455,7 +457,7 @@ export default function WorkstreamGraph({
                 threadById={threadById}
                 dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
                 onOpenThread={onOpenThread}
-                onInspectThread={onInspectThread}
+                onNodeContextMenu={onNodeContextMenu}
                 onHoverStart={(thread) => scheduleHover(thread, node.thread.id)}
                 onHoverMove={(event) => {
                   pointerPosRef.current = { clientX: event.clientX, clientY: event.clientY };
@@ -773,7 +775,7 @@ function GraphNode({
   threadById,
   dimmed,
   onOpenThread,
-  onInspectThread,
+  onNodeContextMenu,
   onHoverStart,
   onHoverMove,
   onHoverEnd,
@@ -784,7 +786,10 @@ function GraphNode({
   readonly threadById: ChildIndex;
   readonly dimmed: boolean;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
-  readonly onInspectThread: (thread: SidebarThreadSummary) => void;
+  readonly onNodeContextMenu: (
+    thread: SidebarThreadSummary,
+    position: { x: number; y: number },
+  ) => void;
   readonly onHoverStart: (thread: SidebarThreadSummary) => void;
   readonly onHoverMove: (event: { clientX: number; clientY: number }) => void;
   readonly onHoverEnd: () => void;
@@ -806,19 +811,29 @@ function GraphNode({
   const recede = status.column === "done" || status.column === "cancelled";
   const cardOpacity = dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1;
   // Bottom-right badge row: every relationship badge (fork, fan-in, consult)
-  // left-packs into the same corner, keeping the top-right corner free for the
-  // ⓘ control — a badge is information, ⓘ is an action, and the action must
-  // sit at a stable position on every node regardless of which badges exist.
+  // left-packs into the same corner.
   const forkBadgeX = node.x + node.w - 12;
   const fanInBadgeX = forkBadgeX - (thread.forkFromThreadId ? 20 : 0);
   const consultBadgeX = fanInBadgeX - (fanInBadge ? 20 : 0);
+  // Always-on footer for running/yielded nodes (⚒ tools · age + live pulse).
+  // Null for every other state — not-yet-run stays clean, terminal recedes.
+  const footer = getNodeFooter(thread, status.column);
   const open = () => onOpenThread(thread);
-  const inspect = () => onInspectThread(thread);
+  // Right-click / keyboard menu key → the state-aware context menu (the ⓘ's
+  // replacement). Cancel the hover card first so the facts never sit under it.
+  const openMenu = (position: { x: number; y: number }) => {
+    onHoverEnd();
+    onNodeContextMenu(thread, position);
+  };
   const roleLabel = getRoleLabel(thread);
   return (
-    // Container only (role=group) — the two affordances below are SIBLING
-    // buttons, never nested, so the tab order and screen-reader semantics are
-    // unambiguous. Pointer hover drives the facts card + dependency highlight.
+    // Container only (role=group). A single focusable open-button sits inside;
+    // secondary actions live in the right-click context menu (no sibling ⓘ).
+    // Pointer hover drives the facts card + dependency highlight. The
+    // contextmenu handler is on the OUTER group so pills/badges are in the hit
+    // area; preventDefault suppresses the native menu and stopPropagation keeps
+    // the SVG canvas from ever seeing it (bridge nodes/canvas keep the native
+    // menu — the affordance is thread-node-only).
     <g
       className="ws-graph-node"
       role="group"
@@ -826,6 +841,11 @@ function GraphNode({
       onMouseEnter={() => onHoverStart(thread)}
       onMouseMove={(event) => onHoverMove(event)}
       onMouseLeave={onHoverEnd}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openMenu({ x: event.clientX, y: event.clientY });
+      }}
     >
       {/* Primary affordance: open the thread. Keyboard focus mirrors hover. */}
       <g
@@ -838,6 +858,13 @@ function GraphNode({
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             open();
+          } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            // Standard keyboard context-menu gesture: anchor the menu to the
+            // node's own rect (bottom-centre) so keyboard users reach every
+            // secondary action the removed ⓘ never exposed.
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            openMenu({ x: rect.left + rect.width / 2, y: rect.bottom });
           }
         }}
         onFocus={(event) => onFocusStart(thread, event.currentTarget)}
@@ -992,53 +1019,53 @@ function GraphNode({
               </text>
             </g>
           ) : null}
+          {footer ? <NodeFooter node={node} footer={footer} /> : null}
         </g>
       </g>
-      {/* Sibling affordance: open the lifecycle drawer. Revealed on hover/focus
-          (opacity via the :hover / :focus-within rules in the style block). */}
-      <g
-        className="ws-graph-inspect cursor-pointer"
-        role="button"
-        aria-label={`Inspect lifecycle history for ${thread.title}`}
-        tabIndex={0}
-        onClick={(event) => {
-          event.stopPropagation();
-          inspect();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            event.stopPropagation();
-            inspect();
-          }
-        }}
+    </g>
+  );
+}
+
+/** Always-on running/yielded footer: a separator, an optional live pulse dot,
+ * and `⚒ tools · age` — all inside the card-visuals group so it recedes/fades
+ * with the card. Geometry per plan §3.2 (h = 66). */
+function NodeFooter({
+  node,
+  footer,
+}: {
+  readonly node: Extract<LaidNode, { kind: "thread" }>;
+  readonly footer: NonNullable<ReturnType<typeof getNodeFooter>>;
+}) {
+  const textX = node.x + (footer.live ? 25 : 14);
+  const baseline = node.y + 56;
+  return (
+    <g pointerEvents="none">
+      <line
+        x1={node.x + 12}
+        y1={node.y + 44}
+        x2={node.x + node.w - 12}
+        y2={node.y + 44}
+        stroke="rgba(255,255,255,0.09)"
+        strokeWidth={1}
+      />
+      {footer.live ? (
+        <circle className="ws-footer-live" cx={node.x + 17} cy={node.y + 53} r={3} fill="#38bdf8" />
+      ) : null}
+      <text
+        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+        fontSize={8.5}
+        fill="rgba(255,255,255,0.72)"
+        x={textX}
+        y={baseline}
       >
-        {/* Fixed top-right slot on every node — badges live in the bottom-right
-            row, so this control's position never varies with badge presence.
-            Drawn as vector strokes (dot + stem), not a ⓘ text glyph, so it
-            renders crisply at every zoom and doesn't double-ring the circle.
-            No native <title>: the facts card is already open on node hover and
-            names this action; a browser tooltip on top of it reads as two
-            duelling tooltips. */}
-        <circle
-          cx={node.x + node.w - 14}
-          cy={node.y + 13}
-          fill="#0d1117"
-          r="8.5"
-          stroke="rgba(255,255,255,0.45)"
-        />
-        <circle cx={node.x + node.w - 14} cy={node.y + 9.6} fill="rgba(255,255,255,0.85)" r="1.1" />
-        <rect
-          fill="rgba(255,255,255,0.85)"
-          height={5.4}
-          rx={0.8}
-          width={1.6}
-          x={node.x + node.w - 14.8}
-          y={node.y + 11.8}
-        />
-        <rect fill="transparent" height={22} width={22} x={node.x + node.w - 25} y={node.y + 2} />
-        <FocusRing x={node.x + node.w - 25} y={node.y + 2} w={22} h={22} rx={11} />
-      </g>
+        {footer.toolLabel ? (
+          <>
+            <tspan>{`⚒ ${footer.toolLabel} `}</tspan>
+            <tspan fill="rgba(255,255,255,0.25)">· </tspan>
+          </>
+        ) : null}
+        <tspan>{footer.age}</tspan>
+      </text>
     </g>
   );
 }

@@ -1,25 +1,26 @@
 import { forwardRef, type ReactNode } from "react";
 
+import { formatCostUsd } from "../lib/contextWindow";
 import {
   type ChildIndex,
   formatRelativeAge,
-  getActivity,
   getAttentionBadges,
   getFanInChip,
   getGateLoopCap,
   getGateWaitLabel,
   getLastActivityAt,
   getPurpose,
-  getRoleIcon,
   getRoleLabel,
   getThreadStatus,
   getVerdictChip,
+  hasRunningSignal,
 } from "../lib/workstreamPresentation";
 import type { SidebarThreadSummary } from "../types";
+import { WorkstreamModelPill } from "./WorkstreamModelPill";
 
 /**
  * Quick-facts hover card for a graph node — the cheap glance before committing to
- * a click (open) or the ⓘ (history). Purely presentational; the graph owns the
+ * a click (open) or a right-click (actions). Purely presentational; the graph owns the
  * dwell timing and positions this imperatively via the forwarded ref (so pointer
  * tracking never re-renders the SVG). Every field rides on the thread shell
  * already, so this reads live state without any extra fetch.
@@ -37,6 +38,16 @@ export const WorkstreamQuickFacts = forwardRef<
   const fanInChip = getFanInChip(thread);
   const badges = getAttentionBadges(thread);
   const hasGate = thread.routes.some((route) => route.kind === "loop");
+  const running = hasRunningSignal(thread);
+  // "Never run" per plan §3.3: still in a pre-run column and no tool snapshot yet.
+  const notStarted =
+    (status.column === "planned" ||
+      status.column === "awaiting_brief" ||
+      status.column === "ready" ||
+      status.column === "blocked") &&
+    thread.toolUses === null;
+  const cost = formatCostUsd(thread.cumulativeCostUsd);
+  const preview = thread.lastActivityPreview;
   const forkedFrom = thread.forkFromThreadId
     ? (threadById.get(thread.forkFromThreadId)?.title ?? thread.forkFromThreadId)
     : null;
@@ -44,7 +55,7 @@ export const WorkstreamQuickFacts = forwardRef<
   return (
     <div
       ref={ref}
-      className="pointer-events-none absolute z-20 w-[236px] rounded-xl border border-white/20 bg-[#0d1117]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
+      className="pointer-events-none absolute z-20 max-h-[40vh] w-[236px] overflow-hidden rounded-xl border border-white/20 bg-[#0d1117]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
     >
       <div className="text-[10px] uppercase tracking-[0.1em] text-white/30">
         {getRoleLabel(thread)}
@@ -53,27 +64,28 @@ export const WorkstreamQuickFacts = forwardRef<
         {thread.title}
       </div>
       {/* The goal used to live in a native <title> tooltip on the node, which
-          fought this card (two simultaneous tooltips); it belongs here. */}
-      <div className="mt-1 line-clamp-3 text-[11px] leading-snug text-white/55">
-        {getPurpose(thread)}
-      </div>
+          fought this card (two simultaneous tooltips); it belongs here — shown in
+          full (purposes are 1–3 sentences), bounded only by the card's max-h. */}
+      <div className="mt-1 text-[11px] leading-snug text-white/55">{getPurpose(thread)}</div>
 
       <dl className="mt-2 flex flex-col gap-1">
         <FactRow label="Status">
           <span style={{ color: status.graphStroke }}>● {status.label}</span>
         </FactRow>
-        <FactRow label="Role">
-          <span>
-            {getRoleIcon(thread)} {getRoleLabel(thread)}
-          </span>
+        <FactRow label="Tool calls">
+          {notStarted ? (
+            <span className="italic text-white/30">not started yet</span>
+          ) : thread.toolUses !== null ? (
+            <span className="font-mono">⚒ {thread.toolUses}</span>
+          ) : (
+            <span className="text-white/40">—</span>
+          )}
         </FactRow>
-        <FactRow label="Last activity">
-          <span>
-            {getActivity(thread, status.column)}
-            <span className="ml-1 text-white/35">
-              · {formatRelativeAge(getLastActivityAt(thread))}
-            </span>
-          </span>
+        <FactRow label="Model">
+          <WorkstreamModelPill selection={thread.modelSelection} />
+        </FactRow>
+        <FactRow label="Cost">
+          <span className="font-mono">{cost ?? "—"}</span>
         </FactRow>
         {hasGate || thread.gateRounds > 0 ? (
           <FactRow label="Gate rounds">
@@ -85,6 +97,30 @@ export const WorkstreamQuickFacts = forwardRef<
         {fanInChip ? <FactRow label="Fan-in">{fanInChip.label}</FactRow> : null}
         {forkedFrom ? <FactRow label="Forked from">{forkedFrom}</FactRow> : null}
       </dl>
+
+      {/* Turn line — the most recent assistant action IS the activity read (it
+          replaces the old generic getActivity() phrase). Degrades honestly per
+          plan §3.3: starting… only while actually running, no turns yet before
+          the first run, — for an idle non-pi narration gap. */}
+      <div className="mt-2 flex gap-1.5 border-t border-white/10 pt-2 text-[11px] leading-snug text-white/60">
+        <span aria-hidden className="shrink-0 text-white/30">
+          ›
+        </span>
+        {preview ? (
+          <span className="min-w-0">
+            <span className="italic">{preview}</span>
+            <span className="ml-1 not-italic text-white/[0.32]">
+              · {formatRelativeAge(getLastActivityAt(thread))}
+            </span>
+          </span>
+        ) : running ? (
+          <span className="italic text-white/30">starting…</span>
+        ) : notStarted ? (
+          <span className="italic text-white/30">no turns yet</span>
+        ) : (
+          <span className="text-white/30">—</span>
+        )}
+      </div>
 
       {verdictChip || gateWait || badges.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -117,7 +153,9 @@ export const WorkstreamQuickFacts = forwardRef<
         </div>
       ) : null}
 
-      <div className="mt-2 text-[11px] text-sky-300/80">click to enter · ⓘ for history</div>
+      <div className="mt-2 text-[11px] text-sky-300/80">
+        click to enter · right-click for actions
+      </div>
     </div>
   );
 });
