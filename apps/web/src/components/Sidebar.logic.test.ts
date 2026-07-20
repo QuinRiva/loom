@@ -874,6 +874,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
+    handoffCount: 0,
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),

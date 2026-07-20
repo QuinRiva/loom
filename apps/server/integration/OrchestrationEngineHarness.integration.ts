@@ -64,6 +64,7 @@ import {
 import { ThreadDeletionReactor } from "../src/orchestration/Services/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcher } from "../src/orchestration/Services/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactor } from "../src/orchestration/Services/WorkstreamFanInReactor.ts";
+import { HandoffDrafterReactor } from "../src/orchestration/Services/HandoffDrafterReactor.ts";
 import { WorktreeReaper } from "../src/orchestration/Services/WorktreeReaper.ts";
 import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -390,6 +391,12 @@ export const makeOrchestrationIntegrationHarness = (
       ),
       Layer.provideMerge(
         Layer.succeed(WorkstreamFanInReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(HandoffDrafterReactor, {
           start: () => Effect.void,
           drain: Effect.void,
         }),

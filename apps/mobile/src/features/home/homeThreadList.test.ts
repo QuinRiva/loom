@@ -59,6 +59,7 @@ function makeThread(
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
+    handoffCount: 0,
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
     archivedAt: null,

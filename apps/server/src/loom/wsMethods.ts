@@ -31,6 +31,8 @@ export const LOOM_RPC_SCOPES: ReadonlyArray<readonly [string, AuthEnvironmentSco
   [WS_METHODS.serverGetUsageBreakdown, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetWorkstreamWorktrees, AuthOrchestrationReadScope],
   [WS_METHODS.serverRemoveWorkstreamWorktree, AuthOrchestrationOperateScope],
+  // `/handoff` fork-drafter: minting a drafter + injecting its turn is a write.
+  [WS_METHODS.serverHandoffDraft, AuthOrchestrationOperateScope],
 ];
 
 export interface LoomWsHandlerDeps {
