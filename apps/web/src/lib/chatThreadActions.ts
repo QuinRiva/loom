@@ -40,8 +40,12 @@ export interface ChatThreadActionContext {
 export function resolveNewDraftStartFromOrigin(input: {
   envMode: DraftThreadEnvMode;
   newWorktreesStartFromOrigin: boolean;
+  projectDefaultStartFromOrigin?: boolean | null;
 }): boolean {
-  return input.envMode === "worktree" && input.newWorktreesStartFromOrigin;
+  return (
+    input.envMode === "worktree" &&
+    (input.newWorktreesStartFromOrigin || input.projectDefaultStartFromOrigin === true)
+  );
 }
 
 export function resolveThreadActionProjectRef(

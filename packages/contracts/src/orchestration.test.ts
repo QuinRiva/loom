@@ -169,6 +169,9 @@ it.effect("decodes historical project.created payloads with a default provider",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.defaultModelSelection?.instanceId, "codex");
+    // Replay-safe: historical events predate defaultStartFromOrigin and must
+    // still decode, defaulting to null (unset).
+    assert.strictEqual(parsed.defaultStartFromOrigin, null);
   }),
 );
 

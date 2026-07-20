@@ -80,6 +80,7 @@ const seedBase = (goalTitleProvenance: TitleProvenance) =>
         title: "Title Provenance",
         workspaceRoot: "/tmp/title-prov",
         defaultModelSelection: null,
+        defaultStartFromOrigin: null,
         scripts: [],
         createdAt: now,
         updatedAt: now,

@@ -370,6 +370,7 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
     },
@@ -387,6 +388,7 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
     },
@@ -422,6 +424,7 @@ interface ComposerDraftStoreState {
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      projectDefaultStartFromOrigin?: boolean | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
     },
@@ -1389,6 +1392,7 @@ function createDraftThreadState(
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
     startFromOrigin?: boolean;
+    projectDefaultStartFromOrigin?: boolean | null;
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
   },
@@ -1412,7 +1416,7 @@ function createDraftThreadState(
   const nextStartFromOrigin =
     options?.startFromOrigin === undefined
       ? projectChanged
-        ? false
+        ? (options?.projectDefaultStartFromOrigin ?? false)
         : (existingThread?.startFromOrigin ?? false)
       : options.startFromOrigin;
   const nextGoalId =
@@ -2465,7 +2469,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextStartFromOrigin =
               options.startFromOrigin === undefined
                 ? projectChanged
-                  ? false
+                  ? (options.projectDefaultStartFromOrigin ?? false)
                   : existing.startFromOrigin
                 : options.startFromOrigin;
             const nextGoalId =
