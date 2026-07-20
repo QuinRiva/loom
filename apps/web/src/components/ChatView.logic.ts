@@ -10,6 +10,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { type ChatMessage, type SessionPhase, type Thread } from "../types";
+import { parseHandoffDraft } from "../composer-logic";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -26,6 +27,49 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+// Inline copy for the `/handoff` composer intercept (plan D2). Australian
+// English in UI prose.
+export const HANDOFF_EMPTY_EXPLANATION_MESSAGE =
+  "Add an explanation after /handoff before sending.";
+export const HANDOFF_BLOCKED_CONTEXT_MESSAGE =
+  "Attachments and contexts aren’t supported with /handoff yet. Remove them and try again.";
+
+/**
+ * Result of the `/handoff` intercept decision at the send authority. Every kind
+ * except `not-handoff` short-circuits the send — a recognised `/handoff` must
+ * NEVER become a turn on the source thread (plan D2). `not-handoff` is the ONLY
+ * kind that lets `onSend` fall through to a normal turn-start.
+ */
+export type HandoffSendDecision =
+  | { readonly kind: "not-handoff" }
+  | { readonly kind: "empty-error"; readonly message: string }
+  | { readonly kind: "blocked-context"; readonly message: string }
+  | { readonly kind: "dispatch"; readonly explanation: string };
+
+/**
+ * Pure decision for the `/handoff` intercept. `onSend` performs the effects
+ * (inline error, RPC dispatch, draft clear/preserve) but the branch selection
+ * lives here so the no-fall-through invariant is unit-testable in isolation.
+ * Attachments/terminal/element/preview/review contexts alongside a recognised
+ * `/handoff` are rejected for MVP (plan D2), never silently discarded.
+ */
+export function decideHandoffSend(input: {
+  trimmedPrompt: string;
+  hasAttachmentsOrContexts: boolean;
+}): HandoffSendDecision {
+  const parse = parseHandoffDraft(input.trimmedPrompt);
+  if (parse.kind === "not-handoff") {
+    return { kind: "not-handoff" };
+  }
+  if (parse.kind === "empty-error") {
+    return { kind: "empty-error", message: HANDOFF_EMPTY_EXPLANATION_MESSAGE };
+  }
+  if (input.hasAttachmentsOrContexts) {
+    return { kind: "blocked-context", message: HANDOFF_BLOCKED_CONTEXT_MESSAGE };
+  }
+  return { kind: "dispatch", explanation: parse.explanation };
+}
 
 export function buildLocalDraftThread(
   threadId: ThreadId,
@@ -60,6 +104,7 @@ export function buildLocalDraftThread(
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
+    handoffCount: 0,
     title: "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,

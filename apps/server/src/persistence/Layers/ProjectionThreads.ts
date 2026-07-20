@@ -86,6 +86,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens,
           diff_additions,
           diff_deletions,
+          handoff_count,
           deleted_at
         )
         VALUES (
@@ -134,6 +135,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.maxTokens},
           ${row.diffAdditions},
           ${row.diffDeletions},
+          ${row.handoffCount},
           ${row.deletedAt}
         )
         ON CONFLICT (thread_id)
@@ -182,6 +184,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens = excluded.max_tokens,
           diff_additions = excluded.diff_additions,
           diff_deletions = excluded.diff_deletions,
+          handoff_count = excluded.handoff_count,
           deleted_at = excluded.deleted_at
       `,
   });
@@ -237,6 +240,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -294,6 +298,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
+          handoff_count AS "handoffCount",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}

@@ -211,6 +211,8 @@ export function applyThreadDetailEvent(
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
+          // loom: `/handoff` fork-drafter (plan D5) — handoff count starts at 0.
+          handoffCount: 0,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,

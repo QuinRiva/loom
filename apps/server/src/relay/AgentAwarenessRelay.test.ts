@@ -339,6 +339,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       maxTokens: null,
       diffAdditions: null,
       diffDeletions: null,
+      handoffCount: 0,
     } satisfies Omit<OrchestrationThreadShell, "id">;
 
     expect(
@@ -523,6 +524,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
+          handoffCount: 0,
         } satisfies OrchestrationThreadShell;
 
         const orchestrationEngine = {
@@ -710,6 +712,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
+          handoffCount: 0,
         } satisfies OrchestrationThreadShell;
 
         const descriptor = {

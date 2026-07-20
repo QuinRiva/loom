@@ -4,6 +4,7 @@ import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { type ReactNode } from "react";
 import { sortThreads } from "../lib/threadSort";
+import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
@@ -113,7 +114,15 @@ export function buildProjectActionItems(input: {
 
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
-  "archivedAt" | "branch" | "createdAt" | "environmentId" | "id" | "projectId" | "title"
+  | "archivedAt"
+  | "branch"
+  | "createdAt"
+  | "environmentId"
+  | "id"
+  | "projectId"
+  | "title"
+  | "role"
+  | "attention"
 > & {
   updatedAt: string;
   latestUserMessageAt?: string | null;
@@ -133,7 +142,8 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    // Hide healthy handoff-drafter roots; surface only broken ones (plan D6).
+    input.threads.filter((thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread)),
     input.sortOrder,
   );
   const visibleThreads =

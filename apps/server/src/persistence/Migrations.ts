@@ -74,6 +74,7 @@ import Migration0058 from "./Migrations/058_ProjectionThreadScaffoldFields.ts";
 import Migration0059 from "./Migrations/059_ProjectionThreadPlanLaneSince.ts";
 import Migration0060 from "./Migrations/060_ProjectionThreadDependenciesSince.ts";
 import Migration0061 from "./Migrations/061_ProjectionThreadFaninSince.ts";
+import Migration0062 from "./Migrations/062_ProjectionThreadHandoffCount.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -147,6 +148,7 @@ export const migrationEntries = [
   [59, "ProjectionThreadPlanLaneSince", Migration0059],
   [60, "ProjectionThreadDependenciesSince", Migration0060],
   [61, "ProjectionThreadFaninSince", Migration0061],
+  [62, "ProjectionThreadHandoffCount", Migration0062],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

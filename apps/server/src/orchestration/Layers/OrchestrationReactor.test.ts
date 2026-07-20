@@ -11,6 +11,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactor } from "../Services/WorkstreamFanInReactor.ts";
+import { HandoffDrafterReactor } from "../Services/HandoffDrafterReactor.ts";
 import { WorktreeReaper } from "../Services/WorktreeReaper.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
@@ -86,6 +87,15 @@ describe("OrchestrationReactor", () => {
           }),
         ),
         Layer.provideMerge(
+          Layer.succeed(HandoffDrafterReactor, {
+            start: () => {
+              started.push("handoff-drafter-reactor");
+              return Effect.void;
+            },
+            drain: Effect.void,
+          }),
+        ),
+        Layer.provideMerge(
           Layer.succeed(WorktreeReaper, {
             start: () => {
               started.push("worktree-reaper");
@@ -118,6 +128,7 @@ describe("OrchestrationReactor", () => {
       "thread-deletion-reactor",
       "workstream-dispatcher",
       "workstream-fanin-reactor",
+      "handoff-drafter-reactor",
       "worktree-reaper",
       "agent-awareness-relay",
     ]);

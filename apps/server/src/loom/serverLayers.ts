@@ -23,6 +23,7 @@ import { ExhaustionResumeSweepLive } from "../orchestration/Layers/ExhaustionRes
 import { ReasoningStreamBusLive } from "../orchestration/Layers/ReasoningStreamBus.ts";
 import { WorkstreamDispatcherLive } from "../orchestration/Layers/WorkstreamDispatcher.ts";
 import { WorkstreamFanInReactorLive } from "../orchestration/Layers/WorkstreamFanInReactor.ts";
+import { HandoffDrafterReactorLive } from "../orchestration/Layers/HandoffDrafterReactor.ts";
 import { WorktreeReaperLive } from "../orchestration/Layers/WorktreeReaper.ts";
 import * as WorkstreamWorktreeStatus from "../orchestration/WorkstreamWorktreeStatus.ts";
 import { AccountUsageRegistryLive } from "../provider/Services/AccountUsageRegistry.ts";
@@ -52,6 +53,8 @@ import * as ThreadForkHttp from "../mcp/ThreadForkHttp.ts";
 export const LoomReactorsLive = WorkstreamWorktreeStatus.layer.pipe(
   Layer.provideMerge(WorkstreamDispatcherLive),
   Layer.provideMerge(WorkstreamFanInReactorLive),
+  // `/handoff` fork-drafter settlement (plan D5/D6).
+  Layer.provideMerge(HandoffDrafterReactorLive),
   Layer.provideMerge(WorktreeReaperLive),
   Layer.provideMerge(ReasoningStreamBusLive),
 );

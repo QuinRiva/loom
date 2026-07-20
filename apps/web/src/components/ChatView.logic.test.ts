@@ -15,7 +15,10 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildThreadTurnInterruptInput,
   createLocalDispatchSnapshot,
+  decideHandoffSend,
   deriveComposerSendState,
+  HANDOFF_BLOCKED_CONTEXT_MESSAGE,
+  HANDOFF_EMPTY_EXPLANATION_MESSAGE,
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
@@ -58,6 +61,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
+    handoffCount: 0,
     title: "Thread",
     modelSelection: {
       instanceId: ProviderInstanceId.make("codex"),
@@ -532,5 +536,45 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+});
+
+describe("decideHandoffSend", () => {
+  it("lets ordinary prompts fall through to a normal send", () => {
+    expect(
+      decideHandoffSend({ trimmedPrompt: "fix the retry logic", hasAttachmentsOrContexts: false }),
+    ).toEqual({ kind: "not-handoff" });
+  });
+
+  it("never falls through for a recognised /handoff (invariant: no turn-start)", () => {
+    for (const prompt of ["/handoff", "/handoff out of scope", "  /handoff  x  "]) {
+      expect(
+        decideHandoffSend({ trimmedPrompt: prompt, hasAttachmentsOrContexts: false }).kind,
+      ).not.toBe("not-handoff");
+    }
+  });
+
+  it("reports the inline empty-explanation error without dispatching", () => {
+    expect(
+      decideHandoffSend({ trimmedPrompt: "/handoff", hasAttachmentsOrContexts: false }),
+    ).toEqual({ kind: "empty-error", message: HANDOFF_EMPTY_EXPLANATION_MESSAGE });
+  });
+
+  it("rejects a /handoff carrying attachments or contexts (MVP), never dispatching", () => {
+    expect(
+      decideHandoffSend({
+        trimmedPrompt: "/handoff the retry logic is broken",
+        hasAttachmentsOrContexts: true,
+      }),
+    ).toEqual({ kind: "blocked-context", message: HANDOFF_BLOCKED_CONTEXT_MESSAGE });
+  });
+
+  it("dispatches with the parsed explanation when clean", () => {
+    expect(
+      decideHandoffSend({
+        trimmedPrompt: "/handoff the retry logic is broken",
+        hasAttachmentsOrContexts: false,
+      }),
+    ).toEqual({ kind: "dispatch", explanation: "the retry logic is broken" });
   });
 });
