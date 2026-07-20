@@ -187,6 +187,17 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       });
       yield* subscribe(ORCHESTRATION_WS_METHODS.subscribeShell, subscribeInput, {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
+        // loom: cold-leg resilience completion for the silent-drop fix. Server
+        // lookup failures are now loud (they fail the stream instead of silently
+        // dropping an event), so a transient failure on an established
+        // connection must not park the cold leg on the error banner until the
+        // next session change. Resubscribe after 5s reusing the same
+        // afterSequence; the replay re-covers the interval and applyItems dedupes
+        // by sequence, so the retry is idempotent. onExpectedFailure still fires,
+        // so the sync warning shows during the retry window. (The WARM leg keeps
+        // no-retry: its failure self-heals to this cold path with a fresh
+        // snapshot, and retrying its identical replay was round 1's wedge.)
+        retryExpectedFailureAfter: "5 seconds",
       }).pipe(Stream.groupedWithin(64, "20 millis"), Stream.runForEach(applyItems));
     });
 

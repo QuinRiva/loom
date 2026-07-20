@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import {
@@ -32,7 +33,6 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
-  type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -78,6 +78,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import { LOOM_RPC_SCOPES, makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
@@ -134,6 +135,16 @@ import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+
+// loom: cap catch-up replay on the shell subscription's afterSequence path.
+// Beyond this many events a fresh snapshot is strictly cheaper than an event
+// tail (≥5 projection queries per event + a full thread-shell payload repeated
+// per touched thread, vs each aggregate sent once) and closes the silent-drop
+// window that lives in the per-event lookup. 500 == one event-store read page
+// (READ_PAGE_SIZE), so a permitted replay is always a single page; it also
+// covers the common resume cases the resume path exists for (tab refocus, brief
+// blips, short sleep). A large overnight gap — the incident habitat — snapshots.
+const SHELL_CATCHUP_MAX_EVENTS = 500;
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -600,9 +611,27 @@ const makeWsRpcLayer = (
       const enrichOrchestrationEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
         Effect.forEach(events, enrichProjectEvent, { concurrency: 4 });
 
+      // loom: silent-drop fix. Diverges deliberately from upstream #2968
+      // ("Refactor recoverable Effect fallbacks to orElseSucceed"), which
+      // swallowed these projection-lookup failures as Option.none() — a *failed*
+      // lookup then became indistinguishable from a genuinely-absent row and was
+      // silently dropped from catch-up replay, permanently wedging the client's
+      // cache past the gap. A future upstream sync must NOT re-collapse the two:
+      // the error channel (ProjectionRepositoryError) means "lookup failed, state
+      // unknown" and must stay loud so the client self-heals via a fresh
+      // snapshot; a *successful* Option.none means "row genuinely absent" and
+      // stays silent (the goal branch depends on it to emit goal-removed). The
+      // bounded retry absorbs a transient SQLite contention blip (~75ms across 3
+      // attempts) without tearing down every connected subscription.
+      const shellLookupRetry = Schedule.exponential("25 millis").pipe(Schedule.take(2));
+
       const toShellStreamEvent = (
         event: OrchestrationEvent,
-      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
+      ): Effect.Effect<
+        Option.Option<OrchestrationShellStreamEvent>,
+        ProjectionRepositoryError,
+        never
+      > => {
         switch (event.type) {
           case "project.created":
           case "project.meta-updated":
@@ -614,7 +643,7 @@ const makeWsRpcLayer = (
                   project: nextProject,
                 })),
               ),
-              Effect.orElseSucceed(() => Option.none()),
+              Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
             );
           case "project.deleted":
             return Effect.succeed(
@@ -642,7 +671,7 @@ const makeWsRpcLayer = (
                   thread: nextThread,
                 })),
               ),
-              Effect.orElseSucceed(() => Option.none()),
+              Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
             );
           default:
             // loom: goal aggregate → goal-upserted/goal-removed shell-stream events.
@@ -665,7 +694,10 @@ const makeWsRpcLayer = (
                       }),
                   }),
                 ),
-                Effect.orElseSucceed(() => Option.none()),
+                // loom: fail loud, don't swallow. A *successful* Option.none here
+                // is load-bearing (emits goal-removed); folding a lookup failure
+                // into it would fabricate a goal-removed for a live goal.
+                Effect.retry(shellLookupRetry),
               );
             }
             if (event.aggregateKind !== "thread") {
@@ -681,7 +713,7 @@ const makeWsRpcLayer = (
                     thread: nextThread,
                   })),
                 ),
-                Effect.orElseSucceed(() => Option.none()),
+                Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
               );
         }
       };
@@ -1019,51 +1051,34 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+              // loom: eager PubSub attach BEFORE any cursor/snapshot read
+              // (subscribeDomainEvents, a fork-added engine facility) so events
+              // published during that window buffer in the subscription queue
+              // instead of falling into a connect-gap — the ordinary
+              // no-afterSequence flow previously used a lazy Stream.fromPubSub
+              // that only attached after the snapshot element, leaving a silent
+              // gap for events committed between the snapshot query and the first
+              // pull. toShellStreamEvent (now fallible — see the silent-drop fix)
+              // is mapped on THIS consuming stream, never forked into a value-only
+              // queue: a mapper failure must land in the stream's own error
+              // channel (→ OrchestrationGetSnapshotError → client self-heal), not
+              // kill a detached producer fibre while a bare queue silently stops.
+              const rawLive = yield* orchestrationEngine.subscribeDomainEvents;
+              const liveLeg = rawLive.pipe(
                 Stream.mapEffect(toShellStreamEvent),
                 Stream.flatMap((event) =>
                   Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
                 ),
+                Stream.mapError(
+                  (cause) =>
+                    new OrchestrationGetSnapshotError({
+                      message: "Failed to project live orchestration shell event",
+                      cause,
+                    }),
+                ),
               );
 
-              // When the client already holds a shell snapshot (cached, or loaded
-              // over HTTP) it passes that snapshot's sequence, and we resume by
-              // replaying shell events after it instead of re-sending the whole
-              // projects/threads list over the socket. As in the thread path, the
-              // live subscription is attached (into a scope-bound buffer) before
-              // draining the catch-up replay so no event published during the
-              // replay window is lost; overlapping events are deduped by sequence
-              // on the client. The full range is read (not the store's default
-              // page limit) since the shell filter runs after reading.
-              if (input.afterSequence !== undefined) {
-                const afterSequence = input.afterSequence;
-                return Stream.unwrap(
-                  Effect.gen(function* () {
-                    const liveBuffer = yield* Queue.unbounded<OrchestrationShellStreamItem>();
-                    yield* Effect.forkScoped(
-                      liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
-                    );
-                    const catchUpStream = orchestrationEngine
-                      .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
-                      .pipe(
-                        Stream.mapEffect(toShellStreamEvent),
-                        Stream.flatMap((event) =>
-                          Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
-                        ),
-                        Stream.mapError(
-                          (cause) =>
-                            new OrchestrationGetSnapshotError({
-                              message: "Failed to replay orchestration shell events",
-                              cause,
-                            }),
-                        ),
-                      );
-                    return Stream.concat(catchUpStream, Stream.fromQueue(liveBuffer));
-                  }),
-                );
-              }
-
-              const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+              const loadSnapshotItem = projectionSnapshotQuery.getShellSnapshot().pipe(
                 Effect.tapError((cause) =>
                   Effect.logError("orchestration shell snapshot load failed", { cause }),
                 ),
@@ -1074,15 +1089,63 @@ const makeWsRpcLayer = (
                       cause,
                     }),
                 ),
+                Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
               );
 
-              return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  snapshot,
-                }),
-                liveStream,
-              );
+              // When the client already holds a shell snapshot (cached, or loaded
+              // over HTTP) it passes that snapshot's sequence, and we resume by
+              // replaying shell events after it instead of re-sending the whole
+              // projects/threads list over the socket. Overlapping events are
+              // deduped by sequence on the client.
+              if (input.afterSequence !== undefined) {
+                const afterSequence = input.afterSequence;
+                // loom: sample the cursor AFTER the eager live attach. An event
+                // publishes to the PubSub only after its projection update commits
+                // (same txn), so any event missing from the already-attached
+                // subscription is ≤ this cursor and therefore inside the read
+                // interval below — the catch-up/live seam is gap-free.
+                const { snapshotSequence } = yield* projectionSnapshotQuery
+                  .getSnapshotSequence()
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: "Failed to read orchestration projection cursor",
+                          cause,
+                        }),
+                    ),
+                  );
+                const gap = snapshotSequence - afterSequence;
+                // loom: cap the replay, and handle client-ahead-of-server
+                // (afterSequence > snapshotSequence: restored DB backup /
+                // projection reset, which previously left the client confidently
+                // stale with phantom threads). Beyond the cap or when ahead, a
+                // snapshot is cheaper and correct; the client applies a mid-stream
+                // snapshot as a wholesale replace via its existing reducer path.
+                if (afterSequence > snapshotSequence || gap > SHELL_CATCHUP_MAX_EVENTS) {
+                  return Stream.concat(Stream.make(yield* loadSnapshotItem), liveLeg);
+                }
+                // loom: read EXACTLY the sampled interval (limit = gap), not
+                // Number.MAX_SAFE_INTEGER — otherwise events committed after the
+                // sample would extend the read past the cap, making it advisory.
+                // Everything later arrives via the already-attached live leg.
+                const catchUpStream = orchestrationEngine.readEvents(afterSequence, gap).pipe(
+                  Stream.mapEffect(toShellStreamEvent),
+                  Stream.flatMap((event) =>
+                    Option.isSome(event) ? Stream.succeed(event.value) : Stream.empty,
+                  ),
+                  Stream.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Failed to replay orchestration shell events",
+                        cause,
+                      }),
+                  ),
+                );
+                return Stream.concat(catchUpStream, liveLeg);
+              }
+
+              return Stream.concat(Stream.make(yield* loadSnapshotItem), liveLeg);
             }),
             { "rpc.aggregate": "orchestration" },
           ),

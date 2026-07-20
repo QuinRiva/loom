@@ -491,4 +491,230 @@ describe("environment shell synchronization", () => {
       expect((yield* SubscriptionRef.get(savedSnapshots)).at(-1)).toEqual(freshSnapshot);
     }),
   );
+
+  // loom: shell catch-up silent-drop fix, client half of the gap-cap path. When
+  // the offline gap exceeds the server's cap (or the client is ahead of the
+  // server) the afterSequence resume answers with a fresh `snapshot` item
+  // instead of an event tail; the warm leg must apply it as a wholesale replace
+  // (and re-persist it) via the existing applyItems path — no cold-path fallback.
+  it.effect(
+    "wholesale-replaces state and cache when the resume responds with a mid-stream snapshot",
+    () =>
+      Effect.gen(function* () {
+        const cachedSnapshot: OrchestrationShellSnapshot = {
+          snapshotSequence: 5,
+          goals: [],
+          projects: [],
+          threads: [],
+          updatedAt: "2026-06-06T00:00:00.000Z",
+        };
+        const freshSnapshot: OrchestrationShellSnapshot = {
+          snapshotSequence: 42,
+          goals: [STUB_GOAL],
+          projects: [],
+          threads: [STUB_THREAD],
+          updatedAt: "2026-06-07T00:00:00.000Z",
+        };
+        const events = yield* Queue.unbounded<OrchestrationShellStreamItem>();
+        const subscribeSequences = yield* SubscriptionRef.make<ReadonlyArray<number | undefined>>(
+          [],
+        );
+        const loaderCalls = yield* SubscriptionRef.make(0);
+        const savedSnapshots = yield* SubscriptionRef.make<
+          ReadonlyArray<OrchestrationShellSnapshot>
+        >([]);
+        const client = {
+          [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: { readonly afterSequence?: number }) =>
+            Stream.unwrap(
+              SubscriptionRef.update(subscribeSequences, (calls) => [
+                ...calls,
+                input.afterSequence,
+              ]).pipe(Effect.as(Stream.fromQueue(events))),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
+        const activeSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
+          Option.some(session(client)),
+        );
+        const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+          target: TARGET,
+          state: supervisorState,
+          session: activeSession,
+          prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+          connect: Effect.void,
+          disconnect: Effect.void,
+          retryNow: Effect.void,
+        } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+        const cache = Persistence.EnvironmentCacheStore.of({
+          loadShell: () => Effect.succeed(Option.some(cachedSnapshot)),
+          saveShell: (_environmentId, snapshot) =>
+            SubscriptionRef.update(savedSnapshots, (saved) => [...saved, snapshot]),
+          loadThread: () => Effect.succeed(Option.none()),
+          saveThread: () => Effect.void,
+          removeThread: () => Effect.void,
+          loadServerConfig: () => Effect.succeed(Option.none()),
+          saveServerConfig: () => Effect.void,
+          loadVcsRefs: () => Effect.succeed(Option.none()),
+          saveVcsRefs: () => Effect.void,
+          clear: () => Effect.void,
+        });
+        const snapshotLoader = ShellSnapshotLoader.of({
+          load: () =>
+            SubscriptionRef.update(loaderCalls, (count) => count + 1).pipe(
+              Effect.as(Option.none()),
+            ),
+        });
+        const shellState = yield* makeEnvironmentShellState().pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+          Effect.provideService(ShellSnapshotLoader, snapshotLoader),
+        );
+
+        // Let the warm resume subscribe from the cached sequence (5).
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        // The server's gap-cap path answers the afterSequence resume with a
+        // fresh snapshot item instead of an event tail.
+        yield* Queue.offer(events, { kind: "snapshot", snapshot: freshSnapshot });
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        yield* TestClock.adjust("20 millis");
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        yield* TestClock.adjust("500 millis");
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+
+        // No cold HTTP fetch and no resubscribe: the warm leg replaced in place.
+        expect(yield* SubscriptionRef.get(loaderCalls)).toBe(0);
+        expect(yield* SubscriptionRef.get(subscribeSequences)).toEqual([5]);
+        const state = yield* SubscriptionRef.get(shellState);
+        expect(state.status).toBe("live");
+        expect(Option.getOrThrow(state.snapshot)).toEqual(freshSnapshot);
+        expect((yield* SubscriptionRef.get(savedSnapshots)).at(-1)).toEqual(freshSnapshot);
+      }),
+  );
+
+  // loom: shell catch-up silent-drop fix, client half of the cold-leg
+  // resilience completion. Server lookup failures are now loud, so the cold leg
+  // carries retryExpectedFailureAfter: after an expected failure on an
+  // established connection it resubscribes from the SAME afterSequence (5s
+  // later) rather than parking on the error banner until the next session
+  // change; the replay re-covers the interval and recovers to live.
+  it.effect(
+    "retries the cold-leg subscription after an expected failure and recovers to live",
+    () =>
+      Effect.gen(function* () {
+        const coldSnapshot: OrchestrationShellSnapshot = {
+          snapshotSequence: 7,
+          goals: [],
+          projects: [],
+          threads: [],
+          updatedAt: "2026-06-06T00:00:00.000Z",
+        };
+        // The payload the retry receives once it resubscribes.
+        const recoveredSnapshot: OrchestrationShellSnapshot = {
+          snapshotSequence: 8,
+          goals: [STUB_GOAL],
+          projects: [],
+          threads: [STUB_THREAD],
+          updatedAt: "2026-06-07T00:00:00.000Z",
+        };
+        const recoveredEvents = yield* Queue.unbounded<OrchestrationShellStreamItem>();
+        const subscribeSequences = yield* SubscriptionRef.make<ReadonlyArray<number | undefined>>(
+          [],
+        );
+        const loaderCalls = yield* SubscriptionRef.make(0);
+        const client = {
+          [ORCHESTRATION_WS_METHODS.subscribeShell]: (input: { readonly afterSequence?: number }) =>
+            Stream.unwrap(
+              SubscriptionRef.get(subscribeSequences).pipe(
+                Effect.tap(() =>
+                  SubscriptionRef.update(subscribeSequences, (calls) => [
+                    ...calls,
+                    input.afterSequence,
+                  ]),
+                ),
+                Effect.map((priorCalls) =>
+                  // First subscribe fails with an expected (non-transport) failure,
+                  // standing in for a now-loud transient server lookup failure; the
+                  // retry resubscribes from the same afterSequence and recovers.
+                  priorCalls.length === 0
+                    ? Stream.fail(new Error("transient shell lookup failure"))
+                    : Stream.fromQueue(recoveredEvents),
+                ),
+              ),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
+        const activeSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
+          Option.some(session(client)),
+        );
+        const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+          target: TARGET,
+          state: supervisorState,
+          session: activeSession,
+          prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+          connect: Effect.void,
+          disconnect: Effect.void,
+          retryNow: Effect.void,
+        } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+        const cache = Persistence.EnvironmentCacheStore.of({
+          // Cold start: no warm cache, so the base loads over HTTP.
+          loadShell: () => Effect.succeed(Option.none()),
+          saveShell: () => Effect.void,
+          loadThread: () => Effect.succeed(Option.none()),
+          saveThread: () => Effect.void,
+          removeThread: () => Effect.void,
+          loadServerConfig: () => Effect.succeed(Option.none()),
+          saveServerConfig: () => Effect.void,
+          loadVcsRefs: () => Effect.succeed(Option.none()),
+          saveVcsRefs: () => Effect.void,
+          clear: () => Effect.void,
+        });
+        const snapshotLoader = ShellSnapshotLoader.of({
+          load: () =>
+            SubscriptionRef.update(loaderCalls, (count) => count + 1).pipe(
+              Effect.as(Option.some(coldSnapshot)),
+            ),
+        });
+        const shellState = yield* makeEnvironmentShellState().pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+          Effect.provideService(ShellSnapshotLoader, snapshotLoader),
+        );
+
+        // Cold base loads and the first cold-leg subscribe fails (expected failure).
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        yield* TestClock.adjust("20 millis");
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        // Buffer the recovery payload the retry will receive, then advance past
+        // the 5s retry gap so the cold leg resubscribes.
+        yield* Queue.offer(recoveredEvents, { kind: "snapshot", snapshot: recoveredSnapshot });
+        yield* TestClock.adjust("5 seconds");
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+        yield* TestClock.adjust("20 millis");
+        for (let index = 0; index < 20; index += 1) {
+          yield* Effect.yieldNow;
+        }
+
+        // Only one cold HTTP load; the retry resubscribed from the SAME
+        // afterSequence (7) and recovered to live with the fresh payload.
+        expect(yield* SubscriptionRef.get(loaderCalls)).toBe(1);
+        expect(yield* SubscriptionRef.get(subscribeSequences)).toEqual([7, 7]);
+        const state = yield* SubscriptionRef.get(shellState);
+        expect(state.status).toBe("live");
+        expect(Option.getOrThrow(state.snapshot)).toEqual(recoveredSnapshot);
+      }),
+  );
 });
