@@ -29,6 +29,7 @@ const seedWithProject = (deletedAt: string | null) =>
       title: "Existing",
       workspaceRoot: "/tmp/shared-root",
       defaultModelSelection: null,
+      defaultStartFromOrigin: null,
       scripts: [],
       createdAt: now,
       updatedAt: now,

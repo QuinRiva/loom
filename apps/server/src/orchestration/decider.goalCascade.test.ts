@@ -77,6 +77,7 @@ const seedReadModel = Effect.gen(function* () {
       title: "Goal Cascade",
       workspaceRoot: "/tmp/goal-cascade",
       defaultModelSelection: null,
+      defaultStartFromOrigin: null,
       scripts: [],
       createdAt: now,
       updatedAt: now,

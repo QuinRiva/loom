@@ -228,6 +228,7 @@ export function projectEvent(
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
+            defaultStartFromOrigin: payload.defaultStartFromOrigin,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -259,6 +260,9 @@ export function projectEvent(
                     : {}),
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
+                    : {}),
+                  ...(payload.defaultStartFromOrigin !== undefined
+                    ? { defaultStartFromOrigin: payload.defaultStartFromOrigin }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   updatedAt: payload.updatedAt,

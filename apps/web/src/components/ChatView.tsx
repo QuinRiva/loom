@@ -5222,6 +5222,7 @@ function ChatViewContent(props: ChatViewProps) {
           startFromOrigin: resolveNewDraftStartFromOrigin({
             envMode: mode,
             newWorktreesStartFromOrigin: settings.newWorktreesStartFromOrigin,
+            projectDefaultStartFromOrigin: activeProject?.defaultStartFromOrigin ?? null,
           }),
           ...(mode === "worktree" && draftThread?.worktreePath ? { worktreePath: null } : {}),
         });
@@ -5234,6 +5235,7 @@ function ChatViewContent(props: ChatViewProps) {
       draftThread?.worktreePath,
       isLocalDraftThread,
       settings.newWorktreesStartFromOrigin,
+      activeProject?.defaultStartFromOrigin,
       setPendingServerThreadEnvMode,
       scheduleComposerFocus,
       setDraftThreadContext,

@@ -173,6 +173,7 @@ export function useNewThreadHandler() {
           createdAt: latestActiveDraftThread.createdAt,
           runtimeMode: latestActiveDraftThread.runtimeMode,
           interactionMode: latestActiveDraftThread.interactionMode,
+          projectDefaultStartFromOrigin: project?.defaultStartFromOrigin ?? null,
           ...(applyContext
             ? {
                 ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -203,6 +204,7 @@ export function useNewThreadHandler() {
             resolveNewDraftStartFromOrigin({
               envMode: initialEnvMode,
               newWorktreesStartFromOrigin: environmentSettings.newWorktreesStartFromOrigin,
+              projectDefaultStartFromOrigin: project?.defaultStartFromOrigin ?? null,
             }),
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });

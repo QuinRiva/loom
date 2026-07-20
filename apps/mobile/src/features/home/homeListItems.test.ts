@@ -26,6 +26,7 @@ function makeProject(id: string, title: string): EnvironmentProject {
     workspaceRoot: `/workspaces/${id}`,
     repositoryIdentity: null,
     defaultModelSelection: null,
+    defaultStartFromOrigin: null,
     scripts: [],
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
