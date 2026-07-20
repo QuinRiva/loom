@@ -19,8 +19,8 @@ collision-free dev runner handles the ambient env.
 ## 0. Pick a free server port
 
 The dev runner keeps each web instance's state under a **port-scoped** home:
-`<T3CODE_HOME>/dev-instances/<serverPort>/dev/state.sqlite`. The seed must land
-in that exact directory, so choose a server port up front and reuse it:
+`<T3CODE_HOME>/dev-instances/<serverPort>/userdata/state.sqlite`. The seed must
+land in that exact directory, so choose a server port up front and reuse it:
 
 ```sh
 PORT=13950                       # a free server port; web port is fixed at 5733+offset
@@ -142,7 +142,7 @@ culprit for a port that stays busy — kill the whole group, not just the parent
 ## Running several instances at once
 
 Each `pnpm dev` picks its own free server/web port pair and its own state dir at
-`<T3CODE_HOME>/dev-instances/<serverPort>/dev/state.sqlite`, so concurrent
+`<T3CODE_HOME>/dev-instances/<serverPort>/userdata/state.sqlite`, so concurrent
 worktree instances coexist without sharing sqlite or colliding on ports. Seed
 each one into its own per-port subdir. Never point a scratch web instance at the
 live cockpit server unless that is explicitly the intent.
