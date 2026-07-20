@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
+// loom: centre-panel thread tabs — keep open tabs reachable from the index view.
+import { ThreadTabsStrip } from "../loom/ThreadTabsStrip";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -90,6 +92,8 @@ function IndexDraftLanding() {
 function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      {/* loom: centre-panel thread tabs (no active tab highlighted on the index) */}
+      <ThreadTabsStrip activeRouteRef={null} />
       <Empty className="flex-1">
         <EmptyHeader className="max-w-md">
           <EmptyTitle className="text-foreground text-xl">Couldn’t start a new thread</EmptyTitle>
@@ -113,6 +117,8 @@ function NoProjectsHero() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      {/* loom: centre-panel thread tabs (no active tab highlighted on the index) */}
+      <ThreadTabsStrip activeRouteRef={null} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
         <Empty className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">

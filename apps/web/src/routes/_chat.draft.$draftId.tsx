@@ -9,6 +9,8 @@ import {
 } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
+// loom: centre-panel thread tabs
+import { ThreadTabsStrip } from "../loom/ThreadTabsStrip";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useThread, useThreadRefs } from "../state/entities";
 
@@ -72,6 +74,8 @@ function DraftChatThreadRouteView() {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+      {/* loom: centre-panel thread tabs (no active tab highlighted on a draft) */}
+      <ThreadTabsStrip activeRouteRef={null} />
       <ChatView
         draftId={draftId}
         environmentId={draftSession.environmentId}

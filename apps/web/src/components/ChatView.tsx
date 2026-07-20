@@ -170,6 +170,8 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams } from "../threadRoutes";
 import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
+// loom: centre-panel thread tabs — sending in a thread pins its preview tab.
+import { useThreadTabsStore } from "../loom/threadTabsStore";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -4247,6 +4249,11 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
+    // loom: sending a message promotes the thread's transient preview tab to a
+    // persistent tab (no-op when the thread isn't tabbed, e.g. drafts).
+    useThreadTabsStore
+      .getState()
+      .pinTab(scopeThreadRef(activeThread.environmentId, threadIdForSend));
     if (isDraftHeroState && activeThreadKey) {
       let resolveDockStarted: (() => void) | undefined;
       const dockStarted = new Promise<void>((resolve) => {

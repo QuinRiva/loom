@@ -55,6 +55,9 @@ const STATIC_KEYBINDING_COMMANDS = [
   "terminal.new",
   "terminal.close",
   "rightPanel.toggle",
+  // loom: centre-panel thread tabs
+  "tab.close",
+  "tab.reopenClosed",
   "diff.toggle",
   "preview.toggle",
   "preview.refresh",
