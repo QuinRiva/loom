@@ -1,5 +1,6 @@
 import { DEFAULT_GATE_MAX_ROUNDS } from "@t3tools/contracts";
 import type {
+  ContextMenuItem,
   ModelSelection,
   OrchestrationEvent,
   ThreadId,
@@ -119,14 +120,20 @@ export const STATUS_STYLES = {
     graphStroke: "#22d3ee",
     graphFill: "rgba(34, 211, 238, 0.14)",
   },
+  // v2 palette (plans/graph-view-metadata-enhancement.md §7): a passive
+  // dependency wait reads COOL steel, not warm amber — warm hues are now
+  // reserved for the human-attention overlay. `#9fb4cf` is the lighter steel
+  // TEXT tint (legibility on dark); `#6d86a6` the stroke/fill/dot hue, bluer
+  // than planned-slate `#94a3b8` and darker than ready-cyan so the three cool
+  // states stay separable. The board card inherits this through STATUS_STYLES.
   blocked: {
-    textClass: "text-amber-300",
-    borderClass: "border-amber-400/40",
-    bgClass: "bg-amber-400/10",
-    dotClass: "bg-amber-400",
-    leftBorderClass: "border-l-amber-400",
-    graphStroke: "#f59e0b",
-    graphFill: "rgba(245, 158, 11, 0.16)",
+    textClass: "text-[#9fb4cf]",
+    borderClass: "border-[#6d86a6]/40",
+    bgClass: "bg-[#6d86a6]/10",
+    dotClass: "bg-[#6d86a6]",
+    leftBorderClass: "border-l-[#6d86a6]",
+    graphStroke: "#6d86a6",
+    graphFill: "rgba(109, 134, 166, 0.16)",
   },
   in_progress: {
     textClass: "text-sky-300",
@@ -212,7 +219,10 @@ export const ATTENTION_STYLES = {
   },
 } satisfies Record<AttentionReason, { textClass: string; borderClass: string; bgClass: string }>;
 
-export const WAITS_ON_STROKE = "#f59e0b";
+// v2: the waits-on edge follows `blocked` to steel (was amber `#f59e0b`). The
+// graph's waits-arrow marker fill, dashed edge stroke, and legend swatch all
+// read this constant, so they recolour automatically.
+export const WAITS_ON_STROKE = "#6d86a6";
 
 // consult_thread observability: the neutral/informational tint shared by the
 // in-chat consult card and the graph's dotted consult cross-edge. Teal is
@@ -629,6 +639,130 @@ export function formatRelativeAge(iso: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+/**
+ * Compact age for the tight node footer — `23s` / `4m` / `3h` / `2d`, `—` for
+ * unparseable. Same bucketing as `formatRelativeAge` minus the ` ago` suffix
+ * (the board + hover card keep the long form; do not fold these together).
+ */
+export function formatCompactAge(iso: string): string {
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return "—";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Tool-use count for the node footer, capped at `999+` so it can never overflow
+ * the card into the bottom-right badge corner.
+ */
+export function formatToolUses(n: number): string {
+  return n > 999 ? "999+" : `${n}`;
+}
+
+// Per-provider tint for the model pill's dot/border/background. Same model on a
+// different provider is materially different, so the tint carries the provider
+// at a glance. Keyed case-insensitively on the (user-defined) instance-id slug.
+const PROVIDER_TINTS: Record<string, string> = {
+  pi: "#38bdf8",
+  codex: "#19c37d",
+  openai: "#19c37d",
+  claudeagent: "#d9895a",
+  anthropic: "#d9895a",
+  bedrock: "#d9895a",
+  vertex: "#60a5fa",
+  "google-vertex": "#60a5fa",
+  cliproxy: "#e879a6",
+  gemini: "#a78bfa",
+};
+
+// Deterministic fallback palette for unknown instance ids — the load-bearing
+// path, since instance ids are user-defined. A slug always hashes to the same
+// hue, so the pill colour is stable across renders.
+const PROVIDER_FALLBACK_TINTS = [
+  "#60a5fa",
+  "#e879a6",
+  "#19c37d",
+  "#d9895a",
+  "#a78bfa",
+  "#2dd4bf",
+] as const;
+
+/** Hex tint for a provider instance's pill dot (known map, else stable hash). */
+export function getProviderTint(instanceId: string): string {
+  const key = instanceId.trim().toLowerCase();
+  const mapped = PROVIDER_TINTS[key];
+  if (mapped) return mapped;
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return PROVIDER_FALLBACK_TINTS[Math.abs(hash) % PROVIDER_FALLBACK_TINTS.length]!;
+}
+
+/**
+ * Split a model selection into its pill parts: the provider is the instance-id
+ * slug; the model reuses the untouched `formatModelLabel` (the board card header
+ * keeps using it directly).
+ */
+export function getProviderModelParts(selection: ModelSelection): {
+  provider: string;
+  model: string;
+} {
+  return { provider: selection.instanceId, model: formatModelLabel(selection) };
+}
+
+/**
+ * THE single state rule for the always-on node footer (plan §3.2/§3.3): only
+ * running/yielded nodes carry it; not-yet-run nodes stay clean and terminal
+ * nodes recede with no footer. `toolLabel` is null when the provider reports no
+ * count (distinct from 0); `live` tracks an in-flight turn (the pulse dot). The
+ * render is a dumb consumer so the rule stays unit-testable.
+ */
+export function getNodeFooter(
+  thread: SidebarThreadSummary,
+  column: WorkstreamColumnId,
+): { toolLabel: string | null; age: string; live: boolean } | null {
+  if (column !== "in_progress" && column !== "yielded") return null;
+  return {
+    toolLabel: thread.toolUses !== null ? formatToolUses(thread.toolUses) : null,
+    age: formatCompactAge(getLastActivityAt(thread)),
+    live: hasRunningSignal(thread),
+  };
+}
+
+export type WorkstreamNodeMenuAction =
+  | "open"
+  | "history"
+  | "report"
+  | "release"
+  | "clear-flags"
+  | "stop";
+
+/**
+ * State-aware right-click action set for a graph node (plan §4), replacing the
+ * removed ⓘ affordance. Conditions are PRESENCE conditions (item omitted when
+ * it can't be actioned) rather than disabled flags, so the menu stays short.
+ * Navigation first (open/history/report), then controls (release/clear/stop).
+ * Pure so it is unit-testable; the panel switches on the resolved id.
+ */
+export function buildNodeContextMenuItems(
+  thread: SidebarThreadSummary,
+): ContextMenuItem<WorkstreamNodeMenuAction>[] {
+  const items: ContextMenuItem<WorkstreamNodeMenuAction>[] = [
+    { id: "open", label: "Open thread" },
+    { id: "history", label: "View history" },
+  ];
+  if (thread.reportPath !== null) items.push({ id: "report", label: "Open report" });
+  if (thread.planLane === "planned") items.push({ id: "release", label: "Release" });
+  if (attentionReasonsOf(thread).length > 0)
+    items.push({ id: "clear-flags", label: "Clear flags" });
+  if (hasRunningSignal(thread)) items.push({ id: "stop", label: "Stop", destructive: true });
+  return items;
 }
 
 export function truncateLabel(value: string, maxLength: number): string {
