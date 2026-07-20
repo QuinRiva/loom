@@ -34,6 +34,12 @@ It encodes and enforces the whole mechanical sequence:
 Use `pnpm ship -m "…" --dry-run` to preview the exact steps first. Add
 `vp run lint:mobile` yourself when you touched native mobile code.
 
+**Merge authority is per-project.** loom itself is `agent` (`.t3code/ship.json`),
+so this script carries through the merge. The platform default is `human`: there
+an agent's ceiling is an open, review-ready PR — never merge by hand, even if a
+brief says "done when merged". Your system prompt states the active policy (the
+SHIPPING POLICY block); honour it however you ship.
+
 ## The judgment calls the script leaves to you
 
 Read **[`docs/operations/shipping.md`](../../docs/operations/shipping.md)** — the
