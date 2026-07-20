@@ -1,76 +1,137 @@
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { LinkIcon, PlusIcon } from "lucide-react";
+import { LinkIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { NoActiveThreadState } from "../components/NoActiveThreadState";
+import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
+import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
-import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
+import { SidebarInset } from "../components/ui/sidebar";
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import {
+  useAllEnvironmentShellsBootstrapped,
+  useProjects,
+  useThreadShells,
+} from "../state/entities";
 import { useEnvironments } from "../state/environments";
-import { TaskTree, countGoalTasks, useGoals } from "../goals/goalState";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
+// NOTE: loom's goal-overview surface (goal cards + task trees) was intentionally
+// retired from this route — goals are not directly navigable yet (no dedicated
+// Goals nav), so a thread-less goal screen was a dead end. We adopt upstream's
+// draft-hero landing instead; the goal overview is deferred product scope.
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments } = useEnvironments();
-  const goals = useGoals().filter((goal) => goal.archivedAt === null);
 
   if (authGateState.status === "hosted-static" && environments.length === 0) {
     return <HostedStaticOnboardingState />;
   }
 
-  if (goals.length === 0) return <NoActiveThreadState />;
+  return <IndexDraftLanding />;
+}
+
+/**
+ * Landing on the index route drops straight into a draft thread for the most
+ * recently active project, so the first screen is a prompt instead of a dead
+ * end. Falls back to an add-project hero when no project exists yet.
+ */
+function IndexDraftLanding() {
+  const projects = useProjects();
+  const threads = useThreadShells();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
+  const handleNewThread = useNewThreadHandler();
+  const startingRef = useRef(false);
+  const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
+
+  const mostRecentProject = useMemo(
+    () =>
+      bootstrapped
+        ? (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null)
+        : null,
+    [bootstrapped, projects, threads],
+  );
+
+  useEffect(() => {
+    if (mostRecentProject === null || startingRef.current) {
+      return;
+    }
+    startingRef.current = true;
+    void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
+      replace: true,
+    }).catch(() => {
+      startingRef.current = false;
+      setStartState((state) => ({ ...state, failed: true }));
+    });
+  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
+
+  if (!bootstrapped) {
+    return null;
+  }
+  if (mostRecentProject !== null) {
+    return startState.failed ? (
+      <DraftStartError
+        onRetry={() => {
+          setStartState((state) => ({
+            failed: false,
+            retryRequest: state.retryRequest + 1,
+          }));
+        }}
+      />
+    ) : null;
+  }
+  return <NoProjectsHero />;
+}
+
+function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
+  return (
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <Empty className="flex-1">
+        <EmptyHeader className="max-w-md">
+          <EmptyTitle className="text-foreground text-xl">Couldn’t start a new thread</EmptyTitle>
+          <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
+            The project is still available. Try opening the draft again.
+          </EmptyDescription>
+          <div className="mt-5 flex justify-center">
+            <Button size="sm" onClick={onRetry}>
+              <RotateCcwIcon className="size-4" />
+              Try again
+            </Button>
+          </div>
+        </EmptyHeader>
+      </Empty>
+    </SidebarInset>
+  );
+}
+
+function NoProjectsHero() {
+  const openAddProject = useOpenAddProjectCommandPalette();
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-        <header className="border-b border-border px-3 py-2 sm:px-5 sm:py-3">
-          <div className="flex items-center gap-2">
-            <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-            <span className="text-sm font-medium text-foreground md:text-muted-foreground/70">
-              Goal overview
-            </span>
+        <Empty className="flex-1">
+          <div className="w-full max-w-lg px-8 py-12">
+            <EmptyHeader className="max-w-none">
+              <EmptyTitle className="text-foreground text-2xl sm:text-3xl">
+                What should we work on?
+              </EmptyTitle>
+              <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
+                Add a project to start your first thread.
+              </EmptyDescription>
+              <div className="mt-6 flex justify-center">
+                <Button size="sm" onClick={openAddProject}>
+                  <PlusIcon className="size-4" />
+                  Add project
+                </Button>
+              </div>
+            </EmptyHeader>
           </div>
-        </header>
-        <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-          <div className="mx-auto grid w-full max-w-5xl gap-4">
-            {goals.map((goal) => {
-              const progress = countGoalTasks(goal.tasks);
-              return (
-                <section
-                  key={goal.id}
-                  className="rounded-2xl border border-border/70 bg-card/55 p-4 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="truncate text-base font-semibold text-foreground">
-                        {goal.title || goal.slug}
-                      </h2>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                        {goal.description || "No goal description yet."}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-border/70 px-2 py-1 text-xs tabular-nums text-muted-foreground">
-                      {progress.done}/{progress.total}
-                    </span>
-                  </div>
-                  <div className="mt-4 rounded-xl border border-border/55 bg-background/45 p-3">
-                    <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
-                      Tasks
-                    </h3>
-                    {goal.tasks.length > 0 ? (
-                      <TaskTree tasks={goal.tasks} />
-                    ) : (
-                      <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
-                    )}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
-        </main>
+        </Empty>
       </div>
     </SidebarInset>
   );

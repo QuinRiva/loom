@@ -27,8 +27,8 @@ typecheck/tests caught. Australian English.
   **exit 0**, `vp check` **0 errors**, 21 pre-existing warnings). Targeted tests
   around every resolved surface pass. Live boot smoke on a DB copy passed. Merge
   commit **`48a3f2cd1`**, `HEAD^2 == 53e3c98a5`, both parents intact.
-- **1 open question** for a human: upstream's #4055 index-route hero landing vs
-  loom's goal overview (see below) — deliberately deferred, not silently
+- **Resolved (was an open question):** upstream's #4055 index-route hero landing
+  vs loom's goal overview (see below) — option 3 chosen, upstream adopted, not silently
   dropped.
 
 ## Per-cluster resolutions
@@ -137,7 +137,8 @@ useThreadSyncError(routeKind === "server" ? … : null)` trio (downstream
 - **`state/shell.ts`** — unioned imports and both atoms: loom's `goalsAtom`
   (goals ride the shell snapshot) and upstream's `allEnvironmentShellsBootstrapped
 Atom` (#4055).
-- **`_chat.index.tsx`** — see the open question below.
+- **`_chat.index.tsx`** — see the resolved decision below (upstream's draft-hero
+  landing adopted; loom's goal overview retired as deferred product scope).
 
 ### E. Mechanical
 
@@ -248,22 +249,34 @@ with **`migrations: []`** (consistent with zero migration files in the window);
 subscription-usage poller). No errors/crashes. Process killed, DB copy removed,
 port confirmed free.
 
-## Open question — hero landing vs goal overview (`_chat.index.tsx`)
+## Resolved — hero landing adopted, goal overview retired (`_chat.index.tsx`)
 
 Upstream #4055 replaces the index route with `IndexDraftLanding`, which
 auto-launches a draft thread for the most recently active project (falling back
-to an add-project hero). Loom's index route renders the **goal overview** (goal
-cards + task trees), with `NoActiveThreadState` when there are no goals. These
-are mutually exclusive top-level behaviours for the same route.
+to an add-project hero). Loom's index route had rendered the **goal overview**
+(goal cards + task trees), with `NoActiveThreadState` when there are no goals.
+These are mutually exclusive top-level behaviours for the same route.
 
-Per the brief ("keep loom's Pi overview reachable; if genuinely incompatible,
-report as an open question rather than guessing"), this pull **keeps loom's goal
-overview unchanged** and does **not** adopt upstream's auto-draft hero (which
-would silently replace it). The whole file was resolved to loom's side (its tail
-is byte-identical to upstream's, so nothing else was lost). **A human should
-decide** whether to reconcile — e.g. use upstream's draft/add-project hero as the
-`goals.length === 0` empty state while keeping the overview when goals exist —
-rather than have me guess a UX merge.
+The merge initially resolved this file to loom's side and flagged it as an open
+question. **The human has now decided: option 3 — adopt upstream's draft-hero
+landing wholesale and retire loom's goal-overview surface as deferred product
+scope.** `_chat.index.tsx` is now upstream's version verbatim (its
+`HostedStaticOnboardingState` was already byte-identical to loom's, so loom
+branding — `APP_DISPLAY_NAME`, `hasCloudPublicConfig`,
+`COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS` — is preserved), plus a one-line comment
+marking the goal overview as deferred so a future reader knows it was intentional.
+
+**Rationale:** goals in loom are not directly navigable — only threads are
+selectable in the sidebar, and the goal overview was reachable only by clicking
+the "T3 Code" wordmark → `/`. Rendering a goal + task tree with no associated,
+selectable thread was a meaningless/broken screen. Upstream's index instead
+auto-opens a draft thread ("type to start") for the most-recent project, which
+matches how the app is actually driven.
+
+Goal _infrastructure_ is untouched — `goalState`, `TaskTree`, `countGoalTasks`,
+`useGoals` remain in use elsewhere (sidebar goal CRUD, `GoalTasksPanel`, the
+editable goal header, loom sidebar goal list). Only the index-route overview
+_surface_ was removed. A dedicated Goals nav is future product scope.
 
 ## Merge topology
 
