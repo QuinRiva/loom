@@ -76,7 +76,8 @@ function normalizeRouteLine(value: string | null): number | null {
 }
 
 function defaultViewMode(path: string | null): FileViewMode {
-  return path !== null && (isBrowserPreviewFile(path) || isImagePreviewFile(path))
+  return path !== null &&
+    (isBrowserPreviewFile(path) || isImagePreviewFile(path) || isMarkdownPreviewFile(path))
     ? "preview"
     : "source";
 }
