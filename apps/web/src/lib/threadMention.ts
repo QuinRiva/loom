@@ -2,6 +2,7 @@ import type { ThreadId } from "@t3tools/contracts";
 
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import type { SidebarThreadSummary } from "../types";
+import { isVisibleHandoffDrafter } from "./handoffDrafter";
 import { basenameOfPath } from "../pierre-icons";
 
 /** Max thread suggestions surfaced in the `#` menu (titles are non-unique). */
@@ -31,7 +32,14 @@ export const matchThreadMentionItems = (
 ): Array<Extract<ComposerCommandItem, { type: "thread" }>> => {
   const normalizedQuery = query.trim().toLowerCase();
   return threads
-    .filter((thread) => thread.id !== excludeThreadId && thread.title.trim().length > 0)
+    .filter(
+      (thread) =>
+        thread.id !== excludeThreadId &&
+        thread.title.trim().length > 0 &&
+        // Hide healthy handoff-drafter roots from `#` mentions; broken ones
+        // (carrying attention) stay reachable (plan D6).
+        isVisibleHandoffDrafter(thread),
+    )
     .flatMap((thread) => {
       const rank = normalizedQuery ? thread.title.toLowerCase().indexOf(normalizedQuery) : 0;
       return rank < 0 ? [] : [{ thread, rank }];

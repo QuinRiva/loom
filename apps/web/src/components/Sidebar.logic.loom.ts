@@ -4,6 +4,7 @@
 // Sidebar.tsx and loom/SidebarGoalThreadList.tsx.
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import { getThreadSortTimestamp, sortThreads, type ThreadSortInput } from "../lib/threadSort";
+import { type HandoffDrafterVisibility, isVisibleHandoffDrafter } from "../lib/handoffDrafter";
 import type { SidebarThreadSummary, Thread } from "../types";
 
 /**
@@ -154,7 +155,9 @@ export function buildSidebarGoalOrderedEntries<
 // shown". Zero-cost entries (collapsed/empty goals) ride along even once the
 // budget is met, until the next jumpable entry closes the fold.
 export function buildSidebarProjectThreadOrdering<
-  TThread extends SidebarThreadOrderInput & { archivedAt: string | null },
+  TThread extends SidebarThreadOrderInput & {
+    archivedAt: string | null;
+  } & HandoffDrafterVisibility,
   TGoal extends SidebarGoalSortInput,
 >(input: {
   threads: readonly TThread[];
@@ -171,7 +174,9 @@ export function buildSidebarProjectThreadOrdering<
   orderedEntries: SidebarOrderedEntry<TThread>[];
 } {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    // Healthy handoff-drafter roots stay hidden until they archive; only broken
+    // ones (carrying attention) surface. See `isVisibleHandoffDrafter` (plan D6).
+    input.threads.filter((thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread)),
     input.sortOrder,
   );
   const allEntries = buildSidebarGoalOrderedEntries({

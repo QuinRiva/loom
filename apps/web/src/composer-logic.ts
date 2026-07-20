@@ -2,7 +2,34 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "thread" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff";
+
+/**
+ * Result of recognising a `/handoff <explanation>` composer draft (plan D2).
+ * `/handoff` is intercepted client-side and NEVER becomes a turn on the source
+ * thread, so the send authority branches on this typed parse before it
+ * dispatches anything.
+ */
+export type HandoffDraftParse =
+  | { readonly kind: "not-handoff" }
+  | { readonly kind: "empty-error" }
+  | { readonly kind: "handoff"; readonly explanation: string };
+
+// `/handoff` followed by end-of-input or whitespace + free-text explanation.
+// `/handofff…` (no boundary after the word) is deliberately NOT a match.
+const HANDOFF_COMMAND_PATTERN = /^\/handoff(?:\s+([\s\S]*))?$/i;
+
+export function parseHandoffDraft(text: string): HandoffDraftParse {
+  const match = HANDOFF_COMMAND_PATTERN.exec(text.trim());
+  if (!match) {
+    return { kind: "not-handoff" };
+  }
+  const explanation = (match[1] ?? "").trim();
+  if (explanation.length === 0) {
+    return { kind: "empty-error" };
+  }
+  return { kind: "handoff", explanation };
+}
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -285,9 +312,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   return null;
 }
 
-export function parseStandaloneComposerSlashCommand(
-  text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

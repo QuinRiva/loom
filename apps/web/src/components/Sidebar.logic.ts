@@ -28,6 +28,7 @@ export type ThreadTraversalDirection = "previous" | "next";
 
 export interface ThreadStatusPill {
   label:
+    | "Needs Attention"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -40,6 +41,7 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  "Needs Attention": 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
@@ -384,9 +386,22 @@ export function resolveThreadRowClassName(input: {
 }
 
 export function resolveThreadStatusPill(input: {
-  thread: ThreadStatusInput;
+  thread: ThreadStatusInput & Pick<SidebarThreadSummary, "attention">;
 }): ThreadStatusPill | null {
   const { thread } = input;
+
+  // The own-thread status pill otherwise ignores the `attention` array, so a
+  // surfaced (broken) handoff-drafter root — or any thread the server has
+  // flagged `needs_guidance` — would show no failure badge (plan D6). Rank it
+  // highest so the human sees it first.
+  if (thread.attention.includes("needs_guidance")) {
+    return {
+      label: "Needs Attention",
+      colorClass: "text-rose-600 dark:text-rose-300/90",
+      dotClass: "bg-rose-500 dark:bg-rose-300/90",
+      pulse: false,
+    };
+  }
 
   if (thread.hasPendingApprovals) {
     return {
