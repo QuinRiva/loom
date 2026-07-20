@@ -31,6 +31,7 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { resolveMergeAuthority, shipPolicyPromptBlock } from "@t3tools/shared/shipPolicy";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
@@ -631,7 +632,17 @@ const make = Effect.gen(function* () {
                 ...roleCatalogue.map((role) => `- ${role.name}: ${role.summary}`),
               ].join("\n")
             : undefined;
-        const appendSystemPrompt = [roleOverlay?.prompt, rolesBlock, goalSystemPrompt]
+        // The project's merge contract, resolved from `.t3code/ship.json` for the
+        // thread's worktree (human-merge default; a project opts into agent-merge).
+        // Injected into every thread so the merge boundary is explicit in-band
+        // rather than inherited implicitly from a brief chain (see PE-2111).
+        const shipPolicyBlock = shipPolicyPromptBlock(resolveMergeAuthority(roleProjectRoot));
+        const appendSystemPrompt = [
+          roleOverlay?.prompt,
+          shipPolicyBlock,
+          rolesBlock,
+          goalSystemPrompt,
+        ]
           .filter((part): part is string => !!part && part.trim().length > 0)
           .join("\n\n");
         return yield* providerService.startSession(threadId, {

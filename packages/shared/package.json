@@ -51,6 +51,10 @@
       "types": "./src/semver.ts",
       "import": "./src/semver.ts"
     },
+    "./shipPolicy": {
+      "types": "./src/shipPolicy.ts",
+      "import": "./src/shipPolicy.ts"
+    },
     "./Net": {
       "types": "./src/Net.ts",
       "import": "./src/Net.ts"

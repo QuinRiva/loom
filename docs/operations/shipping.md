@@ -14,11 +14,37 @@ mechanical steps deliberately leave to a human. Everything else points here —
   branch, resolving a merge conflict) stay here as prose, because they need
   context the script does not have.
 
+## Who may merge (project policy)
+
+Merge authority is **per-project**, declared in `.t3code/ship.json` and resolved
+by walking up from the working directory (missing file → the safe default):
+
+```jsonc
+{ "merge": { "authority": "human" } } // default: agents stop at an open PR
+{ "merge": { "authority": "agent" } } // opt-in: an agent may merge after approval + checks
+```
+
+- **`human`** (the platform default) — an agent's ceiling is an **open,
+  review-ready PR**. Open it, transition any tracker card to _In Review_, then
+  stop and hand back the PR URL. Never merge, even when a brief's definition of
+  done says "merged". This is what other projects (e.g. `fathom-platform`) want.
+- **`agent`** — an agent may merge once approved and green, then clean up the
+  branch. **This repo (loom) is `agent`** (see `.t3code/ship.json`), which is why
+  the sequence below carries through the merge.
+
+The policy is injected into every thread's system prompt (the SHIPPING POLICY
+block), so a thread knows its merge boundary however it ships. It is guidance,
+not enforcement: a human-only repo should also protect `main` so an agent token
+_cannot_ merge regardless of prompts. `pnpm ship` is loom's own path and loom is
+`agent`, so the sequence below merges.
+
 ## Before you ship
 
 - **Ship only once the change is approved.** Landing work on `main` is not a
   step you take on your own initiative — the human (or, in a workstream, the
   orchestrator acting on the human's approval) must have signed off first.
+- **Honour the project's merge authority** (above). Under a `human` policy,
+  "shipping" means opening the PR and stopping — not merging.
 - **The work must be ready.** If the checks fail, or the working tree carries
   unexpected changes beyond what you are shipping, stop and report that rather
   than shipping around it.
