@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
+import { assetCacheControl, isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
 
 describe("http dev routing", () => {
   it("treats localhost and loopback addresses as local", () => {
@@ -23,5 +23,17 @@ describe("http dev routing", () => {
     expect(resolveDevRedirectUrl(devUrl, requestUrl)).toBe(
       "http://127.0.0.1:5173/pair?token=test-token",
     );
+  });
+});
+
+describe("asset cache control", () => {
+  it("forces revalidation for mutable workspace-backed assets", () => {
+    // Guarantees an artefact-viewer reload refetches changed subresources
+    // instead of serving a stale cached copy.
+    expect(assetCacheControl(true)).toBe("private, no-cache");
+  });
+
+  it("keeps a long cache for immutable content-addressed assets", () => {
+    expect(assetCacheControl(false)).toBe("private, max-age=3600");
   });
 });

@@ -91,7 +91,20 @@ const AssetClaimsJson = Schema.fromJsonString(AssetClaimsSchema);
 const decodeAssetClaims = Schema.decodeUnknownOption(AssetClaimsJson);
 const encodeAssetClaims = Schema.encodeSync(AssetClaimsJson);
 
-export type ResolvedAsset = { readonly kind: "file"; readonly path: string };
+/**
+ * A resolved asset ready to be served. `mutable` distinguishes an asset backed
+ * by a live workspace path (the agent can rewrite it in place, so a byte-stale
+ * cached copy is wrong after the agent regenerates it) from a content-addressed
+ * attachment (its bytes never change for a given id). The HTTP layer maps this
+ * to `Cache-Control`: mutable assets must be revalidated per request so an
+ * artefact viewer reload picks up fresh subresources; immutable ones keep a
+ * long cache.
+ */
+export type ResolvedAsset = {
+  readonly kind: "file";
+  readonly path: string;
+  readonly mutable: boolean;
+};
 
 function decodeClaims(encodedPayload: string): AssetClaims | null {
   try {
@@ -383,8 +396,10 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       ),
       Effect.orElseSucceed(() => Option.none()),
     );
+    // Attachments are content-addressed by id: the bytes for a given id never
+    // change, so they are safe to cache long.
     return Option.isSome(info) && info.value.type === "File"
-      ? ({ kind: "file", path: attachmentPath } satisfies ResolvedAsset)
+      ? ({ kind: "file", path: attachmentPath, mutable: false } satisfies ResolvedAsset)
       : null;
   }
 
@@ -394,7 +409,9 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       workspaceRoot: claims.workspaceRoot,
       relativePath: claims.relativePath,
     });
-    return faviconPath ? ({ kind: "file", path: faviconPath } satisfies ResolvedAsset) : null;
+    return faviconPath
+      ? ({ kind: "file", path: faviconPath, mutable: true } satisfies ResolvedAsset)
+      : null;
   }
 
   const decodedPath = decodeRelativePath(relativePath);
@@ -407,7 +424,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       relativePath: claims.relativePath,
     });
     return exactWorkspaceFile
-      ? ({ kind: "file", path: exactWorkspaceFile } satisfies ResolvedAsset)
+      ? ({ kind: "file", path: exactWorkspaceFile, mutable: true } satisfies ResolvedAsset)
       : null;
   }
   const segments = decodedPath.split(/[\\/]/);
@@ -425,5 +442,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     workspaceRoot: claims.workspaceRoot,
     relativePath: joinedRelativePath,
   });
-  return workspaceFile ? ({ kind: "file", path: workspaceFile } satisfies ResolvedAsset) : null;
+  return workspaceFile
+    ? ({ kind: "file", path: workspaceFile, mutable: true } satisfies ResolvedAsset)
+    : null;
 });

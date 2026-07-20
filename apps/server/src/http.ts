@@ -67,6 +67,19 @@ export function isLoopbackHostname(hostname: string): boolean {
   return LOOPBACK_HOSTNAMES.has(normalizedHostname);
 }
 
+/**
+ * `Cache-Control` for a served asset. Mutable workspace-backed assets (the
+ * artefact viewer's HTML entry and its relative subresources) must be
+ * revalidated every request so a reload after the agent regenerates the file
+ * never renders stale bytes; the viewer's reload cache-busts only the entry
+ * document, not `./style.css` & friends, so without this the browser would
+ * reuse a cached subresource for up to the previous max-age. Immutable,
+ * content-addressed attachments keep the long cache.
+ */
+export function assetCacheControl(mutable: boolean): string {
+  return mutable ? "private, no-cache" : "private, max-age=3600";
+}
+
 export function resolveDevRedirectUrl(devUrl: URL, requestUrl: URL): string {
   const redirectUrl = new URL(devUrl.toString());
   redirectUrl.pathname = requestUrl.pathname;
@@ -195,7 +208,7 @@ export const assetRouteLayer = HttpRouter.add(
     return yield* HttpServerResponse.file(asset.path, {
       status: 200,
       headers: {
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": assetCacheControl(asset.mutable),
         "X-Content-Type-Options": "nosniff",
       },
     }).pipe(
