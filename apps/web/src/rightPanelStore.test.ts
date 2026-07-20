@@ -184,6 +184,113 @@ describe("rightPanelStore", () => {
     expect(state.activeSurfaceId).toBe("dir:/home/carl/out");
   });
 
+  it("opens an artifact surface and bumps its reload request on re-open", () => {
+    useRightPanelStore.getState().openArtifact(refA, "experiments/mockup.html");
+    let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      {
+        id: "artifact:experiments/mockup.html",
+        kind: "artifact",
+        relativePath: "experiments/mockup.html",
+        reloadRequestId: 1,
+      },
+    ]);
+    expect(state.activeSurfaceId).toBe("artifact:experiments/mockup.html");
+
+    // Re-opening the same artefact upserts in place and bumps the reload id.
+    useRightPanelStore.getState().openArtifact(refA, "experiments/mockup.html");
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      {
+        id: "artifact:experiments/mockup.html",
+        kind: "artifact",
+        relativePath: "experiments/mockup.html",
+        reloadRequestId: 2,
+      },
+    ]);
+  });
+
+  it("keeps peer surfaces when opening an artifact (no standalone-explorer drop)", () => {
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openArtifact(refA, "demo/index.html");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      { id: "files", kind: "files", revealPath: null, revealRequestId: 0 },
+      {
+        id: "artifact:demo/index.html",
+        kind: "artifact",
+        relativePath: "demo/index.html",
+        reloadRequestId: 1,
+      },
+    ]);
+    expect(state.activeSurfaceId).toBe("artifact:demo/index.html");
+  });
+
+  it("validates persisted artifact surfaces and coerces the reload request id", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "artifact:demo/index.html",
+            surfaces: [
+              {
+                id: "artifact:demo/index.html",
+                kind: "artifact",
+                relativePath: "demo/index.html",
+                reloadRequestId: -3,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "artifact:demo/index.html",
+          surfaces: [
+            {
+              id: "artifact:demo/index.html",
+              kind: "artifact",
+              relativePath: "demo/index.html",
+              reloadRequestId: 0,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("drops persisted artifact surfaces whose id disagrees with the relative path", () => {
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "artifact:demo/index.html",
+            surfaces: [
+              {
+                id: "artifact:stale",
+                kind: "artifact",
+                relativePath: "demo/index.html",
+                reloadRequestId: 1,
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: null,
+          surfaces: [],
+        },
+      },
+    });
+  });
+
   it("replaces the standalone explorer with peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");

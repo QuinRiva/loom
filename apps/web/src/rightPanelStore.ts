@@ -26,6 +26,7 @@ export const RIGHT_PANEL_KINDS = [
   "dir",
   "preview",
   "terminal",
+  "artifact",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -77,10 +78,26 @@ export type RightPanelSurface =
       revealLine: number | null;
       revealRequestId: number;
     }
+  | {
+      /**
+       * A single agent-produced HTML artefact rendered in a sandboxed iframe
+       * (web runtime only). `id = artifact:${relativePath}` — one tab per
+       * artefact, like file surfaces.
+       */
+      id: `artifact:${string}`;
+      kind: "artifact";
+      relativePath: string;
+      /**
+       * Bumped when `openArtifact` hits an existing surface — the viewer
+       * re-mints and reloads the iframe, mirroring `revealRequestId` semantics
+       * on file surfaces.
+       */
+      reloadRequestId: number;
+    }
   | { id: "plan"; kind: "plan" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 9;
+const RIGHT_PANEL_STORAGE_VERSION = 10;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -90,7 +107,10 @@ export interface ThreadRightPanelState {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
-  open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "dir" | "terminal">) => void;
+  open: (
+    ref: ScopedThreadRef,
+    kind: Exclude<RightPanelKind, "file" | "dir" | "terminal" | "artifact">,
+  ) => void;
   // loom: single-transition auto-open seed; see loom/seedRightPanelSurfaces.ts.
   seedSurfaces: (
     ref: ScopedThreadRef,
@@ -104,6 +124,8 @@ interface RightPanelStoreState {
   openFilesAt: (ref: ScopedThreadRef, relativePath: string) => void;
   /** Open a read-only explorer rooted at an out-of-workspace absolute directory. */
   openDirectoryAbsolute: (ref: ScopedThreadRef, absolutePath: string) => void;
+  /** Open (or reload) the sandboxed HTML artefact viewer for a workspace file. */
+  openArtifact: (ref: ScopedThreadRef, relativePath: string) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -125,7 +147,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "dir" | "terminal">,
+    kind: Exclude<RightPanelKind, "file" | "dir" | "terminal" | "artifact">,
   ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -152,8 +174,18 @@ const directorySurface = (absolutePath: string): Extract<RightPanelSurface, { ki
   absolutePath,
 });
 
+const artifactSurface = (
+  relativePath: string,
+  reloadRequestId: number,
+): Extract<RightPanelSurface, { kind: "artifact" }> => ({
+  id: `artifact:${relativePath}`,
+  kind: "artifact",
+  relativePath,
+  reloadRequestId,
+});
+
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "dir" | "preview" | "terminal">,
+  kind: Exclude<RightPanelKind, "file" | "dir" | "preview" | "terminal" | "artifact">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -316,6 +348,29 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       }
                       return [{ id: surface.id, kind: "dir", absolutePath: surface.absolutePath }];
                     }
+                    if (surface.kind === "artifact") {
+                      if (
+                        typeof surface.relativePath !== "string" ||
+                        surface.relativePath.length === 0 ||
+                        surface.id !== `artifact:${surface.relativePath}`
+                      ) {
+                        return [];
+                      }
+                      const reloadRequestId =
+                        typeof surface.reloadRequestId === "number" &&
+                        Number.isSafeInteger(surface.reloadRequestId) &&
+                        surface.reloadRequestId >= 0
+                          ? surface.reloadRequestId
+                          : 0;
+                      return [
+                        {
+                          id: surface.id,
+                          kind: "artifact",
+                          relativePath: surface.relativePath,
+                          reloadRequestId,
+                        },
+                      ];
+                    }
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -432,6 +487,24 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
             upsertSurface(current, directorySurface(absolutePath)),
           ),
+        })),
+      openArtifact: (ref, relativePath) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
+            const surfaceId = `artifact:${relativePath}` as const;
+            const existing = current.surfaces.find(
+              (surface): surface is Extract<RightPanelSurface, { kind: "artifact" }> =>
+                surface.id === surfaceId && surface.kind === "artifact",
+            );
+            const surface = artifactSurface(relativePath, (existing?.reloadRequestId ?? 0) + 1);
+            return {
+              isOpen: true,
+              activeSurfaceId: surface.id,
+              surfaces: existing
+                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
+                : [...current.surfaces, surface],
+            };
+          }),
         })),
       openTerminal: (ref, terminalId) =>
         set((state) => ({
