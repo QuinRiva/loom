@@ -6,6 +6,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  parseHandoffDraft,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
   shouldSubmitComposerOnEnter,
@@ -419,5 +420,49 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+
+  it("never claims /handoff (which is not a mode toggle)", () => {
+    expect(parseStandaloneComposerSlashCommand("/handoff")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/handoff the retry logic")).toBeNull();
+  });
+});
+
+describe("parseHandoffDraft", () => {
+  it("returns not-handoff for ordinary prompts", () => {
+    expect(parseHandoffDraft("fix the retry logic")).toEqual({ kind: "not-handoff" });
+    expect(parseHandoffDraft("")).toEqual({ kind: "not-handoff" });
+  });
+
+  it("does not match a word that merely starts with handoff", () => {
+    expect(parseHandoffDraft("/handoffs are great")).toEqual({ kind: "not-handoff" });
+    expect(parseHandoffDraft("/handoffnow")).toEqual({ kind: "not-handoff" });
+  });
+
+  it("reports empty-error for /handoff with no explanation", () => {
+    expect(parseHandoffDraft("/handoff")).toEqual({ kind: "empty-error" });
+    expect(parseHandoffDraft("  /handoff   ")).toEqual({ kind: "empty-error" });
+  });
+
+  it("extracts the explanation, trimming surrounding whitespace", () => {
+    expect(parseHandoffDraft("/handoff the retry logic is broken")).toEqual({
+      kind: "handoff",
+      explanation: "the retry logic is broken",
+    });
+    expect(parseHandoffDraft("   /handoff   out of scope here  ")).toEqual({
+      kind: "handoff",
+      explanation: "out of scope here",
+    });
+  });
+
+  it("is case-insensitive on the command and keeps multi-line explanations", () => {
+    expect(parseHandoffDraft("/HANDOFF fix it")).toEqual({
+      kind: "handoff",
+      explanation: "fix it",
+    });
+    expect(parseHandoffDraft("/handoff line one\nline two")).toEqual({
+      kind: "handoff",
+      explanation: "line one\nline two",
+    });
   });
 });

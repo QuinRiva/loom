@@ -573,7 +573,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
-    isServerThread: _isServerThread,
+    isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -969,6 +969,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     query: isPathTrigger ? pathTriggerQuery : null,
   });
 
+  // `/handoff` (plan D2) forks the active thread into a throwaway drafter, so it
+  // is offered only for a pi-backed server thread that is not mid-turn (D7/D8).
+  // The server re-checks and rejects these cases as a backstop.
+  const canDraftHandoff =
+    isServerThread && activeThread?.session?.providerName === "pi" && phase !== "running";
+
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -1007,6 +1013,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: "/default",
           description: "Switch this thread back to normal build mode",
         },
+        ...(canDraftHandoff
+          ? [
+              {
+                id: "slash:handoff",
+                type: "slash-command",
+                command: "handoff",
+                label: "/handoff",
+                description: "Hand off out-of-scope work without polluting this thread",
+              } as const,
+            ]
+          : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
         (command) => ({
@@ -1043,6 +1060,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return [];
   }, [
     activeThreadId,
+    canDraftHandoff,
     composerTrigger,
     selectedProvider,
     selectedProviderStatus,
@@ -1643,6 +1661,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "slash-command") {
+        if (item.command === "handoff") {
+          // Unlike the mode toggles, `/handoff` takes free-text, so selecting it
+          // inserts `/handoff ` and leaves the human to type the explanation
+          // (mirrors provider-slash-command insertion).
+          const replacement = "/handoff ";
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
         if (item.command === "model") {
           const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
             expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
