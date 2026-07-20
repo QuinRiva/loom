@@ -438,58 +438,58 @@ const seedProgram = Effect.gen(function* () {
       });
 
       for (let t = 0; t < contents.length; t += 1) {
-      const turnCount = t + 1;
-      NodeFS.writeFileSync(filePath, contents[t]!, "utf8");
-      yield* checkpointStore.captureCheckpoint({
-        cwd: worktreePath,
-        checkpointRef: checkpointRefForThreadTurn(spec.id, turnCount),
-      });
+        const turnCount = t + 1;
+        NodeFS.writeFileSync(filePath, contents[t]!, "utf8");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: worktreePath,
+          checkpointRef: checkpointRefForThreadTurn(spec.id, turnCount),
+        });
 
-      const additions = contents[t]!.split("\n").length;
-      const files: ReadonlyArray<OrchestrationCheckpointFile> = [
-        { path: turnSpec.file, kind: "modified", additions, deletions: t === 0 ? 0 : 1 },
-      ];
-      const turnId = TurnId.make(`${spec.id}-turn-${turnCount}`);
-      const messageId = MessageId.make(`${spec.id}-assistant-${turnCount}`);
+        const additions = contents[t]!.split("\n").length;
+        const files: ReadonlyArray<OrchestrationCheckpointFile> = [
+          { path: turnSpec.file, kind: "modified", additions, deletions: t === 0 ? 0 : 1 },
+        ];
+        const turnId = TurnId.make(`${spec.id}-turn-${turnCount}`);
+        const messageId = MessageId.make(`${spec.id}-assistant-${turnCount}`);
 
-      // A user + assistant message per turn so the thread reads like real work.
-      yield* dispatch({
-        type: "thread.turn.start",
-        commandId: nextCommandId(`${spec.name}-user-${turnCount}`),
-        threadId: spec.id,
-        message: {
-          messageId: MessageId.make(`${spec.id}-user-${turnCount}`),
-          role: "user",
-          // Sub-thread turns are control-plane-injected: turn 1 is the kickoff
-          // brief, later turns are gate rework legs.
-          origin: turnCount === 1 ? "kickoff" : "control_notice",
-          text: turnCount === 1 ? spec.purpose : `Rework round ${turnCount - 1}.`,
-          attachments: [],
-        },
-        runtimeMode: "full-access",
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        createdAt: iso(coderIndex * 10 + turnCount),
-      });
-      yield* dispatch({
-        type: "thread.message.assistant.complete",
-        commandId: nextCommandId(`${spec.name}-assistant-${turnCount}`),
-        threadId: spec.id,
-        messageId,
-        turnId,
-        createdAt: iso(coderIndex * 10 + turnCount),
-      });
-      yield* dispatch({
-        type: "thread.turn.diff.complete",
-        commandId: nextCommandId(`${spec.name}-diff-${turnCount}`),
-        threadId: spec.id,
-        turnId,
-        completedAt: iso(coderIndex * 10 + turnCount),
-        checkpointRef: checkpointRefForThreadTurn(spec.id, turnCount),
-        status: "ready",
-        files,
-        assistantMessageId: messageId,
-        checkpointTurnCount: turnCount,
-        createdAt: iso(coderIndex * 10 + turnCount),
+        // A user + assistant message per turn so the thread reads like real work.
+        yield* dispatch({
+          type: "thread.turn.start",
+          commandId: nextCommandId(`${spec.name}-user-${turnCount}`),
+          threadId: spec.id,
+          message: {
+            messageId: MessageId.make(`${spec.id}-user-${turnCount}`),
+            role: "user",
+            // Sub-thread turns are control-plane-injected: turn 1 is the kickoff
+            // brief, later turns are gate rework legs.
+            origin: turnCount === 1 ? "kickoff" : "control_notice",
+            text: turnCount === 1 ? spec.purpose : `Rework round ${turnCount - 1}.`,
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: iso(coderIndex * 10 + turnCount),
+        });
+        yield* dispatch({
+          type: "thread.message.assistant.complete",
+          commandId: nextCommandId(`${spec.name}-assistant-${turnCount}`),
+          threadId: spec.id,
+          messageId,
+          turnId,
+          createdAt: iso(coderIndex * 10 + turnCount),
+        });
+        yield* dispatch({
+          type: "thread.turn.diff.complete",
+          commandId: nextCommandId(`${spec.name}-diff-${turnCount}`),
+          threadId: spec.id,
+          turnId,
+          completedAt: iso(coderIndex * 10 + turnCount),
+          checkpointRef: checkpointRefForThreadTurn(spec.id, turnCount),
+          status: "ready",
+          files,
+          assistantMessageId: messageId,
+          checkpointTurnCount: turnCount,
+          createdAt: iso(coderIndex * 10 + turnCount),
         });
       }
     }
