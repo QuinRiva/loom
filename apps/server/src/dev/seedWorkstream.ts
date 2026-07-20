@@ -26,6 +26,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  EventId,
   GoalId,
   MessageId,
   type OrchestrationCheckpointFile,
@@ -63,6 +64,10 @@ const CODER_BETA_ID = ThreadId.make("seed-thread-coder-beta");
 const CODER_REWORK_ID = ThreadId.make("seed-thread-coder-rework");
 const CODER_SHARED_ID = ThreadId.make("seed-thread-coder-shared");
 const CODER_CANCELLED_ID = ThreadId.make("seed-thread-coder-cancelled");
+// A ready dependency + a dependent gated on it: the dependent resolves to the
+// `blocked` column (steel, v2 palette) with a steel within-wave waits-on edge.
+const CODER_DEP_ID = ThreadId.make("seed-thread-coder-dep");
+const CODER_BLOCKED_ID = ThreadId.make("seed-thread-coder-blocked");
 
 const MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("pi"),
@@ -74,6 +79,10 @@ const BASE_TIME = "2026-01-01T09:00:00.000Z";
 let commandCounter = 0;
 const nextCommandId = (label: string): CommandId =>
   CommandId.make(`seed:${label}:${(commandCounter++).toString().padStart(4, "0")}`);
+
+let eventCounter = 0;
+const nextEventId = (label: string): EventId =>
+  EventId.make(`seed-evt:${label}:${(eventCounter++).toString().padStart(4, "0")}`);
 
 function runGit(cwd: string, args: ReadonlyArray<string>): string {
   return NodeChildProcess.execFileSync("git", args, {
@@ -346,6 +355,30 @@ const seedProgram = Effect.gen(function* () {
         { file: "experiment.ts", contents: ["export const x = 1;\n", "export const x = 2;\n"] },
       ],
     },
+    {
+      id: CODER_DEP_ID,
+      name: "coder-dep",
+      title: "Schema migration",
+      purpose: "The upstream migration the reviewer waits on.",
+      role: "coder",
+      isolation: "isolated" as const,
+      // Left "ready" (not done) so its dependent stays blocked — exercises the
+      // steel `blocked` node + steel waits-on edge in the v2 palette. No turns
+      // (never started), so it reads awaiting_brief — still "not done".
+      planLane: "ready" as const,
+      turns: [] as { file: string; contents: string[] }[],
+    },
+    {
+      id: CODER_BLOCKED_ID,
+      name: "coder-blocked",
+      title: "Migration review",
+      purpose: "A reviewer gated on the schema migration — blocked on upstream.",
+      role: "reviewer",
+      isolation: "isolated" as const,
+      planLane: "ready" as const,
+      blockedBy: [CODER_DEP_ID],
+      turns: [] as { file: string; contents: string[] }[],
+    },
   ];
 
   let coderIndex = 0;
@@ -378,6 +411,9 @@ const seedProgram = Effect.gen(function* () {
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       isolation: spec.isolation,
       planLane: "ready",
+      ...((spec as { blockedBy?: ReadonlyArray<ThreadId> }).blockedBy
+        ? { blockedBy: (spec as { blockedBy?: ReadonlyArray<ThreadId> }).blockedBy }
+        : {}),
       // Deliberately null: a non-null branch marks the child as a provisioned
       // worktree, which the live WorkstreamFanInReactor would then try to git
       // merge/remove at runtime — mutating or destroying the seeded checkpoints.
@@ -388,17 +424,20 @@ const seedProgram = Effect.gen(function* () {
       createdAt: iso(coderIndex),
     });
 
-    const turnSpec = spec.turns[0]!;
-    const contents = turnSpec.contents;
-    const filePath = NodePath.join(worktreePath, turnSpec.file);
+    // A never-started spec (empty turns) stays a clean pre-run node — skip the
+    // checkpoint baseline + turn dispatch (a blocked thread may not start a turn).
+    if (spec.turns.length > 0) {
+      const turnSpec = spec.turns[0]!;
+      const contents = turnSpec.contents;
+      const filePath = NodePath.join(worktreePath, turnSpec.file);
 
-    // Capture the pre-work baseline as turn/0 (the diff `from` anchor).
-    yield* checkpointStore.captureCheckpoint({
-      cwd: worktreePath,
-      checkpointRef: checkpointRefForThreadTurn(spec.id, 0),
-    });
+      // Capture the pre-work baseline as turn/0 (the diff `from` anchor).
+      yield* checkpointStore.captureCheckpoint({
+        cwd: worktreePath,
+        checkpointRef: checkpointRefForThreadTurn(spec.id, 0),
+      });
 
-    for (let t = 0; t < contents.length; t += 1) {
+      for (let t = 0; t < contents.length; t += 1) {
       const turnCount = t + 1;
       NodeFS.writeFileSync(filePath, contents[t]!, "utf8");
       yield* checkpointStore.captureCheckpoint({
@@ -451,7 +490,8 @@ const seedProgram = Effect.gen(function* () {
         assistantMessageId: messageId,
         checkpointTurnCount: turnCount,
         createdAt: iso(coderIndex * 10 + turnCount),
-      });
+        });
+      }
     }
 
     // Terminal lane / attention shaping.
@@ -484,6 +524,69 @@ const seedProgram = Effect.gen(function* () {
     }
   }
 
+  // Enrich the in-progress rework coder so the graph's running-node footer, the
+  // hover card (⚒ tools · pill · cost · turn line), and the active strip meta row
+  // all have real data — and leave a genuinely in-flight turn so the live pulse
+  // dot renders. toolUses/cost derive from durable activities; the assistant
+  // delta (no matching complete) is the latest-narration preview + running turn.
+  for (let t = 0; t < 12; t += 1) {
+    yield* dispatch({
+      type: "thread.activity.append",
+      commandId: nextCommandId(`rework-tool-${t}`),
+      threadId: CODER_REWORK_ID,
+      activity: {
+        id: nextEventId(`rework-tool-${t}`),
+        tone: "tool",
+        kind: "tool.completed",
+        summary: `Edited parser.ts (${t + 1})`,
+        payload: { tool: "edit" },
+        turnId: null,
+        createdAt: iso(200 + t),
+      },
+      createdAt: iso(200 + t),
+    });
+  }
+  yield* dispatch({
+    type: "thread.activity.append",
+    commandId: nextCommandId("rework-ctx"),
+    threadId: CODER_REWORK_ID,
+    activity: {
+      id: nextEventId("rework-ctx"),
+      tone: "info",
+      kind: "context-window.updated",
+      summary: "Context window updated",
+      payload: { usedTokens: 82_000, maxTokens: 200_000, costUsd: 1.43 },
+      turnId: null,
+      createdAt: iso(213),
+    },
+    createdAt: iso(213),
+  });
+  // A fresh user turn with no completion → latestTurn.state "running"
+  // (hasRunningSignal), and an assistant delta → the lastActivityPreview line.
+  yield* dispatch({
+    type: "thread.turn.start",
+    commandId: nextCommandId("rework-live-user"),
+    threadId: CODER_REWORK_ID,
+    message: {
+      messageId: MessageId.make("seed-msg-rework-live-user"),
+      role: "user",
+      origin: "control_notice",
+      text: "Rework round 3.",
+      attachments: [],
+    },
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    createdAt: iso(214),
+  });
+  yield* dispatch({
+    type: "thread.message.assistant.delta",
+    commandId: nextCommandId("rework-live-delta"),
+    threadId: CODER_REWORK_ID,
+    messageId: MessageId.make("seed-msg-rework-live-assistant"),
+    delta: "Normalising the parser input — lower-casing then trimming before the tokenizer pass",
+    createdAt: iso(215),
+  });
+
   yield* Console.log(
     JSON.stringify(
       {
@@ -498,7 +601,7 @@ const seedProgram = Effect.gen(function* () {
           title: spec.title,
           isolation: spec.isolation,
           planLane: spec.planLane,
-          turnCount: spec.turns[0]!.contents.length,
+          turnCount: spec.turns[0]?.contents.length ?? 0,
           worktreePath: NodePath.join(workspaceRoot, spec.name),
         })),
       },
