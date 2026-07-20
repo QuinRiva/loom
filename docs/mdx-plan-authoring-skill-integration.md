@@ -70,12 +70,13 @@ symlinking all three into a provider skill directory as siblings (so the
 reviewed and diffs like any other repo file; trivially reversible. **Cons:**
 activation is a manual step, so it is opt-in rather than on by default.
 
-**Turnkey enablement.** `scripts/enable-mdx-doc-skills.sh [codex|claude|all]`
-symlinks all three skill dirs (`mdx-visual-plan`, `mdx-visual-recap`,
-`mdx-doc-core`) into the chosen provider skill dir (`~/.codex/skills/` and/or
-`~/.claude/skills/`). It is idempotent and reversible (delete the links); a
-symlink means skill edits track the repo live. Reload the provider session
-afterwards so it re-lists skills.
+**Turnkey enablement.** _(Historical: the manual
+`scripts/enable-mdx-doc-skills.sh` installer has been retired — the deployctl
+installer now reads the `pi_global` / `pi_global_requires` frontmatter keys from
+a built release and symlinks the flagged skills, plus `mdx-doc-core`, into
+`~/.pi/agent/skills/` on deploy.)_ The retired script symlinked all three skill
+dirs (`mdx-visual-plan`, `mdx-visual-recap`, `mdx-doc-core`) into the chosen
+provider skill dir; it was idempotent and reversible.
 
 ### B — Ship + auto-install into the shared Codex home
 
