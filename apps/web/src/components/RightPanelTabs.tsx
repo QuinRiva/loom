@@ -1,6 +1,7 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
+  AppWindow,
   ClipboardList,
   FileDiff,
   Files,
@@ -239,6 +240,8 @@ function surfaceTitle(
       );
     case "file":
       return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
+    case "artifact":
+      return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -309,6 +312,8 @@ function SurfaceIcon({
           className="size-3.5"
         />
       );
+    case "artifact":
+      return <AppWindow className="size-3.5 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3.5 shrink-0" />;
     case "plan":
@@ -337,7 +342,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       if (surfaceIndex < 0) return;
 
       const items: ContextMenuItem<TabContextMenuAction>[] = [];
-      if (surface.kind === "file") {
+      if (surface.kind === "file" || surface.kind === "artifact") {
         items.push({ id: "copy-path", label: "Copy path" });
       }
       items.push(
@@ -362,7 +367,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       const action = await api.contextMenu.show(items, { x: event.clientX, y: event.clientY });
       switch (action) {
         case "copy-path":
-          if (surface.kind === "file") props.onCopyFilePath(surface.relativePath);
+          if (surface.kind === "file" || surface.kind === "artifact")
+            props.onCopyFilePath(surface.relativePath);
           break;
         case "close":
           props.onCloseSurface(surface);

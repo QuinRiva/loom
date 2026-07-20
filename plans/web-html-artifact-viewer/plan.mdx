@@ -1,0 +1,283 @@
+---
+manager_sessions:
+  - id: cf1296c1-999c-48e7-976f-8a4cc3cd6268
+    role: plan
+    authored_at: 2026-07-20T06:33:05.245Z
+---
+
+# Web-runtime HTML artefact viewer
+
+**Objective.** Agents frequently produce self-contained HTML artefacts (mockups, visual reports, explainers). In the desktop app these open in the right-panel Browser surface, but that surface is Electron-only: `isPreviewSupportedInRuntime()` returns `Boolean(window.desktopBridge?.preview)` (`apps/web/src/previewStateStore.ts`), so a user running T3 Code in a web browser (e.g. over VS Code Remote SSH port-forwarding to a GCP VM) has no way to see rendered HTML at all. This plan adds a lightweight **Preview surface** — a new right-panel surface kind that renders one HTML artefact file in a sandboxed iframe — available in the web runtime. It is deliberately not a browser: no URL bar, no navigation, no arbitrary sites.
+
+**Done means:** in the web runtime, clicking an HTML file chip in chat (or a header button in the file viewer) opens a right-panel tab that renders the artefact — scripts and styles working, relative assets resolving — with loading/error states, a reload button, and an iframe sandbox that prevents artefact code from reaching the app, its RPC, or the session cookie. The desktop Browser path is untouched.
+
+<Callout tone="decision">
+  The central design question — how artefact bytes reach an iframe when the web app only talks RPC
+  over WebSocket — dissolves on inspection: **the server already ships a signed raw-file HTTP
+  route**, `GET /api/assets/:token/:fileName` (`apps/server/src/http.ts` `assetRouteLayer`,
+  `apps/server/src/assets/AssetAccess.ts`), purpose-built for previewing workspace files and used
+  today only by the desktop Browser path. The viewer reuses it unchanged: **no new server route is
+  required.** A defence-in-depth CSP header (former work item 3) was considered but **dropped by
+  decision** — the viewer relies on the iframe sandbox alone (see Security).
+</Callout>
+
+## What the user sees
+
+In web, an HTML file reference in chat renders as the existing file chip. Clicking it opens a new right-panel tab titled with the file's basename, rendering the artefact full-bleed under a slim header row (file path, a Reload button, and an "Open source" affordance). Re-clicking the chip after the agent regenerates the file reloads the tab. On desktop, the same chip keeps its current behaviour (opens the integrated Browser); nothing changes there.
+
+## Serving mechanism: reuse the signed asset route
+
+### What already exists
+
+The `assets.createUrl` WebSocket RPC (`WS_METHODS.assetsCreateUrl`, handled in `apps/server/src/ws.ts`, gated on `AuthOrchestrationReadScope`) takes `{ resource: { _tag: "workspace-file", threadId, path } }`, resolves the thread's worktree root (`thread.worktreePath ?? project.workspaceRoot`), and calls `issueAssetUrl` in `apps/server/src/assets/AssetAccess.ts`. That mints a capability URL:
+
+```
+/api/assets/<base64url(claims)>.<hmac-signature>/<fileName>
+```
+
+For an HTML entry file the claims are `{ kind: "workspace-file", workspaceRoot, baseRelativePath: dirname(entry), expiresAt: now + 1h }`. The HTTP handler (`assetRouteLayer`) verifies the HMAC (key from `ServerSecretStore`), checks expiry, and serves file bytes with `Cache-Control: private` and `X-Content-Type-Options: nosniff`. No cookie or header auth is needed on the GET — the signed token *is* the authorisation, which is exactly what an `<iframe src>` needs.
+
+Crucially, the `baseRelativePath` claim was designed for the "HTML with relative assets" case: a subresource request like `/api/assets/<same-token>/style.css` or `.../assets/hero.png` re-resolves under the same token, joined to the entry file's directory. `resolveAsset` confines this hard:
+
+- extension allowlist (`.htm .html .pdf`, images, `.css .js .mjs`, fonts),
+- rejects `.`/`..` segments and dot-files, canonicalises via `realPath`, and re-verifies the result stays inside the workspace root — so a token for `experiments/mockup.html` grants read access to allowlisted files under `experiments/` only, for one hour.
+
+The client side exists too: `assetEnvironment.createUrl` (`packages/client-runtime/src/state/assets.ts`, surfaced in `apps/web/src/state/assets.ts` and `apps/web/src/assets/assetUrls.ts`) plus `resolveAssetUrl(httpBaseUrl, relativeUrl)`. The desktop-only part of today's flow is a single step at the end: `openFileInPreview` (`apps/web/src/browser/openFileInPreview.ts`) hands the minted URL to the Electron preview session. The viewer replaces that last step with an iframe.
+
+<Mermaid
+  caption="End-to-end data flow (web runtime)"
+  source={"sequenceDiagram\n  participant U as User (chat chip)\n  participant W as Web app\n  participant S as apps/server (WS RPC)\n  participant H as apps/server (HTTP)\n  U->>W: click HTML file chip\n  W->>S: assets.createUrl { workspace-file, threadId, path } (authed WS)\n  S-->>W: { relativeUrl: /api/assets/token/file.html, expiresAt }\n  W->>W: open artifact surface, iframe src = httpBaseUrl + relativeUrl\n  W->>H: GET /api/assets/token/file.html (no credentials)\n  H-->>W: HTML bytes (nosniff, private cache)\n  W->>H: GET /api/assets/token/style.css (relative subresource)\n  H-->>W: css bytes (same token, baseRelativePath join)\n"}
+/>
+
+### `src` vs `srcdoc`/`blob:` — resolved: `src`
+
+<Table
+  columns={["", "iframe src (asset URL)", "srcdoc / blob: from RPC file read"]}
+  rows={[
+    [
+      "Relative assets (css/js/img)",
+      "Resolve transparently via the baseRelativePath claim",
+      "Broken — no base URL; every artefact must be fully self-contained forever",
+    ],
+    [
+      "Size limits",
+      "Streamed by the HTTP server, no practical cap",
+      "Workspace read RPC truncates (1 MiB default; only .mdx gets a raised budget in FilePreviewPanel)",
+    ],
+    [
+      "Server work",
+      "None — route exists and is battle-tested by desktop preview",
+      "None, but client must round-trip file bytes through the WS message channel",
+    ],
+    [
+      "Origin isolation",
+      "Same-origin URL — MUST be sandboxed (see security)",
+      "srcdoc/blob inherit the app origin — must be sandboxed anyway; no security win",
+    ],
+    [
+      "Refresh semantics",
+      "Re-mint + reload iframe",
+      "Re-read + re-set srcdoc",
+    ],
+  ]}
+/>
+
+`srcdoc`/`blob:` has no compensating advantage: both inherit the embedding document's origin, so the sandbox attribute is equally load-bearing, and both forfeit relative-asset resolution — the exact "harder case" this surface must handle. **Decision: `<iframe src>` pointing at the existing signed asset URL.**
+
+## Security model
+
+Artefact HTML is agent-generated and must be treated as hostile. The relevant app facts: the web session is an **HttpOnly, SameSite=Lax cookie** (`apps/server/src/auth/http.ts`), HTTP calls use `credentials: "include"`, and the asset URL is same-origin with the app (the server serves both the SPA and `/api/assets`).
+
+**Primary control — iframe sandbox without `allow-same-origin`:**
+
+```tsx
+<iframe
+  src={assetUrl}
+  sandbox="allow-scripts allow-forms allow-modals"
+  referrerPolicy="no-referrer"
+  title={relativePath}
+/>
+```
+
+With `allow-same-origin` omitted, the artefact document runs in an **opaque origin**, which closes each attack path:
+
+- **Parent app reach:** `window.parent` / `window.top` DOM access throws (cross-origin); no access to the app's `localStorage` (where zustand persists UI state) or its in-memory JS.
+- **Session cookie:** `document.cookie` is unreadable from an opaque origin (and the cookie is HttpOnly regardless). `fetch("/api/…")` from the artefact is a *cross-site* request from an opaque origin: the SameSite=Lax cookie is not attached, and the wildcard `access-control-allow-origin: *` used on browser API CORS (`apps/server/src/httpCors.ts`) can never authorise credentialed requests.
+- **WS RPC:** opening a WebSocket to the server from the artefact carries no session cookie (cross-site), so it cannot authenticate.
+- **Navigation/escape:** no `allow-top-navigation`, no `allow-popups`, no `allow-downloads` — the artefact cannot navigate the app away, open windows, or trigger downloads. `allow-forms` and `allow-modals` are included so mockups with `<form>`, `alert()`/`confirm()` behave; neither weakens origin isolation.
+- **Subresources still work:** `<link>`/`<script src>`/`<img>` tags are no-CORS fetches, so relative assets load fine from the opaque origin, and the asset route needs no credentials.
+
+**Residual vectors, stated honestly:**
+
+1. **Top-level navigation of the capability URL.** If a user copies the asset URL and opens it as a tab, the artefact becomes a top-level same-origin document — same-origin `fetch` then rides the session cookie. The viewer never exposes the URL (no "open in new tab" affordance, `referrerPolicy="no-referrer"`), and the sandboxed artefact **cannot itself** surface its URL or induce that navigation (no top access, no popups). **This residual is accepted** (decision: the server `Content-Security-Policy: sandbox` header, former work item 3, was dropped): it is bounded by the URL never being surfaced in the UI, `no-referrer`, and the 1 h TTL. A server-enforced CSP header remains a possible future defence-in-depth if the posture ever needs to harden (it would also constrain the desktop `<webview>`, so it would ship as its own desktop-smoked unit).
+2. **Exfiltration.** Sandboxed artefact JS can still make outbound requests to third-party hosts (an `<img>` beacon). That equals the existing desktop preview posture and is accepted for a dev tool rendering the user's own agent's output.
+3. **Capability scope.** A leaked token grants 1 hour of read access to allowlisted-extension files under the artefact's directory subtree — not the whole workspace, not the API. TTL and HMAC (32-byte server secret) bound this.
+4. **App CSP:** the app currently sets no `frame-src` policy; if one is added later it must include `'self'` (assets are same-origin).
+
+## New surface: `kind: "artifact"`
+
+### Store (`apps/web/src/rightPanelStore.ts`)
+
+Add `"artifact"` to `RIGHT_PANEL_KINDS` and the union:
+
+<AnnotatedCode
+  filename="apps/web/src/rightPanelStore.ts"
+  language="ts"
+  code={
+    "| {\n    id: `artifact:${string}`;\n    kind: \"artifact\";\n    relativePath: string;\n    reloadRequestId: number;\n  }\n"
+  }
+  annotations={[
+    { lines: "3", note: "workspace-relative path; id = `artifact:${relativePath}` (one tab per artefact, like file surfaces)" },
+    {
+      lines: "5",
+      note: "bumped when openArtifact hits an existing surface — the viewer re-mints and reloads, mirroring revealRequestId semantics on file surfaces",
+    },
+  ]}
+/>
+
+New action `openArtifact(ref, relativePath)`: upsert the surface, activate it, bump `reloadRequestId` if it already exists (same shape as `upsertFileSurface`). `artifact` joins `file`/`dir`/`terminal` in the `Exclude<…>` lists so it never appears in the generic `open`/`toggle`/add-menu paths — it is opened only via explicit affordances. Bump `RIGHT_PANEL_STORAGE_VERSION` to 10 and extend `migratePersistedRightPanelState` to validate persisted artifact surfaces (id/`relativePath` agreement, coerce `reloadRequestId` to a safe non-negative integer), mirroring the `dir` validation. Per the state-tier conventions (`docs/architecture/loom-ui-state-tiers.md`) this is ordinary persisted surface state in the existing store — no new tier, and no auto-open seeding (`SeedableSurfaceKind` unchanged).
+
+### Tabs (`apps/web/src/components/RightPanelTabs.tsx`)
+
+- `surfaceTitle`: `case "artifact"` → basename of `relativePath` (same slice as the `file` case).
+- `SurfaceIcon`: `case "artifact"` → `AppWindow` (lucide), matching the existing 3.5-size treatment.
+- Tab context menu: extend the `copy-path` item to artifact surfaces alongside `file`.
+- No entry in `SURFACE_DISABLED_REASONS`, the add-surface menu, or the empty state — the surface has no "blank" form.
+
+### Render branch (`apps/web/src/components/ChatView.tsx`)
+
+Add a branch in the right-panel content chain (beside the `files`/`file` branch): when `activeRightPanelSurface?.kind === "artifact"` and `activeThreadRef` and `activeProject` are set, render the lazy-loaded `ArtifactViewPanel` with `environmentId`, `threadRef`, `relativePath`, `reloadRequestId`, and an `onOpenSource` callback that calls `openFileSurface`.
+
+## The viewer component
+
+`apps/web/src/components/artifact/ArtifactViewPanel.tsx` (new directory; lazy-imported like `FilePreviewPanel`). Plain React; no `window.desktopBridge` anywhere.
+
+**URL minting.** The component mints imperatively via `useAtomQueryRunner(assetEnvironment.createUrl, { reportFailure: false })` — the same runner `ChatMarkdown` uses — rather than the cached `useAssetUrl` hook, because a reload must re-mint (the atom family would happily return a cached, possibly expired token). An effect keyed on `[relativePath, reloadRequestId, mintNonce]` runs:
+
+1. `createAssetUrl({ environmentId, input: { resource: { _tag: "workspace-file", threadId, path: relativePath } } })`
+2. on success: `resolveAssetUrl(httpBaseUrl, relativeUrl)` (via `useEnvironmentHttpBaseUrl(environmentId)`, as `FilePreviewPanel` does) → set `{ status: "ready", url }`
+3. on failure: `{ status: "error", message }` — the server error taxonomy is already precise (`AssetWorkspaceAssetNotFoundError` when the file is missing, `AssetPreviewTypeValidationError` for a non-previewable extension, path-validation errors otherwise).
+
+**Render states.**
+
+- *Minting / iframe loading:* the standard muted spinner/skeleton treatment used by other panels; the iframe fires `onLoad` to clear it.
+- *Ready:* header row (`surface-subheader`, matching `FilePreviewPanel`'s) with the relative path, a Reload button (`RotateCw`) that bumps `mintNonce`, and an "Open source" button that calls `onOpenSource` to open the file editor surface. Below it, the iframe fills the panel (`flex-1`, no border), keyed by the minted URL so a re-mint remounts the frame.
+- *Error:* message + Retry button (bumps `mintNonce`). A deleted/regenerated-away artefact shows "file not found" rather than a broken frame.
+
+**Refresh when the artefact is regenerated.** Three paths, no file-watch infrastructure needed: the header Reload button; re-clicking the chat chip (bumps `reloadRequestId`); and re-minting naturally picking up new bytes since the asset route reads from disk per request (`Cache-Control: private, max-age=3600` is keyed to the URL, and each re-mint produces a fresh token → fresh URL → cache miss). Automatic refresh on turn completion is a deliberate non-goal for v1 (no existing changed-file push signal reaches this layer; the Files editor has the same manual-refresh posture).
+
+**Which files qualify.** A new predicate `isArtifactViewerPath` in `apps/web/src/components/artifact/artifactView.ts`, initially `/\.html?$/i` on the query-stripped path (same normalisation as `isBrowserPreviewFile`). PDF is excluded from v1 — the asset route allows it, but browsers' built-in PDF viewers are historically unreliable inside `sandbox` frames lacking `allow-same-origin`; see the open question.
+
+## Open affordances
+
+### Chat (`apps/web/src/components/ChatMarkdown.tsx`)
+
+`MarkdownFileLink` already carries the pattern: the desktop path passes `onOpenInBrowser` only when `isPreviewSupportedInRuntime() && isBrowserPreviewFile(path)`, and the chip's click handler prefers it over the file editor. Mirror it:
+
+- Add an optional `onOpenInViewer` prop to `MarkdownFileLinkProps`.
+- At the three call sites that currently compute `onOpenInBrowser` (link chips, prose path chips, inline-code chips), also pass `onOpenInViewer` when `threadRef && !isPreviewSupportedInRuntime() && isArtifactViewerPath(path) && workspaceRelativePath !== null`, calling `useRightPanelStore.getState().openArtifact(threadRef, workspaceRelativePath)`.
+- In the chip click handler, prefer `onOpenInViewer` exactly where `onOpenInBrowser` is preferred today — so on web, clicking an HTML chip renders it, and "open the source" remains available via the header button on the viewer itself. The `api.contextMenu` right-click menu is desktop-only (`readLocalApi()` is null on web) and needs no change.
+- Out-of-workspace HTML (chips resolved to absolute paths outside the worktree, e.g. another thread's report) keeps today's behaviour (text editor): the asset mechanism is workspace-rooted by design. Recorded as an open question.
+
+### File viewer (`apps/web/src/components/files/FilePreviewPanel.tsx`)
+
+`canOpenInBrowser` is desktop-gated today. Add the web counterpart: when `!isPreviewSupportedInRuntime() && relativePath && !isAbsolute && isArtifactViewerPath(relativePath)`, show a header button ("Open preview", `AppWindow` icon, same slot as the existing browser button) that calls `openArtifact(threadRef, relativePath)`.
+
+## File change map
+
+<FileTree
+  title="All changes (no server changes in items 1–2)"
+  entries={[
+    { path: "apps/web/src/rightPanelStore.ts", change: "modified", note: "artifact kind + surface union + openArtifact + v10 migration" },
+    { path: "apps/web/src/rightPanelStore.test.ts", change: "modified", note: "openArtifact upsert/bump + migration cases" },
+    { path: "apps/web/src/components/RightPanelTabs.tsx", change: "modified", note: "title, icon, copy-path for artifact tabs" },
+    { path: "apps/web/src/components/ChatView.tsx", change: "modified", note: "lazy ArtifactViewPanel render branch" },
+    { path: "apps/web/src/components/artifact/ArtifactViewPanel.tsx", change: "added", note: "mint → sandboxed iframe; loading/error/reload" },
+    { path: "apps/web/src/components/artifact/artifactView.ts", change: "added", note: "isArtifactViewerPath predicate (+ unit test)" },
+    { path: "apps/web/src/components/ChatMarkdown.tsx", change: "modified", note: "onOpenInViewer prop + three call sites (item 2)" },
+    { path: "apps/web/src/components/files/FilePreviewPanel.tsx", change: "modified", note: "web 'Open preview' header button (item 2)" },
+    { path: "apps/server/src/http.ts", change: "modified", note: "item 3 only (if accepted): CSP sandbox header on .html/.htm asset responses" },
+  ]}
+/>
+
+## Implementation decomposition
+
+Three work items; 1 and 2 are one coder's job (they share files and a small combined diff — splitting them would cost more in handoff than it buys in parallelism), with a reviewer gate on the pair. Item 3 is a separate, optional, independent unit pending the CSP question below.
+
+1. **Surface + viewer** (`rightPanelStore`, `RightPanelTabs`, `ChatView`, `ArtifactViewPanel`, predicate, FilePreviewPanel button). Demoable on its own via the Files surface. Includes store/migration unit tests and the predicate test.
+2. **Chat affordance** (`ChatMarkdown`: prop + three call sites). Depends on 1. Small, but touches the hottest markdown component — keep the diff surgical and verify desktop behaviour is byte-identical (the `onOpenInBrowser` gate is untouched; the new prop is `undefined` whenever `isPreviewSupportedInRuntime()` is true).
+3. **CSP hardening — DROPPED (decision).** Not implemented; the iframe sandbox is the sole control. Retained here only as a documented future option: were it revived, it would add `Content-Security-Policy: sandbox allow-scripts` in `assetRouteLayer` for `.html`/`.htm` responses, and would ship as its own unit with a desktop smoke (it also affects the Electron webview).
+
+Non-goals for v1: desktop behaviour changes of any kind; URL bar or navigation; out-of-workspace artefacts; automatic refresh on turn completion; PDF.
+
+## Verification
+
+Static gates: `vp check` and `vp run typecheck` (repo requirement), plus the new unit tests via `vp test`.
+
+End-to-end smoke, per the dev-verify recipe (`docs/dev-site-testing.md`) — the whole point of this feature is the web runtime, so verification must run in a real browser session against the dev server:
+
+1. Stand up the isolated dev instance with a seeded workstream; open the pairing URL in the browser (web runtime — `isPreviewSupportedInRuntime()` false).
+2. Write two fixtures into the seeded thread's worktree: (a) the canonical self-contained mockup (copy of `experiments/graph-node-metadata-mockup.html` from the reference worktree — inline styles, no external assets); (b) a harder-case artefact: `demo/index.html` referencing `./style.css`, `./app.js`, and `assets/logo.svg` relatively.
+3. Have the seeded agent (or a hand-typed message) reference both paths in chat; click each chip → the Preview tab opens and renders correctly, including all relative assets on (b) (verify the subresource GETs hit `/api/assets/…` in the network panel).
+4. Sandbox assertions from devtools: inside the iframe, `window.parent.document` access throws, `document.cookie` is empty, and a same-origin `fetch("/api/…")` gets no session (401/blocked).
+5. Regenerate fixture (a) with visibly different content; click Reload in the header → new content renders.
+6. Error path: delete fixture (a); Reload → "file not found" state with Retry.
+7. Desktop non-regression (item 2's gate): in the desktop app, an HTML chip still opens the integrated Browser exactly as before.
+
+<QuestionForm
+  questions={[
+    {
+      id: "csp-hardening",
+      title: "Ship work item 3 (CSP sandbox header on HTML asset responses)?",
+      mode: "single",
+      options: [
+        {
+          id: "yes",
+          label: "Yes — server-enforced sandbox, closes the top-level-navigation vector",
+          recommended: true,
+          detail:
+            "Also constrains the desktop webview (artefact JS loses credentialed same-origin API access there too — that is the attack being closed, not a feature). Ships as its own unit with a desktop smoke test.",
+        },
+        {
+          id: "no",
+          label: "No — rely on the iframe sandbox only",
+          detail:
+            "Zero desktop risk. Leaves the copy-URL-into-a-tab vector open (bounded by the 1h TTL and the URL never being surfaced in the UI).",
+        },
+      ],
+    },
+    {
+      id: "pdf-scope",
+      title: "Should the viewer also accept .pdf?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Defer — HTML only in v1",
+          recommended: true,
+          detail:
+            "The asset route already allows PDFs, but built-in PDF viewers are flaky inside sandboxed frames without allow-same-origin (which we will not grant). Revisit with a spike if wanted.",
+        },
+        {
+          id: "try",
+          label: "Include it behind the same predicate if a quick manual test renders in Chrome/Firefox",
+        },
+      ],
+    },
+    {
+      id: "out-of-workspace",
+      title: "Out-of-workspace HTML artefacts (e.g. another worktree's experiments/): in scope later?",
+      mode: "single",
+      options: [
+        {
+          id: "later",
+          label: "Track as follow-up — would need a new absolute-path asset claim with its own confinement story",
+          recommended: true,
+          detail:
+            "The workspace-file claim deliberately roots at the thread worktree. An absolute variant must decide what confines it (allowlisted roots? the cockpit worktrees dir?) — a real security design question, not a v1 add-on.",
+        },
+        { id: "never", label: "Explicitly out of scope permanently" },
+      ],
+    },
+  ]}
+/>
