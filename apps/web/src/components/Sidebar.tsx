@@ -111,6 +111,8 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
+// loom: centre-panel thread tabs — a sidebar single-click opens a preview tab.
+import { useThreadTabsStore } from "../loom/threadTabsStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
 
@@ -1815,6 +1817,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (isMobile) {
         setOpenMobile(false);
       }
+      // loom: a plain sidebar click reuses the transient preview tab slot; the
+      // route seed (on navigate) activates it. Every other entry path falls
+      // through to the persistent route-seed default.
+      useThreadTabsStore.getState().openTab(threadRef, "preview");
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),

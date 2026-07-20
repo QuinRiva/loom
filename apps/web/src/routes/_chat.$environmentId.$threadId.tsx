@@ -3,6 +3,9 @@ import { useEffect } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
+// loom: centre-panel thread tabs
+import { ThreadTabsStrip } from "../loom/ThreadTabsStrip";
+import { useThreadTabsSync } from "../loom/useThreadTabsSync";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { SidebarInset } from "~/components/ui/sidebar";
@@ -40,6 +43,10 @@ function ChatThreadRouteView() {
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
 
+  // loom: seed the open-tab set from the resolved route thread (URL is the
+  // single source of truth for the active tab).
+  useThreadTabsSync(threadRef, { bootstrapComplete, routeThreadExists });
+
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
       return;
@@ -63,6 +70,8 @@ function ChatThreadRouteView() {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+      {/* loom: centre-panel thread tabs */}
+      <ThreadTabsStrip activeRouteRef={threadRef} />
       <ChatView
         environmentId={threadRef.environmentId}
         threadId={threadRef.threadId}
