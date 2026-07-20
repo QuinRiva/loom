@@ -58,9 +58,10 @@ VITE_DEV_SERVER_URL=$WEB_URL T3CODE_NO_BROWSER=1 \
 node apps/server/src/bin.ts > "$T3CODE_HOME/server.out" 2>&1 &
 ```
 
-Server state lives at `$T3CODE_HOME/dev/` (the `dev` subdir is used whenever
-`VITE_DEV_SERVER_URL` is set): DB at `$T3CODE_HOME/dev/state.sqlite`, logs at
-`$T3CODE_HOME/dev/logs/server.log`.
+Server state lives at `$T3CODE_HOME/userdata/` (an explicitly-set `T3CODE_HOME`
+always resolves the `userdata` subdir, even with `VITE_DEV_SERVER_URL` set): DB
+at `$T3CODE_HOME/userdata/state.sqlite`, logs at
+`$T3CODE_HOME/userdata/logs/server.log`.
 
 ## 3. Start the web (Vite)
 
@@ -110,7 +111,7 @@ under the run's output dir (e.g. a `_debug` subdir), not `/tmp`.
 ## 5. Seeding ledger-backed views (e.g. /usage)
 
 Views like `/usage` read from projection tables. Seed the DB at
-`$T3CODE_HOME/dev/state.sqlite` (`sqlite3` CLI or `node:sqlite`). Seed rows must
+`$T3CODE_HOME/userdata/state.sqlite` (`sqlite3` CLI or `node:sqlite`). Seed rows must
 satisfy the **projection schemas**, not just the one table you care about, or
 the first load throws HTTP 500 `fetch-session-state`.
 

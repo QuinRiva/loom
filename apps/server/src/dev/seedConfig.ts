@@ -1,8 +1,8 @@
 /**
  * Shared dev-fixture config resolution — builds a `ServerConfig` for a scratch
- * `T3CODE_HOME` in dev mode (state under `<home>/dev`), so the seeder and the
- * verifier read/write exactly the sqlite a dev server started with the same
- * `T3CODE_HOME` serves.
+ * `T3CODE_HOME`, so the seeder and the verifier read/write exactly the sqlite a
+ * dev server started with the same `T3CODE_HOME` serves (state under
+ * `<home>/userdata`).
  *
  * @module dev/seedConfig
  */
@@ -21,11 +21,16 @@ export const buildSeedConfig = Effect.gen(function* () {
     return yield* Effect.fail(new Error("T3CODE_HOME must be set to the scratch home."));
   }
   const baseDir = path.resolve(t3Home.trim());
-  // Dev mode: `deriveServerPaths` keys the `dev` state dir off a non-undefined
-  // devUrl, so state lands in `<baseDir>/dev/state.sqlite` — the exact path a
-  // dev server started with the same T3CODE_HOME resolves.
+  // Mirror a dev-runner-launched server exactly: it sets both `VITE_DEV_SERVER_URL`
+  // (devUrl) and an explicit `T3CODE_HOME`. `deriveServerPaths` keys the state dir
+  // off `devUrl !== undefined && !baseDirIsExplicit`, so an explicit home resolves
+  // `<baseDir>/userdata/state.sqlite` regardless of devUrl — the exact path the
+  // server serves. The seed is always given an explicit T3CODE_HOME, so pass
+  // `baseDirIsExplicit: true` or the seed would write to a `dev/` dir nothing reads.
   const devUrl = new URL("http://localhost:5733");
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl);
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
+    baseDirIsExplicit: true,
+  });
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
   const config: ServerConfig.ServerConfig["Service"] = {
     logLevel: "Error",
