@@ -222,6 +222,10 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { shouldShowStagedKickoff, StagedKickoffCard } from "./chat/StagedKickoffCard";
+import {
+  shouldShowStagedBriefPreview,
+  StagedBriefPreviewCard,
+} from "./chat/StagedBriefPreviewCard";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -260,6 +264,7 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  threadHasStarted,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -5549,6 +5554,21 @@ function ChatViewContent(props: ChatViewProps) {
                   bottomInset={composerOverlayHeight}
                   onLaunch={onLaunchStagedKickoff}
                   onEditFirst={onEditStagedKickoff}
+                />
+              ) : null}
+
+              {/* Read-only brief preview for a not-yet-launched scaffolded/planned child. */}
+              {activeThread.kickoffBriefPath &&
+              shouldShowStagedBriefPreview({
+                kickoffBriefPath: activeThread.kickoffBriefPath,
+                hasStarted: threadHasStarted(activeThread),
+                composerDraftPrompt,
+              }) ? (
+                <StagedBriefPreviewCard
+                  environmentId={activeThread.environmentId}
+                  kickoffBriefPath={activeThread.kickoffBriefPath}
+                  markdownCwd={gitCwd ?? undefined}
+                  bottomInset={composerOverlayHeight}
                 />
               ) : null}
 
