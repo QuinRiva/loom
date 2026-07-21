@@ -17,7 +17,7 @@ const summary = (over: Partial<SidebarThreadSummary>): SidebarThreadSummary =>
     title: "Session store",
     role: "coder",
     purpose: "Replace the in-memory session map with a Redis-backed store.",
-    modelSelection: { instanceId: ProviderInstanceId.make("vertex"), model: "claude-opus-4-8" },
+    modelSelection: { instanceId: ProviderInstanceId.make("pi"), model: "vertex/claude-opus-4-8" },
     toolUses: null,
     cumulativeCostUsd: undefined,
     lastActivityPreview: null,

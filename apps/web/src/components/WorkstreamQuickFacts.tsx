@@ -55,7 +55,7 @@ export const WorkstreamQuickFacts = forwardRef<
   return (
     <div
       ref={ref}
-      className="pointer-events-none absolute z-20 max-h-[40vh] w-[236px] overflow-hidden rounded-xl border border-white/20 bg-[#0d1117]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
+      className="pointer-events-none absolute z-20 max-h-[40vh] w-[256px] overflow-hidden rounded-xl border border-white/20 bg-[#0d1117]/95 p-3 shadow-[0_12px_40px_rgba(0,0,0,0.55)] backdrop-blur"
     >
       <div className="text-[10px] uppercase tracking-[0.1em] text-white/30">
         {getRoleLabel(thread)}
