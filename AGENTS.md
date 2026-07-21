@@ -56,6 +56,24 @@ UI-affecting changes should be verified live in the browser, not just by static 
 - **Full app — dev-verify recipe** ([`docs/dev-site-testing.md`](docs/dev-site-testing.md)): stands up an isolated dev instance, seeds a realistic workstream (`apps/server/src/dev/seedWorkstream.ts`), reads the pairing URL from stdout, and drives the authenticated app in the browser. Briefs can just say "verify live using the dev-verify recipe". Use this for flows that need real threads, auth, or server state.
 - **Isolated component — preview harness** ([`docs/web-component-preview.md`](docs/web-component-preview.md)): a dev-only `/preview` route (no backend) that renders presentational components (`ChatMarkdown`, tables, code blocks, …) against fixtures reproducing the real timeline layout chain. Use this for pure render/CSS work — it's a ~seconds loop. Add a fixture in `apps/web/src/preview/fixtures.tsx` for the case you're changing.
 
+## HTML artefacts (mockups, visual reports, explainers)
+
+Standalone HTML produced for a human to view — a mockup, a visual report, an
+explainer — goes in the gitignored `.artifacts/` directory at the worktree
+root: write it with the ordinary file-write tool and cite the
+workspace-relative path (e.g. `.artifacts/quota-mockup.html`) in chat, which
+renders it in-app via the file chip's View affordance. Relative subresources
+resolve, so a multi-file artefact works — keep all its files under one
+subdirectory of `.artifacts/`. Pick a fresh descriptive filename and never
+overwrite an existing artefact — the worktree may be shared with other
+threads, and a chat chip renders whatever is on disk now. Do not write
+renderable HTML to locations outside the worktree (the `visual_explainer`
+tool's `~/.agent/diagrams/` default cannot be rendered in-app — write the
+HTML to `.artifacts/` instead), and do not commit throwaway HTML under
+`experiments/` or `docs/`. For a reviewable plan or recap, prefer the MDX
+genres (`plans/<slug>/plan.mdx`, `recaps/<slug>/recap.mdx`) over a standalone
+HTML artefact.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
