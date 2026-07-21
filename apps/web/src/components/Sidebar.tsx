@@ -113,6 +113,7 @@ import { readLocalApi } from "../localApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 // loom: centre-panel thread tabs — a sidebar single-click opens a preview tab.
 import { useThreadTabsStore } from "../loom/threadTabsStore";
+import { useThreadGroupResolver } from "../loom/threadTabGroups";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useDesktopUpdateState } from "../state/desktopUpdate";
 
@@ -1200,6 +1201,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (settings) => settings.sidebarThreadPreviewCount,
   );
   const router = useRouter();
+  const resolveThreadGroupKey = useThreadGroupResolver();
   const { isMobile, setOpenMobile } = useSidebar();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
@@ -1820,7 +1822,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       // loom: a plain sidebar click reuses the transient preview tab slot; the
       // route seed (on navigate) activates it. Every other entry path falls
       // through to the persistent route-seed default.
-      useThreadTabsStore.getState().openTab(threadRef, "preview");
+      useThreadTabsStore.getState().openTab(threadRef, resolveThreadGroupKey(threadRef), "preview");
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(threadRef),
@@ -1830,6 +1832,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       clearSelection,
       isMobile,
       rangeSelectTo,
+      resolveThreadGroupKey,
       router,
       setOpenMobile,
       setSelectionAnchor,

@@ -25,7 +25,7 @@ import {
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
 import { primaryServerKeybindingsAtom } from "~/state/server";
-import { useThreadTabsStore } from "./threadTabsStore";
+import { selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 import { useThreadTabActions } from "./useThreadTabsSync";
 
 export function useThreadTabKeyboard(activeRouteRef: ScopedThreadRef | null): void {
@@ -58,7 +58,7 @@ export function useThreadTabKeyboard(activeRouteRef: ScopedThreadRef | null): vo
         return;
       }
 
-      const hasTabs = useThreadTabsStore.getState().tabs.length > 0;
+      const hasTabs = (selectActiveGroup(useThreadTabsStore.getState())?.tabs.length ?? 0) > 0;
       if (!hasTabs) return;
 
       const direction = threadTraversalDirectionFromCommand(command);

@@ -7,10 +7,18 @@ manager_sessions:
 
 # Centre-panel thread tabs — design
 
-**Status:** awaiting human sign-off before implementation.
+**Status:** shipped (v1, PR #120); **v2 revision** — tabs grouped per orchestration tree.
 **Feature:** threads open as tabs in the centre panel, mirroring how the right panel tabs its
 surfaces, so switching between threads (especially subthreads reached via the workstream
 surface) stops being a full centre-panel swap with no way back.
+
+> **v2 revision (grouped tabs).** v1 kept a single workspace-global open-set, which meant
+> threads from _different_ root orchestration trees landed in the same strip. v2 makes **tabs
+> grouped per orchestration tree**: a root thread and all of its subthreads form one group, and
+> switching to a thread under a _different_ root shows that root's own group of tabs. The
+> sections below marked _(v2)_ supersede their v1 text; everything else (preview semantics,
+> keyboard, mount-active-only, no-sweep lifecycle) is unchanged. Persisted v1 tabs are dropped
+> on upgrade (storage `version` bumped to 2).
 
 This document synthesises the two exploration reports (UX/interaction model; router↔store
 architecture) into one set of **decisions**. Where the explorations disagreed, the resolution
@@ -37,14 +45,25 @@ Terminology: right panel = **surfaces**; centre panel = **tabs**, each backed by
   tier's obligations: versioned migration, no absence-based sweep, `removeThread` hook, and the
   seed-not-override write policy (§3.4).
 
-### 1.2 Scope: one global open-set (decision)
+### 1.2 Scope: grouped per orchestration tree _(v2 — supersedes v1's single global open-set)_
 
-One workspace-global ordered list whose entries are full `ScopedThreadRef`s, identity =
-`scopedThreadKey(ref)` (`${environmentId}:${threadId}`). Not per-environment: tabs must not
-vanish when the user switches connection, and the ref already namespaces across environments.
-The tab UI shows the environment label only when it differs from the primary environment (same
-rule the sidebar row uses via `isRemoteThread`). _(Both explorations recommend this; flagged
-for sign-off in §10.1 because it is a product call.)_
+Tabs are bucketed into **groups keyed by the thread's lineage root**. A group key is the
+`scopedThreadKey` of the root orchestrator thread (the ancestor whose own `parentThreadId` is
+`null`), derived by walking `parentThreadId` upward via `buildThreadLineage`
+(`apps/web/src/threadRouteLineage.ts`). A root thread (no parent) is its own group. Entries
+remain full `ScopedThreadRef`s, identity = `scopedThreadKey(ref)`; grouping is **not**
+per-environment (the ref already namespaces across environments and the root walk stays within
+one environment's shell map). The tab UI shows the environment label only when it differs from
+the primary environment (same rule the sidebar row uses via `isRemoteThread`).
+
+The store stays **pure** — it never computes lineage. The **sync hook supplies the group key**
+(it has the shell map): the seed/open/reopen actions take a `groupKey` argument, while
+close/reorder/pin locate the group that already contains the ref. The **active group is
+derived**, never stored: it is the group that contains the top-level `activeKey` (itself the
+URL mirror), so there is no competing source of truth for which group is active.
+
+> v1's single-global-list rationale (tabs must survive connection switches; refs namespace
+> across environments) still holds — v2 only adds the per-tree bucketing on top.
 
 Draft threads (`/draft/$draftId`) are **not** tabbed in v1: they have no `ScopedThreadRef`
 until promoted, at which point the first navigation to the server thread seeds a tab normally.
@@ -52,48 +71,64 @@ until promoted, at which point the first navigation to the server thread seeds a
 ### 1.3 Shape
 
 ```ts
-// apps/web/src/loom/threadTabsStore.ts
-const THREAD_TABS_STORAGE_KEY = "t3code:thread-tabs:v1";
-const THREAD_TABS_STORAGE_VERSION = 1;
+// apps/web/src/loom/threadTabsStore.ts  (v2)
+const THREAD_TABS_STORAGE_KEY = "t3code:thread-tabs:v1"; // key name kept; version bump drives migration
+const THREAD_TABS_STORAGE_VERSION = 2;
+
+interface ThreadTabGroup {
+  /** Ordered open set for this orchestration tree. Identity = scopedThreadKey(ref). */
+  tabs: ScopedThreadRef[];
+  /** scopedThreadKey of this group's transient preview tab, if any; always ∈ tabs (§2). */
+  previewKey: string | null;
+  /** Keys most-recently-activated-first; drives this group's cap eviction (§7.1). */
+  mru: string[];
+}
 
 interface ThreadTabsState {
-  /** Ordered open set. Identity = scopedThreadKey(ref). No duplicates. */
-  tabs: ScopedThreadRef[];
-  /** scopedThreadKey of the active tab — a pure mirror of the URL (§3). */
+  /** Open tabs bucketed by group key (the lineage root's scopedThreadKey; §1.2). */
+  groups: Record<string, ThreadTabGroup>;
+  /** scopedThreadKey of the active tab — a pure mirror of the URL (§3). The active
+   * group is derived as the group that contains this key. */
   activeKey: string | null;
-  /** scopedThreadKey of the transient preview tab, if any; always ∈ tabs (§2). */
-  previewKey: string | null;
-  /** Keys in most-recently-activated-first order; drives cap eviction (§7.1). */
-  mru: string[];
-  /** Recently closed refs, most recent first, cap 10; backs tab.reopenClosed (§5). */
+  /** Recently closed refs (global across groups), most recent first, cap 10 (§5). */
   recentlyClosed: ScopedThreadRef[];
 
-  /** Route-driven seed: append-if-absent (persistent) + activate. Never reorders. */
-  seedActiveTab: (ref: ScopedThreadRef) => void;
-  /** Explicit open with intent; dedupes by key (activates existing rather than duplicating). */
-  openTab: (ref: ScopedThreadRef, mode: "preview" | "persistent") => void;
-  /** Promote the preview tab to persistent (clears previewKey if it matches). */
+  /** Route-driven seed into `groupKey`: append-if-absent (persistent) + activate; moves the
+   * ref out of a stale group if it lived elsewhere (lineage-lag). Never reorders. */
+  seedActiveTab: (ref: ScopedThreadRef, groupKey: string) => void;
+  /** Explicit open with intent into `groupKey`; dedupes by key. */
+  openTab: (ref: ScopedThreadRef, groupKey: string, mode: "preview" | "persistent") => void;
+  /** Promote the preview tab to persistent within its group (locates group by ref). */
   pinTab: (ref: ScopedThreadRef) => void;
   /**
-   * Remove a tab; push onto recentlyClosed. Returns the neighbour-fallback ref to
-   * navigate to when the closed tab was active (null ⇒ set emptied), so the caller
-   * owns navigation (§3.3).
+   * Remove a tab from its group; push onto recentlyClosed. Returns the neighbour-fallback ref
+   * (within the group) to navigate to when the closed tab was active (null ⇒ group emptied or
+   * not active), so the caller owns navigation (§3.3).
    */
   closeTab: (ref: ScopedThreadRef) => ScopedThreadRef | null;
   closeOthers: (ref: ScopedThreadRef) => void;
   closeToRight: (ref: ScopedThreadRef) => void;
+  /** Close every tab in the active group (the group containing `activeKey`). */
   closeAll: () => void;
-  /** Pop recentlyClosed; opens it persistent. Returns the ref to navigate to (or null). */
-  reopenClosedTab: () => ScopedThreadRef | null;
-  /** Drag-reorder. Reordering the preview tab pins it. */
+  /** Pop recentlyClosed; opens it persistent into `groupKey`. Returns the ref to navigate to. */
+  reopenClosedTab: (groupKey: string) => ScopedThreadRef | null;
+  /** Drag-reorder within the ref's group. Reordering the preview tab pins it. */
   reorderTab: (ref: ScopedThreadRef, toIndex: number) => void;
   /** Parity hook for a future real thread-deletion path. NOT called from any sweep. */
   removeThread: (ref: ScopedThreadRef) => void;
+  /** Merge provisional groups into their resolved root group once lineage replays (§7.2). */
+  coalesceGroups: (moves: ReadonlyArray<{ from: string; to: string }>) => void;
 }
 ```
 
+Group-key derivation lives in `apps/web/src/loom/threadTabGroups.ts`
+(`resolveThreadGroupKey` / the `useThreadGroupResolver` hook), consumed by the sync hook and
+the sidebar. The strip renders the **active group** via the `selectActiveGroup` selector; no
+consumer reads a flat `tabs` list any more.
+
 List mechanics (index-nearest close fallback `list[Math.min(index, len - 1)]`, close-others,
-close-to-right, dedupe-on-open) replicate `rightPanelStore` semantics exactly. To honour the
+close-to-right, dedupe-on-open) replicate `rightPanelStore` semantics exactly, now applied
+**within a group**. To honour the
 no-duplication rule, extract them as **pure helpers in a new
 `apps/web/src/lib/tabListOps.ts`** consumed by `threadTabsStore`; migrating
 `rightPanelStore.closeSurface`/`closeOtherSurfaces`/`closeSurfacesToRight` onto the same
@@ -104,15 +139,16 @@ diff reviewable.
 
 - `persist` with `createJSONStorage(() => resolveStorage(window.localStorage))` — identical
   plumbing to `rightPanelStore`.
-- Key `t3code:thread-tabs:v1`, `version: 1`,
-  `partialize: ({ tabs, activeKey, previewKey, mru, recentlyClosed }) => ...`.
-- `migratePersistedThreadTabs(persistedState: unknown)` — exported and unit-tested like
-  `migratePersistedRightPanelState`. It must, defensively:
-  - keep only entries that are well-formed `{ environmentId: string, threadId: string }`
-    (non-empty strings), deduped by key, preserving order;
-  - null `activeKey` / `previewKey` if they don't point into the surviving `tabs`;
-  - filter `mru` to surviving keys; filter `recentlyClosed` to well-formed refs, cap 10;
-  - apply the tab cap (§6.4) on load.
+- Key `t3code:thread-tabs:v1` (name kept so the version bump is what triggers migration),
+  `version: 2`, `partialize: ({ groups, activeKey, recentlyClosed }) => ...`.
+- `migratePersistedThreadTabs(persistedState, version)` — exported and unit-tested. _(v2)_:
+  - **v1 → v2 drops persisted tabs**: any pre-v2 (flat `tabs`) shape, or any non-object /
+    non-grouped payload, returns empty grouped state (clean slate);
+  - for a **v2-shaped** `{ groups }` payload it sanitises each group defensively — keep only
+    well-formed `{ environmentId, threadId }` entries deduped by key (drop empty groups), null a
+    group's `previewKey` and filter its `mru` to surviving keys, apply the per-group cap (§7.1),
+    null the top-level `activeKey` if it points into no surviving group, and cap
+    `recentlyClosed` to 10.
 - On reload the router restores the URL and the seed effect re-derives `activeKey`; the
   persisted `activeKey` is only a continuity hint (e.g. for close-fallback ordering) and
   **never overrides the URL**.
@@ -180,10 +216,12 @@ on `scopedThreadKey(threadRef)`:
 - **Gate:** do nothing until `bootstrapComplete && routeThreadExists`. This means a bad deep
   link (which the route's existing redirect effect sends to `/`) **never plants a phantom
   tab**, and a valid thread whose replay hasn't arrived yet seeds only once it resolves.
-- **Seed:** `seedActiveTab(ref)` — if the key is absent, append the ref at the **end** of
-  `tabs` as a persistent tab; set `activeKey` (and promote `mru`). If present, only set
-  `activeKey`/`mru`. Seeding **never reorders** existing tabs and never touches `previewKey`
-  of other tabs.
+- **Seed:** `seedActiveTab(ref, groupKey)` where the hook derives `groupKey` from the current
+  shell map _(v2)_ — if the key is absent in that group, append the ref at the **end** of the
+  group's `tabs` as a persistent tab; set `activeKey` (and promote the group's `mru`). If
+  present, only set `activeKey`/`mru`. Seeding **never reorders** existing tabs and never
+  touches other tabs' `previewKey`. If the ref currently lives in a _different_ (provisional)
+  group, the seed moves it into the resolved group (see coalescing, §7.2).
 
 This one rule uniformly yields the required behaviours:
 
@@ -264,8 +302,12 @@ inventing a parallel scheme:
 
 ## 6. Tab strip UI and affordances (decision)
 
-**Component:** `apps/web/src/loom/ThreadTabsStrip.tsx`. Copy the `RightPanelTabs` interaction
-vocabulary wholesale, changing only label content:
+**Component:** `apps/web/src/loom/ThreadTabsStrip.tsx`. The strip renders **only the active
+group's tabs** _(v2)_ — the tabs of the orchestration tree the active thread belongs to (or, on
+the index/draft routes where nothing is highlighted, the group of the last active thread, via
+`selectActiveGroup`). Every affordance below (close/others/to-right/all, preview italics, dnd
+reorder, status glyph, cap) operates within that active group. Copy the `RightPanelTabs`
+interaction vocabulary wholesale, changing only label content:
 
 - **Close:** hover-reveal `X`; **middle-click** close (`onAuxClick`); context menu with
   _Close_, _Close others_, _Close to the right_, _Close all_ (index-nearest active fallback
@@ -320,12 +362,29 @@ on it can destroy a valid working set moments after connect. Concretely:
   (malformed entries dropped; dangling `activeKey`/`previewKey`/`mru` repaired), not
   semantically (no existence checks at load).
 
-### 7.1 Tab cap
+### 7.1 Tab cap _(v2: per group)_
 
-Soft cap **12** open tabs (number needs sign-off, §10.3). On appending past the cap, evict the
-least-recently-activated non-preview tab from the tail of `mru`, never the active tab and
-never the tab being opened; evicted refs go to `recentlyClosed`. The cap is also applied in `migrate` so
-old persisted state can't exceed it.
+Soft cap **12** open tabs **per group**. On appending past the cap, evict the
+least-recently-activated non-preview tab from the tail of that group's `mru`, never the active
+tab and never the tab being opened; evicted refs go to the global `recentlyClosed`. The cap is
+also applied per group in `migrate` so old persisted state can't exceed it.
+
+### 7.2 Lineage-lag coalescing _(v2)_
+
+On a cold load / deep link / reload into a subthread, the ancestor shells may not have replayed
+yet, so the thread's root is briefly unknown and the derived group key is **provisional** (the
+topmost reachable ancestor — often the thread itself). The tab is seeded under that provisional
+group and **coalesced into the real root group once lineage resolves**. This is purely
+replay-timing; no user action triggers it.
+
+Mechanism: `resolveThreadGroupKey` is a pure function of the shell map, so re-deriving on every
+shell change is what surfaces the resolution. The sync hook runs a coalescing effect keyed on
+the resolver identity: for each existing group it probes a tab's now-resolved key; where that
+differs from the group's current bucket it emits a `{ from, to }` move, and
+`coalesceGroups(moves)` merges the provisional group into the root group (order preserved, at
+most one preview per group kept, per-group cap re-applied). Because all tabs in one provisional
+group share the same ancestor, a whole-group merge is always correct. `activeKey` is untouched,
+so the active tab stays active while its surrounding group changes underneath it.
 
 ---
 
@@ -333,14 +392,15 @@ old persisted state can't exceed it.
 
 New files (all loom-owned):
 
-| File                                        | Contents                                                                                                                                                                                      |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web/src/loom/threadTabsStore.ts`      | Store per §1 (`persist`, `migratePersistedThreadTabs`, selectors `selectTabs`, `selectActiveKey`, `selectIsPreview`)                                                                          |
-| `apps/web/src/loom/threadTabsStore.test.ts` | Migration, seed/open/pin/close/reorder/cap/mru semantics (mirror `rightPanelStore.test.ts` coverage style)                                                                                    |
-| `apps/web/src/lib/tabListOps.ts` (+ test)   | Pure ordered-tab-list helpers: `closeWithNeighbourFallback`, `keepOnly`, `truncateAfter` — shared semantics extracted rather than duplicated (rightPanelStore migration to it is a follow-up) |
-| `apps/web/src/loom/ThreadTabsStrip.tsx`     | Strip UI per §6 (dnd-kit sortable, context menu, status glyphs)                                                                                                                               |
-| `apps/web/src/loom/useThreadTabsSync.ts`    | The seed hook (§3.1) + `closeTabAndNavigate` helper used by strip and keyboard                                                                                                                |
-| `apps/web/src/loom/useThreadTabKeyboard.ts` | Keyboard handling per §5                                                                                                                                                                      |
+| File                                        | Contents                                                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/web/src/loom/threadTabsStore.ts`      | Store per §1 (grouped `persist`, `migratePersistedThreadTabs`, `coalesceGroups`, selectors `selectActiveGroup`/`selectActiveGroupKey`/`selectActiveKey`/`selectIsPreview`, `findGroupKeyByTab`) _(v2)_ |
+| `apps/web/src/loom/threadTabGroups.ts`      | _(v2)_ Group-key derivation from lineage: `resolveThreadGroupKey` + `useThreadGroupResolver`, shared by the sync hook and the sidebar                                                                  |
+| `apps/web/src/loom/threadTabsStore.test.ts` | Migration, seed/open/pin/close/reorder/cap/mru semantics (mirror `rightPanelStore.test.ts` coverage style)                                                                                             |
+| `apps/web/src/lib/tabListOps.ts` (+ test)   | Pure ordered-tab-list helpers: `closeWithNeighbourFallback`, `keepOnly`, `truncateAfter` — shared semantics extracted rather than duplicated (rightPanelStore migration to it is a follow-up)          |
+| `apps/web/src/loom/ThreadTabsStrip.tsx`     | Strip UI per §6 (dnd-kit sortable, context menu, status glyphs)                                                                                                                                        |
+| `apps/web/src/loom/useThreadTabsSync.ts`    | The seed hook (§3.1) + `closeTabAndNavigate` helper used by strip and keyboard                                                                                                                         |
+| `apps/web/src/loom/useThreadTabKeyboard.ts` | Keyboard handling per §5                                                                                                                                                                               |
 
 Touched files (each a small `// loom:` splice):
 
