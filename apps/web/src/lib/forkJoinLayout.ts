@@ -16,15 +16,14 @@ import type { SidebarThreadSummary } from "../types";
 
 export const BRIDGE_W = 150;
 export const BRIDGE_H = 46;
-export const NODE_W = 146;
-// Grown 56 → 66 (plans/graph-view-metadata-enhancement.md §3.1) to give the
-// always-on running-node footer a clean horizontal band clear of the
-// bottom-straddling verdict pill and the bottom-right badge row. Uniform (not
-// per-state) so node geometry stays a function of STRUCTURE only — the layout is
-// memoised on a status-excluding key, so a per-state height would re-run the
-// whole fork–join layout on every lane/turn transition. Every port/centre/
-// viewBox derives from this constant.
-export const NODE_H = 66;
+// 172×74 (header-band card, docs/design/workstream-graph-node-redesign.html
+// design C2): a role/state header strip, a two-line wrapped title, and a
+// metrics band. Uniform (not per-state) so node geometry stays a function of
+// STRUCTURE only — the layout is memoised on a status-excluding key, so a
+// per-state height would re-run the whole fork–join layout on every lane/turn
+// transition. Every port/centre/viewBox derives from these constants.
+export const NODE_W = 172;
+export const NODE_H = 74;
 const FORK_GAP = 54; // bridge right edge → first child column
 const COL_GAP = 50; // between dependency columns (room for blockedBy arrows)
 const ROW_GAP = 18; // between stacked members in a column

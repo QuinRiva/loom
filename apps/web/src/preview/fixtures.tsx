@@ -1,6 +1,8 @@
 import { type ReactNode } from "react";
 
 import ChatMarkdown from "../components/ChatMarkdown";
+import WorkstreamGraph from "../components/WorkstreamGraph";
+import type { SidebarThreadSummary } from "../types";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
 /**
@@ -186,7 +188,147 @@ function userBubbleFixture(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Workstream graph fixture — a representative orchestration exercising the C2
+// node card's states (docs/design/workstream-graph-node-redesign.html): a live
+// coder mid-rework with its gated reviewer, a blocked coder→reviewer wave, a
+// done (receded) node, and an attention-flagged node. The layout only reads
+// lineage/generation/deps/routes; the card reads status/gate/footer fields —
+// build the minimal shape and cast, like the layout unit tests do.
+// ---------------------------------------------------------------------------
+
+const wsThread = (over: Record<string, unknown>): SidebarThreadSummary =>
+  ({
+    parentThreadId: "root",
+    spawnGeneration: "g1",
+    blockedBy: [],
+    routes: [],
+    consults: [],
+    attention: [],
+    planLane: "in_progress",
+    gateRounds: 0,
+    pendingRework: false,
+    lastOutcome: null,
+    latestTurn: null,
+    session: null,
+    isolation: "shared",
+    fanInState: "none",
+    forkFromThreadId: null,
+    kickoffBriefPath: "/brief.md",
+    toolUses: null,
+    role: "coder",
+    purpose: "Preview fixture thread.",
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+    archivedAt: null,
+    lastActivityPreview: null,
+    cumulativeCostUsd: null,
+    reportPath: null,
+    modelSelection: { instanceId: "pi", model: "google-vertex-claude/claude-opus-4-8" },
+    updatedAt: "2026-07-21T04:00:00.000Z",
+    ...over,
+  }) as unknown as SidebarThreadSummary;
+
+const WS_GRAPH_THREADS: ReadonlyArray<SidebarThreadSummary> = [
+  wsThread({
+    id: "root",
+    parentThreadId: null,
+    title: "v2.20 sweep + trace analysis",
+    createdAt: "2026-07-21T00:00:00.000Z",
+  }),
+  // Wave 1: a gate pair mid-rework — live coder, waiting reviewer with verdict.
+  wsThread({
+    id: "coder-1",
+    title: "P2 patch-apply retry hardening",
+    createdAt: "2026-07-21T01:00:00.000Z",
+    planLane: "in_progress",
+    pendingRework: true,
+    lastOutcome: { outcome: "needs_rework", decision: "loop", round: 1 },
+    latestTurn: { state: "running" },
+    toolUses: 67,
+  }),
+  wsThread({
+    id: "reviewer-1",
+    role: "reviewer",
+    title: "P2 P3 adversarial review",
+    createdAt: "2026-07-21T01:00:01.000Z",
+    blockedBy: ["coder-1"],
+    routes: [{ kind: "loop", on: ["needs_rework"], to: "coder-1", maxRounds: 2 }],
+    gateRounds: 1,
+    lastOutcome: { outcome: "needs_rework", decision: "loop", round: 1 },
+    toolUses: 37,
+  }),
+  // Wave 2: a blocked pair — not-yet-run coder + its gated reviewer.
+  wsThread({
+    id: "coder-2",
+    spawnGeneration: "g2",
+    title: "tenant_id priming migration",
+    createdAt: "2026-07-21T02:00:00.000Z",
+    planLane: "ready",
+    blockedBy: ["coder-1"],
+  }),
+  wsThread({
+    id: "reviewer-2",
+    spawnGeneration: "g2",
+    role: "reviewer",
+    title: "tenant_id migration review",
+    createdAt: "2026-07-21T02:00:01.000Z",
+    planLane: "ready",
+    blockedBy: ["coder-2"],
+    routes: [{ kind: "loop", on: ["needs_rework"], to: "coder-2", maxRounds: 2 }],
+  }),
+  // Wave 3: terminal recession + attention pulse + a long title wrapping.
+  wsThread({
+    id: "done-1",
+    spawnGeneration: "g3",
+    title: "Receipt-dedup merge",
+    createdAt: "2026-07-21T03:00:00.000Z",
+    planLane: "done",
+    isolation: "isolated",
+    fanInState: "completed",
+  }),
+  wsThread({
+    id: "stuck-1",
+    spawnGeneration: "g3",
+    role: "researcher",
+    title: "Spawn-generation dispatch ordering investigation",
+    createdAt: "2026-07-21T03:00:01.000Z",
+    planLane: "yielded",
+    attention: ["needs_guidance"],
+    toolUses: 112,
+  }),
+];
+
+const WS_GRAPH_INDEX: ReadonlyMap<string, SidebarThreadSummary> = new Map(
+  WS_GRAPH_THREADS.map((thread) => [thread.id, thread]),
+);
+
+const workstreamGraphFixture: PreviewFixture = {
+  id: "workstream-graph-c2",
+  title: "Node card states (C2)",
+  description:
+    "The C2 header-band node card across its states: live coder mid-rework, gated reviewer with verdict chip, blocked wave, receded done node with fan-in badge, attention-pulsing yielded node with a wrapped two-line title.",
+  render: () => (
+    <div className="h-full overflow-auto bg-[#0a0e13] p-6">
+      <WorkstreamGraph
+        viewKey="preview"
+        threads={WS_GRAPH_THREADS}
+        threadById={WS_GRAPH_INDEX as never}
+        onOpenThread={() => {}}
+        onNodeContextMenu={() => {}}
+        onOpenDispatch={() => {}}
+      />
+    </div>
+  ),
+};
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
+  {
+    id: "workstream-graph",
+    title: "Workstream graph",
+    fixtures: [workstreamGraphFixture],
+  },
   {
     id: "chat-markdown",
     title: "ChatMarkdown",

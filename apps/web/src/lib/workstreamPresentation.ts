@@ -389,18 +389,6 @@ export function getGateWaitLabel(thread: SidebarThreadSummary, byId: ChildIndex)
   return { label: isGateSource ? "waiting on rework" : "awaiting re-review", active: false };
 }
 
-const ROLE_ICONS: Record<string, string> = {
-  reviewer: "◎",
-  review: "◎",
-  researcher: "◇",
-  implementer: "⚙",
-  implementation: "⚙",
-  coder: "⚙",
-  migration: "↯",
-  planner: "▣",
-  plan: "▣",
-};
-
 /**
  * A scaffolded child that has been released (`ready`) but has no kickoff brief
  * yet, so it cannot dispatch even once its dependencies clear (plan §5). Roots
@@ -597,10 +585,6 @@ export function getRoleLabel(thread: SidebarThreadSummary): string {
   return thread.role?.trim() || "sub-thread";
 }
 
-export function getRoleIcon(thread: SidebarThreadSummary): string {
-  return ROLE_ICONS[getRoleLabel(thread).toLowerCase()] ?? "✦";
-}
-
 export function getPurpose(thread: SidebarThreadSummary): string {
   return thread.purpose?.trim() || "No purpose captured yet.";
 }
@@ -775,6 +759,45 @@ export function buildNodeContextMenuItems(
 
 export function truncateLabel(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+/**
+ * Greedy word-wrap for the graph card's title (SVG has no native wrapping):
+ * at most `maxLines` lines of `maxCharsPerLine`, a word longer than a line
+ * hard-truncated, and an ellipsis on the last line when the title overflows.
+ */
+export function wrapLabel(value: string, maxCharsPerLine: number, maxLines: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of value.trim().split(/\s+/).filter(Boolean)) {
+    const candidate = line === "" ? word : `${line} ${word}`;
+    if (candidate.length <= maxCharsPerLine) {
+      line = candidate;
+    } else {
+      if (line !== "") lines.push(line);
+      line = truncateLabel(word, maxCharsPerLine);
+    }
+  }
+  if (line !== "") lines.push(line);
+  if (lines.length <= maxLines) return lines;
+  const clipped = lines.slice(0, maxLines);
+  const last = clipped[maxLines - 1]!;
+  clipped[maxLines - 1] =
+    last.length >= maxCharsPerLine ? `${last.slice(0, maxCharsPerLine - 1)}…` : `${last}…`;
+  return clipped;
+}
+
+/**
+ * The single worded state for a graph node's header strip — the gate leg when
+ * the thread is in a review gate (`reworking ⟲1`, `waiting on rework`), else
+ * the plan-column label. One slot, one telling: this is what absorbed the old
+ * meta line's status text and the straddling gate-wait pill (design C2,
+ * docs/design/workstream-graph-node-redesign.html §3d).
+ */
+export function getNodeStateWord(thread: SidebarThreadSummary, byId: ChildIndex): string {
+  const gate = getGateWaitLabel(thread, byId);
+  if (gate) return gate.label.replace(" round ", " ⟲");
+  return COLUMN_SHORT_LABELS[getEffectiveColumn(thread, byId)].toLowerCase();
 }
 
 export function groupChildrenByColumn(

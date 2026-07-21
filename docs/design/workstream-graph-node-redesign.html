@@ -1,378 +1,1063 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Workstream graph node — information hierarchy &amp; redesign options</title>
-<style>
-  :root {
-    --bg: #0a0e13; --panel: #0d1117; --border: rgba(255,255,255,0.10);
-    --txt: rgba(255,255,255,0.85); --dim: rgba(255,255,255,0.5); --faint: rgba(255,255,255,0.35);
-    --sky: #38bdf8; --amber: #f59e0b; --emerald: #34d399; --violet: #a78bfa; --steel: #6d86a6; --rose: #fb7185;
-  }
-  * { box-sizing: border-box; }
-  body { background: var(--bg); color: var(--txt); font: 14px/1.55 ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 32px 40px 80px; max-width: 1180px; margin-inline: auto; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 16px; margin: 40px 0 10px; color: #fff; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-  h3 { font-size: 13.5px; margin: 20px 0 6px; color: rgba(255,255,255,0.9); }
-  p, li { color: var(--dim); font-size: 13px; }
-  strong { color: var(--txt); }
-  code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; color: rgba(255,255,255,0.75); }
-  .sub { color: var(--faint); font-size: 12.5px; margin-top: 0; }
-  table { border-collapse: collapse; width: 100%; margin: 10px 0 18px; font-size: 12.5px; }
-  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; color: var(--dim); }
-  th { color: var(--txt); background: rgba(255,255,255,0.03); font-weight: 600; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
-  .row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-  .mock { background: #06090d; border: 1px solid var(--border); border-radius: 10px; padding: 34px 30px 16px; }
-  .mock .cap { font-size: 11.5px; color: var(--faint); margin-top: 14px; text-align: center; }
-  .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 8px; }
-  .pros-cons h4 { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
-  .pros h4 { color: var(--emerald); } .cons h4 { color: var(--rose); }
-  .pros-cons ul { margin: 0; padding-left: 16px; }
-  .pros-cons li { font-size: 12.5px; margin-bottom: 2px; }
-  .tag { display: inline-block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid; border-radius: 99px; padding: 1px 8px; margin-left: 8px; vertical-align: 2px; }
-  .rec { color: var(--emerald); border-color: rgba(52,211,153,0.5); }
-  .neutral-tag { color: var(--faint); border-color: var(--border); }
-  .callouts { columns: 2; gap: 30px; font-size: 12.5px; list-style: none; padding: 0; }
-  .callouts li { margin-bottom: 6px; break-inside: avoid; }
-  .num { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; background: var(--sky); color: #06090d; font-size: 10px; font-weight: 700; align-items: center; justify-content: center; margin-right: 6px; }
+  <head>
+    <meta charset="utf-8" />
+    <title>Workstream graph node — information hierarchy &amp; redesign options</title>
+    <style>
+      :root {
+        --bg: #0a0e13;
+        --panel: #0d1117;
+        --border: rgba(255, 255, 255, 0.1);
+        --txt: rgba(255, 255, 255, 0.85);
+        --dim: rgba(255, 255, 255, 0.5);
+        --faint: rgba(255, 255, 255, 0.35);
+        --sky: #38bdf8;
+        --amber: #f59e0b;
+        --emerald: #34d399;
+        --violet: #a78bfa;
+        --steel: #6d86a6;
+        --rose: #fb7185;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--txt);
+        font:
+          14px/1.55 ui-sans-serif,
+          system-ui,
+          sans-serif;
+        margin: 0;
+        padding: 32px 40px 80px;
+        max-width: 1180px;
+        margin-inline: auto;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 40px 0 10px;
+        color: #fff;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 6px;
+      }
+      h3 {
+        font-size: 13.5px;
+        margin: 20px 0 6px;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      p,
+      li {
+        color: var(--dim);
+        font-size: 13px;
+      }
+      strong {
+        color: var(--txt);
+      }
+      code {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+      .sub {
+        color: var(--faint);
+        font-size: 12.5px;
+        margin-top: 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 10px 0 18px;
+        font-size: 12.5px;
+      }
+      th,
+      td {
+        border: 1px solid var(--border);
+        padding: 6px 10px;
+        text-align: left;
+        vertical-align: top;
+        color: var(--dim);
+      }
+      th {
+        color: var(--txt);
+        background: rgba(255, 255, 255, 0.03);
+        font-weight: 600;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin: 14px 0;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .mock {
+        background: #06090d;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 34px 30px 16px;
+      }
+      .mock .cap {
+        font-size: 11.5px;
+        color: var(--faint);
+        margin-top: 14px;
+        text-align: center;
+      }
+      .pros-cons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 8px;
+      }
+      .pros-cons h4 {
+        margin: 0 0 4px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .pros h4 {
+        color: var(--emerald);
+      }
+      .cons h4 {
+        color: var(--rose);
+      }
+      .pros-cons ul {
+        margin: 0;
+        padding-left: 16px;
+      }
+      .pros-cons li {
+        font-size: 12.5px;
+        margin-bottom: 2px;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border: 1px solid;
+        border-radius: 99px;
+        padding: 1px 8px;
+        margin-left: 8px;
+        vertical-align: 2px;
+      }
+      .rec {
+        color: var(--emerald);
+        border-color: rgba(52, 211, 153, 0.5);
+      }
+      .neutral-tag {
+        color: var(--faint);
+        border-color: var(--border);
+      }
+      .callouts {
+        columns: 2;
+        gap: 30px;
+        font-size: 12.5px;
+        list-style: none;
+        padding: 0;
+      }
+      .callouts li {
+        margin-bottom: 6px;
+        break-inside: avoid;
+      }
+      .num {
+        display: inline-flex;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--sky);
+        color: #06090d;
+        font-size: 10px;
+        font-weight: 700;
+        align-items: center;
+        justify-content: center;
+        margin-right: 6px;
+      }
 
-  /* ---- Node mockups: plain HTML/CSS at 2x real scale ---- */
-  .node { position: relative; border-radius: 20px; border: 2.8px solid; font-size: 22px; }
-  .node.sky    { border-color: #38bdf8; background: rgba(56,189,248,0.16); }
-  .node.steel  { border-color: #6d86a6; background: rgba(109,134,166,0.16); }
-  .node.emerald{ border-color: #34d399; background: rgba(52,211,153,0.16); }
-  .mono { font-family: ui-monospace, Menlo, monospace; }
+      /* ---- Node mockups: plain HTML/CSS at 2x real scale ---- */
+      .node {
+        position: relative;
+        border-radius: 20px;
+        border: 2.8px solid;
+        font-size: 22px;
+      }
+      .node.sky {
+        border-color: #38bdf8;
+        background: rgba(56, 189, 248, 0.16);
+      }
+      .node.steel {
+        border-color: #6d86a6;
+        background: rgba(109, 134, 166, 0.16);
+      }
+      .node.emerald {
+        border-color: #34d399;
+        background: rgba(52, 211, 153, 0.16);
+      }
+      .mono {
+        font-family: ui-monospace, Menlo, monospace;
+      }
 
-  /* current card: 146x66 -> 292x132 */
-  .node.cur { width: 292px; height: 132px; padding: 0; }
-  .cur .hdr { display: flex; align-items: center; gap: 9px; padding: 16px 0 0 22px; }
-  .cur .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
-  .sky .dot, .sky .glyph, .cur.sky .meta-status { color: #38bdf8; }
-  .cur.sky .dot { background: #38bdf8; }
-  .cur.steel .dot { background: #6d86a6; }
-  .steel .glyph { color: #6d86a6; }
-  .cur .glyph { font-size: 24px; line-height: 1; }
-  .cur .title { font-size: 22px; font-weight: 600; color: rgba(255,255,255,0.9); white-space: nowrap; }
-  .cur .meta { font-family: ui-monospace, Menlo, monospace; font-size: 17px; color: rgba(255,255,255,0.45); padding: 12px 0 0 28px; }
-  .cur .foot { display: flex; align-items: center; gap: 8px; margin: 10px 24px 0; padding-top: 8px; border-top: 2px solid rgba(255,255,255,0.09); font-family: ui-monospace, Menlo, monospace; font-size: 17px; color: rgba(255,255,255,0.72); }
-  .pulse { width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; flex: none; }
+      /* current card: 146x66 -> 292x132 */
+      .node.cur {
+        width: 292px;
+        height: 132px;
+        padding: 0;
+      }
+      .cur .hdr {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 16px 0 0 22px;
+      }
+      .cur .dot {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .sky .dot,
+      .sky .glyph,
+      .cur.sky .meta-status {
+        color: #38bdf8;
+      }
+      .cur.sky .dot {
+        background: #38bdf8;
+      }
+      .cur.steel .dot {
+        background: #6d86a6;
+      }
+      .steel .glyph {
+        color: #6d86a6;
+      }
+      .cur .glyph {
+        font-size: 24px;
+        line-height: 1;
+      }
+      .cur .title {
+        font-size: 22px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+        white-space: nowrap;
+      }
+      .cur .meta {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 17px;
+        color: rgba(255, 255, 255, 0.45);
+        padding: 12px 0 0 28px;
+      }
+      .cur .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 24px 0;
+        padding-top: 8px;
+        border-top: 2px solid rgba(255, 255, 255, 0.09);
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 17px;
+        color: rgba(255, 255, 255, 0.72);
+      }
+      .pulse {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #38bdf8;
+        flex: none;
+      }
 
-  .pill { position: absolute; font-size: 16px; line-height: 1; padding: 5px 12px 6px; border-radius: 99px; border: 1.6px solid; white-space: nowrap; }
-  .pill.top { top: -14px; right: 12px; }
-  .pill.bottom { bottom: -14px; right: 12px; }
-  .pill.sky-live { background: #0d2231; border-color: #38bdf8; color: #38bdf8; }
-  .pill.muted { background: #0d1117; border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.6); }
-  .pill.amber { background: #362d1c; border-color: #f59e0b; color: #f59e0b; }
+      .pill {
+        position: absolute;
+        font-size: 16px;
+        line-height: 1;
+        padding: 5px 12px 6px;
+        border-radius: 99px;
+        border: 1.6px solid;
+        white-space: nowrap;
+      }
+      .pill.top {
+        top: -14px;
+        right: 12px;
+      }
+      .pill.bottom {
+        bottom: -14px;
+        right: 12px;
+      }
+      .pill.sky-live {
+        background: #0d2231;
+        border-color: #38bdf8;
+        color: #38bdf8;
+      }
+      .pill.muted {
+        background: #0d1117;
+        border-color: rgba(255, 255, 255, 0.4);
+        color: rgba(255, 255, 255, 0.6);
+      }
+      .pill.amber {
+        background: #362d1c;
+        border-color: #f59e0b;
+        color: #f59e0b;
+      }
 
-  /* design B card: 172x66 -> 344x132 */
-  .node.b { width: 344px; height: 132px; padding: 14px 22px; display: flex; flex-direction: column; }
-  .b .title { font-size: 22px; font-weight: 600; line-height: 1.22; color: rgba(255,255,255,0.92); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .b .meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; padding-top: 9px; border-top: 2px solid rgba(255,255,255,0.09); font-family: ui-monospace, Menlo, monospace; font-size: 17px; }
-  .b .meta .state { display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.6); }
-  .b .meta .metrics { color: rgba(255,255,255,0.45); }
+      /* design B card: 172x66 -> 344x132 */
+      .node.b {
+        width: 344px;
+        height: 132px;
+        padding: 14px 22px;
+        display: flex;
+        flex-direction: column;
+      }
+      .b .title {
+        font-size: 22px;
+        font-weight: 600;
+        line-height: 1.22;
+        color: rgba(255, 255, 255, 0.92);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+      .b .meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin-top: auto;
+        padding-top: 9px;
+        border-top: 2px solid rgba(255, 255, 255, 0.09);
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 17px;
+      }
+      .b .meta .state {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+      .b .meta .metrics {
+        color: rgba(255, 255, 255, 0.45);
+      }
 
-  /* design C card: 172x74 -> 344x148 */
-  .node.c { width: 344px; height: 148px; padding: 0; display: flex; flex-direction: column; overflow: visible; }
-  .c .band { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-radius: 17px 17px 0 0; font-size: 16px; letter-spacing: 0.05em; }
-  .c.sky .band { background: rgba(56,189,248,0.20); color: #7dd3fc; }
-  .c.steel .band { background: rgba(109,134,166,0.22); color: #b6c6dc; }
-  .c.emerald .band { background: rgba(52,211,153,0.18); color: #6ee7b7; }
-  .c .band .role { text-transform: uppercase; font-weight: 600; }
-  .c .band .state { margin-left: auto; letter-spacing: 0; }
-  .c .body { padding: 10px 20px 0; flex: 1; }
-  .c .title { font-size: 22px; font-weight: 600; line-height: 1.22; color: rgba(255,255,255,0.92); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .c .foot { display: flex; align-items: center; gap: 8px; padding: 0 20px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 17px; color: rgba(255,255,255,0.5); }
-  .c.body-neutral { background: #10151c; }
-</style>
-</head>
-<body>
+      /* design C card: 172x74 -> 344x148 */
+      .node.c {
+        width: 344px;
+        height: 148px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: visible;
+      }
+      .c .band {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 20px;
+        border-radius: 17px 17px 0 0;
+        font-size: 16px;
+        letter-spacing: 0.05em;
+      }
+      .c.sky .band {
+        background: rgba(56, 189, 248, 0.2);
+        color: #7dd3fc;
+      }
+      .c.steel .band {
+        background: rgba(109, 134, 166, 0.22);
+        color: #b6c6dc;
+      }
+      .c.emerald .band {
+        background: rgba(52, 211, 153, 0.18);
+        color: #6ee7b7;
+      }
+      .c .band .role {
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+      .c .band .state {
+        margin-left: auto;
+        letter-spacing: 0;
+      }
+      .c .body {
+        padding: 10px 20px 0;
+        flex: 1;
+      }
+      .c .title {
+        font-size: 22px;
+        font-weight: 600;
+        line-height: 1.22;
+        color: rgba(255, 255, 255, 0.92);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+      .c .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 20px 12px;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 17px;
+        color: rgba(255, 255, 255, 0.5);
+      }
+      .c.body-neutral {
+        background: #10151c;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Workstream graph node — what to show &amp; how</h1>
+    <p class="sub">
+      Grounded in <code>WorkstreamGraph.tsx</code> (GraphNode, 146×66&nbsp;px) and
+      <code>workstreamPresentation.ts</code>. Mockups are plain HTML/CSS at 2× real scale, using the
+      real palette and the example data from the screenshot (coder mid-rework, its reviewer, a
+      blocked node).
+    </p>
 
-<h1>Workstream graph node — what to show &amp; how</h1>
-<p class="sub">Grounded in <code>WorkstreamGraph.tsx</code> (GraphNode, 146×66&nbsp;px) and <code>workstreamPresentation.ts</code>. Mockups are plain HTML/CSS at 2× real scale, using the real palette and the example data from the screenshot (coder mid-rework, its reviewer, a blocked node).</p>
-
-<h2>1 · Current anatomy, annotated</h2>
-<div class="row">
-  <div class="mock">
-    <div class="node cur sky">
-      <span class="pill top sky-live">reworking round 1</span>
-      <div class="hdr"><span class="dot"></span><span class="glyph">⚙</span><span class="title">P2 patch-appl…</span></div>
-      <div class="meta">coder · In progress</div>
-      <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
+    <h2>1 · Current anatomy, annotated</h2>
+    <div class="row">
+      <div class="mock">
+        <div class="node cur sky">
+          <span class="pill top sky-live">reworking round 1</span>
+          <div class="hdr">
+            <span class="dot"></span><span class="glyph">⚙</span
+            ><span class="title">P2 patch-appl…</span>
+          </div>
+          <div class="meta">coder · In progress</div>
+          <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
+        </div>
+        <div class="cap">Current node, 2× scale — coder mid-rework</div>
+      </div>
+      <div style="flex: 1; min-width: 340px">
+        <ol class="callouts">
+          <li>
+            <span class="num">1</span><strong>The circle</strong>: a 4px dot in the status colour —
+            the same hue as the card stroke and fill. Pure redundancy.
+          </li>
+          <li>
+            <span class="num">2</span><strong>Role glyph</strong>: ◎ ⚙ ◇ ▣ ✦ at 12px. Abstract
+            marks; ◎/◇/✦ are indistinguishable at a glance, and roles are open-ended strings so the
+            map can never be complete (✦ is the fallback).
+          </li>
+          <li>
+            <span class="num">3</span><strong>Title</strong>: hard-truncated at
+            <code>14 chars</code>, starting 43px in — ~1.5 words survive. Siblings share leading
+            words, so the distinguishing tokens are exactly what gets cut.
+          </li>
+          <li>
+            <span class="num">4</span><strong>Meta line</strong>: <code>coder · In progress</code> —
+            role again (in words) + status again (in words).
+          </li>
+          <li>
+            <span class="num">5</span><strong>Footer</strong>: pulse dot (liveness, a 3rd time) +
+            tools + age. Running/yielded only.
+          </li>
+          <li>
+            <span class="num">6</span><strong>Gate pills</strong>: gate-wait (top) + verdict chip
+            (bottom) + edge badge ⟲1/2 + edge tint — one fact told four times across the pair, and
+            the straddling pills collide with neighbours.
+          </li>
+        </ol>
+        <table>
+          <tr>
+            <th>Fact</th>
+            <th>Times encoded on/around the node</th>
+          </tr>
+          <tr>
+            <td>Status</td>
+            <td><strong>4</strong> — stroke, fill, dot, meta text</td>
+          </tr>
+          <tr>
+            <td>Role</td>
+            <td><strong>2</strong> — glyph, meta text</td>
+          </tr>
+          <tr>
+            <td>Liveness</td>
+            <td><strong>3</strong> — sky hue, "In progress", pulse dot</td>
+          </tr>
+          <tr>
+            <td>Gate loop</td>
+            <td><strong>4</strong> — two pills, edge badge, edge tint</td>
+          </tr>
+          <tr>
+            <td><strong>Identity (title)</strong></td>
+            <td><strong>1 — and it gets 14 characters</strong></td>
+          </tr>
+        </table>
+      </div>
     </div>
-    <div class="cap">Current node, 2× scale — coder mid-rework</div>
-  </div>
-  <div style="flex:1; min-width: 340px;">
-    <ol class="callouts">
-      <li><span class="num">1</span><strong>The circle</strong>: a 4px dot in the status colour — the same hue as the card stroke and fill. Pure redundancy.</li>
-      <li><span class="num">2</span><strong>Role glyph</strong>: ◎ ⚙ ◇ ▣ ✦ at 12px. Abstract marks; ◎/◇/✦ are indistinguishable at a glance, and roles are open-ended strings so the map can never be complete (✦ is the fallback).</li>
-      <li><span class="num">3</span><strong>Title</strong>: hard-truncated at <code>14 chars</code>, starting 43px in — ~1.5 words survive. Siblings share leading words, so the distinguishing tokens are exactly what gets cut.</li>
-      <li><span class="num">4</span><strong>Meta line</strong>: <code>coder · In progress</code> — role again (in words) + status again (in words).</li>
-      <li><span class="num">5</span><strong>Footer</strong>: pulse dot (liveness, a 3rd time) + tools + age. Running/yielded only.</li>
-      <li><span class="num">6</span><strong>Gate pills</strong>: gate-wait (top) + verdict chip (bottom) + edge badge ⟲1/2 + edge tint — one fact told four times across the pair, and the straddling pills collide with neighbours.</li>
-    </ol>
+
+    <h2>2 · Proposed information hierarchy</h2>
+    <div class="panel">
+      <ol>
+        <li>
+          <strong>Where is the live front / what needs me?</strong> — pre-attentive: card colour,
+          attention pulse, terminal recession. (Already works well.)
+        </li>
+        <li>
+          <strong>What is this node?</strong> — the title. Currently the most-starved element
+          despite being the only thing that distinguishes siblings.
+        </li>
+        <li>
+          <strong>What state is it in, named?</strong> — one worded state (<code>reworking ⟲1</code
+          >, <code>blocked</code>, <code>done</code>). The 8-lane palette
+          (slate/indigo/cyan/steel/sky/violet/emerald/slate) exceeds reliable at-a-glance hue
+          discrimination, so one word confirms what the colour suggests.
+        </li>
+        <li><strong>Coarse progress</strong> — ⚒ tools · age, for live nodes only.</li>
+        <li>
+          <strong>Everything else</strong> — purpose, model, cost, gate history, fork/fan-in/consult
+          detail → the hover card and context menu (both already exist and are good).
+        </li>
+      </ol>
+      <p>
+        Guiding rule: <strong>each fact gets exactly one on-node encoding</strong>, plus at most one
+        pre-attentive channel (colour) for the two facts that must be scannable across 30 nodes:
+        status and attention.
+      </p>
+    </div>
+
+    <h2>3 · Options per slot</h2>
+
+    <h3>3a · Title (identity)</h3>
     <table>
-      <tr><th>Fact</th><th>Times encoded on/around the node</th></tr>
-      <tr><td>Status</td><td><strong>4</strong> — stroke, fill, dot, meta text</td></tr>
-      <tr><td>Role</td><td><strong>2</strong> — glyph, meta text</td></tr>
-      <tr><td>Liveness</td><td><strong>3</strong> — sky hue, "In progress", pulse dot</td></tr>
-      <tr><td>Gate loop</td><td><strong>4</strong> — two pills, edge badge, edge tint</td></tr>
-      <tr><td><strong>Identity (title)</strong></td><td><strong>1 — and it gets 14 characters</strong></td></tr>
+      <tr>
+        <th>Option</th>
+        <th>Pros</th>
+        <th>Cons</th>
+      </tr>
+      <tr>
+        <td>
+          <strong>T1 — two-line wrap</strong>, full card width
+          <span class="tag rec">recommended</span>
+        </td>
+        <td>
+          ~24 chars × 2 lines ≈ 48 chars — nearly every ≤6-word title fits whole; fixed node size
+          keeps columns aligned; no layout-algorithm change
+        </td>
+        <td>
+          SVG has no native wrapping — needs a small tspan line-breaker (char-count heuristic is
+          fine at a fixed width)
+        </td>
+      </tr>
+      <tr>
+        <td><strong>T2 — dynamic node width</strong> to fit the title</td>
+        <td>Every title complete on one line</td>
+        <td>
+          Ragged columns break the band layout's rhythm; long titles blow node density in the
+          constrained horizontal axis; layout code assumes <code>NODE_W</code> in several places
+        </td>
+      </tr>
+      <tr>
+        <td><strong>T3 — keep one line, reclaim the 43px indent</strong> + widen to ~180</td>
+        <td>Trivial diff</td>
+        <td>Still only ~26 chars; mid-string distinguishing tokens still lost</td>
+      </tr>
+      <tr>
+        <td><strong>T4 — middle-ellipsis truncation</strong> (keep head + tail)</td>
+        <td>Preserves distinguishing tail tokens cheaply</td>
+        <td>Ugly; still guesswork about which tokens matter</td>
+      </tr>
     </table>
-  </div>
-</div>
 
-<h2>2 · Proposed information hierarchy</h2>
-<div class="panel">
-  <ol>
-    <li><strong>Where is the live front / what needs me?</strong> — pre-attentive: card colour, attention pulse, terminal recession. (Already works well.)</li>
-    <li><strong>What is this node?</strong> — the title. Currently the most-starved element despite being the only thing that distinguishes siblings.</li>
-    <li><strong>What state is it in, named?</strong> — one worded state (<code>reworking ⟲1</code>, <code>blocked</code>, <code>done</code>). The 8-lane palette (slate/indigo/cyan/steel/sky/violet/emerald/slate) exceeds reliable at-a-glance hue discrimination, so one word confirms what the colour suggests.</li>
-    <li><strong>Coarse progress</strong> — ⚒ tools · age, for live nodes only.</li>
-    <li><strong>Everything else</strong> — purpose, model, cost, gate history, fork/fan-in/consult detail → the hover card and context menu (both already exist and are good).</li>
-  </ol>
-  <p>Guiding rule: <strong>each fact gets exactly one on-node encoding</strong>, plus at most one pre-attentive channel (colour) for the two facts that must be scannable across 30 nodes: status and attention.</p>
-</div>
+    <h3>3b · Status</h3>
+    <table>
+      <tr>
+        <th>Option</th>
+        <th>Pros</th>
+        <th>Cons</th>
+      </tr>
+      <tr>
+        <td>
+          <strong>S1 — stroke + fill colour, plus one worded state</strong>; delete the dot
+          <span class="tag rec">recommended</span>
+        </td>
+        <td>
+          Keeps the pre-attentive scan; the word disambiguates the 8-lane palette (steel-blocked vs
+          slate-planned vs cyan-ready are close); removes the pure-redundancy dot
+        </td>
+        <td>None material — the dot carries zero unique information</td>
+      </tr>
+      <tr>
+        <td><strong>S2 — colour only</strong> (delete dot and status word)</td>
+        <td>Maximum space for title</td>
+        <td>
+          8 hues are not reliably distinguishable even for normal colour vision; forces legend
+          round-trips for the cooler states
+        </td>
+      </tr>
+      <tr>
+        <td><strong>S3 — left accent bar</strong> (like board cards) on a neutral card</td>
+        <td>Quieter canvas; status still scannable</td>
+        <td>
+          Loses the fill-tint glow that makes the live front pop against receded terminals — the
+          graph's best current feature
+        </td>
+      </tr>
+    </table>
 
-<h2>3 · Options per slot</h2>
+    <h3>3c · Role</h3>
+    <table>
+      <tr>
+        <th>Option</th>
+        <th>Pros</th>
+        <th>Cons</th>
+      </tr>
+      <tr>
+        <td>
+          <strong>R1 — word only</strong> (<code>coder</code>, <code>reviewer</code>); delete the
+          glyph <span class="tag rec">recommended</span>
+        </td>
+        <td>
+          Words are read, not learned; open-ended roles make any glyph map incomplete; frees 30px
+        </td>
+        <td>
+          Slightly less "iconic" at extreme zoom-out — but the glyphs were never legible there
+          either
+        </td>
+      </tr>
+      <tr>
+        <td><strong>R2 — real icons</strong> (lucide wrench/eye/search/map) + word</td>
+        <td>Genuinely distinct silhouettes, unlike ◎/◇/✦</td>
+        <td>
+          Still redundant with the word; open-ended roles still need a fallback; adds icon-path
+          plumbing into SVG
+        </td>
+      </tr>
+      <tr>
+        <td><strong>R3 — drop from the node entirely</strong> (hover card has it)</td>
+        <td>Most minimal</td>
+        <td>
+          Coder-vs-reviewer at a glance is genuinely useful when scanning gate pairs; costs little
+          to keep as one word
+        </td>
+      </tr>
+    </table>
 
-<h3>3a · Title (identity)</h3>
-<table>
-  <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
-  <tr><td><strong>T1 — two-line wrap</strong>, full card width <span class="tag rec">recommended</span></td><td>~24 chars × 2 lines ≈ 48 chars — nearly every ≤6-word title fits whole; fixed node size keeps columns aligned; no layout-algorithm change</td><td>SVG has no native wrapping — needs a small tspan line-breaker (char-count heuristic is fine at a fixed width)</td></tr>
-  <tr><td><strong>T2 — dynamic node width</strong> to fit the title</td><td>Every title complete on one line</td><td>Ragged columns break the band layout's rhythm; long titles blow node density in the constrained horizontal axis; layout code assumes <code>NODE_W</code> in several places</td></tr>
-  <tr><td><strong>T3 — keep one line, reclaim the 43px indent</strong> + widen to ~180</td><td>Trivial diff</td><td>Still only ~26 chars; mid-string distinguishing tokens still lost</td></tr>
-  <tr><td><strong>T4 — middle-ellipsis truncation</strong> (keep head + tail)</td><td>Preserves distinguishing tail tokens cheaply</td><td>Ugly; still guesswork about which tokens matter</td></tr>
-</table>
+    <h3>3d · Gate / review-loop story (the worst redundancy)</h3>
+    <table>
+      <tr>
+        <th>Option</th>
+        <th>Pros</th>
+        <th>Cons</th>
+      </tr>
+      <tr>
+        <td>
+          <strong>G1 — the state word absorbs the gate leg</strong>: state reads
+          <code>reworking ⟲1</code> / <code>waiting on rework</code>; delete both straddling pills;
+          edge keeps badge ⟲1/2 + verdict tint; reviewer keeps only its verdict chip
+          <span class="tag rec">recommended</span>
+        </td>
+        <td>
+          The gate leg <em>is</em> the node's state, so it belongs in the state slot — from 4
+          encodings down to: node state word, edge badge (rounds/cap), verdict chip (the
+          human-relevant judgement). Pills stop colliding above/below cards
+        </td>
+        <td>
+          Rounds/cap detail moves one step away (edge badge or hover); state words get longer than
+          lane labels
+        </td>
+      </tr>
+      <tr>
+        <td><strong>G2 — node owns it</strong>: keep pills, delete the edge badge</td>
+        <td>All info on the card</td>
+        <td>
+          Pills straddle borders and collide with neighbours (visible in the screenshot); loop count
+          is naturally an edge property
+        </td>
+      </tr>
+      <tr>
+        <td><strong>G3 — edge owns everything</strong>: no gate text on nodes at all</td>
+        <td>Cleanest cards</td>
+        <td>
+          "Why is this coder sky-coloured but idle?" becomes unanswerable without hovering; verdict
+          is genuinely card-worthy
+        </td>
+      </tr>
+    </table>
 
-<h3>3b · Status</h3>
-<table>
-  <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
-  <tr><td><strong>S1 — stroke + fill colour, plus one worded state</strong>; delete the dot <span class="tag rec">recommended</span></td><td>Keeps the pre-attentive scan; the word disambiguates the 8-lane palette (steel-blocked vs slate-planned vs cyan-ready are close); removes the pure-redundancy dot</td><td>None material — the dot carries zero unique information</td></tr>
-  <tr><td><strong>S2 — colour only</strong> (delete dot and status word)</td><td>Maximum space for title</td><td>8 hues are not reliably distinguishable even for normal colour vision; forces legend round-trips for the cooler states</td></tr>
-  <tr><td><strong>S3 — left accent bar</strong> (like board cards) on a neutral card</td><td>Quieter canvas; status still scannable</td><td>Loses the fill-tint glow that makes the live front pop against receded terminals — the graph's best current feature</td></tr>
-</table>
+    <h3>3e · Progress footer (⚒ tools · age)</h3>
+    <table>
+      <tr>
+        <th>Option</th>
+        <th>Pros</th>
+        <th>Cons</th>
+      </tr>
+      <tr>
+        <td>
+          <strong>F1 — fold into the meta/state line</strong>, right-aligned; pulse dot stays as the
+          single liveness animation
+        </td>
+        <td>Frees a band; two-band card stays 66px tall</td>
+        <td>Meta line is busier; long role names crowd it</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>F2 — keep a dedicated metrics band</strong>
+          <span class="tag rec">fits design C</span>
+        </td>
+        <td>No crowding; vertical space is the unconstrained axis, so the extra band is cheap</td>
+        <td>Slightly taller card</td>
+      </tr>
+      <tr>
+        <td><strong>F3 — drop from node</strong> (hover card has both)</td>
+        <td>Simplest card</td>
+        <td>
+          "Is it actually doing something?" is a scan-level question; tools+age is the cheapest
+          honest signal of motion
+        </td>
+      </tr>
+    </table>
 
-<h3>3c · Role</h3>
-<table>
-  <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
-  <tr><td><strong>R1 — word only</strong> (<code>coder</code>, <code>reviewer</code>); delete the glyph <span class="tag rec">recommended</span></td><td>Words are read, not learned; open-ended roles make any glyph map incomplete; frees 30px</td><td>Slightly less "iconic" at extreme zoom-out — but the glyphs were never legible there either</td></tr>
-  <tr><td><strong>R2 — real icons</strong> (lucide wrench/eye/search/map) + word</td><td>Genuinely distinct silhouettes, unlike ◎/◇/✦</td><td>Still redundant with the word; open-ended roles still need a fallback; adds icon-path plumbing into SVG</td></tr>
-  <tr><td><strong>R3 — drop from the node entirely</strong> (hover card has it)</td><td>Most minimal</td><td>Coder-vs-reviewer at a glance is genuinely useful when scanning gate pairs; costs little to keep as one word</td></tr>
-</table>
+    <h2>4 · Assembled designs, side by side</h2>
+    <p class="sub">
+      Same three threads in each: coder mid-rework (live), reviewer waiting on rework (verdict
+      recorded), blocked coder. All at 2× real scale.
+    </p>
 
-<h3>3d · Gate / review-loop story (the worst redundancy)</h3>
-<table>
-  <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
-  <tr><td><strong>G1 — the state word absorbs the gate leg</strong>: state reads <code>reworking ⟲1</code> / <code>waiting on rework</code>; delete both straddling pills; edge keeps badge ⟲1/2 + verdict tint; reviewer keeps only its verdict chip <span class="tag rec">recommended</span></td><td>The gate leg <em>is</em> the node's state, so it belongs in the state slot — from 4 encodings down to: node state word, edge badge (rounds/cap), verdict chip (the human-relevant judgement). Pills stop colliding above/below cards</td><td>Rounds/cap detail moves one step away (edge badge or hover); state words get longer than lane labels</td></tr>
-  <tr><td><strong>G2 — node owns it</strong>: keep pills, delete the edge badge</td><td>All info on the card</td><td>Pills straddle borders and collide with neighbours (visible in the screenshot); loop count is naturally an edge property</td></tr>
-  <tr><td><strong>G3 — edge owns everything</strong>: no gate text on nodes at all</td><td>Cleanest cards</td><td>"Why is this coder sky-coloured but idle?" becomes unanswerable without hovering; verdict is genuinely card-worthy</td></tr>
-</table>
-
-<h3>3e · Progress footer (⚒ tools · age)</h3>
-<table>
-  <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
-  <tr><td><strong>F1 — fold into the meta/state line</strong>, right-aligned; pulse dot stays as the single liveness animation</td><td>Frees a band; two-band card stays 66px tall</td><td>Meta line is busier; long role names crowd it</td></tr>
-  <tr><td><strong>F2 — keep a dedicated metrics band</strong> <span class="tag rec">fits design C</span></td><td>No crowding; vertical space is the unconstrained axis, so the extra band is cheap</td><td>Slightly taller card</td></tr>
-  <tr><td><strong>F3 — drop from node</strong> (hover card has both)</td><td>Simplest card</td><td>"Is it actually doing something?" is a scan-level question; tools+age is the cheapest honest signal of motion</td></tr>
-</table>
-
-<h2>4 · Assembled designs, side by side</h2>
-<p class="sub">Same three threads in each: coder mid-rework (live), reviewer waiting on rework (verdict recorded), blocked coder. All at 2× real scale.</p>
-
-<h3>Current</h3>
-<div class="row">
-  <div class="mock">
-    <div class="node cur sky">
-      <span class="pill top sky-live">reworking round 1</span>
-      <div class="hdr"><span class="dot"></span><span class="glyph">⚙</span><span class="title">P2 patch-appl…</span></div>
-      <div class="meta">coder · In progress</div>
-      <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
-    </div>
-    <div class="cap">coder — 4 status encodings, 14-char title</div>
-  </div>
-  <div class="mock">
-    <div class="node cur sky">
-      <span class="pill top muted">waiting on rework</span>
-      <span class="pill bottom amber">needs rework ⟲1</span>
-      <div class="hdr"><span class="dot"></span><span class="glyph">◎</span><span class="title">P2 P3 adversa…</span></div>
-      <div class="meta">reviewer · In progress</div>
-      <div class="foot">⚒ 37 · 1m</div>
-    </div>
-    <div class="cap">reviewer — 3 pills tell the loop story</div>
-  </div>
-  <div class="mock">
-    <div class="node cur steel">
-      <div class="hdr"><span class="dot"></span><span class="glyph">⚙</span><span class="title">tenant_id pri…</span></div>
-      <div class="meta">coder · Blocked</div>
-    </div>
-    <div class="cap">blocked — title cut mid-word</div>
-  </div>
-</div>
-
-<h3>Design A — conservative de-duplication <span class="tag neutral-tag">smallest diff</span></h3>
-<p>Delete the dot, keep the glyph, reclaim the indent, truncate at ~19. Everything else unchanged.</p>
-<div class="row">
-  <div class="mock">
-    <div class="node cur sky">
-      <span class="pill top sky-live">reworking round 1</span>
-      <div class="hdr" style="padding-left: 20px;"><span class="glyph">⚙</span><span class="title">P2 patch-apply ret…</span></div>
-      <div class="meta">coder · In progress</div>
-      <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
-    </div>
-    <div class="cap">~19 chars; dot gone</div>
-  </div>
-  <div style="flex:1; min-width: 300px;" class="pros-cons">
-    <div class="pros"><h4>Pros</h4><ul><li>~20-line diff, no layout change</li><li>Removes the most indefensible element</li></ul></div>
-    <div class="cons"><h4>Cons</h4><ul><li>Title still one line — sibling ambiguity survives</li><li>Glyph problem, pill collisions, gate quadruplication all untouched</li></ul></div>
-  </div>
-</div>
-
-<h3>Design B — title-first, two-band</h3>
-<p>172×66. Band 1: title wrapped to two lines, full width. Band 2: <code>role · state-word</code> left, <code>⚒ n · age</code> right, single pulse dot when live. Status = stroke/fill + the state word. Gate leg absorbed into the state word (G1); reviewer keeps only its verdict chip; the edge badge keeps rounds/cap.</p>
-<div class="row">
-  <div class="mock">
-    <div class="node b sky">
-      <div class="title">P2 patch-apply retry hardening</div>
-      <div class="meta">
-        <span class="state"><span class="pulse"></span>coder · reworking ⟲1</span>
-        <span class="metrics">⚒67 · 2m</span>
+    <h3>Current</h3>
+    <div class="row">
+      <div class="mock">
+        <div class="node cur sky">
+          <span class="pill top sky-live">reworking round 1</span>
+          <div class="hdr">
+            <span class="dot"></span><span class="glyph">⚙</span
+            ><span class="title">P2 patch-appl…</span>
+          </div>
+          <div class="meta">coder · In progress</div>
+          <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
+        </div>
+        <div class="cap">coder — 4 status encodings, 14-char title</div>
+      </div>
+      <div class="mock">
+        <div class="node cur sky">
+          <span class="pill top muted">waiting on rework</span>
+          <span class="pill bottom amber">needs rework ⟲1</span>
+          <div class="hdr">
+            <span class="dot"></span><span class="glyph">◎</span
+            ><span class="title">P2 P3 adversa…</span>
+          </div>
+          <div class="meta">reviewer · In progress</div>
+          <div class="foot">⚒ 37 · 1m</div>
+        </div>
+        <div class="cap">reviewer — 3 pills tell the loop story</div>
+      </div>
+      <div class="mock">
+        <div class="node cur steel">
+          <div class="hdr">
+            <span class="dot"></span><span class="glyph">⚙</span
+            ><span class="title">tenant_id pri…</span>
+          </div>
+          <div class="meta">coder · Blocked</div>
+        </div>
+        <div class="cap">blocked — title cut mid-word</div>
       </div>
     </div>
-    <div class="cap">coder — full title, one status telling + colour</div>
-  </div>
-  <div class="mock">
-    <div class="node b sky">
-      <span class="pill bottom amber">needs rework ⟲1</span>
-      <div class="title">P2 P3 adversarial review</div>
-      <div class="meta">
-        <span class="state">reviewer · waiting on rework</span>
-        <span class="metrics">⚒37 · 1m</span>
+
+    <h3>
+      Design A — conservative de-duplication <span class="tag neutral-tag">smallest diff</span>
+    </h3>
+    <p>
+      Delete the dot, keep the glyph, reclaim the indent, truncate at ~19. Everything else
+      unchanged.
+    </p>
+    <div class="row">
+      <div class="mock">
+        <div class="node cur sky">
+          <span class="pill top sky-live">reworking round 1</span>
+          <div class="hdr" style="padding-left: 20px">
+            <span class="glyph">⚙</span><span class="title">P2 patch-apply ret…</span>
+          </div>
+          <div class="meta">coder · In progress</div>
+          <div class="foot"><span class="pulse"></span>⚒ 67 · 2m</div>
+        </div>
+        <div class="cap">~19 chars; dot gone</div>
+      </div>
+      <div style="flex: 1; min-width: 300px" class="pros-cons">
+        <div class="pros">
+          <h4>Pros</h4>
+          <ul>
+            <li>~20-line diff, no layout change</li>
+            <li>Removes the most indefensible element</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Cons</h4>
+          <ul>
+            <li>Title still one line — sibling ambiguity survives</li>
+            <li>Glyph problem, pill collisions, gate quadruplication all untouched</li>
+          </ul>
+        </div>
       </div>
     </div>
-    <div class="cap">reviewer — verdict chip is the only pill left</div>
-  </div>
-  <div class="mock">
-    <div class="node b steel">
-      <div class="title">tenant_id priming migration</div>
-      <div class="meta">
-        <span class="state">coder · blocked</span>
+
+    <h3>Design B — title-first, two-band</h3>
+    <p>
+      172×66. Band 1: title wrapped to two lines, full width. Band 2:
+      <code>role · state-word</code> left, <code>⚒ n · age</code> right, single pulse dot when live.
+      Status = stroke/fill + the state word. Gate leg absorbed into the state word (G1); reviewer
+      keeps only its verdict chip; the edge badge keeps rounds/cap.
+    </p>
+    <div class="row">
+      <div class="mock">
+        <div class="node b sky">
+          <div class="title">P2 patch-apply retry hardening</div>
+          <div class="meta">
+            <span class="state"><span class="pulse"></span>coder · reworking ⟲1</span>
+            <span class="metrics">⚒67 · 2m</span>
+          </div>
+        </div>
+        <div class="cap">coder — full title, one status telling + colour</div>
+      </div>
+      <div class="mock">
+        <div class="node b sky">
+          <span class="pill bottom amber">needs rework ⟲1</span>
+          <div class="title">P2 P3 adversarial review</div>
+          <div class="meta">
+            <span class="state">reviewer · waiting on rework</span>
+            <span class="metrics">⚒37 · 1m</span>
+          </div>
+        </div>
+        <div class="cap">reviewer — verdict chip is the only pill left</div>
+      </div>
+      <div class="mock">
+        <div class="node b steel">
+          <div class="title">tenant_id priming migration</div>
+          <div class="meta">
+            <span class="state">coder · blocked</span>
+          </div>
+        </div>
+        <div class="cap">blocked — nothing shown that isn't needed</div>
       </div>
     </div>
-    <div class="cap">blocked — nothing shown that isn't needed</div>
-  </div>
-</div>
-<div class="pros-cons" style="max-width: 760px;">
-  <div class="pros"><h4>Pros</h4><ul>
-    <li>~48-char titles; card height unchanged</li>
-    <li>Every fact told once</li>
-    <li>Gate pills stop straddling/colliding</li>
-  </ul></div>
-  <div class="cons"><h4>Cons</h4><ul>
-    <li>Meta line is dense: role + state + metrics compete in one band</li>
-    <li>Long roles or long state words (<code>waiting on rework</code>) can crowd out the metrics</li>
-  </ul></div>
-</div>
+    <div class="pros-cons" style="max-width: 760px">
+      <div class="pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>~48-char titles; card height unchanged</li>
+          <li>Every fact told once</li>
+          <li>Gate pills stop straddling/colliding</li>
+        </ul>
+      </div>
+      <div class="cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>Meta line is dense: role + state + metrics compete in one band</li>
+          <li>
+            Long roles or long state words (<code>waiting on rework</code>) can crowd out the
+            metrics
+          </li>
+        </ul>
+      </div>
+    </div>
 
-<h3>Design C — header-band card <span class="tag rec">recommended</span></h3>
-<p>172×74 (+8px height — cheap, since the vertical axis is the unconstrained one). A tinted header strip carries <code>ROLE</code> left and the state word right; the body holds a two-line title; a dedicated metrics band sits at the bottom, so nothing competes for space. Two body treatments:</p>
+    <h3>Design C — header-band card <span class="tag rec">recommended</span></h3>
+    <p>
+      172×74 (+8px height — cheap, since the vertical axis is the unconstrained one). A tinted
+      header strip carries <code>ROLE</code> left and the state word right; the body holds a
+      two-line title; a dedicated metrics band sits at the bottom, so nothing competes for space.
+      Two body treatments:
+    </p>
 
-<h4 style="font-size:12.5px; color: rgba(255,255,255,0.75); margin: 14px 0 6px;">C1 — neutral body (strongest title legibility)</h4>
-<div class="row">
-  <div class="mock">
-    <div class="node c sky body-neutral">
-      <div class="band"><span class="role">coder</span><span class="pulse"></span><span class="state">reworking ⟲1</span></div>
-      <div class="body"><div class="title">P2 patch-apply retry hardening</div></div>
-      <div class="foot">⚒ 67 · 2m</div>
+    <h4 style="font-size: 12.5px; color: rgba(255, 255, 255, 0.75); margin: 14px 0 6px">
+      C1 — neutral body (strongest title legibility)
+    </h4>
+    <div class="row">
+      <div class="mock">
+        <div class="node c sky body-neutral">
+          <div class="band">
+            <span class="role">coder</span><span class="pulse"></span
+            ><span class="state">reworking ⟲1</span>
+          </div>
+          <div class="body"><div class="title">P2 patch-apply retry hardening</div></div>
+          <div class="foot">⚒ 67 · 2m</div>
+        </div>
+        <div class="cap">coder — live</div>
+      </div>
+      <div class="mock">
+        <div class="node c sky body-neutral">
+          <span class="pill bottom amber">needs rework ⟲1</span>
+          <div class="band">
+            <span class="role">reviewer</span><span class="state">waiting on rework</span>
+          </div>
+          <div class="body"><div class="title">P2 P3 adversarial review</div></div>
+          <div class="foot">⚒ 37 · 1m</div>
+        </div>
+        <div class="cap">reviewer — verdict chip only</div>
+      </div>
+      <div class="mock">
+        <div class="node c steel body-neutral">
+          <div class="band"><span class="role">coder</span><span class="state">blocked</span></div>
+          <div class="body"><div class="title">tenant_id priming migration</div></div>
+        </div>
+        <div class="cap">blocked</div>
+      </div>
     </div>
-    <div class="cap">coder — live</div>
-  </div>
-  <div class="mock">
-    <div class="node c sky body-neutral">
-      <span class="pill bottom amber">needs rework ⟲1</span>
-      <div class="band"><span class="role">reviewer</span><span class="state">waiting on rework</span></div>
-      <div class="body"><div class="title">P2 P3 adversarial review</div></div>
-      <div class="foot">⚒ 37 · 1m</div>
-    </div>
-    <div class="cap">reviewer — verdict chip only</div>
-  </div>
-  <div class="mock">
-    <div class="node c steel body-neutral">
-      <div class="band"><span class="role">coder</span><span class="state">blocked</span></div>
-      <div class="body"><div class="title">tenant_id priming migration</div></div>
-    </div>
-    <div class="cap">blocked</div>
-  </div>
-</div>
 
-<h4 style="font-size:12.5px; color: rgba(255,255,255,0.75); margin: 20px 0 6px;">C2 — tinted body (keeps the live-front glow)</h4>
-<div class="row">
-  <div class="mock">
-    <div class="node c sky">
-      <div class="band"><span class="role">coder</span><span class="pulse"></span><span class="state">reworking ⟲1</span></div>
-      <div class="body"><div class="title">P2 patch-apply retry hardening</div></div>
-      <div class="foot">⚒ 67 · 2m</div>
+    <h4 style="font-size: 12.5px; color: rgba(255, 255, 255, 0.75); margin: 20px 0 6px">
+      C2 — tinted body (keeps the live-front glow)
+    </h4>
+    <div class="row">
+      <div class="mock">
+        <div class="node c sky">
+          <div class="band">
+            <span class="role">coder</span><span class="pulse"></span
+            ><span class="state">reworking ⟲1</span>
+          </div>
+          <div class="body"><div class="title">P2 patch-apply retry hardening</div></div>
+          <div class="foot">⚒ 67 · 2m</div>
+        </div>
+        <div class="cap">coder — live</div>
+      </div>
+      <div class="mock">
+        <div class="node c sky">
+          <span class="pill bottom amber">needs rework ⟲1</span>
+          <div class="band">
+            <span class="role">reviewer</span><span class="state">waiting on rework</span>
+          </div>
+          <div class="body"><div class="title">P2 P3 adversarial review</div></div>
+          <div class="foot">⚒ 37 · 1m</div>
+        </div>
+        <div class="cap">reviewer</div>
+      </div>
+      <div class="mock">
+        <div class="node c steel">
+          <div class="band"><span class="role">coder</span><span class="state">blocked</span></div>
+          <div class="body"><div class="title">tenant_id priming migration</div></div>
+        </div>
+        <div class="cap">blocked</div>
+      </div>
+      <div class="mock">
+        <div class="node c emerald" style="opacity: 0.42">
+          <div class="band"><span class="role">coder</span><span class="state">done</span></div>
+          <div class="body"><div class="title">Receipt-dedup merge</div></div>
+        </div>
+        <div class="cap">done — receded, tint still reads</div>
+      </div>
     </div>
-    <div class="cap">coder — live</div>
-  </div>
-  <div class="mock">
-    <div class="node c sky">
-      <span class="pill bottom amber">needs rework ⟲1</span>
-      <div class="band"><span class="role">reviewer</span><span class="state">waiting on rework</span></div>
-      <div class="body"><div class="title">P2 P3 adversarial review</div></div>
-      <div class="foot">⚒ 37 · 1m</div>
+    <div class="pros-cons" style="max-width: 760px">
+      <div class="pros">
+        <h4>Pros</h4>
+        <ul>
+          <li>
+            Strongest grouping: role/state chrome lives in its own strip and never fights the title
+          </li>
+          <li>Dedicated metrics band — no crowding, unlike B's shared meta line</li>
+          <li>~48-char titles on a calm background</li>
+          <li>+8px height is nearly free (vertical is the loose axis); width unchanged vs B</li>
+          <li>
+            C2 keeps the full-card tint, so the live-front glow and terminal recession still work at
+            zoom-out
+          </li>
+        </ul>
+      </div>
+      <div class="cons">
+        <h4>Cons</h4>
+        <ul>
+          <li>More geometry to maintain in hand-rolled SVG (header strip path, three bands)</li>
+          <li>C1 weakens the zoom-out tint scan (tint shrinks to a 20px strip) — prefer C2</li>
+          <li>
+            Header strip + tinted body (C2) doubles the tint density at the top; needs the strip a
+            step stronger than the body so it still reads as a band
+          </li>
+        </ul>
+      </div>
     </div>
-    <div class="cap">reviewer</div>
-  </div>
-  <div class="mock">
-    <div class="node c steel">
-      <div class="band"><span class="role">coder</span><span class="state">blocked</span></div>
-      <div class="body"><div class="title">tenant_id priming migration</div></div>
-    </div>
-    <div class="cap">blocked</div>
-  </div>
-  <div class="mock">
-    <div class="node c emerald" style="opacity: 0.42;">
-      <div class="band"><span class="role">coder</span><span class="state">done</span></div>
-      <div class="body"><div class="title">Receipt-dedup merge</div></div>
-    </div>
-    <div class="cap">done — receded, tint still reads</div>
-  </div>
-</div>
-<div class="pros-cons" style="max-width: 760px;">
-  <div class="pros"><h4>Pros</h4><ul>
-    <li>Strongest grouping: role/state chrome lives in its own strip and never fights the title</li>
-    <li>Dedicated metrics band — no crowding, unlike B's shared meta line</li>
-    <li>~48-char titles on a calm background</li>
-    <li>+8px height is nearly free (vertical is the loose axis); width unchanged vs B</li>
-    <li>C2 keeps the full-card tint, so the live-front glow and terminal recession still work at zoom-out</li>
-  </ul></div>
-  <div class="cons"><h4>Cons</h4><ul>
-    <li>More geometry to maintain in hand-rolled SVG (header strip path, three bands)</li>
-    <li>C1 weakens the zoom-out tint scan (tint shrinks to a 20px strip) — prefer C2</li>
-    <li>Header strip + tinted body (C2) doubles the tint density at the top; needs the strip a step stronger than the body so it still reads as a band</li>
-  </ul></div>
-</div>
 
-<h2>5 · Evaluation matrix</h2>
-<table>
-  <tr><th></th><th>Current</th><th>A · de-dup</th><th>B · title-first</th><th>C2 · header-band, tinted</th></tr>
-  <tr><td>Find the live front in &lt;1s</td><td>Good</td><td>Good</td><td>Good</td><td>Good (full tint kept)</td></tr>
-  <tr><td>Tell siblings apart without hovering</td><td><strong>Bad</strong> (14 chars)</td><td>Poor (~19)</td><td><strong>Good</strong> (~48)</td><td><strong>Good</strong> (~48)</td></tr>
-  <tr><td>State named in words</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes, in its own slot</td></tr>
-  <tr><td>Redundant encodings remaining</td><td>Many</td><td>Some</td><td>Minimal</td><td>Minimal</td></tr>
-  <tr><td>Crowding risk within a band</td><td>—</td><td>—</td><td>Meta line shared 3 ways</td><td><strong>None</strong> (three dedicated bands)</td></tr>
-  <tr><td>Node density</td><td>—</td><td>=</td><td>+26px w</td><td>+26px w, +8px h (h is the loose axis)</td></tr>
-  <tr><td>Pill-collision risk</td><td>High (2 straddling pills)</td><td>High</td><td>Low (1 chip)</td><td>Low (1 chip)</td></tr>
-  <tr><td>Implementation cost</td><td>—</td><td>Trivial</td><td>Moderate</td><td>Moderate+ (strip geometry)</td></tr>
-</table>
+    <h2>5 · Evaluation matrix</h2>
+    <table>
+      <tr>
+        <th></th>
+        <th>Current</th>
+        <th>A · de-dup</th>
+        <th>B · title-first</th>
+        <th>C2 · header-band, tinted</th>
+      </tr>
+      <tr>
+        <td>Find the live front in &lt;1s</td>
+        <td>Good</td>
+        <td>Good</td>
+        <td>Good</td>
+        <td>Good (full tint kept)</td>
+      </tr>
+      <tr>
+        <td>Tell siblings apart without hovering</td>
+        <td><strong>Bad</strong> (14 chars)</td>
+        <td>Poor (~19)</td>
+        <td><strong>Good</strong> (~48)</td>
+        <td><strong>Good</strong> (~48)</td>
+      </tr>
+      <tr>
+        <td>State named in words</td>
+        <td>Yes</td>
+        <td>Yes</td>
+        <td>Yes</td>
+        <td>Yes, in its own slot</td>
+      </tr>
+      <tr>
+        <td>Redundant encodings remaining</td>
+        <td>Many</td>
+        <td>Some</td>
+        <td>Minimal</td>
+        <td>Minimal</td>
+      </tr>
+      <tr>
+        <td>Crowding risk within a band</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Meta line shared 3 ways</td>
+        <td><strong>None</strong> (three dedicated bands)</td>
+      </tr>
+      <tr>
+        <td>Node density</td>
+        <td>—</td>
+        <td>=</td>
+        <td>+26px w</td>
+        <td>+26px w, +8px h (h is the loose axis)</td>
+      </tr>
+      <tr>
+        <td>Pill-collision risk</td>
+        <td>High (2 straddling pills)</td>
+        <td>High</td>
+        <td>Low (1 chip)</td>
+        <td>Low (1 chip)</td>
+      </tr>
+      <tr>
+        <td>Implementation cost</td>
+        <td>—</td>
+        <td>Trivial</td>
+        <td>Moderate</td>
+        <td>Moderate+ (strip geometry)</td>
+      </tr>
+    </table>
 
-<h2>6 · Recommendation</h2>
-<div class="panel">
-  <p><strong>Design C2</strong> — header-band card with the full-card status tint kept. Per slot: <strong>T1</strong> two-line wrapped title in the body · <strong>S1</strong> colour + one state word (in the header strip), dot deleted · <strong>R1</strong> role as a word in the strip, glyphs deleted (<code>ROLE_ICONS</code> goes away) · <strong>G1</strong> gate leg folded into the state word, gate-wait pill deleted, verdict chip kept on the reviewer, rounds/cap stays on the edge badge · <strong>F2</strong> dedicated metrics band (⚒ tools · age), since vertical space is cheap.</p>
-  <p>Corner badges (⑂ fork, fan-in, consult count) stay as-is — they encode relationships with no other on-node home and don't compete with the title. The hover card and context menu are unchanged; they remain the drill-down for purpose, model, cost, and gate history.</p>
-  <p>Fallback if the strip geometry feels heavy in practice: Design B delivers the same information diet in two bands at the original height, at the cost of a denser meta line.</p>
-</div>
-
-</body>
+    <h2>6 · Recommendation</h2>
+    <div class="panel">
+      <p>
+        <strong>Design C2</strong> — header-band card with the full-card status tint kept. Per slot:
+        <strong>T1</strong> two-line wrapped title in the body · <strong>S1</strong> colour + one
+        state word (in the header strip), dot deleted · <strong>R1</strong> role as a word in the
+        strip, glyphs deleted (<code>ROLE_ICONS</code> goes away) · <strong>G1</strong> gate leg
+        folded into the state word, gate-wait pill deleted, verdict chip kept on the reviewer,
+        rounds/cap stays on the edge badge · <strong>F2</strong> dedicated metrics band (⚒ tools ·
+        age), since vertical space is cheap.
+      </p>
+      <p>
+        Corner badges (⑂ fork, fan-in, consult count) stay as-is — they encode relationships with no
+        other on-node home and don't compete with the title. The hover card and context menu are
+        unchanged; they remain the drill-down for purpose, model, cost, and gate history.
+      </p>
+      <p>
+        Fallback if the strip geometry feels heavy in practice: Design B delivers the same
+        information diet in two bands at the original height, at the cost of a denser meta line.
+      </p>
+    </div>
+  </body>
 </html>
