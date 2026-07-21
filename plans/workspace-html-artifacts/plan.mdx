@@ -1,0 +1,227 @@
+---
+manager_sessions:
+  - id: 305fbd00-e1a4-4831-ae56-f4000d5aa548
+    role: plan
+    authored_at: 2026-07-21T05:56:18.747Z
+---
+
+# In-worktree HTML artefact convention
+
+**Objective.** The web-runtime HTML artefact viewer (shipped in `02c97fbd4`) renders workspace files only: the asset claim is confined to the thread's worktree root, and the chat chip's View affordance requires a non-null workspace-relative path. But the most common landing place for agent-produced HTML is outside every worktree — the Pi `visual_explainer` tool's global `~/.agent/diagrams/` (currently ~9 files from many unrelated projects), which the viewer cannot and should not reach. This plan fixes the producer side: standalone renderable HTML is written into a **gitignored `.artifacts/` directory at the worktree root**, where it renders with the viewer already shipped (zero new security surface), is scoped to the worktree that produced it, dies with that worktree, and never pollutes git.
+
+**Done means:** the repo's `.gitignore` ignores `/.artifacts/`; `AGENTS.md` carries the convention; a fixture written to `.artifacts/` in a seeded dev-instance thread renders via the chat chip with relative subresources resolving; and the fresh-agent probe (verification step 5) passes — an agent asked for a viewable mockup writes to `.artifacts/` and cites the relative path. The probe is the go/no-go gate on the guidance-first policy below: if it fails, the named fallback (tool suppression) is triggered rather than the convention being declared shipped. No viewer, server, or role/skill/tool-def code changes ship in this cut.
+
+<FileTree
+  title="All changes"
+  entries={[
+    { path: ".gitignore", change: "modified", note: "add `/.artifacts/` (anchored — the convention is root-only)" },
+    { path: "AGENTS.md", change: "modified", note: "new 'HTML artefacts' convention section (text below)" },
+    { path: "plans/workspace-html-artifacts/plan.mdx", change: "added", note: "this plan" },
+  ]}
+/>
+
+## What produces renderable HTML today — controllable vs external
+
+<Table
+  columns={["Producer", "Where it writes", "In this repo's control?"]}
+  rows={[
+    [
+      "Pi visual_explainer tool (render action)",
+      "~/.agent/diagrams/<basename>.html — hardcoded",
+      "Split: its output location is not configurable, but T3 controls whether the tool is present in its sessions (evidence below)",
+    ],
+    [
+      "Agent-authored HTML via the Write tool",
+      "Anywhere the agent chooses (worktree-relative or absolute)",
+      "Yes — governed by project instructions (AGENTS.md), roles, skills",
+    ],
+    [
+      "Committed repo HTML (docs/design/*.html, .plans/*.html, apps/web/index.html)",
+      "Tracked in git, deliberately",
+      "Yes, but out of scope — these are documentation/app files, not throwaway artefacts",
+    ],
+  ]}
+/>
+
+**The `visual_explainer` evidence.** The tool is not part of this repo. It comes from the user's global Pi package list (`~/.pi/agent/settings.json` → `"git:github.com/nicobailon/visual-explainer"`), so every Pi session T3 Code launches — which inherits the user's global packages — has it. Its `render` action hardcodes the output directory and forbids any path in the filename:
+
+<AnnotatedCode
+  filename="~/.pi/agent/git/github.com/nicobailon/visual-explainer/plugins/visual-explainer/extension.ts (external, read-only)"
+  language="ts"
+  code={
+    "function outputFilename(input: string) {\n  const raw = input.trim().replace(/^@/, \"\");\n  if (!raw) throw new Error(\"filename is required\");\n  if (raw.includes(\"/\") || raw.includes(\"\\\\\")) throw new Error(\"filename must be a basename, not a path\");\n  // …\n}\n\nconst outputDir = join(homedir(), \".agent\", \"diagrams\");\nconst outputPath = join(outputDir, filename);\nmkdirSync(outputDir, { recursive: true });\n"
+  }
+  annotations={[
+    { lines: "4", note: "a path-shaped filename is rejected outright — the tool cannot be pointed at the worktree" },
+    { lines: "8", note: "output dir is a hardcoded homedir join; no parameter, no config key, no environment variable reads it" },
+  ]}
+/>
+
+**What T3 can and cannot do about it.** T3 cannot *reconfigure* the tool — there is no output-directory parameter, config key, or environment variable to point elsewhere. But T3 is not powerless over its *presence*: pi's launcher exposes `--exclude-tools <list>` (disables named tools across built-in, extension, and custom tools) and `--tools <list>` (an allowlist that pi applies to extension-registered tools too — which is why tool-restricted roles like `assessor`, whose `tools:` frontmatter feeds pi's `--tools` via `apps/server/src/orchestration/roleOverlay.ts`, already cannot call `visual_explainer` today). The driver already wires `--tools` (`buildPiRpcArgs`, `apps/server/src/provider/Layers/Pi/RpcProcess.ts:274` — that is exactly the role-allowlist path, working today with no new plumbing); what it does not expose is `--exclude-tools`, so *selective global suppression* of one tool across all T3 sessions is a small, real driver change — not an impossibility. The accurate boundary statement: **the tool's output location cannot be redirected from this repo, but the tool itself can be suppressed or replaced from this repo.**
+
+**The active prompt conflict this plan must beat.** The global package does not merely *offer* the wrong location — it actively instructs agents toward it, on two surfaces (traced per `docs/architecture/tool-def-authoring.md` principle 6: follow the artefact across boundaries and read the rules in force where it lands):
+
+- The tool's ambient `promptGuidelines` — injected into every turn of every session that has the tool — end with "finish with visual_explainer action=render" and "pass a basename-style filename because it writes under ~/.agent/diagrams/" (`~/.pi/agent/git/github.com/nicobailon/visual-explainer/plugins/visual-explainer/extension.ts:311-314`).
+- Its skill body says "Write files to `~/.agent/diagrams/` or the explicit eval output path" (`~/.pi/agent/git/github.com/nicobailon/visual-explainer/plugins/visual-explainer/SKILL.md:19`) — pull-based (read on skill activation), so lower-salience than the ambient guidelines, but pointing the same wrong way.
+
+So the `AGENTS.md` rule below is not filling a vacuum; it is contradicting live ambient guidance. Project instructions are a strong surface (read every session, project-specific, and the only party that knows this project can render worktree HTML in-app), and the rule names `visual_explainer` and `~/.agent/diagrams/` explicitly so the conflict is resolved head-on rather than by vague precedence. But whether it *wins* is an empirical question — which is why the rollout policy (below) makes the fresh-agent probe a go/no-go gate with tool suppression as the named fallback, and why this plan does not claim "every agent" is fixed by two text edits.
+
+**The precedent for the pain (committed HTML).** Throwaway mockups have landed in git before: `experiments/graph-node-metadata-mockup.html` and its v2 were committed by a coder thread and later removed in `c83e2c964` ("chore: remove throwaway graph-metadata mockups"). The convention exists so this stops happening.
+
+## The convention
+
+<Callout tone="decision">
+  Standalone renderable HTML artefacts are written to **`.artifacts/`** at the worktree root —
+  one uniquely-named file, or one uniquely-named subdirectory per multi-file artefact — and the
+  directory is **gitignored**. The scope is the **worktree**, not the thread: an isolated coder gets
+  its own `.artifacts/`, but reader-role children default to `shared` isolation (they run in the
+  parent's worktree), gated reviewers always join the coder's worktree, and a root thread's worktree
+  outlives many children — so several threads can write to the same directory. The convention
+  handles that with naming, not machinery: **pick a fresh descriptive name and never overwrite an
+  existing artefact file** — a chat chip renders whatever is on disk *now*, so overwriting silently
+  rewrites what an older chip shows.
+</Callout>
+
+Why this name: a dot-directory signals "not source, not reviewable content" and keeps `ls` clean; `artifacts` names what it holds in the vocabulary the repo already uses (`.gitignore` has an `artifacts/app-store/screenshots/` entry; no tracked files exist under any `artifacts/` path, so no collision). Alternatives considered: a plain `artifacts/` (visible, but visibility buys nothing — see the Files-panel section) and `.t3/artifacts/` (already ignored via the existing `.t3` entry, but overloads a name used for cockpit state under the home directory — a collision waiting to happen).
+
+The `.gitignore` entry is one line: `/.artifacts/` — anchored to the repo root, because the convention is root-only and an unanchored `.artifacts/` would also silently ignore a same-named directory nested anywhere in the tree.
+
+Lifecycle, stated per worktree kind (verified against the code and by experiment):
+
+- **Ephemeral child worktrees (the common case): teardown is free.** Ignored files do not dirty `git status --porcelain`, which is what worktree classification uses (`apps/server/src/orchestration/worktreeClassification.ts` — `facts.dirty` gates reapability), so artefacts never block the reaper; and `git worktree remove` deletes a worktree containing ignored files without complaint (verified directly). Fan-in ignores them too: child-worktree merges move committed work only, so artefacts stay behind and die with the child worktree.
+- **Long-lived worktrees (a root thread's, or a shared workspace root): artefacts accumulate until the worktree goes.** No automatic per-thread cleanup exists or is proposed — they are gitignored view-now files, harmless at rest, and a `rm -rf .artifacts` is always safe. If accumulation ever becomes noise, a cleanup rider is a one-line follow-up, not a design constraint now.
+
+An artefact is a view-now object, not a deliverable — anything worth keeping belongs in a committed MDX plan/recap or in `docs/`.
+
+## Why the viewer needs no code change
+
+Confirmed statically at every layer the artefact path traverses; the verification smoke exercises it end-to-end.
+
+- **Minting.** `issueAssetUrl` (`apps/server/src/assets/AssetAccess.ts`) validates the entry path with `resolveRelativePathWithinRoot` (containment only — no dot-segment rule at mint time, see `apps/server/src/workspace/WorkspacePaths.ts:202`) and `isWorkspacePreviewEntryPath` (extension allowlist). `.artifacts/mockup.html` passes both; the claim's `baseRelativePath` becomes `.artifacts`.
+- **Serving.** The dot-segment rejection in `resolveAsset` (`apps/server/src/assets/AssetAccess.ts:413`) applies to the **requested** sub-path only — the URL's file name (`mockup.html`) and any relative subresource (`style.css`, `assets/logo.svg`), none of which carry the dot-directory. The join back onto `baseRelativePath` and the canonical-containment re-check both succeed.
+- **Chip detection.** The markdown path-candidate patterns (`apps/web/src/markdown-links.ts:13`) include `.` in their character class, so a cited `.artifacts/mockup.html` resolves against the thread cwd, yields a non-null `workspaceRelativePath`, and the existing `onOpenInViewer` gate in `ChatMarkdown.tsx` fires. `isArtifactViewerPath` is extension-only.
+
+## What the Files panel will not show
+
+One claimed benefit of in-worktree artefacts does **not** hold as-is: the Files surface is fed by the fff workspace search index, which **excludes gitignored paths** (`apps/server/src/workspace/WorkspaceEntries.test.ts:203` — "excludes gitignored paths for git repositories", including tracked-but-ignore-matching paths). So `.artifacts/` contents render via chat chips and the viewer's Open source affordance, but will not appear in the Files tree.
+
+This is acceptable for v1: the chat chip is the artefact's natural discovery surface (the agent writes it and cites it in the same turn), and un-ignoring the directory would trade away the never-pollutes-git property, which is the point. Whether to later surface `.artifacts/` in the Files tree despite the ignore rule is an open question below — it would need a targeted carve-out in the entries listing, not a convention change.
+
+## Authoring surfaces: what changes, what deliberately does not
+
+The binding moment for this rule is **composition time of a Write-tool call** — the instant an agent decides where a file goes. The Write tool is a Pi native; this repo defines no tool def for it, so there is no schema or parameter-description surface to carry the rule (`docs/architecture/tool-def-authoring.md`'s preferred placement). The only surface read at or before that moment in every thread is the project instructions file. Judged surface by surface:
+
+- **`AGENTS.md` — the one edit.** Project instructions are read by every Pi session in this repo's worktrees, whatever the role, which matches the rule's scope exactly (it is not role-differentiated). The section conforms to the file's existing register: a short `##` section, imperative, naming real paths, linking nothing it doesn't need. Both tails are guarded per the authoring doc's principle 4: it says where standalone HTML **does** go and names the two failure modes (global dirs that cannot render; committing throwaways), and it defers to the MDX genres so it cannot be over-read as "produce HTML artefacts more".
+- **`roles/*.md` — no edits.** Role overlays are ambient every-turn prompt text; `docs/architecture/tool-def-authoring.md` principle 8 prices each ambient bullet against the ones it dilutes. This rule outranks no existing bullet in any role file (each is a tight, role-defining list), and it is identical for every role — the definition of content that belongs on a shared lower-cost surface, which `AGENTS.md` is.
+- **`apps/server/src/provider/Drivers/Pi/providerToolDefs.ts` — no edits.** No tool defined there produces HTML; `visual_explainer` is not ours to edit; and a `promptGuidelines` bullet about file placement would fail the doc's ambient bar ("must be ambiently present even when the model is not calling it") for tools that never write files.
+- **Skills (`skills/mdx-visual-plan`, `skills/mdx-visual-recap`, `skills/mdx-doc-core/references/*`) — no edits.** The MDX genres already route reviewable artefacts to committed `plans/<slug>/plan.mdx` and `recaps/<slug>/recap.mdx`, and `document-quality.md` already forbids linking out to companion HTML. Standalone HTML is exactly the residual case those skills do not claim; adding placement rules there would put a Write-location rule behind a pull-based skill activation, missing most of the writes it governs.
+- **`PI_WORK_MODEL_SYSTEM_PROMPT` (`apps/server/src/provider/Drivers/PiDriver.ts`) — no edit now.** It is the only seam that would carry the convention into *other* projects' threads (role overlays and `AGENTS.md` are per-project). But the convention is incomplete without each repo's `.gitignore` entry — an unignored `.artifacts/` dirties `git status`, which blocks the worktree reaper — so pushing the prompt text universal before the ignore mechanism is universal would half-ship it. Generalisation is an open question below.
+
+The proposed `AGENTS.md` section, verbatim (placed after "Live frontend verification"):
+
+```md
+## HTML artefacts (mockups, visual reports, explainers)
+
+Standalone HTML produced for a human to view — a mockup, a visual report, an
+explainer — goes in the gitignored `.artifacts/` directory at the worktree
+root: write it with the ordinary file-write tool and cite the
+workspace-relative path (e.g. `.artifacts/quota-mockup.html`) in chat, which
+renders it in-app via the file chip's View affordance. Relative subresources
+resolve, so a multi-file artefact works — keep all its files under one
+subdirectory of `.artifacts/`. Pick a fresh descriptive filename and never
+overwrite an existing artefact — the worktree may be shared with other
+threads, and a chat chip renders whatever is on disk now. Do not write
+renderable HTML to locations outside the worktree (the `visual_explainer`
+tool's `~/.agent/diagrams/` default cannot be rendered in-app — write the
+HTML to `.artifacts/` instead), and do not commit throwaway HTML under
+`experiments/` or `docs/`. For a reviewable plan or recap, prefer the MDX
+genres (`plans/<slug>/plan.mdx`, `recaps/<slug>/recap.mdx`) over a standalone
+HTML artefact.
+```
+
+## The `visual_explainer` policy: guidance first, with a gate and a named fallback
+
+The tool's output location cannot be redirected, but its presence in T3 sessions can be controlled (`--exclude-tools`, or a `tool_call` hook — evidence above). The choice is therefore a real policy decision, and this plan makes it explicitly: **an experimental guidance-first rollout, gated on the fresh-agent probe, with tool suppression as the specified fallback.**
+
+1. **Guidance ships now (the AGENTS.md section above).** Rationale: the agent authors the HTML itself either way — `visual_explainer render` only receives a finished `html` string — so "write the same HTML to `.artifacts/` with the Write tool" costs the agent nothing and loses only the tool's auto-open-in-browser side effect, which is meaningless on a remote VM. And guidance preserves the tool's `prepare` action (planning/reference scaffolding), which is genuinely useful and writes nothing.
+2. **The gate: the fresh-agent probe (verification step 5).** Ask an agent in a fresh thread for a viewable HTML mockup. Pass: it writes to `.artifacts/` and cites the relative path — the AGENTS.md rule beat the tool's ambient guidelines. Fail: it calls `render` into `~/.agent/diagrams/` — the conflict is live and guidance lost.
+3. **The fallback, specified now so failure has a next move: suppress the tool's `render` path in T3 sessions.** Cheapest seam: a `tool_call` hook in an existing T3-owned extension (the searchGuard pattern, `apps/server/src/provider/Drivers/Pi/searchGuardExtension.ts`) that blocks `visual_explainer` calls with `action: "render"` and a teaching message pointing at `.artifacts/` — this keeps `prepare` alive and redirects rather than removes. Blunter alternative: wire `--exclude-tools visual_explainer` into `buildPiRpcArgs`, which also kills `prepare` and the ambient guidelines wholesale. Neither ships in this cut; the hook is the recommended shape if the gate fails.
+4. **Upstream follow-up (recorded, not scheduled).** An `outputDir` parameter or environment override in `nicobailon/visual-explainer` would let guidance become configuration. Worth an issue/PR; not a dependency of this plan.
+
+## Scope and non-goals
+
+In scope: the `.gitignore` entry, the `AGENTS.md` section, the fresh-agent probe as a go/no-go gate, this plan. Non-goals for this cut: any viewer/server/desktop change; teaching the viewer to reach outside the workspace (explicitly rejected — the producer-side fix exists to avoid that security surface); surfacing `.artifacts/` in the Files tree; changes to roles, skills, or tool defs; the `visual_explainer` suppression hook (specified as the gate's fallback, built only if the gate fails); the upstream `visual_explainer` change; per-thread artefact cleanup in long-lived worktrees; conventions for repos other than this one.
+
+## Implementation decomposition
+
+One mechanical work item — the two-file edit is too small to split and needs no review gate beyond the human's approval of this plan:
+
+1. **Convention landing**: add `/.artifacts/` to `.gitignore`; add the `AGENTS.md` section verbatim from this plan. Gates: `vp check`, `vp run typecheck` (trivially unaffected), and the smoke below — including the fresh-agent probe, whose failure triggers the fallback rather than acceptance.
+
+Follow-ups recorded but not scheduled (see open questions): the `render`-blocking `tool_call` hook (only on gate failure), Files-tree surfacing, upstream `visual_explainer` output-dir change, cross-project generalisation.
+
+## Verification
+
+End-to-end smoke per the dev-verify recipe (`docs/dev-site-testing.md`), in the web runtime:
+
+1. Stand up the isolated dev instance with a seeded workstream; open the pairing URL in a browser.
+2. In the seeded thread's worktree, write `.artifacts/demo/index.html` referencing `./style.css` and `assets/logo.svg`, plus a single-file `.artifacts/single.html`.
+3. Reference both workspace-relative paths in chat; click each chip → the artifact surface opens and renders, subresource GETs hit `/api/assets/…` (network panel).
+4. Confirm `git status` in that worktree stays clean (the ignore entry works) and the Files panel does not list `.artifacts/` (expected, documented above).
+5. **The go/no-go gate:** ask an agent in a fresh thread to "produce a small HTML mockup of X and show me" — it must write to `.artifacts/` and cite the relative path, beating the `visual_explainer` package's ambient render-to-`~/.agent/diagrams/` guidance. If it instead calls `visual_explainer render`, the guidance-first policy has failed its gate: build the `render`-blocking `tool_call` hook (the specified fallback) before declaring the convention shipped.
+
+<QuestionForm
+  questions={[
+    {
+      id: "files-tree-surfacing",
+      title: "Surface .artifacts/ in the Files tree despite being gitignored?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Not now — chat chips are the discovery surface",
+          recommended: true,
+          detail:
+            "The gitignore exclusion comes from the fff workspace index; a carve-out would be a targeted server/index change. Revisit if artefacts turn out to be re-opened after their chat context scrolls away.",
+        },
+        {
+          id: "follow-up",
+          label: "Schedule a follow-up to carve .artifacts/ into the entries listing",
+        },
+      ],
+    },
+    {
+      id: "visual-explainer-upstream",
+      title: "Pursue the upstream visual_explainer output-dir change now?",
+      mode: "single",
+      options: [
+        {
+          id: "record-only",
+          label: "Record it; the gate + fallback policy covers the failure mode",
+          recommended: true,
+          detail:
+            "The agent authors the HTML string either way, so the Write-tool path costs nothing. If the fresh-agent probe fails, the specified fallback is the local render-blocking tool_call hook — faster and fully in our control; the upstream outputDir change remains worthwhile but is not the recovery path.",
+        },
+        { id: "now", label: "Open the upstream issue/PR as part of this work" },
+      ],
+    },
+    {
+      id: "cross-project",
+      title: "Generalise the convention beyond this repo (threads in other projects)?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Defer — loom-only for now",
+          recommended: true,
+          detail:
+            "Universal reach needs two seams together: the convention text in PI_WORK_MODEL_SYSTEM_PROMPT (paid ambiently by every thread) and a per-worktree ignore mechanism (e.g. seeding $GIT_DIR/info/exclude at worktree setup) so artefacts don't dirty other repos' status and block their reapers. That is a real design unit, not a rider on this change.",
+        },
+        {
+          id: "follow-up",
+          label: "Schedule the cross-project unit (work-model prompt + info/exclude seeding) as a follow-up",
+        },
+      ],
+    },
+  ]}
+/>
