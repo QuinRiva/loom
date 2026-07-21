@@ -145,9 +145,12 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     if (panelRef) setViewState(panelRef, next);
   };
   // Graph gesture map (redesign): clicking a node ENTERS its thread (the cheapest
-  // gesture for the primary need); secondary actions (View history, Open report,
+  // gesture for the primary need); middle-clicking a node opens its history
+  // drawer directly (the frequent "View history" action, no menu round-trip — and
+  // middle-clicking a different node re-points the same drawer, switching
+  // histories without reselecting); other secondary actions (Open report,
   // Release, Clear flags, Stop) live in a right-click context menu
-  // (`handleNodeContextMenu` below). "View history" opens the right-side
+  // (`handleNodeContextMenu` below). "View history" also opens the right-side
   // lifecycle drawer. `inspectedThreadId` is the drawer target — deliberately
   // component-local (tier 4), a transient inspection, unlike the durable
   // view/spawn-draft state above.
@@ -400,6 +403,7 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                   threads={subtree}
                   threadById={subtreeById}
                   onOpenThread={openThread}
+                  onOpenHistory={(thread) => setInspectedThreadId(thread.id)}
                   onNodeContextMenu={(thread, pos) => void handleNodeContextMenu(thread, pos)}
                   onOpenDispatch={openDispatch}
                 />

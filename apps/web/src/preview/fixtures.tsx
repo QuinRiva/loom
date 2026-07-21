@@ -316,6 +316,7 @@ const workstreamGraphFixture: PreviewFixture = {
         threads={WS_GRAPH_THREADS}
         threadById={WS_GRAPH_INDEX as never}
         onOpenThread={() => {}}
+        onOpenHistory={() => {}}
         onNodeContextMenu={() => {}}
         onOpenDispatch={() => {}}
       />

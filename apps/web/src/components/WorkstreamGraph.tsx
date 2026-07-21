@@ -100,6 +100,7 @@ export default function WorkstreamGraph({
   threads,
   threadById,
   onOpenThread,
+  onOpenHistory,
   onNodeContextMenu,
   onOpenDispatch,
 }: {
@@ -108,6 +109,7 @@ export default function WorkstreamGraph({
   readonly threads: ReadonlyArray<SidebarThreadSummary>;
   readonly threadById: ChildIndex;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onOpenHistory: (thread: SidebarThreadSummary) => void;
   readonly onNodeContextMenu: (
     thread: SidebarThreadSummary,
     position: { x: number; y: number },
@@ -324,7 +326,8 @@ export default function WorkstreamGraph({
       <p className="px-2 text-center text-[11px] leading-relaxed text-white/35">
         The orchestrator recurs as a bridge node per dispatch wave down the solid spine; children of
         a wave sit to its right, with dashed steel &ldquo;waits-on&rdquo; cross-edges. Click a node
-        to open its thread; hover for its facts; right-click for actions.
+        to open its thread; middle-click for its history; hover for its facts; right-click for
+        actions.
       </p>
       <div className="relative w-full" ref={shellRef}>
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
@@ -459,6 +462,7 @@ export default function WorkstreamGraph({
                 threadById={threadById}
                 dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
                 onOpenThread={onOpenThread}
+                onOpenHistory={onOpenHistory}
                 onNodeContextMenu={onNodeContextMenu}
                 onHoverStart={(thread) => scheduleHover(thread, node.thread.id)}
                 onHoverMove={(event) => {
@@ -777,6 +781,7 @@ function GraphNode({
   threadById,
   dimmed,
   onOpenThread,
+  onOpenHistory,
   onNodeContextMenu,
   onHoverStart,
   onHoverMove,
@@ -788,6 +793,7 @@ function GraphNode({
   readonly threadById: ChildIndex;
   readonly dimmed: boolean;
   readonly onOpenThread: (thread: SidebarThreadSummary) => void;
+  readonly onOpenHistory: (thread: SidebarThreadSummary) => void;
   readonly onNodeContextMenu: (
     thread: SidebarThreadSummary,
     position: { x: number; y: number },
@@ -829,6 +835,15 @@ function GraphNode({
     onHoverEnd();
     onNodeContextMenu(thread, position);
   };
+  // Middle-click → open (or switch) the history drawer directly, the one-gesture
+  // shortcut for the frequent "view history" action that otherwise needs the
+  // right-click menu. Because the drawer target is panel state, middle-clicking
+  // a different node just re-points it — switching histories without first
+  // clicking into the graph to reselect.
+  const openHistory = () => {
+    onHoverEnd();
+    onOpenHistory(thread);
+  };
   const roleLabel = getRoleLabel(thread);
   return (
     // Container only (role=group). A single focusable open-button sits inside;
@@ -849,6 +864,18 @@ function GraphNode({
         event.preventDefault();
         event.stopPropagation();
         openMenu({ x: event.clientX, y: event.clientY });
+      }}
+      // Middle button: suppress the browser's autoscroll on mousedown, then open
+      // the history drawer on the aux-click. Kept on the OUTER group so the whole
+      // card (pills/badges included) is the hit area, mirroring the contextmenu.
+      onMouseDown={(event) => {
+        if (event.button === 1) event.preventDefault();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openHistory();
       }}
     >
       {/* Primary affordance: open the thread. Keyboard focus mirrors hover. */}
