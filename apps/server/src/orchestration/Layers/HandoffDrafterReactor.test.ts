@@ -125,6 +125,8 @@ const makeDrafter = (
   hasActionableProposedPlan: false,
   lastActivityPreview: null,
   consults: [],
+  peerMessages: [],
+  notifySendLog: [],
   ...overrides,
 });
 

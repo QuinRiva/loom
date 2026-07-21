@@ -114,6 +114,21 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
+/**
+ * One pending notify_thread delivery, for the dispatcher's deferred-delivery
+ * rail. `recordId` is the stable correlation key the delivery/expire/mark
+ * command ids derive from; `framedMessage` is the exact bytes to land in the
+ * target's transcript. Rows come oldest-first so the rail can deliver strictly
+ * FIFO, at most one per target per pass.
+ */
+export interface ProjectionPendingPeerMessage {
+  readonly recordId: string;
+  readonly senderThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  readonly framedMessage: string;
+  readonly createdAt: string;
+}
+
 export interface ProjectionThreadDetailSnapshot {
   readonly thread: OrchestrationThread;
   readonly snapshotSequence: number;
@@ -295,6 +310,16 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getPendingTurnStartThreadIds: () => Effect.Effect<
     ReadonlySet<ThreadId>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * notify_thread deferred delivery: every still-pending peer message, oldest
+   * first. The dispatcher rail groups by target and attempts only the oldest
+   * per target per pass (one notification per target turn, strict FIFO).
+   */
+  readonly listPendingPeerMessages: () => Effect.Effect<
+    ReadonlyArray<ProjectionPendingPeerMessage>,
     ProjectionRepositoryError
   >;
 

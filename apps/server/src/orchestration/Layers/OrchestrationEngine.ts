@@ -210,6 +210,25 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               detail: `Idle-gated turn-start for thread '${idleCommand.threadId}' deferred: target is not idle.`,
             });
           }
+          // notify_thread (D3/D4): a peer-message delivery must NEVER re-engage a
+          // terminal or archived target. The handler/dispatcher shell checks are
+          // best-effort (a target can go done/cancelled/archived between that
+          // read and this serial boundary); this makes liveness part of the same
+          // atomic decision as idleness. Deferring (not rejecting) keeps the
+          // durable pending row intact so the dispatcher rail marks it expired on
+          // its next pass. Scoped to `origin: "notify"` so ordinary control-plane
+          // wakes keep their sticky-terminal re-engagement semantics.
+          if (
+            idleCommand.message.origin === "notify" &&
+            (target.planLane === "done" ||
+              target.planLane === "cancelled" ||
+              target.archivedAt !== null)
+          ) {
+            return yield* new OrchestrationCommandDeferredError({
+              commandType: idleCommand.type,
+              detail: `notify_thread delivery for thread '${idleCommand.threadId}' deferred: target became ${target.archivedAt !== null ? "archived" : target.planLane} before delivery (the pending row will be expired).`,
+            });
+          }
         }
 
         const eventBase = yield* decideOrchestrationCommand({

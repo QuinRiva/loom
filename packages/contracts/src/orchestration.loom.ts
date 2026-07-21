@@ -325,6 +325,36 @@ export const OrchestrationThreadConsultSummary = Schema.Struct({
 });
 export type OrchestrationThreadConsultSummary = typeof OrchestrationThreadConsultSummary.Type;
 
+// notify_thread observability: an aggregated peer-message EDGE on the SENDER's
+// shell — one entry per distinct target this thread has notified. Mirrors
+// `OrchestrationThreadConsultSummary`, plus `pendingCount` (queued-but-
+// undelivered notifications) so the graph overlay can dash the still-pending
+// edges. The full raw + framed text of each individual notification lives on
+// the `thread.peer-message-recorded` event; `lastMessagePreview` is a bounded
+// shell-level preview.
+export const OrchestrationThreadPeerMessageSummary = Schema.Struct({
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  count: NonNegativeInt,
+  pendingCount: NonNegativeInt,
+  lastMessageAt: IsoDateTime,
+  lastMessagePreview: Schema.String,
+});
+export type OrchestrationThreadPeerMessageSummary =
+  typeof OrchestrationThreadPeerMessageSummary.Type;
+
+// notify_thread loop safety (D7): a bounded, pruned per-sender send log — one
+// entry per recorded notification (any status: a recorded-but-expired or
+// recorded-but-undelivered send still counts as an attempt, so a runaway loop
+// gets no free retries). The decider counts window entries for the ordered pair
+// (sender -> target) atomically inside the command boundary and rejects past
+// the cap. Pruned to the rolling window on each append so it stays bounded.
+export const NotifySendLogEntry = Schema.Struct({
+  targetThreadId: ThreadId,
+  at: IsoDateTime,
+});
+export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
+
 // Transient reasoning stream item (the ephemeral channel). These never hit the
 // event store; they drive live "Thinking… ⟷ Thought for Xs" display only. The
 // durable `thread.message-reasoning` event (REPLACE full text) is the source of
@@ -459,6 +489,13 @@ export const LoomThreadFields = {
   // event-projected rather than an in-memory tally. Additive, decode-defaulted
   // to 0 so every pre-handoff snapshot loads.
   handoffCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  // notify_thread loop safety (D7): the pruned per-sender send log backing the
+  // decider-enforced ordered-pair rate cap. Maintained by the projector from
+  // `thread.peer-message-recorded` events (append + prune-to-window). Additive,
+  // decode-defaulted [] so every pre-notify snapshot loads.
+  notifySendLog: Schema.Array(NotifySendLogEntry).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 } as const;
 
 // Spread into `OrchestrationThreadShell`: the common fork fields plus the two
@@ -484,6 +521,11 @@ export const LoomThreadShellFields = {
   // consult_thread observability: consult edges from THIS (asker) thread,
   // deduped by target. Additive, decode-defaulted so older snapshots load.
   consults: Schema.Array(OrchestrationThreadConsultSummary).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // notify_thread observability: peer-message edges from THIS (sender) thread,
+  // deduped by target. Additive, decode-defaulted so older snapshots load.
+  peerMessages: Schema.Array(OrchestrationThreadPeerMessageSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   // Scaffold-first graph authoring (plan §3): the timestamp of this thread's
@@ -559,11 +601,19 @@ export const LoomSessionFields = {
 //                       conflict/resolution notices, and liveness/exhaustion
 //                       recovery nudges. Pure machinery — the follow-up
 //                       structured-digest + collapsed-card work keys off this.
+//   - `notify`        — another thread pushed this via notify_thread (the write
+//                       counterpart of consult_thread). Neutral channel value:
+//                       authorisation is fully global, so the sender may be the
+//                       target's actual parent OR one of its children; the
+//                       relationship is carried in the framing wrapper, never
+//                       asserted by this value. Distinct from `orchestrator`
+//                       (specifically a parent's workstream_prompt steer/resume).
 export const MessageOrigin = Schema.Literals([
   "human",
   "kickoff",
   "orchestrator",
   "control_notice",
+  "notify",
 ]);
 export type MessageOrigin = typeof MessageOrigin.Type;
 
@@ -918,6 +968,48 @@ const ThreadConsultRecordCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// notify_thread (cross-thread push): the server chokepoint records one peer
+// message (sender -> target). Aggregate = the SENDER thread. The decider
+// validates, enforces the D7 ordered-pair rate cap against `notifySendLog`
+// (atomic inside the serial command boundary), and derives
+// `thread.peer-message-recorded`. `message` is the raw body; `framedMessage`
+// is the D5 relationship-aware wrapper actually delivered to the target. This
+// single event is the delivery-queue entry, the observability edge, and the
+// cap ledger — one durable fact, three consumers. `recordId` is the handler-
+// generated stable correlation key (the delivery/expire/mark command ids are
+// all derived from it, so the handler's immediate delivery attempt and the
+// dispatcher rail agree without needing the random event id).
+const ThreadPeerMessageRecordCommand = Schema.Struct({
+  type: Schema.Literal("thread.peer-message.record"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  recordId: TrimmedNonEmptyString,
+  targetThreadId: ThreadId,
+  targetTitle: TrimmedNonEmptyString,
+  message: TrimmedNonEmptyString,
+  framedMessage: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+// notify_thread delivery lifecycle: mark a recorded peer message delivered /
+// expired. Server-only (rejected on non-`server:` command ids, mirroring the
+// gate `reopen` guard): dispatched by the handler (immediate delivery) or the
+// dispatcher rail. Aggregate = the SENDER thread (the edge owner).
+const ThreadPeerMessageMarkDeliveredCommand = Schema.Struct({
+  type: Schema.Literal("thread.peer-message.mark-delivered"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  recordId: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+const ThreadPeerMessageExpireCommand = Schema.Struct({
+  type: Schema.Literal("thread.peer-message.expire"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  recordId: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
 // `/handoff` fork-drafter (plan D5): stamp one durable handoff marker on a
 // drafter thread after `GoalHandoffHttp` has created the staged destination.
 // Internal (server composes it from the goal_handoff chokepoint); a client
@@ -1010,6 +1102,9 @@ export const LoomInternalCommandMembers = [
   ThreadFanInSetCommand,
   ThreadMessageReasoningCompleteCommand,
   ThreadConsultRecordCommand,
+  ThreadPeerMessageRecordCommand,
+  ThreadPeerMessageMarkDeliveredCommand,
+  ThreadPeerMessageExpireCommand,
   ThreadHandoffRecordCommand,
   ThreadWorkSubmitCommand,
   ThreadTurnStartFailCommand,
@@ -1228,6 +1323,37 @@ export const ThreadConsultRecordedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// notify_thread (cross-thread push): one recorded peer message on the SENDER
+// thread, status `pending` at record time. `message` is the raw body;
+// `framedMessage` is the D5 wrapper landed in the target's transcript.
+// `recordId` is the stable correlation key (delivery/expire/mark command ids
+// derive from it). This event is simultaneously the delivery-queue entry, the
+// observability edge, and the cap ledger.
+export const ThreadPeerMessageRecordedPayload = Schema.Struct({
+  senderThreadId: ThreadId,
+  recordId: Schema.String,
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  message: Schema.String,
+  framedMessage: Schema.String,
+  createdAt: IsoDateTime,
+});
+
+// notify_thread delivery lifecycle: a recorded peer message reached a terminal
+// disposition. `delivered` = committed to the target's transcript; `expired` =
+// the target went terminal/archived before delivery (fire-and-forget, the
+// sender is not told). Aggregate = the SENDER thread.
+export const ThreadPeerMessageDeliveredPayload = Schema.Struct({
+  senderThreadId: ThreadId,
+  recordId: Schema.String,
+  updatedAt: IsoDateTime,
+});
+export const ThreadPeerMessageExpiredPayload = Schema.Struct({
+  senderThreadId: ThreadId,
+  recordId: Schema.String,
+  updatedAt: IsoDateTime,
+});
+
 // `/handoff` fork-drafter (plan D5): one durable marker per `goal_handoff` call
 // a handoff-drafter placed. Aggregate = the drafter thread. Carries the
 // destination goal/thread ids so the marker is auditable and the settlement
@@ -1357,6 +1483,21 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
+      type: Schema.Literal("thread.peer-message-recorded"),
+      payload: ThreadPeerMessageRecordedPayload,
+    }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.peer-message-delivered"),
+      payload: ThreadPeerMessageDeliveredPayload,
+    }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.peer-message-expired"),
+      payload: ThreadPeerMessageExpiredPayload,
+    }),
+    Schema.Struct({
+      ...base,
       type: Schema.Literal("thread.handoff-recorded"),
       payload: ThreadHandoffRecordedPayload,
     }),
@@ -1399,6 +1540,9 @@ export const LOOM_EVENT_TYPES = [
   "thread.message-reasoning",
   "thread.turn-start-failed",
   "thread.consult-recorded",
+  "thread.peer-message-recorded",
+  "thread.peer-message-delivered",
+  "thread.peer-message-expired",
   "thread.handoff-recorded",
   "thread.report-set",
   "thread.kickoff-brief-set",
@@ -1459,6 +1603,9 @@ export const LOOM_COMMAND_TYPES = [
   "thread.message.reasoning.complete",
   "thread.work.submit",
   "thread.consult.record",
+  "thread.peer-message.record",
+  "thread.peer-message.mark-delivered",
+  "thread.peer-message.expire",
   "thread.handoff.record",
   "thread.fanin.set",
   "thread.turn-start.fail",

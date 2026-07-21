@@ -131,6 +131,8 @@ const THREAD_SHELL = {
   hasActionableProposedPlan: false,
   lastActivityPreview: null,
   consults: [],
+  peerMessages: [],
+  notifySendLog: [],
 } as const;
 
 const SNAPSHOT: OrchestrationShellSnapshot = {

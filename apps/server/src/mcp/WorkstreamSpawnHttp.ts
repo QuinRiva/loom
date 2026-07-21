@@ -12,6 +12,7 @@ import {
   isProviderAvailable,
   type AccountUsageSnapshot,
   type OrchestrationCommand,
+  type OrchestrationThreadShell,
   type ProfileUnsuitableFor,
   type ServerProvider,
   type WorkstreamModelProfile,
@@ -73,9 +74,21 @@ import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 import {
   appendWarnings,
   renderConsultCandidates,
+  renderNotifyCandidates,
+  renderNotifyDisposition,
   renderSubmitOutcome,
   renderWorkstreamList,
+  type ConsultCandidate,
 } from "./workstreamRender.ts";
+import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
+import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
+import type * as PlatformError from "effect/PlatformError";
+import {
+  NOTIFY_MESSAGE_MAX_CHARS,
+  notifyDeliverCommandId,
+  notifyMarkCommandId,
+  notifyRecordCommandId,
+} from "@t3tools/shared/notify";
 
 interface WorkstreamSpawnRequest {
   readonly role?: unknown;
@@ -157,6 +170,12 @@ interface WorkstreamConsultThreadRequest {
   readonly question?: unknown;
 }
 
+interface NotifyThreadRequest {
+  readonly threadId?: unknown;
+  readonly name?: unknown;
+  readonly message?: unknown;
+}
+
 interface SetThreadTitleRequest {
   readonly title?: unknown;
 }
@@ -186,6 +205,41 @@ const VALID_REASONS = new Set<AttentionReason>(RAISABLE_REASONS);
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
+
+// notify_thread (D5): the recipient's relationship to the sender, computed from
+// `parentThreadId` on both ends. Global scope means the sender may be the
+// target's actual parent OR one of its children, so the framing states the
+// relationship rather than asserting a neutral peer.
+export type NotifyRelationship =
+  | "your parent orchestrator"
+  | "one of your sub-threads"
+  | "no parent/child relationship to you";
+
+export const notifyRelationshipLabel = (input: {
+  readonly senderThreadId: string;
+  readonly senderParentThreadId: string | null;
+  readonly targetThreadId: string;
+  readonly targetParentThreadId: string | null;
+}): NotifyRelationship =>
+  input.targetParentThreadId === input.senderThreadId
+    ? "your parent orchestrator"
+    : input.senderParentThreadId === input.targetThreadId
+      ? "one of your sub-threads"
+      : "no parent/child relationship to you";
+
+// notify_thread (D5): the relationship-aware wrapper landed in the recipient's
+// transcript, composed + persisted at record time so the bytes are stable
+// regardless of when the rail delivers. No em dashes (shipped-string style).
+export const composeNotifyFramedText = (input: {
+  readonly senderTitle: string;
+  readonly senderRole: string;
+  readonly senderThreadId: string;
+  readonly relationship: NotifyRelationship;
+  readonly message: string;
+}): string =>
+  `Notification from thread «${input.senderTitle}» (${input.senderRole}, ${input.senderThreadId}; ${input.relationship}), sent via notify_thread:\n\n` +
+  `${input.message}\n\n` +
+  `No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with notify_thread (threadId: ${input.senderThreadId}).`;
 
 const trimString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -3194,6 +3248,293 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
   ),
 );
 
+// notify_thread (cross-thread push): the injected inputs + dependencies of the
+// handler's post-scope-resolution orchestration core. Extracted (like
+// `composeNotifyFramedText`) so the record-before-send safety invariant,
+// disposition mapping, and rejection branches are testable without an HTTP /
+// MCP-credential harness.
+export interface NotifyThreadInput {
+  readonly scopeThreadId: ThreadId;
+  /** Trimmed threadId / name from the request body (exactly one must be set). */
+  readonly threadId: string | undefined;
+  readonly name: string | undefined;
+  /** Trimmed raw message body (validated inside the core). */
+  readonly message: string;
+}
+
+export interface NotifyThreadDeps {
+  /** The global graph (active + archived shells) the target resolves against. */
+  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  /** Thread detail lookup for the unstarted-child predicate (shells carry no messages). */
+  readonly getThreadDetail: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
+    Option.Option<{ readonly messages: ReadonlyArray<{ readonly role: string }> }>,
+    ProjectionRepositoryError
+  >;
+  /** Whether the target's kickoff was durably delivered (launch-identity marker). */
+  readonly isKickoffDelivered: (threadId: ThreadId) => boolean;
+  readonly dispatch: (
+    command: OrchestrationCommand,
+  ) => Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchError>;
+  /** Fresh uuid (record id / message id). */
+  readonly newId: Effect.Effect<string, PlatformError.PlatformError>;
+  /** Current ISO timestamp. */
+  readonly now: Effect.Effect<string, PlatformError.PlatformError>;
+}
+
+export type NotifyThreadOutcome =
+  | { readonly kind: "error"; readonly status: number; readonly message: string }
+  | { readonly kind: "candidates"; readonly candidates: ReadonlyArray<ConsultCandidate> }
+  | {
+      readonly kind: "delivered" | "queued";
+      readonly threadId: ThreadId;
+      readonly title: string;
+    };
+
+// The handler's orchestration core, after scope resolution + body parsing. Owns
+// the hard invariants: exactly-one-of id/name, self / terminal / archived /
+// unstarted-child rejection, and RECORD-BEFORE-SEND (dispatch
+// `thread.peer-message.record` FIRST; only on its success dispatch the delivery
+// turn-start; a failed record fails the call and sends nothing). Returns a
+// structured outcome the HTTP wrapper maps to a response.
+export const runNotifyThread = (
+  input: NotifyThreadInput,
+  deps: NotifyThreadDeps,
+): Effect.Effect<
+  NotifyThreadOutcome,
+  OrchestrationDispatchError | ProjectionRepositoryError | PlatformError.PlatformError
+> =>
+  Effect.gen(function* () {
+    const { scopeThreadId, threadId, name, message } = input;
+    const err = (status: number, msg: string): NotifyThreadOutcome => ({
+      kind: "error",
+      status,
+      message: msg,
+    });
+    // Exactly one of threadId / name identifies the target: for a side-effectful
+    // send, silent precedence would hide a caller bug (D10).
+    if (threadId && name) return err(400, "Provide exactly one of threadId or name, not both.");
+    if (!threadId && !name) return err(400, "Provide either threadId or name.");
+    if (message.length === 0) return err(400, "message is required.");
+    if (message.length > NOTIFY_MESSAGE_MAX_CHARS) {
+      return err(
+        400,
+        `message must be at most ${NOTIFY_MESSAGE_MAX_CHARS} characters; reference bulk content by absolute path instead of pasting it inline.`,
+      );
+    }
+
+    const sender = deps.threads.find((thread) => thread.id === scopeThreadId);
+
+    // Resolve the target shell (exactly-one-of id/name, consult-style ranking).
+    let target: OrchestrationThreadShell;
+    if (threadId) {
+      const resolved = deps.threads.find((thread) => thread.id === ThreadId.make(threadId));
+      if (resolved === undefined) return err(404, "Target thread was not found.");
+      target = resolved;
+    } else {
+      const ranked = rankThreadsByName(name!, deps.threads);
+      if (ranked.length === 0) return err(404, `No thread matches "${name}".`);
+      if (!isUnambiguousMatch(ranked)) {
+        // An ambiguous name SENDS NOTHING (a misdelivered push engages the wrong
+        // thread's session) and returns ranked candidates.
+        return {
+          kind: "candidates",
+          candidates: ranked.slice(0, CONSULT_CANDIDATE_LIMIT).map((entry) => ({
+            threadId: entry.thread.id,
+            title: entry.thread.title,
+            role: entry.thread.role,
+            planLane: entry.thread.planLane,
+            projectId: entry.thread.projectId,
+            worktreePath: entry.thread.worktreePath,
+          })),
+        };
+      }
+      target = ranked[0]!.thread;
+    }
+
+    // D3 rejections (sanity, not ownership): notify is global.
+    if (target.id === scopeThreadId) return err(400, "You cannot notify your own thread.");
+    if (target.planLane === "done" || target.planLane === "cancelled") {
+      return err(
+        409,
+        `Thread is ${target.planLane}; a push would silently re-engage a terminal thread. Notify its parent instead, or wait for a live thread.`,
+      );
+    }
+    if (target.archivedAt !== null) {
+      return err(
+        409,
+        "Thread is archived; an archived thread must not accrue new turns. consult_thread can read it, but a push cannot engage it.",
+      );
+    }
+    // Unstarted-child: a peer message must never become a child's FIRST turn.
+    // Shells carry no messages, so fetch DETAIL and apply the same predicate
+    // workstream_prompt uses (kickoff-delivered marker OR any assistant message).
+    if (target.parentThreadId !== null) {
+      const detail = yield* deps.getThreadDetail(target.id);
+      const kickoffDelivered =
+        Option.isSome(detail) &&
+        (deps.isKickoffDelivered(target.id) ||
+          detail.value.messages.some((entry) => entry.role === "assistant"));
+      if (!kickoffDelivered) {
+        return err(
+          409,
+          "Target has not started yet; its kickoff belongs to its parent. Notify the parent, or wait for the target to launch.",
+        );
+      }
+    }
+
+    // D5 framing (relationship-aware), composed + persisted at record time.
+    const framedText = composeNotifyFramedText({
+      senderTitle: sender?.title ?? "a thread",
+      senderRole: sender?.role ?? "thread",
+      senderThreadId: scopeThreadId,
+      relationship: notifyRelationshipLabel({
+        senderThreadId: scopeThreadId,
+        senderParentThreadId: sender?.parentThreadId ?? null,
+        targetThreadId: target.id,
+        targetParentThreadId: target.parentThreadId,
+      }),
+      message,
+    });
+
+    const recordId = yield* deps.newId;
+    const now = yield* deps.now;
+
+    // RECORD FIRST (durable enqueue + cap ledger + edge). A failed record fails
+    // the call and sends NOTHING. The decider's only expected rejection here is
+    // the D7 cap (existence/self/terminal already checked), surfaced as 429.
+    const recordResult = yield* deps
+      .dispatch({
+        type: "thread.peer-message.record",
+        commandId: CommandId.make(notifyRecordCommandId(recordId)),
+        threadId: scopeThreadId,
+        recordId,
+        targetThreadId: target.id,
+        targetTitle: target.title,
+        message,
+        framedMessage: framedText,
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(
+        Effect.as({ ok: true as const }),
+        Effect.catchTag("OrchestrationCommandInvariantError", (error) =>
+          Effect.succeed({ ok: false as const, detail: error.detail }),
+        ),
+      );
+    if (!recordResult.ok) return err(429, recordResult.detail);
+
+    // Only AFTER a successful record: attempt immediate delivery on an idle
+    // recipient. `requireIdle` re-checks idleness (and, for notify, liveness)
+    // atomically in the serial boundary: accept commits to the transcript
+    // (`delivered`); a busy/terminal target raises OrchestrationCommandDeferredError
+    // WITHOUT a receipt, so the deterministic id stays redeliverable (`queued`).
+    const disposition = yield* deps
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(notifyDeliverCommandId(recordId)),
+        threadId: target.id,
+        message: {
+          messageId: MessageId.make(yield* deps.newId),
+          role: "user",
+          origin: "notify",
+          text: framedText,
+          attachments: [],
+        },
+        titleSeed: target.title,
+        requireIdle: true,
+        runtimeMode: target.runtimeMode,
+        interactionMode: target.interactionMode,
+        createdAt: now,
+      } satisfies OrchestrationCommand)
+      .pipe(
+        Effect.as("delivered" as const),
+        Effect.catchTag("OrchestrationCommandDeferredError", () =>
+          Effect.succeed("queued" as const),
+        ),
+      );
+
+    if (disposition === "delivered") {
+      // Committed to the transcript: mark the queue row delivered (idempotent;
+      // the dispatcher rail's reconciliation leg would otherwise do this).
+      yield* deps.dispatch({
+        type: "thread.peer-message.mark-delivered",
+        commandId: CommandId.make(notifyMarkCommandId(recordId)),
+        threadId: scopeThreadId,
+        recordId,
+        createdAt: yield* deps.now,
+      } satisfies OrchestrationCommand);
+    }
+
+    return { kind: disposition, threadId: target.id, title: target.title };
+  });
+
+// notify_thread (cross-thread push): the global-scope WRITE counterpart of
+// consult_thread. The HTTP wrapper resolves scope + parses the body, then
+// delegates to `runNotifyThread` (the tested DI'd core) and maps its structured
+// outcome to a response. Never interrupts; never claims the recipient acted.
+const handleNotifyThread = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const scope = yield* resolveWorkstreamScope();
+  if (!scope) {
+    return jsonError(401, "A valid provider-scoped Workstream credential is required.");
+  }
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): NotifyThreadRequest => ({})),
+  )) as NotifyThreadRequest;
+
+  const projection = yield* ProjectionSnapshotQuery;
+  const engine = yield* OrchestrationEngineService;
+  const crypto = yield* Crypto.Crypto;
+  const { workstreamLaunchIdentityDir } = yield* ServerConfig;
+  const threads = yield* collectGraphThreads();
+
+  const outcome = yield* runNotifyThread(
+    {
+      scopeThreadId: scope.threadId,
+      threadId: trimString(body.threadId),
+      name: trimString(body.name),
+      message: typeof body.message === "string" ? body.message.trim() : "",
+    },
+    {
+      threads,
+      getThreadDetail: (id) => projection.getThreadDetailById(id),
+      isKickoffDelivered: (id) => isKickoffDelivered(workstreamLaunchIdentityDir, id),
+      dispatch: (command) => engine.dispatch(command),
+      newId: crypto.randomUUIDv4,
+      now: DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+    },
+  );
+
+  switch (outcome.kind) {
+    case "error":
+      return jsonError(outcome.status, outcome.message);
+    case "candidates":
+      return HttpServerResponse.jsonUnsafe({
+        resolved: false,
+        candidates: outcome.candidates,
+        rendered: renderNotifyCandidates(outcome.candidates),
+      });
+    default:
+      return HttpServerResponse.jsonUnsafe({
+        disposition: outcome.kind,
+        threadId: outcome.threadId,
+        title: outcome.title,
+        rendered: renderNotifyDisposition({
+          disposition: outcome.kind,
+          targetThreadId: outcome.threadId,
+          targetTitle: outcome.title,
+        }),
+      });
+  }
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to notify the thread."),
+    ),
+  ),
+);
+
 // A thread renames its OWN sidebar title. The title is always keyed to the
 // calling thread (no threadId override — renaming an arbitrary thread is
 // structurally impossible). Dispatches the existing `thread.meta.update`
@@ -3295,6 +3636,11 @@ export const workstreamConsultThreadRouteLayer = HttpRouter.add(
   PROVIDER_TOOL_PATHS.consult_thread,
   handleWorkstreamConsultThread,
 );
+export const notifyThreadRouteLayer = HttpRouter.add(
+  "POST",
+  PROVIDER_TOOL_PATHS.notify_thread,
+  handleNotifyThread,
+);
 export const setThreadTitleRouteLayer = HttpRouter.add(
   "POST",
   PROVIDER_TOOL_PATHS.set_thread_title,
@@ -3314,5 +3660,6 @@ export const layer = Layer.mergeAll(
   workstreamSubmitRouteLayer,
   workstreamListRouteLayer,
   workstreamConsultThreadRouteLayer,
+  notifyThreadRouteLayer,
   setThreadTitleRouteLayer,
 );

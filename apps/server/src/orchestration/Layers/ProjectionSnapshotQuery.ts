@@ -28,6 +28,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadActivity,
   type OrchestrationThreadConsultSummary,
+  type OrchestrationThreadPeerMessageSummary,
   type OrchestrationThreadShell,
   type ToolLifecycleItemType,
   ModelSelection,
@@ -38,7 +39,10 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
+import { NOTIFY_PAIR_WINDOW_MS } from "@t3tools/shared/notify";
 import * as Arr from "effect/Array";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -260,6 +264,31 @@ const ProjectionThreadConsultSummaryRowSchema = Schema.Struct({
   lastConsultAt: IsoDateTime,
   lastQuestionPreview: Schema.String,
 });
+// notify_thread observability: one aggregated peer-message edge (sender→target).
+const ProjectionThreadPeerMessageSummaryRowSchema = Schema.Struct({
+  senderThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  targetTitle: Schema.String,
+  count: NonNegativeInt,
+  pendingCount: NonNegativeInt,
+  lastMessageAt: IsoDateTime,
+  lastMessagePreview: Schema.String,
+});
+// notify_thread cap ledger: one recent (in-restart-window) send-log row used to
+// rebuild the command read model's `notifySendLog` on startup.
+const NotifySendLogRowSchema = Schema.Struct({
+  senderThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+// notify_thread deferred delivery: one still-pending peer message (oldest-first).
+const PendingPeerMessageRowSchema = Schema.Struct({
+  recordId: Schema.String,
+  senderThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  framedMessage: Schema.String,
+  createdAt: IsoDateTime,
+});
 const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
@@ -326,6 +355,45 @@ function groupConsultSummaries(
       lastQuestionPreview: row.lastQuestionPreview,
     });
     byThread.set(row.askerThreadId, list);
+  }
+  return byThread;
+}
+
+// notify_thread observability: group aggregated peer-message-edge rows by sender,
+// dropping the grouping key to match the shell's `peerMessages` shape.
+function groupPeerMessageSummaries(
+  rows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionThreadPeerMessageSummaryRowSchema>>,
+): Map<ThreadId, OrchestrationThreadPeerMessageSummary[]> {
+  const byThread = new Map<ThreadId, OrchestrationThreadPeerMessageSummary[]>();
+  for (const row of rows) {
+    const list = byThread.get(row.senderThreadId) ?? [];
+    list.push({
+      targetThreadId: row.targetThreadId,
+      targetTitle: row.targetTitle,
+      count: row.count,
+      pendingCount: row.pendingCount,
+      lastMessageAt: row.lastMessageAt,
+      lastMessagePreview: row.lastMessagePreview,
+    });
+    byThread.set(row.senderThreadId, list);
+  }
+  return byThread;
+}
+
+// notify_thread cap ledger: rebuild each sender's `notifySendLog` from the
+// recent (in-restart-window) rows, so the decider's ordered-pair cap survives a
+// restart (the read model is otherwise reconstructed from SQL, not event replay).
+function groupNotifySendLog(
+  rows: ReadonlyArray<Schema.Schema.Type<typeof NotifySendLogRowSchema>>,
+): Map<ThreadId, Array<{ readonly targetThreadId: ThreadId; readonly at: string }>> {
+  const byThread = new Map<
+    ThreadId,
+    Array<{ readonly targetThreadId: ThreadId; readonly at: string }>
+  >();
+  for (const row of rows) {
+    const list = byThread.get(row.senderThreadId) ?? [];
+    list.push({ targetThreadId: row.targetThreadId, at: row.createdAt });
+    byThread.set(row.senderThreadId, list);
   }
   return byThread;
 }
@@ -1018,6 +1086,132 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  // notify_thread observability: aggregate peer-message edges per sender->target
+  // for ACTIVE (non-deleted, non-archived) senders. Latest target title /
+  // message preview + total count + pending count per pair; the shell groups
+  // these by sender.
+  const listActiveThreadPeerMessageRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadPeerMessageSummaryRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          "senderThreadId",
+          "targetThreadId",
+          "targetTitle",
+          count,
+          "pendingCount",
+          "lastMessageAt",
+          "lastMessagePreview"
+        FROM (
+          SELECT
+            pm.sender_thread_id AS "senderThreadId",
+            pm.target_thread_id AS "targetThreadId",
+            pm.target_title AS "targetTitle",
+            pm.message_preview AS "lastMessagePreview",
+            pm.created_at AS "lastMessageAt",
+            COUNT(*) OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+            ) AS count,
+            SUM(CASE WHEN pm.status = 'pending' THEN 1 ELSE 0 END) OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+            ) AS "pendingCount",
+            ROW_NUMBER() OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+              ORDER BY pm.created_at DESC, pm.seq DESC
+            ) AS rn
+          FROM projection_thread_peer_messages pm
+          INNER JOIN projection_threads threads
+            ON threads.thread_id = pm.sender_thread_id
+          WHERE threads.deleted_at IS NULL
+            AND threads.archived_at IS NULL
+        )
+        WHERE rn = 1
+        ORDER BY "senderThreadId" ASC, "lastMessageAt" DESC
+      `,
+  });
+
+  // notify_thread observability: aggregate peer-message edges for a single
+  // sender (thread-shell-by-id path).
+  const listThreadPeerMessageRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadPeerMessageSummaryRowSchema,
+    execute: ({ threadId: senderThreadId }) =>
+      sql`
+        SELECT
+          "senderThreadId",
+          "targetThreadId",
+          "targetTitle",
+          count,
+          "pendingCount",
+          "lastMessageAt",
+          "lastMessagePreview"
+        FROM (
+          SELECT
+            pm.sender_thread_id AS "senderThreadId",
+            pm.target_thread_id AS "targetThreadId",
+            pm.target_title AS "targetTitle",
+            pm.message_preview AS "lastMessagePreview",
+            pm.created_at AS "lastMessageAt",
+            COUNT(*) OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+            ) AS count,
+            SUM(CASE WHEN pm.status = 'pending' THEN 1 ELSE 0 END) OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+            ) AS "pendingCount",
+            ROW_NUMBER() OVER (
+              PARTITION BY pm.sender_thread_id, pm.target_thread_id
+              ORDER BY pm.created_at DESC, pm.seq DESC
+            ) AS rn
+          FROM projection_thread_peer_messages pm
+          WHERE pm.sender_thread_id = ${senderThreadId}
+        )
+        WHERE rn = 1
+        ORDER BY "lastMessageAt" DESC
+      `,
+  });
+
+  // notify_thread deferred delivery: every still-pending peer message, oldest
+  // first. The dispatcher rail groups by target and attempts only the oldest
+  // per target per pass.
+  const listPendingPeerMessageRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: PendingPeerMessageRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          record_id AS "recordId",
+          sender_thread_id AS "senderThreadId",
+          target_thread_id AS "targetThreadId",
+          framed_message AS "framedMessage",
+          created_at AS "createdAt"
+        FROM projection_thread_peer_messages
+        WHERE status = 'pending'
+        ORDER BY created_at ASC, seq ASC
+      `,
+  });
+
+  // notify_thread cap ledger rebuild: recent send-log rows (any status: a send
+  // that expired or is still queued still counts as an attempt). `cutoff` is a
+  // TS-computed ISO string in the same format as the stored `created_at`, so a
+  // lexicographic comparison is a valid time comparison. Restores the command
+  // read model's `notifySendLog` after a restart (it is rebuilt from SQL, not
+  // event replay), keeping the D7 cap authoritative across restarts.
+  const listRecentNotifySendLogRows = SqlSchema.findAll({
+    Request: Schema.String,
+    Result: NotifySendLogRowSchema,
+    execute: (cutoff) =>
+      sql`
+        SELECT
+          sender_thread_id AS "senderThreadId",
+          target_thread_id AS "targetThreadId",
+          created_at AS "createdAt"
+        FROM projection_thread_peer_messages
+        WHERE created_at >= ${cutoff}
+        ORDER BY sender_thread_id ASC, created_at ASC
+      `,
+  });
+
   const listArchivedLatestTurnRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionLatestTurnDbRowSchema,
@@ -1569,6 +1763,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
       );
 
+  const listPendingPeerMessages: ProjectionSnapshotQueryShape["listPendingPeerMessages"] = () =>
+    listPendingPeerMessageRows().pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listPendingPeerMessages:query",
+          "ProjectionSnapshotQuery.listPendingPeerMessages:decodeRows",
+        ),
+      ),
+    );
+
   const getActivityFreshnessRow = SqlSchema.findOne({
     Request: ThreadIdLookupInput,
     Result: ActivityFreshnessRowSchema,
@@ -2070,6 +2274,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 diffAdditions: row.diffAdditions,
                 diffDeletions: row.diffDeletions,
                 handoffCount: row.handoffCount,
+                // notify_thread cap ledger is a command-read-model concern (see
+                // getCommandReadModel); the API snapshot does not carry it.
+                notifySendLog: [],
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 archivedAt: row.archivedAt,
@@ -2174,6 +2381,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          Effect.suspend(() =>
+            DateTime.now.pipe(
+              Effect.flatMap((now) =>
+                listRecentNotifySendLogRows(
+                  DateTime.formatIso(
+                    DateTime.subtractDuration(now, Duration.millis(NOTIFY_PAIR_WINDOW_MS)),
+                  ),
+                ),
+              ),
+            ),
+          ).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getCommandReadModel:listNotifySendLog:query",
+                "ProjectionSnapshotQuery.getCommandReadModel:listNotifySendLog:decodeRows",
+              ),
+            ),
+          ),
         ]),
       )
       .pipe(
@@ -2187,11 +2412,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             stateRows,
             goalRows,
             goalTaskRows,
+            notifySendLogRows,
           ]) =>
             Effect.sync(() => {
               let updatedAt: string | null = null;
               const projects: OrchestrationProject[] = [];
               const threads: OrchestrationThread[] = [];
+              const notifySendLogByThread = groupNotifySendLog(notifySendLogRows);
 
               for (let index = 0; index < projectRows.length; index += 1) {
                 const row = projectRows[index];
@@ -2324,6 +2551,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   diffAdditions: row.diffAdditions,
                   diffDeletions: row.diffDeletions,
                   handoffCount: row.handoffCount,
+                  notifySendLog: notifySendLogByThread.get(row.threadId) ?? [],
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -2482,6 +2710,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               );
               const consultsByThread = groupConsultSummaries(consultRows);
+              const peerMessageRows = yield* listActiveThreadPeerMessageRows().pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getShellSnapshot:listPeerMessages:query",
+                    "ProjectionSnapshotQuery.getShellSnapshot:listPeerMessages:decodeRows",
+                  ),
+                ),
+              );
+              const peerMessagesByThread = groupPeerMessageSummaries(peerMessageRows);
               // Debugging-only: which pi threads actually have a sidecar on disk.
               // One directory read per snapshot; a thread's promptDebugPath is
               // surfaced only when its file exists, so a capture failure / not-
@@ -2561,6 +2798,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         faninSince: row.faninSince,
                         lastActivityPreview: lastActivityPreviewByThread.get(row.threadId) ?? null,
                         consults: consultsByThread.get(row.threadId) ?? [],
+                        peerMessages: peerMessagesByThread.get(row.threadId) ?? [],
+                        // Shell-only view: the cap ledger is a command-read-model
+                        // concern (rebuilt in getCommandReadModel), never read off
+                        // a shell, so the shell carries an empty log.
+                        notifySendLog: [],
                       } satisfies OrchestrationThreadShell)
                     : Result.failVoid,
                 ),
@@ -2729,9 +2971,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   dependenciesSince: row.dependenciesSince,
                   faninSince: row.faninSince,
                   lastActivityPreview: null,
-                  // Consult edges are a live-graph concern; the archived board
-                  // does not draw them.
+                  // Consult + peer-message edges are a live-graph concern; the
+                  // archived board does not draw them.
                   consults: [],
+                  peerMessages: [],
+                  notifySendLog: [],
                 }),
               ),
               updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
@@ -2948,49 +3192,63 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
     Effect.gen(function* () {
-      const [threadRow, latestTurnRow, sessionRow, latestAssistantMessageRow, consultRows] =
-        yield* Effect.all([
-          getActiveThreadRowById({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
-                "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
-              ),
+      const [
+        threadRow,
+        latestTurnRow,
+        sessionRow,
+        latestAssistantMessageRow,
+        consultRows,
+        peerMessageRows,
+      ] = yield* Effect.all([
+        getActiveThreadRowById({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
+              "ProjectionSnapshotQuery.getThreadShellById:getThread:decodeRow",
             ),
           ),
-          getLatestTurnRowByThread({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
-                "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
-              ),
+        ),
+        getLatestTurnRowByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:query",
+              "ProjectionSnapshotQuery.getThreadShellById:getLatestTurn:decodeRow",
             ),
           ),
-          getThreadSessionRowByThread({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
-                "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
-              ),
+        ),
+        getThreadSessionRowByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:getSession:query",
+              "ProjectionSnapshotQuery.getThreadShellById:getSession:decodeRow",
             ),
           ),
-          getLatestAssistantMessageRowByThread({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:query",
-                "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:decodeRow",
-              ),
+        ),
+        getLatestAssistantMessageRowByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:query",
+              "ProjectionSnapshotQuery.getThreadShellById:getLatestAssistantMessage:decodeRow",
             ),
           ),
-          listThreadConsultRowsByThread({ threadId }).pipe(
-            Effect.mapError(
-              toPersistenceSqlOrDecodeError(
-                "ProjectionSnapshotQuery.getThreadShellById:listConsults:query",
-                "ProjectionSnapshotQuery.getThreadShellById:listConsults:decodeRows",
-              ),
+        ),
+        listThreadConsultRowsByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listConsults:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listConsults:decodeRows",
             ),
           ),
-        ]);
+        ),
+        listThreadPeerMessageRowsByThread({ threadId }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadShellById:listPeerMessages:query",
+              "ProjectionSnapshotQuery.getThreadShellById:listPeerMessages:decodeRows",
+            ),
+          ),
+        ),
+      ]);
 
       if (Option.isNone(threadRow)) {
         return Option.none<OrchestrationThreadShell>();
@@ -3048,6 +3306,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ? normalizeActivityPreview(latestAssistantMessageRow.value.text)
           : null,
         consults: groupConsultSummaries(consultRows).get(threadRow.value.threadId) ?? [],
+        peerMessages:
+          groupPeerMessageSummaries(peerMessageRows).get(threadRow.value.threadId) ?? [],
+        notifySendLog: [],
       } satisfies OrchestrationThreadShell);
     });
 
@@ -3352,6 +3613,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadActivitiesPage,
     getThreadLifecycle,
     getPendingTurnStartThreadIds,
+    listPendingPeerMessages,
     getActivityFreshnessByThreadId,
     getInFlightToolByThreadId,
     getRecentToolActivityByThreadId,

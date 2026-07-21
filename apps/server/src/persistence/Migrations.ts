@@ -76,6 +76,7 @@ import Migration0060 from "./Migrations/060_ProjectionThreadDependenciesSince.ts
 import Migration0061 from "./Migrations/061_ProjectionThreadFaninSince.ts";
 import Migration0062 from "./Migrations/062_ProjectionThreadHandoffCount.ts";
 import Migration0063 from "./Migrations/063_ProjectionProjectsDefaultStartFromOrigin.ts";
+import Migration0064 from "./Migrations/064_ProjectionThreadPeerMessages.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -151,6 +152,7 @@ export const migrationEntries = [
   [61, "ProjectionThreadFaninSince", Migration0061],
   [62, "ProjectionThreadHandoffCount", Migration0062],
   [63, "ProjectionProjectsDefaultStartFromOrigin", Migration0063],
+  [64, "ProjectionThreadPeerMessages", Migration0064],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

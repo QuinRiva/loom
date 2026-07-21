@@ -1,14 +1,29 @@
 import type {
   ModelSelection,
-  ThreadId,
   ThreadIsolation,
   ThreadPlanLane,
   WorkstreamModelProfile,
 } from "@t3tools/contracts";
-import type { AccountUsageSnapshot } from "@t3tools/contracts";
+import {
+  ThreadId,
+  type AccountUsageSnapshot,
+  type OrchestrationCommand,
+  type OrchestrationThreadShell,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { it as effectIt } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import {
+  OrchestrationCommandDeferredError,
+  OrchestrationCommandInvariantError,
+} from "../orchestration/Errors.ts";
+import { runNotifyThread, type NotifyThreadDeps } from "./WorkstreamSpawnHttp.ts";
+import { NOTIFY_MESSAGE_MAX_CHARS } from "@t3tools/shared/notify";
 
 import {
+  composeNotifyFramedText,
+  notifyRelationshipLabel,
   forkIdentityFieldsRejection,
   forkFromGateConflictMessage,
   hasThreadStarted,
@@ -81,6 +96,239 @@ const rejected = (result: ReturnType<typeof validateSpawnGraph>) => {
   expect(result.kind).toBe("rejected");
   return result as Extract<ReturnType<typeof validateSpawnGraph>, { readonly kind: "rejected" }>;
 };
+
+describe("notify_thread D5 framing", () => {
+  it("labels the relationship from parentThreadId on both ends", () => {
+    // sender is the target's parent
+    expect(
+      notifyRelationshipLabel({
+        senderThreadId: "S",
+        senderParentThreadId: null,
+        targetThreadId: "T",
+        targetParentThreadId: "S",
+      }),
+    ).toBe("your parent orchestrator");
+    // target is the sender's parent
+    expect(
+      notifyRelationshipLabel({
+        senderThreadId: "S",
+        senderParentThreadId: "T",
+        targetThreadId: "T",
+        targetParentThreadId: null,
+      }),
+    ).toBe("one of your sub-threads");
+    // unrelated
+    expect(
+      notifyRelationshipLabel({
+        senderThreadId: "S",
+        senderParentThreadId: "P",
+        targetThreadId: "T",
+        targetParentThreadId: "Q",
+      }),
+    ).toBe("no parent/child relationship to you");
+  });
+
+  it("composes a self-contained wrapper carrying title/role/id, relationship, reply path, and no em dash", () => {
+    const framed = composeNotifyFramedText({
+      senderTitle: "Extraction run",
+      senderRole: "coder",
+      senderThreadId: "thread-sender",
+      relationship: "no parent/child relationship to you",
+      message: "results at /out/report.md",
+    });
+    expect(framed).toContain(
+      "«Extraction run» (coder, thread-sender; no parent/child relationship to you)",
+    );
+    expect(framed).toContain("results at /out/report.md");
+    expect(framed).toContain("No reply is owed");
+    expect(framed).toContain("notify_thread (threadId: thread-sender)");
+    expect(framed).not.toContain("\u2014");
+  });
+});
+
+describe("notify_thread handler core (runNotifyThread)", () => {
+  const SCOPE = ThreadId.make("scope-1");
+
+  const notifyShell = (
+    over: { readonly id: string } & Record<string, unknown>,
+  ): OrchestrationThreadShell =>
+    ({
+      projectId: "project-1",
+      parentThreadId: null,
+      role: "coder",
+      title: "Target",
+      planLane: "ready",
+      archivedAt: null,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      worktreePath: null,
+      ...over,
+    }) as unknown as OrchestrationThreadShell;
+
+  // A dispatch mock that RECORDS every command it is handed (in attempt order),
+  // so a test can prove ordering and that nothing is sent after a failed record.
+  const makeDispatch = (opts: { failRecord?: string; deferDelivery?: boolean } = {}) => {
+    const commands: Array<OrchestrationCommand> = [];
+    const dispatch: NotifyThreadDeps["dispatch"] = (command) =>
+      Effect.gen(function* () {
+        commands.push(command);
+        if (command.type === "thread.peer-message.record" && opts.failRecord !== undefined) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: opts.failRecord,
+          });
+        }
+        if (command.type === "thread.turn.start" && opts.deferDelivery === true) {
+          return yield* new OrchestrationCommandDeferredError({
+            commandType: command.type,
+            detail: "target busy",
+          });
+        }
+        return { sequence: commands.length };
+      });
+    return { dispatch, commands };
+  };
+
+  const baseDeps = (over: Partial<NotifyThreadDeps>): NotifyThreadDeps => ({
+    threads: [],
+    getThreadDetail: () => Effect.succeed(Option.none()),
+    isKickoffDelivered: () => true,
+    dispatch: () => Effect.succeed({ sequence: 1 }),
+    newId: Effect.succeed("rec-fixed"),
+    now: Effect.succeed("2026-01-01T00:00:00.000Z"),
+    ...over,
+  });
+
+  const target = notifyShell({ id: "target-1" });
+  const scopeShell = notifyShell({ id: "scope-1", title: "Sender" });
+  const send = (input: Partial<Parameters<typeof runNotifyThread>[0]>, deps: NotifyThreadDeps) =>
+    runNotifyThread(
+      {
+        scopeThreadId: SCOPE,
+        threadId: "target-1",
+        name: undefined,
+        message: "hi there",
+        ...input,
+      },
+      deps,
+    );
+
+  effectIt.effect(
+    "record-before-send: records FIRST, then delivers, then marks (idle accept)",
+    () =>
+      Effect.gen(function* () {
+        const { dispatch, commands } = makeDispatch();
+        const outcome = yield* send({}, baseDeps({ threads: [scopeShell, target], dispatch }));
+        expect(outcome.kind).toBe("delivered");
+        // The record command is dispatched strictly before the delivery turn-start.
+        expect(commands.map((c) => c.type)).toEqual([
+          "thread.peer-message.record",
+          "thread.turn.start",
+          "thread.peer-message.mark-delivered",
+        ]);
+      }),
+  );
+
+  effectIt.effect("a failed record fails the call (429) and sends NOTHING", () =>
+    Effect.gen(function* () {
+      const { dispatch, commands } = makeDispatch({ failRecord: "notify_thread rate cap reached" });
+      const outcome = yield* send({}, baseDeps({ threads: [scopeShell, target], dispatch }));
+      expect(outcome).toMatchObject({ kind: "error", status: 429 });
+      // No turn-start (and no mark) was ever attempted: nothing is sent un-recorded.
+      expect(commands.map((c) => c.type)).toEqual(["thread.peer-message.record"]);
+    }),
+  );
+
+  effectIt.effect(
+    "a busy target defers: result is queued, row stays pending, no mark-delivered",
+    () =>
+      Effect.gen(function* () {
+        const { dispatch, commands } = makeDispatch({ deferDelivery: true });
+        const outcome = yield* send({}, baseDeps({ threads: [scopeShell, target], dispatch }));
+        expect(outcome.kind).toBe("queued");
+        expect(commands.map((c) => c.type)).toEqual([
+          "thread.peer-message.record",
+          "thread.turn.start",
+        ]);
+      }),
+  );
+
+  effectIt.effect("both threadId and name is a 400 (exactly-one-of), and sends nothing", () =>
+    Effect.gen(function* () {
+      const { dispatch, commands } = makeDispatch();
+      const outcome = yield* send(
+        { threadId: "target-1", name: "Target" },
+        baseDeps({ threads: [scopeShell, target], dispatch }),
+      );
+      expect(outcome).toMatchObject({ kind: "error", status: 400 });
+      expect(commands).toHaveLength(0);
+    }),
+  );
+
+  effectIt.effect("notifying your own thread is a 400", () =>
+    Effect.gen(function* () {
+      const outcome = yield* send(
+        { threadId: "scope-1" },
+        baseDeps({ threads: [scopeShell, notifyShell({ id: "scope-1" })] }),
+      );
+      expect(outcome).toMatchObject({ kind: "error", status: 400 });
+    }),
+  );
+
+  effectIt.effect("an over-cap message is a 400", () =>
+    Effect.gen(function* () {
+      const outcome = yield* send(
+        { message: "x".repeat(NOTIFY_MESSAGE_MAX_CHARS + 1) },
+        baseDeps({ threads: [scopeShell, target] }),
+      );
+      expect(outcome).toMatchObject({ kind: "error", status: 400 });
+    }),
+  );
+
+  effectIt.effect("unstarted child is a 409, decided from thread DETAIL (not the shell)", () =>
+    Effect.gen(function* () {
+      const child = notifyShell({ id: "child-1", parentThreadId: ThreadId.make("parent-x") });
+      let detailCalledWith: string | null = null;
+      const { dispatch, commands } = makeDispatch();
+      const outcome = yield* send(
+        { threadId: "child-1" },
+        baseDeps({
+          threads: [scopeShell, child],
+          isKickoffDelivered: () => false,
+          getThreadDetail: (id) => {
+            detailCalledWith = id;
+            // Shell carries no messages; detail is the source of the predicate.
+            return Effect.succeed(Option.some({ messages: [] as ReadonlyArray<{ role: string }> }));
+          },
+          dispatch,
+        }),
+      );
+      expect(outcome).toMatchObject({ kind: "error", status: 409 });
+      expect(detailCalledWith).toBe("child-1");
+      expect(commands).toHaveLength(0);
+    }),
+  );
+
+  effectIt.effect("a started child (assistant message in DETAIL) is delivered", () =>
+    Effect.gen(function* () {
+      const child = notifyShell({ id: "child-1", parentThreadId: ThreadId.make("parent-x") });
+      const { dispatch } = makeDispatch();
+      const outcome = yield* send(
+        { threadId: "child-1" },
+        baseDeps({
+          threads: [scopeShell, child],
+          isKickoffDelivered: () => false,
+          getThreadDetail: () =>
+            Effect.succeed(
+              Option.some({ messages: [{ role: "assistant" }] as ReadonlyArray<{ role: string }> }),
+            ),
+          dispatch,
+        }),
+      );
+      expect(outcome.kind).toBe("delivered");
+    }),
+  );
+});
 
 describe("resolvePresetSelection (spawn precedence steps 2-4)", () => {
   it("uses a named modelPreset when it exists", () => {

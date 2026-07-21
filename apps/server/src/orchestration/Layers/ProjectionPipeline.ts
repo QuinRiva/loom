@@ -38,6 +38,8 @@ import {
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionThreadConsultRepository } from "../../persistence/Services/ProjectionThreadConsults.ts";
 import { ProjectionThreadConsultRepositoryLive } from "../../persistence/Layers/ProjectionThreadConsults.ts";
+import { ProjectionThreadPeerMessageRepository } from "../../persistence/Services/ProjectionThreadPeerMessages.ts";
+import { ProjectionThreadPeerMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadPeerMessages.ts";
 import { ProjectionGoalRepository } from "../../persistence/Services/ProjectionGoals.ts";
 import { ProjectionGoalRepositoryLive } from "../../persistence/Layers/ProjectionGoals.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
@@ -65,6 +67,7 @@ import {
 // question lives on the `thread.consult-recorded` event; only this bounded
 // preview is aggregated onto the asker shell.
 const CONSULT_QUESTION_PREVIEW_MAX_LENGTH = 140;
+const PEER_MESSAGE_PREVIEW_MAX_LENGTH = 140;
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
@@ -581,6 +584,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionGoalRepository = yield* ProjectionGoalRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionThreadConsultRepository = yield* ProjectionThreadConsultRepository;
+    const projectionThreadPeerMessageRepository = yield* ProjectionThreadPeerMessageRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -1405,6 +1409,51 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             createdAt: event.payload.createdAt,
           });
           yield* refreshThreadShellSummary(event.payload.askerThreadId);
+          return;
+        }
+
+        // notify_thread (cross-thread push): record the peer-message edge + queue
+        // row on the SENDER thread. Idempotent by record id so replay never
+        // double-counts. The shell aggregates count / pendingCount / latest
+        // preview per sender->target at query time; the full raw + framed text
+        // stay on the event.
+        case "thread.peer-message-recorded": {
+          const message = event.payload.message.replace(/\s+/g, " ").trim();
+          yield* projectionThreadPeerMessageRepository.insert({
+            recordId: event.payload.recordId,
+            senderThreadId: event.payload.senderThreadId,
+            targetThreadId: event.payload.targetThreadId,
+            targetTitle: event.payload.targetTitle,
+            message: event.payload.message,
+            framedMessage: event.payload.framedMessage,
+            messagePreview:
+              message.length > PEER_MESSAGE_PREVIEW_MAX_LENGTH
+                ? `${message.slice(0, PEER_MESSAGE_PREVIEW_MAX_LENGTH - 1).trimEnd()}\u2026`
+                : message,
+            seq: event.sequence,
+            createdAt: event.payload.createdAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.senderThreadId);
+          return;
+        }
+
+        // notify_thread delivery lifecycle: flip the queue row's status. Both are
+        // idempotent (the SQL WHERE guards only transition a pending row), so the
+        // crash-window reconciliation leg and a re-projection are safe.
+        case "thread.peer-message-delivered": {
+          yield* projectionThreadPeerMessageRepository.markDelivered({
+            recordId: event.payload.recordId,
+            updatedAt: event.payload.updatedAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.senderThreadId);
+          return;
+        }
+        case "thread.peer-message-expired": {
+          yield* projectionThreadPeerMessageRepository.markExpired({
+            recordId: event.payload.recordId,
+            updatedAt: event.payload.updatedAt,
+          });
+          yield* refreshThreadShellSummary(event.payload.senderThreadId);
           return;
         }
 
@@ -2263,6 +2312,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadConsultRepositoryLive),
+  Layer.provideMerge(ProjectionThreadPeerMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),

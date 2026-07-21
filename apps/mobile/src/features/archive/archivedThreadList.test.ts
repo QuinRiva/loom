@@ -71,6 +71,8 @@ function makeThread(
     hasActionableProposedPlan: false,
     lastActivityPreview: null,
     consults: [],
+    peerMessages: [],
+    notifySendLog: [],
     ...input,
   };
 }

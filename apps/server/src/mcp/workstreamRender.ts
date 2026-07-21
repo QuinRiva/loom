@@ -235,23 +235,64 @@ export interface ConsultCandidate {
   readonly worktreePath?: string | null;
 }
 
-/** The candidate-disambiguation text for an unresolved consult_thread response. */
-export const renderConsultCandidates = (candidates: ReadonlyArray<ConsultCandidate>): string => {
-  const lines = candidates.map(
-    (candidate) =>
-      "- " +
-      (candidate.title ?? "(untitled)") +
-      " — " +
-      (candidate.role ?? "thread") +
-      ", " +
-      (candidate.planLane ?? "unknown") +
-      (candidate.worktreePath ? " [" + candidate.worktreePath + "]" : "") +
-      " (threadId: " +
-      candidate.threadId +
-      ")",
-  );
-  return candidates.length > 0
-    ? "Multiple threads match that name. Confirm which one with the user, then call consult_thread again with its threadId:\n" +
-        lines.join("\n")
+// One shared line format for a ranked thread candidate; the follow-up
+// instruction is parameterised so notify_thread does not tell the caller to
+// invoke consult_thread (and vice versa).
+const renderThreadCandidateLines = (candidates: ReadonlyArray<ConsultCandidate>): string =>
+  candidates
+    .map(
+      (candidate) =>
+        "- " +
+        (candidate.title ?? "(untitled)") +
+        " — " +
+        (candidate.role ?? "thread") +
+        ", " +
+        (candidate.planLane ?? "unknown") +
+        (candidate.worktreePath ? " [" + candidate.worktreePath + "]" : "") +
+        " (threadId: " +
+        candidate.threadId +
+        ")",
+    )
+    .join("\n");
+
+/**
+ * Candidate-disambiguation text for an unresolved id-or-name resolution, shared
+ * by consult_thread and notify_thread. `toolName` is the tool to call again;
+ * `action` completes the "Confirm which one ..., then <action>" instruction.
+ */
+export const renderThreadCandidates = (
+  candidates: ReadonlyArray<ConsultCandidate>,
+  options: { readonly toolName: string; readonly action: string },
+): string =>
+  candidates.length > 0
+    ? `Multiple threads match that name. Confirm which one with the user, then ${options.action}:\n` +
+      renderThreadCandidateLines(candidates)
     : "No matching thread was found.";
-};
+
+/** The candidate-disambiguation text for an unresolved consult_thread response. */
+export const renderConsultCandidates = (candidates: ReadonlyArray<ConsultCandidate>): string =>
+  renderThreadCandidates(candidates, {
+    toolName: "consult_thread",
+    action: "call consult_thread again with its threadId",
+  });
+
+/** The candidate-disambiguation text for an unresolved notify_thread response. */
+export const renderNotifyCandidates = (candidates: ReadonlyArray<ConsultCandidate>): string =>
+  renderThreadCandidates(candidates, {
+    toolName: "notify_thread",
+    action: "call notify_thread again with its threadId",
+  });
+
+/**
+ * The disposition line a notify_thread call returns. `delivered` = committed to
+ * the target's transcript, its turn starting now; `queued` = durably pending,
+ * delivered when the target next goes idle. Never claims the recipient acted.
+ */
+export const renderNotifyDisposition = (input: {
+  readonly disposition: "delivered" | "queued";
+  readonly targetThreadId: string;
+  readonly targetTitle: string;
+}): string =>
+  input.disposition === "delivered"
+    ? `Notification delivered to thread «${input.targetTitle}» (${input.targetThreadId}): committed to its transcript, its next turn is starting. No reply arrives through notify_thread.`
+    : `Notification queued for thread «${input.targetTitle}» (${input.targetThreadId}): the target is busy, so it will be delivered when the target next goes idle. No reply arrives through notify_thread.`;

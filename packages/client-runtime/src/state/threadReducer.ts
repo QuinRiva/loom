@@ -213,6 +213,8 @@ export function applyThreadDetailEvent(
           diffDeletions: null,
           // loom: `/handoff` fork-drafter (plan D5) — handoff count starts at 0.
           handoffCount: 0,
+          // loom: notify_thread (D7) — the send-log ledger starts empty.
+          notifySendLog: [],
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           archivedAt: null,

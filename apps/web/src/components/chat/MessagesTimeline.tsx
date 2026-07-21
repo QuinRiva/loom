@@ -899,6 +899,7 @@ const MESSAGE_ORIGIN_LABELS: Record<Exclude<MessageOrigin, "human">, string> = {
   kickoff: "Kickoff brief",
   orchestrator: "Orchestrator",
   control_notice: "Control plane",
+  notify: "Thread notification",
 };
 
 function resolveMessageOriginLabel(origin: MessageOrigin | undefined): string | null {

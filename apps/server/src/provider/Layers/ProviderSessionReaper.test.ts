@@ -133,6 +133,7 @@ function makeReadModel(
       diffAdditions: null,
       diffDeletions: null,
       handoffCount: 0,
+      notifySendLog: [],
       latestTurn: null,
       messages: [],
       session: thread.session
@@ -238,7 +239,13 @@ describe("ProviderSessionReaper", () => {
             const found = input.readModel.threads.find((thread) => thread.id === threadId);
             return Effect.succeed(
               found
-                ? Option.some({ ...found, lastActivityPreview: null, consults: [] })
+                ? Option.some({
+                    ...found,
+                    lastActivityPreview: null,
+                    consults: [],
+                    peerMessages: [],
+                    notifySendLog: [],
+                  })
                 : Option.none(),
             );
           },
@@ -247,6 +254,7 @@ describe("ProviderSessionReaper", () => {
           getThreadActivitiesPage: () => Effect.die("unused"),
           getThreadLifecycle: () => Effect.die("unused"),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),

@@ -566,7 +566,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "consult_thread",
     label: "Consult Thread (user-directed)",
     description:
-      'GLOBAL read-only consult of another thread, answered from a frozen fork of that thread\'s session. It reaches ANY thread the server knows (across worktrees and projects), not just your workstream tree. Use it when the user points you at another thread — by name ("ask the liveness-detection thread …") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](thread://<id>) — pass that <id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm with the user, then call again with the chosen threadId. It never resumes or mutates the target.',
+      'GLOBAL read-only consult of another thread, answered from a frozen fork of that thread\'s session. It reaches ANY thread the server knows (across worktrees and projects), not just your workstream tree. Use it when the user points you at another thread — by name ("ask the liveness-detection thread …") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](thread://<id>) — pass that <id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm with the user, then call again with the chosen threadId. It never resumes or mutates the target; to push a message the target acts on, use notify_thread.',
     promptSnippet:
       "ask another thread a read-only question (answered from a frozen fork) by id, @-mention, or name; never mutates it.",
     promptGuidelines: [
@@ -597,6 +597,42 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     },
     errorMode: "throw",
     fallbackText: "(no answer)",
+  },
+  {
+    name: "notify_thread",
+    label: "Notify Thread (cross-thread push)",
+    description:
+      "Push a markdown message into ANY other thread the server knows, across orchestration trees, worktrees, and projects: the write counterpart of the read-only consult_thread. Delivery never interrupts. An idle recipient starts its next turn with your message (it will spend tokens acting on it); a busy recipient has it queued durably, then delivered as a fresh turn when it next goes idle. The recipient sees it framed as a notification from your thread (title, id, and your relationship to it, if any) and owes no reply: this call is fire-and-forget, and its result reports 'delivered' or 'queued', never an answer. Use it to tell a thread something it is waiting to hear, e.g. \"the extraction run you depend on is complete; results at <path>\". It is NOT for getting information back (consult_thread asks a read-only question and returns the answer), not for directing your own children (workstream_prompt), not for reporting to your parent (workstream_submit), not for creating work (workstream_spawn), and not for reaching non-T3 pi sessions on this machine (intercom); notify_thread addresses durable T3 threads and leaves transcript and graph provenance. Identify the target by threadId, or by name (fuzzy sidebar-title match); an ambiguous name sends nothing and returns ranked candidates.",
+    promptSnippet:
+      "push a fire-and-forget message into any other thread, by id or name; it never interrupts the recipient.",
+    promptGuidelines: [
+      "notify_thread's result is the end of the exchange; no reply arrives through it. Need an answer? consult_thread the target, or ask it (in your message) to notify_thread you back and carry on until that arrives.",
+      "An unresolved name returns candidates and sends nothing: confirm the intended target, then call again with its threadId. A push engages the recipient's session, so never guess.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: {
+          type: "string",
+          description:
+            "Exact id of the target thread, preferred when known (from workstream_list, a prior consult, or an @-mention [Title](thread://<id>)). Provide exactly one of threadId or name; supplying both is rejected.",
+        },
+        name: {
+          type: "string",
+          description:
+            "Fuzzy sidebar title of the target thread, used when you do not have an exact id. An ambiguous match returns ranked candidates without sending; supplying name together with threadId is rejected.",
+        },
+        message: {
+          type: "string",
+          description:
+            "The markdown message the recipient receives, framed as a notification from your thread. It lands in another agent's context with none of yours, so write it self-contained: state what you are informing it of, reference your outputs by absolute path instead of pasting bulk content, and say plainly if you are asking for anything back (the framing tells the recipient the default is nothing). A notification informs; it must never re-task, steer, or covertly delegate. To direct work, prompt your own child (workstream_prompt) or spawn a new one (workstream_spawn).",
+        },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
+    errorMode: "throw",
+    fallbackText: "Notification accepted.",
   },
   {
     name: "set_thread_title",

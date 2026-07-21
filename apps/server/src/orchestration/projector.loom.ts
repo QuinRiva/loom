@@ -17,6 +17,7 @@ import type {
   ThreadPlanLane,
 } from "@t3tools/contracts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import { appendPrunedNotifySendLog } from "@t3tools/shared/notify";
 import { gateLoopTargetOf, gateSourceFor } from "@t3tools/shared/workstreamGraph";
 import { OrchestrationMessage } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -31,6 +32,7 @@ import {
   ThreadDependenciesSetPayload,
   ThreadFanInSetPayload,
   ThreadHandoffRecordedPayload,
+  ThreadPeerMessageRecordedPayload,
   ThreadReportSetPayload,
   ThreadKickoffBriefSetPayload,
   ThreadOutcomeRecordedPayload,
@@ -110,9 +112,10 @@ function updateGoalTasks(
  * `nextBase`) for every event the fork adds — goal.*, the plan-lane/attention/
  * dependencies/report/outcome/route/fanin thread events, the legacy
  * `thread.status-set` migration remap, and `thread.message-reasoning`. Events
- * with no case (`thread.turn-start-failed`, `thread.consult-recorded`) fall to
- * the default, returning the model unchanged — identical to the upstream
- * projector's default for those types.
+ * with no case (`thread.turn-start-failed`, `thread.consult-recorded`, and the
+ * `thread.peer-message-delivered`/`-expired` lifecycle events, which only touch
+ * the SQL edge projection) fall to the default, returning the model unchanged —
+ * identical to the upstream projector's default for those types.
  */
 export function projectLoomEvent(
   nextBase: OrchestrationReadModel,
@@ -461,6 +464,37 @@ export function projectLoomEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               handoffCount: thread.handoffCount + 1,
+              updatedAt: payload.createdAt,
+            }),
+          };
+        }),
+      );
+
+    // notify_thread loop safety (D7): maintain the SENDER's pruned send log so
+    // the decider's ordered-pair cap has an authoritative, replay-safe ledger.
+    // Append the new entry and prune to the rolling window (bounded regardless
+    // of thread lifetime). A missing sender is a no-op.
+    case "thread.peer-message-recorded":
+      return decodeForEvent(
+        ThreadPeerMessageRecordedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.senderThreadId);
+          if (!thread) return nextBase;
+          // payload.createdAt is a validated IsoDateTime, so Date.parse is a pure
+          // string parse (not wall-clock access).
+          const nowMs = Date.parse(payload.createdAt);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.senderThreadId, {
+              notifySendLog: appendPrunedNotifySendLog(
+                thread.notifySendLog,
+                { targetThreadId: payload.targetThreadId, at: payload.createdAt },
+                nowMs,
+              ),
               updatedAt: payload.createdAt,
             }),
           };
