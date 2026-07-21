@@ -4,6 +4,7 @@ import type { ProjectId, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
 import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  BugIcon,
   GitBranchIcon,
   LayoutDashboardIcon,
   Loader2Icon,
@@ -219,6 +220,10 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
     useRightPanelStore.getState().openFileAbsolute(panelRef, reportPath);
   };
 
+  // The root orchestrator's shell (with its `promptDebugPath` sidecar), for the
+  // header Prompt button. The root is in the subtree the panel already built.
+  const rootShell = rootThreadId ? subtreeById.get(rootThreadId) : undefined;
+
   // Plan axis only (the `workstream_set_lane` enum). `in_progress` is set by the
   // control plane at kickoff and `blocked` is derived from dependencies, so
   // neither is offered here.
@@ -339,9 +344,27 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
               Sub-threads stay out of the sidebar and live here.
             </p>
           </div>
-          <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] tabular-nums text-white/55">
-            {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
-          </span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {/* Debugging-only: open the ROOT orchestrator's effective-prompt
+                debug sidecar. The root never renders as a graph node (only as
+                bridge nodes that jump to the dispatch turn), so the header is
+                its one UI path to the capture. Same gating/open path as the
+                lifecycle drawer's per-thread Prompt button. */}
+            {rootShell?.promptDebugPath && isAbsolutePreviewablePath(rootShell.promptDebugPath) ? (
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                onClick={() => openReport(rootShell.promptDebugPath!)}
+                title="Open the root orchestrator's effective-prompt debug capture"
+              >
+                <BugIcon className="size-3" />
+                Prompt
+              </button>
+            ) : null}
+            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] tabular-nums text-white/55">
+              {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
+            </span>
+          </div>
         </div>
 
         <div className="mt-3 inline-flex rounded-lg border border-white/10 bg-black/25 p-1">
