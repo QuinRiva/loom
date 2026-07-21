@@ -2,17 +2,32 @@
 manager_sessions:
   - id: 9ac69034-5f12-4fa9-81e7-1f2fd2985a1e
     role: plan
-    authored_at: 2026-07-21T04:36:10.307Z
+    authored_at: 2026-07-21T05:04:29.355Z
 ---
 
 # `notify_thread` — global cross-thread push messaging
 
-**Status:** design — ready for implementation
+**Status:** design — revision 2 after independent review
+(`workstream-reports/c29535b0-e7f4-4692-a4c2-43e7401ae657.md`). Rev 1 built
+delivery on pi's `streamingBehavior: "followUp"` and assumed a queued follow-up
+produces a fresh `agent_start` to adopt as a new T3 turn; installed pi
+(0.80.10) drains follow-ups **inside** the running agent loop
+(`pi-agent-core/dist/agent-loop.js:83,161-165,171` — one
+`agent_start → agent_end` spans them; the true settled signal is
+`agent_settled`, which T3 neither types nor handles), pi keeps draining the
+queue after an agent abort (`agent-session.js:750-761,785-787,1171-1174`), the
+sole pending-turn-start projection row cannot represent two queued sends
+(`ProjectionTurns.ts:267-272`), and five active non-pi drivers share
+`ProviderSendTurnInput`, making a driver-advisory flag unenforceable. Rev 2
+replaces all of that with an **orchestration-layer durable defer queue**: no
+driver is touched, delivery is always a plain fresh `thread.turn.start` on an
+idle recipient. Rev 2 also makes the loop cap authoritative (decider-enforced),
+makes framing relationship-aware, fixes the ambiguity renderer and the id/name
+contract, and re-words the delivery disposition honestly.
 **Date:** 2026-07-21
-**Scope:** new provider tool + HTTP handler, one new `MessageOrigin` value, one new
-recorded event + shell edge, a `followUp` delivery seam through the turn-start
-pipeline into `PiDriver`. No changes to `workstream_prompt` or its D3
-authorisation invariant.
+**Scope:** new provider tool + HTTP handler, one new `MessageOrigin` value,
+three new events + a shell edge + a dispatcher delivery rail. No changes to
+`workstream_prompt`, its D3 authorisation invariant, or ANY provider driver.
 
 ## 1. Motivation
 
@@ -29,9 +44,10 @@ of forking the target's session read-only, it delivers a message into the
 target's real conversation.
 
 Decisions fixed by the user (not relitigated here): new tool rather than a
-`workstream_prompt` variant; fully global authorisation; follow-up (never
-mid-turn steer) delivery; fire-and-forget baseline with a loop guard; a
-recorded message edge mirroring consults.
+`workstream_prompt` variant; fully global authorisation (any thread to any
+thread — including a parent to its own child); never interrupt a busy
+recipient; fire-and-forget baseline with a loop guard; a recorded message edge
+mirroring consults.
 
 ## 2. Design decisions
 
@@ -53,10 +69,11 @@ Rejected alternatives:
 "Notify" deliberately biases the register toward one-shot, no-reply-owed
 pushes. The message body can still carry substantive content (findings,
 artefact paths); what it must not become is a delegation or steering channel —
-the name is the first line of that defence, the framing wrapper (D5) and loop
-guard (D7) the second and third.
+the name is the first line of that defence, the framing wrapper (D5), the
+`message` parameter's anti-delegation guard (§3), and the loop guard (D7) the
+rest.
 
-### D2 — New origin value: `peer`
+### D2 — New origin value: `notify` (neutral, not "peer")
 
 `MessageOrigin` (`packages/contracts/src/orchestration.loom.ts:562`) gains a
 fifth literal:
@@ -67,32 +84,37 @@ export const MessageOrigin = Schema.Literals([
   "kickoff",
   "orchestrator",
   "control_notice",
-  "peer", // notify_thread: another thread (not this thread's parent) authored it
+  "notify", // another thread pushed this via notify_thread (any relationship)
 ]);
 ```
 
-A peer message is none of the existing four: not a human, not the kickoff, not
-this thread's parent orchestrator, not control-plane machinery. The axis stays
-clean: *who composed the words* = an unrelated agent thread.
+Rev 1 called this `peer` and framed every send "not from your parent
+orchestrator" — but authorisation is fully global, so the sender can be the
+target's *actual parent* (or one of its children). Review finding #7: the
+provenance value and UI label must not assert a relationship the send may not
+have. `notify` states the *channel* neutrally; the relationship is carried in
+the framing wrapper instead (D5), computed per send.
 
-Spoofing is impossible by the same construction as the existing values: the
-origin is stamped server-side in the handler from the authenticated scope
-(`scope.threadId`); `ClientThreadTurnStartCommand` carries no `origin` field on
-the wire.
+The axis stays clean: *who composed the words* = another agent thread, via the
+notify channel (distinct from `orchestrator`, which is specifically a parent's
+`workstream_prompt` steer/resume). Spoofing is impossible by the same
+construction as the existing values: the origin is stamped server-side from
+the authenticated scope (`scope.threadId`); `ClientThreadTurnStartCommand`
+carries no `origin` field on the wire.
 
 UI: `MESSAGE_ORIGIN_LABELS` in
 `apps/web/src/components/chat/MessagesTimeline.tsx:898` gains
-`peer: "Peer thread"` — the message renders with the existing info tint +
-provenance chip, same as orchestrator steers.
+`notify: "Thread notification"` — the message renders with the existing info
+tint + provenance chip.
 
 ### D3 — Authorisation: global, with sanity rejections (not ownership checks)
 
 The handler does **not** call `authorizationError`
 (`WorkstreamSpawnHttp.ts:199`) — that D3 "own thread or direct child"
-invariant stays intact for `workstream_prompt` and the other mutating tools.
-`notify_thread` resolves its target from `collectGraphThreads()`
-(`WorkstreamSpawnHttp.ts:1729` — active + archived shells, the same universe
-`consult_thread` reaches).
+invariant stays intact for `workstream_prompt` and the other mutating tools
+(review-verified as structurally sound). `notify_thread` resolves its target
+from `collectGraphThreads()` (`WorkstreamSpawnHttp.ts:1729` — active +
+archived shells, the same universe `consult_thread` reaches).
 
 What it rejects is not ownership but nonsense sends:
 
@@ -100,144 +122,194 @@ What it rejects is not ownership but nonsense sends:
 | --- | --- |
 | target is the caller itself | 400 — "You cannot notify your own thread." |
 | target not found | 404 |
-| target `planLane` is `done` or `cancelled` | 409 — sticky-terminal, mirroring `workstream_prompt`: a turn-start on a terminal thread silently re-engages it without changing its lane. Message names the lane and suggests the target's parent as the recipient instead. |
-| target is a workstream child whose kickoff was never delivered (`!isKickoffDelivered(...)` and no assistant message — the same predicate `handleWorkstreamPrompt` uses at `WorkstreamSpawnHttp.ts:2717`) | 409 — "Target has not started yet; its kickoff belongs to its parent. Notify the parent, or wait for the target to launch." A peer message must never become a child's first turn: kickoff composition (role framing + brief) is exclusively the parent/dispatcher's. |
+| both `threadId` and `name` supplied | 400 — exactly one identifies the target (D10) |
+| target `planLane` is `done` or `cancelled` | 409 — sticky-terminal, mirroring `workstream_prompt` (the decider otherwise permits silent terminal re-engagement, `decider.ts:911-922`). Message names the lane and suggests the target's parent as the recipient instead. |
+| target is archived | 409 — an archived thread must not accrue new turns. Consult reaches archived threads because it is read-only; a push is not. (Flagged as an open question in case the user wants delivery-on-unarchive instead.) |
+| target is a workstream child whose kickoff was never delivered | 409 — "Target has not started yet; its kickoff belongs to its parent. Notify the parent, or wait for the target to launch." A peer message must never become a child's first turn: kickoff composition (role framing + brief) is exclusively the parent/dispatcher's. **Implementation note (review):** shells carry no `messages` (`orchestration.ts:430-452`), so after shell resolution the handler must fetch detail via `projection.getThreadDetailById` and apply the same predicate `handleWorkstreamPrompt` uses at `WorkstreamSpawnHttp.ts:2719-2723` (`isKickoffDelivered(...) || any assistant message`). |
 | message over the size cap (D8) | 400 |
-| ordered-pair rate cap exceeded (D7) | 429 |
+| ordered-pair send cap exceeded (D7) | 429 — surfaced from the decider rejection of the record command |
 
-### D4 — Delivery: same `thread.turn.start` primitive, new `followUp` timing seam
+### D4 — Delivery: durable defer queue, delivered by the dispatcher on idle
 
-The handler dispatches the SAME command `handleWorkstreamPrompt` does
-(`WorkstreamSpawnHttp.ts:2783`) — no new delivery path:
+**No driver changes. No `midTurnDelivery` field. No pi follow-up usage.**
+Delivery is an orchestration-layer concern, reusing three proven pieces
+verbatim: the atomic `requireIdle` gate, the receipt-dedup rail pattern, and
+the dispatcher's event-driven pass.
 
-```ts
-yield* engine.dispatch({
-  type: "thread.turn.start",
-  commandId: CommandId.make(`server:notify-thread:${uuid}`),
-  threadId: targetThreadId,
-  message: {
-    messageId, role: "user",
-    origin: "peer",
-    text: framedText,            // D5 wrapper around the sender's message
-    attachments: [],
-  },
-  midTurnDelivery: "followUp",   // NEW field, see below
-  runtimeMode: target.runtimeMode,
-  interactionMode: target.interactionMode,
-  createdAt: now,
-} satisfies OrchestrationCommand);
+**The flow:**
+
+1. **Record first (durable enqueue).** After the D3 rejections pass, the
+   handler dispatches `thread.peer-message.record` through the engine. The
+   decider validates (including the D7 cap), appends
+   `thread.peer-message-recorded`, and the projection inserts a pending row.
+   This single event is simultaneously the delivery-queue entry, the
+   observability edge (D9), and the cap ledger (D7) — one durable fact, three
+   consumers. A record failure fails the tool call; **nothing is ever sent
+   un-recorded** (inverting rev 1's best-effort recording, which review
+   finding #5 showed is only acceptable when the record is pure
+   observability).
+
+2. **Immediate delivery attempt.** The handler then dispatches the delivery
+   turn-start itself:
+
+   ```ts
+   yield* engine.dispatch({
+     type: "thread.turn.start",
+     commandId: CommandId.make(`server:notify-deliver:${recordEventId}`), // deterministic
+     threadId: targetThreadId,
+     message: {
+       messageId, role: "user",
+       origin: "notify",
+       text: framedText,           // D5 wrapper, composed + persisted at record time
+       attachments: [],
+     },
+     requireIdle: true,            // existing atomic gate, unchanged
+     runtimeMode: target.runtimeMode,
+     interactionMode: target.interactionMode,
+     createdAt: now,
+   } satisfies OrchestrationCommand);
+   ```
+
+   The `requireIdle` re-check runs **inside the serialized command boundary**
+   (`OrchestrationEngine.ts:188-213`): accepted means the message-sent event
+   is committed to the target's transcript and its turn is starting; a busy
+   target raises `OrchestrationCommandDeferredError` **without writing a
+   receipt**, so the deterministic command id stays redeliverable. The handler
+   therefore knows the true disposition atomically — no advisory shell-read
+   race (review finding #8): the tool result is either
+   `delivered — committed to the target's transcript; its next turn is starting`
+   or `queued — will be delivered when the target next goes idle`. (Provider
+   failures *after* commit are the existing turn-start-fail machinery's job,
+   identical to any human send; the result wording never claims the model
+   acted on it.)
+
+3. **Deferred delivery rail.** A new dispatcher rail,
+   `deliverPendingNotifications`, joins `runPass` in
+   `WorkstreamDispatcher.ts` (beside the digest flush, whose
+   `deliverStandaloneDigest` at line 1995 is the exact pattern: `requireIdle`
+   dispatch, deferral = retry next pass, `deliverOnce` receipt dedup). For
+   each pending row, oldest-first per target:
+
+   - target lane now `done`/`cancelled` (or thread archived) →
+     dispatch `thread.peer-message.expire`
+     (`server:notify-expire:<recordEventId>`) — sticky-terminal holds even for
+     queued messages; the edge survives marked `expired`.
+   - `wasDelivered(deliveryCommandId)` (receipt exists but row still pending —
+     crash between turn-start accept and the mark) → dispatch
+     `thread.peer-message.mark-delivered` (reconciliation; idempotent).
+   - otherwise → `dedup.deliverOnce(deliveryCommandId, turn-start as above)`;
+     on `delivered`, dispatch `thread.peer-message.mark-delivered`.
+
+   Only the **oldest** pending message per target is attempted per pass: the
+   accepted delivery makes the target busy, and the next `thread.session-set`
+   (already in the dispatcher's trigger subscription, line 2944) re-runs the
+   pass for the next one — strict FIFO with one notification per turn, clean
+   per-message attribution, no batching ambiguity. This resolves review
+   finding #3 (the single pending-turn-start row never has to represent two
+   queued sends: at most one notify turn-start is in flight per target, by
+   construction).
+
+   Trigger wiring: add `thread.peer-message-recorded` to the dispatcher's
+   event subscription filter (`WorkstreamDispatcher.ts:2919-2947`) so a fresh
+   queue entry runs a pass promptly even when the handler's immediate attempt
+   deferred; `thread.session-set` and the startup reconciliation
+   `worker.enqueue()` (line 2954) already cover drain-on-idle and
+   crash/restart.
+
+**Why this beats the rev 1 pi-followUp design on every review axis:**
+
+- **#1 (false lifecycle):** no reliance on pi's follow-up event shape at all;
+  no `agent_settled` typing; no turn adoption. `followUpMode` (one-at-a-time
+  vs `all`, `pi docs/settings.md` "Message Delivery") becomes irrelevant.
+- **#2 (abort semantics):** interrupt/stop/crash of the target never
+  interacts with delivery — the queue is event-sourced server state, not pi
+  process state. A target that is aborted simply goes idle (session-set) and
+  the rail delivers.
+- **#3 (queue representability):** FIFO and multi-sender queueing live in the
+  projection table; the turns system only ever sees one ordinary turn-start
+  at a time.
+- **#4 (driver independence):** delivery is a plain fresh turn-start on an
+  idle thread — semantically identical for Claude/Codex/Cursor/OpenCode/Grok
+  and pi. "Never interrupt" is enforced by the orchestration layer for every
+  driver, unconditionally.
+
+**Trade-off, stated honestly:** rev 1's pi follow-up would have delivered
+into a *busy* recipient at its next internal turn boundary (sub-minute);
+the defer queue delivers when the recipient's whole T3 turn ends. For an
+unsolicited notification this latency is acceptable by design — the user's
+"never interrupt" decision already accepts that a busy recipient reads it
+later; "later" being turn-end rather than round-boundary is the price of
+driver independence and correct accounting, and it buys strict FIFO for free.
+
+### D5 — Recipient framing wrapper (relationship-aware)
+
+Composed server-side at **record time** from the authenticated sender's shell
+and the resolved target shell (so the persisted bytes are stable regardless of
+when the rail delivers), and stored on the recorded event alongside the raw
+message. The relationship line is computed from `parentThreadId` on both
+shells:
+
+- sender is target's parent → `your parent orchestrator`
+- target is sender's parent → `one of your sub-threads`
+- otherwise → `no parent/child relationship to you`
+
 ```
-
-No `requireIdle`, no `setInProgress`, no `reopen`: a peer message must not
-gate on idleness (it queues instead), must not flip lanes, and can never
-reopen a terminal thread (D3 rejects those).
-
-**Idle recipient** → exactly today's behaviour: the message starts the
-target's next turn.
-
-**Busy recipient** → today `PiDriver.sendTurn` folds any mid-run send as a
-steer (`streamingBehavior: "steer"`, `PiDriver.ts:2154`). A peer message is
-unsolicited, so it must not interrupt: it goes into pi's existing `followUp`
-queue (the lane already surfaced by `QueuedMessages`
-(`orchestration.loom.ts:231`) and pi's `queue_update` events) and is delivered
-at the next turn boundary. Concretely, `streamingBehavior: "followUp"` on the
-prompt request (`RpcProcess.ts:54` already types it).
-
-The timing preference travels as one new server-only optional field,
-`midTurnDelivery: "followUp"`, threaded through the existing pipeline:
-
-1. `LoomTurnStartFields` (`orchestration.loom.ts:691`) gains
-   `midTurnDelivery: Schema.optional(Schema.Literal("followUp"))`, with the
-   same server-only posture as `requireIdle` (never set by clients; the
-   decider rejects it on non-`server:` command ids, mirroring the `reopen`
-   guard at `decider.ts:849`). Absent ⇒ today's steer fold — every existing
-   caller is untouched.
-2. `ThreadTurnStartRequestedPayload` (`orchestration.ts:1003`) carries it
-   through (optional, loom-commented).
-3. `ProviderCommandReactor.processTurnStartRequested` passes it into
-   `buildSendTurnRequestForThread` (`ProviderCommandReactor.ts:782`), which
-   includes it in the returned `ProviderSendTurnInput`.
-4. `ProviderSendTurnInput` (`packages/contracts/src/provider.ts:85`) gains
-   `midTurnDelivery: Schema.optional(Schema.Literal("followUp"))` — advisory;
-   drivers that cannot honour it ignore it (see Open questions).
-5. `PiDriver.sendTurn` (`PiDriver.ts:2069`): when `activeTurnId` is set AND
-   `midTurnDelivery === "followUp"`, send the prompt with
-   `streamingBehavior: "followUp"` instead of `"steer"`.
-
-**Turn accounting for the follow-up run** — the one genuinely new driver
-mechanism. A steer joins the current T3 turn (same `turnId`); a followUp does
-not: pi queues it and starts a NEW agent run after the current one ends. Today
-`agent_start` with no `activeTurnId` is ignored (no `turn.started`,
-`PiDriver.ts:1533`), which would leave the followUp turn invisible and its
-pending turn-start row permanently uncleared (blinding the idle gate). Design:
-
-- `sendTurn` on the followUp branch mints the `turnId` up front, pushes it
-  onto a new per-session `pendingFollowUpTurnIds: TurnId[]`, sends the
-  prompt, and returns that `turnId` (satisfying `ProviderTurnStartResult`).
-- `agent_start` with `activeTurnId === undefined` shifts
-  `pendingFollowUpTurnIds`: if one exists, adopt it as the active turn, push
-  the turn record, emit `turn.started` — the normal lifecycle resumes from
-  there (the pending turn-start row clears at `turn.started` as usual).
-- Backstop: if the session stops or is interrupted while
-  `pendingFollowUpTurnIds` is non-empty (pi may drop its queue on abort —
-  verify at implementation), settle each pending id through the existing
-  `thread.turn-start.fail` path (`orchestration.loom.ts:971`) so no pending
-  row lingers. This mirrors the Fix-A discipline every other turn-start
-  failure already follows.
-
-### D5 — Recipient framing wrapper
-
-Composed server-side in the handler from the authenticated sender's shell
-(title, role, id — unforgeable), wrapping the raw message:
-
-```
-Message from peer thread «{senderTitle}» ({senderRole ?? "thread"}, {senderThreadId}) — an unsolicited peer notification, not from your parent orchestrator and not from a human:
+Notification from thread «{senderTitle}» ({senderRole ?? "thread"}, {senderThreadId}; {relationship}), sent via notify_thread:
 
 {message}
 
-No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender needs something back, reply with notify_thread (threadId: {senderThreadId}).
+No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with notify_thread (threadId: {senderThreadId}).
 ```
 
-Properties: the recipient can tell at a glance this is a peer (not its parent,
-not a human, not machinery); reply symmetry is explicit and carries the exact
-id (no name-resolution round trip for the reply); the no-reply-owed default is
-stated at the binding moment — in the recipient's context, where the
-acknowledge-reply loop would otherwise start (D7).
+Properties: the recipient can tell at a glance which thread this is and what
+it is to them (fixing review #7 without rejecting parent→child sends, which
+would violate the fixed any-to-any decision); reply symmetry is explicit and
+carries the exact id (no name-resolution round trip); the no-reply-owed
+default is stated at the binding moment — in the recipient's context, where
+the acknowledge-reply loop would otherwise start (D7).
 
 The framed text is what lands in the recipient's transcript
-(`thread.message-sent`), so provenance is durable and visible; the recorded
-edge event (D9) stores the raw message.
+(`thread.message-sent` with `origin: "notify"`), so provenance is durable and
+visible; the recorded edge event (D9) stores both raw and framed text.
 
 ### D6 — Fire-and-forget contract
 
-The tool result confirms delivery disposition only —
-`started the target's next turn` / `queued as a follow-up behind its open turn`
-— and never carries a reply. A caller that needs an answer has two honest
-options, both named in the tool description: `consult_thread` (synchronous
-read-only Q&A, no engagement of the target's real session) or asking the
-recipient to `notify_thread` back (asynchronous, arrives as a future inbound
-message, not as this call's result).
+The tool result confirms disposition only — `delivered` (committed to the
+target transcript, turn starting) or `queued` (durably pending, delivered at
+the target's next idle) — and never carries a reply. A caller that needs an
+answer has two honest options, both named in the tool description:
+`consult_thread` (synchronous read-only Q&A, no engagement of the target's
+real session) or asking the recipient to `notify_thread` back (asynchronous,
+arrives as a future inbound message, not as this call's result).
 
-### D7 — Loop safety
+### D7 — Loop safety: decider-enforced durable cap
 
-Two layers, both cheap:
+Two layers:
 
 1. **Register**: the framing (D5) states "no reply is owed" and gives the
-   recipient an explicit if-and-only-if condition for replying. This kills the
-   politeness ping-pong ("acknowledged!" → "you're welcome!") at the source.
-2. **Rate cap**: the handler counts recorded peer-message events for the
-   ordered pair (sender → target) in a rolling window via the projection
-   table (D9) and rejects beyond `NOTIFY_PAIR_HOURLY_CAP = 10` with a 429
-   naming the guard. Rationale for the number: legitimate uses are sparse
-   (completion notices, occasional info handoffs — a few per pair per
-   session); a runaway A↔B loop is turn-paced, so even a slow loop hits 10
-   within the hour and both directions get told to stop. No round counter, no
-   conversation state — the cap is derivable from the same table the graph
-   edges use.
+   recipient an explicit condition for replying. This kills the politeness
+   ping-pong at the source.
+2. **Authoritative rate cap, enforced in the decider** (review finding #5:
+   a handler-side projection count is check-then-record and fails open under
+   concurrency or a failed record; here the ledger is load-bearing, not
+   observability). The thread read model gains a small pruned send log —
+   `notifySendLog: ReadonlyArray<{ targetThreadId, at }>` in
+   `LoomThreadFields` (`orchestration.loom.ts:~360`, decode-defaulted `[]`)
+   — maintained by the projector from `thread.peer-message-recorded` events
+   (pruned to the rolling window on each append, so it stays bounded). The
+   decider's `thread.peer-message.record` case counts window entries for the
+   ordered pair (sender → target) and rejects at
+   `NOTIFY_PAIR_HOURLY_CAP = 10`. The decider runs serially inside the
+   command boundary, so check-then-append is atomic; the log is event-sourced,
+   so it is replay- and restart-safe. **A recorded-but-expired or
+   recorded-but-not-yet-delivered message counts as an attempt** — the cap
+   meters send pressure, not delivery success (a runaway loop must not get
+   free retries because its target was busy).
 
-No forced-reply mechanics, no reply-to threading, no round cap between
-specific messages: fire-and-forget is the baseline per the accepted decision,
-and anything conversational should escalate to a human or a consult.
+Rationale for 10/hour: legitimate uses are sparse (completion notices,
+occasional info handoffs — a few per pair per session); a runaway A↔B loop is
+turn-paced, so even a slow loop hits the cap within the hour and both
+directions get told to stop. No round counter, no conversation state.
 
 ### D8 — Message size cap
 
@@ -251,71 +323,92 @@ whole report inline" impossible; the message parameter's description tells the
 sender to pass paths for bulk content. Knob, not architecture — flagged in
 Open questions.
 
-### D9 — Observability: `thread.peer-message-recorded` + shell edge
+### D9 — Observability: recorded/delivered/expired events + shell edge
 
-Mirrors the consult pipeline end to end (command → decider passthrough →
-projection row → shell aggregation → graph overlay):
+Mirrors the consult pipeline (command → decider → projection row → shell
+aggregation → graph overlay; the analogue is review-verified real:
+`decider.loom.ts:986-1014`, `ProjectionPipeline.ts:1390-1408`, migration 048),
+extended with a delivery lifecycle because the row is also the queue:
 
-- **Command** `thread.peer-message.record`
-  (`orchestration.loom.ts`, beside `ThreadConsultRecordCommand` at ~line 907):
-  `{ commandId, threadId /* sender = aggregate */, targetThreadId,
-  targetTitle, message, delivery: "turn" | "followUp", createdAt }`.
-  Dispatched by the handler after the turn-start dispatch succeeds,
-  best-effort exactly like the consult recording (a recording failure logs a
-  warning and never fails the notify response, `WorkstreamSpawnHttp.ts:3138`).
-- **Decider** (`decider.loom.ts`, beside `thread.consult.record` at ~line 990):
-  pure passthrough → event `thread.peer-message-recorded` with payload
-  `{ senderThreadId, targetThreadId, targetTitle, message, delivery,
-  createdAt }`. Registered in the event/command type enums
-  (`orchestration.loom.ts:~1401/1461`).
-- **Projection**: new table via migration
-  `064_ProjectionThreadPeerMessages.ts` + repository
-  `ProjectionThreadPeerMessages` (Layers + Services), shaped like
-  `ProjectionThreadConsults` (048): eventId (idempotency), senderThreadId,
-  targetThreadId, targetTitle, bounded `messagePreview`, createdAt. Projected
-  in `ProjectionPipeline.ts` beside the `thread.consult-recorded` case
-  (~line 1394), with `refreshThreadShellSummary(sender)`. The named
-  distinction from the existing `ProjectionThreadMessages` (chat messages) is
-  deliberate — "peer messages" are edges, not transcript rows.
+- **Commands** (`orchestration.loom.ts`, beside `ThreadConsultRecordCommand`
+  ~line 907):
+  - `thread.peer-message.record` — `{ commandId, threadId /* sender =
+    aggregate */, targetThreadId, targetTitle, message, framedMessage,
+    createdAt }`. Dispatched by the handler; decider validates + enforces the
+    D7 cap.
+  - `thread.peer-message.mark-delivered` / `thread.peer-message.expire` —
+    `{ commandId, threadId /* sender */, recordEventId, createdAt }`.
+    Server-only (rejected on non-`server:` command ids, mirroring the `reopen`
+    guard at `decider.ts:844-853`); dispatched by the handler (immediate
+    delivery) or the dispatcher rail.
+- **Events**: `thread.peer-message-recorded` (full raw + framed text, status
+  `pending`), `thread.peer-message-delivered`, `thread.peer-message-expired`
+  — registered in the event/command enums (`orchestration.loom.ts:~1401/1461`).
+- **Projection**: migration `064_ProjectionThreadPeerMessages.ts` (registry
+  currently ends at 063 — verified free) + repository
+  `ProjectionThreadPeerMessages` (Layers + Services), shaped on
+  `ProjectionThreadConsults` (048) plus queue columns: eventId (idempotency),
+  senderThreadId, targetThreadId, targetTitle, message, framedMessage,
+  messagePreview (bounded), status (`pending | delivered | expired`),
+  createdAt, deliveredAt. Projected in `ProjectionPipeline.ts` beside the
+  consult case (~line 1394), with `refreshThreadShellSummary(sender)` on each
+  status change. The rail's pending-scan is one indexed query
+  (`status = 'pending'` by target, oldest first).
+- **Read model**: `notifySendLog` on the thread aggregate (D7), maintained in
+  `projector.loom.ts`; fall-through comments extended
+  (`projector.ts:216`, `projector.loom.ts:113`).
 - **Shell**: `OrchestrationThreadPeerMessageSummary`
-  (`orchestration.loom.ts`, beside `OrchestrationThreadConsultSummary` at
-  ~line 319): `{ targetThreadId, targetTitle, count, lastMessageAt,
+  (beside `OrchestrationThreadConsultSummary`, ~line 319):
+  `{ targetThreadId, targetTitle, count, pendingCount, lastMessageAt,
   lastMessagePreview }`; shell field `peerMessages` (decode-defaulted `[]`,
-  beside `consults` at ~line 486); aggregation query in
+  beside `consults` at ~line 486); aggregation in
   `ProjectionSnapshotQuery.ts` (~line 998 pattern).
 - **Graph**: `WorkstreamGraph.tsx` draws a message-edge overlay from
-  `peerMessages` exactly as the consult overlay does (~line 137), in a
-  distinct colour. The projector fall-through comments
-  (`projector.ts:216`, `projector.loom.ts:113`) note the new event. UI overlay
-  can land as a fast-follow; the event + shell edge are the contract and ship
-  with the tool.
+  `peerMessages` as the consult overlay does (~line 137), distinct colour,
+  pending edges dashed. The event + shell edge ship with the tool; the
+  overlay may land as a fast-follow.
 
-### D10 — Target resolution: id or fuzzy name, consult-style
+### D10 — Target resolution: exactly one of id or name
 
-Reuse `rankThreadsByName` / `isUnambiguousMatch` / candidate rendering exactly
-as `handleWorkstreamConsultThread` (`WorkstreamSpawnHttp.ts:3161-3184`):
-`threadId` wins when present; a `name` with one clear match sends; an
-ambiguous name returns ranked candidates and **sends nothing** (a misdelivered
-push engages the wrong thread's session — worse than a misdelivered consult).
+Reuse `rankThreadsByName` / `isUnambiguousMatch` exactly as
+`handleWorkstreamConsultThread` (`WorkstreamSpawnHttp.ts:3161-3184`), with two
+corrections from review finding #6:
+
+- **Exactly one of `threadId` or `name`; both present is a 400.** (Rev 1
+  contradicted itself: prose said threadId-wins, the param said not-both. For
+  a side-effectful send, silent precedence hides a caller bug; consult's
+  lenient precedence stays as-is.)
+- **A notification-specific candidate renderer.** The existing
+  `renderConsultCandidates` (`workstreamRender.ts:239-256`) hard-codes "call
+  consult_thread again" — reusing it would instruct the caller to invoke the
+  wrong tool. Parameterise it (`renderThreadCandidates(candidates, { toolName,
+  action })`) with consult passing its current strings, or add a sibling
+  `renderNotifyCandidates`; either way one shared line-format, two follow-up
+  instructions.
+
+An ambiguous name returns ranked candidates and **sends nothing** (a
+misdelivered push engages the wrong thread's session — worse than a
+misdelivered consult).
 
 ## 3. Tool definition (the deliverable wording)
 
 Authored to `docs/architecture/tool-def-authoring.md` (the delegation-thread
 rubric). Entry in
 `apps/server/src/provider/Drivers/Pi/providerToolDefs.ts`; route in
-`toolPaths.ts`.
+`toolPaths.ts`. Shipped prose avoids em dashes per the rubric's agreed style
+(this plan document uses them; the tool text below does not).
 
 ```ts
 {
   name: "notify_thread",
   label: "Notify Thread (cross-thread push)",
   description:
-    "Push a markdown message into ANY other thread the server knows — across orchestration trees, worktrees, and projects — the write counterpart of the read-only consult_thread. Delivery never interrupts: an idle recipient starts its next turn with your message (it will spend tokens acting on it); a busy recipient receives it as a queued follow-up at its next turn boundary, never folded into the running turn. The recipient sees it framed as a peer message carrying your thread's title and id, and owes no reply — this call is fire-and-forget (the result confirms started/queued delivery and never carries an answer). Use it to tell a thread something it is waiting to hear, e.g. \"the extraction run you depend on is complete; results at <path>\". It is NOT for getting information back (consult_thread asks a read-only question and returns the answer), not for directing your own children (workstream_prompt), not for reporting to your parent (workstream_submit), and not for creating work (workstream_spawn). Identify the target by threadId, or by name (fuzzy sidebar-title match) — an ambiguous name sends nothing and returns ranked candidates.",
+    "Push a markdown message into ANY other thread the server knows, across orchestration trees, worktrees, and projects: the write counterpart of the read-only consult_thread. Delivery never interrupts. An idle recipient starts its next turn with your message (it will spend tokens acting on it); a busy recipient has it queued durably, then delivered as a fresh turn when it next goes idle. The recipient sees it framed as a notification from your thread (title, id, and your relationship to it, if any) and owes no reply: this call is fire-and-forget, and its result reports 'delivered' or 'queued', never an answer. Use it to tell a thread something it is waiting to hear, e.g. \"the extraction run you depend on is complete; results at <path>\". It is NOT for getting information back (consult_thread asks a read-only question and returns the answer), not for directing your own children (workstream_prompt), not for reporting to your parent (workstream_submit), not for creating work (workstream_spawn), and not for reaching non-T3 pi sessions on this machine (intercom); notify_thread addresses durable T3 threads and leaves transcript and graph provenance. Identify the target by threadId, or by name (fuzzy sidebar-title match); an ambiguous name sends nothing and returns ranked candidates.",
   promptSnippet:
-    "push a fire-and-forget message into any thread by id or name (idle target → starts its next turn; busy target → queued follow-up, never interrupts).",
+    "push a fire-and-forget message into any other thread, by id or name; it never interrupts the recipient.",
   promptGuidelines: [
-    "notify_thread's result is the end of the exchange — no reply arrives through it. Need an answer? consult_thread the target, or ask it (in your message) to notify_thread you back and carry on until that arrives.",
-    "An unresolved name returns candidates and sends nothing: confirm the intended target, then call again with its threadId — a push engages the recipient's session, so never guess.",
+    "notify_thread's result is the end of the exchange; no reply arrives through it. Need an answer? consult_thread the target, or ask it (in your message) to notify_thread you back and carry on until that arrives.",
+    "An unresolved name returns candidates and sends nothing: confirm the intended target, then call again with its threadId. A push engages the recipient's session, so never guess.",
   ],
   parameters: {
     type: "object",
@@ -323,24 +416,24 @@ rubric). Entry in
       threadId: {
         type: "string",
         description:
-          "Exact id of the target thread. Preferred when known (from workstream_list, a prior consult, or an @-mention [Title](thread://<id>)). Provide threadId OR name, not both.",
+          "Exact id of the target thread, preferred when known (from workstream_list, a prior consult, or an @-mention [Title](thread://<id>)). Provide exactly one of threadId or name; supplying both is rejected.",
       },
       name: {
         type: "string",
         description:
-          "Fuzzy sidebar title/name of the target thread, used when you don't have an exact id; an ambiguous name returns ranked candidates without sending.",
+          "Fuzzy sidebar title of the target thread, used when you do not have an exact id. An ambiguous match returns ranked candidates without sending; supplying name together with threadId is rejected.",
       },
       message: {
         type: "string",
         description:
-          "The markdown message the recipient receives, framed as coming from your thread. It lands in another agent's context with none of yours, so write it self-contained: lead with what the recipient needs to know or do with it, reference your outputs by absolute path instead of pasting bulk content, and say whether anything is expected back (the default the framing states for you: nothing — the recipient owes no reply).",
+          "The markdown message the recipient receives, framed as a notification from your thread. It lands in another agent's context with none of yours, so write it self-contained: state what you are informing it of, reference your outputs by absolute path instead of pasting bulk content, and say plainly if you are asking for anything back (the framing tells the recipient the default is nothing). A notification informs; it must never re-task, steer, or covertly delegate. To direct work, prompt your own child (workstream_prompt) or spawn a new one (workstream_spawn).",
       },
     },
     required: ["message"],
     additionalProperties: false,
   },
   errorMode: "throw",
-  fallbackText: "Message delivered.",
+  fallbackText: "Notification accepted.",
 }
 ```
 
@@ -348,135 +441,157 @@ rubric). Entry in
 
 - **Register**: second person, imperative, addressed to the calling agent at
   the selection moment; every sentence is behaviour-shaping ("an ambiguous
-  name sends nothing", "the result … never carries an answer"), not API
-  reference.
-- **When/when-not with named alternatives, symmetric**: the description
-  routes each rejected branch to its sibling (`consult_thread`,
-  `workstream_prompt`, `workstream_submit`, `workstream_spawn`). The
-  companion edit (below) makes the fork visible from the other side too.
+  name sends nothing", "the result reports 'delivered' or 'queued', never an
+  answer"), not API reference.
+- **When/when-not with named alternatives**: the description routes every
+  rejected branch to its sibling (`consult_thread`, `workstream_prompt`,
+  `workstream_submit`, `workstream_spawn`, `intercom`). The `intercom`
+  boundary is included because the tools DO co-occur in real T3 tool surfaces
+  (review corrected rev 1's contrary claim): intercom addresses live pi
+  sessions on the machine; notify_thread addresses durable T3 threads with
+  transcript/graph provenance.
+- **`promptSnippet` is capability discovery only** (review punch-list):
+  what exists and its one defining property (never interrupts); the idle/busy
+  mechanics live in the description, read at selection time.
 - **Recipient characterised at composition time**: `message` is an
-  artefact-crossing parameter — its description names the reader (another
+  artefact-crossing parameter; its description names the reader (another
   agent with none of the caller's context) and the register (self-contained,
-  paths not bulk, expectation-explicit). This is the rubric's root-defect
-  guard (recipient-blindness) applied where it binds: while the model
-  generates that field.
-- **Blast radius is capability, not plumbing**: "it will spend tokens acting
-  on it" and the global reach are selection-relevant (they change whether you
-  call), so they live in the description; the recorded edge event, the
-  origin value, and route paths are plumbing the caller cannot act on —
-  omitted.
-- **No schema restatement**: no "Required."/"Optional." prose; the one
-  handler-enforced conditional JSON schema cannot express ("threadId OR name,
-  not both") is correctly in prose.
-- **Guidelines carry only post-call duties** (2 bullets): what to do after a
-  fire-and-forget send when you wanted an answer, and after an unresolved
-  name. Both bind outside the call, when schema salience is gone. Nothing in
-  them contradicts the parameter text.
+  paths not bulk, expectation-explicit) — the rubric's recipient-blindness
+  guard applied where it binds.
+- **The covert-delegation failure mode is guarded explicitly on the
+  parameter** (review punch-list): "must never re-task, steer, or covertly
+  delegate", with the legitimate channels named. Rev 1's "what the recipient
+  needs to know or do" invited exactly that misuse; "do" is gone.
+- **Honest disposition**: "delivered" is used only for the committed-to-
+  transcript case the handler can atomically know (D4); nothing claims the
+  recipient acted. `fallbackText` says "accepted", not "delivered" — the
+  fallback fires precisely when the server's rendered disposition is missing.
+- **No schema restatement**: the one handler-enforced conditional JSON schema
+  cannot express (exactly-one-of threadId/name) is correctly in prose, stated
+  identically on both parameters.
+- **Guidelines carry only post-call duties** (2 bullets), binding after the
+  call when schema salience is gone; neither contradicts the parameter text.
 - **No paraphrase-drift coupling**: "the write counterpart of the read-only
   consult_thread" references consult_thread's *contract* (read-only), not a
-  restatement of its definition, so future edits to consult_thread's def
-  cannot silently change this one's meaning.
-- **Both tails guarded** on `message`: self-containedness guards
-  under-specification; "reference outputs by path instead of pasting bulk"
-  guards the over-stuffed twin.
+  restatement of its definition.
+- **No em dashes in any shipped string** (description, snippet, guidelines,
+  parameter texts, fallback).
 
 ### Companion wording edits (same change, no drift)
 
-Per the rubric's "land shared-field rewrites on every carrying def in one
-change":
-
 - `consult_thread.description` gains one clause at its tail: "It never
-  resumes or mutates the target — to push a message that the target acts on,
-  use notify_thread." (Makes the sibling fork symmetric at selection time.)
+  resumes or mutates the target; to push a message the target acts on, use
+  notify_thread." (Makes the sibling fork symmetric at selection time.)
 - `workstream_prompt` needs **no edit**: its scope sentence ("DIRECT child …
-  you spawned") already excludes peers, and adding a cross-reference would
+  you spawned") already excludes non-children, and a cross-reference would
   couple it to this def for no selection value. If implementation review
   disagrees, the one acceptable addition is "for a thread you do not parent,
-  use notify_thread" appended to its guideline about direct children.
-- Distinction from `intercom` (a pi-session-level user tool, not a provider
-  tool in this array): no cross-reference from `notify_thread` — the two never
-  co-occur in the same selection surface, so the reference would be ambient
-  cost with no binding moment. If a skill doc ever compares them: intercom
-  reaches *pi sessions on the machine* outside T3's thread graph;
-  notify_thread reaches *T3 threads* with durable provenance and graph edges.
+  use notify_thread" appended to its direct-children guideline.
 
-Before shipping, run the rubric's generative probe: give a model 3–4
-scenarios (peer completion notice; wants-an-answer; ambiguous name; tempted to
-steer a stranger's child) with the full tool array and check it selects and
-composes correctly; adjust wording only on evidence.
+Before shipping, run the rubric's generative probe: give a model 4-5
+scenarios (peer completion notice; wants-an-answer; ambiguous name; tempted
+to re-task a stranger's thread via the message body; choosing between
+notify_thread and intercom) with the full tool array and check selection and
+composition; adjust wording only on evidence.
 
 ## 4. File-by-file change list
 
 | # | File | Change |
 | --- | --- | --- |
-| 1 | `packages/contracts/src/orchestration.loom.ts` | `MessageOrigin` += `"peer"`; `midTurnDelivery` in `LoomTurnStartFields`; `ThreadPeerMessageRecordCommand`; `ThreadPeerMessageRecordedPayload`; `OrchestrationThreadPeerMessageSummary`; shell field `peerMessages` (decode-defaulted `[]`); event/command name enums. |
-| 2 | `packages/contracts/src/orchestration.ts` | `ThreadTurnStartRequestedPayload` += optional `midTurnDelivery` (loom-commented). |
-| 3 | `packages/contracts/src/provider.ts` | `ProviderSendTurnInput` += optional `midTurnDelivery: "followUp"` (advisory; loom-commented). |
-| 4 | `apps/server/src/mcp/toolPaths.ts` | `notify_thread: "/provider-tools/thread/notify"`. |
-| 5 | `apps/server/src/mcp/WorkstreamSpawnHttp.ts` | `handleNotifyThread` (scope → resolve target by id/name → D3 rejections → D7 cap check → D5 framing → `thread.turn.start` dispatch with `origin: "peer"` + `midTurnDelivery: "followUp"` → best-effort `thread.peer-message.record` → rendered delivery disposition) + route layer; constants `NOTIFY_MESSAGE_MAX_CHARS`, `NOTIFY_PAIR_HOURLY_CAP`. |
-| 6 | `apps/server/src/orchestration/decider.ts` | Carry `midTurnDelivery` from command into `thread.turn-start-requested` payload; server-only guard mirroring `reopen` (`decider.ts:849`). |
-| 7 | `apps/server/src/orchestration/decider.loom.ts` | `case "thread.peer-message.record"` passthrough beside the consult case (~line 990). |
-| 8 | `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts` | Thread `midTurnDelivery` through `processTurnStartRequested` → `buildSendTurnRequestForThread` (~line 782) → `ProviderSendTurnInput`. |
-| 9 | `apps/server/src/provider/Drivers/PiDriver.ts` | `sendTurn` followUp branch (`streamingBehavior: "followUp"`, minted turnId, `pendingFollowUpTurnIds`); `agent_start` adoption of a pending followUp turn (~line 1533); stop/interrupt backstop settling pending ids via `thread.turn-start.fail`. |
-| 10 | `apps/server/src/persistence/Migrations/064_ProjectionThreadPeerMessages.ts` + `Layers/ProjectionThreadPeerMessages.ts` + `Services/ProjectionThreadPeerMessages.ts` | New projection table + repository, shaped on `ProjectionThreadConsults` (048). |
-| 11 | `apps/server/src/orchestration/Layers/ProjectionPipeline.ts` | Project `thread.peer-message-recorded` (idempotent by eventId, bounded preview, `refreshThreadShellSummary(sender)`), beside ~line 1394. |
-| 12 | `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | `peerMessages` shell aggregation (pattern of `consults`, ~line 998); ordered-pair windowed count for the D7 cap. |
-| 13 | `apps/server/src/orchestration/projector.ts` / `projector.loom.ts` | Extend the "events with no case fall through" comments (~lines 216 / 113). |
-| 14 | `apps/server/src/provider/Drivers/Pi/providerToolDefs.ts` | The §3 tool def + the consult_thread companion clause. |
-| 15 | `apps/web/src/components/chat/MessagesTimeline.tsx` | `MESSAGE_ORIGIN_LABELS.peer = "Peer thread"` (~line 898). |
-| 16 | `apps/web/src/components/WorkstreamGraph.tsx` (+ `lib/forkJoinLayout.ts` if edge routing needs it) | Peer-message edge overlay from `peerMessages` (consult-overlay pattern, ~line 137). May land as fast-follow. |
+| 1 | `packages/contracts/src/orchestration.loom.ts` | `MessageOrigin` += `"notify"`; `notifySendLog` in `LoomThreadFields` (decode-defaulted `[]`); `ThreadPeerMessageRecordCommand` / `MarkDeliveredCommand` / `ExpireCommand`; `ThreadPeerMessageRecordedPayload` / `DeliveredPayload` / `ExpiredPayload`; `OrchestrationThreadPeerMessageSummary`; shell field `peerMessages`; event/command name enums. |
+| 2 | `apps/server/src/mcp/toolPaths.ts` | `notify_thread: "/provider-tools/thread/notify"`. |
+| 3 | `apps/server/src/mcp/WorkstreamSpawnHttp.ts` | `handleNotifyThread`: scope → resolve target (exactly-one-of id/name, consult-style ranking) → D3 rejections (incl. detail fetch for the kickoff-delivered predicate) → compose + persist framing via `thread.peer-message.record` (decider may 429) → immediate `thread.turn.start` attempt (`requireIdle: true`, deterministic `server:notify-deliver:<recordEventId>`) → on accept, `thread.peer-message.mark-delivered`; on `OrchestrationCommandDeferredError`, report `queued`. Route layer; constants `NOTIFY_MESSAGE_MAX_CHARS`, `NOTIFY_PAIR_HOURLY_CAP`. |
+| 4 | `apps/server/src/mcp/workstreamRender.ts` | Parameterise the candidate renderer (tool name + follow-up action); notify disposition rendering (`delivered` / `queued` texts). |
+| 5 | `apps/server/src/orchestration/decider.loom.ts` | `thread.peer-message.record` case: validate, enforce the pair cap against `notifySendLog` (serial, atomic), append recorded event. `mark-delivered` / `expire` cases: server-only guard (mirror `decider.ts:844-853`), passthrough. |
+| 6 | `apps/server/src/orchestration/projector.loom.ts` (+ fall-through comments in `projector.ts:216` / `projector.loom.ts:113`) | Maintain `notifySendLog` (append + prune-to-window) from recorded events. |
+| 7 | `apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts` | New rail `deliverPendingNotifications` in `runPass` (pattern of `deliverStandaloneDigest`, line 1995): per target oldest-first pending row → expire (terminal/archived) / reconcile (`wasDelivered`) / `deliverOnce` + mark-delivered. Add `thread.peer-message-recorded` to the trigger subscription (~line 2919). |
+| 8 | `apps/server/src/persistence/Migrations/064_ProjectionThreadPeerMessages.ts` + `Layers/ProjectionThreadPeerMessages.ts` + `Services/ProjectionThreadPeerMessages.ts` | Projection table + repository (queue + edge + preview columns, status lifecycle, indexed pending-by-target scan). |
+| 9 | `apps/server/src/orchestration/Layers/ProjectionPipeline.ts` | Project the three events (idempotent by eventId; status transitions; `refreshThreadShellSummary(sender)`), beside ~line 1394. |
+| 10 | `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | `peerMessages` shell aggregation (pattern of `consults`, ~line 998). |
+| 11 | `apps/server/src/provider/Drivers/Pi/providerToolDefs.ts` | The §3 tool def + the consult_thread companion clause. |
+| 12 | `apps/web/src/components/chat/MessagesTimeline.tsx` | `MESSAGE_ORIGIN_LABELS.notify = "Thread notification"` (~line 898). |
+| 13 | `apps/web/src/components/WorkstreamGraph.tsx` (+ `lib/forkJoinLayout.ts` if edge routing needs it) | Peer-message edge overlay from `peerMessages` (consult-overlay pattern, ~line 137); pending edges dashed. May land as fast-follow. |
+
+Explicitly **not** touched (rev 1 items removed): `packages/contracts/src/provider.ts`,
+`apps/server/src/orchestration/decider.ts` (no new turn-start field),
+`ProviderCommandReactor.ts`, `PiDriver.ts`, `RpcProcess.ts` — no
+`midTurnDelivery`, no follow-up lifecycle, no driver changes of any kind.
 
 ## 5. Test surfaces
 
 - `apps/server/src/mcp/WorkstreamSpawnHttp.test.ts` — handler: cross-tree
-  target accepted (no D3 ownership error); self-send 400; terminal-lane 409;
-  unstarted-child 409; fuzzy-name unambiguous send vs ambiguous
-  candidates-no-send; size cap 400; pair cap 429; framing wrapper contains
-  sender title/role/id and the raw message; `origin: "peer"` +
-  `midTurnDelivery: "followUp"` on the dispatched command; recording is
-  best-effort (a failing record still returns 200).
-- `apps/server/src/orchestration/decider.*.test.ts` (new
-  `decider.peerMessage.test.ts` beside `decider.handoffRecord.test.ts`) —
-  passthrough event derivation; `midTurnDelivery` rejected on non-`server:`
-  command ids; carried into `thread.turn-start-requested`.
-- `apps/server/src/provider/Drivers/PiDriver.test.ts` — busy +
-  `midTurnDelivery: "followUp"` sends `streamingBehavior: "followUp"` and
-  returns a fresh turnId (not the active one); subsequent bare `agent_start`
-  adopts the pending id and emits `turn.started`; idle send ignores the flag
-  (plain turn); interrupt with pending followUps settles them (no lingering
-  pending turn-start row); steer path byte-identical without the flag.
-- `ProjectionPipeline` / snapshot-query tests — edge row idempotency, preview
-  bounding, `peerMessages` aggregation, windowed pair count.
+  target accepted (no D3 ownership error); self-send 400; both-id-and-name
+  400; terminal-lane 409; archived 409; unstarted-child 409 (predicate reads
+  thread *detail*, not the shell); fuzzy-name unambiguous send vs ambiguous
+  candidates-no-send with the notify renderer text; size cap 400; cap
+  rejection surfaces as 429; idle target → `delivered` + mark-delivered
+  dispatched; busy target → deferred, row stays pending, result says
+  `queued`; framing contains sender title/role/id and the correct
+  relationship line for parent/child/unrelated; `origin: "notify"` on the
+  dispatched command; a failed record fails the call and delivers nothing.
+- `apps/server/src/orchestration/decider.peerMessage.test.ts` (new, beside
+  `decider.handoffRecord.test.ts`) — recorded/delivered/expired event
+  derivation; cap enforced at the boundary (10th accepted, 11th rejected;
+  window pruning; per-ordered-pair isolation; serial atomicity);
+  `mark-delivered`/`expire` rejected on non-`server:` command ids.
+- `apps/server/src/orchestration/Layers/WorkstreamDispatcher.test.ts` — rail:
+  delivers oldest pending on idle target via `deliverOnce`; busy target
+  deferred with nothing recorded (redeliverable); two pending from different
+  senders delivered FIFO across successive passes; terminal/archived target →
+  expired; crash-window reconciliation (receipt exists, row pending → marked
+  delivered without re-delivery); `thread.peer-message-recorded` triggers a
+  pass.
+- `projector.loom` tests — `notifySendLog` append + prune; replay rebuilds
+  the same log.
+- `ProjectionPipeline` / snapshot-query tests — row idempotency, status
+  transitions, preview bounding, `peerMessages` aggregation with
+  `pendingCount`.
 - `apps/server/src/provider/Drivers/Pi/providerToolDefs.test.ts` +
-  `toolPaths.test.ts` — def present, route registered, name↔path coherence.
-- `apps/web/src/components/chat/MessagesTimeline.test.tsx` — peer label
+  `toolPaths.test.ts` — def present, route registered, name↔path coherence;
+  assert no em dash in any `notify_thread` string (cheap drift guard for the
+  style rule).
+- `apps/web/src/components/chat/MessagesTimeline.test.tsx` — notify label
   renders.
 - One end-to-end-ish handler test asserting the recipient's persisted
-  `thread.message-sent` carries the framed text with `origin: "peer"`.
+  `thread.message-sent` carries the framed text with `origin: "notify"`.
 
 ## 6. Open questions
 
-1. **pi's followUp queue across abort/interrupt** — does pi still run queued
-   followUps after an abort, or drop them? The D4 backstop (settle pending ids
-   on stop/interrupt) is designed to be correct either way, but the
-   implementation must verify the actual behaviour and, if pi *runs* them
-   post-abort, ensure the adopted-turn path (not the backstop) wins. Verify
-   with a live pi RPC probe before wiring the backstop's trigger points.
-2. **Non-pi recipients** — `ProviderSendTurnInput.midTurnDelivery` is
-   advisory; a busy recipient on a driver without a followUp lane would fold
-   the message as a steer (violating the never-interrupt decision) or need a
-   handler-side reject. All workstream/loom threads are pi today, so the
-   proposal is: ignore-with-log in other drivers, note the limitation in
-   `docs/architecture/providers.md`, and revisit if a non-pi recipient becomes
-   real. Escalate if the user wants a hard reject instead.
-3. **Attention-flag interaction** — a peer message that resumes an idle
-   `needs_guidance` thread clears its flag (turn-start clears attention),
-   potentially hiding a still-needed human. Proposal: accept (identical to a
-   human send resuming it, and the thread will re-raise if still stuck), but
-   this is a judgement call worth a reviewer's eye.
+1. **Archived targets** — this design rejects them (409): a push engages a
+   session, and an archived thread should not accrue turns. Alternative:
+   accept + queue, delivering only if the thread is unarchived (the expire
+   rail would need an unarchive-aware predicate). Rejecting is simpler and
+   reversible; escalate if the user has a live archived-notify case.
+2. **Queue-jumping by the target's own human/parent** — a pending
+   notification delivers at the *next* idle; if a human sends first, the
+   notification waits for the following idle window (the `requireIdle` gate
+   defers it). This is correct by the never-interrupt decision but means a
+   chatty target can starve delivery for a while. Accept, or add a
+   max-pending-age nudge (dispatcher raises a parent-visible notice when a
+   pending notification exceeds e.g. 30 min)? Proposed: accept for v1; the
+   pending edge is visible in the graph.
+3. **Attention-flag interaction** — a delivered notification that resumes an
+   idle `needs_guidance` thread clears its flag (turn-start clears
+   attention). Proposal: accept (identical to a human send resuming it; the
+   thread re-raises if still stuck) — review agreed this is tune-later.
 4. **Cap values** — `NOTIFY_MESSAGE_MAX_CHARS = 16_000` and
-   `NOTIFY_PAIR_HOURLY_CAP = 10` are justified knobs (D7/D8), not
-   architecture; tune freely on evidence.
-5. **Graph overlay timing** — the event + shell edge ship with the tool; the
+   `NOTIFY_PAIR_HOURLY_CAP = 10` are justified knobs (D7/D8), tune on
+   evidence. Also decide whether the cap should additionally have a global
+   per-sender ceiling (e.g. 30/hour across all targets) — cheap to add in the
+   same decider case; proposed: not in v1.
+5. **Graph overlay timing** — the events + shell edge ship with the tool; the
    `WorkstreamGraph` overlay may land as a fast-follow if the first PR is
-   getting large.
+   getting large. "Recorded edge" is satisfied on day one at the data level.
+6. **Delivery guarantee wording** — the design gives at-most-once transcript
+   delivery per message (deterministic command id + receipt), with
+   crash/restart recovery via the startup reconciliation pass and the
+   `wasDelivered` reconciliation leg. A message can end `expired` without the
+   sender ever learning (fire-and-forget). If senders turn out to need a
+   delivery signal, a future `notify_thread` result-query or a sender-side
+   control notice can read the row status — out of scope for v1.
+7. **pi follow-up mode** — considered and rejected as the delivery mechanism
+   (see revision note). If T3 later wants sub-turn-boundary delivery into
+   busy pi recipients, that is an additive optimisation of the rail's
+   delivery leg for the pi driver only, and would require typing
+   `agent_settled` and pinning `followUpMode`; nothing in this design
+   forecloses it.
