@@ -38,8 +38,11 @@ import { readLocalApi } from "~/localApi";
 import { useUiStateStore } from "~/uiStateStore";
 import { X } from "lucide-react";
 
-import { useThreadTabsStore } from "./threadTabsStore";
+import { selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 import { useThreadTabActions } from "./useThreadTabsSync";
+
+/** Stable empty-tabs reference so the no-active-group render doesn't churn. */
+const EMPTY_TABS: ScopedThreadRef[] = [];
 
 type TabContextMenuAction = "copy-link" | "close" | "close-others" | "close-to-right" | "close-all";
 
@@ -55,8 +58,12 @@ interface TabModel {
 }
 
 export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThreadRef | null }) {
-  const tabs = useThreadTabsStore((state) => state.tabs);
-  const previewKey = useThreadTabsStore((state) => state.previewKey);
+  // The strip renders only the active group — the tabs of the orchestration tree
+  // the active thread belongs to (or the last active thread's group on the
+  // index/draft routes, where nothing is highlighted).
+  const activeGroup = useThreadTabsStore(selectActiveGroup);
+  const tabs = activeGroup?.tabs ?? EMPTY_TABS;
+  const previewKey = activeGroup?.previewKey ?? null;
   const shells = useThreadShells();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
