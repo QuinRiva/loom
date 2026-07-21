@@ -12,7 +12,7 @@ const summary = (over: Partial<SidebarThreadSummary>): SidebarThreadSummary =>
     parentThreadId: ThreadId.make("parent"),
     title: "Session store",
     role: "coder",
-    modelSelection: { instanceId: ProviderInstanceId.make("vertex"), model: "claude-opus-4-8" },
+    modelSelection: { instanceId: ProviderInstanceId.make("pi"), model: "vertex/claude-opus-4-8" },
     toolUses: null,
     cumulativeCostUsd: undefined,
     lastActivityPreview: null,

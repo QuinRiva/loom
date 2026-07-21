@@ -288,10 +288,10 @@ describe("formatToolUses", () => {
 });
 
 describe("getProviderTint", () => {
-  it("maps a known slug case-insensitively", () => {
-    expect(getProviderTint("pi")).toBe("#38bdf8");
-    expect(getProviderTint("VERTEX")).toBe("#60a5fa");
-    expect(getProviderTint("OpenAI")).toBe("#19c37d");
+  it("maps a known provider case-insensitively", () => {
+    expect(getProviderTint("anthropic")).toBe("#d9895a");
+    expect(getProviderTint("CLIPROXY")).toBe("#e879a6");
+    expect(getProviderTint("Google-Vertex-Claude")).toBe("#60a5fa");
   });
   it("is deterministic for an unknown slug (same in twice ⇒ same out)", () => {
     const once = getProviderTint("my-custom-instance");
@@ -308,13 +308,19 @@ describe("getProviderTint", () => {
 });
 
 describe("getProviderModelParts", () => {
-  it("uses instanceId as provider and the slug tail as model", () => {
+  it("parses the provider from the model slug prefix, ignoring the harness instanceId", () => {
     expect(
       getProviderModelParts({
-        instanceId: "vertex",
+        instanceId: "pi",
         model: "google-vertex-claude/claude-opus-4-8",
       } as never),
-    ).toEqual({ provider: "vertex", model: "claude-opus-4-8" });
+    ).toEqual({ provider: "google-vertex-claude", model: "claude-opus-4-8" });
+  });
+  it("returns a null provider when the slug has no prefix", () => {
+    expect(getProviderModelParts({ instanceId: "pi", model: "claude-opus-4-8" } as never)).toEqual({
+      provider: null,
+      model: "claude-opus-4-8",
+    });
   });
 });
 

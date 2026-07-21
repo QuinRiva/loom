@@ -668,23 +668,25 @@ export function formatToolUses(n: number): string {
 
 // Per-provider tint for the model pill's dot/border/background. Same model on a
 // different provider is materially different, so the tint carries the provider
-// at a glance. Keyed case-insensitively on the (user-defined) instance-id slug.
+// at a glance. Keyed case-insensitively on the provider slug parsed from the
+// model slug prefix (e.g. `cliproxy`, `google-vertex-claude`, `anthropic`) —
+// NOT the harness instance id (`pi`), which the user does not care about.
 const PROVIDER_TINTS: Record<string, string> = {
-  pi: "#38bdf8",
-  codex: "#19c37d",
-  openai: "#19c37d",
-  claudeagent: "#d9895a",
   anthropic: "#d9895a",
+  "claude-agent": "#d9895a",
   bedrock: "#d9895a",
+  cliproxy: "#e879a6",
   vertex: "#60a5fa",
   "google-vertex": "#60a5fa",
-  cliproxy: "#e879a6",
+  "google-vertex-claude": "#60a5fa",
+  "openai-codex": "#19c37d",
+  openai: "#19c37d",
   gemini: "#a78bfa",
 };
 
-// Deterministic fallback palette for unknown instance ids — the load-bearing
-// path, since instance ids are user-defined. A slug always hashes to the same
-// hue, so the pill colour is stable across renders.
+// Deterministic fallback palette for unknown providers — the load-bearing path,
+// since provider slugs are open-ended. A slug always hashes to the same hue, so
+// the pill colour is stable across renders.
 const PROVIDER_FALLBACK_TINTS = [
   "#60a5fa",
   "#e879a6",
@@ -694,9 +696,9 @@ const PROVIDER_FALLBACK_TINTS = [
   "#2dd4bf",
 ] as const;
 
-/** Hex tint for a provider instance's pill dot (known map, else stable hash). */
-export function getProviderTint(instanceId: string): string {
-  const key = instanceId.trim().toLowerCase();
+/** Hex tint for a provider's pill dot (known map, else stable hash). */
+export function getProviderTint(provider: string): string {
+  const key = provider.trim().toLowerCase();
   const mapped = PROVIDER_TINTS[key];
   if (mapped) return mapped;
   let hash = 0;
@@ -705,15 +707,21 @@ export function getProviderTint(instanceId: string): string {
 }
 
 /**
- * Split a model selection into its pill parts: the provider is the instance-id
- * slug; the model reuses the untouched `formatModelLabel` (the board card header
- * keeps using it directly).
+ * Split a model selection into its pill parts. The real provider (cliproxy /
+ * vertex / anthropic …) lives in the model slug PREFIX (`cliproxy/opus`,
+ * `google-vertex-claude/claude-opus-4-8`); the harness instance id (`pi`) is not
+ * the provider and is deliberately ignored. When the slug carries no `/` prefix
+ * there is no provider to show, so `provider` is null and the model reuses the
+ * untouched `formatModelLabel` (which the board card header still uses directly).
  */
 export function getProviderModelParts(selection: ModelSelection): {
-  provider: string;
+  provider: string | null;
   model: string;
 } {
-  return { provider: selection.instanceId, model: formatModelLabel(selection) };
+  const slug = selection.model?.trim() ?? "";
+  const slash = slug.indexOf("/");
+  if (slash > 0) return { provider: slug.slice(0, slash), model: slug.slice(slash + 1) || slug };
+  return { provider: null, model: formatModelLabel(selection) };
 }
 
 /**

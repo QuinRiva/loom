@@ -233,7 +233,7 @@ export default function WorkstreamGraph({
     const card = factsRef.current;
     if (!shell || !card) return;
     const rect = shell.getBoundingClientRect();
-    const cardW = 236;
+    const cardW = 256;
     const cardH = card.offsetHeight || 180;
     let x = event.clientX - rect.left + 16;
     let y = event.clientY - rect.top + 14;
