@@ -34,7 +34,6 @@ import {
   getGateWaitLabel,
   getLastActivityAt,
   getPurpose,
-  getRoleIcon,
   getRoleLabel,
   getThreadStatus,
   getVerdictChip,
@@ -604,7 +603,6 @@ function WorkstreamCard({
         <span
           className={`inline-flex max-w-[9rem] items-center gap-1 rounded-md border px-2 py-1 font-mono text-[10.5px] ${status.borderClass} ${status.bgClass} ${status.textClass}`}
         >
-          <span>{getRoleIcon(thread)}</span>
           <span className="truncate">{getRoleLabel(thread)}</span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-white/35">

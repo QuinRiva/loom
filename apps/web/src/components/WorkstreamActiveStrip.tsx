@@ -2,7 +2,7 @@ import {
   type ChildIndex,
   getActivity,
   getLastActivityAt,
-  getRoleIcon,
+  getRoleLabel,
   getThreadStatus,
   formatRelativeAge,
 } from "../lib/workstreamPresentation";
@@ -86,15 +86,21 @@ function ActiveChip({
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.07]"
       }`}
     >
+      {/* Role as a word, not a glyph (workstream-graph-node-redesign §3c):
+          the abstract role glyphs were indistinguishable and roles are
+          open-ended strings, so a three-letter monogram + tint carries the
+          role (two letters made reviewer/researcher both “RE”) and the hover
+          title has the rest. */}
       <span
-        className="grid size-[26px] shrink-0 place-items-center rounded-lg border text-[13px]"
+        className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-[8.5px] font-semibold uppercase"
         style={{
           color,
           borderColor: `${color}80`,
           backgroundColor: `${color}29`,
         }}
+        title={getRoleLabel(thread)}
       >
-        {getRoleIcon(thread)}
+        {getRoleLabel(thread).slice(0, 3)}
       </span>
       <span className="min-w-0 flex-1">
         {/* Top row: title + age, right-aligned. */}

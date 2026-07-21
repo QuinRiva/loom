@@ -16,11 +16,13 @@ import {
   getGateWaitLabel,
   getLoopEdgeStroke,
   getNodeFooter,
+  getNodeStateWord,
   getProviderModelParts,
   getProviderTint,
   isAwaitingBrief,
   STATUS_STYLES,
   WAITS_ON_STROKE,
+  wrapLabel,
 } from "./workstreamPresentation";
 import type { ChildIndex } from "./workstreamPresentation";
 
@@ -348,6 +350,72 @@ describe("getNodeFooter", () => {
   });
   it("toolLabel is null when the provider reports no count", () => {
     expect(getNodeFooter(summary({ toolUses: null }), "in_progress")?.toolLabel).toBeNull();
+  });
+});
+
+describe("wrapLabel", () => {
+  it("keeps a short title on one line", () => {
+    expect(wrapLabel("Receipt-dedup merge", 24, 2)).toEqual(["Receipt-dedup merge"]);
+  });
+  it("wraps greedily at word boundaries", () => {
+    expect(wrapLabel("P2 patch-apply retry hardening", 24, 2)).toEqual([
+      "P2 patch-apply retry",
+      "hardening",
+    ]);
+  });
+  it("ellipsises the last line when the title overflows the line budget", () => {
+    const lines = wrapLabel("one two three four five six seven eight nine ten", 12, 2);
+    expect(lines).toHaveLength(2);
+    expect(lines[1]!.endsWith("…")).toBe(true);
+    expect(lines[1]!.length).toBeLessThanOrEqual(12);
+  });
+  it("hard-truncates a single word longer than a line", () => {
+    const lines = wrapLabel("supercalifragilisticexpialidocious", 10, 2);
+    expect(lines).toEqual(["supercali…"]);
+  });
+  it("collapses whitespace and handles the empty title", () => {
+    expect(wrapLabel("  a   b  ", 24, 2)).toEqual(["a b"]);
+    expect(wrapLabel("", 24, 2)).toEqual([]);
+  });
+});
+
+describe("getNodeStateWord", () => {
+  it("falls back to the lowercased column label off a gate", () => {
+    expect(
+      getNodeStateWord(summary({ planLane: "in_progress", routes: [] } as never), new Map()),
+    ).toBe("in progress");
+  });
+  it("compacts the gate leg's round phrasing into the ⟲ form", () => {
+    const rev = summary({
+      id: ThreadId.make("reviewer"),
+      routes: [{ kind: "loop", on: ["needs_rework"], to: ThreadId.make("coder") }],
+      gateRounds: 1,
+      pendingRework: false,
+      lastOutcome: { decision: "loop" },
+      session: { status: "running" },
+    } as never);
+    expect(getNodeStateWord(rev, new Map([[rev.id, rev]]))).toBe("re-reviewing ⟲1");
+  });
+  it("keeps the parked wait label verbatim (no round to compact)", () => {
+    const rev = summary({
+      id: ThreadId.make("reviewer"),
+      routes: [{ kind: "loop", on: ["needs_rework"], to: ThreadId.make("coder") }],
+      gateRounds: 1,
+      pendingRework: false,
+      lastOutcome: { decision: "loop" },
+    } as never);
+    const cod = summary({
+      id: ThreadId.make("coder"),
+      routes: [],
+      gateRounds: 0,
+      pendingRework: false,
+      lastOutcome: { decision: "loop" },
+    } as never);
+    const map = new Map([
+      [rev.id, rev],
+      [cod.id, cod],
+    ]);
+    expect(getNodeStateWord(rev, map)).toBe("waiting on rework");
   });
 });
 

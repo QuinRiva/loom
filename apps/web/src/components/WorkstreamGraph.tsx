@@ -51,11 +51,10 @@ import {
   getAttentionPulse,
   getFanInBadge,
   getGateLoopCap,
-  getGateWaitLabel,
   getLoopEdgeStroke,
   getLoopStroke,
   getNodeFooter,
-  getRoleIcon,
+  getNodeStateWord,
   getRoleLabel,
   getThreadStatus,
   getVerdictChip,
@@ -63,6 +62,7 @@ import {
   STATUS_STYLES,
   truncateLabel,
   WAITS_ON_STROKE,
+  wrapLabel,
 } from "../lib/workstreamPresentation";
 import type { SidebarThreadSummary } from "../types";
 import { WorkstreamQuickFacts } from "./WorkstreamQuickFacts";
@@ -76,6 +76,8 @@ const FORK_STROKE = "rgba(255,255,255,0.26)";
 // Done/cancelled cards recede to this opacity so the live front reads first
 // (matches the approved mockup's ~0.42). Overridden by the hover highlight.
 const RECEDE_OPACITY = 0.42;
+// Header-strip height of the C2 card (role · pulse · state word band).
+const STRIP_H = 20;
 const FADE_OPACITY = 0.1;
 const HOVER_DELAY_MS = 300;
 
@@ -802,7 +804,7 @@ function GraphNode({
   const thread = threadById.get(node.thread.id) ?? node.thread;
   const status = getThreadStatus(thread, threadById);
   const verdictChip = getVerdictChip(thread);
-  const gateWait = getGateWaitLabel(thread, threadById);
+  const stateWord = getNodeStateWord(thread, threadById);
   const attentionPulse = getAttentionPulse(thread);
   const fanInBadge = getFanInBadge(thread);
   // Recession (design D): terminal cards dim so the live front reads first. The
@@ -815,9 +817,11 @@ function GraphNode({
   const forkBadgeX = node.x + node.w - 12;
   const fanInBadgeX = forkBadgeX - (thread.forkFromThreadId ? 20 : 0);
   const consultBadgeX = fanInBadgeX - (fanInBadge ? 20 : 0);
-  // Always-on footer for running/yielded nodes (⚒ tools · age + live pulse).
-  // Null for every other state — not-yet-run stays clean, terminal recedes.
+  // Metrics band for running/yielded nodes (⚒ tools · age). Null for every
+  // other state — not-yet-run stays clean, terminal recedes. The live pulse
+  // rides in the header strip beside the state word.
   const footer = getNodeFooter(thread, status.column);
+  const titleLines = wrapLabel(thread.title, 24, 2);
   const open = () => onOpenThread(thread);
   // Right-click / keyboard menu key → the state-aware context menu (the ⓘ's
   // replacement). Cancel the hover card first so the facts never sit under it.
@@ -900,27 +904,52 @@ function GraphNode({
               <title>{attentionPulse.label}</title>
             </rect>
           ) : null}
-          <circle cx={node.x + 15} cy={node.y + 17} fill={status.graphStroke} r="4" />
-          <text fill={status.graphStroke} fontSize="12" x={node.x + 25} y={node.y + 21}>
-            {getRoleIcon(thread)}
-          </text>
+          {/* Header strip (design C2): a stronger band of the status tint over
+              the card fill, carrying ROLE · live pulse · the one worded state.
+              Rounded top corners matching the card radius, squared bottom. */}
+          <path
+            d={`M ${node.x + 10} ${node.y} H ${node.x + node.w - 10} A 10 10 0 0 1 ${node.x + node.w} ${node.y + 10} V ${node.y + STRIP_H} H ${node.x} V ${node.y + 10} A 10 10 0 0 1 ${node.x + 10} ${node.y} Z`}
+            fill={status.graphStroke}
+            fillOpacity="0.16"
+          />
           <text
-            fill="rgba(255,255,255,0.9)"
-            fontSize="11"
+            fill={status.graphStroke}
+            fontSize="8"
             fontWeight="600"
-            x={node.x + 43}
-            y={node.y + 21}
+            letterSpacing="0.06em"
+            x={node.x + 10}
+            y={node.y + 13.5}
           >
-            {truncateLabel(thread.title, 14)}
+            {truncateLabel(roleLabel, 11).toUpperCase()}
           </text>
+          {footer?.live ? (
+            <circle
+              className="ws-footer-live"
+              cx={node.x + node.w - 16 - stateWord.length * 4.4}
+              cy={node.y + 10.5}
+              r={2.6}
+              fill={status.graphStroke}
+            />
+          ) : null}
           <text
-            fill="rgba(255,255,255,0.45)"
-            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-            fontSize="8.5"
-            x={node.x + 14}
-            y={node.y + 39}
+            fill={status.graphStroke}
+            fontSize="8"
+            textAnchor="end"
+            x={node.x + node.w - 10}
+            y={node.y + 13.5}
           >
-            {truncateLabel(getRoleLabel(thread), 13)} · {status.label}
+            {truncateLabel(stateWord, 20)}
+          </text>
+          {/* Two-line wrapped title — the identity signal gets the whole body. */}
+          <text fill="rgba(255,255,255,0.92)" fontSize="11" fontWeight="600">
+            <tspan x={node.x + 10} y={node.y + 35}>
+              {titleLines[0] ?? ""}
+            </tspan>
+            {titleLines[1] !== undefined ? (
+              <tspan x={node.x + 10} y={node.y + 48}>
+                {titleLines[1]}
+              </tspan>
+            ) : null}
           </text>
           {verdictChip ? (
             <GatePill
@@ -929,18 +958,6 @@ function GraphNode({
               stroke={verdictChip.stroke}
               xEnd={node.x + node.w - 6}
               yCenter={node.y + node.h}
-            />
-          ) : null}
-          {gateWait ? (
-            // Straddles the TOP border so it never collides with the verdict chip
-            // (the pair can exceed the card width side by side). An active leg reads
-            // sky (live), a parked wait stays muted white.
-            <GatePill
-              fill={gateWait.active ? "#0d2231" : "#0d1117"}
-              label={gateWait.label}
-              stroke={gateWait.active ? "#38bdf8" : "rgba(255,255,255,0.4)"}
-              xEnd={node.x + node.w - 6}
-              yCenter={node.y}
             />
           ) : null}
           {thread.forkFromThreadId ? (
@@ -1019,53 +1036,27 @@ function GraphNode({
               </text>
             </g>
           ) : null}
-          {footer ? <NodeFooter node={node} footer={footer} /> : null}
+          {footer ? (
+            // Metrics band: ⚒ tools · age in its own bottom slot (design C2).
+            <text
+              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              fontSize={8.5}
+              fill="rgba(255,255,255,0.55)"
+              pointerEvents="none"
+              x={node.x + 10}
+              y={node.y + node.h - 8}
+            >
+              {footer.toolLabel ? (
+                <>
+                  <tspan>{`⚒ ${footer.toolLabel} `}</tspan>
+                  <tspan fill="rgba(255,255,255,0.25)">· </tspan>
+                </>
+              ) : null}
+              <tspan>{footer.age}</tspan>
+            </text>
+          ) : null}
         </g>
       </g>
-    </g>
-  );
-}
-
-/** Always-on running/yielded footer: a separator, an optional live pulse dot,
- * and `⚒ tools · age` — all inside the card-visuals group so it recedes/fades
- * with the card. Geometry per plan §3.2 (h = 66). */
-function NodeFooter({
-  node,
-  footer,
-}: {
-  readonly node: Extract<LaidNode, { kind: "thread" }>;
-  readonly footer: NonNullable<ReturnType<typeof getNodeFooter>>;
-}) {
-  const textX = node.x + (footer.live ? 25 : 14);
-  const baseline = node.y + 56;
-  return (
-    <g pointerEvents="none">
-      <line
-        x1={node.x + 12}
-        y1={node.y + 44}
-        x2={node.x + node.w - 12}
-        y2={node.y + 44}
-        stroke="rgba(255,255,255,0.09)"
-        strokeWidth={1}
-      />
-      {footer.live ? (
-        <circle className="ws-footer-live" cx={node.x + 17} cy={node.y + 53} r={3} fill="#38bdf8" />
-      ) : null}
-      <text
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontSize={8.5}
-        fill="rgba(255,255,255,0.72)"
-        x={textX}
-        y={baseline}
-      >
-        {footer.toolLabel ? (
-          <>
-            <tspan>{`⚒ ${footer.toolLabel} `}</tspan>
-            <tspan fill="rgba(255,255,255,0.25)">· </tspan>
-          </>
-        ) : null}
-        <tspan>{footer.age}</tspan>
-      </text>
     </g>
   );
 }
