@@ -41,6 +41,7 @@ import {
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
 import { gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+import { NOTIFY_PAIR_HOURLY_CAP, notifyPairCapExceeded } from "@t3tools/shared/notify";
 // See the module-cycle note above: these are upstream bindings that stay in
 // `decider.ts`; they are only ever referenced inside the function bodies below.
 // `collectLiveSubtreeIds` is the shared live-subtree sweep (goal/thread cascades
@@ -1013,6 +1014,82 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
             ? { forkSessionPath: command.forkSessionPath }
             : {}),
           createdAt: command.createdAt,
+        },
+      };
+    }
+
+    // notify_thread (cross-thread push, D4/D7/D9): record one peer message on the
+    // SENDER thread and enforce the ordered-pair rate cap AUTHORITATIVELY here.
+    // The decider runs serially inside the command boundary, so counting the
+    // sender's `notifySendLog` window entries for this target and rejecting past
+    // the cap is atomic check-then-append — not a handler-side projection count
+    // that fails open. A recorded-but-expired/undelivered send still counts (the
+    // cap meters send pressure, not delivery success). The recorded event is the
+    // delivery-queue entry, the observability edge, and the cap ledger at once.
+    case "thread.peer-message.record": {
+      const sender = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // command.createdAt is a validated IsoDateTime, so Date.parse is a pure
+      // string parse (not wall-clock access) and never NaN.
+      const nowMs = Date.parse(command.createdAt);
+      if (notifyPairCapExceeded(sender.notifySendLog, command.targetThreadId, nowMs)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `notify_thread rate cap reached: at most ${NOTIFY_PAIR_HOURLY_CAP} notifications per hour from thread '${command.threadId}' to '${command.targetThreadId}'. The recipient owes no reply, so stop notifying it; if you need an answer, use consult_thread.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.peer-message-recorded",
+        payload: {
+          senderThreadId: command.threadId,
+          recordId: command.recordId,
+          targetThreadId: command.targetThreadId,
+          targetTitle: command.targetTitle,
+          message: command.message,
+          framedMessage: command.framedMessage,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    // notify_thread delivery lifecycle (D4/D9): mark a recorded peer message
+    // delivered / expired. Server-only (the handler's immediate delivery leg and
+    // the dispatcher rail dispatch these under `server:` command ids), mirroring
+    // the gate `reopen` guard — a client cannot forge a delivery disposition.
+    // Pure passthrough; the projection flips the row's status.
+    case "thread.peer-message.mark-delivered":
+    case "thread.peer-message.expire": {
+      if (!command.commandId.startsWith("server:")) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Command '${command.type}' is control-plane-only (notify_thread delivery lifecycle).`,
+        });
+      }
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type:
+          command.type === "thread.peer-message.mark-delivered"
+            ? "thread.peer-message-delivered"
+            : "thread.peer-message-expired",
+        payload: {
+          senderThreadId: command.threadId,
+          recordId: command.recordId,
+          updatedAt: command.createdAt,
         },
       };
     }

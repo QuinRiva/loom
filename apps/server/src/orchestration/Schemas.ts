@@ -35,6 +35,9 @@ import {
   ThreadRouteTakenPayload as ContractsThreadRouteTakenPayloadSchema,
   ThreadFanInSetPayload as ContractsThreadFanInSetPayloadSchema,
   ThreadHandoffRecordedPayload as ContractsThreadHandoffRecordedPayloadSchema,
+  ThreadPeerMessageRecordedPayload as ContractsThreadPeerMessageRecordedPayloadSchema,
+  ThreadPeerMessageDeliveredPayload as ContractsThreadPeerMessageDeliveredPayloadSchema,
+  ThreadPeerMessageExpiredPayload as ContractsThreadPeerMessageExpiredPayloadSchema,
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
@@ -82,6 +85,9 @@ export const ThreadOutcomeRecordedPayload = ContractsThreadOutcomeRecordedPayloa
 export const ThreadRouteTakenPayload = ContractsThreadRouteTakenPayloadSchema;
 export const ThreadFanInSetPayload = ContractsThreadFanInSetPayloadSchema;
 export const ThreadHandoffRecordedPayload = ContractsThreadHandoffRecordedPayloadSchema;
+export const ThreadPeerMessageRecordedPayload = ContractsThreadPeerMessageRecordedPayloadSchema;
+export const ThreadPeerMessageDeliveredPayload = ContractsThreadPeerMessageDeliveredPayloadSchema;
+export const ThreadPeerMessageExpiredPayload = ContractsThreadPeerMessageExpiredPayloadSchema;
 
 export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequestedPayloadSchema;
 export const ThreadTurnInterruptRequestedPayload =

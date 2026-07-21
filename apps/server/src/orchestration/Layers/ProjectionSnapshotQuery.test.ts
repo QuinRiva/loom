@@ -13,6 +13,8 @@ import * as NodePath from "node:path";
 
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -346,6 +348,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           diffAdditions: null,
           diffDeletions: null,
           handoffCount: 0,
+          notifySendLog: [],
           deletedAt: null,
           messages: [
             {
@@ -499,6 +502,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasActionableProposedPlan: false,
           lastActivityPreview: "hello from projection",
           consults: [],
+          peerMessages: [],
+          notifySendLog: [],
           toolUses: null,
           usedTokens: null,
           maxTokens: null,
@@ -559,6 +564,131 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const drafterShell = shell.threads.find((thread) => thread.id === "drafter-1");
       assert.equal(drafterShell?.handoffCount, 2);
     }),
+  );
+
+  it.effect(
+    "aggregates peer-message edges (count/pendingCount/preview), rebuilds the windowed notifySendLog, and orders pending FIFO with a seq tiebreak",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_thread_peer_messages`;
+        yield* sql`DELETE FROM projection_state`;
+
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, title, workspace_root, default_model_selection_json,
+            scripts_json, created_at, updated_at, deleted_at
+          ) VALUES (
+            'project-1', 'Project 1', '/tmp/project-1',
+            '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+            '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:01.000Z', NULL
+          )
+        `;
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, role, title, model_selection_json, runtime_mode,
+            interaction_mode, created_at, updated_at, deleted_at
+          ) VALUES (
+            'sender-1', 'project-1', 'coder', 'Sender',
+            '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+            '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL
+          )
+        `;
+
+        // Window-relative timestamps: recent rows are inside the 1h cap window,
+        // the stale row is outside it (so it counts toward the edge aggregate but
+        // NOT the reconstructed notifySendLog).
+        const nowDt = yield* DateTime.now;
+        const recent = DateTime.formatIso(DateTime.subtractDuration(nowDt, Duration.minutes(1)));
+        const recentOlder = DateTime.formatIso(
+          DateTime.subtractDuration(nowDt, Duration.minutes(2)),
+        );
+        const stale = DateTime.formatIso(DateTime.subtractDuration(nowDt, Duration.hours(2)));
+
+        const insertRow = (row: {
+          recordId: string;
+          target: string;
+          preview: string;
+          status: string;
+          seq: number;
+          createdAt: string;
+        }) =>
+          sql`
+            INSERT INTO projection_thread_peer_messages (
+              record_id, sender_thread_id, target_thread_id, target_title,
+              message, framed_message, message_preview, status, seq, created_at, delivered_at
+            ) VALUES (
+              ${row.recordId}, 'sender-1', ${row.target}, 'Target',
+              'body', 'framed body', ${row.preview}, ${row.status}, ${row.seq}, ${row.createdAt}, NULL
+            )
+          `;
+
+        // target-a: pa1 + pa2 pending at the SAME timestamp (seq tiebreak
+        // decides FIFO), plus a stale delivered row.
+        yield* insertRow({
+          recordId: "pa1",
+          target: "target-a",
+          preview: "first-a",
+          status: "pending",
+          seq: 101,
+          createdAt: recent,
+        });
+        yield* insertRow({
+          recordId: "pa2",
+          target: "target-a",
+          preview: "latest-a",
+          status: "pending",
+          seq: 102,
+          createdAt: recent,
+        });
+        yield* insertRow({
+          recordId: "stale-a",
+          target: "target-a",
+          preview: "stale-a",
+          status: "delivered",
+          seq: 50,
+          createdAt: stale,
+        });
+        // target-b: one delivered row.
+        yield* insertRow({
+          recordId: "db1",
+          target: "target-b",
+          preview: "only-b",
+          status: "delivered",
+          seq: 100,
+          createdAt: recentOlder,
+        });
+
+        // Edge aggregation on the sender shell.
+        const shell = yield* snapshotQuery.getShellSnapshot();
+        const sender = shell.threads.find((thread) => thread.id === "sender-1");
+        assert.isDefined(sender);
+        const edges = new Map(sender!.peerMessages.map((edge) => [edge.targetThreadId, edge]));
+        assert.equal(edges.get("target-a" as never)?.count, 3);
+        assert.equal(edges.get("target-a" as never)?.pendingCount, 2);
+        // Latest by created_at DESC, seq DESC → pa2 (same ts as pa1, higher seq).
+        assert.equal(edges.get("target-a" as never)?.lastMessagePreview, "latest-a");
+        assert.equal(edges.get("target-b" as never)?.count, 1);
+        assert.equal(edges.get("target-b" as never)?.pendingCount, 0);
+
+        // notifySendLog is rebuilt from the in-window rows only (stale excluded):
+        // pa1, pa2, db1 = 3.
+        const readModel = yield* snapshotQuery.getCommandReadModel();
+        const senderThread = readModel.threads.find((thread) => thread.id === "sender-1");
+        assert.isDefined(senderThread);
+        assert.equal(senderThread!.notifySendLog.length, 3);
+
+        // Pending scan is FIFO: same-timestamp pa1/pa2 order by their seq tiebreak.
+        const pending = yield* snapshotQuery.listPendingPeerMessages();
+        assert.deepEqual(
+          pending.map((row) => row.recordId),
+          ["pa1", "pa2"],
+        );
+      }),
   );
 
   it.effect("reads one thread's ordered lifecycle events, scoped and filtered", () =>

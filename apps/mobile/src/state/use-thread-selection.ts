@@ -93,6 +93,8 @@ function threadDetailToShell(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     consults: [],
+    peerMessages: [],
+    notifySendLog: [],
   };
 }
 

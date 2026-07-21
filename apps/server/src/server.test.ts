@@ -189,6 +189,7 @@ const makeDefaultOrchestrationReadModel = () => {
         diffAdditions: null,
         diffDeletions: null,
         handoffCount: 0,
+        notifySendLog: [],
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -262,6 +263,8 @@ const makeDefaultOrchestrationThreadShell = (
     hasActionableProposedPlan: false,
     lastActivityPreview: null,
     consults: [],
+    peerMessages: [],
+    notifySendLog: [],
     ...overrides,
   };
 };
@@ -5699,6 +5702,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             diffAdditions: null,
             diffDeletions: null,
             handoffCount: 0,
+            notifySendLog: [],
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,

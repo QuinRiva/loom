@@ -111,6 +111,8 @@ const STUB_THREAD = {
   hasActionableProposedPlan: false,
   lastActivityPreview: null,
   consults: [],
+  peerMessages: [],
+  notifySendLog: [],
   session: null,
 } as const;
 

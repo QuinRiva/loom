@@ -212,8 +212,10 @@ export function projectEvent(
   };
 
   // loom: fork events (goal.*, plan-lane/attention/dependencies/report/outcome/
-  // route/fanin, status-set migration, message-reasoning, plus the caseless
-  // turn-start-failed/consult-recorded) project in the fork sibling.
+  // route/fanin, status-set migration, message-reasoning, peer-message-recorded,
+  // plus the caseless turn-start-failed/consult-recorded and the
+  // peer-message-delivered/-expired SQL-only lifecycle) project in the fork
+  // sibling.
   if (isLoomOrchestrationEvent(event)) {
     return projectLoomEvent(nextBase, event);
   }

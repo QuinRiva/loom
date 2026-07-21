@@ -105,6 +105,51 @@ describe("kickoff-artefact contract alignment", () => {
   });
 });
 
+describe("notify_thread tool-def contract", () => {
+  const notifyDef = defByName("notify_thread");
+  const notifyParams = notifyDef.parameters as {
+    readonly required: ReadonlyArray<string>;
+    readonly properties: Record<string, { readonly description?: string }>;
+  };
+
+  // Collect every shipped string on the def for the style drift guard.
+  const notifyStrings = [
+    notifyDef.description,
+    notifyDef.promptSnippet ?? "",
+    ...(notifyDef.promptGuidelines ?? []),
+    notifyDef.fallbackText ?? "",
+    ...Object.values(notifyParams.properties).map((property) => property.description ?? ""),
+  ];
+
+  it("exists, requires only message, and exposes threadId + name", () => {
+    expect(notifyParams.required).toEqual(["message"]);
+    expect(notifyParams.properties).toHaveProperty("threadId");
+    expect(notifyParams.properties).toHaveProperty("name");
+    expect(notifyDef.fallbackText).toBe("Notification accepted.");
+  });
+
+  it("states the exactly-one-of id/name contract in prose on both params", () => {
+    expect(notifyParams.properties.threadId?.description).toMatch(/both is rejected|rejected/i);
+    expect(notifyParams.properties.name?.description).toMatch(/rejected/i);
+  });
+
+  // Cheap style drift guard (plan §5): the tool text must ship with NO em
+  // dashes, even though the plan document's prose uses them.
+  it("ships no em dash in any notify_thread string", () => {
+    for (const text of notifyStrings) {
+      expect(text).not.toContain("\u2014");
+    }
+  });
+
+  it("routes wants-an-answer / covert-delegation to the named sibling tools", () => {
+    expect(notifyDef.description).toMatch(/consult_thread/);
+    expect(notifyDef.description).toMatch(/workstream_prompt/);
+    expect(notifyParams.properties.message?.description).toMatch(
+      /never re-task, steer, or covertly delegate/,
+    );
+  });
+});
+
 describe("goal_handoff tool-def contract", () => {
   const handoffParams = goalDefByName("goal_handoff").parameters as {
     readonly required: ReadonlyArray<string>;

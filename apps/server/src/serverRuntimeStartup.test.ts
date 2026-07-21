@@ -104,6 +104,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
@@ -179,6 +180,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
@@ -234,6 +236,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
@@ -295,6 +298,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),

@@ -50,6 +50,11 @@ import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { readWorkstreamBriefAt } from "../workstreamBrief.ts";
 import { readWorkstreamReport, readWorkstreamReportAt } from "../workstreamReport.ts";
 import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
+import {
+  notifyDeliverCommandId,
+  notifyExpireCommandId,
+  notifyMarkCommandId,
+} from "@t3tools/shared/notify";
 import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
 // loom: forkFrom (D2/D7) — fork-source-idle promotion gate + captured-selection
 // persistence.
@@ -2881,6 +2886,93 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // notify_thread deferred-delivery rail (D4). Patterned on the digest flush +
+  // `deliverOnce` receipt-dedup: for each target with pending notifications, take
+  // the OLDEST pending row and either expire it (target terminal/archived),
+  // reconcile the crash window (`wasDelivered` = the deliver turn-start committed
+  // but the mark never landed), or deliver it on idle (`requireIdle`) and mark it
+  // delivered. Only the oldest per target is attempted per pass — the accepted
+  // delivery makes the target busy, and its next `thread.session-set` re-runs the
+  // pass for the next one (strict FIFO, one notification per target turn).
+  const deliverPendingNotifications = Effect.fn("deliverPendingNotifications")(function* (
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+  ) {
+    const pending = yield* projectionSnapshotQuery.listPendingPeerMessages();
+    const attemptedTargets = new Set<ThreadId>();
+    for (const row of pending) {
+      // Rows come oldest-first; skip a target once its oldest was handled so at
+      // most one notify turn-start per target is ever in flight (review #3).
+      if (attemptedTargets.has(row.targetThreadId)) continue;
+      attemptedTargets.add(row.targetThreadId);
+      const target = threadsById.get(row.targetThreadId);
+      const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      // Terminal/archived target (archived threads are absent from the active
+      // shell snapshot, so `undefined` here) -> expire: sticky-terminal holds
+      // even for a queued message; the edge survives marked `expired`.
+      if (
+        target === undefined ||
+        target.planLane === "done" ||
+        target.planLane === "cancelled" ||
+        target.archivedAt !== null
+      ) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.peer-message.expire",
+          commandId: CommandId.make(notifyExpireCommandId(row.recordId)),
+          threadId: row.senderThreadId,
+          recordId: row.recordId,
+          createdAt: now,
+        } satisfies OrchestrationCommand);
+        continue;
+      }
+      const deliverId = notifyDeliverCommandId(row.recordId);
+      // Crash-window reconciliation: the deliver turn-start committed (receipt
+      // exists) but the mark never landed. Mark it delivered without re-
+      // delivering (idempotent).
+      if (yield* dedup.wasDelivered(deliverId)) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.peer-message.mark-delivered",
+          commandId: CommandId.make(notifyMarkCommandId(row.recordId)),
+          threadId: row.senderThreadId,
+          recordId: row.recordId,
+          createdAt: now,
+        } satisfies OrchestrationCommand);
+        continue;
+      }
+      // Deliver on idle. `requireIdle` defers a busy target atomically (no
+      // receipt); `deliverOnce` reports that as `deferred` and records nothing,
+      // so the deterministic id stays redeliverable on the target's next idle.
+      const outcome = yield* dedup.deliverOnce(
+        deliverId,
+        orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(deliverId),
+          threadId: target.id,
+          message: {
+            messageId: MessageId.make(yield* crypto.randomUUIDv4),
+            role: "user",
+            origin: "notify",
+            text: row.framedMessage,
+            attachments: [],
+          },
+          titleSeed: target.title,
+          requireIdle: true,
+          runtimeMode: target.runtimeMode,
+          interactionMode: target.interactionMode,
+          createdAt: now,
+        } satisfies OrchestrationCommand),
+      );
+      if (outcome === "delivered") {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.peer-message.mark-delivered",
+          commandId: CommandId.make(notifyMarkCommandId(row.recordId)),
+          threadId: row.senderThreadId,
+          recordId: row.recordId,
+          createdAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+        } satisfies OrchestrationCommand);
+      }
+    }
+  });
+
   // One dispatcher pass. The FYI-digest rails share a per-pass pending map
   // (rebuilt each pass, recomputable from lanes + receipts): the delta rail and
   // the per-child rail STASH FYI items into it, the action rails piggyback it
@@ -2899,6 +2991,7 @@ const make = Effect.gen(function* () {
     yield* wakeYieldedChildren(threads, threadsById, pending);
     yield* wakeBriefNeededChildren(threads, threadsById);
     yield* flushPendingDigests(threads, threadsById, pending);
+    yield* deliverPendingNotifications(threadsById);
   });
 
   const runPassSafely = runPass().pipe(
@@ -2940,6 +3033,10 @@ const make = Effect.gen(function* () {
         // A failed/reconciled turn-start clears the durable pending-start row,
         // which can be the only thing keeping an otherwise-idle parent busy.
         event.type === "thread.turn-start-failed" ||
+        // notify_thread: a fresh queue entry runs a pass promptly so the deferred-
+        // delivery rail drains it even when the handler's immediate attempt found
+        // the target busy (`thread.session-set` covers the drain-on-idle case).
+        event.type === "thread.peer-message-recorded" ||
         // The parent going idle surfaces as a durable thread.session-set (no
         // turn-completion domain event exists); this drains deferred wakes.
         event.type === "thread.session-set"

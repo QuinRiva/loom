@@ -83,6 +83,8 @@ function makeThread(id: string, projectId: ProjectId): EnvironmentThreadShell {
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     consults: [],
+    peerMessages: [],
+    notifySendLog: [],
   };
 }
 

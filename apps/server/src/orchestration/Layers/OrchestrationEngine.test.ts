@@ -173,6 +173,7 @@ describe("OrchestrationEngine", () => {
           diffAdditions: null,
           diffDeletions: null,
           handoffCount: 0,
+          notifySendLog: [],
           deletedAt: null,
           messages: [],
           proposedPlans: [],
@@ -234,6 +235,7 @@ describe("OrchestrationEngine", () => {
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
@@ -331,6 +333,95 @@ describe("OrchestrationEngine", () => {
     const readModelA = await system.readModel();
     const readModelB = await system.readModel();
     expect(readModelB).toEqual(readModelA);
+    await system.dispose();
+  });
+
+  it("notify_thread: an idle target that became terminal in the serial boundary is not re-engaged", async () => {
+    // Regression for the terminal/archive delivery race (D3/D4): the handler and
+    // dispatcher check lane/archive from an earlier shell read, but the target can
+    // go done/cancelled/archived before the serialized turn-start. The atomic idle
+    // gate must ALSO reject a notify delivery to a terminal target, so a completed
+    // thread never spends tokens after completion.
+    const createdAt = now();
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const threadId = ThreadId.make("thread-notify-terminal");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-project-notify-terminal"),
+        projectId: asProjectId("project-notify-terminal"),
+        title: "Notify Terminal",
+        workspaceRoot: "/tmp/project-notify-terminal",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        defaultStartFromOrigin: null,
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-notify-terminal"),
+        threadId,
+        projectId: asProjectId("project-notify-terminal"),
+        title: "Target",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    // The target completes.
+    await system.run(
+      engine.dispatch({
+        type: "thread.plan-lane.set",
+        commandId: CommandId.make("cmd-notify-terminal-done"),
+        threadId,
+        planLane: "done",
+        createdAt,
+      }),
+    );
+
+    // A notify delivery lands on the (idle) terminal target: it must DEFER, not
+    // re-engage. Scoped to origin "notify" so ordinary sends keep sticky-terminal.
+    const error = await system.run(
+      engine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("server:notify-deliver:rec-terminal"),
+          threadId,
+          message: {
+            messageId: asMessageId("msg-notify-terminal"),
+            role: "user",
+            origin: "notify",
+            text: "framed notification body",
+            attachments: [],
+          },
+          requireIdle: true,
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt,
+        })
+        .pipe(Effect.flip),
+    );
+    expect(error._tag).toBe("OrchestrationCommandDeferredError");
+
+    // No message-sent was persisted to the terminal thread's transcript.
+    const events = await system.run(
+      Stream.runCollect(engine.readEvents(0)).pipe(
+        Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
+      ),
+    );
+    expect(events.some((event) => event.type === "thread.message-sent")).toBe(false);
     await system.dispose();
   });
 

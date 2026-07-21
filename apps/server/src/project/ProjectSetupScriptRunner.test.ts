@@ -49,6 +49,7 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
     getGoalShellById: () => Effect.die("unused in this test"),
     getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+    listPendingPeerMessages: () => Effect.die("unused in this test"),
     getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),
     getRecentToolActivityByThreadId: () => Effect.die("unused in this test"),
     getThreadProgressSignal: () => Effect.die("unused in this test"),

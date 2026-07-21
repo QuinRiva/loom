@@ -111,6 +111,10 @@
       "types": "./src/workstreamGraph.ts",
       "import": "./src/workstreamGraph.ts"
     },
+    "./notify": {
+      "types": "./src/notify.ts",
+      "import": "./src/notify.ts"
+    },
     "./remote": {
       "types": "./src/remote.ts",
       "import": "./src/remote.ts"

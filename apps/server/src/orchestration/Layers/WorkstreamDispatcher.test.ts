@@ -88,6 +88,8 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorkstreamDispatcher } from "../Services/WorkstreamDispatcher.ts";
+import { notifyDeliverCommandId } from "@t3tools/shared/notify";
+import { OrchestrationCommandDeferredError } from "../Errors.ts";
 import { ProcessResourceMonitor } from "../../diagnostics/ProcessResourceMonitor.ts";
 import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
@@ -1502,6 +1504,7 @@ describe("startup stale session reconciliation", () => {
             ),
           getShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -2518,6 +2521,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
           updatedAt: epochIso,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -2643,6 +2647,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -2788,6 +2793,7 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
                 updatedAt: now,
               } satisfies OrchestrationShellSnapshot),
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+            listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
               Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
           } as unknown as ProjectionSnapshotQueryShape;
@@ -2882,6 +2888,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -3018,6 +3025,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
           updatedAt: epochIso,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       // Heartbeat frozen at epoch: quiet time === TestClock time.
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
@@ -3224,6 +3232,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
           updatedAt: epochIso,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: epochIso }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -3330,6 +3339,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -3524,6 +3534,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           updatedAt: epochIso,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: epochIso, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -4127,6 +4138,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -4277,6 +4289,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -4546,6 +4559,7 @@ describe("fan-in settlement releases dependents", () => {
         const snapshotQuery = {
           getShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -4630,6 +4644,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           updatedAt: now,
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () => Effect.succeed(freshness()),
       getInFlightToolByThreadId: () => Effect.succeed(null),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -4980,6 +4995,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
           updatedAt: now,
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -5114,6 +5130,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
           updatedAt: now,
         })),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
       getInFlightToolByThreadId: () => Effect.succeed(null),
@@ -5608,6 +5625,7 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
           updatedAt: now,
         } satisfies OrchestrationShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
         Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
     } as unknown as ProjectionSnapshotQueryShape;
@@ -5864,6 +5882,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
         const snapshotQuery = {
           getShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
+          listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         } as unknown as ProjectionSnapshotQueryShape;
@@ -6073,4 +6092,323 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
         }),
       ),
   );
+});
+
+// notify_thread (cross-thread push): the deferred-delivery rail. A focused
+// harness runs the real dispatcher against a configurable pending list + shell
+// snapshot + receipt store. The mock engine simulates the two things the rail
+// leans on: `requireIdle` deferral (a busy target fails without a receipt) and
+// the projection removing a row from the pending scan once it is marked
+// delivered/expired. A delivered notify turn-start also marks its target busy,
+// so the periodic re-pass cannot double-deliver. Assertions filter by
+// `origin: "notify"` / command type so the other rails' output is ignored.
+// Targets/senders are ROOTS so the child-centric rails stay quiet.
+describe("notify_thread deferred-delivery rail", () => {
+  const SENDER = "notify-sender" as ThreadId;
+  const TARGET = "notify-target" as ThreadId;
+
+  const pendingRow = (
+    overrides: Partial<{
+      recordId: string;
+      senderThreadId: ThreadId;
+      targetThreadId: ThreadId;
+      framedMessage: string;
+      createdAt: string;
+    }> = {},
+  ) => ({
+    recordId: overrides.recordId ?? "rec-1",
+    senderThreadId: overrides.senderThreadId ?? SENDER,
+    targetThreadId: overrides.targetThreadId ?? TARGET,
+    framedMessage: overrides.framedMessage ?? "framed notification body",
+    createdAt: overrides.createdAt ?? now,
+  });
+
+  const buildRailLayer = (
+    dispatched: Array<OrchestrationCommand>,
+    opts: {
+      readonly pending: ReadonlyArray<ReturnType<typeof pendingRow>>;
+      readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+      readonly deliveredReceipts?: ReadonlySet<string>;
+      // Optional caller-owned Ref/PubSub so a test can mutate pending / threads +
+      // publish a trigger event from inside its own Effect (no manual runtime).
+      readonly sharedPending?: Ref.Ref<ReadonlyArray<ReturnType<typeof pendingRow>>>;
+      readonly sharedThreads?: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>;
+      readonly sharedEvents?: PubSub.PubSub<OrchestrationEvent>;
+    },
+  ) =>
+    Layer.unwrap(
+      Effect.gen(function* () {
+        const events = opts.sharedEvents ?? (yield* PubSub.unbounded<OrchestrationEvent>());
+        const pendingRef = opts.sharedPending ?? (yield* Ref.make(opts.pending));
+        const threadsRef = opts.sharedThreads ?? (yield* Ref.make(opts.threads));
+        const receipts = {
+          upsert: () => Effect.void,
+          getByCommandId: ({ commandId }: { commandId: CommandId }) =>
+            Effect.succeed(
+              opts.deliveredReceipts?.has(commandId)
+                ? Option.some({ commandId } as never)
+                : Option.none(),
+            ),
+        };
+        const isIdle = (threads: ReadonlyArray<OrchestrationThreadShell>, id: ThreadId) => {
+          const t = threads.find((thread) => thread.id === id);
+          return t !== undefined && t.session?.status !== "running";
+        };
+        const engine = {
+          readEvents: () => Stream.empty,
+          dispatch: (command: OrchestrationCommand) =>
+            Effect.gen(function* () {
+              if (command.type === "thread.turn.start" && command.requireIdle === true) {
+                const threads = yield* Ref.get(threadsRef);
+                if (!isIdle(threads, command.threadId)) {
+                  // Model the atomic idle gate: defer without a receipt.
+                  return yield* new OrchestrationCommandDeferredError({
+                    commandType: command.type,
+                    detail: "target not idle",
+                  });
+                }
+                // A delivered notify turn-start makes the target busy.
+                yield* Ref.update(threadsRef, (threads) =>
+                  threads.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, session: runningSession({ status: "running" }) }
+                      : thread,
+                  ),
+                );
+              }
+              dispatched.push(command);
+              if (
+                command.type === "thread.peer-message.mark-delivered" ||
+                command.type === "thread.peer-message.expire"
+              ) {
+                const gone = command.recordId;
+                yield* Ref.update(pendingRef, (rows) =>
+                  rows.filter((row) => row.recordId !== gone),
+                );
+              }
+              return { sequence: dispatched.length };
+            }),
+          streamDomainEvents: Stream.fromPubSub(events),
+          subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        } satisfies OrchestrationEngineShape;
+        const snapshotQuery = {
+          getCommandReadModel: () =>
+            Effect.map(Ref.get(threadsRef), (threads) => ({
+              snapshotSequence: 1,
+              goals: [],
+              projects: [],
+              threads: threads as never,
+              updatedAt: now,
+            })),
+          getShellSnapshot: () =>
+            Effect.map(Ref.get(threadsRef), (threads) => ({
+              snapshotSequence: 1,
+              goals: [],
+              projects: [],
+              threads,
+              updatedAt: now,
+            })),
+          getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+          listPendingPeerMessages: () => Ref.get(pendingRef),
+          getActivityFreshnessByThreadId: () =>
+            Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+        } as unknown as ProjectionSnapshotQueryShape;
+        const providerService = {
+          listSessions: () => Effect.succeed([]),
+        } as unknown as ProviderService["Service"];
+        const deps = Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-notify-rail-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer));
+        return Layer.mergeAll(
+          WorkstreamDispatcherLive.pipe(Layer.provide(deps)),
+          Layer.succeed(ProviderService, providerService),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationEngineService, engine),
+          NodeServices.layer,
+        );
+      }),
+    );
+
+  const notifyTurnStarts = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+        c.type === "thread.turn.start" &&
+        (c as { message?: { origin?: string } }).message?.origin === "notify",
+    );
+  const marks = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter((c) => c.type === "thread.peer-message.mark-delivered");
+  const expires = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter((c) => c.type === "thread.peer-message.expire");
+  const idleTarget = () =>
+    shell({ id: TARGET, parentThreadId: null, planLane: "ready", session: null });
+
+  effectIt.layer(NodeServices.layer)("rail", (effectIt) => {
+    effectIt.effect("delivers the oldest pending on an idle target, then marks it delivered", () =>
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          const starts = notifyTurnStarts(dispatched);
+          expect(starts).toHaveLength(1);
+          expect(starts[0]!.threadId).toBe(TARGET);
+          expect((starts[0]! as { message: { text: string } }).message.text).toBe(
+            "framed notification body",
+          );
+          expect(marks(dispatched)).toHaveLength(1);
+          expect(expires(dispatched)).toHaveLength(0);
+        }).pipe(
+          Effect.provide(
+            buildRailLayer(dispatched, { pending: [pendingRow()], threads: [idleTarget()] }),
+          ),
+        );
+      }),
+    );
+
+    effectIt.effect(
+      "expires a queued notification whose target went terminal (no re-engagement)",
+      () =>
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(notifyTurnStarts(dispatched)).toHaveLength(0);
+            expect(expires(dispatched)).toHaveLength(1);
+            expect((expires(dispatched)[0]! as { recordId: string }).recordId).toBe("rec-1");
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [
+                  shell({ id: TARGET, parentThreadId: null, planLane: "done", session: null }),
+                ],
+              }),
+            ),
+          );
+        }),
+    );
+
+    effectIt.effect(
+      "expires when the target is absent from the active snapshot (archived/deleted)",
+      () =>
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(notifyTurnStarts(dispatched)).toHaveLength(0);
+            expect(expires(dispatched)).toHaveLength(1);
+          }).pipe(
+            Effect.provide(buildRailLayer(dispatched, { pending: [pendingRow()], threads: [] })),
+          );
+        }),
+    );
+
+    effectIt.effect(
+      "reconciles the crash window: a delivered receipt marks without re-delivering",
+      () =>
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            expect(notifyTurnStarts(dispatched)).toHaveLength(0);
+            expect(marks(dispatched)).toHaveLength(1);
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [idleTarget()],
+                deliveredReceipts: new Set([notifyDeliverCommandId("rec-1")]),
+              }),
+            ),
+          );
+        }),
+    );
+
+    effectIt.effect(
+      "delivers oldest-first, one per target per pass, and the second completes next pass (FIFO)",
+      () =>
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const sharedPending = yield* Ref.make<ReadonlyArray<ReturnType<typeof pendingRow>>>([
+            pendingRow({ recordId: "rec-a", framedMessage: "first" }),
+            pendingRow({ recordId: "rec-b", framedMessage: "second" }),
+          ]);
+          const sharedThreads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            idleTarget(),
+          ]);
+          const sharedEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+            // Pass 1 delivers ONLY the oldest (rec-a) and makes the target busy.
+            const afterPass1 = notifyTurnStarts(dispatched);
+            expect(afterPass1).toHaveLength(1);
+            expect((afterPass1[0]! as { message: { text: string } }).message.text).toBe("first");
+
+            // The target's turn ends (session-set idle); the next pass must deliver
+            // rec-b, completing the FIFO order.
+            yield* Ref.set(sharedThreads, [idleTarget()]);
+            yield* PubSub.publish(sharedEvents, {
+              type: "thread.session-set",
+            } as OrchestrationEvent);
+            yield* dispatcher.drain;
+            const afterPass2 = notifyTurnStarts(dispatched);
+            expect(afterPass2).toHaveLength(2);
+            expect((afterPass2[1]! as { message: { text: string } }).message.text).toBe("second");
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [],
+                threads: [],
+                sharedPending,
+                sharedThreads,
+                sharedEvents,
+              }),
+            ),
+          );
+        }),
+    );
+
+    effectIt.effect("a fresh thread.peer-message-recorded event triggers a delivery pass", () =>
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        const sharedPending = yield* Ref.make<ReadonlyArray<ReturnType<typeof pendingRow>>>([]);
+        const sharedEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          // Nothing pending on the initial reconcile pass.
+          expect(notifyTurnStarts(dispatched)).toHaveLength(0);
+          yield* Ref.set(sharedPending, [pendingRow()]);
+          yield* PubSub.publish(sharedEvents, {
+            type: "thread.peer-message-recorded",
+          } as OrchestrationEvent);
+          yield* dispatcher.drain;
+          expect(notifyTurnStarts(dispatched)).toHaveLength(1);
+        }).pipe(
+          Effect.provide(
+            buildRailLayer(dispatched, {
+              pending: [],
+              threads: [idleTarget()],
+              sharedPending,
+              sharedEvents,
+            }),
+          ),
+        );
+      }),
+    );
+  });
 });

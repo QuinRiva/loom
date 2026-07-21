@@ -339,6 +339,28 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("bg-secondary");
   });
 
+  it("labels a notify_thread peer message as a Thread notification", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const base = buildUserTimelineEntry(
+      "Notification from thread «other», sent via notify_thread.",
+    );
+    const notifyEntry = {
+      ...base,
+      id: "entry-notify",
+      message: {
+        ...base.message,
+        id: MessageId.make("message-notify"),
+        origin: "notify" as const,
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[notifyEntry]} />,
+    );
+    expect(markup).toContain('data-message-origin="notify"');
+    expect(markup).toContain("Thread notification");
+    expect(markup).toContain("bg-info/10");
+  });
+
   it("renders a control-plane digest as a collapsed card, hiding the raw payload until toggled", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const digestEntry = {
