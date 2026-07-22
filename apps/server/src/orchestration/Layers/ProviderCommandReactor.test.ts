@@ -509,6 +509,69 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  // loom: `/retro` fork-reviewer — the retro policy is SERVER-OWNED. The
+  // harness project root (/tmp/provider-project) carries no roles/ dir, exactly
+  // the cross-project/older-worktree case: the started session must still
+  // receive the authorised retro overlay (and compose its own fork identity)
+  // rather than falling back to the bare work-model prompt whose worktree rule
+  // forbids the reviewer's ~/loom-retro/ deliverable.
+  effectIt.effect(
+    "injects the server-owned retro overlay for a retro-reviewer fork whose project has no role file",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-retro-create"),
+          threadId: ThreadId.make("retro-1"),
+          projectId: asProjectId("project-1"),
+          parentThreadId: null,
+          role: "retro-reviewer",
+          forkFromThreadId: ThreadId.make("thread-1"),
+          title: "Retro: Thread",
+          titleProvenance: "curated",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+        } as never);
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-retro-turn-1"),
+          threadId: ThreadId.make("retro-1"),
+          message: {
+            messageId: asMessageId("retro-kickoff-1"),
+            role: "user",
+            text: "You are a retrospective reviewer…",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+        const startInput = harness.startSession.mock.calls[0]?.[1] as {
+          readonly appendSystemPrompt?: string;
+          readonly forkFromThreadId?: string;
+          readonly forkIdentity?: string;
+        };
+        // The server-owned retro policy is present despite the absent roles/ dir…
+        expect(startInput.appendSystemPrompt).toContain("retrospective reviewer");
+        expect(startInput.appendSystemPrompt).toContain("~/loom-retro/");
+        // …and the fork composes its own identity instead of replaying the source's.
+        expect(startInput.forkFromThreadId).toBe("thread-1");
+        expect(startInput.forkIdentity).toBe("compose");
+      }),
+  );
+
   // Item 4: the turn-start chokepoint must (re)provision an isolated child whose
   // worktree still points at the PARENT before running its turn, so a
   // `workstream_prompt` on a parked child recovers into its own worktree instead

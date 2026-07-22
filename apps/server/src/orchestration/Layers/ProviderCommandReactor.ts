@@ -47,7 +47,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
-import { RETRO_REVIEWER_ROLE } from "../../loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../../loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
 import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 import {
   ProviderCommandReactor,
@@ -623,7 +623,18 @@ const make = Effect.gen(function* () {
         // mode is ever added, the `orchestrator` overlay must not ship without
         // the workstream tools behind it.
         const roleProjectRoot = effectiveCwd ?? process.cwd();
-        const roleOverlay = loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
+        // loom: `/retro` fork-reviewer — its policy is SERVER-OWNED, never the
+        // reviewed project's. The generic path reads `roles/<role>.md` from the
+        // fork's inherited worktree, which belongs to the project under review;
+        // resolving there would silently drop the retro policy for any project
+        // (or older worktree) without the file — leaving only the base work-
+        // model prompt, whose worktree-write rule forbids the reviewer's one
+        // deliverable (~/loom-retro/). One server-owned overlay for all
+        // projects instead.
+        const roleOverlay =
+          thread.role === RETRO_REVIEWER_ROLE
+            ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT }
+            : loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
         // The defined-roles catalogue: every thread sees it, since any thread may
         // sub-delegate via workstream_spawn (whose `role` is free text).
         const roleCatalogue = listRoleOverlays({ projectRoot: roleProjectRoot });
