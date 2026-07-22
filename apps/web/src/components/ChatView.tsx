@@ -250,6 +250,7 @@ import {
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
   decideHandoffSend,
+  decideRetroSend,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   getStartedThreadModelChangeBlockReason,
@@ -1134,6 +1135,7 @@ function ChatViewContent(props: ChatViewProps) {
   });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const draftHandoff = useAtomCommand(serverEnvironment.handoffDraft, { reportFailure: false });
+  const draftRetro = useAtomCommand(serverEnvironment.retroDraft, { reportFailure: false });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
@@ -4227,6 +4229,48 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
       // Success: clear the composer only now.
+      setThreadError(sourceThreadId, null);
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      return;
+    }
+    // `/retro [focus]` mirrors the `/handoff` intercept: recognised drafts
+    // never fall through to a turn on the source thread.
+    const retroDecision = decideRetroSend({
+      trimmedPrompt: trimmed,
+      hasAttachmentsOrContexts:
+        composerImages.length > 0 ||
+        composerTerminalContexts.length > 0 ||
+        composerElementContexts.length > 0 ||
+        composerPreviewAnnotations.length > 0 ||
+        composerReviewComments.length > 0,
+    });
+    if (retroDecision.kind !== "not-retro") {
+      const sourceThreadId = activeThread.id;
+      if (retroDecision.kind === "blocked-context") {
+        setThreadError(sourceThreadId, retroDecision.message);
+        return;
+      }
+      const retroResult = await draftRetro({
+        environmentId,
+        input: {
+          sourceThreadId,
+          ...(retroDecision.focus !== undefined ? { focus: retroDecision.focus } : {}),
+        },
+      });
+      if (retroResult._tag === "Failure") {
+        // Preserve the draft; surface the server error inline (source not found
+        // / non-pi / mid-turn busy arrive as OrchestrationDispatchCommandError).
+        if (!isAtomCommandInterrupted(retroResult)) {
+          const error = squashAtomCommandFailure(retroResult);
+          setThreadError(
+            sourceThreadId,
+            error instanceof Error ? error.message : "Could not start the retro.",
+          );
+        }
+        return;
+      }
       setThreadError(sourceThreadId, null);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);

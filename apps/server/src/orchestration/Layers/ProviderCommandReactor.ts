@@ -47,6 +47,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
+import { RETRO_REVIEWER_ROLE } from "../../loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
 import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 import {
   ProviderCommandReactor,
@@ -1140,7 +1141,16 @@ const make = Effect.gen(function* () {
     // goal-less drafter would spend a model call AND attach an orphan goal that
     // survives its own archive (the goal-attach decider requires existence, not
     // active state), violating “only the staged destination remains”.
-    if (thread.parentThreadId === null && thread.role !== HANDOFF_DRAFTER_ROLE) {
+    //
+    // loom: `/retro` fork-reviewer — excluded for the same reason: a curated
+    // title and the source's goal (or legitimately none); its transcript is the
+    // SOURCE's conversation, so interpretation would name a goal after the
+    // reviewed work rather than the review.
+    if (
+      thread.parentThreadId === null &&
+      thread.role !== HANDOFF_DRAFTER_ROLE &&
+      thread.role !== RETRO_REVIEWER_ROLE
+    ) {
       // §4 apply the client's title SEED immediately through the guarded path so
       // the sidebar shows a real title before the slower LLM interpretation
       // lands — but only while the title is still the "New thread" default and

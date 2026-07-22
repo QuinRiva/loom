@@ -7,6 +7,7 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
   parseHandoffDraft,
+  parseRetroDraft,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
   shouldSubmitComposerOnEnter,
@@ -463,6 +464,42 @@ describe("parseHandoffDraft", () => {
     expect(parseHandoffDraft("/handoff line one\nline two")).toEqual({
       kind: "handoff",
       explanation: "line one\nline two",
+    });
+  });
+});
+
+describe("parseRetroDraft", () => {
+  it("returns not-retro for ordinary prompts", () => {
+    expect(parseRetroDraft("review this thread")).toEqual({ kind: "not-retro" });
+    expect(parseRetroDraft("")).toEqual({ kind: "not-retro" });
+  });
+
+  it("does not match a word that merely starts with retro", () => {
+    expect(parseRetroDraft("/retrofit the engine")).toEqual({ kind: "not-retro" });
+    expect(parseRetroDraft("/retrospective")).toEqual({ kind: "not-retro" });
+  });
+
+  it("recognises a bare /retro with no focus", () => {
+    expect(parseRetroDraft("/retro")).toEqual({ kind: "retro", focus: undefined });
+    expect(parseRetroDraft("  /retro   ")).toEqual({ kind: "retro", focus: undefined });
+  });
+
+  it("extracts the focus, trimming surrounding whitespace", () => {
+    expect(parseRetroDraft("/retro the rework loop")).toEqual({
+      kind: "retro",
+      focus: "the rework loop",
+    });
+    expect(parseRetroDraft("   /retro   gate outcomes  ")).toEqual({
+      kind: "retro",
+      focus: "gate outcomes",
+    });
+  });
+
+  it("is case-insensitive on the command and keeps multi-line focus", () => {
+    expect(parseRetroDraft("/RETRO briefs")).toEqual({ kind: "retro", focus: "briefs" });
+    expect(parseRetroDraft("/retro line one\nline two")).toEqual({
+      kind: "retro",
+      focus: "line one\nline two",
     });
   });
 });

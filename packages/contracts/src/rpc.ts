@@ -145,6 +145,8 @@ import {
   WorkstreamRemoveWorktreeResult,
   HandoffDraftInput,
   HandoffDraftResult,
+  RetroDraftInput,
+  RetroDraftResult,
   ServerUsageBreakdownError,
   ServerUsageBreakdownInput,
   ServerUsageBreakdownResult,
@@ -245,6 +247,9 @@ export const WS_METHODS = {
   // `/handoff` fork-drafter (plan D2/D4): human composer intercept → fork the
   // source into a throwaway drafter root + inject its kickoff turn.
   serverHandoffDraft: "server.handoffDraft",
+  // `/retro` fork-reviewer: human composer intercept → fork the source into a
+  // visible retro-reviewer root + inject its kickoff turn.
+  serverRetroDraft: "server.retroDraft",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -383,6 +388,12 @@ export const WsServerRemoveWorkstreamWorktreeRpc = Rpc.make(
 export const WsServerHandoffDraftRpc = Rpc.make(WS_METHODS.serverHandoffDraft, {
   payload: HandoffDraftInput,
   success: HandoffDraftResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerRetroDraftRpc = Rpc.make(WS_METHODS.serverRetroDraft, {
+  payload: RetroDraftInput,
+  success: RetroDraftResult,
   error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
@@ -807,6 +818,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetWorkstreamWorktreesRpc,
   WsServerRemoveWorkstreamWorktreeRpc,
   WsServerHandoffDraftRpc,
+  WsServerRetroDraftRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,
   WsSourceControlLookupRepositoryRpc,
