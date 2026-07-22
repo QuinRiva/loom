@@ -1127,6 +1127,19 @@ const makeWsRpcLayer = (
                 );
               }
 
+              // The reviewer is seeded from the source's projected selection.
+              // The fork only carries context on the pi driver, so refuse a
+              // projected selection that resolves to a non-pi instance (a
+              // reroute drift) rather than silently launching without history.
+              const selectedProvider = (yield* providerRegistry.getProviders).find(
+                (provider) => provider.instanceId === sourceThread.modelSelection.instanceId,
+              );
+              if (selectedProvider !== undefined && selectedProvider.driver !== "pi") {
+                return yield* failValidation(
+                  "This thread's current model selection is not pi-backed; a retro fork would launch without the thread's history. Switch the thread back to a pi model first.",
+                );
+              }
+
               const reviewerThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
               const command = buildRetroDraftTurnStart({
                 source: sourceThread,

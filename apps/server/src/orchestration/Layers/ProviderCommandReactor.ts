@@ -661,6 +661,16 @@ const make = Effect.gen(function* () {
           // source's pi session at this child's first launch (fork-once — the
           // driver no-ops it once the child's own session file exists).
           ...(thread.forkFromThreadId ? { forkFromThreadId: thread.forkFromThreadId } : {}),
+          // loom: `/retro` fork-reviewer — a retro fork DIVERGES in role from
+          // its source, so its first launch composes its OWN identity (role
+          // overlay + work model) instead of replaying the source argv. The
+          // source's system prompt carries the source role's policy (e.g. the
+          // worktree-write contract) which the reviewer's overlay must be able
+          // to scope differently; verbatim replay would also drop the
+          // reviewer's own role overlay entirely.
+          ...(thread.forkFromThreadId && thread.role === RETRO_REVIEWER_ROLE
+            ? { forkIdentity: "compose" as const }
+            : {}),
           runtimeMode: desiredRuntimeMode,
         });
       });
