@@ -242,6 +242,43 @@ describe("graphViewFor", () => {
     const view = graphViewFor(tid("reviewer"), withDeps);
     expect(view.waitsOnEdges).toEqual([{ from: tid("reviewer"), to: tid("coder") }]);
   });
+
+  it("widens scope across fork provenance: a parentless fork root sees its source's tree", () => {
+    const withFork = [
+      node({ id: "root-a", role: "orchestrator" }),
+      node({ id: "child-1", parentThreadId: tid("root-a"), role: "coder" }),
+      node({ id: "retro", role: "retro-reviewer", forkFromThreadId: tid("root-a") }),
+      node({ id: "root-b" }),
+    ];
+    // Called from the fork, the view is rooted at the SOURCE's root and includes
+    // the whole source tree plus the fork itself.
+    const view = graphViewFor(tid("retro"), withFork);
+    expect(view.rootId).toBe("root-a");
+    expect(view.nodes.map((n) => n.id).sort()).toEqual(["child-1", "retro", "root-a"]);
+    // The fork stays a ROOT in the emitted shape — no lineage edge to it.
+    expect(view.nodes.find((n) => n.id === "retro")?.parentThreadId).toBeNull();
+    expect(view.lineageEdges.some((e) => e.to === tid("retro"))).toBe(false);
+    // And the source tree sees the fork symmetrically.
+    const fromSource = graphViewFor(tid("child-1"), withFork);
+    expect(fromSource.nodes.some((n) => n.id === "retro")).toBe(true);
+  });
+
+  it("forked-from-a-child fork joins that child's whole tree", () => {
+    const withFork = [
+      node({ id: "root-a" }),
+      node({ id: "child-1", parentThreadId: tid("root-a") }),
+      node({ id: "fork", forkFromThreadId: tid("child-1") }),
+    ];
+    const view = graphViewFor(tid("fork"), withFork);
+    expect(view.rootId).toBe("root-a");
+    expect(view.nodes.map((n) => n.id).sort()).toEqual(["child-1", "fork", "root-a"]);
+  });
+
+  it("ignores a dangling fork source (fork stays its own root)", () => {
+    const view = graphViewFor(tid("fork"), [node({ id: "fork", forkFromThreadId: tid("gone") })]);
+    expect(view.rootId).toBe("fork");
+    expect(view.nodes.map((n) => n.id)).toEqual(["fork"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

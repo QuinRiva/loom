@@ -19,6 +19,8 @@ import {
   deriveComposerSendState,
   HANDOFF_BLOCKED_CONTEXT_MESSAGE,
   HANDOFF_EMPTY_EXPLANATION_MESSAGE,
+  RETRO_BLOCKED_CONTEXT_MESSAGE,
+  decideRetroSend,
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
@@ -577,5 +579,40 @@ describe("decideHandoffSend", () => {
         hasAttachmentsOrContexts: false,
       }),
     ).toEqual({ kind: "dispatch", explanation: "the retry logic is broken" });
+  });
+});
+
+describe("decideRetroSend", () => {
+  it("lets ordinary prompts fall through to a normal send", () => {
+    expect(
+      decideRetroSend({ trimmedPrompt: "review the process", hasAttachmentsOrContexts: false }),
+    ).toEqual({ kind: "not-retro" });
+  });
+
+  it("never falls through for a recognised /retro (invariant: no turn-start)", () => {
+    for (const prompt of ["/retro", "/retro gate outcomes", "  /retro  x  "]) {
+      expect(
+        decideRetroSend({ trimmedPrompt: prompt, hasAttachmentsOrContexts: false }).kind,
+      ).not.toBe("not-retro");
+    }
+  });
+
+  it("dispatches a bare /retro with no focus (general review)", () => {
+    expect(decideRetroSend({ trimmedPrompt: "/retro", hasAttachmentsOrContexts: false })).toEqual({
+      kind: "dispatch",
+      focus: undefined,
+    });
+  });
+
+  it("rejects a /retro carrying attachments or contexts, never dispatching", () => {
+    expect(
+      decideRetroSend({ trimmedPrompt: "/retro the rework loop", hasAttachmentsOrContexts: true }),
+    ).toEqual({ kind: "blocked-context", message: RETRO_BLOCKED_CONTEXT_MESSAGE });
+  });
+
+  it("dispatches with the parsed focus when clean", () => {
+    expect(
+      decideRetroSend({ trimmedPrompt: "/retro the rework loop", hasAttachmentsOrContexts: false }),
+    ).toEqual({ kind: "dispatch", focus: "the rework loop" });
   });
 });

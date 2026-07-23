@@ -202,6 +202,39 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
   );
 
   effectIt.effect(
+    "composes the fork's OWN identity (no replay, no record required) with forkIdentity 'compose'",
+    () => {
+      const fake = makeFakeProcess();
+      return withAdapter(fake.factory, (adapter, dir) =>
+        Effect.gen(function* () {
+          const source = ThreadId.make("99999999-0000-4000-8000-000000000009");
+          const fork = ThreadId.make("aaaaaaaa-0000-4000-8000-00000000000a");
+          // Source captured a DIFFERENT identity; compose must ignore it — and
+          // must not even require it (no record for `source` is also exercised
+          // by omitting writeLaunchIdentity here).
+          yield* adapter.startSession({
+            threadId: fork,
+            providerInstanceId: INSTANCE,
+            modelSelection: { instanceId: INSTANCE, model: "m" },
+            appendSystemPrompt: "retro reviewer overlay",
+            tools: ["read"],
+            runtimeMode: "full-access",
+            forkFromThreadId: source,
+            forkIdentity: "compose",
+          });
+          // Still forks the source SESSION…
+          expect(fake.captured.options?.forkFrom).toBe(piSessionIdForThread(source));
+          // …but launches with the fork's own composed argv.
+          expect(fake.captured.options?.appendSystemPrompt).toBe("retro reviewer overlay");
+          expect(fake.captured.options?.tools).toEqual(["read"]);
+          // And captures the fork's own record as usual.
+          expect(readLaunchIdentity(dir, fork)?.appendSystemPrompt).toBe("retro reviewer overlay");
+        }),
+      );
+    },
+  );
+
+  effectIt.effect(
     "refuses a fork's first launch when the source has no captured record (loud, no launch)",
     () => {
       const fake = makeFakeProcess();

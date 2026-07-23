@@ -1873,11 +1873,19 @@ export function makePiAdapter(input: {
         const forkFirstLaunch =
           startInput.forkFromThreadId !== undefined &&
           resolveSessionFilePath(piSessionIdForThread(startInput.threadId)) === undefined;
+        // loom: forkIdentity "compose" — a role-divergent fork (e.g. a retro
+        // reviewer) launches with its OWN reactor-composed identity instead of
+        // replaying the source argv: the source's system prompt carries the
+        // source ROLE's policy, which a diverging fork must not inherit. The
+        // session content is still forked; only the argv identity differs, so
+        // no launch-identity record is needed (and the missing-record refusal
+        // below does not apply — it guards verbatim replay only).
+        const composeForkIdentity = startInput.forkIdentity === "compose";
         const forkRecord =
-          forkFirstLaunch && startInput.forkFromThreadId !== undefined
+          forkFirstLaunch && !composeForkIdentity && startInput.forkFromThreadId !== undefined
             ? readLaunchIdentity(launchIdentityDir, startInput.forkFromThreadId)
             : undefined;
-        if (forkFirstLaunch && forkRecord === undefined) {
+        if (forkFirstLaunch && !composeForkIdentity && forkRecord === undefined) {
           return yield* new ProviderAdapterProcessError({
             provider: DRIVER_KIND,
             threadId: startInput.threadId,

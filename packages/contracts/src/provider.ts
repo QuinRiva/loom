@@ -79,6 +79,14 @@ export const ProviderSessionStartInput = Schema.Struct({
   // — every later resume launches normally (the child's own session file now
   // exists). Pi-only; other drivers ignore it.
   forkFromThreadId: Schema.optional(ThreadId),
+  // How a fork's FIRST launch resolves its system-prompt/tool identity.
+  // "replay" (default, and the only prior behaviour) replays the source's
+  // captured launch argv verbatim to preserve the shared cacheable prefix.
+  // "compose" uses this thread's OWN reactor-composed identity instead — for
+  // forks whose role diverges from the source (e.g. a retro reviewer) and
+  // whose system-level policy must differ. Deliberately forfeits the fork
+  // cache-prefix optimisation. Pi-only; ignored without forkFromThreadId.
+  forkIdentity: Schema.optional(Schema.Literals(["replay", "compose"])),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

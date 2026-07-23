@@ -138,6 +138,7 @@ import {
   buildHandoffDraftTurnStart,
   capturedDrafterSelectionCandidate,
 } from "./loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
+import { buildRetroDraftTurnStart } from "./loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
 import { readLaunchIdentity } from "./orchestration/workstreamLaunchIdentity.ts"; // loom:
 import { isThreadIdle } from "./orchestration/threadIdle.ts"; // loom:
 import * as RelayClient from "@t3tools/shared/relayClient";
@@ -1076,6 +1077,88 @@ const makeWsRpcLayer = (
                   ? cause
                   : new OrchestrationDispatchCommandError({
                       message: "Failed to start the handoff drafter",
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        // loom: `/retro` fork-reviewer. Human composer intercept → fork the
+        // source into a VISIBLE `retro-reviewer` ROOT and inject the retro
+        // kickoff as its first turn. Same intake shape as `/handoff` above
+        // (pi-only source, source idle, message never lands on the source);
+        // model policy inherits the source's projected selection (a retro is a
+        // fresh cold review, so launch-identity cache parity buys nothing).
+        [WS_METHODS.serverRetroDraft]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverRetroDraft,
+            Effect.gen(function* () {
+              const failValidation = (message: string) =>
+                new OrchestrationDispatchCommandError({ message });
+
+              const source = yield* projectionSnapshotQuery.getThreadDetailById(
+                input.sourceThreadId,
+              );
+              if (Option.isNone(source)) {
+                return yield* failValidation("The source thread for this retro was not found.");
+              }
+              const sourceThread = source.value;
+
+              // Pi-only: only the pi driver honours `forkFromThreadId`
+              // (`pi --fork`). Mirror ThreadForkHttp's guard rather than
+              // promising context that another driver would silently drop.
+              if (sourceThread.session?.providerName !== "pi") {
+                return yield* failValidation(
+                  "Only pi-backed threads can be reviewed (the retro relies on pi's native session fork).",
+                );
+              }
+
+              // Source-idle: forking a mid-turn jsonl would capture an unclosed
+              // tool call. The composer disables /retro while the source is
+              // running; this rejects the residual race with a clear error.
+              const pendingTurnStartThreadIds =
+                yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
+              if (
+                !isThreadIdle(sourceThread, pendingTurnStartThreadIds) ||
+                (sourceThread.latestTurn !== null && sourceThread.latestTurn.state === "running")
+              ) {
+                return yield* failValidation(
+                  "This thread is mid-turn; wait for it to finish before running a retro (forking a live session would corrupt its context).",
+                );
+              }
+
+              // The reviewer is seeded from the source's projected selection.
+              // The fork only carries context on the pi driver, so refuse a
+              // projected selection that resolves to a non-pi instance (a
+              // reroute drift) rather than silently launching without history.
+              const selectedProvider = (yield* providerRegistry.getProviders).find(
+                (provider) => provider.instanceId === sourceThread.modelSelection.instanceId,
+              );
+              if (selectedProvider !== undefined && selectedProvider.driver !== "pi") {
+                return yield* failValidation(
+                  "This thread's current model selection is not pi-backed; a retro fork would launch without the thread's history. Switch the thread back to a pi model first.",
+                );
+              }
+
+              const reviewerThreadId = ThreadId.make(yield* crypto.randomUUIDv4);
+              const command = buildRetroDraftTurnStart({
+                source: sourceThread,
+                focus: input.focus,
+                reviewerThreadId,
+                modelSelection: sourceThread.modelSelection,
+                commandId: CommandId.make(`server:retro-draft:${yield* crypto.randomUUIDv4}`),
+                messageId: MessageId.make(yield* crypto.randomUUIDv4),
+                now: yield* nowIso,
+              });
+
+              yield* dispatchNormalizedCommand(command);
+              return { reviewerThreadId };
+            }).pipe(
+              Effect.mapError((cause) =>
+                isOrchestrationDispatchCommandError(cause)
+                  ? cause
+                  : new OrchestrationDispatchCommandError({
+                      message: "Failed to start the retro reviewer",
                       cause,
                     }),
               ),

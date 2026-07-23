@@ -47,6 +47,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../../loom/handoffDraft.ts"; // loom: `/handoff` fork-drafter
+import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_ROLE } from "../../loom/retroDraft.ts"; // loom: `/retro` fork-reviewer
 import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piSessionFiles.ts";
 import {
   ProviderCommandReactor,
@@ -622,7 +623,18 @@ const make = Effect.gen(function* () {
         // mode is ever added, the `orchestrator` overlay must not ship without
         // the workstream tools behind it.
         const roleProjectRoot = effectiveCwd ?? process.cwd();
-        const roleOverlay = loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
+        // loom: `/retro` fork-reviewer — its policy is SERVER-OWNED, never the
+        // reviewed project's. The generic path reads `roles/<role>.md` from the
+        // fork's inherited worktree, which belongs to the project under review;
+        // resolving there would silently drop the retro policy for any project
+        // (or older worktree) without the file — leaving only the base work-
+        // model prompt, whose worktree-write rule forbids the reviewer's one
+        // deliverable (~/loom-retro/). One server-owned overlay for all
+        // projects instead.
+        const roleOverlay =
+          thread.role === RETRO_REVIEWER_ROLE
+            ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT }
+            : loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
         // The defined-roles catalogue: every thread sees it, since any thread may
         // sub-delegate via workstream_spawn (whose `role` is free text).
         const roleCatalogue = listRoleOverlays({ projectRoot: roleProjectRoot });
@@ -660,6 +672,16 @@ const make = Effect.gen(function* () {
           // source's pi session at this child's first launch (fork-once — the
           // driver no-ops it once the child's own session file exists).
           ...(thread.forkFromThreadId ? { forkFromThreadId: thread.forkFromThreadId } : {}),
+          // loom: `/retro` fork-reviewer — a retro fork DIVERGES in role from
+          // its source, so its first launch composes its OWN identity (role
+          // overlay + work model) instead of replaying the source argv. The
+          // source's system prompt carries the source role's policy (e.g. the
+          // worktree-write contract) which the reviewer's overlay must be able
+          // to scope differently; verbatim replay would also drop the
+          // reviewer's own role overlay entirely.
+          ...(thread.forkFromThreadId && thread.role === RETRO_REVIEWER_ROLE
+            ? { forkIdentity: "compose" as const }
+            : {}),
           runtimeMode: desiredRuntimeMode,
         });
       });
@@ -1140,7 +1162,16 @@ const make = Effect.gen(function* () {
     // goal-less drafter would spend a model call AND attach an orphan goal that
     // survives its own archive (the goal-attach decider requires existence, not
     // active state), violating “only the staged destination remains”.
-    if (thread.parentThreadId === null && thread.role !== HANDOFF_DRAFTER_ROLE) {
+    //
+    // loom: `/retro` fork-reviewer — excluded for the same reason: a curated
+    // title and the source's goal (or legitimately none); its transcript is the
+    // SOURCE's conversation, so interpretation would name a goal after the
+    // reviewed work rather than the review.
+    if (
+      thread.parentThreadId === null &&
+      thread.role !== HANDOFF_DRAFTER_ROLE &&
+      thread.role !== RETRO_REVIEWER_ROLE
+    ) {
       // §4 apply the client's title SEED immediately through the guarded path so
       // the sidebar shows a real title before the slower LLM interpretation
       // lands — but only while the title is still the "New thread" default and

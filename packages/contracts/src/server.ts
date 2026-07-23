@@ -493,6 +493,21 @@ export const HandoffDraftResult = Schema.Struct({
 });
 export type HandoffDraftResult = typeof HandoffDraftResult.Type;
 
+// `/retro` fork-reviewer: the human's composer intercept sends this application
+// operation; the message never becomes a turn on the source. The server forks
+// the source into a VISIBLE `retro-reviewer` root and injects the retro kickoff
+// as its first turn. `focus` is optional free-text narrowing the review.
+export const RetroDraftInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  focus: Schema.optional(TrimmedNonEmptyString),
+});
+export type RetroDraftInput = typeof RetroDraftInput.Type;
+
+export const RetroDraftResult = Schema.Struct({
+  reviewerThreadId: ThreadId,
+});
+export type RetroDraftResult = typeof RetroDraftResult.Type;
+
 // Static meter → backend-provider-id map. A meter scope key is a gauge account
 // key (`providerInstanceId ?? providerName`); the poller emits "claudeAgent" for
 // the Anthropic OAuth subscription meter and "codex" for the Codex subscription.

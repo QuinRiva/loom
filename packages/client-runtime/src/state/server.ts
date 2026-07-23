@@ -396,5 +396,11 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:handoff-draft",
       tag: WS_METHODS.serverHandoffDraft,
     }),
+    // `/retro` fork-reviewer: same intercept shape as handoffDraft — the
+    // human's focus text never becomes a turn on the source thread.
+    retroDraft: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:retro-draft",
+      tag: WS_METHODS.serverRetroDraft,
+    }),
   };
 }

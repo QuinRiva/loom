@@ -2,7 +2,7 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "thread" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "handoff" | "retro";
 
 /**
  * Result of recognising a `/handoff <explanation>` composer draft (plan D2).
@@ -29,6 +29,28 @@ export function parseHandoffDraft(text: string): HandoffDraftParse {
     return { kind: "empty-error" };
   }
   return { kind: "handoff", explanation };
+}
+
+/**
+ * Result of recognising a `/retro [focus]` composer draft. `/retro` is
+ * intercepted client-side and NEVER becomes a turn on the source thread. The
+ * focus is optional — a bare `/retro` runs a general review.
+ */
+export type RetroDraftParse =
+  | { readonly kind: "not-retro" }
+  | { readonly kind: "retro"; readonly focus: string | undefined };
+
+// `/retro` followed by end-of-input or whitespace + optional free-text focus.
+// `/retrofit…` (no boundary after the word) is deliberately NOT a match.
+const RETRO_COMMAND_PATTERN = /^\/retro(?:\s+([\s\S]*))?$/i;
+
+export function parseRetroDraft(text: string): RetroDraftParse {
+  const match = RETRO_COMMAND_PATTERN.exec(text.trim());
+  if (!match) {
+    return { kind: "not-retro" };
+  }
+  const focus = (match[1] ?? "").trim();
+  return { kind: "retro", focus: focus.length === 0 ? undefined : focus };
 }
 
 export interface ComposerTrigger {

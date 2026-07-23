@@ -10,7 +10,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { type ChatMessage, type SessionPhase, type Thread } from "../types";
-import { parseHandoffDraft } from "../composer-logic";
+import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -69,6 +69,41 @@ export function decideHandoffSend(input: {
     return { kind: "blocked-context", message: HANDOFF_BLOCKED_CONTEXT_MESSAGE };
   }
   return { kind: "dispatch", explanation: parse.explanation };
+}
+
+// Inline copy for the `/retro` composer intercept. Australian English in UI
+// prose.
+export const RETRO_BLOCKED_CONTEXT_MESSAGE =
+  "Attachments and contexts aren’t supported with /retro. Remove them and try again.";
+
+/**
+ * Result of the `/retro` intercept decision at the send authority. Every kind
+ * except `not-retro` short-circuits the send — a recognised `/retro` must
+ * NEVER become a turn on the source thread. `not-retro` is the ONLY kind that
+ * lets `onSend` fall through to a normal turn-start.
+ */
+export type RetroSendDecision =
+  | { readonly kind: "not-retro" }
+  | { readonly kind: "blocked-context"; readonly message: string }
+  | { readonly kind: "dispatch"; readonly focus: string | undefined };
+
+/**
+ * Pure decision for the `/retro` intercept, mirroring `decideHandoffSend`.
+ * The focus is optional (a bare `/retro` runs a general review), so there is
+ * no empty-error branch.
+ */
+export function decideRetroSend(input: {
+  trimmedPrompt: string;
+  hasAttachmentsOrContexts: boolean;
+}): RetroSendDecision {
+  const parse = parseRetroDraft(input.trimmedPrompt);
+  if (parse.kind === "not-retro") {
+    return { kind: "not-retro" };
+  }
+  if (input.hasAttachmentsOrContexts) {
+    return { kind: "blocked-context", message: RETRO_BLOCKED_CONTEXT_MESSAGE };
+  }
+  return { kind: "dispatch", focus: parse.focus };
 }
 
 export function buildLocalDraftThread(
