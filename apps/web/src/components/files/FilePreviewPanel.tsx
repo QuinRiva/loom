@@ -734,9 +734,10 @@ export default function FilePreviewPanel({
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
   const isMdx = relativePath ? isMdxPreviewFile(relativePath) : false;
-  // MDX plans open in the annotatable rendered view by default; plain `.md`
-  // still opens as source (rendered on demand). Either way a reveal-to-line
-  // forces source unless the user's explicit choice matches this reveal.
+  // Markdown opens in the rendered view by default (MDX plans in the
+  // annotatable variant); the source view is available on demand. Either way a
+  // reveal-to-line forces source unless the user's explicit choice matches this
+  // reveal.
   const explicitView = markdownView.path === relativePath ? markdownView.mode : null;
   // A still-truncated `.mdx` must never reach the compiler — chopped source
   // throws and shows a content-less error card over the truncation banner. Force
@@ -747,7 +748,7 @@ export default function FilePreviewPanel({
     isMarkdown &&
     !mdxTruncated &&
     (revealLine === null || markdownView.revealRequestId === revealRequestId) &&
-    (explicitView ? explicitView === "rendered" : isMdx);
+    (explicitView ? explicitView === "rendered" : true);
   const canOpenInBrowser =
     relativePath !== null && isPreviewSupportedInRuntime() && isBrowserPreviewFile(relativePath);
   // Web-runtime counterpart to the desktop browser button: render an in-
