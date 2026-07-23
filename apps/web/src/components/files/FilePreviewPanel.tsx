@@ -21,11 +21,12 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
+import { useTimelineAvailableWidthVar } from "~/components/chat/timelineLayout";
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
@@ -579,6 +580,24 @@ function EditableFileSurface({
   );
 }
 
+/**
+ * Publishes `--timeline-available-width` (from a ResizeObserver on the panel's
+ * scroll viewport) around file-preview markdown, so wide-block bleed keys off
+ * the panel width the way it does in the chat timeline. Without it, tables fall
+ * back to the `max-w-4xl` prose measure and get stranded in a narrow column
+ * with whitespace beside them (see `.chat-markdown-table-container` in
+ * `index.css`).
+ */
+function MarkdownBleedFrame({ children }: { children: ReactNode }) {
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  useTimelineAvailableWidthVar(viewport);
+  return (
+    <div ref={setViewport} className="w-full min-w-0">
+      {children}
+    </div>
+  );
+}
+
 function RenderedMarkdownSurface({
   environmentId,
   cwd,
@@ -607,12 +626,14 @@ function RenderedMarkdownSurface({
   if (readOnly) {
     return (
       <ScrollArea className="min-h-0 flex-1">
-        <ChatMarkdown
-          text={contents}
-          cwd={cwd}
-          threadRef={threadRef}
-          className="mx-auto max-w-4xl px-6 py-5"
-        />
+        <MarkdownBleedFrame>
+          <ChatMarkdown
+            text={contents}
+            cwd={cwd}
+            threadRef={threadRef}
+            className="mx-auto max-w-4xl px-6 py-5"
+          />
+        </MarkdownBleedFrame>
       </ScrollArea>
     );
   }
@@ -631,21 +652,23 @@ function RenderedMarkdownSurface({
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <ChatMarkdown
-        text={contents}
-        cwd={cwd}
-        threadRef={threadRef}
-        className="mx-auto max-w-4xl px-6 py-5"
-        onTaskListChange={({ markerOffset, checked }) => {
-          const currentContents =
-            getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
-            contents;
-          const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
-          if (nextContents === currentContents) return;
-          setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
-          saveCoordinator.change(nextContents);
-        }}
-      />
+      <MarkdownBleedFrame>
+        <ChatMarkdown
+          text={contents}
+          cwd={cwd}
+          threadRef={threadRef}
+          className="mx-auto max-w-4xl px-6 py-5"
+          onTaskListChange={({ markerOffset, checked }) => {
+            const currentContents =
+              getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
+              contents;
+            const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
+            if (nextContents === currentContents) return;
+            setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+            saveCoordinator.change(nextContents);
+          }}
+        />
+      </MarkdownBleedFrame>
     </ScrollArea>
   );
 }
