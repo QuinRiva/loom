@@ -563,9 +563,11 @@ describe("ProviderCommandReactor", () => {
           readonly forkFromThreadId?: string;
           readonly forkIdentity?: string;
         };
-        // The server-owned retro policy is present despite the absent roles/ dir…
+        // The server-owned retro policy is present despite the absent roles/ dir
+        // (both write scopes: the in-worktree MDX batch and the central corpus)…
         expect(startInput.appendSystemPrompt).toContain("retrospective reviewer");
         expect(startInput.appendSystemPrompt).toContain("~/loom-retro/");
+        expect(startInput.appendSystemPrompt).toContain("mdx-visual-recap");
         // …and the fork composes its own identity instead of replaying the source's.
         expect(startInput.forkFromThreadId).toBe("thread-1");
         expect(startInput.forkIdentity).toBe("compose");
