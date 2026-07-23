@@ -108,6 +108,27 @@ export interface ProjectionInFlightTool {
   readonly startedAt: string;
   /** The in-flight row's id — the slow-tool notice episode key. */
   readonly activityId: string;
+  /**
+   * The normalised tool item type (e.g. `command_execution`, `file_change`).
+   * The slow-tool rail honours a declared expected-duration ONLY for
+   * `command_execution` calls, so incidental `# eta`-shaped text or a `timeout`
+   * arg on a non-command tool never defers notices. `null` when unknown.
+   */
+  readonly itemType: string | null;
+  /**
+   * The call's presentation detail (for command execution, the command line) as
+   * persisted on the started/updated row. Carries any inline `# eta: <n>m`
+   * marker an agent prefixed to a known-long command, which the slow-tool rail
+   * parses to defer its notices. `null` when the row has no detail.
+   */
+  readonly commandText: string | null;
+  /**
+   * The declared `timeout` (seconds) extracted from the call's input at
+   * ingestion (a single bounded number, not the raw args), when present — the
+   * fallback expected-duration signal for the slow-tool rail when no `# eta:`
+   * marker is given (a call cannot outlive its timeout). `null` when undeclared.
+   */
+  readonly timeoutSeconds: number | null;
 }
 
 export interface ProjectionSnapshotSequence {

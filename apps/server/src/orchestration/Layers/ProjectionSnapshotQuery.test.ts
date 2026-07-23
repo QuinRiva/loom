@@ -2033,6 +2033,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           toolName: "bash",
           startedAt: "2026-05-01T00:00:12.000Z",
           activityId: "act-bash",
+          itemType: null,
+          commandText: null,
+          timeoutSeconds: null,
         });
 
         yield* sql`
@@ -2063,6 +2066,66 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             asTurnId("turn-1"),
           ),
           null,
+        );
+      }),
+  );
+
+  it.effect(
+    "surfaces the started row's itemType, detail (command, with any eta marker), and the extracted numeric timeout",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_thread_activities`;
+        // A command_execution started row whose payload carries the `# eta:`
+        // command detail and the ingestion-extracted numeric `timeoutSeconds`.
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+          )
+          VALUES
+            (
+              'act-eta', 'thread-eta', 'turn-1', 'tool', 'tool.started', 'bash started',
+              '{"itemType":"command_execution","detail":"# eta: 25m\n python run.py","timeoutSeconds":1800}',
+              1, '2026-05-01T00:00:00.000Z'
+            )
+        `;
+        assert.deepStrictEqual(
+          yield* snapshotQuery.getInFlightToolByThreadId(
+            ThreadId.make("thread-eta"),
+            asTurnId("turn-1"),
+          ),
+          {
+            toolName: "bash",
+            startedAt: "2026-05-01T00:00:00.000Z",
+            activityId: "act-eta",
+            itemType: "command_execution",
+            commandText: "# eta: 25m\n python run.py",
+            timeoutSeconds: 1800,
+          },
+        );
+
+        // A non-numeric timeoutSeconds must degrade to null rather than break the
+        // decode; a non-command tool surfaces its itemType so the rail can gate.
+        yield* sql`
+          UPDATE projection_thread_activities
+          SET payload_json = '{"itemType":"dynamic_tool_call","detail":"grep foo","timeoutSeconds":"nope"}'
+          WHERE activity_id = 'act-eta'
+        `;
+        assert.deepStrictEqual(
+          yield* snapshotQuery.getInFlightToolByThreadId(
+            ThreadId.make("thread-eta"),
+            asTurnId("turn-1"),
+          ),
+          {
+            toolName: "bash",
+            startedAt: "2026-05-01T00:00:00.000Z",
+            activityId: "act-eta",
+            itemType: "dynamic_tool_call",
+            commandText: "grep foo",
+            timeoutSeconds: null,
+          },
         );
       }),
   );

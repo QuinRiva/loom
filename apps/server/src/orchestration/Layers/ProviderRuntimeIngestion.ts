@@ -176,6 +176,22 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+/**
+ * Extract the declared `timeout` (seconds) from a tool call's input `data` as a
+ * single bounded number — the only field the slow-tool rail's expected-duration
+ * deferral needs from the input. Persisting just this (alongside the already
+ * truncated `detail` that carries any `# eta:` marker) keeps `tool.started` rows
+ * from retaining arbitrary raw args. `undefined` unless `data.timeout` is a
+ * finite positive number.
+ */
+function extractDeclaredTimeoutSeconds(data: unknown): number | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const timeout = (data as Record<string, unknown>).timeout;
+  return typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0
+    ? timeout
+    : undefined;
+}
+
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
   const trimmed = planMarkdown?.trim();
   if (!trimmed) {
@@ -639,6 +655,12 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      // Persist ONLY the declared timeout (one bounded number), not the raw input
+      // args, so the in-flight query can read the slow-tool rail's
+      // expected-duration fallback without inflating started rows with arbitrary
+      // tool inputs (large commands, edit arrays). The `# eta:` marker travels in
+      // the already-truncated `detail` below.
+      const declaredTimeoutSeconds = extractDeclaredTimeoutSeconds(event.payload.data);
       return [
         {
           id: toolLifecycleActivityId(event),
@@ -652,6 +674,9 @@ function runtimeEventToActivities(
             ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.itemId ? { toolCallId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(declaredTimeoutSeconds !== undefined
+              ? { timeoutSeconds: declaredTimeoutSeconds }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

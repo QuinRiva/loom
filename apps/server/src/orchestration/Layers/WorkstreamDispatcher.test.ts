@@ -49,6 +49,7 @@ import {
   renderWakeSingle,
   renderRecoveredDigestLine,
   renderSlowToolDigestLine,
+  slowToolEstimateClause,
   type WakeMember,
   gateCommandId,
   yieldWakeCommandId,
@@ -72,6 +73,9 @@ import {
   buildBriefNeededMessage,
   WORKSTREAM_CONTROL_PLANE_MARKER,
   slowToolNoticeIndex,
+  parseEtaMarkerMs,
+  declaredEstimateMs,
+  slowToolDeferralMs,
   WAKE_REPORT_EXCERPT_LIMIT,
   WorkstreamDispatcherLive,
   wakeRateGuardTrips,
@@ -1252,8 +1256,8 @@ describe("groupBatchForWake + pair rendering (design §4.1/§5.1)", () => {
         id: "cod" as ThreadId,
         role: "coder",
         toolName: "pytest",
-        inFlightMinutes: 22,
-        quietMinutes: 20,
+        inFlightMs: 22 * 60_000,
+        quietMs: 20 * 60_000,
       }),
     };
     const text = buildStandaloneDigest([], [slowExtra]);
@@ -1327,8 +1331,8 @@ describe("digest builders + flush predicates (design §4.3/§5.3)", () => {
       id: "c2" as ThreadId,
       role: "coder",
       toolName: "bash",
-      inFlightMinutes: 7,
-      quietMinutes: 6,
+      inFlightMs: 7 * 60_000,
+      quietMs: 6 * 60_000,
     });
     expect(slow).toContain("still executing");
     expect(slow).toContain("`bash`");
@@ -2068,6 +2072,113 @@ describe("slowToolNoticeIndex (escalating notice schedule)", () => {
     expect(slowToolNoticeIndex(m(60))).toBe(3);
     expect(slowToolNoticeIndex(m(90))).toBe(4);
   });
+  it("defers the whole ladder by (deferral - firstStep), preserving step spacing", () => {
+    // 30m deferral → offset 25m. First notice at 30m, next at 40m, 55m, …
+    expect(slowToolNoticeIndex(m(29), m(30))).toBe(-1);
+    expect(slowToolNoticeIndex(m(30), m(30))).toBe(0);
+    expect(slowToolNoticeIndex(m(39), m(30))).toBe(0);
+    expect(slowToolNoticeIndex(m(40), m(30))).toBe(1);
+    expect(slowToolNoticeIndex(m(55), m(30))).toBe(2);
+    expect(slowToolNoticeIndex(m(85), m(30))).toBe(3);
+  });
+  it("is identical to the base ladder when the deferral equals the first step", () => {
+    for (const min of [4, 5, 14, 15, 30, 60, 90]) {
+      expect(slowToolNoticeIndex(m(min), m(5))).toBe(slowToolNoticeIndex(m(min)));
+    }
+  });
+});
+
+describe("parseEtaMarkerMs (intentional `# eta` comment grammar)", () => {
+  const m = (mins: number) => mins * 60_000;
+  it("parses minutes, hours, and bare-number (minutes) variants behind a `#`", () => {
+    expect(parseEtaMarkerMs("# eta: 25m\npython run.py")).toBe(m(25));
+    expect(parseEtaMarkerMs("# eta: 45min")).toBe(m(45));
+    expect(parseEtaMarkerMs("# eta: 1h")).toBe(m(60));
+    expect(parseEtaMarkerMs("# eta: 1.5h")).toBe(m(90));
+    expect(parseEtaMarkerMs("# eta: 25")).toBe(m(25));
+    expect(parseEtaMarkerMs("# ETA=25m")).toBe(m(25));
+    expect(parseEtaMarkerMs("#eta25m")).toBe(m(25));
+    // A trailing inline comment is also honoured.
+    expect(parseEtaMarkerMs("python run.py  # eta: 45m")).toBe(m(45));
+  });
+  it("requires the `#` — incidental command text is NOT a declaration", () => {
+    // These are the false-positives the reviewer flagged: ordinary command text
+    // that merely contains `eta <duration>` must not defer notices.
+    expect(parseEtaMarkerMs("echo eta 90m")).toBe(null);
+    expect(parseEtaMarkerMs("grep eta 90m file")).toBe(null);
+    expect(parseEtaMarkerMs("eta 90m — full corpus run")).toBe(null);
+  });
+  it("returns null for no marker, empty, or a non-positive value", () => {
+    expect(parseEtaMarkerMs(null)).toBe(null);
+    expect(parseEtaMarkerMs("python run.py")).toBe(null);
+    expect(parseEtaMarkerMs("# eta: 0m")).toBe(null);
+    // A `#`-anchored 'eta' with no number does not match.
+    expect(parseEtaMarkerMs("# eta soon")).toBe(null);
+  });
+  it("does not match 'eta' embedded in another word", () => {
+    expect(parseEtaMarkerMs("./theta 5m")).toBe(null);
+  });
+});
+
+describe("slowToolEstimateClause (honest overrun vs safety-cap wording)", () => {
+  const m = (mins: number) => mins * 60_000;
+  it("is null when nothing was declared", () => {
+    expect(slowToolEstimateClause({ estimateMs: undefined, inFlightMs: m(30) })).toBe(null);
+  });
+  it("reports an overrun once the call has run at least as long as the estimate", () => {
+    const clause = slowToolEstimateClause({ estimateMs: m(25), inFlightMs: m(31) });
+    expect(clause).toContain("estimated ~25 min");
+    expect(clause).toContain("now overrun");
+  });
+  it("does NOT claim overrun when a safety-cap notice fires before the estimate elapses", () => {
+    // # eta: 300m → capped deferral fires at ~145m, well before 300m.
+    const clause = slowToolEstimateClause({ estimateMs: m(300), inFlightMs: m(145) });
+    expect(clause).toContain("estimated ~300 min");
+    expect(clause).not.toContain("now overrun");
+    // The cap is attributed to the ESTIMATE (120 min), not the 144-min deferral.
+    expect(clause).toContain("estimate was capped at the 120-min");
+    expect(clause).not.toContain("deferral was capped");
+  });
+  it("decides overrun on exact ms, not rounded minutes (no boundary false-overrun)", () => {
+    // A capped ~145.4-min estimate at a 145-min notice: rounded both read 145,
+    // but exact ms (145 min < 145.4 min) is NOT yet overrun.
+    const estimateMs = m(145) + 24_000; // 145.4 min, rounds to 145
+    const clause = slowToolEstimateClause({ estimateMs, inFlightMs: m(145) });
+    expect(clause).not.toContain("now overrun");
+    expect(clause).toContain("not yet reached");
+  });
+});
+
+describe("declaredEstimateMs (eta marker wins, timeout fallback)", () => {
+  const m = (mins: number) => mins * 60_000;
+  it("prefers the eta marker over a declared timeout", () => {
+    expect(declaredEstimateMs({ commandText: "# eta: 25m x", timeoutSeconds: 1800 })).toBe(m(25));
+  });
+  it("falls back to timeout (seconds→ms) when no marker", () => {
+    expect(declaredEstimateMs({ commandText: "python run.py", timeoutSeconds: 1800 })).toBe(m(30));
+  });
+  it("is null when neither is declared", () => {
+    expect(declaredEstimateMs({ commandText: "python run.py", timeoutSeconds: null })).toBe(null);
+    expect(declaredEstimateMs({ commandText: null, timeoutSeconds: 0 })).toBe(null);
+  });
+});
+
+describe("slowToolDeferralMs (capped estimate × buffer, floored at first step)", () => {
+  const m = (mins: number) => mins * 60_000;
+  it("is the first step (5m) when nothing is declared", () => {
+    expect(slowToolDeferralMs(null)).toBe(m(5));
+  });
+  it("floors at the first step for a tiny estimate", () => {
+    // 1m × 1.2 = 1.2m < 5m → floored.
+    expect(slowToolDeferralMs(m(1))).toBe(m(5));
+  });
+  it("applies the ×1.2 buffer for a mid estimate", () => {
+    expect(slowToolDeferralMs(m(25))).toBe(m(30));
+  });
+  it("clamps the honoured estimate at the 2h cap before the buffer", () => {
+    // 300m clamped to 120m, ×1.2 = 144m.
+    expect(slowToolDeferralMs(m(300))).toBe(m(144));
+  });
 });
 
 describe("classifyChildWake (per-child wake rail, §1e)", () => {
@@ -2450,7 +2561,14 @@ describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () =
       executingShell(),
       wakeEvidence({
         freshness: fresh(now),
-        inFlightTool: { toolName: "bash", startedAt: now, activityId: "act-1" },
+        inFlightTool: {
+          toolName: "bash",
+          startedAt: now,
+          activityId: "act-1",
+          itemType: "command_execution",
+          commandText: null,
+          timeoutSeconds: null,
+        },
       }),
       t0 + 360_000,
       new Set(),
@@ -2459,6 +2577,128 @@ describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () =
       kind: "slow-tool",
       episode: "slow-tool:act-1:0",
       context: { quietMs: 360_000, toolName: "bash", inFlightMs: 360_000 },
+    });
+  });
+
+  it("a declared `# eta:` marker defers the slow-tool notice past the estimate×buffer", () => {
+    // 25m eta → deferral = max(5m, 25m×1.2) = 30m. At 6m quiet (which would be
+    // step 0 undeclared) the notice is deferred; at 31m it fires as step 0.
+    const etaTool = {
+      toolName: "bash",
+      startedAt: now,
+      activityId: "act-eta",
+      itemType: "command_execution",
+      commandText: "# eta: 25m\npython run.py",
+      timeoutSeconds: null,
+    };
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now), inFlightTool: etaTool }),
+        t0 + 360_000,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-notice-due" });
+    const fired = classifyChildWakeFull(
+      executingShell(),
+      wakeEvidence({ freshness: fresh(now), inFlightTool: etaTool }),
+      t0 + 31 * 60_000,
+      new Set(),
+    );
+    expect(fired).toEqual({
+      kind: "slow-tool",
+      episode: "slow-tool:act-eta:0",
+      context: {
+        quietMs: 31 * 60_000,
+        toolName: "bash",
+        inFlightMs: 31 * 60_000,
+        estimateMs: 25 * 60_000,
+      },
+    });
+  });
+
+  it("falls back to the declared `timeout` (seconds) when no eta marker is present", () => {
+    // timeout 1800s = 30m → deferral = max(5m, 30m×1.2) = 36m. At 20m quiet the
+    // notice is still deferred (undeclared it would be step 1).
+    const timeoutTool = {
+      toolName: "bash",
+      startedAt: now,
+      activityId: "act-to",
+      itemType: "command_execution",
+      commandText: "python run.py",
+      timeoutSeconds: 1800,
+    };
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now), inFlightTool: timeoutTool }),
+        t0 + 20 * 60_000,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-notice-due" });
+  });
+
+  it("does NOT honour an eta marker / timeout on a NON-command tool (no deferral)", () => {
+    // A dynamic tool whose detail incidentally contains `# eta` text and which
+    // carries a timeout must behave exactly as an undeclared call: the notice
+    // fires at the base 5m step, unchanged, with no estimate in context.
+    const nonCommandTool = {
+      toolName: "grep",
+      startedAt: now,
+      activityId: "act-nc",
+      itemType: "dynamic_tool_call",
+      commandText: "# eta: 25m",
+      timeoutSeconds: 1800,
+    };
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now), inFlightTool: nonCommandTool }),
+        t0 + 6 * 60_000,
+        new Set(),
+      ),
+    ).toEqual({
+      kind: "slow-tool",
+      episode: "slow-tool:act-nc:0",
+      context: { quietMs: 6 * 60_000, toolName: "grep", inFlightMs: 6 * 60_000 },
+    });
+  });
+
+  it("a capped declaration (# eta: 300m) fires with an honest, non-overrun estimate", () => {
+    // 300m → estimate capped to 120m → deferral = 120m×1.2 = 144m. The notice
+    // fires at 145m quiet, BEFORE the declared 300m elapses — estimateMs is the
+    // true 300m so the renderer can report it as not-yet-overrun.
+    const cappedTool = {
+      toolName: "bash",
+      startedAt: now,
+      activityId: "act-cap",
+      itemType: "command_execution",
+      commandText: "# eta: 300m\npython run.py",
+      timeoutSeconds: null,
+    };
+    expect(
+      classifyChildWakeFull(
+        executingShell(),
+        wakeEvidence({ freshness: fresh(now), inFlightTool: cappedTool }),
+        t0 + 143 * 60_000,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-notice-due" });
+    const fired = classifyChildWakeFull(
+      executingShell(),
+      wakeEvidence({ freshness: fresh(now), inFlightTool: cappedTool }),
+      t0 + 145 * 60_000,
+      new Set(),
+    );
+    expect(fired).toEqual({
+      kind: "slow-tool",
+      episode: "slow-tool:act-cap:0",
+      context: {
+        quietMs: 145 * 60_000,
+        toolName: "bash",
+        inFlightMs: 145 * 60_000,
+        estimateMs: 300 * 60_000,
+      },
     });
   });
 
