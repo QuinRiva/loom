@@ -779,18 +779,49 @@ export const renderRecoveredDigestLine = (child: {
   return `- ♻️ ${child.role ?? "sub-thread"} \`${child.id}\` recovered (earlier \`error\` superseded by \`done\`; dependents already released)${ref}.${tsClause}`;
 };
 
+/**
+ * Honest declared-estimate clause for a slow-tool notice. The notice is only an
+ * *overrun* once the call has actually been in flight at least as long as the
+ * declared estimate — compared on exact milliseconds, so a rounded-minute tie
+ * near the boundary never mislabels a not-yet-elapsed estimate as overrun. When
+ * the notice fires early it is BECAUSE the honoured estimate hit the 2h cap (a
+ * non-overrun clause only ever arises from a capped estimate), so the copy
+ * attributes the cap to the *estimate*, not the deferral — the deferral ceiling
+ * is `120 min × 1.2 = 144 min`, not 120. `null` in ⇒ no clause (undeclared
+ * call). Minutes are rounded for display only. Pure so both renderers agree.
+ */
+export const slowToolEstimateClause = (input: {
+  readonly estimateMs: number | undefined;
+  readonly inFlightMs: number;
+}): string | null => {
+  if (input.estimateMs === undefined) return null;
+  const estimateMinutes = Math.round(input.estimateMs / 60_000);
+  const capMinutes = Math.round(SLOW_TOOL_ESTIMATE_CAP_MS / 60_000);
+  return input.inFlightMs >= input.estimateMs
+    ? `child estimated ~${estimateMinutes} min, now overrun`
+    : `child estimated ~${estimateMinutes} min, not yet reached — the honoured estimate was capped at the ${capMinutes}-min safety ceiling`;
+};
+
 /** Render a `slow-tool` digest one-liner (design §5.2): informational, no flag,
  *  no report — a tool call has gone quiet while the child still executes. */
 export const renderSlowToolDigestLine = (child: {
   readonly id: ThreadId;
   readonly role: string | null;
   readonly toolName: string;
-  readonly inFlightMinutes: number;
-  readonly quietMinutes: number;
+  readonly inFlightMs: number;
+  readonly quietMs: number;
+  /** Agent-declared expected duration (ms), when one was given — the clause distinguishes a genuine overrun from a safety-cap notice. */
+  readonly estimateMs?: number | undefined;
   /** Optional process-health evidence (see {@link formatProcessHealthLine}), appended as a nested sub-bullet when present. */
   readonly processHealth?: string | undefined;
-}): string =>
-  `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — long-running tool \`${child.toolName}\` in flight ~${child.inFlightMinutes} min, no agent-visible output ~${child.quietMinutes} min (informational, not a hang; the control plane will not interrupt it).${child.processHealth ? `\n  - ${child.processHealth}` : ""}`;
+}): string => {
+  const mins = (ms: number) => Math.round(ms / 60_000);
+  const clause = slowToolEstimateClause({
+    estimateMs: child.estimateMs,
+    inFlightMs: child.inFlightMs,
+  });
+  return `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — long-running tool \`${child.toolName}\` in flight ~${mins(child.inFlightMs)} min, no agent-visible output ~${mins(child.quietMs)} min${clause ? ` (${clause})` : ""} (informational, not a hang; the control plane will not interrupt it).${child.processHealth ? `\n  - ${child.processHealth}` : ""}`;
+};
 
 /**
  * Quiet-workstream flush condition (design §4.3, condition 3): true when the
@@ -1098,6 +1129,13 @@ export interface ChildWakeContext {
   readonly toolName?: string;
   readonly inFlightMs?: number;
   /**
+   * The agent-declared expected duration (ms) for a `slow-tool` call — from an
+   * inline `# eta:` marker or the bash `timeout` fallback — when one was given.
+   * Deferred the notice ladder; also makes the overrun copy actionable ("child
+   * estimated 25 min, now at 32 min"). Absent for undeclared calls.
+   */
+  readonly estimateMs?: number;
+  /**
    * One honest line of cheap process-health evidence for a `slow-tool` notice,
    * derived from the {@link ProcessResourceMonitor}'s already-collected samples
    * for the child's provider process subtree (e.g. "process tree: 87% peak CPU
@@ -1129,17 +1167,101 @@ export const SLOW_TOOL_NOTICE_STEPS_MS: ReadonlyArray<number> = [300_000, 900_00
 export const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
 
 /**
+ * Declared-expectation deferral (slow-tool rail only). An agent that knows a
+ * command will run far past the 5-minute first notice can declare an expected
+ * duration — an inline `# eta: <n>m` marker prefixed to the bash command, or
+ * (fallback) the bash tool's `timeout`. The rail then withholds its notices
+ * until the declared estimate (plus a buffer) has elapsed, so a legitimately
+ * long, known call is not false-positive spam the parent must repeatedly
+ * dismiss. Undeclared calls behave exactly as before.
+ */
+export const SLOW_TOOL_DEFERRAL_BUFFER = 1.2;
+/**
+ * Cap on the honoured estimate so a child cannot self-silence indefinitely: a
+ * declared ETA above two hours is clamped here before the buffer is applied.
+ */
+export const SLOW_TOOL_ESTIMATE_CAP_MS = 7_200_000;
+
+/**
+ * Parse an intentional inline ETA marker from a command's text. The marker MUST
+ * be a shell comment: a literal `#`, then `eta`, then the value — this is the
+ * deliberate-declaration signal that keeps incidental command text (`echo eta
+ * 90m`, `grep eta 90m file`) from being mistaken for a declaration. Around that
+ * anchor the format is forgiving: optional whitespace after `#`, an optional
+ * `:`/`=` separator, and a duration in hours (`1h`, `1.5h`), minutes (`25m`,
+ * `25min`), or a bare number read as minutes (`25`). Case-insensitive. Returns
+ * the estimate in ms, or `null` when no valid, positive `# eta` marker is
+ * present. Matched anywhere so a trailing `python run.py  # eta: 45m` also works.
+ */
+export const parseEtaMarkerMs = (commandText: string | null | undefined): number | null => {
+  if (commandText === null || commandText === undefined) return null;
+  const match = /#\s*eta\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)?/i.exec(
+    commandText,
+  );
+  if (match === null) return null;
+  const value = Number.parseFloat(match[1]!);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const unit = (match[2] ?? "m").toLowerCase();
+  const isHours = unit.startsWith("h");
+  return Math.round(value * (isHours ? 3_600_000 : 60_000));
+};
+
+/**
+ * The declared expected duration (ms) for an in-flight call, or `null` when the
+ * agent declared nothing. The inline `# eta:` marker wins; the bash `timeout`
+ * (seconds) is the fallback — the call cannot outlive it, so it bounds the
+ * expectation. Not yet capped (see {@link slowToolDeferralMs}).
+ */
+export const declaredEstimateMs = (input: {
+  readonly commandText: string | null | undefined;
+  readonly timeoutSeconds: number | null | undefined;
+}): number | null => {
+  const eta = parseEtaMarkerMs(input.commandText);
+  if (eta !== null) return eta;
+  const timeout = input.timeoutSeconds;
+  return timeout !== null && timeout !== undefined && Number.isFinite(timeout) && timeout > 0
+    ? Math.round(timeout * 1_000)
+    : null;
+};
+
+/**
+ * The quiet duration (ms) below which slow-tool notices are deferred: the first
+ * schedule step (5 min) when nothing is declared, else `max(firstStep, capped
+ * estimate × buffer)`. The estimate is clamped to {@link SLOW_TOOL_ESTIMATE_CAP_MS}
+ * first so a large declaration cannot push the first notice past ~2.4h.
+ */
+export const slowToolDeferralMs = (estimateMs: number | null): number => {
+  const first = SLOW_TOOL_NOTICE_STEPS_MS[0]!;
+  if (estimateMs === null) return first;
+  return Math.max(
+    first,
+    Math.min(estimateMs, SLOW_TOOL_ESTIMATE_CAP_MS) * SLOW_TOOL_DEFERRAL_BUFFER,
+  );
+};
+
+/**
  * Pure notice-step selector: the highest schedule step this quiet duration has
  * crossed (0-based), continuing every `SLOW_TOOL_NOTICE_REPEAT_MS` past the
  * last step; `-1` while below the first step (no notice due yet).
+ *
+ * `deferralMs` shifts the whole ladder later by `deferralMs - firstStep` while
+ * preserving the relative spacing between steps: a declared-expectation call
+ * fires its first notice at `deferralMs` (instead of 5 min), the next one
+ * `firstStep→secondStep` later, and so on. Omitted / equal to the first step
+ * (the undeclared case) leaves the ladder exactly as it was.
  */
-export const slowToolNoticeIndex = (quietMs: number): number => {
+export const slowToolNoticeIndex = (
+  quietMs: number,
+  deferralMs: number = SLOW_TOOL_NOTICE_STEPS_MS[0]!,
+): number => {
+  const first = SLOW_TOOL_NOTICE_STEPS_MS[0]!;
+  const adjusted = quietMs - (deferralMs - first);
   const last = SLOW_TOOL_NOTICE_STEPS_MS[SLOW_TOOL_NOTICE_STEPS_MS.length - 1]!;
-  return quietMs >= last
+  return adjusted >= last
     ? SLOW_TOOL_NOTICE_STEPS_MS.length -
         1 +
-        Math.floor((quietMs - last) / SLOW_TOOL_NOTICE_REPEAT_MS)
-    : SLOW_TOOL_NOTICE_STEPS_MS.filter((step) => quietMs >= step).length - 1;
+        Math.floor((adjusted - last) / SLOW_TOOL_NOTICE_REPEAT_MS)
+    : SLOW_TOOL_NOTICE_STEPS_MS.filter((step) => adjusted >= step).length - 1;
 };
 
 /**
@@ -1470,10 +1592,29 @@ export const classifyChildWakeFull = (
     // Unflagged + executing + quiet: an in-flight tool call is a slow-but-alive
     // call (informational, no flag, never interrupted). Quiet with no in-flight
     // tool is State-C territory (the sweep's ladder), not ours.
-    const noticeIndex = slowToolNoticeIndex(quietMs);
-    if (noticeIndex < 0) return { skip: "no-notice-due" };
+    // Base ladder gate (undeferred): below the 5-minute first step nothing is
+    // ever due — a declared estimate can only push notices LATER, never earlier
+    // — so this short-circuit needs no in-flight row and preserves the original
+    // skip precedence (no-notice-due before no-in-flight-tool).
+    if (slowToolNoticeIndex(quietMs) < 0) return { skip: "no-notice-due" };
     const inFlight = evidence.inFlightTool ?? null;
     if (inFlight === null) return { skip: "no-in-flight-tool" };
+    // Declared-expectation deferral: an inline `# eta:` marker (or bash timeout)
+    // pushes the notice ladder out to `estimate × buffer` (capped) so a known
+    // long call is not repeatedly reported. Only command-execution calls can
+    // declare (a `# eta` shell comment / a bash `timeout` are command-shaped);
+    // any other tool is never treated as declaring, so incidental `# eta`-like
+    // detail or a stray `timeout` arg cannot defer its notices. Undeclared ⇒
+    // estimate null ⇒ the ladder is unchanged (deferral = the 5-minute step).
+    const estimateMs =
+      inFlight.itemType === "command_execution"
+        ? declaredEstimateMs({
+            commandText: inFlight.commandText,
+            timeoutSeconds: inFlight.timeoutSeconds,
+          })
+        : null;
+    const noticeIndex = slowToolNoticeIndex(quietMs, slowToolDeferralMs(estimateMs));
+    if (noticeIndex < 0) return { skip: "no-notice-due" };
     return {
       kind: "slow-tool",
       // Keyed by the started row's id + schedule step: each step fires at most
@@ -1483,6 +1624,7 @@ export const classifyChildWakeFull = (
         quietMs,
         toolName: inFlight.toolName,
         inFlightMs: Math.max(0, now - (parseIsoMs(inFlight.startedAt) ?? now)),
+        ...(estimateMs !== null ? { estimateMs } : {}),
         ...(evidence.processHealth !== undefined ? { processHealth: evidence.processHealth } : {}),
       },
     };
@@ -1537,7 +1679,11 @@ export const buildChildWakeMessage = (
     return [
       WORKSTREAM_CONTROL_PLANE_MARKER,
       "",
-      `Informational notice: your Workstream sub-thread ${who} has a long-running tool call \`${context?.toolName ?? "unknown"}\` in flight for ~${mins(context?.inFlightMs ?? 0)} min, with no agent-visible output for ~${mins(context?.quietMs ?? 0)} min. This is NOT a hang verdict — the child's tool process may be working the whole time (builds, installs, long pipelines, test suites emit nothing to the agent until they return).`,
+      `Informational notice: your Workstream sub-thread ${who} has a long-running tool call \`${context?.toolName ?? "unknown"}\` in flight for ~${mins(context?.inFlightMs ?? 0)} min, with no agent-visible output for ~${mins(context?.quietMs ?? 0)} min${
+        context?.estimateMs !== undefined
+          ? ` (${slowToolEstimateClause({ estimateMs: context.estimateMs, inFlightMs: context.inFlightMs ?? 0 })})`
+          : ""
+      }. This is NOT a hang verdict — the child's tool process may be working the whole time (builds, installs, long pipelines, test suites emit nothing to the agent until they return).`,
       ...(context?.processHealth ? ["", context.processHealth] : []),
       "",
       "No attention flag was raised and the control plane will not interrupt or kill it. A long, quiet call is usually legitimate, but occasionally one is mis-scoped (e.g. an unscoped filesystem search) — only you have the context to tell. Your options:",
@@ -1650,6 +1796,8 @@ const make = Effect.gen(function* () {
       readonly toolName: string;
       readonly inFlightMs: number;
       readonly quietMs: number;
+      /** Agent-declared expected duration (ms), when one was given; drives the overrun copy. */
+      readonly estimateMs?: number | undefined;
       /** One honest process-health line (see {@link formatProcessHealthLine}); absent when not locally observable. */
       readonly processHealth?: string | undefined;
     };
@@ -1677,7 +1825,6 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const members: WakeMember[] = [];
       const extras: DigestExtra[] = [];
-      const mins = (ms: number) => Math.round(ms / 60_000);
       for (const entry of entries) {
         if (entry.kind === "terminal") {
           const report = yield* readReportFor(entry.child);
@@ -1703,8 +1850,11 @@ const make = Effect.gen(function* () {
               id: entry.child.id,
               role: entry.child.role,
               toolName: entry.slowTool?.toolName ?? "unknown",
-              inFlightMinutes: mins(entry.slowTool?.inFlightMs ?? 0),
-              quietMinutes: mins(entry.slowTool?.quietMs ?? 0),
+              inFlightMs: entry.slowTool?.inFlightMs ?? 0,
+              quietMs: entry.slowTool?.quietMs ?? 0,
+              ...(entry.slowTool?.estimateMs !== undefined
+                ? { estimateMs: entry.slowTool.estimateMs }
+                : {}),
               ...(entry.slowTool?.processHealth !== undefined
                 ? { processHealth: entry.slowTool.processHealth }
                 : {}),
@@ -2441,6 +2591,7 @@ const make = Effect.gen(function* () {
                   toolName: context?.toolName ?? "unknown",
                   inFlightMs: context?.inFlightMs ?? 0,
                   quietMs: context?.quietMs ?? 0,
+                  ...(context?.estimateMs !== undefined ? { estimateMs: context.estimateMs } : {}),
                   ...(context?.processHealth !== undefined
                     ? { processHealth: context.processHealth }
                     : {}),

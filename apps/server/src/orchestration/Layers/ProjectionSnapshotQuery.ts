@@ -242,6 +242,12 @@ const InFlightToolRowSchema = Schema.Struct({
   latestKind: Schema.NullOr(Schema.String),
   latestSummary: Schema.NullOr(Schema.String),
   latestCreatedAt: Schema.NullOr(IsoDateTime),
+  /** Normalised item type — the slow-tool rail honours ETA/timeout only for `command_execution`. */
+  latestItemType: Schema.NullOr(Schema.String),
+  /** Presentation detail (command line) — carries any inline `# eta:` marker. */
+  latestDetail: Schema.NullOr(Schema.String),
+  /** Declared `timeout` (seconds) extracted onto the started row at ingestion, when present. */
+  latestTimeoutSeconds: Schema.NullOr(Schema.Number),
 });
 const RecentToolActivityRowSchema = Schema.Struct({
   summary: Schema.String,
@@ -1822,10 +1828,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest.activity_id AS "latestActivityId",
           latest.kind AS "latestKind",
           latest.summary AS "latestSummary",
-          latest.created_at AS "latestCreatedAt"
+          latest.created_at AS "latestCreatedAt",
+          json_extract(latest.payload, '$.itemType') AS "latestItemType",
+          json_extract(latest.payload, '$.detail') AS "latestDetail",
+          CASE
+            WHEN typeof(json_extract(latest.payload, '$.timeoutSeconds')) IN ('integer', 'real')
+            THEN json_extract(latest.payload, '$.timeoutSeconds')
+            ELSE NULL
+          END AS "latestTimeoutSeconds"
         FROM (SELECT 1) AS one
         LEFT JOIN (
-          SELECT activity_id, kind, summary, created_at
+          SELECT activity_id, kind, summary, created_at, payload_json AS payload
           FROM projection_thread_activities
           WHERE thread_id = ${threadId}
             AND turn_id = ${turnId}
@@ -1861,6 +1874,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               toolName: row.latestSummary.replace(/ started$/, ""),
               startedAt: row.latestCreatedAt,
               activityId: row.latestActivityId,
+              itemType: row.latestItemType,
+              commandText: row.latestDetail,
+              timeoutSeconds: row.latestTimeoutSeconds,
             }
           : null,
       ),
