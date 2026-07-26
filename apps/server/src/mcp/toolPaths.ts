@@ -24,6 +24,7 @@ export const workstreamBaseUrlFromMcpEndpoint = (mcpEndpoint: string): string =>
  * them into the child extension — one constant, two consumers, no drift.
  */
 export const PROVIDER_TOOL_PATHS = {
+  ask_user_question: "/provider-tools/user-input/ask",
   workstream_spawn: "/provider-tools/workstream/spawn",
   workstream_scaffold: "/provider-tools/workstream/scaffold",
   workstream_brief: "/provider-tools/workstream/brief",

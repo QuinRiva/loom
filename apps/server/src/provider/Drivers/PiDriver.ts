@@ -96,6 +96,11 @@ import {
   threadSessionHasPoisonedToolIds,
 } from "../Layers/Pi/SessionIdSanitiser.ts";
 import { ensurePiProviderToolExtension } from "./Pi/providerToolExtension.ts";
+import {
+  cancelPiAskUserQuestions,
+  registerPiAskUserEmitter,
+  resolvePiAskUserQuestion,
+} from "./Pi/askUserBroker.ts";
 import { ensurePiSearchGuardExtension } from "./Pi/searchGuardExtension.ts";
 import { piSessionIdForThread, resolveSessionFilePath } from "../piSessionFiles.ts";
 // loom: forkFrom launch-identity capture/replay + kickoff-delivered marker (D2/D8).
@@ -226,6 +231,10 @@ interface ActivePiSession {
   // Without this the loop signature (and timeline) sees only result-less generic
   // tokens and collapses every same-type call to one (false "stuck loop").
   toolArgs: Map<string, Record<string, unknown>>;
+  // Correlates pi's response id with the native dialog method so Loom can
+  // unmap its shared answer record back into pi's method-specific wire shape.
+  uiRequests: Map<string, "select" | "confirm" | "input" | "editor">;
+  unregisterAskUserEmitter: () => void;
   materializedActivityImages: Map<string, ChatAttachment>;
 }
 
@@ -913,6 +922,23 @@ export function makePiAdapter(input: {
       raw: raw ?? { source: "pi.rpc.synthetic", payload: {} },
     });
 
+  const emitUserInputResolved = (
+    session: ActivePiSession,
+    requestId: string,
+    answers: Record<string, unknown>,
+    cancelled = false,
+  ) =>
+    emit({
+      ...sessionBase(session, {
+        source: "pi.rpc.synthetic",
+        method: cancelled ? "ask_user_question/cancelled" : "user-input/resolved",
+        payload: { answers, cancelled },
+      }),
+      requestId: RuntimeRequestId.make(requestId),
+      type: "user-input.resolved",
+      payload: { answers },
+    });
+
   // Clear any pending T3 retry and, if the backend fallback engaged, restore
   // the turn's original model (per-turn fallback: subsequent turns must run on
   // the thread's selected model — sendTurn re-issues set_model anyway; this is
@@ -1227,7 +1253,8 @@ export function makePiAdapter(input: {
     const servedThinkingLevel = session.thinkingLevel;
     session.activeTurnId = undefined;
     updateSession(session, { status: "ready", activeTurnId: undefined });
-    return persistServedModel(session, servedModel, servedThinkingLevel).pipe(
+    return Effect.promise(() => cancelPiAskUserQuestions(session.session.threadId)).pipe(
+      Effect.andThen(persistServedModel(session, servedModel, servedThinkingLevel)),
       Effect.andThen(settleRetry(session)),
       Effect.andThen(done),
     );
@@ -1263,7 +1290,8 @@ export function makePiAdapter(input: {
     const servedThinkingLevel = session.thinkingLevel;
     session.activeTurnId = undefined;
     updateSession(session, { status: "error", activeTurnId: undefined });
-    return persistServedModel(session, servedModel, servedThinkingLevel).pipe(
+    return Effect.promise(() => cancelPiAskUserQuestions(session.session.threadId)).pipe(
+      Effect.andThen(persistServedModel(session, servedModel, servedThinkingLevel)),
       Effect.andThen(settleRetry(session)),
       Effect.andThen(events),
     );
@@ -1684,6 +1712,13 @@ export function makePiAdapter(input: {
           message.method !== "editor"
         )
           return Effect.void;
+        session.uiRequests.set(message.id, message.method);
+        const options =
+          message.method === "confirm"
+            ? ["Yes", "No"]
+            : message.method === "select"
+              ? (message.options ?? [])
+              : [];
         return emit({
           ...base({ requestId: message.id }),
           type: "user-input.requested",
@@ -1693,10 +1728,7 @@ export function makePiAdapter(input: {
                 id: message.id,
                 header: message.title ?? "Pi request",
                 question: message.message ?? message.title ?? "Pi requested input",
-                options: (message.options ?? ["OK"]).map((option) => ({
-                  label: option,
-                  description: option,
-                })),
+                options: options.map((option) => ({ label: option, description: option })),
               },
             ],
           },
@@ -1722,6 +1754,7 @@ export function makePiAdapter(input: {
         // so clearing the whole map here can never mis-merge a later call — pure
         // memory hygiene. Cleared on ALL return paths (abort can take any).
         session.toolArgs.clear();
+        session.uiRequests.clear();
         // pi will retry internally: the run (and the T3 turn) is not over.
         // auto_retry_start surfaces the wait as a runtime.warning.
         if (message.willRetry === true) return Effect.void;
@@ -1783,21 +1816,25 @@ export function makePiAdapter(input: {
       if (replacedProcesses.has(process)) return;
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
       sessions.delete(active.session.threadId);
-      void Effect.runPromise(
-        emit({
-          ...eventBase({
-            instanceId: input.instanceId,
-            threadId: active.session.threadId,
-            raw: { source: "pi.rpc.synthetic", payload: { stderr: process.stderrTail() } },
+      void (async () => {
+        await cancelPiAskUserQuestions(active.session.threadId).catch(() => undefined);
+        active.unregisterAskUserEmitter();
+        await Effect.runPromise(
+          emit({
+            ...eventBase({
+              instanceId: input.instanceId,
+              threadId: active.session.threadId,
+              raw: { source: "pi.rpc.synthetic", payload: { stderr: process.stderrTail() } },
+            }),
+            type: "session.exited",
+            payload: {
+              reason: process.stderrTail() || "Pi RPC process exited.",
+              recoverable: false,
+              exitKind: "error",
+            },
           }),
-          type: "session.exited",
-          payload: {
-            reason: process.stderrTail() || "Pi RPC process exited.",
-            recoverable: false,
-            exitKind: "error",
-          },
-        }),
-      ).catch(() => undefined);
+        ).catch(() => undefined);
+      })();
     });
   };
 
@@ -2040,10 +2077,36 @@ export function makePiAdapter(input: {
               lastRerouteWindowLabel: undefined,
               lastRerouteResetAt: undefined,
               toolArgs: new Map(),
+              uiRequests: new Map(),
+              unregisterAskUserEmitter: () => undefined,
               materializedActivityImages: new Map(),
             };
             wirePiProcess(active, process);
             sessions.set(startInput.threadId, active);
+            active.unregisterAskUserEmitter = registerPiAskUserEmitter(
+              startInput.threadId,
+              async (event) => {
+                if (event.type === "requested") {
+                  await Effect.runPromise(
+                    emit({
+                      ...sessionBase(active),
+                      requestId: RuntimeRequestId.make(event.requestId),
+                      type: "user-input.requested",
+                      payload: { questions: event.questions },
+                    }),
+                  );
+                  return;
+                }
+                await Effect.runPromise(
+                  emitUserInputResolved(
+                    active,
+                    event.requestId,
+                    event.answers as Record<string, unknown>,
+                    event.cancelled,
+                  ),
+                );
+              },
+            );
             // Pin the session to its assigned model from birth — pi otherwise
             // runs whatever defaultModel is in the user's global pi settings.
             // On failure the process is stopped, which routes cleanup through
@@ -2212,21 +2275,25 @@ export function makePiAdapter(input: {
     interruptTurn: (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
-          // A pending T3-level retry means pi is idle between attempts: an
-          // abort would be a no-op that never emits agent_end, so settle the
-          // open turn as interrupted right here (cancels the timer too).
-          session.retry?.timer !== undefined && session.activeTurnId !== undefined
-            ? completeTurn(session, "interrupted")
-            : Effect.tryPromise({
-                try: () => session.process.write({ type: "abort" }),
-                catch: (cause) =>
-                  new ProviderAdapterRequestError({
-                    provider: DRIVER_KIND,
-                    method: "abort",
-                    detail: detailFromCause(cause, "Failed to interrupt Pi turn."),
-                    cause,
+          Effect.promise(() => cancelPiAskUserQuestions(threadId)).pipe(
+            Effect.andThen(
+              // A pending T3-level retry means pi is idle between attempts: an
+              // abort would be a no-op that never emits agent_end, so settle the
+              // open turn as interrupted right here (cancels the timer too).
+              session.retry?.timer !== undefined && session.activeTurnId !== undefined
+                ? completeTurn(session, "interrupted")
+                : Effect.tryPromise({
+                    try: () => session.process.write({ type: "abort" }),
+                    catch: (cause) =>
+                      new ProviderAdapterRequestError({
+                        provider: DRIVER_KIND,
+                        method: "abort",
+                        detail: detailFromCause(cause, "Failed to interrupt Pi turn."),
+                        cause,
+                      }),
                   }),
-              }),
+            ),
+          ),
         ),
       ),
     respondToRequest: () =>
@@ -2241,12 +2308,37 @@ export function makePiAdapter(input: {
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
           Effect.tryPromise({
-            try: () =>
-              session.process.write({
-                type: "extension_ui_response",
-                id: requestId,
-                value: JSON.stringify(answers),
-              }),
+            try: async () => {
+              if (await resolvePiAskUserQuestion(threadId, requestId, answers)) return;
+              const method = session.uiRequests.get(requestId);
+              if (!method) throw new Error(`Unknown Pi user-input request '${requestId}'.`);
+              const rawAnswer = answers[requestId];
+              const answer = Array.isArray(rawAnswer) ? rawAnswer[0] : rawAnswer;
+              const response =
+                method === "confirm"
+                  ? answer === "Yes"
+                    ? ({ type: "extension_ui_response", id: requestId, confirmed: true } as const)
+                    : answer === "No"
+                      ? ({
+                          type: "extension_ui_response",
+                          id: requestId,
+                          confirmed: false,
+                        } as const)
+                      : ({ type: "extension_ui_response", id: requestId, cancelled: true } as const)
+                  : typeof answer === "string"
+                    ? ({ type: "extension_ui_response", id: requestId, value: answer } as const)
+                    : ({ type: "extension_ui_response", id: requestId, cancelled: true } as const);
+              await session.process.write(response);
+              session.uiRequests.delete(requestId);
+              await Effect.runPromise(
+                emitUserInputResolved(
+                  session,
+                  requestId,
+                  answers as Record<string, unknown>,
+                  "cancelled" in response,
+                ),
+              );
+            },
             catch: (cause) =>
               new ProviderAdapterRequestError({
                 provider: DRIVER_KIND,
@@ -2260,10 +2352,12 @@ export function makePiAdapter(input: {
     stopSession: (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
-          Effect.promise(() => session.process.stop()).pipe(
+          Effect.promise(() => cancelPiAskUserQuestions(threadId)).pipe(
+            Effect.andThen(Effect.promise(() => session.process.stop())),
             Effect.tap(() =>
               Effect.sync(() => {
                 if (session.retry?.timer !== undefined) clearTimeout(session.retry.timer);
+                session.unregisterAskUserEmitter();
                 sessions.delete(threadId);
               }),
             ),
@@ -2284,7 +2378,11 @@ export function makePiAdapter(input: {
     stopAll: () =>
       Effect.forEach(
         [...sessions.values()],
-        (session) => Effect.promise(() => session.process.stop()),
+        (session) =>
+          Effect.promise(() => cancelPiAskUserQuestions(session.session.threadId)).pipe(
+            Effect.andThen(Effect.promise(() => session.process.stop())),
+            Effect.tap(() => Effect.sync(() => session.unregisterAskUserEmitter())),
+          ),
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.tap(() => Effect.sync(() => sessions.clear()))),
     streamEvents: Stream.fromQueue(input.events),
