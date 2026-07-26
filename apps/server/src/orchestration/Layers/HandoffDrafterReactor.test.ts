@@ -118,6 +118,8 @@ const makeDrafter = (
   createdAt: NOW,
   updatedAt: NOW,
   archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
   session: readySession(),
   latestUserMessageAt: null,
   hasPendingApprovals: false,

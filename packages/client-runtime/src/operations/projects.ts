@@ -215,6 +215,7 @@ export function buildProjectCreateCommand(input: {
     title: inferProjectTitleFromPath(input.workspaceRoot),
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
+    // loom: new projects default to pi/PI_DEFAULT_MODEL.
     defaultModelSelection: {
       instanceId: ProviderInstanceId.make("pi"),
       model: PI_DEFAULT_MODEL,

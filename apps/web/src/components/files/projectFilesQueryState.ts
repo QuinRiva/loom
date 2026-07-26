@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -15,6 +15,9 @@ import { projectEnvironment } from "~/state/projects";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
 const EMPTY_PROJECT_FILE_PATH = "";
+const EMPTY_PROJECT_FILE_QUERY_ATOM = Atom.make(
+  AsyncResult.initial<ProjectReadFileResult, never>(false),
+).pipe(Atom.withLabel("project-file-query:empty"));
 function optimisticFileAtom(environmentId: EnvironmentId, cwd: string, relativePath: string) {
   return projectEnvironment.optimisticFile({ environmentId, cwd, relativePath });
 }
@@ -160,8 +163,11 @@ export function useProjectFileQuery(
   cwd: string,
   relativePath: string | null,
   maxBytes?: number,
+  enabled = true,
 ): ProjectQueryState<ProjectReadFileResult> {
-  const atom = getProjectFileQueryAtom(environmentId, cwd, relativePath, maxBytes);
+  const atom = enabled
+    ? getProjectFileQueryAtom(environmentId, cwd, relativePath, maxBytes)
+    : EMPTY_PROJECT_FILE_QUERY_ATOM;
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);

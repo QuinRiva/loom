@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 import {
   createModelSelection,
-  normalizeModelSlug,
+  normalizeCustomModelSlug,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
@@ -81,6 +81,7 @@ export interface AppModelOption {
    * simply keeps them out of the default views.
    */
   excluded?: boolean;
+  isDefault?: boolean;
 }
 
 interface InstanceModelPreferences {
@@ -98,6 +99,7 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   };
   if (model.shortName) option.shortName = model.shortName;
   if (model.subProvider) option.subProvider = model.subProvider;
+  if (model.isDefault) option.isDefault = true;
   return option;
 }
 
@@ -135,13 +137,12 @@ function applyInstanceModelPreferences(
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
   builtInModelSlugs: ReadonlySet<string>,
-  provider: ProviderDriverKind = ProviderDriverKind.make("codex"),
 ): string[] {
   const normalizedModels: string[] = [];
   const seen = new Set<string>();
 
   for (const candidate of models) {
-    const normalized = normalizeModelSlug(candidate, provider);
+    const normalized = normalizeCustomModelSlug(candidate);
     if (
       !normalized ||
       normalized.length > MAX_CUSTOM_MODEL_LENGTH ||
@@ -182,7 +183,7 @@ export function getAppModelOptions(
   // see the user's authored custom models.
   const defaultInstanceId = defaultInstanceIdForDriver(provider);
   const customModels = readInstanceCustomModels(settings, defaultInstanceId, provider);
-  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, provider)) {
+  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs)) {
     if (seen.has(slug)) {
       continue;
     }
@@ -230,8 +231,7 @@ export function getAppModelOptionsForInstance(
   const builtInModelSlugs = new Set(builtInServerModels.map((model) => model.slug));
 
   const customModels = readInstanceCustomModels(settings, entry.instanceId, entry.driverKind);
-  const normalizer = entry.driverKind;
-  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, normalizer)) {
+  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs)) {
     if (seen.has(slug)) {
       continue;
     }
@@ -274,7 +274,9 @@ export function resolveAppModelSelectionForInstance(
   return (
     resolveSelectableModel(entry.driverKind, selectedModel, options) ??
     options.find((option) => !option.excluded)?.slug ??
+    options.find((option) => option.isDefault)?.slug ??
     options[0]?.slug ??
+    entry.models.find((model) => model.isDefault)?.slug ??
     entry.models[0]?.slug ??
     null
   );
