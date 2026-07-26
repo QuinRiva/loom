@@ -183,6 +183,60 @@ describe("PiDriver user input", () => {
     ),
   );
 
+  effectIt.effect("settles legacy dialogs on interrupt and explicit session stop", () =>
+    withAdapter((adapter, fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("44444444-4444-4444-8444-444444444444");
+        yield* startSession(adapter, threadId);
+
+        fake.emit({
+          type: "extension_ui_request",
+          id: "interrupt-input",
+          method: "input",
+          message: "Input",
+        });
+        yield* takeEvent(events, "user-input.requested");
+        yield* adapter.interruptTurn(threadId);
+        const interrupted = yield* takeEvent(events, "user-input.resolved");
+        expect(interrupted.requestId).toBe("interrupt-input");
+        expect(interrupted.payload.answers).toEqual({});
+
+        fake.emit({
+          type: "extension_ui_request",
+          id: "stop-editor",
+          method: "editor",
+          message: "Edit",
+        });
+        yield* takeEvent(events, "user-input.requested");
+        yield* adapter.stopSession(threadId);
+        const stopped = yield* takeEvent(events, "user-input.resolved");
+        expect(stopped.requestId).toBe("stop-editor");
+        expect(stopped.payload.answers).toEqual({});
+      }),
+    ),
+  );
+
+  effectIt.effect("settles a legacy dialog when the pi process exits", () =>
+    withAdapter((adapter, fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("55555555-5555-4555-8555-555555555555");
+        yield* startSession(adapter, threadId);
+        fake.emit({
+          type: "extension_ui_request",
+          id: "crashed-select",
+          method: "select",
+          message: "Choose",
+          options: ["A", "B"],
+        });
+        yield* takeEvent(events, "user-input.requested");
+        fake.process.child.emit("exit", 1, null);
+        const resolved = yield* takeEvent(events, "user-input.resolved");
+        expect(resolved.requestId).toBe("crashed-select");
+        expect(resolved.payload.answers).toEqual({});
+      }),
+    ),
+  );
+
   effectIt.effect("resolves broker questions through the same canonical event pair", () =>
     withAdapter((adapter, _fake, events) =>
       Effect.gen(function* () {

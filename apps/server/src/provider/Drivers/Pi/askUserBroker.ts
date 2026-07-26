@@ -42,6 +42,7 @@ export type PiAskUserPollResult =
 type Emit = (event: PiAskUserBrokerEvent) => Promise<void>;
 
 interface PendingQuestion {
+  readonly requestId: string;
   readonly threadId: ThreadId;
   readonly questions: ReadonlyArray<UserInputQuestion>;
   readonly listeners: Set<(outcome: PiAskUserOutcome) => void>;
@@ -51,6 +52,7 @@ interface PendingQuestion {
 
 const emitters = new Map<ThreadId, Emit>();
 const pending = new Map<string, PendingQuestion>();
+export const PI_ASK_USER_SETTLED_RETENTION_MS = 60_000;
 
 export const registerPiAskUserEmitter = (threadId: ThreadId, emit: Emit): (() => void) => {
   emitters.set(threadId, emit);
@@ -68,7 +70,7 @@ export const openPiAskUserQuestion = async (
 
   const requestId = NodeCrypto.randomUUID();
   const questions = buildQuestions(requestId);
-  pending.set(requestId, { threadId, questions, listeners: new Set() });
+  pending.set(requestId, { requestId, threadId, questions, listeners: new Set() });
   try {
     await emit({ type: "requested", requestId, questions });
     return { requestId };
@@ -82,6 +84,12 @@ const finish = (entry: PendingQuestion, outcome: PiAskUserOutcome) => {
   entry.outcome = outcome;
   for (const listener of entry.listeners) listener(outcome);
   entry.listeners.clear();
+  // Keep a short tombstone so a poll whose previous connection dropped can
+  // still collect the terminal outcome. It is never an unanswered-question
+  // timeout: only already-settled entries are bounded here.
+  setTimeout(() => {
+    if (pending.get(entry.requestId) === entry && entry.outcome) pending.delete(entry.requestId);
+  }, PI_ASK_USER_SETTLED_RETENTION_MS).unref();
 };
 
 export const resolvePiAskUserQuestion = async (
@@ -90,7 +98,11 @@ export const resolvePiAskUserQuestion = async (
   answers: ProviderUserInputAnswers,
 ): Promise<boolean> => {
   const entry = pending.get(requestId);
-  if (!entry || entry.threadId !== threadId || entry.settling || entry.outcome) return false;
+  if (!entry || entry.threadId !== threadId) return false;
+  // The broker owns this id even when another answer/cancel already claimed
+  // settlement; absorb duplicate/racing UI responses instead of falling
+  // through to PiDriver's unrelated legacy-dialog path.
+  if (entry.settling || entry.outcome) return true;
   const emit = emitters.get(threadId);
   if (!emit) return false;
   entry.settling = true;
@@ -109,6 +121,9 @@ export const cancelPiAskUserQuestions = async (threadId: ThreadId): Promise<void
   await Promise.all(
     [...pending.entries()].flatMap(([requestId, entry]) => {
       if (entry.threadId !== threadId || entry.settling || entry.outcome) return [];
+      // Claim synchronously before the first await so answer and cancellation
+      // cannot both emit a terminal event.
+      entry.settling = true;
       return [
         (async () => {
           if (emit)
