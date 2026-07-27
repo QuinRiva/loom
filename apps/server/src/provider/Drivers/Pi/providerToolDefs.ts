@@ -36,13 +36,13 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "ask_user_question",
     label: "Ask User Question",
     description:
-      "Ask the user one to four structured questions and wait for their answers. Each question has a short header, two to four labelled options with descriptions, and may allow either one or multiple selections. A single-select option may include a markdown preview. The user can always provide a custom free-text answer instead.",
+      "Ask the user one to four structured questions and wait for their answers — a last resort, not a routine step. Threads here frequently run unattended, so reserve this for a decision that is genuinely irreversible, destructive, or purely a matter of the user's preference; otherwise proceed on the most reasonable assumption and state it. Each question has a short header, two to four labelled options with descriptions, and may allow either one or multiple selections. A single-select option may include a markdown preview. The user can always provide a custom free-text answer instead.",
     promptSnippet:
-      "put one to four structured questions to the user, with labelled options and single- or multi-select answers, then wait for the response.",
+      "last resort for a genuinely irreversible, destructive, or preference-dependent fork: put one to four structured questions to the user, with labelled options and single- or multi-select answers, then block until they answer.",
     promptGuidelines: [
-      "Ask only when the answer materially changes the work and cannot be inferred safely; otherwise proceed with a reasonable assumption.",
-      "Group related clarifications into one call, mark the best default with a '(Recommended)' label suffix, and do not stack ask_user_question calls back-to-back.",
-      "Use markdown preview only on single-select options where seeing concrete content helps the user choose.",
+      "Do not call ask_user_question to resolve ordinary uncertainty. Threads here often run unattended, so the default is to choose the most reasonable option, state the assumption plainly in your output, and let the user correct it — that is nearly always better than blocking on a human.",
+      "Reserve ask_user_question for a fork that is genuinely irreversible or destructive, or that turns purely on the user's preference and cannot be inferred from the request, the codebase, or prior context. Never use it to confirm scope you were already given, to get a plan approved that you could simply carry out and report, or to pick between options you can defend a choice between yourself.",
+      "When ask_user_question is genuinely warranted, put every related clarification into that one call (up to four questions) instead of stacking calls, and order each question's options with the strongest first. Use markdown preview only on single-select options where seeing concrete content helps the user choose.",
     ],
     parameters: {
       type: "object",
