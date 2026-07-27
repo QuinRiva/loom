@@ -45,26 +45,13 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
-## Database migrations — two lanes, and the 1000+ rule
+## Database migrations
 
-Migrations live in **two independent ledgers**, so upstream's migration files and
-`Migrations.ts` merge verbatim on every cadence pull:
-
-| lane     | ledger table            | ids                     | file                                                                                             |
-| -------- | ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ |
-| upstream | `effect_sql_migrations` | `1..N` (upstream's own) | `apps/server/src/persistence/Migrations.ts` — kept **byte-identical to upstream**; never edit it |
-| fork     | `loom_sql_migrations`   | `1001+`                 | `apps/server/src/persistence/LoomMigrations.ts` — loom-owned                                     |
-
-**Adding a loom migration:** create `Migrations/<id>_<Name>.ts` with the next id
-at `1033+` and append it to `loomMigrationEntries` in `LoomMigrations.ts`. Never
-touch `Migrations.ts`, and **never number a fork migration below `1000`**.
-
-**Why the `1000+` rule is load-bearing, not cosmetic.** The migrator decides what
-to run with a _high-water mark_ per ledger (`if (currentId <= latestMigrationId)
-continue`) — not set membership. If the two lanes ever shared a table, the mark
-would sit above `1000` and every future upstream migration would be **silently
-skipped on existing databases** while still passing every fresh-install test.
-Separate tables give each lane its own mark. See
+Migrations run in two independent ledgers. Loom migrations are **numbered `1001+`**
+and registered in `apps/server/src/persistence/LoomMigrations.ts`; upstream's
+`Migrations.ts` is kept byte-identical to upstream, so never edit it and never
+number a fork migration below `1000` (doing so silently disables future upstream
+migrations on existing databases). Rationale and the reconciliation design are in
 [`docs/upstream-sync/22-migration-lane-split-plan.md`](docs/upstream-sync/22-migration-lane-split-plan.md).
 
 ## Loom UI state conventions
