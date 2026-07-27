@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../Migrations.ts";
+import { runAllMigrations } from "../LoomMigrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -29,7 +29,7 @@ layer("050_ProjectionProjectsUniqueActiveWorkspaceRoot", (it) => {
           )
         `;
 
-      yield* runMigrations({ toMigrationInclusive: 48 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1016 });
 
       // Three active rows for one path (the duplication bug) + one for another.
       yield* insert({
@@ -57,7 +57,7 @@ layer("050_ProjectionProjectsUniqueActiveWorkspaceRoot", (it) => {
         deletedAt: null,
       });
 
-      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1018 });
 
       const activeForDup = yield* sql<{ readonly project_id: string }>`
         SELECT project_id FROM projection_projects
@@ -99,7 +99,7 @@ layer("050_ProjectionProjectsUniqueActiveWorkspaceRoot", (it) => {
           )
         `;
 
-      yield* runMigrations({ toMigrationInclusive: 50 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1018 });
 
       yield* insert({
         id: "proj-1",

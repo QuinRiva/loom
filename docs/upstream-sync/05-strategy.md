@@ -330,7 +330,32 @@ For each future fork change, ask: _is this generally useful, or Pi-specific?_
 - **Pi-specific (delegation, goals/tasks, multi-session)** → **isolate it** in Pi-owned
   modules behind a minimal seam, per §4.2.
 
-### 4.4 Cadence mechanics
+### 4.4 Migrations need no special handling (since the lane split)
+
+**Take upstream's `Migrations.ts` and its migration files verbatim. Do not
+renumber anything.** This used to be a recurring hand-done step against the live
+1.5 GB production database; it is now a non-step.
+
+Migrations run in two independent ledgers, so the two sides can never collide:
+
+| lane     | ledger table            | ids                   | pull handling                                                                                   |
+| -------- | ----------------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| upstream | `effect_sql_migrations` | upstream's own `1..N` | **merge verbatim** — `Migrations.ts` is byte-identical to upstream, so it should never conflict |
+| fork     | `loom_sql_migrations`   | `1001+`               | loom appends to `LoomMigrations.ts`                                                             |
+
+- If `apps/server/src/persistence/Migrations.ts` **conflicts** on a pull,
+  something has gone wrong — the fork is not supposed to carry any delta on that
+  file. Take upstream's side and check why loom diverged.
+- Loom migrations go in `apps/server/src/persistence/LoomMigrations.ts` at
+  `1033+`. **Never number a fork migration below `1000`**, and never put one in
+  `Migrations.ts`: the migrator skips by a per-ledger high-water mark, so a fork
+  migration inside upstream's range would silently mask upstream's next
+  migration on existing databases while passing every fresh-install test.
+
+Design and verification evidence:
+[`22-migration-lane-split-plan.md`](22-migration-lane-split-plan.md).
+
+### 4.5 Cadence mechanics
 
 - **Weekly (or daily) `git fetch upstream && git merge upstream/main`** on a sync branch;
   run `vp check` + `vp run typecheck`; resolve the (now small) overlap; PR into `main`.

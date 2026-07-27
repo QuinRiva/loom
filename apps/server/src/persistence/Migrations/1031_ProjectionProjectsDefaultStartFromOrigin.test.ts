@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../Migrations.ts";
+import { runAllMigrations } from "../LoomMigrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -16,7 +16,7 @@ layer("063_ProjectionProjectsDefaultStartFromOrigin", (it) => {
       // Setup base state: projection rows created before this migration lack
       // the new column entirely.
       {
-        yield* runMigrations({ toMigrationInclusive: 62 });
+        yield* runAllMigrations({ toLoomMigrationInclusive: 1030 });
 
         yield* sql`
             INSERT INTO projection_projects (
@@ -37,7 +37,7 @@ layer("063_ProjectionProjectsDefaultStartFromOrigin", (it) => {
       }
 
       // Execute migration under test.
-      yield* runMigrations({ toMigrationInclusive: 63 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1031 });
 
       // Assert expected state: loom (active) is seeded true; unrelated and
       // soft-deleted rows stay unset (null).

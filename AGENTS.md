@@ -45,6 +45,15 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Database migrations
+
+Migrations run in two independent ledgers. Loom migrations are **numbered `1001+`**
+and registered in `apps/server/src/persistence/LoomMigrations.ts`; upstream's
+`Migrations.ts` is kept byte-identical to upstream, so never edit it and never
+number a fork migration below `1000` (doing so silently disables future upstream
+migrations on existing databases). Rationale and the reconciliation design are in
+[`docs/upstream-sync/22-migration-lane-split-plan.md`](docs/upstream-sync/22-migration-lane-split-plan.md).
+
 ## Loom UI state conventions
 
 Loom UI state belongs to one of four tiers, and automatic surface openers must _seed_ state without ever _overriding_ a user's persisted choice. Before adding client UI state, classify it against [`docs/architecture/loom-ui-state-tiers.md`](docs/architecture/loom-ui-state-tiers.md) (tier table, seed-not-override write policy, the retained plan-auto-open exception, and the orphan-key note).

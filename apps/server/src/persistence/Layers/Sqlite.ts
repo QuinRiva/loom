@@ -5,7 +5,7 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { runMigrations } from "../Migrations.ts";
+import { runAllMigrations } from "../LoomMigrations.ts";
 import { ServerConfig } from "../../config.ts";
 
 type RuntimeSqliteLayerConfig = {
@@ -61,7 +61,7 @@ const setup = Layer.effectDiscard(
     yield* sql`PRAGMA cache_size = -131072;`;
     // Wait rather than throw SQLITE_BUSY when the WAL writer briefly holds a lock.
     yield* sql`PRAGMA busy_timeout = 5000;`;
-    yield* runMigrations();
+    yield* runAllMigrations();
   }),
 );
 
