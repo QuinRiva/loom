@@ -218,11 +218,33 @@ export default function(pi) {
     try { result = text ? JSON.parse(text) : null; } catch { result = null; }
     if (!response.ok) {
       const message = result?.message ?? (text || ("T3 Workstream request failed (" + response.status + ")."));
-      if (errorMode === "throw") throw new Error(message);
+      if (errorMode === "throw") {
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
       return { ok: false, error: { content: [{ type: "text", text: message }], details: { ok: false, status: response.status, response: result ?? text } } };
     }
     return { ok: true, result };
   };
+
+  const pause = (ms, signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason ?? new Error("Tool call aborted."));
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error("Tool call aborted."));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+  const toolResult = (result, fallbackText) => ({
+    content: [{ type: "text", text: result.rendered ?? fallbackText ?? "" }],
+    details: { ok: true, ...result }
+  });
 
   for (const def of TOOL_DEFS) {
     pi.registerTool({
@@ -233,14 +255,29 @@ export default function(pi) {
       promptGuidelines: def.promptGuidelines,
       parameters: def.parameters,
       async execute(_id, params, signal) {
+        if (def.mode === "user-input") {
+          let request = params;
+          while (true) {
+            let outcome;
+            try {
+              outcome = await call(def.path, request, signal, def.errorMode);
+            } catch (error) {
+              // Once the server has assigned an id, a dropped poll connection is
+              // recoverable: the in-memory broker still owns the pending ask.
+              if (!request?.requestId || signal?.aborted || error?.status !== undefined) throw error;
+              await pause(250, signal);
+              continue;
+            }
+            if (!outcome.ok) return outcome.error;
+            const result = outcome.result ?? {};
+            if (!result.pending) return toolResult(result, def.fallbackText);
+            if (!result.requestId) throw new Error("ask_user_question poll omitted requestId.");
+            request = { requestId: result.requestId };
+          }
+        }
         const outcome = await call(def.path, params, signal, def.errorMode);
         if (!outcome.ok) return outcome.error;
-        const result = outcome.result ?? {};
-        const text = result.rendered ?? def.fallbackText ?? "";
-        return {
-          content: [{ type: "text", text }],
-          details: { ok: true, ...result }
-        };
+        return toolResult(outcome.result ?? {}, def.fallbackText);
       }
     });
   }

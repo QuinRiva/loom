@@ -4,6 +4,7 @@ import * as GoalHandoffHttp from "./GoalHandoffHttp.ts";
 import * as GoalTaskHttp from "./GoalTaskHttp.ts";
 import { PROVIDER_TOOL_PATHS, workstreamBaseUrlFromMcpEndpoint } from "./toolPaths.ts";
 import * as ThreadForkHttp from "./ThreadForkHttp.ts";
+import * as UserInputHttp from "./UserInputHttp.ts";
 import * as WorkstreamSpawnHttp from "./WorkstreamSpawnHttp.ts";
 
 describe("workstreamBaseUrlFromMcpEndpoint", () => {
@@ -38,13 +39,14 @@ describe("PROVIDER_TOOL_PATHS ↔ registered routes", () => {
 
   // The HTTP modules must export a merged layer that registers exactly the
   // table paths. The layer is opaque here, so assert the modules load and the
-  // table is complete (22 tools) — the driver env + extension both key off it.
-  it("covers all 22 provider tools", () => {
-    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(22);
+  // table is complete (23 tools) — the driver env + extension both key off it.
+  it("covers all 23 provider tools", () => {
+    expect(Object.keys(PROVIDER_TOOL_PATHS)).toHaveLength(23);
     // Touch each module so a missing export/route registration fails to import.
     expect(typeof WorkstreamSpawnHttp.layer).toBe("object");
     expect(typeof GoalTaskHttp.layer).toBe("object");
     expect(typeof GoalHandoffHttp.layer).toBe("object");
     expect(typeof ThreadForkHttp.layer).toBe("object");
+    expect(typeof UserInputHttp.layer).toBe("object");
   });
 });

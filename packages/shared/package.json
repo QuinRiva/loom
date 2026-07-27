@@ -222,6 +222,10 @@
     "./providerFailover": {
       "types": "./src/providerFailover.ts",
       "import": "./src/providerFailover.ts"
+    },
+    "./userInputQuestions": {
+      "types": "./src/userInputQuestions.ts",
+      "import": "./src/userInputQuestions.ts"
     }
   },
   "scripts": {

@@ -482,6 +482,7 @@ export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 const UserInputQuestionOption = Schema.Struct({
   label: TrimmedNonEmptyStringSchema,
   description: TrimmedNonEmptyStringSchema,
+  preview: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 
