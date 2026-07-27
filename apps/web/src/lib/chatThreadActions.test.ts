@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   resolveThreadActionProjectRef,
   resolveNewDraftStartFromOrigin,
-  startNewLocalThreadFromContext,
   startNewThreadFromContext,
   type ChatThreadActionContext,
 } from "./chatThreadActions";
@@ -47,13 +46,6 @@ describe("chatThreadActions", () => {
         projectDefaultStartFromOrigin: true,
       }),
     ).toBe(true);
-    expect(
-      resolveNewDraftStartFromOrigin({
-        envMode: "worktree",
-        newWorktreesStartFromOrigin: false,
-        projectDefaultStartFromOrigin: false,
-      }),
-    ).toBe(false);
     // The project default never promotes a local (non-worktree) draft.
     expect(
       resolveNewDraftStartFromOrigin({
@@ -72,17 +64,25 @@ describe("chatThreadActions", () => {
     ).toBe(false);
   });
 
-  it("prefers the active draft thread project when resolving thread actions", () => {
+  it("prefers the active thread project when resolving thread actions", () => {
+    const projectRef = resolveThreadActionProjectRef(
+      createContext({
+        activeThread: {
+          environmentId: ENVIRONMENT_ID,
+          projectId: PROJECT_ID,
+        },
+      }),
+    );
+
+    expect(projectRef).toEqual(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID));
+  });
+
+  it("falls back to the active draft thread project when there is no active thread", () => {
     const projectRef = resolveThreadActionProjectRef(
       createContext({
         activeDraftThread: {
           environmentId: ENVIRONMENT_ID,
           projectId: PROJECT_ID,
-          branch: "feature/refactor",
-          worktreePath: "/tmp/worktree",
-          goalId: null,
-          envMode: "worktree",
-          startFromOrigin: true,
         },
       }),
     );
@@ -100,67 +100,15 @@ describe("chatThreadActions", () => {
     expect(projectRef).toEqual(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID));
   });
 
-  it("starts a contextual new thread from the active draft thread", async () => {
+  it("inherits only the project from context, never branch or worktree state", async () => {
     const handleNewThread = vi.fn<ChatThreadActionContext["handleNewThread"]>(async () => {});
 
     const didStart = await startNewThreadFromContext(
       createContext({
-        activeDraftThread: {
+        activeThread: {
           environmentId: ENVIRONMENT_ID,
           projectId: PROJECT_ID,
-          branch: "feature/refactor",
-          worktreePath: "/tmp/worktree",
-          goalId: null,
-          envMode: "worktree",
-          startFromOrigin: true,
         },
-        handleNewThread,
-      }),
-    );
-
-    expect(didStart).toBe(true);
-    expect(handleNewThread).toHaveBeenCalledWith(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), {
-      branch: "feature/refactor",
-      worktreePath: "/tmp/worktree",
-      goalId: null,
-      envMode: "worktree",
-      startFromOrigin: true,
-    });
-  });
-
-  it("preserves an explicitly disabled origin base in contextual thread options", async () => {
-    const handleNewThread = vi.fn<ChatThreadActionContext["handleNewThread"]>(async () => {});
-
-    await startNewThreadFromContext(
-      createContext({
-        activeDraftThread: {
-          environmentId: ENVIRONMENT_ID,
-          projectId: PROJECT_ID,
-          branch: "feature/refactor",
-          worktreePath: "/tmp/worktree",
-          goalId: null,
-          envMode: "worktree",
-          startFromOrigin: false,
-        },
-        handleNewThread,
-      }),
-    );
-
-    expect(handleNewThread).toHaveBeenCalledWith(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), {
-      branch: "feature/refactor",
-      worktreePath: "/tmp/worktree",
-      goalId: null,
-      envMode: "worktree",
-      startFromOrigin: false,
-    });
-  });
-
-  it("delegates the target environment defaults to the new-thread handler", async () => {
-    const handleNewThread = vi.fn<ChatThreadActionContext["handleNewThread"]>(async () => {});
-
-    const didStart = await startNewLocalThreadFromContext(
-      createContext({
-        defaultProjectRef: scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID),
         handleNewThread,
       }),
     );

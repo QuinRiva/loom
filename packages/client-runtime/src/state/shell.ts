@@ -137,6 +137,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     const current = yield* SubscriptionRef.get(state);
     let nextSnapshot = Option.getOrNull(current.snapshot);
     for (const item of items) {
+      if (item.kind === "synchronized") {
+        // loom: upstream's shell completion marker is unused by loom's sync legs
+        // (they never request it); skip it so the reducer stays total over the
+        // contract union that now includes the synchronized variant.
+        continue;
+      }
       if (item.kind === "snapshot") {
         nextSnapshot = item.snapshot;
       } else if (nextSnapshot !== null && item.sequence > nextSnapshot.snapshotSequence) {

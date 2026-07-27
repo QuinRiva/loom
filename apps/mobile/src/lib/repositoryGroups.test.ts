@@ -72,6 +72,8 @@ function makeThread(
     peerMessages: [],
     notifySendLog: [],
     ...input,
+    settledOverride: input.settledOverride ?? null,
+    settledAt: input.settledAt ?? null,
   };
 }
 

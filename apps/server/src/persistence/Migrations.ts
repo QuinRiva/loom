@@ -77,6 +77,11 @@ import Migration0061 from "./Migrations/061_ProjectionThreadFaninSince.ts";
 import Migration0062 from "./Migrations/062_ProjectionThreadHandoffCount.ts";
 import Migration0063 from "./Migrations/063_ProjectionProjectsDefaultStartFromOrigin.ts";
 import Migration0064 from "./Migrations/064_ProjectionThreadPeerMessages.ts";
+// loom: upstream's Sidebar-v2 settled/snoozed migrations (upstream 033/034) re-homed to
+// 065/066 — loom's migration chain already occupies 033–064 (diverged at 033), and the
+// cockpit DB migrates in place one-way by NUMBER, so they must take the next free numbers.
+import Migration0065 from "./Migrations/065_ProjectionThreadsSettled.ts";
+import Migration0066 from "./Migrations/066_ProjectionThreadsSnoozed.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -153,6 +158,8 @@ export const migrationEntries = [
   [62, "ProjectionThreadHandoffCount", Migration0062],
   [63, "ProjectionProjectsDefaultStartFromOrigin", Migration0063],
   [64, "ProjectionThreadPeerMessages", Migration0064],
+  [65, "ProjectionThreadsSettled", Migration0065],
+  [66, "ProjectionThreadsSnoozed", Migration0066],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -187,15 +194,11 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  yield* Effect.log(
-    toMigrationInclusive === undefined
-      ? "Running all migrations..."
-      : `Running migrations 1 through ${toMigrationInclusive}...`,
-  );
   const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
-  yield* Effect.log("Migrations ran successfully").pipe(
-    Effect.annotateLogs({ migrations: executedMigrations.map(([id, name]) => `${id}_${name}`) }),
-  );
+  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
+  yield* migrations.length === 0
+    ? Effect.logDebug("Database schema is current")
+    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
   return executedMigrations;
 });
 

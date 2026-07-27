@@ -1495,6 +1495,7 @@ describe("startup stale session reconciliation", () => {
             }),
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+          latestSequence: Effect.succeed(0),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getCommandReadModel: () =>
@@ -2749,6 +2750,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
       // schedule, so any wake delivered after t=0 is proof the re-pass fired.
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -2875,6 +2877,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -3022,6 +3025,7 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
               }),
             streamDomainEvents: Stream.empty,
             subscribeDomainEvents: Effect.succeed(Stream.empty),
+            latestSequence: Effect.succeed(0),
           } as unknown as OrchestrationEngineShape;
           const snapshotQuery = {
             getShellSnapshot: () =>
@@ -3116,6 +3120,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -3253,6 +3258,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -3460,6 +3466,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -3567,6 +3574,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -3762,6 +3770,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -4367,6 +4376,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -4518,6 +4528,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -4795,6 +4806,7 @@ describe("fan-in settlement releases dependents", () => {
             }),
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+          latestSequence: Effect.succeed(0),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getShellSnapshot: () => shellSnapshot,
@@ -4873,6 +4885,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
         }),
       streamDomainEvents: Stream.fromPubSub(events),
       subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+      latestSequence: Effect.succeed(0),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -5224,6 +5237,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -5359,6 +5373,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
         }),
       streamDomainEvents: Stream.fromPubSub(events),
       subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+      latestSequence: Effect.succeed(0),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
       getShellSnapshot: () =>
@@ -5853,6 +5868,7 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
         }),
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
+      latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
@@ -6118,6 +6134,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
             }),
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+          latestSequence: Effect.succeed(0),
         } as unknown as OrchestrationEngineShape;
         const snapshotQuery = {
           getShellSnapshot: () => shellSnapshot,
@@ -6430,6 +6447,7 @@ describe("notify_thread deferred-delivery rail", () => {
             }),
           streamDomainEvents: Stream.fromPubSub(events),
           subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+          latestSequence: Effect.succeed(0),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
           getCommandReadModel: () =>
