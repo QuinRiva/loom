@@ -45,43 +45,8 @@ import Migration0029 from "./Migrations/029_ProjectionThreadDetailOrderingIndexe
 import Migration0030 from "./Migrations/030_ProjectionThreadShellArchiveIndexes.ts";
 import Migration0031 from "./Migrations/031_AuthAuthorizationScopes.ts";
 import Migration0032 from "./Migrations/032_AuthPairingProofKeyThumbprint.ts";
-import Migration0033 from "./Migrations/033_ProjectionThreadsGoalSlug.ts";
-import Migration0034 from "./Migrations/034_ProjectionThreadMessageReasoning.ts";
-import Migration0035 from "./Migrations/035_GoalsAndTasks.ts";
-import Migration0036 from "./Migrations/036_CanonicalizeReasoningEvents.ts";
-import Migration0037 from "./Migrations/037_ProjectionThreadWorkstreamFields.ts";
-import Migration0038 from "./Migrations/038_ProjectionThreadStatusAndDependencies.ts";
-import Migration0039 from "./Migrations/039_ProjectionThreadBrief.ts";
-import Migration0040 from "./Migrations/040_ProjectionThreadNotifyFields.ts";
-import Migration0041 from "./Migrations/041_ProjectionThreadCumulativeCost.ts";
-import Migration0042 from "./Migrations/042_ProjectionThreadPlanLaneAndAttention.ts";
-import Migration0043 from "./Migrations/043_ProjectionThreadHeartbeats.ts";
-import Migration0044 from "./Migrations/044_ProjectionThreadContextMetrics.ts";
-import Migration0045 from "./Migrations/045_ProjectionThreadReviewGates.ts";
-import Migration0046 from "./Migrations/046_UsageLedger.ts";
-import Migration0047 from "./Migrations/047_ProjectionThreadWorktreeIsolation.ts";
-import Migration0048 from "./Migrations/048_ProjectionThreadConsults.ts";
-import Migration0049 from "./Migrations/049_ProjectionThreadDiffMetrics.ts";
-import Migration0050 from "./Migrations/050_ProjectionProjectsUniqueActiveWorkspaceRoot.ts";
-import Migration0051 from "./Migrations/051_UsageLedgerProviderId.ts";
-import Migration0052 from "./Migrations/052_ProjectionThreadSessionLastErrorClass.ts";
-import Migration0053 from "./Migrations/053_ProviderSessionRuntimeLastSeenIndex.ts";
-import Migration0054 from "./Migrations/054_ProjectionThreadMessageOrigin.ts";
-import Migration0055 from "./Migrations/055_ProjectionThreadForkSource.ts";
-import Migration0056 from "./Migrations/056_ProjectionThreadMessageControlPayload.ts";
-import Migration0057 from "./Migrations/057_ProjectionTitleProvenance.ts";
-import Migration0058 from "./Migrations/058_ProjectionThreadScaffoldFields.ts";
-import Migration0059 from "./Migrations/059_ProjectionThreadPlanLaneSince.ts";
-import Migration0060 from "./Migrations/060_ProjectionThreadDependenciesSince.ts";
-import Migration0061 from "./Migrations/061_ProjectionThreadFaninSince.ts";
-import Migration0062 from "./Migrations/062_ProjectionThreadHandoffCount.ts";
-import Migration0063 from "./Migrations/063_ProjectionProjectsDefaultStartFromOrigin.ts";
-import Migration0064 from "./Migrations/064_ProjectionThreadPeerMessages.ts";
-// loom: upstream's Sidebar-v2 settled/snoozed migrations (upstream 033/034) re-homed to
-// 065/066 — loom's migration chain already occupies 033–064 (diverged at 033), and the
-// cockpit DB migrates in place one-way by NUMBER, so they must take the next free numbers.
-import Migration0065 from "./Migrations/065_ProjectionThreadsSettled.ts";
-import Migration0066 from "./Migrations/066_ProjectionThreadsSnoozed.ts";
+import Migration0033 from "./Migrations/033_ProjectionThreadsSettled.ts";
+import Migration0034 from "./Migrations/034_ProjectionThreadsSnoozed.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -126,40 +91,8 @@ export const migrationEntries = [
   [30, "ProjectionThreadShellArchiveIndexes", Migration0030],
   [31, "AuthAuthorizationScopes", Migration0031],
   [32, "AuthPairingProofKeyThumbprint", Migration0032],
-  [33, "ProjectionThreadsGoalSlug", Migration0033],
-  [34, "ProjectionThreadMessageReasoning", Migration0034],
-  [35, "GoalsAndTasks", Migration0035],
-  [36, "CanonicalizeReasoningEvents", Migration0036],
-  [37, "ProjectionThreadWorkstreamFields", Migration0037],
-  [38, "ProjectionThreadStatusAndDependencies", Migration0038],
-  [39, "ProjectionThreadBrief", Migration0039],
-  [40, "ProjectionThreadNotifyFields", Migration0040],
-  [41, "ProjectionThreadCumulativeCost", Migration0041],
-  [42, "ProjectionThreadPlanLaneAndAttention", Migration0042],
-  [43, "ProjectionThreadHeartbeats", Migration0043],
-  [44, "ProjectionThreadContextMetrics", Migration0044],
-  [45, "ProjectionThreadReviewGates", Migration0045],
-  [46, "UsageLedger", Migration0046],
-  [47, "ProjectionThreadWorktreeIsolation", Migration0047],
-  [48, "ProjectionThreadConsults", Migration0048],
-  [49, "ProjectionThreadDiffMetrics", Migration0049],
-  [50, "ProjectionProjectsUniqueActiveWorkspaceRoot", Migration0050],
-  [51, "UsageLedgerProviderId", Migration0051],
-  [52, "ProjectionThreadSessionLastErrorClass", Migration0052],
-  [53, "ProviderSessionRuntimeLastSeenIndex", Migration0053],
-  [54, "ProjectionThreadMessageOrigin", Migration0054],
-  [55, "ProjectionThreadForkSource", Migration0055],
-  [56, "ProjectionThreadMessageControlPayload", Migration0056],
-  [57, "ProjectionTitleProvenance", Migration0057],
-  [58, "ProjectionThreadScaffoldFields", Migration0058],
-  [59, "ProjectionThreadPlanLaneSince", Migration0059],
-  [60, "ProjectionThreadDependenciesSince", Migration0060],
-  [61, "ProjectionThreadFaninSince", Migration0061],
-  [62, "ProjectionThreadHandoffCount", Migration0062],
-  [63, "ProjectionProjectsDefaultStartFromOrigin", Migration0063],
-  [64, "ProjectionThreadPeerMessages", Migration0064],
-  [65, "ProjectionThreadsSettled", Migration0065],
-  [66, "ProjectionThreadsSnoozed", Migration0066],
+  [33, "ProjectionThreadsSettled", Migration0033],
+  [34, "ProjectionThreadsSnoozed", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

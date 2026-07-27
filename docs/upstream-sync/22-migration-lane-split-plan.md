@@ -6,7 +6,7 @@
 > **Revision 2 changes.** An adversarial review found three correctness defects in
 > revision 1's reconciliation protocol; all are fixed below and each fix is backed by
 > a executed prototype (§4.4). The architecture (§3) was found sound and is unchanged.
-> The material change is **ordering**: reconciliation now runs *before* the upstream
+> The material change is **ordering**: reconciliation now runs _before_ the upstream
 > lane, not between the lanes. Revision 1's ordering permanently holed the upstream
 > ledger on intermediate databases.
 >
@@ -15,7 +15,7 @@
 > `+968` offset with dense-prefix validation** rather than sequential compaction
 > (which mis-keyed gapped ledgers — §4.2), the **transaction boundary** for
 > reconciliation is spelled out as an explicit implementer obligation the prototype
-> does *not* evidence (§4.3, §6(9)), and rollback now states that the ledger script
+> does _not_ evidence (§4.3, §6(9)), and rollback now states that the ledger script
 > runs **before** reverting code (§8).
 
 ## 1. The problem
@@ -58,7 +58,7 @@ so `max(migration_id) = 1032`. Next pull, upstream ships `035`. The migrator ask
 the column is never added and the first query against it fails at runtime. The same
 applies to every upstream migration up to `999`, forever.
 
-The trap is *where* it breaks. A **fresh** database is fine: `latestMigrationId`
+The trap is _where_ it breaks. A **fresh** database is fine: `latestMigrationId`
 starts at `0`, so `1…34` then `1001…` all run in ascending order and the
 high-water mark never overtakes anything. So the scheme passes every fresh-install
 test and all of CI, then silently corrupts exactly the databases we care about.
@@ -66,13 +66,13 @@ test and all of CI, then silently corrupts exactly the databases we care about.
 This was confirmed empirically against the real library, not just by reading it —
 a throwaway test reproducing both ledger states:
 
-| database state | upstream `035` result |
-|---|---|
+| database state                         | upstream `035` result                                        |
+| -------------------------------------- | ------------------------------------------------------------ |
 | existing (ledger `1–34` + `1001–1032`) | `executed: []`, `tables created: []` — **skipped, no error** |
-| fresh (identical code and migrations) | `executed: [[35,…],[1001,…]]` — both run |
+| fresh (identical code and migrations)  | `executed: [[35,…],[1001,…]]` — both run                     |
 
 **Conclusion:** a fork band above upstream's range is only safe if it has a
-high-water mark *of its own*. The band alone cannot work.
+high-water mark _of its own_. The band alone cannot work.
 
 ## 3. Chosen scheme: two-lane ledger
 
@@ -80,10 +80,10 @@ Two independent, stock `Migrator` runs, one per lane. `Migrator.make({})` alread
 accepts a `table` option, so each lane gets its own high-water mark and both can
 grow forever without interacting.
 
-| lane | ledger table | ids | cadence-pull handling |
-|---|---|---|---|
+| lane     | ledger table            | ids                               | cadence-pull handling             |
+| -------- | ----------------------- | --------------------------------- | --------------------------------- |
 | upstream | `effect_sql_migrations` | `1..N` — upstream's own numbering | merged verbatim, zero renumbering |
-| fork | `loom_sql_migrations` | `1001+` | loom appends freely |
+| fork     | `loom_sql_migrations`   | `1001+`                           | loom appends freely               |
 
 Upstream's `035` is compared only against the upstream lane's max (`34`) → runs.
 Loom's `1033` is compared only against the fork lane's max → runs. Neither lane
@@ -103,10 +103,10 @@ loom-local runner that skips by set membership (`applied.has(id)`). Rejected:
   loom bumps regularly — trades a per-pull renumbering step for a per-bump
   re-validation step. That is relocation, not elimination, and it cuts against the
   fork's standing doctrine of adopting upstream plumbing wholesale.
-- **Decisively: only two-lane reaches zero *conflict*, not merely zero renumbering.**
+- **Decisively: only two-lane reaches zero _conflict_, not merely zero renumbering.**
   Today all 66 entries share one `migrationEntries` array, so every upstream append
   collides textually with loom's lines even when the numbers do not clash. Loom's
-  `Migrations.ts` currently differs from upstream by *only* the fork entries plus one
+  `Migrations.ts` currently differs from upstream by _only_ the fork entries plus one
   three-line comment (verified via `git diff upstream/main`), so moving fork entries
   into a separate loom-owned file makes upstream's `Migrations.ts` adoptable
   **byte-identical** — the conflict surface goes to nil, permanently. A single sorted
@@ -136,10 +136,10 @@ the failure was reproduced against the real migrator. On a database stopped at
 loom `033`, an upstream-first run sees `max = 33`, so it **skips upstream `033`
 but inserts upstream `034`**:
 
-| historical stop | upstream-first result |
-|---|---|
-| `33` | `executed=[[34,"ProjectionThreadsSnoozed"]]`, `033` **skipped**, max stays `34` |
-| `34`, `48`, `64` | `executed=[]` — **both** upstream `033`/`034` skipped |
+| historical stop  | upstream-first result                                                           |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `33`             | `executed=[[34,"ProjectionThreadsSnoozed"]]`, `033` **skipped**, max stays `34` |
+| `34`, `48`, `64` | `executed=[]` — **both** upstream `033`/`034` skipped                           |
 
 The ledger is then permanently holey: max is already `≥34`, so upstream `033`
 can never run again, and the database looks migrated while missing columns.
@@ -156,10 +156,10 @@ With reconciliation first, every state tested ends with a dense, correct ledger.
 
 Current live ledger → target:
 
-| current `effect_sql_migrations` | becomes |
-|---|---|
-| `1–32` (upstream) | unchanged in `effect_sql_migrations` |
-| `33–64` (fork) | moved → `loom_sql_migrations` as `1001–1032` |
+| current `effect_sql_migrations`         | becomes                                           |
+| --------------------------------------- | ------------------------------------------------- |
+| `1–32` (upstream)                       | unchanged in `effect_sql_migrations`              |
+| `33–64` (fork)                          | moved → `loom_sql_migrations` as `1001–1032`      |
 | `65`, `66` (upstream's 33/34, re-homed) | rewritten → `33`, `34` in `effect_sql_migrations` |
 
 Rows are classified **by name, never by id alone** — ids cannot distinguish old
@@ -167,7 +167,7 @@ loom `033`/`034` from upstream's `033`/`034`. The two re-homed upstream rows are
 rewritten to their upstream numbers.
 
 **Fork rows use the fixed offset `new = old + 968`** (so `33→1001`, `64→1032`) —
-*not* sequential compaction over whatever recognised names happen to be present.
+_not_ sequential compaction over whatever recognised names happen to be present.
 Revision 2's prototype used a running `next++` counter, which is subtly wrong: on
 a ledger with a gap (say old `034` missing), it assigns old `035→1002` where the
 true key is `1003`, silently mis-keying **every subsequent row** and permanently
@@ -180,8 +180,8 @@ rejects nothing legitimate — it just refuses to guess at a corrupt ledger.
 
 ### 4.3 The completion marker (revision 2 correction)
 
-Revision 1 defined "already reconciled" as *fork table exists **and upstream max
-≤ 34***. That predicate **expires**: after the first legitimate upstream `035`,
+Revision 1 defined "already reconciled" as \*fork table exists **and upstream max
+≤ 34\***. That predicate **expires**: after the first legitimate upstream `035`,
 upstream max is `35`, so a healthy database no longer looks reconciled and would
 be re-validated against the historical `0–66` layout — where legitimate upstream
 `035` is an "unexpected" row and startup fails. The `>66` rejection in §9 would
@@ -219,15 +219,15 @@ Each is covered by a test. All of the following were **executed** against the re
 `Migrator` in a throwaway prototype (kept at `/tmp/recon-fix-prototype.test.ts`;
 the implementer should reproduce these as permanent tests, not copy the prototype):
 
-| state | result |
-|---|---|
-| fresh DB (`0`) | upstream dense `1–34`, fork dense `1001–1032` |
-| stopped at `33` | dense; upstream `033` **runs** (the revision-1 bug) |
-| stopped at `34`, `48`, `64` | dense in all cases |
-| production state (`66`) | dense; nothing re-executed |
-| second invocation | `executed=[]` on **both** lanes — true no-op |
-| + synthetic upstream `035` | runs: `[[35,…]]` |
-| + synthetic upstream `067` and fork `1033` | both run — marker survives arbitrary future ids |
+| state                                      | result                                              |
+| ------------------------------------------ | --------------------------------------------------- |
+| fresh DB (`0`)                             | upstream dense `1–34`, fork dense `1001–1032`       |
+| stopped at `33`                            | dense; upstream `033` **runs** (the revision-1 bug) |
+| stopped at `34`, `48`, `64`                | dense in all cases                                  |
+| production state (`66`)                    | dense; nothing re-executed                          |
+| second invocation                          | `executed=[]` on **both** lanes — true no-op        |
+| + synthetic upstream `035`                 | runs: `[[35,…]]`                                    |
+| + synthetic upstream `067` and fork `1033` | both run — marker survives arbitrary future ids     |
 
 Also required: **concurrent/interrupted starts** — reconciliation plus both lanes
 run inside a transaction; the ledger PK makes a double insert a constraint error
@@ -251,12 +251,12 @@ Every fork migration is either a `CREATE TABLE IF NOT EXISTS`, a
 there are **five**, three of which are in the fork lane. Corrected and complete
 (`grep -n "DROP COLUMN"`, excluding tests):
 
-| migration | lane | drops | verdict |
-|---|---|---|---|
-| `016_CanonicalizeModelSelections:58,63` | upstream | `projection_projects.default_model`, `projection_threads.model` | upstream-internal; both lanes unaffected |
-| `035_GoalsAndTasks:66` | fork | `projection_threads.goal_slug` | column is **created by fork `033`** — self-contained |
-| `042_ProjectionThreadPlanLaneAndAttention:33` | fork | `projection_threads.status` | column is **created by fork `038`** — self-contained |
-| `051_UsageLedgerProviderId:22` | fork | `projection_usage_ledger.provider_name` | table is **created by fork `046`** — self-contained |
+| migration                                     | lane     | drops                                                           | verdict                                              |
+| --------------------------------------------- | -------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| `016_CanonicalizeModelSelections:58,63`       | upstream | `projection_projects.default_model`, `projection_threads.model` | upstream-internal; both lanes unaffected             |
+| `035_GoalsAndTasks:66`                        | fork     | `projection_threads.goal_slug`                                  | column is **created by fork `033`** — self-contained |
+| `042_ProjectionThreadPlanLaneAndAttention:33` | fork     | `projection_threads.status`                                     | column is **created by fork `038`** — self-contained |
+| `051_UsageLedgerProviderId:22`                | fork     | `projection_usage_ledger.provider_name`                         | table is **created by fork `046`** — self-contained  |
 
 Every fork-lane drop has its precondition produced inside the fork lane, so it
 travels with it. The `provider_name` hits in upstream `004`/`005`/`016`/`027` are
@@ -293,8 +293,8 @@ userdata dir.
 
 1. **Unit tests** for reconciliation across all five states in §4, asserting exact
    final ledger contents in both tables.
-2. **Historical-order equivalence** — a test building a fresh DB in the *old*
-   interleaved order and one in the *new* two-lane order, then diffing normalised
+2. **Historical-order equivalence** — a test building a fresh DB in the _old_
+   interleaved order and one in the _new_ two-lane order, then diffing normalised
    `sqlite_master` output. This turns §5's audit into an executable check and a
    permanent regression guard. (Cheap now that the audit says they should match;
    if they diverge, §5 is wrong and the plan changes.)
@@ -307,7 +307,7 @@ userdata dir.
    and leaves both ledgers byte-identical.
 5. **Fresh-install** — empty userdata dir migrates to the same final schema as (3).
 6. **Simulated next pull** — add a synthetic upstream `035` and confirm it runs on
-   *both* the production copy and a fresh DB. This is the regression test for the
+   _both_ the production copy and a fresh DB. This is the regression test for the
    exact failure that killed the 1000-band plan. Extend it as revision 2 requires:
    run `035` across a **second full process invocation** (proving the §4.3 marker
    is durable), and include a synthetic upstream id **above `66`** (e.g. `067`)
@@ -376,7 +376,7 @@ reconciliation therefore only has to handle ledgers in the range `0–66`, and m
 treat an id above `66` in `effect_sql_migrations` as an unexpected state.
 
 It should still **fail loudly rather than guess** if it encounters one (a row in
-`33–66` whose *name* matches neither the fork mapping nor the two re-homed
+`33–66` whose _name_ matches neither the fork mapping nor the two re-homed
 upstream migrations, or any id above `66`): refusing to migrate is recoverable,
 mis-reconciling a 1.5 GB database is not.
 
@@ -384,3 +384,101 @@ mis-reconciling a 1.5 GB database is not.
 Once `loom_sql_migrations` exists, reconciliation returns immediately and never
 inspects upstream ids again — otherwise legitimate future upstream migrations
 (`035`, `067`, …) would be misread as corruption and would block startup.
+
+---
+
+## 10. Outcome — implemented and verified
+
+**Status: implemented.** The architecture in §3 was adopted unchanged, and every
+correctness property in §4 held up under test. One defect was found in the plan
+(§10.3) and one in the implementation (§10.4); both are fixed and both now have
+permanent regression tests.
+
+### 10.1 What shipped
+
+| change                                                                                            | file                                                                            |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Upstream lane, restored **byte-identical to upstream**                                            | `apps/server/src/persistence/Migrations.ts` (`git diff upstream/main` is empty) |
+| Fork lane: entries at `1001+`, its loader, the reconciliation, and the composed startup           | `apps/server/src/persistence/LoomMigrations.ts` (new, loom-owned)               |
+| Migration bodies re-homed `033–064` → `1001–1032`; `065`/`066` restored to upstream's `033`/`034` | `apps/server/src/persistence/Migrations/` (pure renames — no body edited)       |
+| Startup wiring: reconciliation → upstream lane → fork lane                                        | `apps/server/src/persistence/Layers/Sqlite.ts:64`                               |
+| Inverse ledger script + its tests                                                                 | `apps/server/scripts/loom-ledger-rollback.{ts,test.ts}`                         |
+| Lane tests                                                                                        | `apps/server/src/persistence/LoomMigrations.test.ts` (24 tests)                 |
+| Cadence + agent documentation                                                                     | `docs/upstream-sync/05-strategy.md` §4.4, `AGENTS.md`                           |
+
+`toMigrationInclusive` gained its per-lane meaning as approved: the three
+fork-lane migration tests call `runAllMigrations({ toLoomMigrationInclusive })`
+with ids shifted by `+968`. The six upstream-lane test files were left untouched
+and remain byte-identical to upstream.
+
+### 10.2 Verification evidence
+
+All ten §6 items were executed. Gates: `vp run typecheck` **0 errors**,
+`pnpm build` **exit 0**, `vp check` **0 errors**. Server runs used the built
+`dist/bin.mjs` on spare ports (13971–13980) against `.backup` copies under an
+isolated `--base-dir`; the live cockpit database was never opened.
+
+| #   | check                                                           | result                                                                                                                                                                                                                                              |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Reconciliation from historical stops `0/1/32/33/34/48/64/65/66` | both ledgers end dense `1–34` / `1001–1032`, **and** upstream `033`/`034`'s bodies are proven to have run (all four columns present)                                                                                                                |
+| 2   | Historical-interleaved vs two-lane schema equivalence           | **identical** column sets, types, defaults, PKs, indexes and constraints. §5's audit is now an executable test                                                                                                                                      |
+| 3   | Production copy (1.5 GB, ledger at `66`)                        | ledgers `1–34` + `1001–1032`; **no migration re-executed**; only new object is `loom_sql_migrations`; 1257 threads intact; `GET /` → 200                                                                                                            |
+| 4   | Idempotency, second launch on that copy                         | zero migrations; both ledgers **byte-identical** including `created_at`                                                                                                                                                                             |
+| 5   | Fresh install                                                   | reaches the **same object set** as the migrated production copy                                                                                                                                                                                     |
+| 6   | **Synthetic upstream `035` + `067` + fork `1033`**              | ran on **both** the migrated production copy and a fresh DB, in a _separate process invocation_ after reconciliation: `migrations: [ '35_…', '67_…' ]`, `loom: [ '1033_…' ]`                                                                        |
+| 7   | Intermediate-state matrix `33/34/48/64`                         | upstream ledger dense `1–34` in every case — the revision-1 ordering bug is regression-tested                                                                                                                                                       |
+| 8   | Rollback                                                        | round-trips a production copy to a ledger **exactly equal** to the original `1–66` (ids _and_ names); pre-change code then starts against it with **zero** migrations and zero errors; refuses once either lane advances, and on an unreconciled DB |
+| 9   | **Atomicity on the worker-backed path**                         | a failure after marker creation leaves **no** `loom_sql_migrations` table and an untouched ledger, verified through a _reopened connection_ so the rollback is proven durable on disk                                                               |
+| 10  | Gates                                                           | green (above)                                                                                                                                                                                                                                       |
+
+Two **negative controls** were run to confirm the tests have teeth, then discarded:
+
+- Moving the transaction boundary to _after_ the `CREATE TABLE` — the §6(9)
+  atomicity test fails with `marker table survived a rolled-back reconciliation`.
+  The boundary in §4.3 is therefore load-bearing _and_ guarded.
+- Re-creating the rejected single-shared-ledger scheme against the real
+  `Migrator` — upstream `035` returns `executed: []` on an existing database
+  while a fresh one runs all 66. §2's premise is confirmed independently.
+
+### 10.3 Correction to the plan: §5's `DROP COLUMN` table is still incomplete
+
+§5 says there are five `DROP COLUMN` statements, having corrected revision 1's
+claim of two. The table lists only **four**. The missing one is
+`016_CanonicalizeModelSelections`, which drops **two** columns
+(`projection_projects.default_model` and `projection_threads.model`) on the two
+lines cited — the row is right, the count of rows is not. Both are upstream-lane
+and upstream-internal, so the verdict is unaffected.
+
+The deeper point stands: the prose audit was wrong twice in a row about its own
+exhaustiveness. Verification item 2 is now an executable test, so the property
+§5 was _trying_ to establish no longer depends on anyone counting correctly.
+
+### 10.4 Defect found in implementation: the historical tail must be frozen
+
+The first implementation derived the expected historical ledger (`33..66`) from
+the _live_ `loomMigrationEntries` list. That is correct only while the fork lane
+has exactly 32 entries. Adding fork migration `1033` shifted the expected tail by
+one, so an **unreconciled production database was rejected as corrupt** —
+startup refused with a `LoomLedgerReconciliationError`.
+
+This was caught by the production smoke run, not by the unit tests, because the
+unit tests derived their fixture from the same list and shifted with it. In other
+words: the first cadence pull that added a loom migration would have blocked
+startup on any database that had not yet been reconciled.
+
+The fix freezes the tail at fork id `1032` (`lastReconciledLoomId`), because it
+describes a historical fact rather than the current entry list. Verified by
+rebuilding with a synthetic `1033` and reconciling an untouched production copy:
+ledgers end `1–34` / `1001–1033`, no error. A permanent test now asserts the
+historical tail stays 66 rows and that reconciliation of a pre-split database
+still succeeds after the fork lane grows.
+
+### 10.5 Notes for the next pull
+
+- `Migrations.ts` should **never** conflict again. If it does, loom has grown a
+  delta it was not supposed to have — take upstream's side and investigate.
+- The `+968` offset and `lastReconciledLoomId` are frozen historical constants.
+  They describe the one-time `33..66` layout and must not be re-derived from the
+  current entry list.
+- The reconciliation is now a permanent no-op on every deployed database (the
+  marker is committed). It only matters for a database that predates the split.

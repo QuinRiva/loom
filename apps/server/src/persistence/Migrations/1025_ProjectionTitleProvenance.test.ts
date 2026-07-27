@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../Migrations.ts";
+import { runAllMigrations } from "../LoomMigrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -17,7 +17,7 @@ layer("057_ProjectionTitleProvenance", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 56 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1024 });
 
       const insertThread = (id: string, title: string) => sql`
         INSERT INTO projection_threads (
@@ -43,7 +43,7 @@ layer("057_ProjectionTitleProvenance", (it) => {
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 57 });
+      yield* runAllMigrations({ toLoomMigrationInclusive: 1025 });
 
       const threadRows = yield* sql<{
         thread_id: string;
