@@ -7,7 +7,12 @@ import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-import { loomMigrationEntries, loomMigrationsTable, runAllMigrations } from "./LoomMigrations.ts";
+import {
+  loomMigrationEntries,
+  loomMigrationsTable,
+  reconcileMigrationLedgers,
+  runAllMigrations,
+} from "./LoomMigrations.ts";
 import { migrationEntries } from "./Migrations.ts";
 import * as NodeSqliteClient from "./NodeSqliteClient.ts";
 import * as NodeSqliteWorkerClient from "./NodeSqliteWorkerClient.ts";
@@ -25,6 +30,53 @@ const onFreshDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
  * afterwards and was never in the shared ledger.
  */
 const LAST_RECONCILED_LOOM_ID = 1032;
+
+/**
+ * INDEPENDENT ORACLE for the historical fork tail: ids `33..64` of the shared
+ * ledger, transcribed from the real production database
+ * (`SELECT migration_id, name FROM effect_sql_migrations`), **not** derived from
+ * `loomMigrationEntries`.
+ *
+ * This exists because deriving the fixture from the same list the production code
+ * derives from makes the test drift with the code: a rename or a bad filter
+ * changes both sides and the assertion still passes. That is precisely how the
+ * live-list-derived-tail defect reached a production smoke run. Any edit that
+ * changes what reconciliation expects of a pre-split database must break here.
+ */
+const PRODUCTION_FORK_TAIL: ReadonlyArray<readonly [id: number, name: string]> = [
+  [33, "ProjectionThreadsGoalSlug"],
+  [34, "ProjectionThreadMessageReasoning"],
+  [35, "GoalsAndTasks"],
+  [36, "CanonicalizeReasoningEvents"],
+  [37, "ProjectionThreadWorkstreamFields"],
+  [38, "ProjectionThreadStatusAndDependencies"],
+  [39, "ProjectionThreadBrief"],
+  [40, "ProjectionThreadNotifyFields"],
+  [41, "ProjectionThreadCumulativeCost"],
+  [42, "ProjectionThreadPlanLaneAndAttention"],
+  [43, "ProjectionThreadHeartbeats"],
+  [44, "ProjectionThreadContextMetrics"],
+  [45, "ProjectionThreadReviewGates"],
+  [46, "UsageLedger"],
+  [47, "ProjectionThreadWorktreeIsolation"],
+  [48, "ProjectionThreadConsults"],
+  [49, "ProjectionThreadDiffMetrics"],
+  [50, "ProjectionProjectsUniqueActiveWorkspaceRoot"],
+  [51, "UsageLedgerProviderId"],
+  [52, "ProjectionThreadSessionLastErrorClass"],
+  [53, "ProviderSessionRuntimeLastSeenIndex"],
+  [54, "ProjectionThreadMessageOrigin"],
+  [55, "ProjectionThreadForkSource"],
+  [56, "ProjectionThreadMessageControlPayload"],
+  [57, "ProjectionTitleProvenance"],
+  [58, "ProjectionThreadScaffoldFields"],
+  [59, "ProjectionThreadPlanLaneSince"],
+  [60, "ProjectionThreadDependenciesSince"],
+  [61, "ProjectionThreadFaninSince"],
+  [62, "ProjectionThreadHandoffCount"],
+  [63, "ProjectionProjectsDefaultStartFromOrigin"],
+  [64, "ProjectionThreadPeerMessages"],
+];
 
 /**
  * The single-ledger layout loom shipped before the lane split: upstream `1..32`,
@@ -483,8 +535,34 @@ describe("adding future fork migrations does not break reconciliation", () => {
 
         yield* runHistoricalOrder(66);
 
-        // Reconcile, then grow the fork lane past 1032 the way a future change would.
-        yield* runAllMigrations();
+        // The tail the production code will compare against must match the real
+        // production ledger, independently of how loomMigrationEntries is
+        // filtered or renamed. Checked against a transcription of the live DB.
+        assert.deepStrictEqual(
+          historicalLedger.slice(32, 64).map(([id, name]) => [id, name] as const),
+          PRODUCTION_FORK_TAIL,
+          "the historical fork tail must equal the real production ledger's rows 33..64",
+        );
+
+        // Reconcile an UNRECONCILED ledger while the fork lane has already grown
+        // past 1032. Order is the whole point: the original defect derived the
+        // expected tail from the live fork-entry list, so a grown list shifted
+        // the expectation and rejected an unreconciled database as corrupt.
+        // Reconciling before growing the list (as this test first did) cannot
+        // catch it — the marker short-circuits before the tail is consulted.
+        // Asserting the frozen length above is also not enough on its own: it
+        // pins the constant but never exercises the comparison that used it.
+        yield* reconcileMigrationLedgers();
+
+        assert.deepStrictEqual(
+          yield* ledgerIds(loomMigrationsTable),
+          range(1001, 1032),
+          "reconciliation must map the historical tail to 1001..1032 regardless of how many " +
+            "fork entries the current build ships",
+        );
+        assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), range(1, 34));
+
+        // The grown fork lane then applies its new migration on top.
         yield* withSyntheticFork();
         assert.deepStrictEqual(yield* ledgerIds(loomMigrationsTable), range(1001, 1033));
       }),

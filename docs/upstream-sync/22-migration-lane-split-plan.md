@@ -1,6 +1,6 @@
 # Migration lane split — permanently removing migration renumbering from the cadence
 
-**Status:** plan, revision 2 — amended after adversarial review. No code changes yet.
+**Status:** IMPLEMENTED and independently verified. Revision 3 of the design; see §10 for the implementation record and §11 for post-verification hardening.
 **Branch:** `t3code/migration-lane-split`
 
 > **Revision 2 changes.** An adversarial review found three correctness defects in
@@ -487,3 +487,56 @@ still succeeds after the fork lane grows.
   current entry list.
 - The reconciliation is now a permanent no-op on every deployed database (the
   marker is committed). It only matters for a database that predates the split.
+
+## 11. Post-verification hardening
+
+Independent verification against copies of the 1.5 GB production database returned
+**clean** — no must-fix defect. Full evidence in the reviewer's report; the
+headline result is that real upstream `035`/`067` and fork `1033` migrations ran,
+and their bodies created proof tables, on both a reconciled production copy and a
+fresh database in later process invocations. The shared-ledger failure of §2 is
+absent.
+
+Two non-blocking notes were raised and both are now closed.
+
+### 11.1 The future-fork regression guard had no teeth
+
+The reviewer observed that `LoomMigrations.test.ts`'s "adding future fork
+migrations does not break reconciliation" added synthetic fork `1033` **after**
+reconciliation, so the marker short-circuited before the historical tail was ever
+consulted — it could not have caught the live-list-derived-tail defect it was
+written for.
+
+Investigating further found the problem was **deeper than the ordering**: the test
+derived its `historicalLedger` fixture from `loomMigrationEntries`, the same list
+the production code derives `historicalLedgerTail` from. Both sides moved
+together, so the assertion could not fail. Reintroducing the defect as a negative
+control confirmed this — the suite stayed green.
+
+Compounding it, `filter(([id]) => id <= lastReconciledLoomId)` is a **no-op while
+no shipped entry exceeds 1032**, so removing the filter entirely is undetectable
+until a fork migration is actually added. The guard was latent, not active.
+
+Fixed with two changes:
+
+1. **An independent oracle** — `PRODUCTION_FORK_TAIL`, the 32 `33..64` rows
+   transcribed from the real production ledger rather than derived from the entry
+   list. Any change to what reconciliation expects of a pre-split database now
+   breaks a hardcoded comparison.
+2. **Corrected ordering** — the test grows the fork lane and calls
+   `reconcileMigrationLedgers()` on an _unreconciled_ ledger, exercising the tail
+   comparison instead of skipping it.
+
+Verified by negative control: with the `<= 1032` filter removed **and** a `1033`
+entry shipped (the real future state), reconciliation now fails loudly with
+`65_FutureThing` displacing `65_ProjectionThreadsSettled` in the expected prefix.
+Production sources were restored byte-identical afterwards; 31 tests pass.
+
+The general lesson, worth carrying into future work here: **a test whose fixture
+is derived from the same source as the code under test cannot fail.** Both of this
+change's near-misses were that shape.
+
+### 11.2 Stale plan header
+
+The header still read "revision 2 … No code changes yet" while §10 recorded a
+completed implementation. Corrected.
