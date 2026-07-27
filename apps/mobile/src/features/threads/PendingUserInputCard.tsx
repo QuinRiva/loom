@@ -54,6 +54,13 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
             <Text className="font-sans text-base leading-snug text-neutral-950 dark:text-neutral-50">
               {question.question}
             </Text>
+            {question.stakes ? (
+              <View className="border-l-2 border-amber-400/60 pl-2.5">
+                <Text className="font-sans text-sm leading-snug text-neutral-600 dark:text-neutral-400">
+                  {question.stakes}
+                </Text>
+              </View>
+            ) : null}
             <View className="flex-row flex-wrap gap-2.5">
               {question.options.map((option) => {
                 const selected = draft?.selectedOptionLabel === option.label && !usingCustomAnswer;
@@ -74,16 +81,23 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                       )
                     }
                   >
-                    <Text
-                      className={cn(
-                        "font-t3-bold text-sm",
-                        selected
-                          ? "text-sky-700 dark:text-sky-300"
-                          : "text-neutral-600 dark:text-neutral-300",
-                      )}
-                    >
-                      {option.label}
-                    </Text>
+                    <View className="flex-row items-center gap-1.5">
+                      <Text
+                        className={cn(
+                          "font-t3-bold text-sm",
+                          selected
+                            ? "text-sky-700 dark:text-sky-300"
+                            : "text-neutral-600 dark:text-neutral-300",
+                        )}
+                      >
+                        {option.label}
+                      </Text>
+                      {option.recommended ? (
+                        <Text className="rounded-full bg-emerald-500/12 px-1.5 py-0.5 font-t3-bold text-2xs uppercase tracking-[0.8px] text-emerald-700 dark:bg-emerald-400/14 dark:text-emerald-300">
+                          Suggested
+                        </Text>
+                      ) : null}
+                    </View>
                   </Pressable>
                 );
               })}

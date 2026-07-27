@@ -52,6 +52,46 @@ describe("parseUserInputQuestions", () => {
     ]);
   });
 
+  it("keeps stakes and the first recommended option, dropping later badges", () => {
+    const parsed = parseUserInputQuestions({
+      questions: [
+        makeQuestion({
+          stakes: "Hard to undo once shipped.",
+          options: [
+            { label: "a", description: "A", recommended: true },
+            { label: "b", description: "B", recommended: true },
+          ],
+        }),
+      ],
+    });
+
+    expect(parsed?.[0]?.stakes).toBe("Hard to undo once shipped.");
+    expect(parsed?.[0]?.options).toEqual([
+      { label: "a", description: "A", recommended: true },
+      { label: "b", description: "B" },
+    ]);
+  });
+
+  it("omits blank stakes and non-true recommended flags", () => {
+    const parsed = parseUserInputQuestions({
+      questions: [
+        makeQuestion({
+          stakes: "  ",
+          options: [
+            { label: "a", description: "A", recommended: "yes" },
+            { label: "b", description: "B", recommended: false },
+          ],
+        }),
+      ],
+    });
+
+    expect(parsed?.[0]).not.toHaveProperty("stakes");
+    expect(parsed?.[0]?.options).toEqual([
+      { label: "a", description: "A" },
+      { label: "b", description: "B" },
+    ]);
+  });
+
   it("returns null when the payload carries no usable questions", () => {
     expect(parseUserInputQuestions(null)).toBeNull();
     expect(parseUserInputQuestions({ questions: "nope" })).toBeNull();

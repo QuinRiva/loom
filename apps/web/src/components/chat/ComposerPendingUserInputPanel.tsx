@@ -183,6 +183,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         ) : null}
       </div>
       <p className="text-sm text-foreground/90">{activeQuestion.question}</p>
+      {activeQuestion.stakes ? (
+        <p className="mt-1.5 border-l-2 border-amber-500/40 pl-2 text-xs leading-relaxed text-muted-foreground">
+          {activeQuestion.stakes}
+        </p>
+      ) : null}
       {activeQuestion.multiSelect ? (
         <p className="mt-1 text-xs text-muted-foreground/65">Select one or more options.</p>
       ) : null}
@@ -206,7 +211,14 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           const content = (
             <>
               <div className="min-w-0 flex-1 flex flex-col gap-0.5">
-                <span className="text-sm font-medium">{option.label}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="text-sm font-medium">{option.label}</span>
+                  {option.recommended ? (
+                    <span className="shrink-0 rounded border border-emerald-500/30 bg-emerald-500/10 px-1 py-px text-[9px] font-semibold uppercase leading-[1.25] tracking-wide text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300">
+                      Suggested
+                    </span>
+                  ) : null}
+                </span>
                 {option.description && option.description !== option.label ? (
                   <span className="text-xs text-muted-foreground">{option.description}</span>
                 ) : null}
