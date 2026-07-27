@@ -5,12 +5,11 @@ import {
   ArrowUpIcon,
   EyeIcon,
   EyeOffIcon,
-  InfoIcon,
   PlusIcon,
   StarIcon,
   XIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ProviderDriverKind,
   type ProviderInstanceId,
@@ -21,7 +20,10 @@ import { normalizeCustomModelSlug } from "@t3tools/shared/model";
 import { cn } from "../../lib/utils";
 import { sortModelsForProviderInstance } from "../../modelOrdering";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
+import { SearchableModelList } from "../chat/SearchableModelList";
+import { scoreModelPickerSearch } from "../chat/modelPickerSearch";
 import { Button } from "../ui/button";
+import { ComboboxItem } from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -37,6 +39,27 @@ const CUSTOM_MODEL_PLACEHOLDER_BY_KIND: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("cursor")]: "claude-sonnet-4-6",
   [ProviderDriverKind.make("opencode")]: "openai/gpt-5",
 };
+
+/** Capability chips derived from the model's option descriptors. */
+function capabilityLabels(model: ServerProviderModel): string[] {
+  const descriptors = model.capabilities?.optionDescriptors ?? [];
+  const labels: string[] = [];
+  if (descriptors.some((descriptor) => descriptor.id === "fastMode")) labels.push("Fast mode");
+  if (descriptors.some((descriptor) => descriptor.id === "thinking")) labels.push("Thinking");
+  if (
+    descriptors.some(
+      (descriptor) =>
+        descriptor.type === "select" &&
+        (descriptor.id === "reasoningEffort" ||
+          descriptor.id === "effort" ||
+          descriptor.id === "reasoning" ||
+          descriptor.id === "variant"),
+    )
+  ) {
+    labels.push("Reasoning");
+  }
+  return labels;
+}
 
 interface ProviderModelsSectionProps {
   /** Identifier used to namespace input ids within the DOM. */
@@ -85,6 +108,13 @@ interface ProviderModelsSectionProps {
  * provider-instance cards. Owns its own input + error local state so two
  * cards on screen don't fight over the input value.
  *
+ * Catalogues run to hundreds of entries with heavily repeated display names
+ * (the same model served by several backends), so the list is the same
+ * searchable, virtualized component the composer picker uses, and every row
+ * shows its slug + backend label — the only things that tell duplicates
+ * apart. Bulk show/hide applies to whatever the current query matches, which
+ * makes "hide everything except X" a two-action job.
+ *
  * Validation mirrors the pre-consolidation logic in `SettingsPanels`:
  *   - empty / whitespace → "Enter a model slug."
  *   - duplicate of a non-custom (probe-reported) slug → "already built in"
@@ -110,10 +140,11 @@ export function ProviderModelsSection({
 }: ProviderModelsSectionProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const hiddenModelSet = useMemo(() => new Set(hiddenModels), [hiddenModels]);
   const selectedModelSet = useMemo(() => new Set(selectedModels), [selectedModels]);
   const favoriteModelSet = useMemo(() => new Set(favoriteModels), [favoriteModels]);
+  const isSearching = searchQuery.trim().length > 0;
   const orderedModels = useMemo(() => {
     return sortModelsForProviderInstance(models, {
       favoriteModels: favoriteModelSet,
@@ -121,6 +152,41 @@ export function ProviderModelsSection({
       modelOrder,
     });
   }, [favoriteModelSet, modelOrder, models]);
+  const modelBySlug = useMemo(
+    () => new Map(orderedModels.map((model) => [model.slug, model] as const)),
+    [orderedModels],
+  );
+
+  const isHiddenModel = (model: ServerProviderModel): boolean =>
+    !model.isCustom &&
+    (showOnlySelectedModels ? !selectedModelSet.has(model.slug) : hiddenModelSet.has(model.slug));
+
+  const allSlugs = useMemo(() => orderedModels.map((model) => model.slug), [orderedModels]);
+  // Searching ranks the whole catalogue by relevance (name, slug, backend
+  // label); the unfiltered view keeps the user's curated order.
+  const visibleSlugs = useMemo(() => {
+    const query = searchQuery.trim();
+    if (!query) return allSlugs;
+    return orderedModels
+      .map((model) => ({
+        model,
+        score: scoreModelPickerSearch(
+          {
+            name: model.name,
+            slug: model.slug,
+            ...(model.subProvider ? { subProvider: model.subProvider } : {}),
+            driverKind: driverKind ?? "",
+            providerDisplayName: driverKind ?? "",
+          },
+          query,
+        ),
+      }))
+      .filter(
+        (ranked): ranked is { model: ServerProviderModel; score: number } => ranked.score !== null,
+      )
+      .sort((a, b) => a.score - b.score)
+      .map((ranked) => ranked.model.slug);
+  }, [allSlugs, driverKind, orderedModels, searchQuery]);
 
   const handleAdd = () => {
     const normalized = normalizeCustomModelSlug(input);
@@ -144,21 +210,6 @@ export function ProviderModelsSection({
     onChange([...customModels, normalized]);
     setInput("");
     setError(null);
-
-    // Scroll the new row into view once the DOM reflects the commit.
-    // `MutationObserver` handles the one-frame gap between `onChange` and
-    // the `models` prop update; the `requestAnimationFrame` covers the
-    // common case where the parent updates synchronously.
-    const el = listRef.current;
-    if (!el) return;
-    const scrollToEnd = () => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    requestAnimationFrame(scrollToEnd);
-    const observer = new MutationObserver(() => {
-      scrollToEnd();
-      observer.disconnect();
-    });
-    observer.observe(el, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), 2_000);
   };
 
   const handleRemove = (slug: string) => {
@@ -172,6 +223,8 @@ export function ProviderModelsSection({
   // otherwise it toggles the hide-list. Either way the eye means "visible
   // in the picker".
   const handleToggleHidden = (slug: string) => {
+    const model = modelBySlug.get(slug);
+    if (!model || model.isCustom) return;
     if (showOnlySelectedModels) {
       onSelectedModelsChange(
         selectedModelSet.has(slug)
@@ -180,47 +233,91 @@ export function ProviderModelsSection({
       );
       return;
     }
-    if (hiddenModelSet.has(slug)) {
-      onHiddenModelsChange(hiddenModels.filter((model) => model !== slug));
-      return;
-    }
-    onHiddenModelsChange([...hiddenModels, slug]);
+    onHiddenModelsChange(
+      hiddenModelSet.has(slug)
+        ? hiddenModels.filter((model) => model !== slug)
+        : [...hiddenModels, slug],
+    );
   };
 
-  const builtInSlugs = models.filter((model) => !model.isCustom).map((model) => model.slug);
-  // Bulk curation: flip the whole built-in catalogue in whichever list the
-  // current mode reads from.
-  const handleShowAll = () =>
-    showOnlySelectedModels ? onSelectedModelsChange(builtInSlugs) : onHiddenModelsChange([]);
-  const handleHideAll = () =>
-    showOnlySelectedModels ? onSelectedModelsChange([]) : onHiddenModelsChange(builtInSlugs);
-
-  const handleToggleFavorite = (slug: string) => {
-    if (favoriteModelSet.has(slug)) {
-      onFavoriteModelsChange(favoriteModels.filter((model) => model !== slug));
+  // Bulk curation acts on the current query's matches, so a search plus one
+  // click is enough to cull a hundred-model catalogue down to what you use.
+  const bulkSlugs = useMemo(
+    () => visibleSlugs.filter((slug) => modelBySlug.get(slug)?.isCustom === false),
+    [modelBySlug, visibleSlugs],
+  );
+  const handleShowAll = () => {
+    if (showOnlySelectedModels) {
+      onSelectedModelsChange([...new Set([...selectedModels, ...bulkSlugs])]);
       return;
     }
-    onFavoriteModelsChange([...favoriteModels, slug]);
+    const remove = new Set(bulkSlugs);
+    onHiddenModelsChange(hiddenModels.filter((slug) => !remove.has(slug)));
+  };
+  const handleHideAll = () => {
+    if (showOnlySelectedModels) {
+      const remove = new Set(bulkSlugs);
+      onSelectedModelsChange(selectedModels.filter((slug) => !remove.has(slug)));
+      return;
+    }
+    onHiddenModelsChange([...new Set([...hiddenModels, ...bulkSlugs])]);
+  };
+
+  const handleToggleFavorite = (slug: string) => {
+    onFavoriteModelsChange(
+      favoriteModelSet.has(slug)
+        ? favoriteModels.filter((model) => model !== slug)
+        : [...favoriteModels, slug],
+    );
   };
 
   const handleMove = (slug: string, direction: -1 | 1) => {
-    const slugs = orderedModels.map((model) => model.slug);
-    const index = slugs.indexOf(slug);
+    const index = allSlugs.indexOf(slug);
     const nextIndex = index + direction;
-    if (index < 0 || nextIndex < 0 || nextIndex >= slugs.length) {
+    if (index < 0 || nextIndex < 0 || nextIndex >= allSlugs.length) {
       return;
     }
-    const next = [...slugs];
+    const next = [...allSlugs];
     [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
     onModelOrderChange(next);
   };
+
+  const visibleCount = visibleSlugs.length;
+  const pickerCount = orderedModels.filter((model) => !isHiddenModel(model)).length;
+
+  // Identity for the virtualized list. Rows are recycled, so every input a row
+  // reads has to be represented here by identity — a summary of collection
+  // *lengths* would miss an equal-size curation swap or a same-slug catalogue
+  // refresh and leave a mounted row showing stale eye/star state or labels.
+  const rowState = useMemo(
+    () => ({
+      searchQuery,
+      hiddenModelSet,
+      selectedModelSet,
+      favoriteModelSet,
+      modelBySlug,
+      allSlugs,
+      showOnlySelectedModels,
+    }),
+    [
+      allSlugs,
+      favoriteModelSet,
+      hiddenModelSet,
+      modelBySlug,
+      searchQuery,
+      selectedModelSet,
+      showOnlySelectedModels,
+    ],
+  );
 
   return (
     <div>
       <div className="text-xs font-medium text-foreground">Models</div>
       <div className="mt-1 flex items-center justify-between gap-2">
         <div className="text-xs text-muted-foreground">
-          {models.length} model{models.length === 1 ? "" : "s"} available.
+          {isSearching
+            ? `${visibleCount} of ${models.length} match.`
+            : `${models.length} available, ${pickerCount} in the picker.`}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -229,7 +326,7 @@ export function ProviderModelsSection({
             className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
             onClick={handleShowAll}
           >
-            {showOnlySelectedModels ? "Select all" : "Show all"}
+            {showOnlySelectedModels ? "Select" : "Show"} {isSearching ? "matches" : "all"}
           </Button>
           <Button
             size="xs"
@@ -237,7 +334,7 @@ export function ProviderModelsSection({
             className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
             onClick={handleHideAll}
           >
-            {showOnlySelectedModels ? "Select none" : "Hide all"}
+            {showOnlySelectedModels ? "Deselect" : "Hide"} {isSearching ? "matches" : "all"}
           </Button>
         </div>
       </div>
@@ -251,207 +348,187 @@ export function ProviderModelsSection({
           aria-label="Show only selected models in the picker"
         />
       </label>
-      <div ref={listRef} className="mt-2 max-h-40 overflow-y-auto pb-1">
-        {orderedModels.map((model, index) => {
-          const caps = model.capabilities;
-          const capLabels: string[] = [];
-          const isHidden =
-            !model.isCustom &&
-            (showOnlySelectedModels
-              ? !selectedModelSet.has(model.slug)
-              : hiddenModelSet.has(model.slug));
-          const isFavorite = favoriteModelSet.has(model.slug);
-          const previousModel = orderedModels[index - 1];
-          const nextModel = orderedModels[index + 1];
-          const canMoveUp =
-            previousModel !== undefined && favoriteModelSet.has(previousModel.slug) === isFavorite;
-          const canMoveDown =
-            nextModel !== undefined && favoriteModelSet.has(nextModel.slug) === isFavorite;
-          const descriptors = caps?.optionDescriptors ?? [];
-          if (descriptors.some((descriptor) => descriptor.id === "fastMode")) {
-            capLabels.push("Fast mode");
-          }
-          if (descriptors.some((descriptor) => descriptor.id === "thinking")) {
-            capLabels.push("Thinking");
-          }
-          if (
-            descriptors.some(
-              (descriptor) =>
-                descriptor.type === "select" &&
-                (descriptor.id === "reasoningEffort" ||
-                  descriptor.id === "effort" ||
-                  descriptor.id === "reasoning" ||
-                  descriptor.id === "variant"),
-            )
-          ) {
-            capLabels.push("Reasoning");
-          }
-          const hasDetails = capLabels.length > 0 || model.name !== model.slug;
 
-          return (
-            <div
-              key={`${instanceId}:${model.slug}`}
-              className={cn(
-                "grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1",
-                isHidden && "text-muted-foreground",
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-1">
-                <span
-                  className={cn(
-                    "min-w-0 truncate text-xs",
-                    isHidden ? "text-muted-foreground line-through" : "text-foreground/90",
-                  )}
-                >
-                  {model.name}
-                </span>
-                {hasDetails ? (
+      <div className="mt-2">
+        <SearchableModelList
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          allKeys={allSlugs}
+          visibleKeys={visibleSlugs}
+          selectedKey=""
+          autoFocus={false}
+          placeholder="Search models by name, slug, or backend..."
+          className="h-80 w-full"
+          estimatedItemSize={48}
+          extraData={rowState}
+          // Curation is per-action (star / arrows / eye), so activating a row
+          // has nothing to commit — unlike the composer picker, where picking
+          // a row is the whole point.
+          onSelect={() => {}}
+          renderRow={(slug, index) => {
+            const model = modelBySlug.get(slug);
+            if (!model) return null;
+            const isHidden = isHiddenModel(model);
+            const isFavorite = favoriteModelSet.has(slug);
+            const secondary = [model.slug, model.subProvider, ...capabilityLabels(model)].filter(
+              (value): value is string => typeof value === "string" && value.length > 0,
+            );
+            const orderIndex = allSlugs.indexOf(slug);
+            const previousModel = modelBySlug.get(allSlugs[orderIndex - 1] ?? "");
+            const nextModel = modelBySlug.get(allSlugs[orderIndex + 1] ?? "");
+            // Reordering is only coherent against the curated order, so the
+            // arrows stand down while a query is filtering the list.
+            const canMoveUp =
+              !isSearching &&
+              previousModel !== undefined &&
+              favoriteModelSet.has(previousModel.slug) === isFavorite;
+            const canMoveDown =
+              !isSearching &&
+              nextModel !== undefined &&
+              favoriteModelSet.has(nextModel.slug) === isFavorite;
+
+            return (
+              <ComboboxItem
+                key={slug}
+                hideIndicator
+                index={index}
+                value={slug}
+                contentClassName="flex w-full items-center gap-2"
+                className="group cursor-pointer rounded-md px-2 py-1.5 data-highlighted:bg-muted/56"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "min-w-0 truncate text-xs",
+                        isHidden ? "text-muted-foreground line-through" : "text-foreground/90",
+                      )}
+                    >
+                      {model.name}
+                    </span>
+                    {model.isCustom ? (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">custom</span>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-[11px] leading-snug text-muted-foreground/70">
+                    {secondary.join(" · ")}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5">
                   <Tooltip>
                     <TooltipTrigger
                       render={
                         <Button
                           size="icon-xs"
                           variant="ghost"
-                          className="size-5 rounded-sm p-0 text-muted-foreground/60 hover:text-muted-foreground"
-                          aria-label={`Details for ${model.name}`}
+                          className={cn(
+                            "size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground",
+                            isFavorite && "text-yellow-500 hover:text-yellow-600",
+                          )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleToggleFavorite(slug);
+                          }}
+                          aria-label={`${isFavorite ? "Remove" : "Add"} ${model.name} ${
+                            isFavorite ? "from" : "to"
+                          } favorites`}
                         />
                       }
                     >
-                      <InfoIcon className="size-3" />
+                      <StarIcon className={cn("size-3", isFavorite && "fill-current")} />
                     </TooltipTrigger>
-                    <TooltipPopup side="top" className="max-w-56">
-                      <div className="space-y-1">
-                        <code className="block text-[11px] text-foreground">{model.slug}</code>
-                        {capLabels.length > 0 ? (
-                          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                            {capLabels.map((label) => (
-                              <span key={label} className="text-[10px] text-muted-foreground">
-                                {label}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
+                    <TooltipPopup side="top">
+                      {isFavorite ? "Remove from favorites" : "Add to favorites"}
                     </TooltipPopup>
                   </Tooltip>
-                ) : null}
-                {isHidden ? (
-                  <span className="text-[10px] text-muted-foreground">hidden</span>
-                ) : null}
-                {model.isCustom ? (
-                  <span className="text-[10px] text-muted-foreground">custom</span>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        className={cn(
-                          "size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground",
-                          isFavorite && "text-yellow-500 hover:text-yellow-600",
-                        )}
-                        onClick={() => handleToggleFavorite(model.slug)}
-                        aria-label={`${isFavorite ? "Remove" : "Add"} ${model.name} ${
-                          isFavorite ? "from" : "to"
-                        } favorites`}
-                      />
-                    }
-                  >
-                    <StarIcon className={cn("size-3", isFavorite && "fill-current")} />
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">
-                    {isFavorite ? "Remove from favorites" : "Add to favorites"}
-                  </TooltipPopup>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
+                  {isSearching ? null : (
+                    <>
                       <Button
                         size="icon-xs"
                         variant="ghost"
                         className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
                         disabled={!canMoveUp}
-                        onClick={() => handleMove(model.slug, -1)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleMove(slug, -1);
+                        }}
                         aria-label={`Move ${model.name} up`}
-                      />
-                    }
-                  >
-                    <ArrowUpIcon className="size-3" />
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">Move up</TooltipPopup>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
+                      >
+                        <ArrowUpIcon className="size-3" />
+                      </Button>
                       <Button
                         size="icon-xs"
                         variant="ghost"
                         className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
                         disabled={!canMoveDown}
-                        onClick={() => handleMove(model.slug, 1)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleMove(slug, 1);
+                        }}
                         aria-label={`Move ${model.name} down`}
-                      />
-                    }
-                  >
-                    <ArrowDownIcon className="size-3" />
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">Move down</TooltipPopup>
-                </Tooltip>
-                {!model.isCustom ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                          onClick={() => handleToggleHidden(model.slug)}
-                          aria-label={`${isHidden ? "Show" : "Hide"} ${model.name}`}
-                        />
-                      }
-                    >
-                      {isHidden ? (
-                        <EyeIcon className="size-3" />
-                      ) : (
-                        <EyeOffIcon className="size-3" />
-                      )}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">
-                      {showOnlySelectedModels
-                        ? isHidden
-                          ? "Select for picker"
-                          : "Deselect from picker"
-                        : isHidden
-                          ? "Show in picker"
-                          : "Hide from picker"}
-                    </TooltipPopup>
-                  </Tooltip>
-                ) : null}
-                {model.isCustom ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                          aria-label={`Remove ${model.slug}`}
-                          onClick={() => handleRemove(model.slug)}
-                        />
-                      }
-                    >
-                      <XIcon className="size-3" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">Remove custom model</TooltipPopup>
-                  </Tooltip>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
+                      >
+                        <ArrowDownIcon className="size-3" />
+                      </Button>
+                    </>
+                  )}
+                  {model.isCustom ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+                            aria-label={`Remove ${model.slug}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleRemove(slug);
+                            }}
+                          />
+                        }
+                      >
+                        <XIcon className="size-3" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">Remove custom model</TooltipPopup>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleToggleHidden(slug);
+                            }}
+                            aria-label={`${isHidden ? "Show" : "Hide"} ${model.name}`}
+                          />
+                        }
+                      >
+                        {isHidden ? (
+                          <EyeIcon className="size-3" />
+                        ) : (
+                          <EyeOffIcon className="size-3" />
+                        )}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">
+                        {showOnlySelectedModels
+                          ? isHidden
+                            ? "Select for picker"
+                            : "Deselect from picker"
+                          : isHidden
+                            ? "Show in picker"
+                            : "Hide from picker"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
+                </div>
+              </ComboboxItem>
+            );
+          }}
+        />
       </div>
 
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
