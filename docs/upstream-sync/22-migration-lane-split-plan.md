@@ -247,25 +247,28 @@ and no migration rebuilds a table via `CREATE TABLE …_new` + copy + `RENAME TO
 Every fork migration is either a `CREATE TABLE IF NOT EXISTS`, a
 `PRAGMA table_info`-guarded `ADD COLUMN`, an index create, or a targeted `UPDATE`.
 
-**`DROP COLUMN` — the only real hazard class.** Revision 1 claimed there were two;
-there are **five**, three of which are in the fork lane. Corrected and complete
-(`grep -n "DROP COLUMN"`, excluding tests):
+**`DROP COLUMN` — the only real hazard class.** There are **five statements** in
+**four files**, three files in the fork lane. Post-split ids, verified on the
+implementation branch with `git grep -n "DROP COLUMN"` (excluding tests):
 
-| migration                                     | lane     | drops                                                           | verdict                                              |
-| --------------------------------------------- | -------- | --------------------------------------------------------------- | ---------------------------------------------------- |
-| `016_CanonicalizeModelSelections:58,63`       | upstream | `projection_projects.default_model`, `projection_threads.model` | upstream-internal; both lanes unaffected             |
-| `035_GoalsAndTasks:66`                        | fork     | `projection_threads.goal_slug`                                  | column is **created by fork `033`** — self-contained |
-| `042_ProjectionThreadPlanLaneAndAttention:33` | fork     | `projection_threads.status`                                     | column is **created by fork `038`** — self-contained |
-| `051_UsageLedgerProviderId:22`                | fork     | `projection_usage_ledger.provider_name`                         | table is **created by fork `046`** — self-contained  |
+| migration (post-split id)                      | lane     | drops                                   | verdict                                               |
+| ---------------------------------------------- | -------- | --------------------------------------- | ----------------------------------------------------- |
+| `016_CanonicalizeModelSelections:58`           | upstream | `projection_projects.default_model`     | upstream-internal; both lanes unaffected              |
+| `016_CanonicalizeModelSelections:63`           | upstream | `projection_threads.model`              | upstream-internal; both lanes unaffected              |
+| `1003_GoalsAndTasks:66`                        | fork     | `projection_threads.goal_slug`          | column is **created by fork `1001`** — self-contained |
+| `1010_ProjectionThreadPlanLaneAndAttention:33` | fork     | `projection_threads.status`             | column is **created by fork `1006`** — self-contained |
+| `1019_UsageLedgerProviderId:22`                | fork     | `projection_usage_ledger.provider_name` | table is **created by fork `1014`** — self-contained  |
 
 Every fork-lane drop has its precondition produced inside the fork lane, so it
 travels with it. The `provider_name` hits in upstream `004`/`005`/`016`/`027` are
 different tables (`provider_session_runtime`, `projection_thread_sessions`) and
 are untouched.
 
-The revision-1 undercount is itself a lesson for the implementer: **do not trust
-this audit's exhaustiveness — re-derive it.** Verification step 2 (the executable
-equivalence check) exists precisely because a prose audit can miss a case.
+**This table has now been miscounted twice** — revision 1 said "two", revision 3
+said "five" but listed only four rows by collapsing `016`'s two statements into
+one. That is the whole argument for not resting the safety property on a prose
+audit: §6(2) is an **executable** schema-equivalence check, and it is the actual
+evidence. Treat this table as commentary on that test, not as a substitute for it.
 
 **Fork migrations never reference upstream's newest columns.** No fork migration
 mentions `settled` or `snoozed`; upstream's `033`/`034` only add nullable columns
@@ -440,14 +443,16 @@ Two **negative controls** were run to confirm the tests have teeth, then discard
   `Migrator` — upstream `035` returns `executed: []` on an existing database
   while a fresh one runs all 66. §2's premise is confirmed independently.
 
-### 10.3 Correction to the plan: §5's `DROP COLUMN` table is still incomplete
+### 10.3 Correction to the plan: §5's `DROP COLUMN` table (now fixed in §5)
 
-§5 says there are five `DROP COLUMN` statements, having corrected revision 1's
-claim of two. The table lists only **four**. The missing one is
-`016_CanonicalizeModelSelections`, which drops **two** columns
-(`projection_projects.default_model` and `projection_threads.model`) on the two
-lines cited — the row is right, the count of rows is not. Both are upstream-lane
-and upstream-internal, so the verdict is unaffected.
+**Resolved — §5 has been rewritten.** The finding was correct: §5 said five
+statements but listed only four rows, because `016_CanonicalizeModelSelections`
+drops **two** columns (`projection_projects.default_model` and
+`projection_threads.model`) on the two lines cited. §5 now enumerates all five
+statements as separate rows, uses post-split ids, and states plainly that the
+table is commentary on the executable §6(2) check rather than the evidence itself.
+Both `016` drops are upstream-lane and upstream-internal, so the verdict is
+unaffected.
 
 The deeper point stands: the prose audit was wrong twice in a row about its own
 exhaustiveness. Verification item 2 is now an executable test, so the property
