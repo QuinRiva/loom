@@ -7,6 +7,7 @@ import {
 } from "../../pendingUserInput";
 import { CheckIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import ChatMarkdown from "../ChatMarkdown";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -62,6 +63,10 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
+    questionId: string;
+    optionLabel: string;
+  } | null>(null);
+  const [previewedOption, setPreviewedOption] = useState<{
     questionId: string;
     optionLabel: string;
   } | null>(null);
@@ -151,6 +156,19 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   }
 
   const customAnswerActive = progress.customAnswer.trim().length > 0;
+  // `preview` is single-select only (enforced in the shared parse layer); a
+  // multi-select question never reaches here with previews attached.
+  const previewableOptions = activeQuestion.options.filter((option) => option.preview);
+  const selectedPreviewableOption = previewableOptions.find(
+    (option) => !customAnswerActive && progress.selectedOptionLabels.includes(option.label),
+  );
+  const activePreviewOption =
+    (previewedOption?.questionId === activeQuestion.id
+      ? previewableOptions.find((option) => option.label === previewedOption.optionLabel)
+      : undefined) ??
+    selectedPreviewableOption ??
+    previewableOptions[0] ??
+    null;
 
   return (
     <div className="px-4 py-3 sm:px-5">
@@ -215,6 +233,24 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               onClick={() => {
                 handleOptionSelection(activeQuestion.id, option.label);
               }}
+              onMouseEnter={
+                option.preview
+                  ? () =>
+                      setPreviewedOption({
+                        questionId: activeQuestion.id,
+                        optionLabel: option.label,
+                      })
+                  : undefined
+              }
+              onFocus={
+                option.preview
+                  ? () =>
+                      setPreviewedOption({
+                        questionId: activeQuestion.id,
+                        optionLabel: option.label,
+                      })
+                  : undefined
+              }
               className={className}
             >
               {content}
@@ -222,6 +258,51 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           );
         })}
       </div>
+      {activePreviewOption?.preview ? (
+        <div className="mt-2 min-w-0 overflow-hidden rounded-lg border border-border/50 bg-background/35">
+          <div className="flex min-w-0 items-center gap-2 border-b border-border/40 px-3 py-1.5">
+            <span className="shrink-0 text-[11px] font-medium tracking-wide text-muted-foreground/70 uppercase">
+              Preview
+            </span>
+            {previewableOptions.length > 1 ? (
+              <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {previewableOptions.map((option) => (
+                  <button
+                    key={`preview-tab:${option.label}`}
+                    type="button"
+                    onClick={() =>
+                      setPreviewedOption({
+                        questionId: activeQuestion.id,
+                        optionLabel: option.label,
+                      })
+                    }
+                    className={cn(
+                      "shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-[11px] outline-none transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-primary/25",
+                      option.label === activePreviewOption.label
+                        ? "bg-primary/10 text-foreground/90"
+                        : "text-muted-foreground/65 hover:text-muted-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="truncate text-[11px] text-muted-foreground/65">
+                {activePreviewOption.label}
+              </span>
+            )}
+          </div>
+          <div className="max-h-64 overflow-auto px-3 py-2">
+            <ChatMarkdown
+              key={`${activeQuestion.id}:${activePreviewOption.label}`}
+              text={activePreviewOption.preview}
+              cwd={undefined}
+              isStreaming={false}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 });

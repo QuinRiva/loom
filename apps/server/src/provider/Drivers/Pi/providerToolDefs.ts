@@ -22,6 +22,8 @@ export interface ProviderToolDef {
    * behaviour). Preserved per-tool, exactly as today.
    */
   readonly errorMode: "throw" | "soft";
+  /** Specialised long-poll transport for tools that wait on human input. */
+  readonly mode?: "user-input";
   /**
    * Fallback text when the server response carries no `rendered` field — a
    * defensive one-liner only; the server render is the source of truth.
@@ -30,6 +32,72 @@ export interface ProviderToolDef {
 }
 
 export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
+  {
+    name: "ask_user_question",
+    label: "Ask User Question",
+    description:
+      "Ask the user one to four structured questions and wait for their answers. Each question has a short header, two to four labelled options with descriptions, and may allow either one or multiple selections. A single-select option may include a markdown preview. The user can always provide a custom free-text answer instead.",
+    promptSnippet:
+      "put one to four structured questions to the user, with labelled options and single- or multi-select answers, then wait for the response.",
+    promptGuidelines: [
+      "Ask only when the answer materially changes the work and cannot be inferred safely; otherwise proceed with a reasonable assumption.",
+      "Group related clarifications into one call, mark the best default with a '(Recommended)' label suffix, and do not stack ask_user_question calls back-to-back.",
+      "Use markdown preview only on single-select options where seeing concrete content helps the user choose.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          items: {
+            type: "object",
+            properties: {
+              header: {
+                type: "string",
+                minLength: 1,
+                description: "Short tab label for this question.",
+              },
+              question: { type: "string", minLength: 1 },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 4,
+                items: {
+                  type: "object",
+                  properties: {
+                    label: {
+                      type: "string",
+                      minLength: 1,
+                      description:
+                        "Concise choice label. 'Other' and 'Type something.' are reserved for Loom's custom-answer control.",
+                    },
+                    description: { type: "string", minLength: 1 },
+                    preview: {
+                      type: "string",
+                      minLength: 1,
+                      description:
+                        "Optional markdown preview for this option. Valid only when the question is single-select.",
+                    },
+                  },
+                  required: ["label", "description"],
+                  additionalProperties: false,
+                },
+              },
+              multiSelect: { type: "boolean", description: "Defaults to false." },
+            },
+            required: ["header", "question", "options"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["questions"],
+      additionalProperties: false,
+    },
+    errorMode: "throw",
+    mode: "user-input",
+  },
   {
     name: "workstream_spawn",
     label: "Spawn Workstream Sub-thread",

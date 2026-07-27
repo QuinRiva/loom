@@ -1,0 +1,258 @@
+---
+manager_sessions:
+  - id: 226e6f7a-b38f-4f8f-a23e-53286002ec66
+    role: plan
+    authored_at: 2026-07-26T11:37:20.828Z
+---
+
+# Structured agent→user questions for pi sessions
+
+**Objective.** Let a pi-backed Loom agent put structured questions to the user — typed options with labels and descriptions, single- or multi-select, grouped — rendered in the existing web/mobile pending-input panel, with the chosen answers returned to the model as a tool result. **Done means:** a pi agent can call an `ask_user_question` tool, the question set appears in the composer panel exactly as Claude's `AskUserQuestion` does today, the human answers in the browser, and the tool call returns those answers to the model with correct semantics (including "the user never saw this" never reading as a decline).
+
+Two research threads established the ground truth this plan builds on; their reports live at `/home/Carl/.t3/cockpit/userdata/workstream-reports/e99a10e5-ca4a-4e95-83e7-5f7141183814.md` (Loom's user-input pipe) and `/home/Carl/.t3/cockpit/userdata/workstream-reports/dd44f92c-9d75-4e92-a50e-556d468698a8.md` (pi's host-side mechanisms and prior art). The plan cites them where a claim is theirs rather than re-verified here.
+
+<Callout tone="decision">
+**Recommendation:** build a Loom-owned pi extension tool (`ask_user_question`) that bypasses pi's RPC extension-UI protocol entirely and talks to a new Loom HTTP endpoint — the exact pattern the existing 22 workstream/goal tools already use (`apps/server/src/provider/Drivers/Pi/providerToolExtension.ts`). Keep the shared `UserInputQuestion` contract **unchanged** for the first increment. Fix pi's three existing user-input defects as part of the same change. Defer the durable-answer story, matching every other provider — argued below, not assumed.
+</Callout>
+
+## What already exists (reuse, not rebuild)
+
+Loom has a complete, provider-agnostic question pipe that six providers already ride. Nothing in this plan adds new plumbing above the adapter seam:
+
+- **Contract:** `UserInputQuestion` — `{ id, header, question, options: {label, description}[], multiSelect? }` (`packages/contracts/src/providerRuntime.ts:488`), carried by the `user-input.requested` / `user-input.resolved` event pair.
+- **Server:** ingestion → persisted activity (`ProviderRuntimeIngestion.ts:454`) → projection flag `hasPendingUserInput` (`ProjectionPipeline.ts:148`) → derived attention reason `awaiting_input`. The answer travels back as WS command `thread.user-input.respond` → decider (`decider.ts:1108`) → `ProviderCommandReactor.ts:1369` → `ProviderService.respondToUserInput` (`ProviderService.ts:796`) → the adapter.
+- **UI:** the web panel (`apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx`, logic in `apps/web/src/pendingUserInput.ts`) already renders multiple questions with tabbed progress, single/multi-select, per-option descriptions, keyboard shortcuts, and an always-present free-text custom-answer row. Mobile has its own card (`apps/mobile/src/features/threads/PendingUserInputCard.tsx`) over the same shared client-runtime command.
+- **The tool-over-HTTP pattern:** `providerToolExtension.ts` generates a pi extension whose tools `fetch()` `T3_WORKSTREAM_ENDPOINT + path` with a bearer token; routes are declared once in `apps/server/src/mcp/toolPaths.ts` and served by handlers that resolve the token via `resolveWorkstreamScope` (`apps/server/src/mcp/httpScope.ts:17`), which yields the calling thread's id. A question tool is this same shape plus "the server waits for the human".
+
+The genuinely new pieces are: one tool definition, one HTTP route, one small in-server pending-question broker, and the panel-side nothing (it already renders everything the tool can send).
+
+## The central choice
+
+Two ways to originate a pi question, and they are **complements at different fidelity ceilings**, not interchangeable alternatives:
+
+<Columns>
+  <Column label="A — widen the extension_ui_request mapping">
+    Pi's RPC Extension UI Protocol (`extension_ui_request` / `extension_ui_response`) is the sanctioned host hook for any third-party extension calling `ctx.ui.select/confirm/input/editor`. `PiDriver.ts:1677` already maps it into `user-input.requested`. But the protocol's shape is fixed by pi: options are **bare strings** — no descriptions, no multi-select, no grouping — and `ctx.ui.custom()` (where every rich ask-user extension puts its real UI) returns `undefined` in RPC mode, so rich extensions degrade to a sequence of plain selects (report 2, verified against extension source). This path can never carry the structured schema we want. It exists to serve extensions **we don't control**.
+  </Column>
+  <Column label="B — Loom-owned tool over HTTP (recommended)">
+    A tool registered by Loom's own generated extension whose `execute()` skips `ctx.ui` entirely and POSTs the full structured payload to a Loom endpoint, blocking until the human answers. The schema on both ends is ours — the tool payload maps 1:1 onto `UserInputQuestion`, which the web panel already renders at full fidelity. Matches the established provider-tool architecture; no pi protocol ceiling applies.
+  </Column>
+</Columns>
+
+| | A: extension-UI mapping | B: Loom tool over HTTP |
+|---|---|---|
+| Option descriptions, multiSelect, grouped questions | Never (protocol caps at string options) | Full fidelity |
+| Serves third-party extensions a user installs | Yes — its only real purpose | No |
+| Moving parts added | None (exists) | 1 tool def, 1 route, 1 broker |
+| Answer-return semantics | Currently **wrong** (defects below) | Ours to define |
+| Prompt guidance to the model (when/how to ask) | None — extension-dependent | `promptSnippet` / `promptGuidelines` on the tool |
+
+**Recommendation: B is the capability; A is kept only as a corrected compatibility path.** On keeping A at all — the honest options are "fix it" or "delete it", never "preserve it broken". The case for fixing rather than deleting: the mapping is ~30 lines that make *any* stock pi extension a user installs degrade gracefully instead of silently corrupting (today it sends the wrong answer shape back, so it actively breaks third-party extensions rather than merely under-serving them). It is not a legacy Loom shape being preserved — it is pi's public protocol, and Loom either speaks it correctly or should not claim to speak it. The fix is small and self-contained (see defects below). If the human prefers a harder line — Loom sessions only ever use Loom's extension, third-party `ctx.ui` is unsupported — deleting the `extension_ui_request` case entirely is also coherent; that choice is in the bottom form.
+
+## Three defects in the current pi mapping
+
+These get fixed (or deleted, per the decision above) in the same change. The third was found while planning and is not in either research report:
+
+1. **Wrong answer encoding** (`PiDriver.ts:2240`): `respondToUserInput` sends `value: JSON.stringify(answers)` — the whole `Record` keyed by question id. Stock pi `select()` expects `value` to be the raw chosen option string; `confirm()` expects a confirmed boolean shape; `input`/`editor` expect the raw text. Fix: remember the request's `method` when the `extension_ui_request` arrives (a small per-session `Map` of requestId → method, cleared on response/turn end, mirroring the existing `session.toolArgs` pattern), and unmap `answers[requestId]` accordingly.
+2. **Placeholder options** (`PiDriver.ts:1696`): `confirm`/`input`/`editor` are mapped with `options: ["OK"]`. Fix: `confirm` maps to real Yes/No options; `input`/`editor` map to an options-free question that leans on the panel's free-text row (the panel already supports this).
+3. **`user-input.resolved` is never emitted for pi.** `PiDriver.ts` emits `user-input.requested` but nothing on response — every other adapter emits resolved (e.g. `ClaudeAdapter.ts:3260`, `CodexAdapter.ts:1055`). Because `hasPendingUserInput` is derived by folding requested-minus-resolved activities (`ProjectionPipeline.ts:148`), an *answered* pi question leaves the thread flagged pending forever — and startup reconciliation deliberately never auto-resumes threads parked on pending user input (`apps/server/src/loom/startup.ts:84`), so the thread is also permanently excluded from restart turn-continuation. Fix: emit `user-input.resolved` from `respondToUserInput` on the legacy path, and from the broker on the new path.
+
+## The new path, end to end
+
+<Mermaid
+  caption="ask_user_question round trip. Everything right of the broker is existing plumbing."
+  source={"sequenceDiagram\n  participant M as pi model\n  participant X as Loom pi extension\n  participant H as UserInputHttp route\n  participant B as PiAskUserBroker\n  participant D as PiDriver\n  participant UI as web/mobile panel\n  M->>X: tool call ask_user_question\n  X->>H: POST /provider-tools/user-input/ask (bearer)\n  H->>B: open(threadId, questions) -> requestId\n  B->>D: emit user-input.requested\n  D-->>UI: activity -> pending panel (existing pipe)\n  UI-->>D: thread.user-input.respond (existing pipe)\n  D->>B: resolve(requestId, answers)\n  B->>D: emit user-input.resolved\n  B-->>H: answers\n  H-->>X: rendered answers + envelope\n  X-->>M: tool result"}
+/>
+
+### The tool
+
+One new entry in `WORKSTREAM_TOOL_DEFS`' sibling table (`apps/server/src/provider/Drivers/Pi/providerToolDefs.ts`) and one path in `PROVIDER_TOOL_PATHS` (`apps/server/src/mcp/toolPaths.ts`), so route registration stays compiler-connected to tool existence. The schema converges on the de-facto `AskUserQuestion` shape every prior-art extension reimplements (report 2 §5), stealing `rpiv-ask-user-question`'s validation and prompt wording — its *design*, none of its code:
+
+<DataModel
+  entities={[
+    {
+      id: "req",
+      name: "AskUserQuestionParams (tool input)",
+      fields: [
+        { name: "questions", type: "Question[1..4]", note: "one call groups all clarifications" },
+      ],
+    },
+    {
+      id: "q",
+      name: "Question",
+      fields: [
+        { name: "header", type: "string", note: "short tab label" },
+        { name: "question", type: "string" },
+        { name: "options", type: "Option[2..4]" },
+        { name: "multiSelect", type: "boolean?", note: "default false" },
+      ],
+    },
+    {
+      id: "opt",
+      name: "Option",
+      fields: [
+        { name: "label", type: "string", note: "reserved labels ('Other', 'Type something.') rejected — the free-text row is host-appended, never model-authored" },
+        { name: "description", type: "string" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "req", to: "q", kind: "1-n", label: "questions" },
+    { from: "q", to: "opt", kind: "1-n", label: "options" },
+  ]}
+/>
+
+This maps 1:1 onto `UserInputQuestion` — the server assigns each question's `id`. Validation (question/option counts, reserved labels) happens server-side in the route handler so a violation reaches the model as a failed tool call with a corrective message (`errorMode: "throw"`, the workstream tools' existing convention). The `promptSnippet`/`promptGuidelines` carry the prior art's tuned guidance: when to ask vs proceed, mark a recommended option with a `(Recommended)` suffix, don't stack calls back-to-back.
+
+**Generator delta:** the generic shim in `providerToolExtension.ts` POSTs once and prints `result.rendered`. The ask tool needs a wait loop, so the tool def grows an optional discriminator (e.g. `mode: "user-input"`) and the shim gains one specialised branch. That branch is the transport decision:
+
+**Transport: bounded long-poll with a retry loop, not one held request.** A question can stay open for hours; a single held HTTP response for that duration fights Node's server timeouts and any intermediary. Instead: the first POST creates the request and waits up to ~25s; if unanswered the server replies `{ pending: true, requestId }` and the extension immediately re-polls `{ requestId }`, honouring the tool's `signal` throughout. When the human answers, the in-flight poll returns immediately with the result. This also makes a dropped TCP connection (without a server restart) harmless — the next poll finds the pending record. Report 2 flagged long-poll ergonomics as its open item; this settles it with low blast radius (pure implementation detail behind the route).
+
+### The broker
+
+A small in-server registry shared by the HTTP route and `PiDriver`, following the established module-scoped-map precedent of `apps/server/src/mcp/McpProviderSession.ts`:
+
+<DataModel
+  entities={[
+    {
+      id: "broker",
+      name: "PiAskUserBroker (in-memory, module-scoped)",
+      fields: [
+        { name: "requestId", type: "string", pk: true, note: "also the UserInputQuestion group's requestId" },
+        { name: "threadId", type: "ThreadId" },
+        { name: "questions", type: "UserInputQuestion[]" },
+        { name: "deferred", type: "Deferred<answers>", note: "resolved by PiDriver.respondToUserInput" },
+      ],
+    },
+  ]}
+/>
+
+- **Route** (`apps/server/src/mcp/UserInputHttp.ts`, new): resolves the bearer via `resolveWorkstreamScope` → threadId; validates; registers in the broker; asks the driver to emit `user-input.requested` (the driver owns the per-instance event queue, so the broker holds a per-thread emit hook the driver registers at session start — keeping the canonical-event path intact, including the assistant-delta flush that ingestion performs on `user-input.requested` at `ProviderRuntimeIngestion.ts:1862`); waits on the deferred with the long-poll window.
+- **`PiDriver.respondToUserInput`** (`PiDriver.ts:2240`): first consults the broker — if the requestId is a broker question, resolve the deferred and emit `user-input.resolved`; otherwise fall through to the (corrected) `extension_ui_response` path.
+- **Cleanup:** on turn interrupt / session stop / poll abort, the broker entry is removed and `user-input.resolved` is emitted with a cancelled marker so the panel clears — mirroring what `ClaudeAdapter.ts:3247` does with its abort listener.
+
+### The response envelope
+
+The tool result distinguishes four outcomes, returned as server-rendered text (`rendered`, the shim's single source of truth) plus structured `details`:
+
+| Outcome | Meaning to the model |
+|---|---|
+| `answered` | Per question: the chosen option label(s), or the user's free text marked as a custom answer |
+| `custom` | (per-question flag inside `answered`) the user wrote their own answer instead of choosing |
+| `cancelled` | The user or an interrupt dismissed the questions — treat as "do not proceed on an assumed answer" |
+| `could_not_present` | The questions were never shown (no session able to receive them). **Explicitly worded so the model does not read it as a decline** — the prior art's `ERROR_NO_CUSTOM_UI` lesson |
+
+## Contract impact: none in the first increment
+
+The brief asks whether to widen `UserInputQuestion` with per-option `preview` (markdown), per-answer `notes`, and multi-question grouping. Assessment:
+
+- **Multi-question grouping already exists.** The payload is `questions: UserInputQuestion[]` and the web panel steps through them (`pendingUserInput.ts:106` onwards). Nothing to widen.
+- **Per-option `preview` is additive and safe but not needed to ship.** An optional field on the option struct breaks no producer (all six adapters simply never set it). The cost is not the schema line — it is that both clients rebuild question objects field-by-field in their activity-parsing layers (`apps/web/src/session-logic.ts:452`, `apps/mobile/src/lib/threadActivity.ts:186`) and both UIs need a markdown-preview affordance. Real work, zero first-increment value. **Defer.**
+- **Per-answer `notes` changes the *answer* shape and is the one genuinely risky widening.** Answers today are `question.id → string | string[]` inside `ProviderUserInputAnswers` (`packages/contracts/src/orchestration.ts:168`), and the Claude adapter hands that record straight back to the SDK, which looks answers up **by question text** and expects plain values (`ClaudeAdapter.ts:3183` and the issue referenced there). Moving to structured answer objects touches every adapter's respond path and the SDK contract. The panel's free-text row already covers most of what notes buy. **Defer, and if ever added, add it as a pi-envelope-only enrichment rather than a shared-contract change.**
+
+This is the "one place a wrong call is expensive" from the brief, and the recommendation is to not spend there yet: ship on the existing contract unchanged, revisit `preview` when a concrete pi use case wants markdown previews in the chooser.
+
+## Durability: the line, drawn and argued
+
+**What concretely breaks today** (all providers, not just pi): pending questions are reconstructed from the persisted activity log, so a reconnecting client correctly re-sees them — but the thing that *receives* the answer is in-memory (Claude's `Deferred`; for pi, the live child process / this plan's broker entry). After a server restart, responding fails, the reactor records `provider.user-input.respond.failed`, the projection clears the request as stale (`ProjectionPipeline.ts:180`), and the user's answer is lost. The thread then sits idle until re-prompted — startup reconciliation deliberately refuses to auto-resume threads parked on pending input (`startup.ts:84`).
+
+**What a full fix costs:** a persisted pending-user-input table (approvals have one — `ProjectionPendingApprovalRepository` — user-input does not), a durable answer buffer, *and* a consumer for that buffer after restart. The third part is where it collapses for pi: the tool's poll loop lives inside the pi child process, which dies with the server. A resumed pi session replays its session file and sees an **aborted** tool call — there is no in-flight `execute()` left to hand a buffered answer to. Delivering the answer would mean re-entering the turn with synthetic tool-result injection, which pi's RPC surface does not offer. A durable buffer with no consumer is dead weight.
+
+**The line for this increment:** ship with the same restart semantics as all six existing providers, but make the failure *honest and consistent* — which the defect-3 fix largely delivers for free:
+
+- Answered questions now emit `user-input.resolved` for pi, so the pending flag clears and the thread is no longer permanently parked (this is the biggest practical reliability win in the whole plan).
+- A restart-orphaned question is cleared by the existing stale-detection path; the resumed model sees an aborted tool call and can simply re-ask — and re-asking is cheap because the questions are model-authored, not state.
+- No timeout is added: an open question parks the thread on a human indefinitely, which is the correct behaviour for an attention-flagged prototype (parity with approvals).
+
+Reliability-under-restart is a stated core priority of this repo, so deferral is a judgement, not an oversight: the deferred piece (durable answers) is the one whose payoff is blocked on a pi-side capability gap, while the shipped piece (resolved-event correctness) fixes the actual restart-adjacent bug pi has today. If the durable table is wanted later, the broker is the single seam to persist — nothing in this design forecloses it.
+
+## Change map
+
+<FileTree
+  title="First increment"
+  entries={[
+    { path: "apps/server/src/mcp/toolPaths.ts", change: "modified", note: "add ask_user_question route path" },
+    { path: "apps/server/src/mcp/UserInputHttp.ts", change: "added", note: "route: validate, register with broker, long-poll wait, render answers" },
+    { path: "apps/server/src/provider/Drivers/Pi/askUserBroker.ts", change: "added", note: "module-scoped pending-question registry + per-thread emit hook" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "ask_user_question def: schema, promptSnippet, guidelines, mode discriminator" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolExtension.ts", change: "modified", note: "poll-loop branch in the generated shim for mode: user-input" },
+    { path: "apps/server/src/provider/Drivers/PiDriver.ts", change: "modified", note: "broker hook registration; respondToUserInput: broker-first, corrected extension_ui unmapping, emit user-input.resolved; confirm/input/editor mapping fix" },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "register the new HTTP route layer" },
+  ]}
+/>
+
+No changes to `packages/contracts`, the projection, the WS protocol, client-runtime, or either UI.
+
+## Sequencing
+
+1. **Broker + route + tool def + shim branch** — the capability itself, behind the existing bearer gating (the tool loads exactly where the other provider tools load: sessions with a workstream MCP credential).
+2. **Defect fixes in `PiDriver`** — resolved-event emission (shared with step 1's broker path), corrected `extension_ui_response` unmapping, real confirm/input/editor mapping. Or deletion of the `extension_ui_request` case, per the open question.
+3. **Deferred (explicitly out of scope):** per-option `preview`, per-answer `notes`, a persisted pending-user-input table, question timeouts, approvals-surface support for pi (`respondToRequest` stays not-implemented, unchanged).
+
+## Verification
+
+- Unit: broker lifecycle (register → resolve; register → abort → cancelled resolve), route validation rejections (5 questions, 1 option, reserved label), extension shim poll loop against a stub `pi`/`fetch` (the existing `providerToolExtension.test.ts` pattern: build → import → drive).
+- End-to-end via the dev-verify recipe (`docs/dev-site-testing.md`): seed a pi-backed thread, prompt the agent to ask a structured question, confirm the panel renders options + descriptions + multi-select, answer in the browser, confirm the tool result reaches the model and `hasPendingUserInput` clears (the resolved-event fix observable in the UI).
+- Restart smoke: open a question, restart the dev server, confirm the question is cleared as stale rather than wedged, and the thread is re-promptable.
+- `vp check` and `vp run typecheck` pass.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "legacy-mapping",
+      title: "The existing extension_ui_request mapping (pi's native dialog protocol): fix or delete?",
+      mode: "single",
+      options: [
+        {
+          id: "fix",
+          label: "Fix it (corrected answer unmapping, real confirm/Yes-No, options-free input/editor)",
+          recommended: true,
+          detail: "~30 self-contained lines; makes any third-party pi extension a user installs degrade gracefully instead of receiving corrupted answers. It is pi's public protocol, not a legacy Loom shape.",
+        },
+        {
+          id: "delete",
+          label: "Delete the extension_ui_request case entirely",
+          detail: "Coherent harder line: Loom pi sessions only ever ask via Loom's own tool; third-party ctx.ui dialogs are unsupported. Slightly less code; stock extensions that call ctx.ui silently hang or error.",
+        },
+      ],
+    },
+    {
+      id: "schema-preview",
+      title: "Per-option markdown preview in the shared UserInputQuestion contract",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Defer — ship on the existing contract unchanged",
+          recommended: true,
+          detail: "Additive and safe when wanted, but touches both clients' parse layers and both UIs for no first-increment value.",
+        },
+        {
+          id: "now",
+          label: "Add optional preview now",
+          detail: "One schema field plus pass-through in session-logic.ts / threadActivity.ts and a preview affordance in both panels.",
+        },
+      ],
+    },
+    {
+      id: "durability",
+      title: "Durable answers across server restart",
+      mode: "single",
+      options: [
+        {
+          id: "line",
+          label: "Accept the drawn line: stale-clear on restart, model re-asks; fix the pi resolved-event bug",
+          recommended: true,
+          detail: "Parity with all six providers; the durable buffer has no consumer because the pi child's tool call dies with the server and cannot be re-entered.",
+        },
+        {
+          id: "table",
+          label: "Build the persisted pending-user-input table now",
+          detail: "Symmetry with approvals and a seam for future re-attach, but the buffered answer still cannot be delivered to a restarted pi turn today.",
+        },
+      ],
+    },
+  ]}
+/>

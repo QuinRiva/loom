@@ -138,9 +138,9 @@ describe("generated provider-tool extension", () => {
     NodeFS.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("registers all 21 tools with the expected names and schemas", async () => {
+  it("registers all 23 tools with the expected names and schemas", async () => {
     const tools = await loadExtension();
-    expect(tools).toHaveLength(21);
+    expect(tools).toHaveLength(23);
     for (const def of ALL_DEFS) {
       const tool = tools.find((t) => t.name === def.name);
       expect(tool).toBeDefined();
@@ -160,6 +160,46 @@ describe("generated provider-tool extension", () => {
     expect(calls[0]!.headers.authorization).toBe("Bearer secret");
     expect(result.content[0]!.text).toBe("RENDERED");
     expect(result.details).toEqual({ ok: true, rendered: "RENDERED", childThreadId: "c1" });
+  });
+
+  it("long-polls ask_user_question until the broker returns an answer", async () => {
+    calls.length = 0;
+    let poll = 0;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({
+        url,
+        headers: init.headers as Record<string, string>,
+        body: String(init.body),
+      });
+      poll += 1;
+      const body =
+        poll === 1
+          ? { pending: true, requestId: "ask-1" }
+          : { pending: false, requestId: "ask-1", outcome: "answered", rendered: "ANSWERED" };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    }) as unknown as typeof globalThis.fetch;
+    const tools = await loadExtension();
+    const ask = tools.find((tool) => tool.name === "ask_user_question")!;
+    const result = await ask.execute(
+      "id",
+      { questions: [{ header: "Choice", question: "Which?", options: [] }] },
+      undefined,
+    );
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(calls[1]!.body)).toEqual({ requestId: "ask-1" });
+    expect(result.content[0]!.text).toBe("ANSWERED");
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      calls.push({
+        url,
+        headers: init.headers as Record<string, string>,
+        body: String(init.body),
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        text: async () => JSON.stringify(response.body),
+      };
+    }) as unknown as typeof globalThis.fetch;
   });
 
   it("falls back to fallbackText when the server omits rendered", async () => {

@@ -1,7 +1,8 @@
 import type { ApprovalRequestId } from "@t3tools/contracts";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { MarkdownBlock } from "../../components/MarkdownBlock";
 import { cn } from "../../lib/cn";
 import type { PendingUserInput, PendingUserInputDraftAnswer } from "../../lib/threadActivity";
 
@@ -34,6 +35,17 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
       </Text>
       {props.pendingUserInput.questions.map((question) => {
         const draft = props.drafts[question.id];
+        const usingCustomAnswer = Boolean(draft?.customAnswer?.trim().length);
+        // `preview` is single-select only (enforced in the shared parse layer).
+        // The card is narrow, so previews stack under the option list and only
+        // the focused option's preview is shown.
+        const previewableOptions = question.options.filter((option) => option.preview);
+        const previewedOption =
+          previewableOptions.find(
+            (option) => !usingCustomAnswer && draft?.selectedOptionLabel === option.label,
+          ) ??
+          previewableOptions[0] ??
+          null;
         return (
           <View key={question.id} className="gap-2 pt-1">
             <Text className="font-t3-bold text-xs uppercase tracking-[1px] text-neutral-500 dark:text-neutral-500">
@@ -44,8 +56,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
             </Text>
             <View className="flex-row flex-wrap gap-2.5">
               {question.options.map((option) => {
-                const selected =
-                  draft?.selectedOptionLabel === option.label && !draft.customAnswer?.trim().length;
+                const selected = draft?.selectedOptionLabel === option.label && !usingCustomAnswer;
                 return (
                   <Pressable
                     key={option.label}
@@ -77,6 +88,20 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                 );
               })}
             </View>
+            {previewedOption?.preview ? (
+              <View className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-white/8 dark:bg-neutral-950/70">
+                <Text className="border-b border-neutral-200 px-3 py-2 font-t3-bold text-2xs uppercase tracking-[1px] text-neutral-500 dark:border-white/8 dark:text-neutral-500">
+                  Preview · {previewedOption.label}
+                </Text>
+                <ScrollView
+                  className="max-h-56"
+                  contentContainerStyle={{ padding: 12 }}
+                  nestedScrollEnabled
+                >
+                  <MarkdownBlock markdown={previewedOption.preview} />
+                </ScrollView>
+              </View>
+            ) : null}
             <TextInput
               value={draft?.customAnswer ?? ""}
               onChangeText={(value) =>

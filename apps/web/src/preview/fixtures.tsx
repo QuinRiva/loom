@@ -1,7 +1,10 @@
 import { type ReactNode } from "react";
 
+import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
+
 import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
+import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import type { SidebarThreadSummary } from "../types";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
@@ -324,7 +327,103 @@ const workstreamGraphFixture: PreviewFixture = {
   ),
 };
 
+// ---------------------------------------------------------------------------
+// Pending user-input panel — the pi `ask_user_question` chooser. Options may
+// carry a markdown `preview` (single-select only), so the panel must stay
+// bounded when an agent hands it a wide table or a long code fence.
+// ---------------------------------------------------------------------------
+
+const PENDING_USER_INPUT_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "panel_layout",
+    header: "Composer layout",
+    question: "Which pending-input layout should ship?",
+    multiSelect: false,
+    options: [
+      {
+        label: "Stacked preview",
+        description: "Preview sits below the option list",
+        preview: `### Stacked\n\n\`\`\`ts title="panel.tsx"\nexport function Panel() {\n  return <div className="flex flex-col gap-2">{options}{preview}</div>;\n}\n\`\`\`\n\n| Viewport | Behaviour |\n| --- | --- |\n| Narrow | Preview under the options, scrolls internally |\n| Wide | Same, full composer width |\n`,
+      },
+      {
+        label: "Side-by-side preview",
+        description: "Preview sits beside the option list on wide viewports",
+        preview: `### Side-by-side\n\n\`\`\`\n+----------------+  +--------------------------------+\n| 1 Stacked      |  | # Preview                      |\n| 2 Side-by-side |  | a very long line of preview co |\n| 3 No preview   |  | ntent that must not blow out t |\n+----------------+  +--------------------------------+\n\`\`\`\n\nThe option column keeps its measure; the preview pane takes the rest.\n`,
+      },
+      {
+        label: "No preview at all",
+        description: "This option deliberately carries no preview — it must look unchanged",
+      },
+    ],
+  },
+];
+
+const PENDING_USER_INPUT_MULTI_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "panel_targets",
+    header: "Targets",
+    question: "Which clients should render previews?",
+    multiSelect: true,
+    options: [
+      { label: "Web", description: "The composer panel" },
+      { label: "Mobile", description: "The pending-input card" },
+      { label: "Desktop", description: "Hosts the web renderer" },
+    ],
+  },
+];
+
+function pendingUserInputFixture(
+  id: string,
+  title: string,
+  questions: ReadonlyArray<UserInputQuestion>,
+  description: string,
+): PreviewFixture {
+  return {
+    id,
+    title,
+    description,
+    render: () => (
+      <div className="mx-auto w-full min-w-0 max-w-3xl p-6">
+        <div className="rounded-[19px] border border-border/65 bg-muted/20">
+          <ComposerPendingUserInputPanel
+            pendingUserInputs={[
+              {
+                requestId: "preview-request" as ApprovalRequestId,
+                createdAt: "2026-02-23T00:00:00.000Z",
+                questions,
+              },
+            ]}
+            respondingRequestIds={[]}
+            answers={{}}
+            questionIndex={0}
+            onToggleOption={() => {}}
+            onAdvance={() => {}}
+          />
+        </div>
+      </div>
+    ),
+  };
+}
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
+  {
+    id: "pending-user-input",
+    title: "Pending user input",
+    fixtures: [
+      pendingUserInputFixture(
+        "pending-user-input-previews",
+        "Single-select with markdown previews",
+        PENDING_USER_INPUT_QUESTIONS,
+        "Hovering or focusing an option swaps the bordered preview pane. Wide tables and long code fences must stay inside the panel and scroll rather than blowing it out; the option without a preview looks exactly as it does today.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-multi",
+        "Multi-select (no previews)",
+        PENDING_USER_INPUT_MULTI_QUESTIONS,
+        "Multi-select questions never show previews — the panel must be visually unchanged.",
+      ),
+    ],
+  },
   {
     id: "workstream-graph",
     title: "Workstream graph",
