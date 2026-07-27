@@ -358,6 +358,67 @@ const PENDING_USER_INPUT_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
   },
 ];
 
+const PENDING_USER_INPUT_STAKES_AND_RECOMMENDED: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "title_model",
+    header: "Title model",
+    question: "Auto-naming shares the 'Text generation model' setting. What do you want?",
+    stakes:
+      "A dedicated setting is a new persisted preference we cannot quietly remove later; relabelling is reversible in a line.",
+    multiSelect: false,
+    options: [
+      {
+        label: "Relabel only",
+        description:
+          "Smallest change and hard to break, but anyone wanting a cheap model for titles must accept it for all text generation.",
+        recommended: true,
+      },
+      {
+        label: "Dedicated picker",
+        description:
+          "Full control over cost per title, at the price of a second model setting to keep migrated and explained forever.",
+      },
+    ],
+  },
+];
+
+const PENDING_USER_INPUT_STAKES_ONLY: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "stakes_only",
+    header: "Migration",
+    question: "Should the rename run as one migration or in two deploys?",
+    stakes: "Getting this wrong drops rows that are already live; a rollback cannot recover them.",
+    multiSelect: false,
+    options: [
+      {
+        label: "Single migration",
+        description: "One deploy, but a brief window where old clients read a column that is gone.",
+      },
+      {
+        label: "Two deploys",
+        description: "No client ever sees a missing column, at the cost of a second release.",
+      },
+    ],
+  },
+];
+
+const PENDING_USER_INPUT_RECOMMENDED_ONLY: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "recommended_only",
+    header: "Badge only",
+    question: "Which package manager should the scripts assume?",
+    multiSelect: false,
+    options: [
+      {
+        label: "pnpm",
+        description: "Matches the lockfile already committed; no contributor has to switch.",
+        recommended: true,
+      },
+      { label: "npm", description: "Ubiquitous, but re-resolves the whole tree on every install." },
+    ],
+  },
+];
+
 const PENDING_USER_INPUT_MULTI_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
   {
     id: "panel_targets",
@@ -417,10 +478,28 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "Hovering or focusing an option swaps the bordered preview pane. Wide tables and long code fences must stay inside the panel and scroll rather than blowing it out; the option without a preview looks exactly as it does today.",
       ),
       pendingUserInputFixture(
+        "pending-user-input-stakes-recommended",
+        "Stakes + recommended option",
+        PENDING_USER_INPUT_STAKES_AND_RECOMMENDED,
+        "The decision the fields exist for: `stakes` frames what the choice costs to get wrong above the options, and the badged option carries the agent's pick. The badge must read as a suggestion, not as a pre-selected answer — nothing is selected until the user clicks.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-stakes-only",
+        "Stakes only",
+        PENDING_USER_INPUT_STAKES_ONLY,
+        "An agent that framed the consequences but would not pick a side: framing renders, no badge appears.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-recommended-only",
+        "Recommended only",
+        PENDING_USER_INPUT_RECOMMENDED_ONLY,
+        "A pick with no stakes line: the badge renders and the question spacing is unchanged from today.",
+      ),
+      pendingUserInputFixture(
         "pending-user-input-multi",
-        "Multi-select (no previews)",
+        "Multi-select (no previews, neither field)",
         PENDING_USER_INPUT_MULTI_QUESTIONS,
-        "Multi-select questions never show previews — the panel must be visually unchanged.",
+        "Multi-select questions never show previews, and with neither `stakes` nor `recommended` set the panel must be pixel-identical to today — every non-pi provider sends questions in this shape.",
       ),
     ],
   },

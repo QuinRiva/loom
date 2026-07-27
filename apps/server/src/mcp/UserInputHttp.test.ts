@@ -52,4 +52,52 @@ describe("ask_user_question validation", () => {
       error: expect.stringContaining("only supported for single-select"),
     });
   });
+
+  it("preserves stakes and a single recommended option", () => {
+    const result = validateAskUserQuestions([
+      question({
+        stakes: "Dropping the column loses live rows.",
+        options: [
+          { label: "A", description: "First", recommended: true },
+          { label: "B", description: "Second" },
+        ],
+      }),
+    ]);
+    expect("questions" in result && result.questions[0]?.stakes).toBe(
+      "Dropping the column loses live rows.",
+    );
+    expect("questions" in result && result.questions[0]?.options).toEqual([
+      { label: "A", description: "First", recommended: true },
+      { label: "B", description: "Second" },
+    ]);
+  });
+
+  it("rejects more than one recommended option per question", () => {
+    expect(
+      validateAskUserQuestions([
+        question({
+          options: [
+            { label: "A", description: "First", recommended: true },
+            { label: "B", description: "Second", recommended: true },
+          ],
+        }),
+      ]),
+    ).toMatchObject({ error: expect.stringContaining("more than one option recommended") });
+  });
+
+  it("rejects blank stakes and non-boolean recommended", () => {
+    expect(validateAskUserQuestions([question({ stakes: "   " })])).toMatchObject({
+      error: expect.stringContaining("stakes must be a non-empty string"),
+    });
+    expect(
+      validateAskUserQuestions([
+        question({
+          options: [
+            { label: "A", description: "First", recommended: "yes" },
+            { label: "B", description: "Second" },
+          ],
+        }),
+      ]),
+    ).toMatchObject({ error: expect.stringContaining("recommended must be a boolean") });
+  });
 });
