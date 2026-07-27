@@ -57,6 +57,11 @@ export function SearchableModelList(props: {
   extraData?: unknown;
   /** Bump to imperatively refocus the search input (e.g. after a sidebar click). */
   focusSignal?: unknown;
+  /**
+   * Grab focus on mount. Right for a picker that opens on demand, wrong for
+   * a list embedded in a settings page (several would fight over focus).
+   */
+  autoFocus?: boolean;
 }) {
   const { onSearchQueryChange, onSelect, onRequestClose, renderRow, visibleKeys } = props;
   const [showTopScrollFade, setShowTopScrollFade] = useState(false);
@@ -69,7 +74,9 @@ export function SearchableModelList(props: {
     searchInputRef.current?.focus({ preventScroll: true });
   }, []);
 
+  const autoFocus = props.autoFocus ?? true;
   useLayoutEffect(() => {
+    if (!autoFocus) return;
     focusSearchInput();
     const frame = window.requestAnimationFrame(focusSearchInput);
     const timeout = window.setTimeout(focusSearchInput, 0);
@@ -77,10 +84,15 @@ export function SearchableModelList(props: {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [focusSearchInput]);
+  }, [autoFocus, focusSearchInput]);
 
+  // Refocus on a *change* of signal only. The effect's mount run carries no
+  // signal change, so honouring it would re-focus behind `autoFocus={false}`.
   const { focusSignal } = props;
+  const lastFocusSignalRef = useRef(focusSignal);
   useEffect(() => {
+    if (Object.is(lastFocusSignalRef.current, focusSignal)) return;
+    lastFocusSignalRef.current = focusSignal;
     const frame = window.requestAnimationFrame(focusSearchInput);
     return () => window.cancelAnimationFrame(frame);
   }, [focusSignal, focusSearchInput]);

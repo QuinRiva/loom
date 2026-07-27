@@ -68,6 +68,21 @@ describe("scoreModelPickerSearch", () => {
     expect(exactScore!).toBeLessThan(fuzzyScore!);
   });
 
+  it("matches on the slug, the only thing distinguishing same-named models", () => {
+    expect(
+      scoreModelPickerSearch(
+        {
+          driverKind: "pi",
+          providerDisplayName: "Pi",
+          name: "Claude Opus 4.5",
+          slug: "google-vertex-claude/claude-opus-4-5@20251101",
+          subProvider: "Vertex",
+        },
+        "20251101",
+      ),
+    ).not.toBeNull();
+  });
+
   it("gives favorite models a strong enough ranking boost for partial queries", () => {
     const favoriteScore = scoreModelPickerSearch(
       {
