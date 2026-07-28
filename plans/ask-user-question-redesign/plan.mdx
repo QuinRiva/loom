@@ -1,0 +1,338 @@
+---
+manager_sessions:
+  - id: 9f5c9af8-ccdf-4542-badf-d15ac18ebd4f
+    role: plan
+    authored_at: 2026-07-28T06:34:42.995Z
+---
+
+# ask_user_question, redesigned: a question is attention with a payload
+
+**Objective.** Make it impossible for an agent question to leave Loom less functional than not asking. The user's framing is the requirement: *"We can't have a scenario where using that tool causes things to not be functional for me."* This document is the fundamental re-think that framing asked for, grounded in three completed audits (client lifecycle, server durability/cancellation, out-of-band channels) and two forensically reconstructed incidents.
+
+Evidence base — read these for the defect-level detail this design deliberately does not repeat:
+
+- Client audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/e2c5ebb6-001c-4b33-a32c-32c115318fbc.md` (S1–S11)
+- Server audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/2d3f17a0-83a6-4548-8869-ae5b140244b3.md` (D1–D17)
+- Channels audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/bb73292b-034e-4efd-a315-23123aeaeca1.md`
+- Original design: `plans/pi-ask-user-question/plan.mdx`
+
+## The principle the current design got wrong
+
+The shipped design treats a question as a **private RPC transaction**: an in-memory broker entry, a blocking tool call polling for its answer, and a client panel that seizes the composer until that transaction completes. Every part of the question's life is tied to the liveness of one process's poll loop and one browser's modal state — and the whole thing runs *beside* Loom's actual attention system rather than through it, writing to a derived projection axis (`pendingUserInputCount`) instead of the stored attention axis (`thread.attention`) that Slack, the parent-wake rail, the liveness sweep, and the board's stalled treatment all subscribe to.
+
+The consequences are not eleven independent bugs; they are one architecture expressing itself:
+
+- Because the record's only clearing paths are the happy path and prose-matched failure strings, a lost cancellation event wedges the thread **forever** (incident 1: 16 answer attempts over 22 hours, four divergent copies of a string allowlist, none matching).
+- Because the question never raises stored attention, it is invisible to Slack and to parent orchestrators, and it *actively disarms* the liveness sweep — the one component that escalates stuck threads exempts exactly this state (incident 2: parked indefinitely, two Slack replies silently swallowed as steers into a blocked turn).
+- Because the client treats the question as modal, the user's escape hatches are removed at the moment they are most needed — no dismiss, no stop button, keystrokes rerouted, the in-progress draft hidden and its send path (`promptRef`) corrupted.
+
+<Callout tone="decision">
+**The replacement principle: a question is a durable request for human attention, carried on Loom's attention system, that the agent may *wait on* but can never be *wedged by*.** Concretely: (1) the question record is settled by the **server, authoritatively** — never by clients inferring death from prose; (2) opening a question **raises stored attention** and settling it clears it, so every out-of-web rail works with zero new transport; (3) the human always holds a **dismiss** that works even when the asking process is dead; (4) the agent's block is **bounded** — at the boundary the turn ends and the question converts to the same shape as `workstream_request_attention`, with the answer arriving as the next turn; (5) the web client renders the question **non-modally**, coexisting with a draft — the model mobile already proves in-repo.
+</Callout>
+
+Everything below derives from these five commitments. The concrete defects (D1–D17, S1–S11) fall out as corollaries, not as a patch list.
+
+## Target-state lifecycle
+
+<Mermaid
+  caption="Question lifecycle. Every terminal state emits user-input.resolved{outcome} and clears the attention flag. No state exists that only a dead process can exit."
+  source={"stateDiagram-v2\n  [*] --> Presenting: user-input.requested persisted\\n+ attention raised\n  Presenting --> Answered: human answers (any surface)\n  Presenting --> Dismissed: human dismisses (any surface)\n  Presenting --> Superseded: human sends a plain message\n  Presenting --> Cancelled: agent interrupt / stop /\\nsession exit / relaunch\n  Presenting --> Parked: block window elapses\\n(tool returns 'deferred', turn ends)\n  Parked --> AnsweredLate: human answers\\n(answer opens next turn)\n  Parked --> Dismissed: human dismisses\n  Parked --> Superseded: human sends a plain message\\n(message opens next turn)\n  Parked --> Cancelled: thread cancelled / archived\n  Presenting --> Cancelled_R: server reconciler\\n(session exited with open request,\\nstartup scan)\n  Answered --> [*]\n  AnsweredLate --> [*]\n  Dismissed --> [*]\n  Superseded --> [*]\n  Cancelled --> [*]\n  Cancelled_R --> [*]"}
+/>
+
+Who can drive each transition — the crucial property is that **every state has at least two live owners**, so no single death strands it:
+
+| Transition | Driven by | Works when the pi process is dead? | Works after a server restart? |
+|---|---|---|---|
+| Answer | Human, from web, mobile, or Slack | **Yes** — record settles; answer delivered as tool result if the consumer is live, else as the opening message of a new turn | **Yes** (same conversion) |
+| Dismiss | Human, from any surface | **Yes** — settlement never routes through the provider | **Yes** |
+| Supersede | Human, by simply typing a normal message | **Yes** | **Yes** |
+| Cancel | The agent runtime (interrupt, stop, session exit, relaunch) | n/a | n/a |
+| Reconcile | The server (session-exited-with-open-request rule; startup scan) | **Yes — this is its purpose** | **Yes — this is its purpose** |
+| Park | The server, at the block window boundary | n/a (the consumer is by definition live) | Restart during the window ⇒ reconciler cancels; restart after park ⇒ nothing in flight to lose |
+
+Contrast with today, where *every* transition except the happy path required a live broker entry, a live emitter, a live queue, and a client whose allowlist happened to contain the right prose.
+
+### Terminal outcomes and what the model is told
+
+`user-input.resolved` gains a structured `outcome` field (additive to the shared contract; existing adapters that never set it decode to `answered` for backwards compatibility):
+
+| Outcome | Tool result / next-turn framing to the model |
+|---|---|
+| `answered` | The chosen labels / free text, per question — unchanged from today |
+| `answered_late` | Same content, but delivered as the opening message of the **next turn**, explicitly tagged: *"The user has now answered the questions you asked earlier (request `<id>`): …"* |
+| `dismissed` | *"The user dismissed these questions without answering. Do not treat this as selecting any option. Proceed on your best judgement and state the assumption you are making."* |
+| `superseded` | *"The user replied with a message instead of the form — treat it as their response: …"* (the message text follows, in-window as a steer, post-park as the next turn) |
+| `cancelled` | Existing wording kept — *"cancelled or interrupted without answers"* |
+| `deferred` (tool result only, not a resolved outcome) | *"The user has not answered within the interactive window. The question remains posted and the human has been flagged. End your turn cleanly; the answer or a dismissal will arrive as your next message. If you can proceed usefully on a stated assumption, you may note it now."* |
+
+The `could_not_present` outcome from the original design is kept, and — fixing D14 — the failure paths that today bypass it (thrown HTTP statuses, tombstone-expiry 404s) are folded into it, so the model's behaviour in a real failure is defined rather than an opaque tool error.
+
+## The five commitments, mechanically
+
+### 1. Server-authoritative settlement — delete the prose allowlists
+
+Today the record clears only on `user-input.resolved` or on a `respond.failed` whose detail substring-matches one of **four hand-maintained, already-divergent allowlists** (web 7 entries, mobile 5, projection 4, decider 7 — client audit S1). pi's own unknown-request wording matches none of them (D2), and the two failure details incident 1 actually produced match none of them (D3). This entire mechanism is replaced, not repaired:
+
+- **The server guarantees `user-input.resolved` is always eventually emitted**, from three independent layers:
+  1. The runtime cancel paths (existing, with D1 fixed — see below).
+  2. A **session-exit rule**: `session.exited` becomes a persisted activity (fixing D5 — today it is dropped by `runtimeEventToActivities`), and ingestion emits `user-input.resolved{outcome: cancelled}` for every request still open on that thread. This is durable, needs no in-memory state, and would have contained incident 1 outright.
+  3. A **startup scan**: any thread with open `user-input.requested` activities and no live broker entry gets them resolved-cancelled during reconciliation, *instead of* being parked in `parkedThreadIds` and excluded from turn continuation forever.
+- **D1 is fixed at both of its mechanisms**: `cancelPiAskUserQuestions`' silent skip when the emitter is absent (`askUserBroker.ts:126`) gets a fallback that persists the resolution through the ingestion command path directly (not the per-session event queue, which can already be shut down), plus a log line either way. The process-exit handler's emit-into-a-possibly-shutdown-queue race disappears with it, because the fallback does not ride the queue.
+- **Clients stop inferring anything.** `derivePendingUserInputs` clears on `user-input.resolved` only. The four allowlists are deleted (web, mobile, projection, decider). `provider.user-input.respond.failed` becomes what it should be: a delivery diagnostic, never a lifecycle signal.
+- The pi unknown-request wording is converged to the canonical form anyway (D2, one line) — not because clients match it anymore, but so the server-side `isUnknownPendingUserInputRequestError` reactor path works uniformly across providers during the transition.
+
+### 2. A question raises stored attention
+
+On `user-input.requested` the server raises `needs_guidance` on the thread; every terminal transition clears it. Raised **server-side by the reactor/ingestion**, not by the tool or the client — the decider's rule that clients cannot raise derived reasons stands untouched.
+
+What this buys, with **zero new transport** (channels audit §4, verified against the bridge source at `/home/Carl/loom-slack-bridge`):
+
+- **Slack**: the bridge already diffs `thread.attention` and announces newly raised `needs_guidance`, opening a mapped Slack thread if none exists. The question becomes visible on the surface incident 2's user was actually on.
+- **Parent orchestrators**: the dispatcher's attention wake rail (`classifyChildWake` → `attention`) fires. A parent whose child parks on a question is finally told.
+- **Board/sidebar**: full stalled-lane attention treatment instead of a passive chip.
+- **Liveness sweep**: the `hasPendingUserInput` early-return exemption at `WorkstreamLivenessSweep.ts:207` is **deleted**. An attention-flagged thread already gets the sweep's attention-aware handling (`:713-721`); a question no longer switches the escalation machinery off.
+
+Why `needs_guidance` rather than promoting `awaiting_input` to a stored reason: it is semantically honest (the agent literally cannot proceed without a human), it is the sanctioned surface the brief pointed at, and it requires no bridge change, no contract change, and no new consumer wiring. The cost is that the UI cannot distinguish "child asked a structured question" from "child raised prose guidance" at the attention level — but the question activity itself is the distinguishing payload, and every surface that renders attention also has the thread's activities. Promoting a stored `awaiting_input` is kept as a later refinement if the conflation ever bites (open question below).
+
+The derived `awaiting_input`/`pendingUserInputCount` axis is **kept** for rendering (the panel still needs to know which requests are open) but stops being the only signal anything sees.
+
+### 3. The human always holds a way out
+
+Three exits, all of which settle the durable record *first* and treat provider delivery as best-effort *second* — inverting today's order, which is why incident 1's sixteen answer attempts changed nothing:
+
+- **Dismiss.** A new `thread.user-input.dismiss` command (WS, same authorisation as respond). The decider emits `user-input.resolved{outcome: dismissed}` unconditionally — no provider round-trip is on the critical path. If a live broker entry exists, it is resolved so the in-flight tool call returns `dismissed`; if not, nothing further happens and that is fine. Rendered as an explicit control on the web panel and mobile card, and on the workstream board row.
+- **Answer-anyway.** `thread.user-input.respond` is rebuilt on the same settle-first shape: the decider emits `user-input.resolved{outcome: answered}` and records the answers **before** routing to the provider. If the provider consumer is live, the answers are handed to the waiting tool call as today. If it is not (dead session, restarted server, relaunched process — incident 1's exact state), the answers are **converted into a normal turn**: a `thread.turn.start` carrying the rendered answers as a user message tagged to the request. The user's answer is never lost and never fails. This overturns half of the original plan's durability line — see the durability section.
+- **Just type.** A plain message send while a question is open resolves it as `superseded` and carries the text to the model (in-window: as the steer it already is, plus the tool call returns `superseded`; post-park: as the next turn). This is also, quietly, the **zero-bridge-change Slack answer path**: once parking exists, a Slack reply to a parked thread is a `thread.turn.start` on an *idle* thread — it reaches the model as a real message instead of being swallowed as a steer into a blocked turn. Incident 2's data loss becomes structurally impossible.
+
+The stop button ordering bug (`ComposerPrimaryActions.tsx:73` returns before the `isRunning` branch) is fixed regardless — stop must never be structurally unreachable — and the workstream panel's Stop remains available for the running case.
+
+### 4. Bounded blocking: the interactive window, then park
+
+The `while (true)` poll loop is deleted. The new semantics:
+
+- The tool blocks for a configurable **interactive window** (default **5 minutes** — long enough that an attended human answering a well-formed question is unaffected, short enough that an unattended thread is released the same coffee break). The long-poll transport within the window is unchanged (25s poll cycles).
+- At the boundary the server returns `deferred` to the tool, the tool call completes, and **the turn ends cleanly**. The question record and its attention flag persist. The thread goes **idle** — steerable, promptable, restartable, reapable, archivable; every rail that a blocked turn poisons (D6, D7, D8) works again.
+- A late answer or dismissal opens the next turn with the tagged payload (`answered_late` / `dismissed` framing above). Because the consumer of a late answer is *a new turn* rather than a re-entered tool call, the original plan's "durable buffer has no consumer" objection dissolves — no synthetic tool-result injection into pi is ever needed.
+- Restart semantics become trivial: a restart during the window ⇒ reconciler resolves cancelled and the resumed model may re-ask (as today, but now guaranteed rather than allowlist-dependent); a restart after park ⇒ nothing was in flight, the record and flag are durable projections, the answer path is a turn.
+
+This is deliberately the same shape as `workstream_request_attention` + resume — the question converges on Loom's sanctioned "a human is needed" model, keeping only what it genuinely adds: structured options, previews, and an interactive fast path while the human is present.
+
+**Why not fully non-blocking (end the turn immediately)?** The attended case is the common one, and the in-turn tool result is materially better ergonomics for the model (it keeps its working context hot, and multi-step flows like "ask, then act on the answer" stay in one turn). The window costs nothing in the unattended case — five minutes against incident 2's *forever*.
+
+**Why not keep indefinite blocking, now that it is loud and escapable?** Because a blocked turn is not just a UX state — it pins `activeTurnId`, swallows steers (D8), disarms the reaper (D7), and makes startup classify the thread as interrupted-but-unresumable. Boundedness removes a whole class of turn-state poisoning rather than annotating it.
+
+### 5. The composer takeover, replaced (complaint 3)
+
+The client audit's finding reframes this item: the persisted draft is **not lost** (the store record survives, `ChatComposer.tsx:703`), but the takeover is not harmless either — `promptRef`, the value `onSend` actually transmits, is corrupted with no guaranteed restore (S3), stray digits anywhere on the page can select-and-**submit** an answer (S4), and an in-flight Enter meant for the draft dispatches the question instead. So "leave it as it is" is not defensible; something must change. The honest option space:
+
+<Columns>
+  <Column label="A — Leave as is">
+    Zero cost. But the audit shows a real corruption path (`promptRef` desync can send the answer text as the next message, or empty), digit keystrokes can silently submit answers to the server, and the takeover is the proximate cause of most of S3–S9. Rejected — though its kernel of truth stands: the *store* draft was never lost, so no draft-rescue machinery is needed.
+  </Column>
+  <Column label="B — Keep the takeover, add affordances">
+    Keep the modal reroute; add a visible "draft set aside" banner, a dismiss button, an Escape handler, guaranteed promptRef↔store reconciliation on exit, and delete the digit listener. Smallest diff that is defensible. But it patches eight symptoms of one decision and keeps the fundamental problem: modal constraints without modal affordances, and a composer that means different things at different moments.
+  </Column>
+  <Column label="C — Non-modal question card (recommended)">
+    The question renders as a card <em>above</em> the composer (or inline in the timeline); the composer is never rerouted, never re-valued, never re-routed on Enter. Answering happens entirely inside the card (option buttons, its own free-text field, its own submit). Typing in the composer remains typing a message — which, per commitment 3, supersedes the question if sent. This is not speculative: <strong>mobile already works exactly this way</strong> (`ThreadComposer` has zero pending-input awareness) and the client audit found it materially less wedge-prone on every axis it differs on.
+  </Column>
+  <Column label="D — Split composer">
+    Draft and answer visible side-by-side in a split composer with explicit focus. Maximal coexistence clarity, most new UI surface, novel interaction grammar for marginal benefit over C. Rejected.
+  </Column>
+</Columns>
+
+**Recommendation: C.** The coexistence model becomes trivial: the draft and the question live side by side because they never shared a surface. Sending the draft supersedes the question (with the card visibly resolving to "answered by your message"); answering in the card leaves the draft untouched; the user can ignore the card indefinitely — after the window it parks, exactly as if they had been away. Deleted outright with C: the editor value swap, the keystroke reroute (`ChatComposer.tsx:1571-1583`), the Enter hijack (`ChatView.tsx:4557-4560`), the document-level digit listener with its 200 ms auto-submit, the hidden stop button, the placeholder swap, and the image/context suppressions. The `promptRef` desync becomes unreachable rather than repaired. The card gains the one thing the panel never had: a dismiss control, plus a "N more pending" indicator when multiple requests are open (S8).
+
+Free-text answers move from "the composer in disguise" to a field inside the card — a small loss of editor richness (no mentions/skills in answers), which is acceptable: an answer needing mentions is a message, and sending it as one supersedes the question correctly.
+
+## Durability: the original line, re-judged
+
+The original plan argued: *a durable answer buffer has no consumer, because the pi child's tool call dies with the server and cannot be re-entered — a buffer with no consumer is dead weight.* The server audit's verdict, which this design adopts: **the argument was correct in its narrow claim and over-applied in practice.**
+
+- **Upheld:** no durable answer buffer for re-entering a dead tool call is built. Synthetic tool-result injection into a resumed pi turn is still impossible and still not needed.
+- **Overturned in effect:** the deferral was scoped to answer delivery but the implementation applied it to *state reconciliation* — the plan's own claim that "a restart-orphaned question is cleared by the existing stale-detection path" was false for pi (D2 made that path dead code), and incident 1 was not even a restart: it was a cancellation emitted into a dead queue (D1) with no durable second chance (D5). Commitment 1 is the durable reconciliation the plan should have specified.
+- **Superseded:** parking changes what "the consumer" is. A late answer's consumer is the next turn — which is durable by construction. The answer-anyway conversion (commitment 3) is the same move for the dead-session case. The plan's dichotomy (in-flight tool call or nothing) was an artefact of the indefinite block.
+- The plan's "parity with approvals" argument for having no timeout is retired: approvals have a persisted table; user-input did not; the surfaces were never at parity (server audit, plan-vs-code §3).
+
+No persisted pending-user-input table is added. The durable substrate is what already exists — `user-input.requested`/`resolved` activities in the projection — now with the guarantee that resolved always eventually arrives.
+
+## Other providers: no regression, shared wins
+
+Claude/Codex/Grok/Cursor/OpenCode ride the same `user-input.requested` pipe and are affected as follows:
+
+- **Unchanged:** their in-adapter blocking mechanics (Claude's `Deferred` + abort listener, etc.). Parking is pi-only — it lives in the Loom-owned tool and broker; other providers' question tools are SDK-owned and cannot be parked by us.
+- **Shared wins, automatic:** the attention raise/clear (server-side on the shared activity pair), the dismiss command, settle-first respond, the session-exit clearing rule, the startup scan, the client card (the panel is provider-agnostic), and the deletion of the allowlists (their canonical stale wordings are handled by the server-side reactor path during settlement instead).
+- **`outcome` on `user-input.resolved`** is additive with a decode default; adapters that never set it are unaffected.
+- **One mobile correctness fix folded in:** mobile silently truncates multi-select answers to a single label (S10) because `ProviderUserInputAnswers` is `Schema.Unknown`-valued. The contract tightens to `string | string[]` per answer and mobile gains multi-select — a small, real bug independent of this redesign but on the same seam.
+
+## What is deleted, not repaired
+
+- The four prose stale-clear allowlists (web `session-logic.ts:361`, mobile `threadActivity.ts:153`, projection `ProjectionPipeline.ts:179`, decider `decider.ts:76`) and the entire clear-on-failure-detail mechanism.
+- The `while (true)` shim poll loop (`providerToolExtension.ts:270`) — replaced by the bounded window.
+- The liveness sweep's `hasPendingUserInput` exemption (`WorkstreamLivenessSweep.ts:207`).
+- The startup `parkedThreadIds` exclusion for pending-input threads (`startup.ts:84-90,151`) — replaced by resolve-cancelled reconciliation. (The startup queued-message wipe at `startup.ts:135` should also stop discarding human steers silently — fold them into the resumed context or surface them; flagged as an adjacent fix, not strictly this design.)
+- The whole web composer takeover: editor value swap, keystroke reroute, Enter hijack, digit listener, hidden stop button, placeholder swap, suppressed attachments/contexts (option C).
+- The client-side "retry forever" respond loop — settlement is one-shot and cannot fail from the user's perspective.
+- **Not deleted:** the corrected `extension_ui_request` compatibility mapping, the reserved-label validation, the answer/cancel race guard (D15 — verified correct), the long-poll transport within the window, and the question schema/panel rendering, all of which the audits found sound.
+
+On **prompt guidance**: the current "last resort" wording stays and gains one honest sentence — that the user may answer late, supersede with a message, or dismiss, and the agent should be ready to proceed on a stated assumption. But guidance is explicitly *not* load-bearing in this design: the incidents happened with cautious guidance already in place, and the fix is that a question, however ill-advised, can no longer cost the user anything but a dismissal click.
+
+## Change map
+
+<FileTree
+  title="Increment 1 — settlement authority + attention + escape hatches (ships alone; makes both incidents impossible)"
+  entries={[
+    { path: "packages/contracts/src/providerRuntime.ts", change: "modified", note: "user-input.resolved gains optional outcome (answered|dismissed|superseded|cancelled); decode-defaults to answered" },
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "thread.user-input.dismiss command; ProviderUserInputAnswers tightened to string|string[]" },
+    { path: "apps/server/src/orchestration/decider.ts", change: "modified", note: "dismiss command → resolved{dismissed}; respond settles-first; plain turn.start on open question → resolved{superseded}; delete isStaleRequestFailureDetail" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "respond: settle then best-effort deliver; dead-consumer answers convert to thread.turn.start; failure details become diagnostics only" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionPipeline.ts", change: "modified", note: "pending count folds requested-minus-resolved only; delete failure-detail clearing; raise/clear needs_guidance on requested/resolved" },
+    { path: "apps/server/src/provider/ProviderRuntimeIngestion.ts", change: "modified", note: "persist session.exited as an activity; emit resolved{cancelled} for requests open at exit" },
+    { path: "apps/server/src/provider/Drivers/Pi/askUserBroker.ts", change: "modified", note: "D1: emitter-absent/queue-shutdown fallback persists the cancellation via the command path + logs; D11 ownership fix" },
+    { path: "apps/server/src/provider/Drivers/PiDriver.ts", change: "modified", note: "D2 canonical unknown-request wording; relaunch cancels in-flight questions (D10)" },
+    { path: "apps/server/src/loom/startup.ts", change: "modified", note: "resolve-cancelled open requests instead of parking; stop excluding from continuation" },
+    { path: "apps/server/src/orchestration/Layers/WorkstreamLivenessSweep.ts", change: "modified", note: "delete the hasPendingUserInput exemption" },
+    { path: "apps/web/src/session-logic.ts", change: "modified", note: "clear on resolved only; delete allowlist" },
+    { path: "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", change: "modified", note: "dismiss control; 'N more pending' indicator" },
+    { path: "apps/web/src/components/chat/ComposerPrimaryActions.tsx", change: "modified", note: "stop button reachable while a question is pending" },
+    { path: "apps/mobile/src/lib/threadActivity.ts", change: "modified", note: "clear on resolved only; multi-select answers" },
+    { path: "apps/mobile/src/features/threads/PendingUserInputCard.tsx", change: "modified", note: "dismiss control; multiSelect" },
+  ]}
+/>
+
+<FileTree
+  title="Increment 2 — bounded window + park"
+  entries={[
+    { path: "apps/server/src/mcp/UserInputHttp.ts", change: "modified", note: "window deadline; deferred response at boundary; fold thrown paths into could_not_present" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "deferred outcome wording; guidance sentence on late/superseded/dismissed answers" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolExtension.ts", change: "modified", note: "shim honours deferred: return tool result, end turn" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "late answer / dismissal on an idle thread opens a tagged turn" },
+  ]}
+/>
+
+<FileTree
+  title="Increment 3 — non-modal web card (option C)"
+  entries={[
+    { path: "apps/web/src/components/chat/PendingQuestionCard.tsx", change: "added", note: "self-contained card: options, previews, free-text field, submit, dismiss" },
+    { path: "apps/web/src/components/chat/ChatComposer.tsx", change: "modified", note: "delete takeover: value swap, keystroke reroute, suppressions; composer is always a composer" },
+    { path: "apps/web/src/ChatView.tsx", change: "modified", note: "delete Enter hijack and option-click promptRef clearing; send-while-open → supersede" },
+    { path: "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", change: "deleted", note: "superseded by the card" },
+  ]}
+/>
+
+**External (not this repo, explicitly optional):** richer Slack — the bridge rendering option lists into its announcement and dispatching `thread.user-input.respond` for structured replies — lives in `/home/Carl/loom-slack-bridge` (one more command in its containment allowlist plus interpret-layer rendering). Increments 1–2 already give Slack announcement + plain-reply answering with **zero bridge changes**; the structured upgrade is deferred until plain replies prove insufficient.
+
+## Sequencing and the ship-alone increment
+
+**Increment 1 alone makes both incidents impossible:**
+
+- Incident 1 (wedged forever): the cancellation can no longer be lost silently (D1 fallback), and even if a resolution were ever missed, the session-exit rule and startup scan settle it, dismiss works regardless, and answer-anyway converts to a turn instead of failing sixteen times. No prose matching anywhere.
+- Incident 2 (Slack silence + swallowed replies): the question announces to Slack via the attention raise; a plain Slack reply supersedes the question and reaches the model; the parent wake and liveness sweep re-arm.
+
+Increment 2 removes the turn-state poisoning class (indefinitely open turns, disarmed reaper, steers-into-a-wall) and completes the "never blocks indefinitely" requirement — before it, a question still blocks until a human or the runtime acts, but loudly and escapably rather than silently and terminally. Increment 3 removes the takeover class. 2 and 3 are independent of each other; both depend on 1.
+
+## Verification
+
+- **Forensic regression tests, one per incident:** (1) open a question, kill the pi process with the event queue shut down, assert `user-input.resolved{cancelled}` is persisted and dismiss/answer both still settle; (2) open a question, send two plain messages, assert the question resolves `superseded`, both messages reach the model, and `needs_guidance` was raised then cleared.
+- Broker unit tests extended: emitter-absent cancel persists (D1), relaunch cancels in-flight (D10), dismiss-vs-answer race.
+- Restart smoke: question open → restart during window ⇒ resolved-cancelled and the thread continues; restart after park ⇒ record intact, answer opens a turn.
+- Web: send-while-question-open supersedes; draft integrity across the question lifecycle (the S3 `promptRef` scenario, automated); no digit-key answer submission possible.
+- Slack (manual, staging bridge): question → announcement appears; plain reply reaches the model.
+- `vp check`, `vp run typecheck`.
+
+## Assumptions and unknowns
+
+- **D1's exact mechanism** (emitter-absent vs queue-shutdown) is unresolved by the server audit; the fix covers both, and the added log line will discriminate retroactively.
+- The **S3 `promptRef` desync frequency** was established from code, not reproduced in a running app. Increment 3 deletes the path rather than depending on that measurement; if increment 3 is deferred, the reconciliation fix in option B becomes mandatory.
+- The bridge's deployed build is assumed to match its working tree (channels audit could not verify the running systemd unit). The zero-bridge-change claims depend only on behaviour read directly from that tree (attention diffing, plain-reply → `turn.start`).
+- The incident-1 **503's origin** (mid-restart router teardown) is medium-confidence; the design does not depend on it — any thrown status now lands in `could_not_present` semantics.
+- Supersede-on-plain-send changes behaviour for **attended web users who deliberately steer mid-question** expecting the panel to stay. Judged acceptable: the model is told the message is the response, and re-asking is cheap. Flagged in case the user disagrees.
+- The 5-minute window default is a judgement, not data; it is a config knob and the parked path makes a wrong default cheap.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "attention-reason",
+      title: "Which stored attention reason should an open question raise?",
+      mode: "single",
+      options: [
+        {
+          id: "needs-guidance",
+          label: "needs_guidance (reuse the sanctioned reason)",
+          recommended: true,
+          detail: "Zero bridge/contract/consumer changes; semantically honest (the agent cannot proceed without a human). Cost: attention-level UI cannot distinguish a structured question from prose guidance — the question activity is the distinguishing payload.",
+        },
+        {
+          id: "stored-awaiting-input",
+          label: "Promote awaiting_input to a stored, server-raised reason",
+          detail: "Cleaner taxonomy and distinct board treatment, but requires a contract change, decider changes, and a one-line external bridge change before Slack announces it. Can be adopted later without rework.",
+        },
+      ],
+    },
+    {
+      id: "blocking-model",
+      title: "The agent-side blocking model",
+      mode: "single",
+      options: [
+        {
+          id: "window-park",
+          label: "Bounded interactive window (5 min default), then park: turn ends, answer arrives as the next turn",
+          recommended: true,
+          detail: "Attended case keeps in-turn tool-result ergonomics; unattended case converges on the workstream_request_attention shape. Removes the turn-poisoning class (pinned activeTurnId, swallowed steers, disarmed reaper).",
+        },
+        {
+          id: "loud-indefinite",
+          label: "Keep indefinite blocking, now loud and escapable (attention + dismiss only)",
+          detail: "Smaller change (skip increment 2). But a blocked turn still pins turn state, swallows steers, and disarms the reaper — the class of defect survives, merely mitigated.",
+        },
+        {
+          id: "fully-async",
+          label: "Fully non-blocking: the tool posts the question and ends the turn immediately",
+          detail: "Simplest lifecycle, maximal durability. Loses the attended fast path — every question costs a turn boundary even when the human answers in ten seconds.",
+        },
+      ],
+    },
+    {
+      id: "composer-model",
+      title: "Web composer treatment (complaint 3)",
+      mode: "single",
+      options: [
+        {
+          id: "non-modal-card",
+          label: "Option C: self-contained non-modal card; the composer is never rerouted",
+          recommended: true,
+          detail: "Deletes the takeover defect class (S3–S5, S9) rather than patching it; mobile already proves the model in-repo. Draft and question coexist; sending the draft supersedes the question. Free-text answers lose composer richness (mentions/skills) — acceptable, a rich answer is a message.",
+        },
+        {
+          id: "takeover-with-affordances",
+          label: "Option B: keep the takeover, add dismiss/Escape/'draft set aside' banner + guaranteed promptRef restore, delete the digit listener",
+          detail: "Smallest defensible diff if increment 3 must wait. Patches eight symptoms of one decision; the modal-constraints-without-modal-affordances problem remains.",
+        },
+        {
+          id: "leave-as-is",
+          label: "Leave the takeover as is",
+          detail: "Not defensible: the audit found a real corruption path (promptRef can send the answer text or empty instead of the draft) and stray digits can submit answers. Listed for completeness because the brief asked for the honest option space.",
+        },
+      ],
+    },
+    {
+      id: "slack-structured",
+      title: "Structured Slack answering (external bridge change)",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Defer: ship attention-announce + plain-reply supersede (zero bridge changes), upgrade only if plain replies prove insufficient",
+          recommended: true,
+          detail: "Increments 1–2 already make Slack fully functional for the incident's shape. The bridge's four-command containment allowlist stays intact until there is demonstrated need.",
+        },
+        {
+          id: "now",
+          label: "Do it now: bridge renders options and dispatches thread.user-input.respond",
+          detail: "Full-fidelity answers from Slack (option labels, multi-select). Touches the external repo and widens its deliberate containment surface.",
+        },
+      ],
+    },
+  ]}
+/>
