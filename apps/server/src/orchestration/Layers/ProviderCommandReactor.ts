@@ -443,12 +443,7 @@ const make = Effect.gen(function* () {
 
     const desiredRuntimeMode = thread.runtimeMode;
     const requestedModelSelection = options?.modelSelection;
-    const resolveActiveSession = (threadId: ThreadId) =>
-      providerService
-        .listSessions()
-        .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
-
-    const activeSession = yield* resolveActiveSession(threadId);
+    const activeSession = yield* providerService.getSession(threadId);
     const activeThreadSession =
       thread.session !== null && thread.session.status !== "stopped" && activeSession
         ? thread.session
@@ -836,11 +831,7 @@ const make = Effect.gen(function* () {
     }
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
-    const activeSession = yield* providerService
-      .listSessions()
-      .pipe(
-        Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),
-      );
+    const activeSession = yield* providerService.getSession(input.threadId);
     const sessionModelSwitch =
       activeSession === undefined
         ? "in-session"

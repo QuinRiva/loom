@@ -590,6 +590,110 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("ProviderServiceLive lists sessions with a constant number of directory reads", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+
+    const bindings = new Map<
+      ThreadId,
+      ProviderSessionDirectory.ProviderRuntimeBindingWithMetadata
+    >();
+    for (let index = 0; index < 200; index += 1) {
+      const threadId = asThreadId(`thread-stopped-${index}`);
+      bindings.set(threadId, {
+        threadId,
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        status: "stopped",
+        runtimeMode: "full-access",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+    const activeThreadId = asThreadId("thread-active");
+    bindings.set(activeThreadId, {
+      threadId: activeThreadId,
+      provider: CODEX_DRIVER,
+      providerInstanceId: codexInstanceId,
+      status: "running",
+      runtimeMode: "approval-required",
+      resumeCursor: { opaque: "resume-from-binding" },
+      lastSeenAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    let getBindingCalls = 0;
+    let listBindingsCalls = 0;
+    let listThreadIdsCalls = 0;
+    const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
+      upsert: () => Effect.void,
+      getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
+      getBinding: (threadId) =>
+        Effect.sync(() => {
+          getBindingCalls += 1;
+          const binding = bindings.get(threadId);
+          return binding ? Option.some(binding) : Option.none();
+        }),
+      listThreadIds: () =>
+        Effect.sync(() => {
+          listThreadIdsCalls += 1;
+          return [...bindings.keys()];
+        }),
+      listBindings: () =>
+        Effect.sync(() => {
+          listBindingsCalls += 1;
+          return [...bindings.values()];
+        }),
+      remove: () => Effect.void,
+    });
+
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provide(directoryLayer),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const { sessions, reads } = yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* provider.startSession(activeThreadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: activeThreadId,
+        cwd: "/tmp/project-list-sessions",
+        runtimeMode: "full-access",
+      });
+      getBindingCalls = 0;
+      listBindingsCalls = 0;
+      listThreadIdsCalls = 0;
+      const listed = yield* provider.listSessions();
+      // Read the counters before the layer's stopAll finalizer runs.
+      return {
+        sessions: listed,
+        reads: { getBindingCalls, listBindingsCalls, listThreadIdsCalls },
+      } as const;
+    }).pipe(Effect.provide(providerLayer));
+
+    // O(1) directory reads: one bulk listing, no per-row re-fetch.
+    assert.equal(reads.listBindingsCalls, 1);
+    assert.equal(reads.getBindingCalls, 0);
+    assert.equal(reads.listThreadIdsCalls, 0);
+
+    // The persisted-binding merge is unchanged.
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0]?.threadId, activeThreadId);
+    assert.equal(sessions[0]?.runtimeMode, "approval-required");
+    assert.equal(sessions[0]?.providerInstanceId, codexInstanceId);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 const routing = makeProviderServiceLayer();
 
 it.effect("ProviderServiceLive writes canonical events to the emitting thread segment", () =>

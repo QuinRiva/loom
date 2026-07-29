@@ -62,6 +62,17 @@ export interface ProviderSessionDirectoryShape {
     ReadonlyArray<ProviderRuntimeBindingWithMetadata>,
     ProviderSessionDirectoryPersistenceError
   >;
+
+  /**
+   * Drop a persisted binding.
+   *
+   * Used by retention sweeps to bound the runtime table: a removed binding is
+   * no longer resumable, so callers must only remove sessions that are dead
+   * beyond any resume window.
+   */
+  readonly remove: (
+    threadId: ThreadId,
+  ) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
 }
 
 export class ProviderSessionDirectory extends Context.Service<

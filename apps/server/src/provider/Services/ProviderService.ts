@@ -87,6 +87,17 @@ export interface ProviderServiceShape {
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
 
   /**
+   * Read the live adapter session for a single thread, if any.
+   *
+   * Hot paths (per-event ingestion, per-turn-start) that only need one
+   * thread must use this instead of scanning `listSessions`, which also
+   * reads the whole persisted runtime table. Reports adapter runtime state
+   * only: the persisted-binding merge `listSessions` performs (resumeCursor,
+   * runtimeMode) is not applied.
+   */
+  readonly getSession: (threadId: ThreadId) => Effect.Effect<ProviderSession | undefined>;
+
+  /**
    * Read capabilities for the adapter bound to a configured provider instance.
    */
   readonly getCapabilities: (

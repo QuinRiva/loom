@@ -172,6 +172,7 @@ describe("ProviderSessionReaper", () => {
     readonly stopSessionImplementation?: (input: {
       readonly threadId: ThreadId;
     }) => ReturnType<ProviderServiceShape["stopSession"]>;
+    readonly stoppedRetentionMs?: number;
   }) {
     const stoppedThreadIds = new Set<ThreadId>();
     const stopSession = vi.fn<ProviderServiceShape["stopSession"]>(
@@ -191,6 +192,7 @@ describe("ProviderSessionReaper", () => {
       respondToUserInput: () => unsupported(),
       stopSession,
       listSessions: () => Effect.succeed([]),
+      getSession: () => Effect.succeed(undefined),
       getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
       getInstanceInfo: (instanceId) => {
         const driverKind = ProviderDriverKind.make(String(instanceId));
@@ -218,6 +220,9 @@ describe("ProviderSessionReaper", () => {
     const layer = makeProviderSessionReaperLive({
       inactivityThresholdMs: 1_000,
       sweepIntervalMs: 60_000,
+      // Tests that are not about retention must not have their stopped rows
+      // pruned out from under them.
+      stoppedRetentionMs: input.stoppedRetentionMs ?? 365 * 24 * 60 * 60 * 1_000,
     }).pipe(
       Layer.provideMerge(providerSessionDirectoryLayer),
       Layer.provideMerge(runtimeRepositoryLayer),
@@ -423,7 +428,7 @@ describe("ProviderSessionReaper", () => {
     expect(Option.isSome(remaining)).toBe(true);
   });
 
-  it("skips persisted sessions that are already marked stopped", async () => {
+  it("keeps stopped bindings within the retention window so they stay resumable", async () => {
     const threadId = ThreadId.make("thread-reaper-stopped");
     const now = "2026-01-01T00:00:00.000Z";
     const harness = await createHarness({
@@ -641,5 +646,61 @@ describe("ProviderSessionReaper", () => {
       defectThreadId,
       reapedThreadId,
     ]);
+  });
+
+  it("prunes stopped bindings that outlive the retention window", async () => {
+    const staleThreadId = ThreadId.make("thread-reaper-prune-stale");
+    const freshThreadId = ThreadId.make("thread-reaper-prune-fresh");
+    const harness = await createHarness({
+      readModel: makeReadModel([]),
+      stoppedRetentionMs: 60_000,
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+    const now = await runtime!.runPromise(DateTime.now.pipe(Effect.map(DateTime.formatIso)));
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId: staleThreadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-04-14T00:00:00.000Z",
+        resumeCursor: { opaque: "resume-prune-stale" },
+        runtimePayload: null,
+      }),
+    );
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId: freshThreadId,
+        providerName: "codex",
+        providerInstanceId: null,
+        adapterKey: "codex",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: now,
+        resumeCursor: { opaque: "resume-prune-fresh" },
+        runtimePayload: null,
+      }),
+    );
+
+    const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
+    scope = await runtime!.runPromise(Scope.make("sequential"));
+    await runtime!.runPromise(reaper.start().pipe(Scope.provide(scope)));
+
+    await waitFor(async () =>
+      Option.isNone(
+        await runtime!.runPromise(repository.getByThreadId({ threadId: staleThreadId })),
+      ),
+    );
+
+    // A recently stopped session keeps its persisted provider pointer so it can
+    // still be resumed after a restart; only long-dead rows are dropped.
+    const fresh = await runtime!.runPromise(repository.getByThreadId({ threadId: freshThreadId }));
+    expect(Option.isSome(fresh)).toBe(true);
+    expect(harness.stopSession).not.toHaveBeenCalled();
   });
 });

@@ -16,10 +16,19 @@ import { ProviderService } from "../Services/ProviderService.ts";
 
 const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+// Stopping a session deliberately KEEPS its persisted binding so the session
+// can still be resumed from its provider pointer after a restart. Nothing ever
+// removed those rows, so `provider_session_runtime` grew without bound and
+// slowed every read of it. Retention: drop a stopped binding once it has been
+// untouched for this long — far beyond any realistic resume-after-restart
+// window, and independent of thread lifecycle so an archived-then-restored
+// thread is never denied a resume it would otherwise have had.
+const DEFAULT_STOPPED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ProviderSessionReaperLiveOptions {
   readonly inactivityThresholdMs?: number;
   readonly sweepIntervalMs?: number;
+  readonly stoppedRetentionMs?: number;
 }
 
 const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =>
@@ -33,17 +42,18 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       options?.inactivityThresholdMs ?? DEFAULT_INACTIVITY_THRESHOLD_MS,
     );
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
+    const stoppedRetentionMs = Math.max(
+      1,
+      options?.stoppedRetentionMs ?? DEFAULT_STOPPED_RETENTION_MS,
+    );
 
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
+      let prunedCount = 0;
 
       for (const binding of bindings) {
-        if (binding.status === "stopped") {
-          continue;
-        }
-
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -55,6 +65,28 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
 
         const idleDurationMs = now - lastSeenMs;
+
+        if (binding.status === "stopped") {
+          if (idleDurationMs < stoppedRetentionMs) {
+            continue;
+          }
+          const pruned = yield* directory.remove(binding.threadId).pipe(
+            Effect.as(true),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.reaper.prune-failed", {
+                threadId: binding.threadId,
+                provider: binding.provider,
+                idleDurationMs,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+            ),
+          );
+          if (pruned) {
+            prunedCount += 1;
+          }
+          continue;
+        }
+
         if (idleDurationMs < inactivityThresholdMs) {
           continue;
         }
@@ -96,9 +128,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
       }
 
-      if (reapedCount > 0) {
+      if (reapedCount > 0 || prunedCount > 0) {
         yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
           reapedCount,
+          prunedCount,
           totalBindings: bindings.length,
         });
       }
@@ -125,6 +158,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         yield* Effect.logInfo("provider.session.reaper.started", {
           inactivityThresholdMs,
           sweepIntervalMs,
+          stoppedRetentionMs,
         });
       });
 

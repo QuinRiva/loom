@@ -898,34 +898,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ),
       );
       const activeSessions = sessionsByProvider.flatMap((sessions) => sessions);
-      const persistedBindings = yield* directory.listThreadIds().pipe(
-        Effect.flatMap((threadIds) =>
-          Effect.forEach(
-            threadIds,
-            (threadId) =>
-              directory
-                .getBinding(threadId)
-                .pipe(
-                  Effect.orElseSucceed(() =>
-                    Option.none<ProviderSessionDirectory.ProviderRuntimeBinding>(),
-                  ),
-                ),
-            { concurrency: "unbounded" },
+      // One query for every persisted binding. Re-reading each row by id (the
+      // former shape) made this O(rows) queries, and since the runtime table
+      // retains stopped sessions that cost grew with every session ever run.
+      const persistedBindings = yield* directory
+        .listBindings()
+        .pipe(
+          Effect.orElseSucceed(
+            () => [] as ReadonlyArray<ProviderSessionDirectory.ProviderRuntimeBinding>,
           ),
-        ),
-        Effect.orElseSucceed(
-          () => [] as Array<Option.Option<ProviderSessionDirectory.ProviderRuntimeBinding>>,
-        ),
-      );
+        );
       const bindingsByThreadId = new Map<
         ThreadId,
         ProviderSessionDirectory.ProviderRuntimeBinding
       >();
-      for (const bindingOption of persistedBindings) {
-        const binding = Option.getOrUndefined(bindingOption);
-        if (binding) {
-          bindingsByThreadId.set(binding.threadId, binding);
-        }
+      for (const binding of persistedBindings) {
+        bindingsByThreadId.set(binding.threadId, binding);
       }
 
       const sessions: ProviderSession[] = [];
@@ -968,6 +956,23 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         sessions.push(Object.assign({}, session, overrides));
       }
       return sessions;
+    },
+  );
+
+  // Single-thread lookup for callers that only need one session. Reads adapter
+  // runtime state (in-memory) and issues no query at all, so it is safe on
+  // per-event and per-turn-start paths where `listSessions` was a table scan.
+  const getSession: ProviderServiceMethod<"getSession"> = Effect.fn("getSession")(
+    function* (threadId) {
+      const currentAdapters = yield* getAdapterEntries;
+      for (const [instanceId, adapter] of currentAdapters) {
+        const sessions = yield* adapter.listSessions();
+        const session = sessions.find((entry) => entry.threadId === threadId);
+        if (session) {
+          return { ...session, providerInstanceId: instanceId };
+        }
+      }
+      return undefined;
     },
   );
 
@@ -1086,6 +1091,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToUserInput,
     stopSession,
     listSessions,
+    getSession,
     getCapabilities,
     getInstanceInfo,
     rollbackConversation,
