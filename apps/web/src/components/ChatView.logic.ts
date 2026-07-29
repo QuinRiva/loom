@@ -9,6 +9,7 @@ import {
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
+import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { type ChatMessage, type SessionPhase, type Thread } from "../types";
 import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
@@ -104,6 +105,79 @@ export function decideRetroSend(input: {
     return { kind: "blocked-context", message: RETRO_BLOCKED_CONTEXT_MESSAGE };
   }
   return { kind: "dispatch", focus: parse.focus };
+}
+
+/** Composer content counts, as read at the moment a failed send wants to restore. */
+export interface ComposerContentSnapshot {
+  readonly prompt: string;
+  readonly imageCount: number;
+  readonly terminalContextCount: number;
+  readonly elementContextCount: number;
+  readonly previewAnnotationCount: number;
+  readonly reviewCommentCount: number;
+}
+
+/**
+ * Collision rule for putting a failed send's text back into the composer: only
+ * restore when the composer is still completely empty. If the human typed (or
+ * attached) anything while the send was in flight, their content wins and the
+ * submitted text is left out — never clobbered over the top.
+ */
+export function shouldRestoreSubmittedDraft(snapshot: ComposerContentSnapshot): boolean {
+  return (
+    snapshot.prompt.length === 0 &&
+    snapshot.imageCount === 0 &&
+    snapshot.terminalContextCount === 0 &&
+    snapshot.elementContextCount === 0 &&
+    snapshot.previewAnnotationCount === 0 &&
+    snapshot.reviewCommentCount === 0
+  );
+}
+
+export type ComposerDraftInterceptOutcome = "success" | "failure";
+
+/**
+ * Effect sequencing shared by the `/handoff` and `/retro` composer intercepts.
+ *
+ * Both intercepts `await` an RPC, which is the one thing the normal send path
+ * never does before clearing the composer — and that yield point was the whole
+ * double-fire bug: a still-populated, still-armed composer dispatched one
+ * drafter per keypress. So the order here is load-bearing:
+ *
+ * 1. arm the in-flight guard the caller checks at entry, with no intervening
+ *    `await`, so repeated submissions collapse to one dispatch;
+ * 2. clear the composer BEFORE the `await`, exactly as the normal path does
+ *    (which is also why the second submission no longer parses as a draft
+ *    command at all);
+ * 3. release the guard on every exit, and on failure put the submitted text
+ *    back only when the composer is still empty.
+ */
+export async function runComposerDraftIntercept<A, E>(ports: {
+  readonly submittedPrompt: string;
+  readonly setSendInFlight: (inFlight: boolean) => void;
+  readonly clearComposer: () => void;
+  readonly readComposerContent: () => ComposerContentSnapshot;
+  readonly restoreComposer: (prompt: string) => void;
+  readonly dispatch: () => Promise<AtomCommandResult<A, E>>;
+  readonly onSuccess: () => void;
+  readonly onFailure: (result: Extract<AtomCommandResult<A, E>, { _tag: "Failure" }>) => void;
+}): Promise<ComposerDraftInterceptOutcome> {
+  ports.setSendInFlight(true);
+  ports.clearComposer();
+  try {
+    const result = await ports.dispatch();
+    if (result._tag === "Failure") {
+      if (shouldRestoreSubmittedDraft(ports.readComposerContent())) {
+        ports.restoreComposer(ports.submittedPrompt);
+      }
+      ports.onFailure(result);
+      return "failure";
+    }
+    ports.onSuccess();
+    return "success";
+  } finally {
+    ports.setSendInFlight(false);
+  }
 }
 
 export function resolveThreadMetadataUpdateForNextTurn(input: {
