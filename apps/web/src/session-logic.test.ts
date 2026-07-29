@@ -265,7 +265,13 @@ describe("derivePendingUserInputs", () => {
     ]);
   });
 
-  it("clears stale pending user-input prompts when the provider reports an orphaned request", () => {
+  // A respond.failed is now a DELIVERY diagnostic, never a lifecycle signal: the
+  // server guarantees a `user-input.resolved` always eventually lands, so the
+  // client no longer infers a question's death from prose. The four divergent
+  // allowlists that used to do this are deleted — and none of them matched the
+  // details the real incident produced, which is how one question sat on screen
+  // unanswerable for 22 hours.
+  it("keeps a pending prompt open when the provider only reports a delivery failure", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "user-input-open-stale",
@@ -305,7 +311,98 @@ describe("derivePendingUserInputs", () => {
       }),
     ];
 
+    expect(derivePendingUserInputs(activities).map((entry) => entry.requestId)).toEqual([
+      "req-user-input-stale-1",
+    ]);
+  });
+
+  // Terminal-wins, the client half of the server's fold: a duplicate `requested`
+  // row for a settled request — distinct activity id, later timestamp — can never
+  // put the panel back on screen for a question that is over.
+  it("never reopens a resolved request from a late duplicate requested row", () => {
+    const question = {
+      id: "choice",
+      header: "Choice",
+      question: "Continue?",
+      options: [{ label: "yes", description: "Continue execution" }],
+      multiSelect: false,
+    };
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "open-a",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId: "req-terminal", questions: [question] },
+      }),
+      makeActivity({
+        id: "resolved",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "user-input.resolved",
+        summary: "User input dismissed",
+        tone: "info",
+        payload: { requestId: "req-terminal", answers: {}, outcome: "dismissed" },
+      }),
+      makeActivity({
+        id: "open-b-duplicate",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId: "req-terminal", questions: [question] },
+      }),
+    ];
+
     expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
+
+  // Two stacked requests: the card answers the oldest and counts the rest, so the
+  // second is visible immediately and becomes the answered-one the moment the
+  // first resolves. Under the old panel a wedged first request masked every
+  // subsequent question on the thread forever (S8).
+  it("orders stacked requests oldest-first so the next one surfaces when the first resolves", () => {
+    const question = {
+      id: "choice",
+      header: "Choice",
+      question: "Continue?",
+      options: [{ label: "yes", description: "Continue execution" }],
+      multiSelect: false,
+    };
+    const requested = (requestId: string, createdAt: string): OrchestrationThreadActivity =>
+      makeActivity({
+        id: `open-${requestId}`,
+        createdAt,
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId, questions: [question] },
+      });
+    const both = [
+      requested("req-second", "2026-02-23T00:00:02.000Z"),
+      requested("req-first", "2026-02-23T00:00:01.000Z"),
+    ];
+
+    expect(derivePendingUserInputs(both).map((entry) => entry.requestId)).toEqual([
+      "req-first",
+      "req-second",
+    ]);
+
+    const afterFirstResolves = [
+      ...both,
+      makeActivity({
+        id: "resolved-first",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: { requestId: "req-first", answers: { choice: "yes" }, outcome: "answered" },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(afterFirstResolves).map((entry) => entry.requestId)).toEqual([
+      "req-second",
+    ]);
   });
 });
 

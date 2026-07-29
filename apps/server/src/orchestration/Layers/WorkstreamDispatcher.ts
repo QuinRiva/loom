@@ -1115,7 +1115,13 @@ export const buildBriefNeededMessage = (
  * decided in the dispatcher loop because they need a durable receipt lookup /
  * freshness + in-flight-tool queries, not just current shell state.
  */
-export type ChildWakeKind = "error" | "attention" | "idle" | "recovered" | "slow-tool";
+export type ChildWakeKind =
+  | "error"
+  | "attention"
+  | "awaiting-input"
+  | "idle"
+  | "recovered"
+  | "slow-tool";
 
 /**
  * Extra evidence for wake kinds that carry runtime measurements: `slow-tool`
@@ -1151,6 +1157,8 @@ export interface ChildWakeContext {
    * and to instruct re-prompting to retry provisioning.
    */
   readonly provisionFailed?: boolean;
+  /** How many agent questions are open on an `awaiting-input` wake (≥ 1). */
+  readonly openRequestCount?: number;
 }
 
 /**
@@ -1269,6 +1277,14 @@ export const slowToolNoticeIndex = (
  * that should wake its parent, or `null`:
  * - `error` — the liveness sweep raised the child's `error` attention flag
  *   (crash/stall/loop/cap).
+ * - `awaiting-input` — the child is blocked on an agent question awaiting a
+ *   human. NOT idle-gated, deliberately: under indefinite blocking a questioning
+ *   child's session is `running` with a live `activeTurnId`, so the idle-gated
+ *   `attention` rail below never fires for it, and the frozen-executing fallback
+ *   is quiet-gated against a runtime heartbeat that keeps advancing while the
+ *   tool call blocks (the channels audit measured 27 minutes and five stacked
+ *   questions with zero notices). Without this rail the derived `awaiting_input`
+ *   flag would be visible on the board and still silent to the parent.
  * - `attention` — "paused, needs attention": the child carries a raised
  *   attention flag (`needs_guidance`/`awaiting_acceptance` — a human stop, a
  *   self-raise, a stall escalation), is not executing, and its plan lane is
@@ -1292,6 +1308,17 @@ export const classifyChildWake = (
 ): ChildWakeKind | null => {
   if (child.parentThreadId === null) return null;
   if (child.attention.includes("error")) return "error";
+  // Before the idle gate below, and before the executing rails: a question-blocked
+  // child is neither idle nor quiet, so it would otherwise produce no wake at all.
+  // A terminal child is excluded — the delta rail owns it, and its flag can linger
+  // for the bounded window until the guaranteed resolution lands.
+  if (
+    child.attention.includes("awaiting_input") &&
+    child.planLane !== "done" &&
+    child.planLane !== "cancelled"
+  ) {
+    return "awaiting-input";
+  }
   if (
     child.attention.length > 0 &&
     child.planLane !== "done" &&
@@ -1404,6 +1431,7 @@ const executingQuietMs = (
 export type ChildWakeEvidenceKind =
   | "freshness"
   | "inFlightTool"
+  | "openUserInputRequestIds"
   | "idleWakeDelivered"
   | "errorWakeDelivered";
 
@@ -1419,6 +1447,13 @@ const EMPTY_EVIDENCE_NEEDS: ReadonlySet<ChildWakeEvidenceKind> = new Set();
 export interface ChildWakeEvidence {
   /** Activity freshness — present iff `"freshness"` was in the needs set. */
   readonly freshness?: ProjectionActivityFreshness | undefined;
+  /**
+   * The child's OPEN agent-question requestIds — present iff
+   * `"openUserInputRequestIds"` was in the needs set. Keys the `awaiting-input`
+   * wake's episode, so one question produces one wake and a second question
+   * (a different open set) re-arms rather than being suppressed.
+   */
+  readonly openUserInputRequestIds?: ReadonlySet<string> | undefined;
   /** In-flight tool row (`null` when none) — present iff it was fetched. */
   readonly inFlightTool?: ProjectionInFlightTool | null | undefined;
   /**
@@ -1452,6 +1487,7 @@ export type ChildWakeSkipReason =
   | "no-activity-baseline"
   | "frozen-within-grace"
   | "no-notice-due"
+  | "no-open-request"
   | "no-in-flight-tool";
 
 /**
@@ -1486,6 +1522,7 @@ export const childWakeEvidenceNeeds = (
 ): ReadonlySet<ChildWakeEvidenceKind> => {
   const kind = classifyChildWake(child, pendingTurnStartThreadIds);
   if (kind === "error") return EMPTY_EVIDENCE_NEEDS;
+  if (kind === "awaiting-input") return new Set<ChildWakeEvidenceKind>(["openUserInputRequestIds"]);
   if (kind === "idle")
     return waitingInGate ? EMPTY_EVIDENCE_NEEDS : new Set<ChildWakeEvidenceKind>(["freshness"]);
   if (kind === "attention")
@@ -1516,6 +1553,27 @@ export const classifyChildWakeFull = (
 
   // `error` fires once, keyed on nothing but the child.
   if (kind === "error") return { kind: "error", episode: "error" };
+
+  if (kind === "awaiting-input") {
+    // Episode-keyed by the OPEN requestId set (sorted, so the key is stable
+    // regardless of fold order): one wake per open-question episode. A second
+    // question stacking on the first changes the set → the episode re-arms → the
+    // parent hears about it once too. A resolution that leaves other requests
+    // open likewise re-arms rather than going silent.
+    //
+    // An empty set means the flag is derived from a count the fold no longer
+    // agrees with (only reachable from a torn read between the two queries):
+    // withhold rather than key on "none" and burn the episode.
+    const openIds = evidence.openUserInputRequestIds ?? new Set<string>();
+    if (openIds.size === 0) return { skip: "no-open-request" };
+    return {
+      kind: "awaiting-input",
+      episode: `awaiting-input:${[...openIds].sort().join(",")}`,
+      // `quietMs` is meaningless for this rail (the child is blocked, not quiet)
+      // and is not rendered — same shape as the provisioning-failure context.
+      context: { quietMs: 0, openRequestCount: openIds.size },
+    };
+  }
 
   if (kind === "idle") {
     // Gate-waiting is not "forgot to finish": a parked gate party (source after a
@@ -1691,6 +1749,19 @@ export const buildChildWakeMessage = (
       "- Let it run — you will be re-notified at increasing intervals while it stays quiet.",
       "- `workstream_prompt` the child to queue a steer (it is only seen once the current tool call returns — it cannot penetrate an in-flight call).",
       "- `workstream_stop` the child to interrupt the call, then `workstream_prompt` it to redirect.",
+    ].join("\n");
+  }
+  if (kind === "awaiting-input") {
+    // The child is alive and mid-turn — blocked inside its own tool call waiting
+    // for a human, which is why no idle/stall rail can see it. The copy must not
+    // read as a fault.
+    const count = context?.openRequestCount ?? 1;
+    return [
+      WORKSTREAM_CONTROL_PLANE_MARKER,
+      "",
+      `Your Workstream sub-thread ${who} is blocked on ${count === 1 ? "a question" : `${count} questions`} for a human: it called \`ask_user_question\` and its turn is held open until the question is settled. Nothing has failed — its plan lane is still \`${child.planLane}\` and it is NOT finished, but it will make no further progress until someone answers.`,
+      "",
+      "A human has been alerted on the board and on any connected out-of-band channel. You can also act: answer or dismiss the question from the board on the human's behalf, or `workstream_stop` the child to cancel the question and then `workstream_prompt` it with the guidance it was asking for. Its dependents stay gated until it reaches `done`.",
     ].join("\n");
   }
   const lead =
@@ -2497,6 +2568,9 @@ const make = Effect.gen(function* () {
       const freshness = needs.has("freshness")
         ? yield* projectionSnapshotQuery.getActivityFreshnessByThreadId(child.id)
         : undefined;
+      const openUserInputRequestIds = needs.has("openUserInputRequestIds")
+        ? yield* projectionSnapshotQuery.getOpenUserInputRequestIdsByThreadId(child.id)
+        : undefined;
       const idleWakeDelivered = needs.has("idleWakeDelivered")
         ? yield* dedup.wasDelivered(
             childWakeCommandId(child.id, `idle:${freshness?.maxCreatedAt ?? "none"}`),
@@ -2552,6 +2626,7 @@ const make = Effect.gen(function* () {
         {
           freshness,
           inFlightTool,
+          openUserInputRequestIds,
           idleWakeDelivered,
           errorWakeDelivered,
           processHealth,
@@ -3168,6 +3243,16 @@ const make = Effect.gen(function* () {
         // re-run the pass.
         event.type === "thread.plan-lane-set" ||
         event.type === "thread.attention-raised" ||
+        // The `awaiting_input` wake's trigger. That flag is DERIVED from the
+        // activity log, so an opening or settling question raises/clears it with
+        // no attention-raised event to ride — without this the parent would wait
+        // for the periodic tick. Gated on the two request kinds, deliberately:
+        // `thread.activity-appended` is the highest-frequency event there is (every
+        // tool tick), and running a whole dispatcher pass per row would be a real
+        // cost for a rail that only two kinds can affect.
+        (event.type === "thread.activity-appended" &&
+          (event.payload.activity.kind === "user-input.requested" ||
+            event.payload.activity.kind === "user-input.resolved")) ||
         // A submit's routing decision (review gates): drives the yield rail
         // (and, in Phase 3, the gate-traversal pass).
         event.type === "thread.outcome-recorded" ||

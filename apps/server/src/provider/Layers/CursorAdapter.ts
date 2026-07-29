@@ -14,6 +14,7 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSession,
   type ProviderUserInputAnswers,
+  type UserInputResolvedOutcome,
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeRequestId,
@@ -75,6 +76,16 @@ import {
   extractTodosAsPlan,
 } from "../acp/CursorAcpExtension.ts";
 import { type CursorAdapterShape } from "../Services/CursorAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+} from "../Services/ProviderAdapter.ts";
+import { renderUserInputOutcomeHandoff } from "@t3tools/shared/userInputOutcome";
+
+// The single key a non-answer outcome's framing is delivered under. Cursor's
+// ask_question response has no field for "the user did not answer", so the
+// explanation rides the answers map rather than masquerading as a selection.
+const NON_ANSWER_OUTCOME_KEY = "t3_outcome";
 import { resolveCursorAcpBaseModelId } from "./CursorProvider.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
@@ -119,7 +130,21 @@ interface PendingApproval {
 }
 
 interface PendingUserInput {
-  readonly answers: Deferred.Deferred<ProviderUserInputAnswers>;
+  // The full settlement, not bare answers: the blocked callback must be able to
+  // tell an answer from a dismissal. Delivery-only — the server already
+  // persisted the resolution before this is completed.
+  readonly settlement: Deferred.Deferred<PendingUserInputSettlement>;
+  // Completed by the callback itself, immediately before it returns to the ACP
+  // peer. Completing `settlement` only makes the value available to the blocked
+  // fibre; it does not prove the callback has returned. See ClaudeAdapter's
+  // `released` for the full rationale.
+  readonly released: Deferred.Deferred<void>;
+}
+
+interface PendingUserInputSettlement {
+  readonly outcome: UserInputResolvedOutcome;
+  readonly answers: ProviderUserInputAnswers;
+  readonly message?: string;
 }
 
 interface CursorSessionContext {
@@ -153,13 +178,20 @@ function settlePendingApprovalsAsCancelled(
   );
 }
 
-function settlePendingUserInputsAsEmptyAnswers(
+// Session teardown: release every blocked question as CANCELLED, which is what
+// actually happened. (It previously completed them with empty answers, which the
+// callback could not distinguish from the user choosing nothing.)
+function settlePendingUserInputsAsCancelled(
   pendingUserInputs: ReadonlyMap<ApprovalRequestId, PendingUserInput>,
 ): Effect.Effect<void> {
   const pendingEntries = Array.from(pendingUserInputs.values());
   return Effect.forEach(
     pendingEntries,
-    (pending) => Deferred.succeed(pending.answers, {}).pipe(Effect.ignore),
+    (pending) =>
+      Deferred.succeed(pending.settlement, { outcome: "cancelled" as const, answers: {} }).pipe(
+        Effect.andThen(Deferred.succeed(pending.released, void 0)),
+        Effect.ignore,
+      ),
     {
       discard: true,
     },
@@ -461,7 +493,7 @@ export function makeCursorAdapter(
         if (ctx.stopped) return;
         ctx.stopped = true;
         yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
-        yield* settlePendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
+        yield* settlePendingUserInputsAsCancelled(ctx.pendingUserInputs);
         if (ctx.notificationFiber) {
           yield* Fiber.interrupt(ctx.notificationFiber);
         }
@@ -582,8 +614,9 @@ export function makeCursorAdapter(
                   );
                   const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
                   const runtimeRequestId = RuntimeRequestId.make(requestId);
-                  const answers = yield* Deferred.make<ProviderUserInputAnswers>();
-                  pendingUserInputs.set(requestId, { answers });
+                  const settlement = yield* Deferred.make<PendingUserInputSettlement>();
+                  const released = yield* Deferred.make<void>();
+                  pendingUserInputs.set(requestId, { settlement, released });
                   yield* offerRuntimeEvent({
                     type: "user-input.requested",
                     ...(yield* makeEventStamp()),
@@ -598,18 +631,35 @@ export function makeCursorAdapter(
                       payload: params,
                     },
                   });
-                  const resolved = yield* Deferred.await(answers);
+                  // Settlement is durable BEFORE this resolves (settle-first), so
+                  // this adapter emits NO `user-input.resolved` of its own — a
+                  // second terminal event would put a contradictory outcome on one
+                  // request (an outcome-less `answered` overwriting the human's
+                  // `dismissed`).
+                  const resolved = yield* Deferred.await(settlement);
                   pendingUserInputs.delete(requestId);
-                  yield* offerRuntimeEvent({
-                    type: "user-input.resolved",
-                    ...(yield* makeEventStamp()),
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    turnId: ctx?.activeTurnId,
-                    requestId: runtimeRequestId,
-                    payload: { answers: resolved },
-                  });
-                  return { answers: resolved };
+                  // cursor/ask_question has one shape: an answers map. A non-answer
+                  // outcome has no answers, so the framing rides the map's values
+                  // rather than fabricating a selection — and for a supersede that
+                  // framing SAYS the message arrives next, so the model waits for it
+                  // instead of proceeding past a bare cancellation.
+                  const response =
+                    resolved.outcome === "answered"
+                      ? { answers: resolved.answers }
+                      : {
+                          answers: {
+                            [NON_ANSWER_OUTCOME_KEY]: renderUserInputOutcomeHandoff({
+                              outcome: resolved.outcome,
+                              ...(resolved.message !== undefined
+                                ? { message: resolved.message }
+                                : {}),
+                            }),
+                          },
+                        };
+                  // Last thing before returning: the caller gates its fallback turn
+                  // on this, so it can never be dispatched mid-callback.
+                  yield* Deferred.succeed(released, void 0).pipe(Effect.ignore);
+                  return response;
                 }),
               ),
             );
@@ -1062,7 +1112,7 @@ export function makeCursorAdapter(
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
         yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
-        yield* settlePendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
+        yield* settlePendingUserInputsAsCancelled(ctx.pendingUserInputs);
         yield* Effect.ignore(
           ctx.acp.cancel.pipe(
             Effect.mapError((error) =>
@@ -1090,10 +1140,13 @@ export function makeCursorAdapter(
         yield* Deferred.succeed(pending.decision, decision);
       });
 
+    // DELIVERY ONLY: the durable resolution already exists, so nothing here can
+    // leave the question open and no terminal event is emitted.
     const respondToUserInput: CursorAdapterShape["respondToUserInput"] = (
       threadId,
       requestId,
       answers,
+      settlement,
     ) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
@@ -1105,7 +1158,17 @@ export function makeCursorAdapter(
             detail: `Unknown pending user-input request: ${requestId}`,
           });
         }
-        yield* Deferred.succeed(pending.answers, answers);
+        const outcome = settlement?.outcome ?? "answered";
+        yield* Deferred.succeed(pending.settlement, {
+          outcome,
+          answers,
+          ...(settlement?.message !== undefined ? { message: settlement.message } : {}),
+        });
+        if (outcome !== "superseded") return userInputContentDelivered;
+        // Await the callback's own release before reporting that a fallback turn
+        // is needed (see ClaudeAdapter for why the Deferred alone is not proof).
+        yield* Deferred.await(pending.released);
+        return userInputContentUndelivered;
       });
 
     const readThread: CursorAdapterShape["readThread"] = (threadId) =>

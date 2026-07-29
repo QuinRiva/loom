@@ -15,6 +15,8 @@ import {
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -38,6 +40,10 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+} from "../Services/ProviderAdapter.ts";
 import {
   buildOpenCodePermissionRules,
   OpenCodeRuntime,
@@ -204,6 +210,20 @@ function openCodeEventSessionTitle(event: OpenCodeSubscribedEvent): string | und
   return trimText(event.properties.info.title);
 }
 
+// Bounded so a never-arriving terminal event cannot strand the human's message:
+// after this the fallback turn is dispatched anyway, which is the safer failure
+// (a possible steer) than silence (a certainly-lost reply).
+const OPENCODE_QUESTION_RELEASE_TIMEOUT = Duration.seconds(5);
+
+const releaseOpenCodeQuestion = (
+  context: { readonly questionReleaseById: Map<string, Deferred.Deferred<void>> },
+  requestId: string,
+): Effect.Effect<void> => {
+  const release = context.questionReleaseById.get(requestId);
+  context.questionReleaseById.delete(requestId);
+  return release ? Deferred.succeed(release, void 0).pipe(Effect.ignore) : Effect.void;
+};
+
 interface OpenCodeSessionContext {
   session: ProviderSession;
   readonly client: OpencodeClient;
@@ -212,6 +232,13 @@ interface OpenCodeSessionContext {
   readonly openCodeSessionId: string;
   readonly pendingPermissions: Map<string, PermissionRequest>;
   readonly pendingQuestions: Map<string, QuestionRequest>;
+  // Completed when OpenCode's own event stream confirms the question left its
+  // pending state (`question.replied`/`question.rejected`), i.e. the blocked
+  // callback inside the OpenCode server has returned. `question.reject` is an HTTP
+  // call whose 200 only means the request was accepted, so it is not proof; the
+  // caller gates its fallback turn on this Deferred instead. See ClaudeAdapter's
+  // `released` for the full rationale.
+  readonly questionReleaseById: Map<string, Deferred.Deferred<void>>;
   readonly messageRoleById: Map<string, "user" | "assistant">;
   readonly partById: Map<string, Part>;
   readonly emittedTextByPartId: Map<string, string>;
@@ -980,6 +1007,7 @@ export function makeOpenCodeAdapter(
 
         case "question.asked": {
           context.pendingQuestions.set(event.properties.id, event.properties);
+          context.questionReleaseById.set(event.properties.id, yield* Deferred.make<void>());
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
@@ -1012,8 +1040,11 @@ export function makeOpenCodeAdapter(
               raw: event,
             })),
             type: "user-input.resolved",
-            payload: { answers },
+            // Delivery echo of an already-settled request; ingestion drops it when
+            // the durable resolution exists.
+            payload: { answers, outcome: "answered" },
           });
+          yield* releaseOpenCodeQuestion(context, event.properties.requestID);
           break;
         }
 
@@ -1027,8 +1058,10 @@ export function makeOpenCodeAdapter(
               raw: event,
             })),
             type: "user-input.resolved",
-            payload: { answers: {} },
+            // A rejection is the protocol's "no answer" path — never an answer.
+            payload: { answers: {}, outcome: "cancelled" },
           });
+          yield* releaseOpenCodeQuestion(context, event.properties.requestID);
           break;
         }
 
@@ -1376,6 +1409,7 @@ export function makeOpenCodeAdapter(
           openCodeSessionId: started.openCodeSession.id,
           pendingPermissions: new Map(),
           pendingQuestions: new Map(),
+          questionReleaseById: new Map(),
           partById: new Map(),
           emittedTextByPartId: new Map(),
           messageRoleById: new Map(),
@@ -1578,9 +1612,12 @@ export function makeOpenCodeAdapter(
       ).pipe(Effect.mapError(toRequestError));
     });
 
+    // DELIVERY ONLY: the durable resolution already exists, so nothing here can
+    // leave the question open, and this adapter emits no terminal event of its own
+    // (the `question.replied`/`question.rejected` echoes are dropped by ingestion).
     const respondToUserInput: OpenCodeAdapterShape["respondToUserInput"] = Effect.fn(
       "respondToUserInput",
-    )(function* (threadId, requestId, answers) {
+    )(function* (threadId, requestId, answers, settlement) {
       const context = yield* ensureSessionContext(sessions, threadId);
       const request = context.pendingQuestions.get(requestId);
       if (!request) {
@@ -1591,12 +1628,41 @@ export function makeOpenCodeAdapter(
         });
       }
 
+      const outcome = settlement?.outcome ?? "answered";
+      // A non-answer outcome must REJECT, not reply. Replying with the empty
+      // answers array a dismissal produces is what left OpenCode blocked: the
+      // server validates the form and refuses it, so the callback never returns.
+      // `question.reject` is the protocol's own "no answer" path.
+      //
+      // It carries NO body (`/question/{requestID}/reject` takes only the id), so
+      // unlike the other adapters there is no channel for handoff prose here — the
+      // model learns a supersede is a handoff from the fallback turn itself, whose
+      // opener says the questions were settled and this is that outcome.
+      if (outcome !== "answered") {
+        const release = context.questionReleaseById.get(requestId);
+        yield* runOpenCodeSdk("question.reject", () =>
+          context.client.question.reject({ requestID: requestId }),
+        ).pipe(Effect.mapError(toRequestError));
+        if (outcome !== "superseded") return userInputContentDelivered;
+        // The 200 above only says the reject was accepted. Wait for OpenCode's own
+        // `question.rejected` event — proof the blocked callback returned — before
+        // telling the caller to open the fallback turn, or that turn could be
+        // folded into the live session as a steer and swallowed. Bounded, because a
+        // never-arriving event must not strand the human's message.
+        if (release)
+          yield* Deferred.await(release).pipe(
+            Effect.timeoutOption(OPENCODE_QUESTION_RELEASE_TIMEOUT),
+          );
+        return userInputContentUndelivered;
+      }
+
       yield* runOpenCodeSdk("question.reply", () =>
         context.client.question.reply({
           requestID: requestId,
           answers: toOpenCodeQuestionAnswers(request, answers),
         }),
       ).pipe(Effect.mapError(toRequestError));
+      return userInputContentDelivered;
     });
 
     const stopSession: OpenCodeAdapterShape["stopSession"] = Effect.fn("stopSession")(

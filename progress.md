@@ -248,3 +248,179 @@ boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
   Pill deep-link scope ("pi\0carl@") now filters rows via declared coverage.
 - Updated docs/providers/claude.md example + local settings.json
   (providerIds: ["cliproxy"] on both sources). Server restart needed.
+
+## ask_user_question settlement: SDK-provider supersede delivery — 2026-07-29
+
+- Q: the revised design's commitment 3 says a superseded question's message is
+  delivered **as the tool result**. Pi can do that (its broker poll carries the
+  prose). The five other providers cannot: Claude's `canUseTool` result is
+  allow-with-answers or deny-with-a-message, Grok's ask_user_question models only
+  accepted/cancelled, Cursor's and Codex's responses are answers maps, and
+  OpenCode's `question.reject` takes no body. Releasing those callbacks with a
+  bare cancellation would drop the human's message.
+- Consulted the author of the current indefinite-blocking revision,
+  `5185872f-ccf7-438e-91a1-1c47f1e74e73` (role=plan). **Confidence: HIGH.**
+  Decision: **Option 1 — accept the exactly-once new-turn fallback and amend the
+  plan to say so.** This is delivery mechanics within the settled design, not a
+  departure from it, so no escalation. Acceptance is conditional on three
+  invariants, all now implemented and regression-tested:
+  1. **Release-before-turn, proven not assumed.** The callback must have handed
+     its result back before the fallback turn dispatches. Completing a `Deferred`
+     is _not_ proof (it only makes the value available to the blocked fibre), so
+     each adapter carries an explicit `released` signal completed at the real
+     boundary — for Claude that is after the SDK's promise settles, for OpenCode
+     it is OpenCode's own `question.rejected` event (bounded by a timeout so a
+     missing event cannot strand the message). `respondToUserInput` awaits it
+     before reporting `deliveredContent: false`.
+  2. **Exactly-once, durably.** The fallback turn's command id is derived from the
+     causative settlement event (`server:user-input-late-delivery:<requestId>:<eventId>`),
+     so a reactor retry or event redelivery is receipt-deduped instead of
+     delivering an action-bearing message twice. The settlement helper likewise
+     allocates its resolution id _outside_ its retry.
+  3. **The released callback frames the handoff.** Not a bare `cancelled`:
+     `renderUserInputOutcomeHandoff` says the questions are settled, the user's
+     message arrives as the next message, and the model must not assume or re-ask.
+     OpenCode is the one exception — `question.reject` has no body — so there the
+     framing rides the fallback turn's opener alone.
+- Also settled here: **first-terminal-wins is enforced in the decider**, not by a
+  projection pre-check. A pre-check reads then dispatches, so a settlement
+  committing in between still lets an adapter's delivery echo land second and
+  leave one request carrying two contradictory terminal outcomes. The decider runs
+  inside the engine's serialised command queue against the just-committed read
+  model, so the check and the write are atomic; a rejected echo is expected and
+  tolerated by ingestion.
+
+## ask_user_question: the non-modal question card (web + mobile) — 2026-07-29
+
+The composer takeover is **deleted, not relocated**. A question now renders as
+`apps/web/src/components/chat/PendingQuestionCard.tsx`, above the composer and
+owning every answering control; `ChatComposer` receives the card as an opaque
+`ReactNode` plus a boolean for header spacing, so it can no longer read a
+question's answer state at all. That prop shape is the structural guarantee — the
+S9 hard locks cannot be re-added without re-plumbing the props, and
+`composerQuestionIsolation.test.ts` pins their absence at source level.
+
+Deleted with it: the editor value swap, the `onPromptChange` reroute, the
+`applyPromptReplacement` answer branch, the `promptRef`-syncing effect, the Enter
+hijack in `onSend`, the option-click `promptRef.current = ""`, the document-level
+digit listener and its 200 ms auto-advance-submit, the placeholder swap, the
+image/terminal-context/review-comment/annotation suppressions, the mobile
+compact-answer row, and `ComposerPendingUserInputPanel.tsx`. `ComposerPrimaryActions`
+lost its whole pending branch, so `isRunning` (the stop button) is now the first
+branch in the component — stop can never be structurally unreachable again.
+
+Two shared modules replace four divergent copies of the same logic:
+
+- `packages/shared/src/userInputAnswers.ts` — the draft shape and the rules for
+  turning drafts into the `string | string[]` wire contract. Mobile previously
+  carried a singular `selectedOptionLabel` and silently truncated a multi-select
+  answer to one label (S10); one definition makes that unrepresentable rather
+  than fixed-on-one-client.
+- The draft collection itself — entries keyed by `(environmentId, requestId)`,
+  tagged with their owning thread, and the transitions over them (toggle, custom
+  answer, evict-on-resolve) — also lives in that shared module. `apps/web`'s
+  `userInputAnswerDraftStore.ts` and mobile's `user-input-drafts.ts` are now only
+  the zustand/atom bindings. **Round 1 found why that matters**: I first wrote the
+  eviction rule twice, and the two copies diverged — mobile evicted by _environment_
+  prefix against the selected thread's open set, so switching away from a thread
+  with a partial answer deleted it. Web's copy was correct. One rule, one place.
+  Deliberately not persisted: a reload loses an unsubmitted partial selection, per
+  the design.
+
+Send-while-open: the early return that turned Enter into an answer submit is gone.
+A plain send is a supersede (server-side), and the card resolves visibly to
+"Answered by your message" rather than vanishing. Sending is never blocked.
+
+**Live verification** (dev-verify recipe, two stacked questions injected on a
+running instance): the card showed "1 more pending"; a draft typed in the composer
+stayed intact while options were clicked, including multi-select; digits pressed
+with focus on `document.body` landed in the draft and selected nothing (the S4
+class is gone); dismiss dispatched `thread.user-input.dismiss` with the right
+requestId; and a question resolved through the real engine path cleared its card
+while the count went to 0.
+
+One thing worth knowing for future live verification: **the startup scan settles
+every open question at boot by design (commitment 1)**, so a question seeded into
+`seedWorkstream.ts` is always resolved-cancelled before the UI can show it. An
+open question has to be injected into an already-running instance. Raw sqlite
+inserts do not work either — the running server does not re-read them — so this
+is a genuine gap in the dev-verify recipe for question UI, not something the
+recipe covers today.
+
+### Round 1 review: two findings, both upheld
+
+**Mobile eviction destroyed another thread's draft (must-fix).** Real, and my
+round-0 report overclaimed by saying the cross-thread case was handled — it was
+handled on web only. The fix is not a patch to mobile's copy: the _rule_ moved into
+`@t3tools/shared/userInputAnswers` (`withResolvedUserInputDraftsEvicted` and
+friends, keyed on an explicit `threadKey` per entry), so both clients execute the
+same code. The same reasoning as the multi-select truncation fix — a rule written
+twice is a rule that will diverge. Mobile's atom moved to
+`apps/mobile/src/state/user-input-drafts.ts` so it is reachable without importing
+the hook's React Native graph, which is what made an atom-level regression possible.
+Pinned in both `packages/shared/src/userInputAnswers.test.ts` (5 cases, incl. the
+outcome-agnostic startup-`cancelled` path the reviewer asked for) and
+`apps/mobile/src/state/user-input-drafts.test.ts` (5 cases). Both suites verified to
+FAIL against a reintroduced environment-prefix rule before being accepted.
+
+**The S4 source test pinned spellings, not behaviour (nice-to-have).** Also right,
+and worth more than the "broaden the identifiers" remedy suggested: identifiers are
+still spellings. `pendingQuestionKeyboardSafety.test.tsx` now renders the card into
+jsdom and asserts the invariant directly — an unaimed digit or Enter (body,
+document, the card, a focused option button, the free-text field, and after a delay
+past any auto-advance window) reaches none of the select/submit/dismiss callbacks,
+while real clicks still do. Validated by rebuilding the deleted hazard in the shape
+the source test cannot see (`window.addEventListener` + `queueMicrotask` +
+no `Number.parseInt`): the source test passed it, this one failed in 4 places.
+`composerQuestionIsolation.test.ts` is retained and re-scoped to what source
+matching can honestly guarantee — the prop boundary, which renders no output.
+
+## ask_user_question: derived attention on the wire — 2026-07-29
+
+Increment 1's attention half (design commitment 2, plus the dispatcher wake).
+Two things worth recording because they are not spelled out in the plan.
+
+- **The dispatcher needed a re-pass TRIGGER, not just a wake rail.** The plan
+  specifies the non-idle-gated `awaiting_input` wake and its requestId-keyed
+  episode, both implemented as written. But `awaiting_input` is derived from the
+  activity log, so an opening question raises no `thread.attention-raised` — and
+  the dispatcher's event subscription had no `thread.activity-appended` trigger,
+  so the wake would have waited on the 60-second periodic tick. Added a trigger
+  gated on `user-input.requested`/`user-input.resolved` specifically:
+  `thread.activity-appended` is the highest-frequency event in the system (every
+  tool tick), and running a whole dispatcher pass per row would be a real cost for
+  a rail only those two kinds can affect.
+- **The wake reads the open requestIds through a NEW narrow query**
+  (`getOpenUserInputRequestIdsByThreadId`), not the shell count and not
+  `getThreadDetailById`. The episode key needs identities, so one question yields
+  one wake and a second re-arms rather than being suppressed; the detail read
+  caps activities at a 500-row window, which would silently drop an old
+  `requested` row and mis-key the episode. The new query is kind-filtered and
+  uncapped, folded by the same shared `openUserInputRequestIds` the shell count
+  and the decider's `hasOpenBlockingRequest` use, so all three cannot disagree.
+
+The decider-exclusion invariant is pinned by a real restart diff
+(`OrchestrationEngine.test.ts`), and getting that test to actually test anything
+took two corrections worth recording, because both failure modes look like
+passing tests:
+
+1. **Dispatching the same command id twice against one database never reaches the
+   decider the second time.** The accepted receipt short-circuits at
+   `OrchestrationEngine.ts:172`, so the "restarted" probe returned the first
+   probe's sequence without deciding anything.
+2. **Reading the whole event log from a shared database compares a history to
+   itself.** Both probes must be compared on the events _they_ emitted (a cursor
+   taken before each probe), not on the log they share by construction.
+
+The shape that actually pins it: seed a live engine (its decider model built
+incrementally by the in-memory projector — the genuine "before"), snapshot the
+database with `VACUUM INTO` to a second path, run the SAME `set_lane done` probe
+once in each, and compare only each probe's newly-emitted events. `set_lane done`
+is the probe because its clear-all branch is gated on `attention.length > 0`,
+which is exactly what a leaked derived member flips.
+
+Mutation-verified the way a reviewer would attack it: with the union leaked into
+`getCommandReadModel` AND the direct stored-only assertions neutralised, the
+event-stream _equality itself_ fails (live emits one event, restarted emits two).
+An earlier version of this test passed under that same procedure — the direct
+assertions were doing all the work and the diff was decorative.

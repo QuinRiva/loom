@@ -243,7 +243,9 @@ describe("ProviderCommandReactor", () => {
     );
     const interruptTurn = vi.fn((_: unknown) => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
-    const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
+    const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() =>
+      Effect.succeed({ deliveredContent: true }),
+    );
     const stopSession = vi.fn((input: unknown) =>
       Effect.sync(() => {
         const threadId =
@@ -2637,40 +2639,62 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("reacts to thread.user-input.respond by forwarding structured user input answers", async () => {
+  // Settle-FIRST: the durable `user-input.resolved` lands in the same transaction
+  // as the delivery intent, so the question is over the moment the command is
+  // accepted and provider delivery is best-effort afterwards.
+  it("settles the durable record before forwarding structured user input answers", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-for-user-input"),
-        threadId: ThreadId.make("thread-1"),
-        session: {
+      harness.engine
+        .dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-session-set-for-user-input"),
           threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "codex",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.user-input.respond",
-        commandId: CommandId.make("cmd-user-input-respond"),
-        threadId: ThreadId.make("thread-1"),
-        requestId: asApprovalRequestId("user-input-request-1"),
-        answers: {
-          sandbox_mode: "workspace-write",
-        },
-        createdAt: now,
-      }),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            queuedMessages: { steering: [], followUp: [] },
+            updatedAt: now,
+          },
+          createdAt: now,
+        })
+        .pipe(
+          Effect.andThen(
+            harness.engine.dispatch({
+              type: "thread.activity.append",
+              commandId: CommandId.make("cmd-user-input-requested-happy"),
+              threadId: ThreadId.make("thread-1"),
+              activity: {
+                id: EventId.make("activity-user-input-requested-happy"),
+                tone: "info",
+                kind: "user-input.requested",
+                summary: "User input requested",
+                payload: { requestId: "user-input-request-1", questions: [] },
+                turnId: null,
+                createdAt: now,
+              },
+              createdAt: now,
+            }),
+          ),
+          Effect.andThen(
+            harness.engine.dispatch({
+              type: "thread.user-input.respond",
+              commandId: CommandId.make("cmd-user-input-respond"),
+              threadId: ThreadId.make("thread-1"),
+              requestId: asApprovalRequestId("user-input-request-1"),
+              answers: {
+                sandbox_mode: "workspace-write",
+              },
+              createdAt: now,
+            }),
+          ),
+        ),
     );
 
     await waitFor(() => harness.respondToUserInput.mock.calls.length === 1);
@@ -2680,7 +2704,456 @@ describe("ProviderCommandReactor", () => {
       answers: {
         sandbox_mode: "workspace-write",
       },
+      outcome: "answered",
     });
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const resolved = thread?.activities.find(
+      (activity) =>
+        activity.kind === "user-input.resolved" &&
+        (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
+    );
+    expect(resolved?.payload).toMatchObject({ outcome: "answered" });
+  });
+
+  // EXACTLY-ONCE, durably. The fallback turn's command id is derived from the
+  // causative settlement event, so a redelivery/replay of that same event is
+  // receipt-deduped by the engine instead of opening a second turn and delivering
+  // an action-bearing human message twice.
+  it("opens exactly one fallback turn when the settlement event is redelivered", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    harness.respondToUserInput.mockImplementation(() =>
+      Effect.succeed({ deliveredContent: false }),
+    );
+
+    await harness.engine
+      .dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-replay"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId: asTurnId("turn-blocked-replay"),
+          lastError: null,
+          queuedMessages: { steering: [], followUp: [] },
+          updatedAt: now,
+        },
+        createdAt: now,
+      })
+      .pipe(
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make("cmd-question-open-for-replay"),
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-question-open-for-replay"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: { requestId: "user-input-request-replay", questions: [] },
+              turnId: null,
+              createdAt: now,
+            },
+            createdAt: now,
+          }),
+        ),
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-plain-message-replay"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("message-replay"),
+              role: "user",
+              text: "ship it",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "full-access",
+            createdAt: now,
+          }),
+        ),
+        Effect.runPromise,
+      );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    const fallbackMessages = async () => {
+      const model = await harness.readModel();
+      return (
+        model.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.messages ?? []
+      ).filter(
+        (message) => message.origin === "control_notice" && message.text.includes("ship it"),
+      );
+    };
+    expect(await fallbackMessages()).toHaveLength(1);
+
+    // The settlement event that caused it, and the command id the reactor derives
+    // from it. Re-dispatching that exact id is what a reactor retry or an event
+    // redelivery produces; the engine's command receipt must make it a no-op.
+    // With the previous random id this opened a second turn and delivered the
+    // human's message twice.
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    const settlement = events.find(
+      (event) =>
+        event.type === "thread.user-input-response-requested" &&
+        (event.payload as { requestId?: string }).requestId === "user-input-request-replay",
+    );
+    expect(settlement).toBeDefined();
+    const sendTurnsBefore = harness.sendTurn.mock.calls.length;
+
+    await Effect.runPromise(
+      harness.engine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(
+            `server:user-input-late-delivery:user-input-request-replay:${settlement?.eventId}`,
+          ),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: MessageId.make("message-replay-duplicate"),
+            role: "user",
+            origin: "control_notice",
+            text: "ship it (a duplicate that must never land)",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          createdAt: now,
+        })
+        .pipe(Effect.ignoreCause({ log: false })),
+    );
+    await harness.drain();
+
+    // Still exactly one delivery, and no duplicate ever reached the provider.
+    expect(await fallbackMessages()).toHaveLength(1);
+    expect(harness.sendTurn.mock.calls.length).toBe(sendTurnsBefore);
+    const after = await harness.readModel();
+    expect(
+      (after.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.messages ?? []).some(
+        (message) => message.text.includes("must never land"),
+      ),
+    ).toBe(false);
+  });
+
+  // RELEASE-BEFORE-TURN, end to end. This is the ordering the SDK/ACP fallback
+  // depends on: when a provider's question callback cannot carry the supersede
+  // message, the reactor opens exactly one new turn instead — but that turn must
+  // not be dispatched while the provider is still inside the callback, or it is
+  // folded into the live turn as a steer and swallowed (the very loss this gate
+  // exists to prevent). The mock below models a provider that is still blocked
+  // until it says otherwise, and asserts no `sendTurn` happens before it does.
+  it("never dispatches the fallback turn while the provider is still in the callback", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    let callbackReleased = false;
+    let sendTurnWhileBlocked = false;
+
+    harness.sendTurn.mockImplementation(() => {
+      if (!callbackReleased) sendTurnWhileBlocked = true;
+      return Effect.succeed({
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-fallback"),
+      });
+    });
+    // A provider whose callback stays blocked for a while, then releases and
+    // reports that the outcome's content could not ride it.
+    harness.respondToUserInput.mockImplementation(() =>
+      Effect.sleep("50 millis").pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            callbackReleased = true;
+            return { deliveredContent: false };
+          }),
+        ),
+      ),
+    );
+
+    await harness.engine
+      .dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-release-order"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId: asTurnId("turn-blocked-in-callback"),
+          lastError: null,
+          queuedMessages: { steering: [], followUp: [] },
+          updatedAt: now,
+        },
+        createdAt: now,
+      })
+      .pipe(
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make("cmd-question-open-for-release-order"),
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-question-open-for-release-order"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: { requestId: "user-input-request-release-order", questions: [] },
+              turnId: null,
+              createdAt: now,
+            },
+            createdAt: now,
+          }),
+        ),
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-plain-message-release-order"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("message-release-order"),
+              role: "user",
+              text: "delete the staging bucket",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "full-access",
+            createdAt: now,
+          }),
+        ),
+        Effect.runPromise,
+      );
+
+    // Exactly one fallback turn, and it happened only after the release.
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+    expect(sendTurnWhileBlocked).toBe(false);
+    expect(harness.sendTurn.mock.calls).toHaveLength(1);
+
+    // …and it carries the human's ACTUAL message, not just a generic notice.
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(
+      thread?.messages.some(
+        (message) =>
+          message.origin === "control_notice" &&
+          message.text.includes("delete the staging bucket") &&
+          message.text.includes("user-input-request-release-order"),
+      ),
+    ).toBe(true);
+  });
+
+  // Finding: a stop/interrupt against an ALREADY-INACTIVE provider used to clear
+  // nothing, because the runtime cancel paths only fire when the adapter is
+  // reachable. That reproduced incident 1's stale shape from a deliberate human
+  // action — and would have left the reachable Stop control unable to unwedge the
+  // very state it looks like it should fix.
+  it("settles open questions on stop and interrupt even with no live provider", async () => {
+    for (const [index, scenario] of (
+      [
+        { command: "thread.session.stop", requestId: "user-input-open-at-stop" },
+        { command: "thread.turn.interrupt", requestId: "user-input-open-at-interrupt" },
+      ] as const
+    ).entries()) {
+      const harness = await createHarness();
+      const now = "2026-01-01T00:00:00.000Z";
+
+      await harness.engine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make(`cmd-question-open-before-${index}`),
+          threadId: ThreadId.make("thread-1"),
+          activity: {
+            id: EventId.make(`activity-question-open-before-${index}`),
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: { requestId: scenario.requestId, questions: [] },
+            turnId: null,
+            createdAt: now,
+          },
+          createdAt: now,
+        })
+        .pipe(
+          // No session is ever set: the provider is gone, which is precisely the
+          // case the old code skipped.
+          Effect.andThen(
+            harness.engine.dispatch({
+              type: scenario.command,
+              commandId: CommandId.make(`cmd-${scenario.command}-${index}`),
+              threadId: ThreadId.make("thread-1"),
+              createdAt: now,
+            }),
+          ),
+          Effect.runPromise,
+        );
+
+      await waitFor(async () => {
+        const readModel = await harness.readModel();
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        return (
+          thread?.activities.some(
+            (activity) =>
+              activity.kind === "user-input.resolved" &&
+              (activity.payload as Record<string, unknown>).requestId === scenario.requestId,
+          ) ?? false
+        );
+      });
+
+      const readModel = await harness.readModel();
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      const resolved = thread?.activities.find(
+        (activity) =>
+          activity.kind === "user-input.resolved" &&
+          (activity.payload as Record<string, unknown>).requestId === scenario.requestId,
+      );
+      expect(resolved?.payload).toMatchObject({ outcome: "cancelled" });
+    }
+  });
+
+  // Incident 2, end to end through decider → reactor → adapter. A plain human
+  // message while a question is open must reach the model EXACTLY ONCE: as the
+  // tool result. If a turn-start also fired, pi would fold the same text into the
+  // live turn as a steer and an action-bearing reply would execute twice.
+  it("supersedes without any sendTurn on the live path", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await harness.engine
+      .dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-supersede"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "pi",
+          runtimeMode: "full-access",
+          activeTurnId: asTurnId("turn-blocked-on-question"),
+          lastError: null,
+          queuedMessages: { steering: [], followUp: [] },
+          updatedAt: now,
+        },
+        createdAt: now,
+      })
+      .pipe(
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make("cmd-question-open-for-supersede"),
+            threadId: ThreadId.make("thread-1"),
+            activity: {
+              id: EventId.make("activity-question-open-for-supersede"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: { requestId: "user-input-request-supersede", questions: [] },
+              turnId: null,
+              createdAt: now,
+            },
+            createdAt: now,
+          }),
+        ),
+        Effect.andThen(
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("cmd-plain-message-while-question-open"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: MessageId.make("message-supersede"),
+              role: "user",
+              text: "delete the staging bucket",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "full-access",
+            createdAt: now,
+          }),
+        ),
+      )
+      .pipe(Effect.runPromise);
+
+    // The outcome is delivered to the waiting tool call, carrying the text.
+    await waitFor(() => harness.respondToUserInput.mock.calls.length === 1);
+    expect(harness.respondToUserInput.mock.calls[0]?.[0]).toMatchObject({
+      threadId: "thread-1",
+      requestId: "user-input-request-supersede",
+      outcome: "superseded",
+      message: "delete the staging bucket",
+    });
+
+    // And the adapter is never asked to send a turn: no second copy of the
+    // instruction, as a steer or otherwise. `drain` is the deterministic wait —
+    // the reactor's queue is empty, so a turn-start would already have landed.
+    await harness.drain();
+    expect(harness.sendTurn.mock.calls).toHaveLength(0);
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const resolved = thread?.activities.find(
+      (activity) =>
+        activity.kind === "user-input.resolved" &&
+        (activity.payload as Record<string, unknown>).requestId === "user-input-request-supersede",
+    );
+    expect(resolved?.payload).toMatchObject({ outcome: "superseded" });
+    // The human's message is still in the transcript.
+    expect(thread?.messages.some((message) => message.text === "delete the staging bucket")).toBe(
+      true,
+    );
+  });
+
+  // Dismiss settles unconditionally, with no provider round-trip on the critical
+  // path — the escape hatch that works even when the asking process is dead.
+  it("settles a question on dismiss without any provider round-trip", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("cmd-user-input-requested-dismiss"),
+          threadId: ThreadId.make("thread-1"),
+          activity: {
+            id: EventId.make("activity-user-input-requested-dismiss"),
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: { requestId: "user-input-request-dismiss", questions: [] },
+            turnId: null,
+            createdAt: now,
+          },
+          createdAt: now,
+        })
+        .pipe(
+          Effect.andThen(
+            harness.engine.dispatch({
+              type: "thread.user-input.dismiss",
+              commandId: CommandId.make("cmd-user-input-dismiss"),
+              threadId: ThreadId.make("thread-1"),
+              requestId: asApprovalRequestId("user-input-request-dismiss"),
+              createdAt: now,
+            }),
+          ),
+        ),
+    );
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const resolved = thread?.activities.find(
+      (activity) =>
+        activity.kind === "user-input.resolved" &&
+        (activity.payload as Record<string, unknown>).requestId === "user-input-request-dismiss",
+    );
+    expect(resolved?.payload).toMatchObject({ outcome: "dismissed" });
   });
 
   it("surfaces stale provider approval request failures without faking approval resolution", async () => {
@@ -2779,7 +3252,11 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
-  it("surfaces non-resumable provider user-input callbacks as stale failures", async () => {
+  // A delivery failure can no longer leave the question open: the record was
+  // already settled, and the outcome is delivered as a NEW TURN instead of being
+  // lost. This is incident 1's shape — the provider callback is gone, so sixteen
+  // answer attempts used to change nothing.
+  it("converts an undeliverable answer into a new turn, with the record already settled", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     harness.respondToUserInput.mockImplementation(() =>
@@ -2874,11 +3351,9 @@ describe("ProviderCommandReactor", () => {
       (activity) => activity.kind === "provider.user-input.respond.failed",
     );
     expect(failureActivity).toBeDefined();
-    expect(failureActivity?.payload).toMatchObject({
-      requestId: "user-input-request-1",
-      detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
-    });
+    expect(failureActivity?.payload).toMatchObject({ requestId: "user-input-request-1" });
 
+    // The question IS settled, despite the delivery failure.
     const resolvedActivity = thread?.activities.find(
       (activity) =>
         activity.kind === "user-input.resolved" &&
@@ -2886,7 +3361,18 @@ describe("ProviderCommandReactor", () => {
         activity.payload !== null &&
         (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
     );
-    expect(resolvedActivity).toBeUndefined();
+    expect(resolvedActivity?.payload).toMatchObject({ outcome: "answered" });
+
+    // …and the answer is not lost: it opens the next turn, tagged to the request.
+    await waitFor(async () => {
+      const latest = await harness.readModel();
+      const latestThread = latest.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        latestThread?.messages.some(
+          (message) => message.role === "user" && message.text.includes("user-input-request-1"),
+        ) ?? false
+      );
+    });
   });
 
   it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {

@@ -27,9 +27,26 @@ const onFreshDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 
 /**
  * The lane split reconciled fork ids up to `1032`; anything above that was added
- * afterwards and was never in the shared ledger.
+ * afterwards and was never in the shared ledger. A FROZEN historical fact — it
+ * must never grow when a new fork migration is added.
  */
 const LAST_RECONCILED_LOOM_ID = 1032;
+
+/**
+ * The last id the fork lane currently ships, which legitimately grows with every
+ * new fork migration — unlike `LAST_RECONCILED_LOOM_ID`, which is frozen.
+ *
+ * Derived, deliberately: the property being asserted is DENSITY (no holes, or a
+ * future upstream migration can never run again), not a specific final id, and
+ * pinning a literal here would mean every new fork migration edits an unrelated
+ * assertion. The historical tail keeps its independent oracle
+ * (`PRODUCTION_FORK_TAIL`), so the drift this test guards against is still caught
+ * there rather than here.
+ */
+const CURRENT_LOOM_LANE_END = loomMigrationEntries.at(-1)![0];
+
+/** One past the shipped lane: a stand-in for "the next fork migration". */
+const SYNTHETIC_FORK_ID = CURRENT_LOOM_LANE_END + 1;
 
 /**
  * INDEPENDENT ORACLE for the historical fork tail: ids `33..64` of the shared
@@ -208,7 +225,10 @@ describe.each([0, 1, 32, 33, 34, 48, 64, 65, 66])(
             range(1, 34),
             "upstream ledger must be dense 1..34 — a hole means an upstream migration can never run again",
           );
-          assert.deepStrictEqual(yield* ledgerIds(loomMigrationsTable), range(1001, 1032));
+          assert.deepStrictEqual(
+            yield* ledgerIds(loomMigrationsTable),
+            range(1001, CURRENT_LOOM_LANE_END),
+          );
 
           // Ledger rows are not enough: the bodies must have executed too.
           const info = yield* sql<{
@@ -258,10 +278,14 @@ describe("reconciliation is idempotent", () => {
 
         yield* runAllMigrations();
 
+        // Scoped to the RECONCILED range: the claim is that the moved rows keep
+        // their identity, not that the lane has no rows above them. Fork
+        // migrations added after the split legitimately extend the lane.
         const after = yield* sql<{
           readonly name: string;
           readonly created_at: string;
         }>`SELECT name, created_at FROM ${sql(loomMigrationsTable)}
+           WHERE migration_id <= ${LAST_RECONCILED_LOOM_ID}
            ORDER BY migration_id`.withoutTransform;
         assert.deepStrictEqual(after, before);
       }),
@@ -313,7 +337,7 @@ const withSyntheticFork = () =>
     loader: Migrator.fromRecord(
       Object.fromEntries([
         ...loomMigrationEntries.map(([id, name, body]) => [`${id}_${name}`, body] as const),
-        ["1033_SyntheticFork", Effect.void],
+        [`${SYNTHETIC_FORK_ID}_SyntheticFork`, Effect.void],
       ]),
     ),
   });
@@ -321,7 +345,7 @@ const withSyntheticFork = () =>
 describe.each([0, 66])(
   "future migrations still run on a reconciled database (historical stop %i)",
   (stoppedAt) => {
-    it.effect("synthetic upstream 035 and 067 plus a new fork 1033 all execute", () =>
+    it.effect("synthetic upstream 035 and 067 plus a new fork migration all execute", () =>
       onFreshDb(
         Effect.gen(function* () {
           if (stoppedAt > 0) yield* runHistoricalOrder(stoppedAt);
@@ -338,9 +362,12 @@ describe.each([0, 66])(
           const fork = yield* withSyntheticFork();
           assert.deepStrictEqual(
             fork.map(([id]) => id),
-            [1033],
+            [SYNTHETIC_FORK_ID],
           );
-          assert.deepStrictEqual(yield* ledgerIds(loomMigrationsTable), range(1001, 1033));
+          assert.deepStrictEqual(
+            yield* ledgerIds(loomMigrationsTable),
+            range(1001, SYNTHETIC_FORK_ID),
+          );
         }),
       ),
     );
@@ -497,7 +524,10 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
       yield* runHistoricalOrder(66);
       yield* runAllMigrations();
       assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), range(1, 34));
-      assert.deepStrictEqual(yield* ledgerIds(loomMigrationsTable), range(1001, 1032));
+      assert.deepStrictEqual(
+        yield* ledgerIds(loomMigrationsTable),
+        range(1001, CURRENT_LOOM_LANE_END),
+      );
     }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
 
     yield* Effect.gen(function* () {
@@ -564,7 +594,10 @@ describe("adding future fork migrations does not break reconciliation", () => {
 
         // The grown fork lane then applies its new migration on top.
         yield* withSyntheticFork();
-        assert.deepStrictEqual(yield* ledgerIds(loomMigrationsTable), range(1001, 1033));
+        assert.deepStrictEqual(
+          yield* ledgerIds(loomMigrationsTable),
+          range(1001, SYNTHETIC_FORK_ID),
+        );
       }),
     ),
   );

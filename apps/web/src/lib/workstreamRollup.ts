@@ -108,17 +108,21 @@ export function resolveBaseColumn(thread: SidebarThreadSummary): WorkstreamColum
 }
 
 /**
- * The attention reasons a thread carries: the stored set (`error`,
- * `awaiting_acceptance`, `needs_guidance`) unioned with the derived gates
- * (open approval/input requests, an actionable proposed plan). Highest-priority
- * first.
+ * The attention reasons a thread carries: the wire array (stored reasons, plus
+ * the server-unioned derived `awaiting_input`) unioned with the render-time
+ * derived gates that are still client-side only (open approvals, an actionable
+ * proposed plan). Highest-priority first.
+ *
+ * `awaiting_input` is deliberately NOT re-derived here: the server unions it into
+ * every shell view's `attention` from the same fold that maintains the count, so
+ * the wire array is the single source and every rail (board, parent wake, Slack)
+ * reads one value. `hasPendingUserInput` survives as the panel-rendering signal
+ * only — which requests are open, not whether attention is owed.
  */
 export function attentionReasonsOf(thread: SidebarThreadSummary): ReadonlyArray<AttentionReason> {
   const reasons: AttentionReason[] = [...thread.attention];
   if (thread.hasPendingApprovals && !reasons.includes("awaiting_approval"))
     reasons.push("awaiting_approval");
-  if (thread.hasPendingUserInput && !reasons.includes("awaiting_input"))
-    reasons.push("awaiting_input");
   if (thread.hasActionableProposedPlan && !reasons.includes("proposed_plan"))
     reasons.push("proposed_plan");
   return reasons.sort((a, b) => ATTENTION_PRIORITY[b] - ATTENTION_PRIORITY[a]);

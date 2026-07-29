@@ -1,5 +1,6 @@
 import {
   type ApprovalRequestId,
+  type ProviderUserInputAnswers,
   PI_DEFAULT_MODEL,
   defaultInstanceIdForDriver,
   type EnvironmentId,
@@ -20,6 +21,7 @@ import {
   ProviderDriverKind,
   RuntimeMode,
   TerminalOpenInput,
+  type UserInputQuestion,
 } from "@t3tools/contracts";
 import {
   connectionStatusTitle,
@@ -93,13 +95,14 @@ import {
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
 import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
+import { buildUserInputAnswers } from "@t3tools/shared/userInputAnswers";
 import {
-  buildPendingUserInputAnswers,
-  derivePendingUserInputProgress,
-  setPendingUserInputCustomAnswer,
-  togglePendingUserInputOptionSelection,
-  type PendingUserInputDraftAnswer,
-} from "../pendingUserInput";
+  useUserInputAnswerDrafts,
+  useUserInputAnswerDraftStore,
+  userInputAnswerDraftKey,
+  userInputAnswerDraftThreadKey,
+} from "../userInputAnswerDraftStore";
+import { PendingQuestionCard } from "./chat/PendingQuestionCard";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -332,7 +335,6 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
-const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -1194,6 +1196,9 @@ function ChatViewContent(props: ChatViewProps) {
   const respondToThreadUserInput = useAtomCommand(threadEnvironment.respondToUserInput, {
     reportFailure: false,
   });
+  const dismissThreadUserInputCommand = useAtomCommand(threadEnvironment.dismissUserInput, {
+    reportFailure: false,
+  });
   const revertThreadCheckpoint = useAtomCommand(threadEnvironment.revertCheckpoint, {
     reportFailure: false,
   });
@@ -1301,11 +1306,15 @@ function ChatViewContent(props: ChatViewProps) {
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
-  const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
-    Record<string, Record<string, PendingUserInputDraftAnswer>>
-  >({});
-  const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
-    useState<Record<string, number>>({});
+  const [dismissingUserInputRequestIds, setDismissingUserInputRequestIds] = useState<
+    ApprovalRequestId[]
+  >([]);
+  // Requests this client settled by sending a plain message. The server resolves
+  // them `superseded`; until that resolution lands the card says so rather than
+  // silently vanishing.
+  const [supersededUserInputRequestIds, setSupersededUserInputRequestIds] = useState<
+    ApprovalRequestId[]
+  >([]);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -2044,39 +2053,44 @@ function ChatViewContent(props: ChatViewProps) {
     () => derivePendingUserInputs(threadActivities),
     [threadActivities],
   );
+  // The oldest open request is the one being answered; the card shows the rest as
+  // a "N more pending" count so a second question is never invisible (S8).
   const activePendingUserInput = pendingUserInputs[0] ?? null;
-  const activePendingDraftAnswers = useMemo(
-    () =>
-      activePendingUserInput
-        ? (pendingUserInputAnswersByRequestId[activePendingUserInput.requestId] ??
-          EMPTY_PENDING_USER_INPUT_ANSWERS)
-        : EMPTY_PENDING_USER_INPUT_ANSWERS,
-    [activePendingUserInput, pendingUserInputAnswersByRequestId],
-  );
-  const activePendingQuestionIndex = activePendingUserInput
-    ? (pendingUserInputQuestionIndexByRequestId[activePendingUserInput.requestId] ?? 0)
-    : 0;
-  const activePendingProgress = useMemo(
-    () =>
-      activePendingUserInput
-        ? derivePendingUserInputProgress(
-            activePendingUserInput.questions,
-            activePendingDraftAnswers,
-            activePendingQuestionIndex,
-          )
-        : null,
-    [activePendingDraftAnswers, activePendingQuestionIndex, activePendingUserInput],
-  );
+  const activePendingUserInputDraftKey =
+    activePendingUserInput === null
+      ? null
+      : userInputAnswerDraftKey(environmentId, activePendingUserInput.requestId);
+  const activePendingDraftAnswers = useUserInputAnswerDrafts(activePendingUserInputDraftKey);
   const activePendingResolvedAnswers = useMemo(
     () =>
       activePendingUserInput
-        ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
+        ? buildUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
         : null,
     [activePendingDraftAnswers, activePendingUserInput],
   );
   const activePendingIsResponding = activePendingUserInput
     ? respondingUserInputRequestIds.includes(activePendingUserInput.requestId)
     : false;
+  const activePendingIsDismissing = activePendingUserInput
+    ? dismissingUserInputRequestIds.includes(activePendingUserInput.requestId)
+    : false;
+  // Answer drafts outlive the component (module store), so they must be evicted
+  // when their request resolves — by any outcome — rather than leaking for the
+  // session (S7). Scoped to this thread's own open set.
+  const evictResolvedUserInputDrafts = useUserInputAnswerDraftStore(
+    (state) => state.evictResolvedRequests,
+  );
+  useEffect(() => {
+    if (!activeThreadId) return;
+    evictResolvedUserInputDrafts({
+      threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
+      openRequestKeys: new Set(
+        pendingUserInputs.map((pending) =>
+          userInputAnswerDraftKey(environmentId, pending.requestId),
+        ),
+      ),
+    });
+  }, [activeThreadId, environmentId, evictResolvedUserInputDrafts, pendingUserInputs]);
   const activeProposedPlan = useMemo(() => {
     if (!latestTurnSettled) {
       return null;
@@ -4638,10 +4652,13 @@ function ChatViewContent(props: ChatViewProps) {
       sendInFlightRef.current
     )
       return;
-    if (activePendingProgress) {
-      onAdvanceActivePendingUserInput();
-      return;
-    }
+    // A plain send while a question is open is NOT an answer submission: the
+    // server settles the question as `superseded` and delivers the message as the
+    // response. The old early return here hijacked Enter into the question's
+    // submit (S4) — a different action behind the same key, with the user's draft
+    // undelivered. Sending is never blocked or warned about; blocking it would be
+    // the takeover in another guise.
+    const supersedingRequestIds = pendingUserInputs.map((pending) => pending.requestId);
     const sendCtx = composerRef.current?.getSendContext();
     if (!sendCtx?.providerAvailable) return;
     const {
@@ -5055,6 +5072,13 @@ function ChatViewContent(props: ChatViewProps) {
       }
     }
 
+    if (turnStartSucceeded && supersedingRequestIds.length > 0) {
+      setSupersededUserInputRequestIds((existing) => [
+        ...existing,
+        ...supersedingRequestIds.filter((requestId) => !existing.includes(requestId)),
+      ]);
+    }
+
     if (failure !== null) {
       const draftOnFailure = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
       if (
@@ -5181,7 +5205,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   const onRespondToUserInput = useCallback(
-    async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
+    async (requestId: ApprovalRequestId, answers: ProviderUserInputAnswers) => {
       if (!activeThreadId) return;
 
       setRespondingUserInputRequestIds((existing) =>
@@ -5208,111 +5232,88 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThreadId, environmentId, respondToThreadUserInput, setThreadError],
   );
 
-  const setActivePendingUserInputQuestionIndex = useCallback(
-    (nextQuestionIndex: number) => {
-      if (!activePendingUserInput) {
-        return;
-      }
-      setPendingUserInputQuestionIndexByRequestId((existing) => ({
-        ...existing,
-        [activePendingUserInput.requestId]: nextQuestionIndex,
-      }));
-    },
-    [activePendingUserInput],
-  );
+  // The human's unconditional way out (design commitment 3). Settlement is
+  // server-side and needs no provider round trip, so this cannot fail the way
+  // answering a question whose tool call already died used to.
+  const onDismissUserInput = useCallback(
+    async (requestId: ApprovalRequestId) => {
+      if (!activeThreadId) return;
 
-  const onSelectActivePendingUserInputOption = useCallback(
-    (questionId: string, optionLabel: string) => {
-      if (!activePendingUserInput) {
-        return;
-      }
-      setPendingUserInputAnswersByRequestId((existing) => {
-        const question =
-          (activePendingProgress?.activeQuestion?.id === questionId
-            ? activePendingProgress.activeQuestion
-            : undefined) ??
-          activePendingUserInput.questions.find((entry) => entry.id === questionId);
-        if (!question) {
-          return existing;
-        }
-
-        return {
-          ...existing,
-          [activePendingUserInput.requestId]: {
-            ...existing[activePendingUserInput.requestId],
-            [questionId]: togglePendingUserInputOptionSelection(
-              question,
-              existing[activePendingUserInput.requestId]?.[questionId],
-              optionLabel,
-            ),
-          },
-        };
+      setDismissingUserInputRequestIds((existing) =>
+        existing.includes(requestId) ? existing : [...existing, requestId],
+      );
+      const result = await dismissThreadUserInputCommand({
+        environmentId,
+        input: { threadId: activeThreadId, requestId },
       });
-      promptRef.current = "";
-      composerRef.current?.resetCursorState({ cursor: 0 });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThreadId,
+          error instanceof Error ? error.message : "Failed to dismiss the question.",
+        );
+      }
+      setDismissingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+      return result;
     },
-    [activePendingProgress?.activeQuestion, activePendingUserInput, composerRef],
+    [activeThreadId, dismissThreadUserInputCommand, environmentId, setThreadError],
   );
 
-  const onChangeActivePendingUserInputCustomAnswer = useCallback(
-    (
-      questionId: string,
-      value: string,
-      nextCursor: number,
-      expandedCursor: number,
-      _cursorAdjacentToMention: boolean,
-    ) => {
-      if (!activePendingUserInput) {
-        return;
-      }
-      promptRef.current = value;
-      setPendingUserInputAnswersByRequestId((existing) => ({
-        ...existing,
-        [activePendingUserInput.requestId]: {
-          ...existing[activePendingUserInput.requestId],
-          [questionId]: setPendingUserInputCustomAnswer(
-            existing[activePendingUserInput.requestId]?.[questionId],
-            value,
-          ),
-        },
-      }));
-      const snapshot = composerRef.current?.readSnapshot();
-      if (
-        snapshot?.value !== value ||
-        snapshot.cursor !== nextCursor ||
-        snapshot.expandedCursor !== expandedCursor
-      ) {
-        composerRef.current?.focusAt(nextCursor);
-      }
-    },
-    [activePendingUserInput, composerRef],
+  const toggleUserInputOption = useUserInputAnswerDraftStore((state) => state.toggleOption);
+  const setUserInputCustomAnswerDraft = useUserInputAnswerDraftStore(
+    (state) => state.setCustomAnswer,
   );
 
-  const onAdvanceActivePendingUserInput = useCallback(() => {
-    if (!activePendingUserInput || !activePendingProgress) {
-      return;
-    }
-    if (activePendingProgress.isLastQuestion) {
-      if (activePendingResolvedAnswers) {
-        void onRespondToUserInput(activePendingUserInput.requestId, activePendingResolvedAnswers);
-      }
-      return;
-    }
-    setActivePendingUserInputQuestionIndex(activePendingProgress.questionIndex + 1);
-  }, [
-    activePendingProgress,
-    activePendingResolvedAnswers,
-    activePendingUserInput,
-    onRespondToUserInput,
-    setActivePendingUserInputQuestionIndex,
-  ]);
+  const onToggleUserInputOption = useCallback(
+    (question: UserInputQuestion, optionLabel: string) => {
+      if (!activePendingUserInputDraftKey || !activeThreadId) return;
+      toggleUserInputOption({
+        requestKey: activePendingUserInputDraftKey,
+        threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
+        question,
+        optionLabel,
+      });
+    },
+    [activePendingUserInputDraftKey, activeThreadId, environmentId, toggleUserInputOption],
+  );
 
-  const onPreviousActivePendingUserInputQuestion = useCallback(() => {
-    if (!activePendingProgress) {
-      return;
-    }
-    setActivePendingUserInputQuestionIndex(Math.max(activePendingProgress.questionIndex - 1, 0));
-  }, [activePendingProgress, setActivePendingUserInputQuestionIndex]);
+  const onChangeUserInputCustomAnswer = useCallback(
+    (questionId: string, customAnswer: string) => {
+      if (!activePendingUserInputDraftKey || !activeThreadId) return;
+      setUserInputCustomAnswerDraft({
+        requestKey: activePendingUserInputDraftKey,
+        threadKey: userInputAnswerDraftThreadKey(environmentId, activeThreadId),
+        questionId,
+        customAnswer,
+      });
+    },
+    [activePendingUserInputDraftKey, activeThreadId, environmentId, setUserInputCustomAnswerDraft],
+  );
+
+  const onSubmitUserInput = useCallback(
+    (requestId: ApprovalRequestId) => {
+      if (activePendingResolvedAnswers === null) return;
+      void onRespondToUserInput(requestId, activePendingResolvedAnswers);
+    },
+    [activePendingResolvedAnswers, onRespondToUserInput],
+  );
+
+  const pendingQuestionCard = activePendingUserInput ? (
+    <PendingQuestionCard
+      key={activePendingUserInput.requestId}
+      pendingUserInput={activePendingUserInput}
+      pendingCount={pendingUserInputs.length}
+      drafts={activePendingDraftAnswers}
+      answers={activePendingResolvedAnswers}
+      isResponding={activePendingIsResponding}
+      isDismissing={activePendingIsDismissing}
+      supersededByMessage={supersededUserInputRequestIds.includes(activePendingUserInput.requestId)}
+      onToggleOption={onToggleUserInputOption}
+      onChangeCustomAnswer={onChangeUserInputCustomAnswer}
+      onSubmit={onSubmitUserInput}
+      onDismiss={(requestId) => void onDismissUserInput(requestId)}
+    />
+  ) : null;
 
   const onSubmitPlanFollowUp = useCallback(
     async ({
@@ -6198,12 +6199,8 @@ function ChatViewContent(props: ChatViewProps) {
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
                             pendingApprovals={pendingApprovals}
-                            pendingUserInputs={pendingUserInputs}
-                            activePendingProgress={activePendingProgress}
-                            activePendingResolvedAnswers={activePendingResolvedAnswers}
-                            activePendingIsResponding={activePendingIsResponding}
-                            activePendingDraftAnswers={activePendingDraftAnswers}
-                            activePendingQuestionIndex={activePendingQuestionIndex}
+                            pendingQuestionCard={pendingQuestionCard}
+                            hasPendingUserInput={activePendingUserInput !== null}
                             respondingRequestIds={respondingRequestIds}
                             showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                             activeProposedPlan={activeProposedPlan}
@@ -6233,16 +6230,6 @@ function ChatViewContent(props: ChatViewProps) {
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}
-                            onSelectActivePendingUserInputOption={
-                              onSelectActivePendingUserInputOption
-                            }
-                            onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
-                            onPreviousActivePendingUserInputQuestion={
-                              onPreviousActivePendingUserInputQuestion
-                            }
-                            onChangeActivePendingUserInputCustomAnswer={
-                              onChangeActivePendingUserInputCustomAnswer
-                            }
                             onProviderModelSelect={onProviderModelSelect}
                             getModelDisabledReason={getModelDisabledReason}
                             toggleInteractionMode={toggleInteractionMode}

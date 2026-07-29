@@ -2,10 +2,22 @@
 // @effect-diagnostics globalTimers:off
 // LOOM-ONLY. In-memory rendezvous between the pi ask_user_question HTTP tool
 // and PiDriver's canonical runtime-event/answer path. Pending input is
-// intentionally no more durable than every other provider's live Deferred.
+// intentionally no more durable than every other provider's live Deferred — but
+// its SETTLEMENT is durable regardless: every cancellation here that cannot ride
+// the per-session event queue is persisted through the command path instead
+// (`orchestration/userInputSettlement.ts`). A cancellation emitted into a
+// shut-down queue is logged and never persisted, which is precisely how a
+// production thread stayed wedged for 22 hours.
 import * as NodeCrypto from "node:crypto";
 
-import type { ProviderUserInputAnswers, ThreadId, UserInputQuestion } from "@t3tools/contracts";
+import type {
+  ProviderUserInputAnswers,
+  ThreadId,
+  UserInputQuestion,
+  UserInputResolvedOutcome,
+} from "@t3tools/contracts";
+
+import { settleUserInputRequestsDurably } from "../../../orchestration/userInputSettlement.ts";
 
 export type PiAskUserBrokerEvent =
   | {
@@ -28,7 +40,12 @@ export type PiAskUserOutcome =
       readonly answers: ProviderUserInputAnswers;
     }
   | {
-      readonly outcome: "cancelled";
+      readonly outcome: "superseded";
+      readonly requestId: string;
+      readonly message: string;
+    }
+  | {
+      readonly outcome: "dismissed" | "cancelled";
       readonly requestId: string;
     }
   | {
@@ -39,7 +56,13 @@ export type PiAskUserPollResult =
   | { readonly pending: true; readonly requestId: string }
   | ({ readonly pending: false } & PiAskUserOutcome);
 
-type Emit = (event: PiAskUserBrokerEvent) => Promise<void>;
+/**
+ * Publishes a broker event onto the owning session's runtime event queue.
+ * Resolves `false` when the event could not be delivered (the queue has been
+ * shut down mid-teardown) so the caller can fall back to the durable path
+ * rather than losing a terminal event with no trace.
+ */
+type Emit = (event: PiAskUserBrokerEvent) => Promise<boolean>;
 
 interface PendingQuestion {
   readonly requestId: string;
@@ -92,32 +115,49 @@ const finish = (entry: PendingQuestion, outcome: PiAskUserOutcome) => {
   }, PI_ASK_USER_SETTLED_RETENTION_MS).unref();
 };
 
-export const resolvePiAskUserQuestion = async (
+export const resolvePiAskUserQuestion = (
   threadId: ThreadId,
   requestId: string,
   answers: ProviderUserInputAnswers,
-): Promise<boolean> => {
+  settlement: {
+    readonly outcome: UserInputResolvedOutcome;
+    readonly message?: string;
+  } = { outcome: "answered" },
+): boolean => {
   const entry = pending.get(requestId);
   if (!entry || entry.threadId !== threadId) return false;
-  // The broker owns this id even when another answer/cancel already claimed
-  // settlement; absorb duplicate/racing UI responses instead of falling
-  // through to PiDriver's unrelated legacy-dialog path.
+  // The broker owns this id in EVERY state it can be in — duplicate/racing UI
+  // responses, and (D11) a missing emitter. Returning false on a missing emitter
+  // used to fall through to PiDriver's unrelated legacy-dialog path, which threw
+  // "Unknown Pi user-input request" and left the entry alive and unclaimed with
+  // its poll still waiting forever.
   if (entry.settling || entry.outcome) return true;
-  const emit = emitters.get(threadId);
-  if (!emit) return false;
   entry.settling = true;
-  try {
-    await emit({ type: "resolved", requestId, answers, cancelled: false });
-  } catch (error) {
-    entry.settling = false;
-    throw error;
-  }
-  finish(entry, { outcome: "answered", requestId, questions: entry.questions, answers });
+  // This is DELIVERY, not settlement. The server persisted the resolution before
+  // dispatching here (settle-first), so this function emits nothing: emitting
+  // would append a second `user-input.resolved` row for a request the durable log
+  // already records as settled. The blocked tool call is released by `finish`,
+  // and that release can no longer fail — there is no emit left to lose.
+  finish(
+    entry,
+    settlement.outcome === "answered"
+      ? { outcome: "answered", requestId, questions: entry.questions, answers }
+      : settlement.outcome === "superseded"
+        ? { outcome: "superseded", requestId, message: settlement.message ?? "" }
+        : { outcome: settlement.outcome, requestId },
+  );
   return true;
 };
 
 export const cancelPiAskUserQuestions = async (threadId: ThreadId): Promise<void> => {
   const emit = emitters.get(threadId);
+  // D1, both mechanisms. The emitter can be absent (unregistered before the
+  // cancel ran) and, when present, its queue can already be shut down — an offer
+  // to a shut-down queue resolves without delivering. Either way the terminal
+  // event never reaches ingestion, so the resolution is written through the
+  // command path instead. The distinguishing log line is deliberate: the audit
+  // could not tell the two mechanisms apart from the canonical log alone.
+  const undelivered: Array<string> = [];
   await Promise.all(
     [...pending.entries()].flatMap(([requestId, entry]) => {
       if (entry.threadId !== threadId || entry.settling || entry.outcome) return [];
@@ -126,15 +166,27 @@ export const cancelPiAskUserQuestions = async (threadId: ThreadId): Promise<void
       entry.settling = true;
       return [
         (async () => {
-          if (emit)
-            await emit({ type: "resolved", requestId, answers: {}, cancelled: true }).catch(
-              () => undefined,
-            );
+          const delivered = emit
+            ? await emit({ type: "resolved", requestId, answers: {}, cancelled: true }).catch(
+                () => false,
+              )
+            : false;
+          if (!delivered) undelivered.push(requestId);
           finish(entry, { outcome: "cancelled", requestId });
         })(),
       ];
     }),
   );
+  if (undelivered.length > 0) {
+    await settleUserInputRequestsDurably({
+      threadId,
+      resolutions: undelivered.map((requestId) => ({
+        requestId,
+        outcome: "cancelled" as const,
+      })),
+      tag: emit ? "pi-queue-shutdown-cancel" : "pi-emitter-absent-cancel",
+    });
+  }
 };
 
 export const waitForPiAskUserQuestion = (

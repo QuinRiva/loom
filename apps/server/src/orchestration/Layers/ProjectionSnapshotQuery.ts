@@ -38,6 +38,7 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
+import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
 import { NOTIFY_PAIR_WINDOW_MS } from "@t3tools/shared/notify";
 import * as Arr from "effect/Array";
@@ -521,6 +522,36 @@ function mapThreadActivityRow(
   // `sequence` is the pagination cursor; omit it when the (legacy) row is
   // unsequenced so the optional contract field stays absent.
   return row.sequence !== null ? Object.assign(activity, { sequence: row.sequence }) : activity;
+}
+
+/**
+ * Derived attention at the shell read boundary (redesign commitment 2): an open
+ * agent question IS attention on the wire, so every outward-facing shell view's
+ * `attention` array is `stored ∪ (pendingUserInputCount > 0 ? {awaiting_input} : ∅)`.
+ *
+ * `awaiting_input` stays DERIVED and the `attention` column stays event-owned:
+ * the flag and `pendingUserInputCount` are one value read two ways (both fall out
+ * of the same terminal-wins fold over the activity log), so divergence is
+ * structurally impossible rather than merely unlikely — no second write to lose,
+ * no clear-all interaction to guard, no replay divergence, and no backfill (the
+ * flag on an existing row is exactly as correct as its count).
+ *
+ * Deliberately NOT applied to `getCommandReadModel` — see the comment there.
+ *
+ * `awaiting_approval` is deliberately left un-unioned: the same helper extends to
+ * it verbatim, but nothing here depends on it and it is out of scope.
+ *
+ * Edge, by design: a thread that goes terminal with a request still open keeps
+ * the flag until the guaranteed resolution lands. The terminal `attention: []`
+ * guards clear STORED reasons only and this union sits downstream of them; the
+ * window is bounded by settlement's three layers (`userInputSettlement.ts`).
+ */
+function unionDerivedAttention(
+  stored: ThreadAttention,
+  pendingUserInputCount: number,
+): ThreadAttention {
+  if (pendingUserInputCount <= 0 || stored.includes("awaiting_input")) return stored;
+  return [...stored, "awaiting_input"];
 }
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
@@ -1831,6 +1862,38 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         })),
       );
 
+  // The two activity kinds the open-request fold cares about, read narrowly (no
+  // detail-window cap) so the fold sees the WHOLE request history for a thread —
+  // a `requested` row older than the detail window must still be folded against
+  // its later `resolved`.
+  const listUserInputRequestActivityRows = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: Schema.Struct({
+      kind: Schema.String,
+      payload: Schema.fromJsonString(Schema.Unknown),
+    }),
+    execute: ({ threadId }) =>
+      sql`
+        SELECT kind, payload_json AS "payload"
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+          AND kind IN ('user-input.requested', 'user-input.resolved')
+      `,
+  });
+
+  const getOpenUserInputRequestIdsByThreadId: ProjectionSnapshotQueryShape["getOpenUserInputRequestIdsByThreadId"] =
+    (threadId) =>
+      listUserInputRequestActivityRows({ threadId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getOpenUserInputRequestIdsByThreadId:query",
+            "ProjectionSnapshotQuery.getOpenUserInputRequestIdsByThreadId:decodeRows",
+          ),
+        ),
+        // Order-independent terminal-wins fold, so no ORDER BY is needed above.
+        Effect.map(openUserInputRequestIds),
+      );
+
   // In-flight tool detection (class-2 liveness): tool lifecycle rows are
   // superseded in place by activity id, but historical rows accumulated per
   // tick. Rank the latest lifecycle row either way, then only treat it as
@@ -2559,6 +2622,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   purpose: row.purpose,
                   brief: row.brief,
                   planLane: row.planLane,
+                  // STORED-ONLY, deliberately: `unionDerivedAttention` is NOT
+                  // applied here. The engine hydrates the decider's in-memory
+                  // model from this query at startup, and the in-memory projector
+                  // treats every attention member as event-owned (clear-all on
+                  // terminal lanes and on turn-start). A derived member leaking in
+                  // would mean different decider state before and after a restart,
+                  // and would join `attention.length` branches it was never meant
+                  // to reach. The decider needs none of it: it judges open
+                  // requests directly (`hasOpenBlockingRequest`).
                   attention: row.attention,
                   blockedBy: row.blockedBy,
                   spawnGeneration: row.spawnGeneration,
@@ -2786,7 +2858,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         purpose: row.purpose,
                         brief: row.brief,
                         planLane: row.planLane,
-                        attention: row.attention,
+                        attention: unionDerivedAttention(row.attention, row.pendingUserInputCount),
                         blockedBy: row.blockedBy,
                         spawnGeneration: row.spawnGeneration,
                         forkFromThreadId: row.forkFromThreadId,
@@ -2973,7 +3045,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   purpose: row.purpose,
                   brief: row.brief,
                   planLane: row.planLane,
-                  attention: row.attention,
+                  attention: unionDerivedAttention(row.attention, row.pendingUserInputCount),
                   blockedBy: row.blockedBy,
                   spawnGeneration: row.spawnGeneration,
                   forkFromThreadId: row.forkFromThreadId,
@@ -3311,7 +3383,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         purpose: threadRow.value.purpose,
         brief: threadRow.value.brief,
         planLane: threadRow.value.planLane,
-        attention: threadRow.value.attention,
+        attention: unionDerivedAttention(
+          threadRow.value.attention,
+          threadRow.value.pendingUserInputCount,
+        ),
         blockedBy: threadRow.value.blockedBy,
         spawnGeneration: threadRow.value.spawnGeneration,
         forkFromThreadId: threadRow.value.forkFromThreadId,
@@ -3671,6 +3746,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getPendingTurnStartThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
+    getOpenUserInputRequestIdsByThreadId,
     getInFlightToolByThreadId,
     getRecentToolActivityByThreadId,
     getThreadProgressSignal,

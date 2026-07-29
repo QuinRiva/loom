@@ -29,7 +29,15 @@ const LEGACY_BASELINE = new Map<string, number>([
   ["apps/server/src/orchestration/Layers/CheckpointReactor.test.ts", 42],
   ["apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts", 5],
   ["apps/server/src/orchestration/Layers/OrchestrationReactor.test.ts", 4],
-  ["apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts", 73],
+  // 73 legacy + 3 for the settlement gate's exactly-once/release-before-turn
+  // regressions, which must read the event store and re-dispatch a derived command
+  // id from outside an `it.effect` body to reproduce a redelivery.
+  ["apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts", 76],
+  // The settlement sink is a boundary OUT of the Effect world by construction (it
+  // is called from a Node process-`exit` listener), so a test that exercises the
+  // real registered sink must cross that boundary too — capturing the payload
+  // instead would test the two halves separately and not the chain that broke.
+  ["apps/server/src/orchestration/userInputSettlement.test.ts", 3],
   ["apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts", 32],
   ["apps/server/src/orchestration/Layers/ThreadDeletionReactor.test.ts", 2],
   ["apps/server/src/orchestration/projector.test.ts", 20],

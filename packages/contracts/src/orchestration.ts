@@ -22,6 +22,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { UserInputResolvedOutcome } from "./providerRuntime.ts";
 // loom: fork additions live in the sibling file; the dependency is strictly
 // one-way (this file → orchestration.loom.ts). See the campaign plan, Slice A.
 import {
@@ -166,7 +167,13 @@ export const ProviderApprovalDecision = Schema.Literals([
   "cancel",
 ]);
 export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
-export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
+// One answer per question id: a single chosen/typed value, or the selected
+// labels of a multi-select question. Deliberately narrower than `Unknown` — the
+// looser shape let mobile silently truncate a multi-select answer to one label.
+export const ProviderUserInputAnswers = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
@@ -1134,10 +1141,17 @@ export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// The delivery intent for a settled question. The durable settlement is already
+// written by the time this event exists (settle-first): this event only asks the
+// provider reactor to hand the outcome to a possibly-live tool call, and to
+// convert it into a normal turn when there is no live consumer. `outcome` absent
+// means `answered`; `message` carries the plain text that superseded the form.
 const ThreadUserInputResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   answers: ProviderUserInputAnswers,
+  outcome: Schema.optional(UserInputResolvedOutcome),
+  message: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
 });
 

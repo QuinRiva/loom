@@ -1,57 +1,27 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ApprovalRequestId, type ProviderApprovalDecision } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
-
-import { threadEnvironment } from "../state/threads";
-import { scopedRequestKey } from "../lib/scopedEntities";
 import {
-  buildPendingUserInputAnswers,
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  setPendingUserInputCustomAnswer,
-  type PendingUserInputDraftAnswer,
-} from "../lib/threadActivity";
-import { appAtomRegistry } from "./atom-registry";
+  ApprovalRequestId,
+  type ProviderApprovalDecision,
+  type UserInputQuestion,
+} from "@t3tools/contracts";
+
+import {
+  buildUserInputAnswers,
+  userInputAnswerDraftKey,
+  userInputAnswerDraftsOf,
+  userInputAnswerDraftThreadKey,
+  withResolvedUserInputDraftsEvicted,
+  withToggledUserInputOption,
+  withUserInputCustomAnswer,
+} from "@t3tools/shared/userInputAnswers";
+import { threadEnvironment } from "../state/threads";
+import { updateUserInputDrafts, userInputDraftsAtom } from "./user-input-drafts";
+import { derivePendingApprovals, derivePendingUserInputs } from "../lib/threadActivity";
 import { useSelectedThreadDetail } from "./use-thread-detail";
 import { useThreadSelection } from "./use-thread-selection";
 import { useAtomCommand } from "./use-atom-command";
-
-const userInputDraftsByRequestKeyAtom = Atom.make<
-  Record<string, Record<string, PendingUserInputDraftAnswer>>
->({}).pipe(Atom.keepAlive, Atom.withLabel("mobile:user-input-drafts"));
-
-function setUserInputDraftOption(requestKey: string, questionId: string, label: string): void {
-  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
-  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
-    ...current,
-    [requestKey]: {
-      ...current[requestKey],
-      [questionId]: {
-        selectedOptionLabel: label,
-      },
-    },
-  });
-}
-
-function setUserInputDraftCustomAnswer(
-  requestKey: string,
-  questionId: string,
-  customAnswer: string,
-): void {
-  const current = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
-  appAtomRegistry.set(userInputDraftsByRequestKeyAtom, {
-    ...current,
-    [requestKey]: {
-      ...current[requestKey],
-      [questionId]: setPendingUserInputCustomAnswer(
-        current[requestKey]?.[questionId],
-        customAnswer,
-      ),
-    },
-  });
-}
 
 export function useSelectedThreadRequests() {
   const respondToApproval = useAtomCommand(
@@ -62,11 +32,18 @@ export function useSelectedThreadRequests() {
     threadEnvironment.respondToUserInput,
     "thread user input response",
   );
+  const dismissUserInput = useAtomCommand(
+    threadEnvironment.dismissUserInput,
+    "thread user input dismissal",
+  );
   const { selectedThread: selectedThreadShell } = useThreadSelection();
   const selectedThread = useSelectedThreadDetail();
-  const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
+  const userInputDrafts = useAtomValue(userInputDraftsAtom);
   const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
+    null,
+  );
+  const [dismissingUserInputId, setDismissingUserInputId] = useState<ApprovalRequestId | null>(
     null,
   );
 
@@ -80,38 +57,75 @@ export function useSelectedThreadRequests() {
     [selectedThread],
   );
   const activePendingUserInput = activePendingUserInputs[0] ?? null;
-  const activePendingUserInputDrafts =
+  const selectedThreadKey = selectedThreadShell
+    ? userInputAnswerDraftThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id)
+    : null;
+  const activePendingUserInputRequestKey =
     activePendingUserInput && selectedThreadShell
-      ? (userInputDraftsByRequestKey[
-          scopedRequestKey(selectedThreadShell.environmentId, activePendingUserInput.requestId)
-        ] ?? {})
-      : {};
+      ? userInputAnswerDraftKey(selectedThreadShell.environmentId, activePendingUserInput.requestId)
+      : null;
+  const activePendingUserInputDrafts = userInputAnswerDraftsOf(
+    userInputDrafts,
+    activePendingUserInputRequestKey,
+  );
   const activePendingUserInputAnswers = activePendingUserInput
-    ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
+    ? buildUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
     : null;
 
+  // Eviction judges ONLY the selected thread's requests: its open set says nothing
+  // about any other thread, so evicting beyond it would discard a draft the user is
+  // still part-way through on a thread they merely navigated away from.
+  useEffect(() => {
+    if (!selectedThreadShell || selectedThreadKey === null) {
+      return;
+    }
+    const openRequestKeys = new Set(
+      activePendingUserInputs.map((pending) =>
+        userInputAnswerDraftKey(selectedThreadShell.environmentId, pending.requestId),
+      ),
+    );
+    updateUserInputDrafts((entries) =>
+      withResolvedUserInputDraftsEvicted(entries, {
+        threadKey: selectedThreadKey,
+        openRequestKeys,
+      }),
+    );
+  }, [activePendingUserInputs, selectedThreadKey, selectedThreadShell]);
+
   const onSelectUserInputOption = useCallback(
-    (requestId: ApprovalRequestId, questionId: string, label: string) => {
-      if (!selectedThreadShell) {
+    (requestId: ApprovalRequestId, question: UserInputQuestion, label: string) => {
+      if (!selectedThreadShell || selectedThreadKey === null) {
         return;
       }
 
-      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
-      setUserInputDraftOption(requestKey, questionId, label);
+      updateUserInputDrafts((entries) =>
+        withToggledUserInputOption(entries, {
+          requestKey: userInputAnswerDraftKey(selectedThreadShell.environmentId, requestId),
+          threadKey: selectedThreadKey,
+          question,
+          optionLabel: label,
+        }),
+      );
     },
-    [selectedThreadShell],
+    [selectedThreadKey, selectedThreadShell],
   );
 
   const onChangeUserInputCustomAnswer = useCallback(
     (requestId: ApprovalRequestId, questionId: string, customAnswer: string) => {
-      if (!selectedThreadShell) {
+      if (!selectedThreadShell || selectedThreadKey === null) {
         return;
       }
 
-      const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
-      setUserInputDraftCustomAnswer(requestKey, questionId, customAnswer);
+      updateUserInputDrafts((entries) =>
+        withUserInputCustomAnswer(entries, {
+          requestKey: userInputAnswerDraftKey(selectedThreadShell.environmentId, requestId),
+          threadKey: selectedThreadKey,
+          questionId,
+          customAnswer,
+        }),
+      );
     },
-    [selectedThreadShell],
+    [selectedThreadKey, selectedThreadShell],
   );
 
   const onRespondToApproval = useCallback(
@@ -160,16 +174,41 @@ export function useSelectedThreadRequests() {
     selectedThreadShell,
   ]);
 
+  // The human's way out of an open question, with no provider round trip on the
+  // critical path: settlement is server-side, so this works even when the asking
+  // session is long dead.
+  const onDismissUserInput = useCallback(async () => {
+    if (!selectedThreadShell || !activePendingUserInput) {
+      return;
+    }
+
+    setDismissingUserInputId(activePendingUserInput.requestId);
+    const result = await dismissUserInput({
+      environmentId: selectedThreadShell.environmentId,
+      input: {
+        threadId: selectedThreadShell.id,
+        requestId: activePendingUserInput.requestId,
+      },
+    });
+    setDismissingUserInputId((current) =>
+      current === activePendingUserInput.requestId ? null : current,
+    );
+    return result;
+  }, [activePendingUserInput, dismissUserInput, selectedThreadShell]);
+
   return {
     activePendingApproval,
     activePendingUserInput,
+    activePendingUserInputCount: activePendingUserInputs.length,
     activePendingUserInputDrafts,
     activePendingUserInputAnswers,
     respondingApprovalId,
     respondingUserInputId,
+    dismissingUserInputId,
     onRespondToApproval,
     onSelectUserInputOption,
     onChangeUserInputCustomAnswer,
     onSubmitUserInput,
+    onDismissUserInput,
   };
 }

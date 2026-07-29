@@ -1,0 +1,306 @@
+---
+manager_sessions:
+  - id: 9f5c9af8-ccdf-4542-badf-d15ac18ebd4f
+    role: plan
+    authored_at: 2026-07-28T06:34:42.995Z
+  - id: 5185872f-ccf7-438e-91a1-1c47f1e74e73
+    role: plan
+    authored_at: 2026-07-29T00:21:07.197Z
+---
+
+# ask_user_question, redesigned: a question is attention with a payload
+
+**Objective.** Make it impossible for an agent question to leave Loom less functional than not asking. The user's framing is the requirement: *"We can't have a scenario where using that tool causes things to not be functional for me."* This document is the fundamental re-think that framing asked for, grounded in three completed audits (client lifecycle, server durability/cancellation, out-of-band channels) and two forensically reconstructed incidents. The four open questions the first draft ended with have been answered; this revision is the settled design.
+
+Evidence base — read these for the defect-level detail this design deliberately does not repeat:
+
+- Client audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/e2c5ebb6-001c-4b33-a32c-32c115318fbc.md` (S1–S11)
+- Server audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/2d3f17a0-83a6-4548-8869-ae5b140244b3.md` (D1–D17)
+- Channels audit: `/home/Carl/.t3/cockpit/userdata/workstream-reports/bb73292b-034e-4efd-a315-23123aeaeca1.md`
+- Original design: `plans/pi-ask-user-question/plan.mdx`
+
+## The principle the current design got wrong
+
+The shipped design treats a question as a **private RPC transaction**: an in-memory broker entry, a blocking tool call polling for its answer, and a client panel that seizes the composer until that transaction completes. Every part of the question's life is tied to the liveness of one process's poll loop and one browser's modal state — and the whole thing runs *beside* Loom's actual attention system rather than through it, writing to a derived projection axis (`pendingUserInputCount`) instead of the stored attention axis (`thread.attention`) that Slack, the parent-wake rail, the liveness sweep, and the board's stalled treatment all subscribe to.
+
+The consequences are not eleven independent bugs; they are one architecture expressing itself:
+
+- Because the record's only clearing paths are the happy path and prose-matched failure strings, a lost cancellation event wedges the thread **forever** (incident 1: 16 answer attempts over 22 hours, four divergent copies of a string allowlist, none matching).
+- Because the question never raises stored attention, it is invisible to Slack and to parent orchestrators, and it *actively disarms* the liveness sweep — the one component that escalates stuck threads exempts exactly this state (incident 2: parked indefinitely, two Slack replies silently swallowed as steers into a blocked turn).
+- Because the client treats the question as modal, the user's escape hatches are removed at the moment they are most needed — no dismiss, no stop button, keystrokes rerouted, the in-progress draft hidden and its send path (`promptRef`) corrupted.
+
+<Callout tone="decision">
+**The replacement principle: a question is a durable request for human attention, carried on Loom's attention system, that the agent may *wait on* but can never be *wedged by*.** Concretely: (1) the question record is settled by the **server, authoritatively** — never by clients inferring death from prose; (2) an open question **is attention on the wire** — the server unions a derived `awaiting_input` into every shell view's `attention` array from the same fold that counts open requests, so every out-of-web rail sees a real flag and divergence is structurally impossible; (3) the human always holds a **dismiss** that works even when the asking process is dead; (4) the agent's block is **indefinite by choice, but loud and always escapable** — the turn stays open until a human or the runtime settles the question, and every settlement path is guaranteed to land; (5) the web client renders the question **non-modally**, coexisting with a draft — the model mobile already proves in-repo.
+</Callout>
+
+Everything below derives from these five commitments. The concrete defects (D1–D17, S1–S11) fall out as corollaries, not as a patch list.
+
+## Decisions settled
+
+The first draft ended with four open questions. All four are decided; two departed from the draft's recommendations, and one departure produced a mechanism better than either option originally offered.
+
+1. **Attention reason: `awaiting_input`, derived server-side and unioned into the shell's attention array — supersedes both options on the form.** The draft offered "reuse `needs_guidance`" (recommended, for zero blast radius) versus "promote `awaiting_input` to a command-raisable stored reason". The blast-radius argument was convenience, not design, and was rightly rejected — but the draft's *other* argument was real: `awaiting_input` is derived precisely so it cannot drift from the actual open-request state, which is the failure class that produced incident 1. The adopted resolution keeps both properties: the reason stays **derived** (never command-raisable; the decider guard is untouched) and the server **unions it into `thread.attention` at the shell read boundary**, computed from the same fold that maintains `pendingUserInputCount`. One source of truth, and every attention consumer — the Slack bridge, the dispatcher, the board — receives a real flag on the wire. Mechanics and verified invariants in commitment 2.
+2. **Blocking model: indefinite, loud, escapable — not the recommended window-then-park.** The tool blocks until the question settles. The bounded-window/park increment is dropped from the critical path and documented as a later option. This decision **retains the turn-state poisoning class**; the honest cost is stated in commitment 4, not tidied away.
+3. **Composer: option C, the non-modal card.** As recommended. Commitment 5.
+4. **Structured Slack answering: now, not deferred.** This reverses the draft's recommendation, and the reversal is forced by decisions 1 and 2 together: decision 1 requires touching the bridge anyway (its `BridgedAttentionReason` filter hard-drops `awaiting_input`, so even the *announcement* needs a bridge change), which kills the "zero bridge change" premise the deferral rested on; and decision 2 removes parking, which was the mechanism that let a plain Slack reply land as a real message on an idle thread. Under indefinite blocking, structured answering is what makes Slack a reliable answering surface at all — the full argument is in the bridge section.
+
+## Target-state lifecycle
+
+<Mermaid
+  caption="Question lifecycle. Every terminal state emits user-input.resolved{outcome}; the attention flag is derived from the open-request set at the shell boundary, so it raises and clears with the fold itself — and the fold is terminal-wins, so a resolved requestId can never reopen. No state exists that only a dead process can exit."
+  source={"stateDiagram-v2\n  [*] --> Presenting: user-input.requested persisted\\n(awaiting_input appears on every shell view)\n  Presenting --> Answered: human answers (any surface)\\nlive tool call returns the answers;\\ndead consumer ⇒ answers open the next turn\n  Presenting --> Dismissed: human dismisses (any surface)\n  Presenting --> Superseded: human sends a plain message\\n(delivered AS the tool result)\n  Presenting --> Cancelled: agent interrupt / stop /\\nsession exit / relaunch\n  Presenting --> Cancelled_R: server reconciler\\n(session exited with open request,\\nstartup scan)\n  Answered --> [*]\n  Dismissed --> [*]\n  Superseded --> [*]\n  Cancelled --> [*]\n  Cancelled_R --> [*]"}
+/>
+
+Who can drive each transition — the crucial property is that **every state has at least two live owners**, so no single death strands it:
+
+| Transition | Driven by | Works when the pi process is dead? | Works after a server restart? |
+|---|---|---|---|
+| Answer | Human, from web, mobile, or Slack | **Yes** — record settles; answer delivered as tool result if the consumer is live, else as the opening message of a new turn | **Yes** (same conversion) |
+| Dismiss | Human, from any surface | **Yes** — settlement never routes through the provider | **Yes** |
+| Supersede | Human, by simply typing a normal message | **Yes** | **Yes** |
+| Cancel | The agent runtime (interrupt, stop, session exit, relaunch) | n/a | n/a |
+| Reconcile | The server (session-exited-with-open-request rule; startup scan) | **Yes — this is its purpose** | **Yes — this is its purpose** |
+
+Contrast with today, where *every* transition except the happy path required a live broker entry, a live emitter, a live queue, and a client whose allowlist happened to contain the right prose.
+
+### Terminal outcomes and what the model is told
+
+`user-input.resolved` gains a structured `outcome` field (additive to the shared contract; existing adapters that never set it decode to `answered` for backwards compatibility):
+
+| Outcome | Tool result / next-turn framing to the model |
+|---|---|
+| `answered` | The chosen labels / free text, per question — unchanged from today. If the consumer is dead (no live tool call), the same content opens the **next turn**, explicitly tagged: *"The user has now answered the questions you asked earlier (request `<id>`): …"* |
+| `dismissed` | *"The user dismissed these questions without answering. Do not treat this as selecting any option. Proceed on your best judgement and state the assumption you are making."* |
+| `superseded` | *"The user replied with a message instead of the form — treat it as their response: …"* (the message text follows — never queued as a steer. Delivered as the tool result itself where the provider's question protocol can carry prose (pi); on the SDK/ACP providers, whose callbacks cannot, the callback is released with handoff framing and the message opens exactly one new turn — see the amendment in commitment 3. Dead consumer ⇒ next turn) |
+| `cancelled` | Existing wording kept — *"cancelled or interrupted without answers"* |
+
+The `could_not_present` outcome from the original design is kept, and — fixing D14 — the failure paths that today bypass it (thrown HTTP statuses, tombstone-expiry 404s) are folded into it, so the model's behaviour in a real failure is defined rather than an opaque tool error.
+
+## The five commitments, mechanically
+
+### 1. Server-authoritative settlement — delete the prose allowlists
+
+Today the record clears only on `user-input.resolved` or on a `respond.failed` whose detail substring-matches one of **four hand-maintained, already-divergent allowlists** (web 7 entries, mobile 5, projection 4, decider 7 — client audit S1). pi's own unknown-request wording matches none of them (D2), and the two failure details incident 1 actually produced match none of them (D3). This entire mechanism is replaced, not repaired:
+
+- **The server guarantees `user-input.resolved` is always eventually emitted**, from three independent layers:
+  1. The runtime cancel paths (existing, with D1 fixed — see below).
+  2. A **session-exit rule**: `session.exited` becomes a persisted activity (fixing D5 — today it is dropped by `runtimeEventToActivities`), and ingestion emits `user-input.resolved{outcome: cancelled}` for every request still open on that thread. This is durable, needs no in-memory state, and would have contained incident 1 outright.
+  3. A **startup scan**: any thread with open `user-input.requested` activities and no live broker entry gets them resolved-cancelled during reconciliation, *instead of* being parked in `parkedThreadIds` and excluded from turn continuation forever.
+- **D1 is fixed at both of its mechanisms**: `cancelPiAskUserQuestions`' silent skip when the emitter is absent (`askUserBroker.ts:126`) gets a fallback that persists the resolution through the ingestion command path directly (not the per-session event queue, which can already be shut down), plus a log line either way. The process-exit handler's emit-into-a-possibly-shutdown-queue race disappears with it, because the fallback does not ride the queue.
+- **Clients stop inferring anything.** `derivePendingUserInputs` clears on `user-input.resolved` only. The four allowlists are deleted (web, mobile, projection, decider). `provider.user-input.respond.failed` becomes what it should be: a delivery diagnostic, never a lifecycle signal.
+- The pi unknown-request wording is converged to the canonical form anyway (D2, one line) — not because clients match it anymore, but so the server-side `isUnknownPendingUserInputRequestError` reactor path works uniformly across providers during the transition.
+
+### 2. An open question *is* attention on the wire: the shell boundary unions a derived `awaiting_input`
+
+This is decision 1's mechanism, and the heart of the revision. The requirement is a flag that (a) every attention consumer sees — the Slack bridge diffs `thread.attention` across shell snapshots, the dispatcher's wake rail reads it, the board's stalled treatment renders it — and (b) **cannot** drift from the actual open-request state, because a derived count silently stuck at 1 forever is exactly incident 1's failure class. Raising the flag by command (from the tool, a reactor, or a client) satisfies (a) but reintroduces (b): a raise and a clear are then two events that must both land, and this design exists because one of them once didn't.
+
+**The mechanism: `awaiting_input` stays derived, the `attention` column stays event-owned, and the server unions the derived member into every shell view at read time.** The projection already folds the activity log into `pendingUserInputCount` (`refreshThreadShellSummary`, `apps/server/src/orchestration/Layers/ProjectionPipeline.ts:805-861`), refreshed on every `thread.activity-appended` — which is exactly how `user-input.requested`/`resolved` arrive — and on `thread.user-input-response-requested` (`ProjectionPipeline.ts:1367-1382`). A single shared helper at the shell mapping boundary (`ProjectionSnapshotQuery.ts` — the row→`OrchestrationThreadShell`/`SidebarThreadSummary` mapping sites that already compute `hasPendingUserInput` from the count, e.g. `:2838`, `:3014`, `:3352`) computes `attention = stored ∪ (pendingUserInputCount > 0 ? {awaiting_input} : ∅)`. The flag and the count are one value read two ways — **divergence is structurally impossible rather than merely unlikely** — and because nothing is written, there is no second write to lose, no clear-all interaction to guard, no replay divergence, and no *attention* backfill: the flag on existing rows is exactly as correct as their `pending_user_input_count` the moment the helper ships. (The count itself does need a one-time refold under the hardened fold below — the projection resumes from `last_applied_sequence` and never recomputes old rows on a code change — but that is one migration on one column, with 024 as precedent, not a projection rebuild.)
+
+An earlier draft of this revision materialised the flag by *writing* it into the `attention` column from the same upsert. Review killed that, correctly: the column is not private to the shell. `getCommandReadModel` copies it verbatim (`ProjectionSnapshotQuery.ts:2548-2563`) and the engine hydrates the decider's in-memory model from that query at startup (`OrchestrationEngine.ts:432-438`), where the in-memory projector treats every member as event-owned — clearing the whole array on terminal lanes and on the decider's turn-start clear-all (`projector.loom.ts:315-325`, `decider.ts:1262-1283`). A written `awaiting_input` would therefore mean *different decider state before and after a restart* and derived members participating in `attention.length` branches they were never meant to reach. The read-time union has no such seam: the column the decider hydrates from carries stored reasons only, always.
+
+**The decider invariant is untouched — and the design is coherent with it.** `decider.loom.ts:658-663` rejects raising `awaiting_input`/`awaiting_approval` by command: *"derived from open requests and cannot be raised directly."* That guard **stays exactly as-is**: no command, no event, and now no projection write ever carries the reason. The decider's world is entirely unchanged — its read model sees stored-only attention (it already judges open requests directly via `hasOpenBlockingRequest`, `decider.ts:96`), so the §7 turn-start clear-all and settle/snooze gating behave exactly as today, before and after restart. The union applies to the **outward-facing shell surfaces only**: `getShellSnapshot`, per-thread shell lookups, and the thread-upserted subscription views (which is what the WS serves to web, mobile, and the bridge). `getCommandReadModel` is explicitly excluded, with a comment saying why.
+
+No Loom wire-contract change is needed for the reason itself: `awaiting_input` is already a member of `AttentionReason` (`packages/contracts/src/orchestration.loom.ts:147`); only the "never stored" comment (`:140`) is updated to "derived, and unioned into shell attention values at the read boundary".
+
+**The fold itself needs hardening before it can carry a flag.** `derivePendingUserInputCountFromActivities` (`ProjectionPipeline.ts:148-176`) is an ordered add/delete set: a duplicate or re-emitted `user-input.requested` with a new activity id or later timestamp **resurrects a request after its terminal resolution** — recreating the exact open-forever state this design exists to kill, now with an attention flag amplifying it. The fold is changed to **terminal-wins per requestId**: once a `user-input.resolved` for a request id is seen, no `requested` row for that id can reopen it, regardless of row order or timestamps. (The decider's twin, `hasOpenBlockingRequest`, gets the same rule.) Verification includes a true truncate-and-rebuild replay test over pathological orderings — exact duplicates, distinct-id duplicates, resolved-before-requested — not just live interleavings, plus a one-time migration refolding `pending_user_input_count` for deployed rows with the new algorithm (the projection resumes from `last_applied_sequence` (`ProjectionPipeline.ts:2326-2338`), so existing rows are never recomputed by code changes alone; migration 024 is the precedent, and it touched only the count — which is now sufficient, since the flag derives from it).
+
+**What this buys, per consumer — verified, with one gap found and fixed:**
+
+- **Slack**: the bridge diffs `thread.attention` across shell snapshots and announces newly raised flags — but its `BridgedAttentionReason` union is two members and `attention.ts:9` hard-filters everything else, so `awaiting_input` needs the bridge change (see the bridge section). This is why decision 4's deferral premise collapsed.
+- **Parent orchestrators — a dispatcher change is required, not optional.** `classifyChildWake`'s attention wake is **idle-gated** (`WorkstreamDispatcher.ts:1289-1313`), and under indefinite blocking a questioning child is *not* idle — its session is `running` with a live `activeTurnId`. The fallback is the frozen-executing attention rail (`:1576-1592`), which fires only after `quietMs` exceeds the 10-minute grace — measured against the runtime heartbeat, which the channels audit found **never goes quiet for a blocked question in practice** (thread `f1da5357`: five stacked questions, 27 minutes, zero notices). So without a change, the flag's presence on the shell alone does **not** reliably wake the parent. The dispatcher gains a dedicated wake: a child carrying `awaiting_input` wakes its parent regardless of idle/executing state, episode-keyed by the open requestId set so one question produces one wake.
+- **Board/sidebar**: stalled-lane attention treatment — labels, badge colours, and priority for `awaiting_input` already exist in the presentation maps, and the graph node pulse gains an `awaiting_input` entry in `ATTENTION_PULSE_STROKES` (`workstreamPresentation.ts:445-449`, amber per the existing colour map) so the claim is true rather than approximate. The client rollup's render-time union (`attentionReasonsOf`, `apps/web/src/lib/workstreamRollup.ts:120-121`) does **not** double-count — it has an `includes()` guard — but it becomes redundant once the server-side union ships and is deleted, so the wire array is the single source; `hasPendingUserInput` remains only as the panel-rendering signal (which requests are open).
+- **Liveness sweep**: the `hasPendingUserInput` early-return exemption at `WorkstreamLivenessSweep.ts:207` is **deleted**. An attention-flagged thread already gets the sweep's attention-aware handling (`:713-721`): nudges stop, but the State-A circuit breaker keeps judging it — a questioning thread can still be declared dead, which is precisely the escalation incident 2 lacked.
+
+Two edges, noted so the implementer is not surprised: a thread that goes terminal with a request still open keeps the flag until the guaranteed resolution lands (the cancel cascade / session-exit rule / startup scan — commitment 1 — makes this a bounded window; the terminal `attention: []` guards clear stored reasons only and the union is downstream of them); and `awaiting_approval` is left un-unioned in this change — the same helper extends to it verbatim and is a natural follow-on for taxonomy symmetry, but it is out of scope here and nothing in this design depends on it.
+
+### 3. The human always holds a way out
+
+Three exits, all of which settle the durable record *first* and treat provider delivery as best-effort *second* — inverting today's order, which is why incident 1's sixteen answer attempts changed nothing:
+
+- **Dismiss.** A new `thread.user-input.dismiss` command (WS, same authorisation as respond). The decider emits `user-input.resolved{outcome: dismissed}` unconditionally — no provider round-trip is on the critical path. If a live broker entry exists, it is resolved so the in-flight tool call returns `dismissed`; if not, nothing further happens and that is fine. Rendered as an explicit control on the web card and mobile card, and on the workstream board row. Under indefinite blocking, dismiss is also the load-bearing escape hatch: it is what converts "blocks forever" into "blocks until anyone clicks once".
+- **Answer-anyway.** `thread.user-input.respond` is rebuilt on the same settle-first shape: the decider emits `user-input.resolved{outcome: answered}` and records the answers **before** routing to the provider. If the provider consumer is live, the answers are handed to the waiting tool call as today. If it is not (dead session, restarted server, relaunched process — incident 1's exact state), the answers are **converted into a normal turn**: a `thread.turn.start` carrying the rendered answers as a user message tagged to the request. The user's answer is never lost and never fails. This overturns half of the original plan's durability line — see the durability section.
+- **Just type.** A plain message send (`thread.turn.start`) while a question is open resolves it as `superseded`, and the message text is delivered **to the question's consumer, never to the session's steer queue**. This matters under indefinite blocking: a steer queued against a turn that is blocked inside the tool call is never consumed (D8, incident 2's data loss), so supersede must bypass the queue entirely. The decider therefore emits the settlement and the delivery intent and **withholds the turn-start** — a turn-start alongside the tool result would send the same instruction twice, once as the result and once as a steer folded into that very same live turn, executing an action-bearing message twice. Dead consumer ⇒ the same conversion as answer-anyway (the message opens the next turn). This is surface-agnostic: it is what a web send, a mobile send, and a bridge-relayed Slack reply all become.
+
+<Callout tone="decision">
+**Amendment (author of this revision, `5185872f…`, confidence high; recorded in `progress.md`).** "As the tool result itself" holds for **pi**, whose `ask_user_question` poll carries the prose. It does **not** hold for the other five: Claude's `canUseTool` result is allow-with-answers or deny-with-a-message, Grok's `ask_user_question` models only accepted/cancelled, Cursor's and Codex's responses are answers maps keyed by question id, and OpenCode's `question.reject` takes no body. Releasing those callbacks with a bare cancellation would drop the human's message, so the contract is amended: **pi carries supersede prose in-tool; an SDK/ACP-owned callback is released with handoff framing and the message is then delivered by the receipt-deduped dead-consumer conversion, exactly once.** Three invariants make that safe and are non-negotiable: (1) **release-before-turn, proven not assumed** — the callback must have handed its result back before the fallback dispatches, and completing a `Deferred` is not proof of that, so each adapter carries an explicit released signal (Claude: after the SDK promise settles; OpenCode: its own `question.rejected` event, timeout-bounded); (2) **exactly-once, durably** — the fallback turn's command id derives from the causative settlement event, so a retry or redelivery is receipt-deduped rather than delivering twice; (3) **the released callback frames the handoff** — not a bare `cancelled`, but "these questions are settled, the user's message arrives next, do not assume or re-ask" (OpenCode excepted: no body, so its framing rides the fallback opener alone).
+</Callout>
+
+**What happens to a plain message sent to a question-blocked thread — answered explicitly, because parking no longer answers it.** With supersede in place, the message is never queued as a steer at all: it settles the question and arrives either as the tool result (pi) or as exactly one new turn after the callback is released (the SDK/ACP providers, per the amendment above), so incident 2's swallowed-reply shape cannot recur *for question-blocked threads*. The adjacent general defect remains: `startup.ts:135` wipes queued steering for **any** interrupted thread on restart, silently discarding human messages. Recommendation: fold the wiped steering messages into the resumed turn's opening context (they are already in the session row being reset; prepending them to the resume message is cheap and honest). This is included in increment 1's change map — it is small, it is the other half of incident 2's data loss, and "we no longer lose your replies" should not carry an asterisk about restarts.
+
+The stop button ordering bug (`ComposerPrimaryActions.tsx:73` returns before the `isRunning` branch) is fixed regardless — stop must never be structurally unreachable — and the workstream panel's Stop remains available for the running case.
+
+### 4. Indefinite blocking, made loud and escapable — and its honest cost
+
+The `while (true)` poll loop stays (its 25-second long-poll cycles unchanged), because the settled decision is that a question blocks until it is settled. What changes is that the block can no longer be silent or terminal:
+
+- **Loud**: the derived `awaiting_input` flag (commitment 2) announces the question on the board, to Slack, and to the parent orchestrator, the moment it opens.
+- **Escapable**: dismiss, answer-anyway, supersede (commitment 3), and the runtime/reconciler cancel paths (commitment 1) are each guaranteed to settle the record and return the tool call. The poll loop's exits are now guaranteed to exist; today's design had exits that a single lost event could remove.
+- **Restart-safe**: a restart finds the open request in the startup scan, resolves it cancelled, and the resumed model may re-ask — guaranteed by reconciliation rather than dependent on a prose allowlist.
+
+<Callout tone="warning">
+**What this decision retains, stated plainly.** A blocked turn is not just a UX state. While a question is open: `activeTurnId` stays pinned, so the thread is indistinguishable in the DB from one doing real work; the session reaper skips it (`ProviderSessionReaper.ts:70-73`); settle and snooze are decider-rejected (`hasOpenBlockingRequest`); a server restart classifies it interrupted-but-unresumable and resolves the question by cancellation rather than preserving it; and every rail that must work despite the blocked turn works because it was given a **special case** — supersede bypasses the steer queue, the dispatcher gains a non-idle-gated wake, startup gains a scan, the sweep keeps only its circuit breaker. The turn-state poisoning class (D6/D7/D8) is not removed; each member is individually mitigated. Mitigation-by-enumeration is exactly the pattern whose gaps produced both incidents, which is the honest argument for revisiting parking.
+</Callout>
+
+**Parking remains available as a later increment.** The dropped design: the tool blocks for a bounded interactive window (default was to be 5 minutes), then returns `deferred`, the turn ends cleanly, and a late answer or dismissal opens the next turn with tagged framing. Its value is that it removes the poisoned-turn *state* rather than annotating it — the thread goes genuinely idle (steerable, promptable, reapable, archivable, restart-trivial), and every special case above becomes unnecessary rather than load-bearing. The reason someone would pick this work up later is precisely the cost paragraph above: if the special cases prove leaky in practice (a new rail forgets its exemption, a steer path regresses), parking is the structural fix. The prior draft's increment-2 change map (window deadline in `UserInputHttp.ts`, `deferred` handling in the shim, late-answer turn conversion) remains valid as written and is deliberately not deleted from history — see the original plan revision for its file list.
+
+**What indefinite blocking buys**, for balance: the attended fast path is never truncated (no window to mis-tune), the model's working context stays hot for however long the human takes, and no `deferred`/`answered_late` outcome vocabulary or next-turn re-entry framing is needed — the lifecycle has four terminal outcomes instead of six.
+
+### 5. The composer takeover, replaced with the non-modal card (settled: option C)
+
+The client audit's finding reframed this item: the persisted draft is **not lost** (the store record survives, `ChatComposer.tsx:703`), but the takeover is not harmless either — `promptRef`, the value `onSend` actually transmits, is corrupted with no guaranteed restore (S3), stray digits anywhere on the page can select-and-**submit** an answer (S4), and an in-flight Enter meant for the draft dispatches the question instead. Of the four options considered (leave as-is; keep the takeover with affordances; non-modal card; split composer), **the non-modal card is settled**: it deletes the defect class rather than patching eight symptoms of one decision, and it is not speculative — **mobile already works exactly this way** (`ThreadComposer` has zero pending-input awareness) and the client audit found it materially less wedge-prone on every axis it differs on.
+
+The question renders as a card above the composer (or inline in the timeline); the composer is never rerouted, never re-valued, never re-routed on Enter. Answering happens entirely inside the card (option buttons, its own free-text field, its own submit, and — per commitment 3 — a dismiss control). The coexistence model becomes trivial: the draft and the question live side by side because they never shared a surface. Sending the draft supersedes the question (with the card visibly resolving to "answered by your message"); answering in the card leaves the draft untouched; the user can ignore the card indefinitely — it is loud on every other surface, not modal on this one.
+
+Deleted outright with the card: the editor value swap, the keystroke reroute (`ChatComposer.tsx:1571-1583`), the Enter hijack (`ChatView.tsx:4557-4560`), the document-level digit listener with its 200 ms auto-submit, the hidden stop button, the placeholder swap, and the image/context suppressions. The `promptRef` desync becomes unreachable rather than repaired. The card gains a "N more pending" indicator when multiple requests are open (S8).
+
+Free-text answers move from "the composer in disguise" to a field inside the card — a small loss of editor richness (no mentions/skills in answers), which is acceptable: an answer needing mentions is a message, and sending it as one supersedes the question correctly.
+
+**In-progress answer state (client audit S7), owned explicitly.** The card adopts mobile's already-better model: answer drafts live in a module-scoped store keyed by `(environmentId, requestId)` (mobile's `keepAlive` atom, `use-selected-thread-requests.ts:21-23`, is the template), not in component state — so a partially answered multi-question request survives thread switches and remounts. Eviction, which neither client has today: an entry is deleted when its request resolves (any outcome). Reload persistence is deliberately **not** added — requestIds are unique per request, so a stale draft can never attach to a new question, and a question that outlives a browser reload is loud on every other surface; losing an unsubmitted partial selection on reload is accepted.
+
+## The Slack bridge: a first-class part of the change map
+
+The bridge is a separate repo — a standalone daemon at `/home/Carl/loom-slack-bridge`, connected to Loom over the same WS RPC surface the browser uses, with a **deliberate containment design**: it dispatches exactly four commands (`thread.create`, `thread.turn.start`, `thread.archive`, `thread.unarchive` — `src/loom/commands.ts` is the complete list) and reads two subscriptions. Everything below is a change *in that repo*, listed separately from Loom's because it ships separately and because widening its surface is a decision, not a side effect.
+
+**Why this work is in scope now — the load-bearing argument.** The first draft deferred structured Slack answering because increments 1–2 made Slack functional with *zero bridge changes*: the attention announce rode `needs_guidance` (already bridged), and parking meant a plain Slack reply landed as a real `thread.turn.start` on an idle thread. Both legs of that argument are now gone. Decision 1 moves the announce to `awaiting_input`, which the bridge's two-member `BridgedAttentionReason` union (`src/types.ts:37`) and its hard filter (`src/attention.ts:9`) currently drop — so the containment allowlist's conceptual seal is broken by the announce alone, and "defer to avoid touching the bridge" no longer describes any real option. Decision 2 removes parking, so a question-blocked thread never goes idle: a plain Slack reply reaches the model **only** via the supersede path — which settles (destroys) the question on *any* reply whether or not it was meant as an answer, delivers prose where the agent asked for a labelled choice, and requires the blocked tool call to be live to deliver in-turn. That is a fallback, not an answering surface. Under indefinite blocking, **structured answering is the only mechanism that reliably answers a question from Slack** — which is exactly the surface incident 2's user was on.
+
+The bridge changes. The unit of state is **per-request, not per-flag**: the bridge maintains an open-question map keyed by requestId, folded from `user-input.requested`/`resolved` activities on its thread subscriptions (initial snapshot *and* live events), because the attention set is a single bit that changes only once however many requests stack — it can announce that *something* is pending but cannot carry which questions, in what order, or when a second one arrives. The attention diff remains the *trigger* for opening a Slack presence on unmapped threads; the request map is the *content*.
+
+<FileTree
+  title="loom-slack-bridge (external repo) — announce + structured answering"
+  entries={[
+    { path: "src/types.ts", change: "modified", note: "BridgedAttentionReason gains 'awaiting_input'; OpenQuestion state type (requestId, questions, options); capability mapping reuses attention_answer gating" },
+    { path: "src/attention.ts", change: "modified", note: "BRIDGED list gains awaiting_input so the shell diff triggers announcements for unmapped threads" },
+    { path: "src/bridge.ts", change: "modified", note: "THE central change: per-request open-question map folded from thread snapshots + live activities; announce idempotently by requestId (so warm-up seeding no longer silences a question standing across a bridge restart — today attention.seed() deliberately mutes standing flags, :706-724); warm-up special case for UNMAPPED threads carrying awaiting_input (below); await/correlate the payload from the thread subscription before rendering rather than racing the shell diff; handleAttentionReply (:400-449) gains an awaiting_input branch that parses and dispatches respond instead of falling through to turn.start" },
+    { path: "src/store.ts", change: "modified", note: "announcement receipts table keyed by requestId (the durable per-request marker) — today the store persists only mappings, so requestId-keyed idempotence has nothing to key against across a restart" },
+    { path: "src/loom/interpret.ts", change: "modified", note: "stop filtering user-input.requested/resolved out of the thread subscription; extract question payloads; render into Slack (numbered options, recommended badge, stakes) and post resolution updates" },
+    { path: "src/loom/commands.ts", change: "modified", note: "fifth command: thread.user-input.respond builder ({threadId, requestId, answers}) — a deliberate widening of the four-command containment allowlist" },
+  ]}
+/>
+
+(`src/triggers.ts` is unchanged: it is pure Slack-topology routing — spawn/route/ignore — and a routed reply's question-awareness belongs in `bridge.ts`'s reply handling, where the attention gate already lives.)
+
+**Reply grammar and multi-request ordering, defined rather than left to the implementer.** A reply into a thread whose open-question map is non-empty targets the **oldest open request** unless it names another (the announcement for each request carries a short ordinal — "Q2" — for exactly this). Within a request: a bare number or exact option-label match selects that option (numbers map per the rendered list); `dismiss` is not bridged (see below); anything else is a free-text custom answer. Multi-question requests render all questions in one announcement and accept line-per-question answers, falling back to treating the whole reply as the answer to the sole unanswered question when unambiguous. A reply that arrives after the request resolved (the map no longer holds the id) falls through to the normal `turn.start` path — never a dead letter. **Bridge restart — mapped and unmapped alike.** On warm-up the request map is rebuilt from thread-subscription snapshots for all mapped threads (startup re-attaches thread subscriptions only for rows in the mapping store, `bridge.ts:194-204`). That alone would leave a hole the shell diff cannot fill: warm-up seeds standing attention silently (`bridge.ts:706-724`), so a standing `awaiting_input` on an **unmapped** thread — a child that asked while the bridge was down — never produces the diff that would open a Slack presence, and its question stays invisible until some unrelated attention transition. So warm-up gains a special case: an unmapped thread whose seeded attention contains `awaiting_input` gets its thread detail attached/queried, its open requests folded, and a Slack presence created and each request announced — exactly the flow a live diff would have triggered, run once at warm-up, requiring no pre-existing mapping. Announcement idempotence across all of this is durable, not in-memory: the bridge's store gains an **announcement-receipts table keyed by requestId** (today `src/store.ts` persists only mappings), so a restart re-announces exactly the open requests it has no receipt for — never a duplicate for one it already posted, never silence for one it missed.
+
+**What widening the allowlist costs, honestly.** The four-command list is the bridge's blast-radius bound: a compromised or buggy bridge today can create/steer/archive threads but cannot answer approvals, change lanes, or touch settlement. Adding `thread.user-input.respond` lets it settle questions — put words in the human's mouth, from the agent's perspective. Mitigations that keep the containment meaningful: the command is gated behind the same Slack-user authority check as `attention_answer` (Carl-only today); it carries a specific `requestId` so it can only settle a question that is actually open; and settle-first semantics mean a malformed dispatch fails visibly rather than wedging anything. The allowlist grows from four to five for a capability the incident showed is not optional — but it should grow by exactly one, and the design does not sneak `thread.user-input.dismiss` into the bridge (dismissal from Slack is a plain reply away — "just proceed" as a custom answer — and can be added later if wanted).
+
+**Reply semantics with the question open**: routing replies to `respond` (rather than `turn.start`) on question-open threads also closes the bridge-side half of the swallowed-steer problem — the bridge never again converts an answer-shaped reply into a steer against a blocked turn. The Loom-side supersede path remains the safety net for every *non-bridge* surface and for bridge builds that predate this change.
+
+## Durability: the original line, re-judged
+
+The original plan argued: *a durable answer buffer has no consumer, because the pi child's tool call dies with the server and cannot be re-entered — a buffer with no consumer is dead weight.* The server audit's verdict, which this design adopts: **the argument was correct in its narrow claim and over-applied in practice.**
+
+- **Upheld:** no durable answer buffer for re-entering a dead tool call is built. Synthetic tool-result injection into a resumed pi turn is still impossible and still not needed.
+- **Overturned in effect:** the deferral was scoped to answer delivery but the implementation applied it to *state reconciliation* — the plan's own claim that "a restart-orphaned question is cleared by the existing stale-detection path" was false for pi (D2 made that path dead code), and incident 1 was not even a restart: it was a cancellation emitted into a dead queue (D1) with no durable second chance (D5). Commitment 1 is the durable reconciliation the plan should have specified.
+- **Superseded:** the answer-anyway conversion (commitment 3) changes what "the consumer" is for the dead-session case — a late answer's consumer is the next turn, which is durable by construction. The plan's dichotomy (in-flight tool call or nothing) was an artefact of treating delivery and settlement as one operation.
+- The plan's "parity with approvals" argument for having no timeout is retired: approvals have a persisted table; user-input did not; the surfaces were never at parity (server audit, plan-vs-code §3).
+
+No persisted pending-user-input table is added. The durable substrate is what already exists — `user-input.requested`/`resolved` activities in the projection — now with the guarantee that resolved always eventually arrives, and with the attention flag derived at read time from that same substrate rather than maintained in parallel to it.
+
+## Other providers: no regression, shared wins
+
+Claude/Codex/Grok/Cursor/OpenCode ride the same `user-input.requested` pipe and are affected as follows:
+
+- **Unchanged:** their in-adapter blocking mechanics (Claude's `Deferred` + abort listener, etc.).
+- **Shared wins, automatic:** the derived attention flag (server-side on the shared activity pair), the dismiss command, settle-first respond, supersede, the session-exit clearing rule, the startup scan, the client card (the panel is provider-agnostic), and the deletion of the allowlists (their canonical stale wordings are handled by the server-side reactor path during settlement instead).
+- **Not automatic — delivery of a `superseded` message.** Per the commitment-3 amendment, each of the five carries the outcome to its blocked callback but cannot carry the *prose*, so the message is delivered as exactly one new turn after the callback is provably released. What must NOT change: a non-answer outcome may never be delivered as an answer (Claude denies with framing; Grok cancels; Cursor/Codex use a reserved key; OpenCode **rejects** rather than replying with an empty answers array — replying is what left it blocked). No adapter emits its own `user-input.resolved` any more: the server settles first, and the decider rejects a second resolution for an already-settled request (first-terminal-wins), so one request can never carry two contradictory terminal outcomes.
+- **`outcome` on `user-input.resolved`** is additive with a decode default; adapters that never set it are unaffected.
+- **One mobile correctness fix folded in:** mobile silently truncates multi-select answers to a single label (S10) because `ProviderUserInputAnswers` is `Schema.Unknown`-valued. The contract tightens to `string | string[]` per answer and mobile gains multi-select — a small, real bug independent of this redesign but on the same seam.
+
+## What is deleted, not repaired
+
+- The four prose stale-clear allowlists (web `session-logic.ts:361`, mobile `threadActivity.ts:153`, projection `ProjectionPipeline.ts:179`, decider `decider.ts:76`) and the entire clear-on-failure-detail mechanism.
+- The liveness sweep's `hasPendingUserInput` exemption (`WorkstreamLivenessSweep.ts:207`).
+- The startup `parkedThreadIds` exclusion for pending-input threads (`startup.ts:84-90,151`) — replaced by resolve-cancelled reconciliation. The startup queued-message wipe (`startup.ts:135`) stops discarding human steers silently — they are folded into the resumed turn's opening context (commitment 3).
+- The rollup's render-time `awaiting_input` union (`workstreamRollup.ts:120-121`) — the server-unioned wire array is now the single source.
+- The whole web composer takeover: editor value swap, keystroke reroute, Enter hijack, digit listener, hidden stop button, placeholder swap, suppressed attachments/contexts (the card increment).
+- The client-side "retry forever" respond loop — settlement is one-shot and cannot fail from the user's perspective.
+- **Not deleted:** the shim's long-poll loop (`providerToolExtension.ts:270`) — the settled blocking model keeps it, with its exits now guaranteed; the corrected `extension_ui_request` compatibility mapping; the reserved-label validation; the answer/cancel race guard (D15 — verified correct); and the question schema, all of which the audits found sound.
+
+On **prompt guidance**: the current "last resort" wording stays and gains one honest sentence — that the user may answer late, supersede with a message, or dismiss, and the agent should be ready to proceed on a stated assumption. But guidance is explicitly *not* load-bearing in this design: the incidents happened with cautious guidance already in place, and the fix is that a question, however ill-advised, can no longer cost the user anything but a dismissal click.
+
+## Change map
+
+<FileTree
+  title="Increment 1 (Loom) — settlement authority + derived attention on the wire + escape hatches (ships alone)"
+  entries={[
+    { path: "packages/contracts/src/providerRuntime.ts", change: "modified", note: "user-input.resolved gains optional outcome (answered|dismissed|superseded|cancelled); decode-defaults to answered" },
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "thread.user-input.dismiss command; AttentionReason comment updated (awaiting_input: derived, unioned into shell attention at the read boundary); ProviderUserInputAnswers tightened to string|string[]" },
+    { path: "apps/server/src/orchestration/decider.ts", change: "modified", note: "dismiss command → resolved{dismissed}; respond settles-first; plain turn.start on open question → resolved{superseded} routed to broker delivery, not the steer queue; delete isStaleRequestFailureDetail; hasOpenBlockingRequest gains the terminal-wins-per-requestId rule" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "respond: settle then best-effort deliver; dead-consumer answers/supersedes convert to thread.turn.start; failure details become diagnostics only" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionPipeline.ts", change: "modified", note: "derivePendingUserInputCountFromActivities becomes terminal-wins per requestId (a resolved id can never be reopened by a late/duplicate requested row); delete failure-detail clearing. The attention COLUMN is untouched — it stays event-owned" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "one shared helper at the shell mapping boundary unions awaiting_input into attention when pendingUserInputCount > 0 — applied to getShellSnapshot, per-thread shell lookups, and subscription views; explicitly NOT applied to getCommandReadModel (decider sees stored-only attention), with a comment saying why" },
+    { path: "apps/server/src/persistence/Migrations", change: "added", note: "one-time refold of pending_user_input_count for existing rows under the terminal-wins algorithm (precedent: 024_BackfillProjectionThreadShellSummary); no attention backfill needed — the flag derives at read time" },
+    { path: "apps/server/src/orchestration/Layers/WorkstreamDispatcher.ts", change: "modified", note: "dedicated parent wake for a child carrying awaiting_input — NOT idle-gated (a blocked question never idles) and not dependent on the quiet-gated frozen rail; episode keyed by open requestIds" },
+    { path: "apps/server/src/provider/ProviderRuntimeIngestion.ts", change: "modified", note: "persist session.exited as an activity; emit resolved{cancelled} for requests open at exit" },
+    { path: "apps/server/src/provider/Drivers/Pi/askUserBroker.ts", change: "modified", note: "D1: emitter-absent/queue-shutdown fallback persists the cancellation via the command path + logs; D11 ownership fix" },
+    { path: "apps/server/src/provider/Drivers/PiDriver.ts", change: "modified", note: "D2 canonical unknown-request wording; relaunch cancels in-flight questions (D10)" },
+    { path: "apps/server/src/mcp/UserInputHttp.ts", change: "modified", note: "fold thrown paths (statuses, tombstone-expiry 404) into could_not_present semantics (D13/D14)" },
+    { path: "apps/server/src/loom/startup.ts", change: "modified", note: "resolve-cancelled open requests instead of parking; stop excluding from continuation; fold wiped queued steering into the resumed turn instead of discarding" },
+    { path: "apps/server/src/orchestration/Layers/WorkstreamLivenessSweep.ts", change: "modified", note: "delete the hasPendingUserInput exemption" },
+    { path: "apps/web/src/session-logic.ts", change: "modified", note: "clear on resolved only; delete allowlist" },
+    { path: "apps/web/src/lib/workstreamRollup.ts", change: "modified", note: "delete the render-time awaiting_input union; the server-unioned wire array is the single source" },
+    { path: "apps/web/src/lib/workstreamPresentation.ts", change: "modified", note: "awaiting_input added to ATTENTION_PULSE_STROKES so the graph pulse matches the board treatment" },
+    { path: "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", change: "modified", note: "dismiss control; 'N more pending' indicator (interim, until the card replaces it)" },
+    { path: "apps/web/src/components/chat/ComposerPrimaryActions.tsx", change: "modified", note: "stop button reachable while a question is pending" },
+    { path: "apps/mobile/src/lib/threadActivity.ts", change: "modified", note: "clear on resolved only; multi-select answers" },
+    { path: "apps/mobile/src/features/threads/PendingUserInputCard.tsx", change: "modified", note: "dismiss control; multiSelect" },
+  ]}
+/>
+
+<FileTree
+  title="Increment 2 (loom-slack-bridge, external repo) — announce + structured answering (full notes in the bridge section)"
+  entries={[
+    { path: "src/types.ts", change: "modified", note: "BridgedAttentionReason + awaiting_input; OpenQuestion state; answer capability gating" },
+    { path: "src/attention.ts", change: "modified", note: "BRIDGED list + awaiting_input (trigger for unmapped threads)" },
+    { path: "src/bridge.ts", change: "modified", note: "per-request open-question map; requestId-keyed idempotent announce incl. warm-up standing requests on mapped AND unmapped threads; awaiting_input branch in handleAttentionReply → respond" },
+    { path: "src/store.ts", change: "modified", note: "durable announcement receipts keyed by requestId" },
+    { path: "src/loom/interpret.ts", change: "modified", note: "extract + render question payloads; post resolution updates" },
+    { path: "src/loom/commands.ts", change: "modified", note: "fifth allowlisted command: thread.user-input.respond" },
+  ]}
+/>
+
+<FileTree
+  title="Increment 3 (Loom) — non-modal web card"
+  entries={[
+    { path: "apps/web/src/components/chat/PendingQuestionCard.tsx", change: "added", note: "self-contained card: options, previews, free-text field, submit, dismiss" },
+    { path: "apps/web/src/components/chat/ChatComposer.tsx", change: "modified", note: "delete takeover: value swap, keystroke reroute, suppressions; composer is always a composer" },
+    { path: "apps/web/src/ChatView.tsx", change: "modified", note: "delete Enter hijack and option-click promptRef clearing; send-while-open → supersede" },
+    { path: "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", change: "removed", note: "superseded by the card" },
+  ]}
+/>
+
+**Documented later option (not scheduled): bounded window + park.** The prior revision's increment-2 file list (window deadline in `UserInputHttp.ts`, `deferred` shim handling in `providerToolExtension.ts`, late-answer turn conversion in `ProviderCommandReactor.ts`, `deferred`/`answered_late` wording in `providerToolDefs.ts`) remains the blueprint if the retained turn-state poisoning class (commitment 4's cost callout) bites in practice.
+
+## Sequencing, and exactly what fixes each incident
+
+Increment 1 ships alone. Increments 2 (bridge) and 3 (card) are independent of each other; both assume 1.
+
+**Incident 1 (wedged forever) — made impossible by increment 1, full stop.** The cancellation can no longer be lost silently (D1 fallback); even if a resolution were ever missed, the session-exit rule and startup scan settle it; dismiss works regardless; answer-anyway converts to a turn instead of failing sixteen times; and no prose matching exists anywhere. Nothing in incidents of this shape touches the bridge or the composer.
+
+**Incident 2 (Slack silence + swallowed replies) — split honestly, because the prior draft overclaimed here.** It had two halves:
+
+- *The swallowed replies* (Carl typed twice; both queued as steers against a blocked turn, then wiped at restart): fixed by **increment 1**. A plain reply now supersedes the question and arrives as the tool result — it is never queued against the blocked turn at all — and the startup wipe folds instead of discards. The "agent looks mute while I type at it" experience cannot recur from any surface.
+- *The silence* (the question never appeared on Slack, and Slack could not answer it as asked): fixed only by **increment 2**. The announce requires the bridge's reason filter to admit `awaiting_input`, and structured answering requires the fifth command. Until the bridge ships, a question is loud on the board and to the parent orchestrator but still invisible on Slack — and a Slack reply, while no longer lost, settles the question as prose rather than answering it as asked.
+
+So: increment 1 makes incident 1 impossible and removes incident 2's data loss; incident 2 as *experienced* — "the surface I was on never showed me the question" — is closed by the bridge increment, and that is the reason the bridge work is on the critical path rather than deferred.
+
+## Verification
+
+- **Forensic regression tests, one per incident:** (1) open a question, kill the pi process with the event queue shut down, assert `user-input.resolved{cancelled}` is persisted and dismiss/answer both still settle; (2) open a question, send two plain messages, assert the first resolves the question `superseded` and reaches the model exactly once — as the tool result on pi, or as one receipt-deduped new turn on the SDK/ACP providers, and in neither case as a steer — the second lands as a normal steer/turn, and `awaiting_input` appeared in the shell's attention array on request-open and vanished on resolve. Per the commitment-3 amendment, add per-adapter release-before-turn regressions (settle, then assert no `sendTurn` while the callback is still blocked) and a redelivery regression proving the fallback turn is receipt-deduped.
+- **Fold invariants — replay, not just live interleavings:** a truncate-and-rebuild replay test over pathological activity orderings — exact duplicate `requested` rows, distinct-id duplicates for the same requestId, `resolved` arriving before `requested`, a late `requested` after terminal resolution — asserting terminal-wins: once resolved, a requestId can never reopen. Plus the derivation invariant at the shell boundary: `awaiting_input ∈ shell.attention ⟺ pendingUserInputCount > 0` for every shell surface, and `awaiting_input ∉ getCommandReadModel().attention` always (decider state identical before and after restart, verified by hydrating a fresh engine from the same DB and diffing emitted events for the same command).
+- **Backfill:** the count-refold migration produces the same `pending_user_input_count` as a full replay for a corpus including the two incident threads (both currently stuck at 1 — the migration plus increment 1's startup scan must settle them).
+- **Dispatcher wake:** a child blocked on a question (session running, live `activeTurnId`, heartbeat advancing) produces exactly one parent wake per open-request episode — this is the rail the audits proved never fired.
+- Broker unit tests extended: emitter-absent cancel persists (D1), relaunch cancels in-flight (D10), dismiss-vs-answer race.
+- Restart smoke: question open → restart ⇒ resolved-cancelled, the thread continues, and previously queued steering appears in the resumed turn's context.
+- Web: send-while-question-open supersedes; draft integrity across the question lifecycle (the S3 `promptRef` scenario, automated); no digit-key answer submission possible.
+- Slack (staging bridge): question → announcement renders options; numbered reply answers it structurally; free-text reply lands as a custom answer; reply after resolution falls through to a normal turn; **bridge restart with a question standing → the question is announced after warm-up, for a mapped thread AND for an unmapped one** (the unmapped case must open a fresh Slack presence; idempotence via the durable requestId receipts, not attention-seed silence — and a second restart must not re-announce); two stacked requests → two ordinal-tagged announcements, replies target the named one.
+- `vp check`, `vp run typecheck` (Loom); the bridge repo's own checks for increment 2.
+
+## Assumptions and unknowns
+
+- **D1's exact mechanism** (emitter-absent vs queue-shutdown) is unresolved by the server audit; the fix covers both, and the added log line will discriminate retroactively.
+- The **S3 `promptRef` desync frequency** was established from code, not reproduced in a running app. The card increment deletes the path rather than depending on that measurement; while only increment 1 is shipped, the interim panel keeps the takeover, so the dismiss control and stop-button fix are the mitigations until the card lands.
+- The bridge's deployed build is assumed to match its working tree (channels audit could not verify the running systemd unit). Increment 2 should be verified against the deployed artefact, not just the tree.
+- The incident-1 **503's origin** (mid-restart router teardown) is medium-confidence; the design does not depend on it — any thrown status now lands in `could_not_present` semantics.
+- **Supersede-on-plain-send changes behaviour for attended web users who deliberately steer mid-question** expecting the question to stay open. Under indefinite blocking this trade is sharper than in the parked design: the steer *cannot* reach the model any other way, so supersede is not just convenient but necessary. Judged acceptable — the model is told the message is the response, and re-asking is cheap — but flagged: if the user disagrees, the only alternative under this blocking model is to reject sends while a question is open, which is the takeover in another guise.
+- The dispatcher's **frozen-rail quiet measurement never firing for blocked questions** is high-confidence on evidence (zero notices across the corpus, 27-minute five-question case) but medium on mechanism; the dedicated `awaiting_input` wake removes the dependence on that measurement either way.

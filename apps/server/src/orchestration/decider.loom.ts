@@ -50,8 +50,10 @@ import {
   collectLiveSubtreeIds,
   withEventBase,
   decideCommandSequence,
+  userInputSettlementEvents,
   type PlannedOrchestrationEvent,
 } from "./decider.ts";
+import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -677,6 +679,34 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           updatedAt: occurredAt,
         },
       };
+    }
+
+    // The human's escape hatch (design commitment 3). Settles the durable record
+    // unconditionally and asks for delivery best-effort: a live tool call learns
+    // it was dismissed, a dead one is never told, and either way the question is
+    // over. Under indefinite blocking this is what turns "blocks forever" into
+    // "blocks until anyone clicks once".
+    case "thread.user-input.dismiss": {
+      const dismissThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const dismissEvents = yield* userInputSettlementEvents({
+        threadId: command.threadId,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        openRequestIds: openUserInputRequestIds(dismissThread.activities),
+        requestId: command.requestId,
+        outcome: "dismissed",
+      });
+      if (dismissEvents.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `User-input request '${command.requestId}' on thread '${command.threadId}' is not open; it was already settled.`,
+        });
+      }
+      return dismissEvents;
     }
 
     case "thread.attention.clear": {

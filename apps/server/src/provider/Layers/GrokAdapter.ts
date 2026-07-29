@@ -68,6 +68,11 @@ import {
   XAiAskUserQuestionRequest,
 } from "../acp/XAiAcpExtension.ts";
 import { type GrokAdapterShape } from "../Services/GrokAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+} from "../Services/ProviderAdapter.ts";
+import { renderUserInputOutcomeHandoff } from "@t3tools/shared/userInputOutcome";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
@@ -91,12 +96,21 @@ interface PendingApproval {
   readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
 }
 
+// Grok's ask_user_question response models exactly two shapes: accepted (with
+// answers) or cancelled. A dismissal and a supersede are therefore both delivered
+// as CANCELLED — honest, because neither is a selection — and the supersede's
+// message content is re-delivered as a new turn by the caller.
 type PendingUserInputResolution =
   | { readonly _tag: "answered"; readonly answers: ProviderUserInputAnswers }
-  | { readonly _tag: "cancelled" };
+  | { readonly _tag: "cancelled"; readonly handoffMessage?: string };
 
 interface PendingUserInput {
   readonly resolution: Deferred.Deferred<PendingUserInputResolution>;
+  // Completed by the callback itself, immediately before it returns to the ACP
+  // peer. Completing `resolution` only makes the value available to the blocked
+  // fibre; it does not prove the callback has returned. See ClaudeAdapter's
+  // `released` for the full rationale.
+  readonly released: Deferred.Deferred<void>;
 }
 
 interface GrokSessionContext {
@@ -136,7 +150,11 @@ function settlePendingUserInputsAsCancelled(
 ): Effect.Effect<void> {
   return Effect.forEach(
     Array.from(pendingUserInputs.values()),
-    (pending) => Deferred.succeed(pending.resolution, { _tag: "cancelled" }).pipe(Effect.ignore),
+    (pending) =>
+      Deferred.succeed(pending.resolution, { _tag: "cancelled" as const }).pipe(
+        Effect.andThen(Deferred.succeed(pending.released, void 0)),
+        Effect.ignore,
+      ),
     { discard: true },
   );
 }
@@ -620,8 +638,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                       const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
                       const runtimeRequestId = RuntimeRequestId.make(requestId);
                       const resolution = yield* Deferred.make<PendingUserInputResolution>();
+                      const released = yield* Deferred.make<void>();
                       const turnId = resolveSessionCallbackTurnId(sessions, input.threadId);
-                      pendingUserInputs.set(requestId, { resolution });
+                      pendingUserInputs.set(requestId, { resolution, released });
                       yield* offerRuntimeEvent({
                         type: "user-input.requested",
                         ...(yield* makeEventStamp()),
@@ -646,19 +665,28 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         threadId: input.threadId,
                         turnId,
                         requestId: runtimeRequestId,
-                        payload: { answers: resolvedAnswers },
+                        // Delivery echo of an already-settled request (ingestion
+                        // drops it when the durable resolution exists). Grok's
+                        // callback models only accepted/cancelled, so that is the
+                        // most it can honestly report here.
+                        payload: {
+                          answers: resolvedAnswers,
+                          outcome: resolved._tag === "answered" ? "answered" : "cancelled",
+                        },
                         raw: {
                           source: "acp.grok.extension",
                           method,
                           payload: params,
                         },
                       });
-                      switch (resolved._tag) {
-                        case "answered":
-                          return makeXAiAskUserQuestionResponse(params, resolved.answers);
-                        case "cancelled":
-                          return makeXAiAskUserQuestionCancelledResponse();
-                      }
+                      // Last thing before returning: the caller gates its fallback
+                      // turn on this, so it can never be dispatched mid-callback.
+                      const response =
+                        resolved._tag === "answered"
+                          ? makeXAiAskUserQuestionResponse(params, resolved.answers)
+                          : makeXAiAskUserQuestionCancelledResponse(resolved.handoffMessage);
+                      yield* Deferred.succeed(released, void 0).pipe(Effect.ignore);
+                      return response;
                     }),
                   ),
                 ),
@@ -1374,10 +1402,13 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
         yield* Deferred.succeed(pending.decision, decision);
       });
 
+    // DELIVERY ONLY: the durable resolution already exists, so nothing here can
+    // leave the question open.
     const respondToUserInput: GrokAdapterShape["respondToUserInput"] = (
       threadId,
       requestId,
       answers,
+      settlement,
     ) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
@@ -1389,7 +1420,26 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             detail: `Unknown pending user-input request: ${requestId}`,
           });
         }
-        yield* Deferred.succeed(pending.resolution, { _tag: "answered", answers });
+        const outcome = settlement?.outcome ?? "answered";
+        const resolution: PendingUserInputResolution =
+          outcome === "answered"
+            ? { _tag: "answered", answers }
+            : {
+                _tag: "cancelled",
+                // A cancellation carrying handoff prose, so a supersede does not
+                // read to the model as "nobody answered" when the answer is
+                // arriving in the very next turn.
+                handoffMessage: renderUserInputOutcomeHandoff({
+                  outcome,
+                  ...(settlement?.message !== undefined ? { message: settlement.message } : {}),
+                }),
+              };
+        yield* Deferred.succeed(pending.resolution, resolution);
+        if (outcome !== "superseded") return userInputContentDelivered;
+        // Await the callback's own release before reporting that a fallback turn
+        // is needed (see ClaudeAdapter for why the Deferred alone is not proof).
+        yield* Deferred.await(pending.released);
+        return userInputContentUndelivered;
       });
 
     const readThread: GrokAdapterShape["readThread"] = (threadId) =>

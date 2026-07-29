@@ -22,7 +22,7 @@ import {
   RuntimeMode,
 } from "./orchestration.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
-import { RuntimeErrorClass } from "./providerRuntime.ts";
+import { RuntimeErrorClass, UserInputResolvedOutcome } from "./providerRuntime.ts";
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -128,10 +128,17 @@ export const ProviderRespondToRequestInput = Schema.Struct({
 });
 export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
 
+// The question is already settled durably by the time this input exists (the
+// server settles first, then delivers), so `outcome` tells the adapter WHICH
+// terminal outcome to hand its waiting tool call — not whether to settle.
+// Absent means `answered`; `message` carries the plain text that superseded the
+// form.
 export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
   answers: ProviderUserInputAnswers,
+  outcome: Schema.optional(UserInputResolvedOutcome),
+  message: Schema.optional(Schema.String),
 });
 export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;
 

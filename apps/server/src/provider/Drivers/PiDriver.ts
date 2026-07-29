@@ -80,7 +80,12 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { ProviderFailoverSettings } from "@t3tools/contracts";
 import { buildServerProvider, type ServerProviderDraft } from "../providerSnapshot.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+  type ProviderAdapterShape,
+  type UserInputDeliveryResult,
+} from "../Services/ProviderAdapter.ts";
 import {
   createPiRpcProcess,
   type PiRpcCommandInfo,
@@ -898,6 +903,11 @@ export function makePiAdapter(input: {
   const launchIdentityDir = input.serverConfig.workstreamLaunchIdentityDir;
   const emit = (event: ProviderRuntimeEvent) =>
     Queue.offer(input.events, event).pipe(Effect.asVoid);
+  // Same offer, but surfacing whether it actually landed. `Queue.offer` on a
+  // shut-down queue succeeds without delivering, so a terminal event emitted
+  // during teardown can vanish between the canonical log and the database — the
+  // broker's durable fallback keys off this flag.
+  const emitDelivered = (event: ProviderRuntimeEvent) => Queue.offer(input.events, event);
   const requireSession = (
     threadId: ThreadId,
   ): Effect.Effect<ActivePiSession, ProviderAdapterSessionNotFoundError> => {
@@ -928,7 +938,7 @@ export function makePiAdapter(input: {
     answers: Record<string, unknown>,
     cancelled = false,
   ) =>
-    emit({
+    emitDelivered({
       ...sessionBase(session, {
         source: "pi.rpc.synthetic",
         method: cancelled ? "ask_user_question/cancelled" : "user-input/resolved",
@@ -936,7 +946,7 @@ export function makePiAdapter(input: {
       }),
       requestId: RuntimeRequestId.make(requestId),
       type: "user-input.resolved",
-      payload: { answers },
+      payload: { answers, outcome: cancelled ? "cancelled" : "answered" },
     });
 
   const cancelLegacyUserInputs = (session: ActivePiSession) => {
@@ -1842,6 +1852,10 @@ export function makePiAdapter(input: {
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
       sessions.delete(active.session.threadId);
       void (async () => {
+        // Cancel BEFORE unregistering so the emitter is still present — but the
+        // ordering is no longer load-bearing: the broker persists the resolution
+        // through the command path whenever the emit cannot be delivered, so an
+        // absent emitter or an already-shut-down queue both still settle.
         await Effect.runPromise(cancelPendingUserInputs(active)).catch(() => undefined);
         active.unregisterAskUserEmitter();
         await Effect.runPromise(
@@ -1881,6 +1895,13 @@ export function makePiAdapter(input: {
         clearTimeout(session.retry.timer);
         session.retry = { ...session.retry, timer: undefined };
       }
+      // D10: the replaced process's exit handler is short-circuited by
+      // `replacedProcesses`, so without this an in-flight question survives the
+      // relaunch — the tool call that would collect the answer died with the old
+      // process, so answering would "succeed" (panel clears, resolved emitted)
+      // and go nowhere. Cancel before the swap: apparent success with no
+      // delivery is worse than a visible cancellation.
+      yield* cancelPendingUserInputs(session);
       yield* Effect.promise(() => previous.stop());
       session.unsubscribe();
       yield* Effect.sync(() => sanitisePiSessionForThread(session.session.threadId));
@@ -2112,17 +2133,16 @@ export function makePiAdapter(input: {
               startInput.threadId,
               async (event) => {
                 if (event.type === "requested") {
-                  await Effect.runPromise(
-                    emit({
+                  return await Effect.runPromise(
+                    emitDelivered({
                       ...sessionBase(active),
                       requestId: RuntimeRequestId.make(event.requestId),
                       type: "user-input.requested",
                       payload: { questions: event.questions },
                     }),
                   );
-                  return;
                 }
-                await Effect.runPromise(
+                return await Effect.runPromise(
                   emitUserInputResolved(
                     active,
                     event.requestId,
@@ -2329,50 +2349,67 @@ export function makePiAdapter(input: {
           issue: "Pi approval requests are not exposed separately in v1.",
         }),
       ),
-    respondToUserInput: (threadId, requestId, answers) =>
+    // DELIVERY of an already-settled outcome (the server settles first, then
+    // dispatches here), which is why neither branch below emits
+    // `user-input.resolved`: the durable row already exists, and a second one
+    // would double the timeline. A failure here therefore cannot leave the
+    // question open — it is a delivery diagnostic and nothing more.
+    respondToUserInput: (threadId, requestId, answers, settlement) =>
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
           Effect.tryPromise({
-            try: async () => {
-              if (await resolvePiAskUserQuestion(threadId, requestId, answers)) return;
+            try: async (): Promise<UserInputDeliveryResult> => {
+              // The broker's poll carries the full outcome (including a
+              // `superseded` message) straight to the blocked ask_user_question
+              // tool call, so pi's content delivery is always complete.
+              if (resolvePiAskUserQuestion(threadId, requestId, answers, settlement))
+                return userInputContentDelivered;
               const method = session.uiRequests.get(requestId);
-              if (!method) throw new Error(`Unknown Pi user-input request '${requestId}'.`);
+              // D2: the canonical wording every other adapter uses. Clients no
+              // longer prose-match anything, but the server-side reactor path
+              // still recognises this form uniformly across providers — pi was
+              // the only one whose wording matched nothing.
+              if (!method) throw new Error(`Unknown pending user-input request: ${requestId}.`);
               const rawAnswer = answers[requestId];
               const answer = Array.isArray(rawAnswer) ? rawAnswer[0] : rawAnswer;
+              // A non-`answered` outcome carries no value for a native dialog:
+              // dismissed/superseded/cancelled all mean "this dialog gets no
+              // answer", so it is cancelled rather than fed a wrong value.
+              const settledWithoutAnswer =
+                settlement !== undefined && settlement.outcome !== "answered";
               const response =
-                method === "confirm"
-                  ? answer === "Yes"
-                    ? ({ type: "extension_ui_response", id: requestId, confirmed: true } as const)
-                    : answer === "No"
-                      ? ({
+                settledWithoutAnswer || (typeof answer !== "string" && !Array.isArray(rawAnswer))
+                  ? ({ type: "extension_ui_response", id: requestId, cancelled: true } as const)
+                  : method === "confirm"
+                    ? answer === "Yes"
+                      ? ({ type: "extension_ui_response", id: requestId, confirmed: true } as const)
+                      : answer === "No"
+                        ? ({
+                            type: "extension_ui_response",
+                            id: requestId,
+                            confirmed: false,
+                          } as const)
+                        : ({
+                            type: "extension_ui_response",
+                            id: requestId,
+                            cancelled: true,
+                          } as const)
+                    : typeof answer === "string"
+                      ? ({ type: "extension_ui_response", id: requestId, value: answer } as const)
+                      : ({
                           type: "extension_ui_response",
                           id: requestId,
-                          confirmed: false,
-                        } as const)
-                      : ({ type: "extension_ui_response", id: requestId, cancelled: true } as const)
-                  : typeof answer === "string"
-                    ? ({ type: "extension_ui_response", id: requestId, value: answer } as const)
-                    : ({ type: "extension_ui_response", id: requestId, cancelled: true } as const);
+                          cancelled: true,
+                        } as const);
               // Claim before the process write so interrupt/stop cannot emit a
-              // second terminal event for the same native request.
+              // terminal event for the same native request.
               session.uiRequests.delete(requestId);
-              try {
-                await session.process.write(response);
-              } catch (cause) {
-                // Delivery failed after the claim: the pi dialog can no longer
-                // be relied on, but Loom must still clear its persisted pending
-                // projection before surfacing the adapter error.
-                await Effect.runPromise(emitUserInputResolved(session, requestId, {}, true));
-                throw cause;
-              }
-              await Effect.runPromise(
-                emitUserInputResolved(
-                  session,
-                  requestId,
-                  answers as Record<string, unknown>,
-                  "cancelled" in response,
-                ),
-              );
+              await session.process.write(response);
+              // A legacy dialog is a single value slot: it can carry an answer but
+              // not a supersede message, so that content needs a new turn.
+              return settledWithoutAnswer && settlement?.outcome === "superseded"
+                ? userInputContentUndelivered
+                : userInputContentDelivered;
             },
             catch: (cause) =>
               new ProviderAdapterRequestError({

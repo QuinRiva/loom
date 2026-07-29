@@ -26,11 +26,6 @@ export interface PendingUserInput {
   readonly questions: ReadonlyArray<UserInputQuestion>;
 }
 
-export interface PendingUserInputDraftAnswer {
-  readonly selectedOptionLabel?: string;
-  readonly customAnswer?: string;
-}
-
 export interface ThreadFeedActivity {
   readonly id: string;
   readonly createdAt: string;
@@ -150,40 +145,25 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
   }
 }
 
-function isStalePendingRequestFailureDetail(detail: string | undefined): boolean {
+// Approvals only. The user-input equivalent is deleted: the server now guarantees
+// a `user-input.resolved` always eventually lands, so a question's death is never
+// again inferred from prose — four hand-maintained copies of this list had already
+// diverged (this one was two entries short of the web's), and none of them matched
+// the wording the real incident produced.
+function isStalePendingApprovalFailureDetail(detail: string | undefined): boolean {
   const normalized = detail?.toLowerCase();
   if (!normalized) {
     return false;
   }
   return (
     normalized.includes("stale pending approval request") ||
-    normalized.includes("stale pending user-input request") ||
     normalized.includes("unknown pending approval request") ||
-    normalized.includes("unknown pending permission request") ||
-    normalized.includes("unknown pending user-input request")
+    normalized.includes("unknown pending permission request")
   );
 }
 
 function parseApprovalRequestId(value: unknown): ApprovalRequestId | null {
   return typeof value === "string" && value.length > 0 ? ApprovalRequestId.make(value) : null;
-}
-
-function normalizeDraftAnswer(value: string | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function resolvePendingUserInputAnswer(
-  draft: PendingUserInputDraftAnswer | undefined,
-): string | null {
-  const customAnswer = normalizeDraftAnswer(draft?.customAnswer);
-  if (customAnswer) {
-    return customAnswer;
-  }
-  return normalizeDraftAnswer(draft?.selectedOptionLabel);
 }
 
 function deriveWorkLogEntries(
@@ -1193,7 +1173,7 @@ export function derivePendingApprovals(
     if (
       activity.kind === "provider.approval.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isStalePendingApprovalFailureDetail(detail)
     ) {
       openByRequestId.delete(requestId);
     }
@@ -1202,10 +1182,16 @@ export function derivePendingApprovals(
   return Arr.sortWith([...openByRequestId.values()], (s) => new Date(s.createdAt), Order.Date);
 }
 
+/**
+ * Open questions, cleared by `user-input.resolved` and nothing else. Terminal-wins
+ * per requestId, matching the server's fold exactly — a resolved request can never
+ * be reopened by a late or duplicate `requested` row.
+ */
 export function derivePendingUserInputs(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingUserInput[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
+  const resolvedRequestIds = new Set<ApprovalRequestId>();
   const ordered = Arr.sort(activities, activityOrder);
 
   for (const activity of ordered) {
@@ -1214,9 +1200,17 @@ export function derivePendingUserInputs(
         ? (activity.payload as Record<string, unknown>)
         : null;
     const requestId = parseApprovalRequestId(payload?.requestId);
-    const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
+    if (requestId === null) {
+      continue;
+    }
 
-    if (activity.kind === "user-input.requested" && requestId) {
+    if (activity.kind === "user-input.resolved") {
+      resolvedRequestIds.add(requestId);
+      openByRequestId.delete(requestId);
+      continue;
+    }
+
+    if (activity.kind === "user-input.requested" && !resolvedRequestIds.has(requestId)) {
       const questions = parseUserInputQuestions(payload);
       if (!questions) {
         continue;
@@ -1226,53 +1220,10 @@ export function derivePendingUserInputs(
         createdAt: activity.createdAt,
         questions,
       });
-      continue;
-    }
-
-    if (activity.kind === "user-input.resolved" && requestId) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      requestId &&
-      isStalePendingRequestFailureDetail(detail)
-    ) {
-      openByRequestId.delete(requestId);
     }
   }
 
   return Arr.sortWith(openByRequestId.values(), (s) => new Date(s.createdAt), Order.Date);
-}
-
-export function setPendingUserInputCustomAnswer(
-  draft: PendingUserInputDraftAnswer | undefined,
-  customAnswer: string,
-): PendingUserInputDraftAnswer {
-  const selectedOptionLabel =
-    customAnswer.trim().length > 0 ? undefined : draft?.selectedOptionLabel;
-  return {
-    customAnswer,
-    ...(selectedOptionLabel ? { selectedOptionLabel } : {}),
-  };
-}
-
-export function buildPendingUserInputAnswers(
-  questions: ReadonlyArray<UserInputQuestion>,
-  draftAnswers: Record<string, PendingUserInputDraftAnswer>,
-): Record<string, string> | null {
-  const answers: Record<string, string> = {};
-
-  for (const question of questions) {
-    const answer = resolvePendingUserInputAnswer(draftAnswers[question.id]);
-    if (!answer) {
-      return null;
-    }
-    answers[question.id] = answer;
-  }
-
-  return answers;
 }
 
 export function buildThreadFeed(

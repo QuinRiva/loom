@@ -20,6 +20,7 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../src/provider/Errors.ts";
+import { userInputContentDelivered } from "../src/provider/Services/ProviderAdapter.ts";
 import type {
   ProviderAdapterShape,
   ProviderThreadSnapshot,
@@ -433,7 +434,10 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       threadId,
       _requestId,
       _answers,
-    ) => (sessions.has(threadId) ? Effect.void : missingSessionEffect(provider, threadId));
+    ) =>
+      sessions.has(threadId)
+        ? Effect.succeed(userInputContentDelivered)
+        : missingSessionEffect(provider, threadId);
 
     const stopSession: ProviderAdapterShape<ProviderAdapterError>["stopSession"] = (threadId) =>
       Effect.sync(() => {

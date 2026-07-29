@@ -123,10 +123,10 @@ describe("classifyLiveness", () => {
     expect(verdict).toBeNull();
   });
 
-  it("never flags a child waiting for input/approvals as stalled or dead (State B)", () => {
+  it("never flags a child waiting on an approval as stalled or dead (State B)", () => {
     const stale = { heartbeatMs: now - 11 * 60_000, maxActivityCreatedAtMs: now - 11 * 60_000 };
     expect(
-      classifyLiveness({ ...base, ...stale, thread: thread({ hasPendingUserInput: true }) }),
+      classifyLiveness({ ...base, ...stale, thread: thread({ hasPendingApprovals: true }) }),
     ).toBeNull();
     expect(
       classifyLiveness({
@@ -135,6 +135,24 @@ describe("classifyLiveness", () => {
         failureCount: 3,
       }),
     ).toBeNull();
+  });
+
+  // A pending QUESTION is deliberately NOT exempt: this exemption was what
+  // disarmed the one component that escalates a thread parked forever on a
+  // question nobody can see. The caller's attention-aware handling stops the
+  // nudging; judgement itself must continue.
+  it("keeps judging a child waiting on a question (the exemption is deleted)", () => {
+    const stale = { heartbeatMs: now - 11 * 60_000, maxActivityCreatedAtMs: now - 11 * 60_000 };
+    expect(
+      classifyLiveness({ ...base, ...stale, thread: thread({ hasPendingUserInput: true }) })?.kind,
+    ).toBe("stalled");
+    expect(
+      classifyLiveness({
+        ...base,
+        thread: thread({ hasPendingUserInput: true }),
+        failureCount: 3,
+      })?.kind,
+    ).toBe("dead");
   });
 
   it("respects the startup grace so a slow first tool call is not a stall", () => {

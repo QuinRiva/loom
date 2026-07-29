@@ -185,6 +185,15 @@ describe("getAttentionPulse", () => {
       stroke: "#fb923c",
     });
   });
+  // An open question arrives as `awaiting_input` on the wire attention array
+  // (server-unioned), so the graph pulse must match the board's amber badge
+  // rather than leaving a flagged node visually unmarked.
+  it("pulses amber for a server-unioned awaiting_input", () => {
+    expect(getAttentionPulse(summary({ attention: ["awaiting_input"] }))).toMatchObject({
+      reason: "awaiting_input",
+      stroke: "#fbbf24",
+    });
+  });
 });
 
 describe("getFanInBadge", () => {

@@ -237,8 +237,8 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           createdAt: NOW,
         }) as OrchestrationThread["activities"][number];
 
-      // Stale-failure detail clears the request — mirrors the projection's
-      // pending accounting, which is what the client's canSettle sees.
+      // Stale-failure detail clears an APPROVAL — mirrors the projection's pending
+      // accounting, which is what the client's canSettle sees.
       const settled = yield* decideOrchestrationCommand({
         command: {
           type: "thread.settle",
@@ -250,14 +250,46 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
           activity("provider.approval.respond.failed", "req-1", {
             detail: "Unknown pending approval request req-1",
           }),
+        ]),
+      });
+      const settledEvents = Array.isArray(settled) ? settled : [settled];
+      expect(settledEvents[0]?.type).toBe("thread.settled");
+
+      // A QUESTION is NOT cleared by any failure detail: settlement is guaranteed
+      // to arrive as a resolution, so a delivery diagnostic leaves it open (and
+      // the thread unsettleable) rather than the client guessing from prose.
+      const questionStillOpen = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-question-failed"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel(null, null, null, [
           activity("user-input.requested", "req-2", {}),
           activity("provider.user-input.respond.failed", "req-2", {
             detail: "stale pending user-input request req-2",
           }),
         ]),
+      }).pipe(Effect.flip);
+      expect(questionStillOpen._tag).toBe("OrchestrationCommandInvariantError");
+
+      // …and terminal-wins: a resolution clears it permanently, even when a
+      // duplicate `requested` row for the same id follows it.
+      const questionSettled = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-question-resolved"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel(null, null, null, [
+          activity("user-input.resolved", "req-4", { outcome: "dismissed" }),
+          activity("user-input.requested", "req-4", {}),
+        ]),
       });
-      const settledEvents = Array.isArray(settled) ? settled : [settled];
-      expect(settledEvents[0]?.type).toBe("thread.settled");
+      const questionSettledEvents = Array.isArray(questionSettled)
+        ? questionSettled
+        : [questionSettled];
+      expect(questionSettledEvents[0]?.type).toBe("thread.settled");
 
       // A non-stale respond failure (transient provider error) keeps the
       // request open: the user can retry, so it is still blocked-on-you.

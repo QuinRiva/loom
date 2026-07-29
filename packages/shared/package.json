@@ -226,6 +226,18 @@
     "./userInputQuestions": {
       "types": "./src/userInputQuestions.ts",
       "import": "./src/userInputQuestions.ts"
+    },
+    "./openRequests": {
+      "types": "./src/openRequests.ts",
+      "import": "./src/openRequests.ts"
+    },
+    "./userInputOutcome": {
+      "types": "./src/userInputOutcome.ts",
+      "import": "./src/userInputOutcome.ts"
+    },
+    "./userInputAnswers": {
+      "types": "./src/userInputAnswers.ts",
+      "import": "./src/userInputAnswers.ts"
     }
   },
   "scripts": {

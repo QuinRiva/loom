@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
 import {
+  type AttentionReason,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationLatestTurn,
@@ -18,6 +19,7 @@ import {
   type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -2244,6 +2246,43 @@ describe("classifyChildWake (per-child wake rail, §1e)", () => {
     }
   });
 
+  // The rail the audits proved never fired. A question-blocked child is NOT idle
+  // (running session, live activeTurnId) and NOT quiet (its heartbeat keeps
+  // advancing), so both the idle-gated attention rail and the quiet-gated
+  // frozen-executing fallback miss it entirely — 27 minutes and five stacked
+  // questions produced zero notices in the measured corpus.
+  it("classifies a question-blocked child as `awaiting-input` even mid-turn", () => {
+    const child = shell({
+      id: "child-1",
+      planLane: "in_progress",
+      attention: ["awaiting_input"],
+      session: runningSession({ status: "running", activeTurnId: "turn-1" as TurnId }),
+    });
+    expect(classifyChildWake(child, new Set())).toBe("awaiting-input");
+  });
+
+  it("does NOT awaiting-input-wake a terminal child (the delta rail owns it)", () => {
+    for (const planLane of ["done", "cancelled"] as const) {
+      const child = shell({
+        id: "child-1",
+        planLane,
+        attention: ["awaiting_input"],
+        session: runningSession({ status: "running", activeTurnId: "turn-1" as TurnId }),
+      });
+      expect(classifyChildWake(child, new Set())).toBeNull();
+    }
+  });
+
+  it("`error` still outranks a question-blocked child", () => {
+    const child = shell({
+      id: "child-1",
+      planLane: "in_progress",
+      attention: ["awaiting_input", "error"],
+      session: runningSession(),
+    });
+    expect(classifyChildWake(child, new Set())).toBe("error");
+  });
+
   it("does NOT attention-wake a flagged child that is still executing", () => {
     const child = shell({
       id: "child-1",
@@ -2402,6 +2441,13 @@ describe("childWakeEvidenceNeeds (phase 1 — lazy evidence planning)", () => {
     expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual([]);
   });
 
+  it("fetches only the open requestIds for a question-blocked child", () => {
+    const child = executingShell({ attention: ["awaiting_input"] });
+    expect(has(childWakeEvidenceNeeds(child, new Set(), false))).toEqual([
+      "openUserInputRequestIds",
+    ]);
+  });
+
   it("fetches freshness for an idle child, but NOTHING for a parked gate party", () => {
     expect(has(childWakeEvidenceNeeds(idleShell(), new Set(), false))).toEqual(["freshness"]);
     expect(has(childWakeEvidenceNeeds(idleShell(), new Set(), true))).toEqual([]);
@@ -2442,6 +2488,44 @@ describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () =
       kind: "error",
       episode: "error",
     });
+  });
+
+  it("awaiting-input → a wake episode-keyed by the OPEN requestId set", () => {
+    const child = executingShell({ attention: ["awaiting_input"] });
+    // One question → one episode. The key is sorted, so fold order cannot split
+    // one episode into two wakes.
+    expect(
+      classifyChildWakeFull(
+        child,
+        wakeEvidence({ openUserInputRequestIds: new Set(["req-b", "req-a"]) }),
+        t0,
+        new Set(),
+      ),
+    ).toEqual({
+      kind: "awaiting-input",
+      episode: "awaiting-input:req-a,req-b",
+      context: { quietMs: 0, openRequestCount: 2 },
+    });
+    // A second question stacking on the first changes the set → a FRESH episode,
+    // so the parent hears about it once rather than being suppressed forever.
+    const single = classifyChildWakeFull(
+      child,
+      wakeEvidence({ openUserInputRequestIds: new Set(["req-a"]) }),
+      t0,
+      new Set(),
+    );
+    expect("episode" in single && single.episode).toBe("awaiting-input:req-a");
+  });
+
+  it("awaiting-input with no open request → withhold rather than burn the episode", () => {
+    expect(
+      classifyChildWakeFull(
+        executingShell({ attention: ["awaiting_input"] }),
+        wakeEvidence({ openUserInputRequestIds: new Set() }),
+        t0,
+        new Set(),
+      ),
+    ).toEqual({ skip: "no-open-request" });
   });
 
   it("idle + gate-waiting → skip `gate-waiting` (no fetch, no suppression)", () => {
@@ -3207,6 +3291,169 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
             yield* dispatcher.drain;
             expect(dispatched.length).toBe(0);
           }).pipe(Effect.provide(buildLayer(dispatched, { idleWakeReceiptExists: true })));
+        }),
+      ),
+  );
+});
+
+// Question-blocked child (redesign commitment 2, dispatcher half). The child is
+// alive by every measure the other rails use — session `running`, live
+// `activeTurnId`, heartbeat advancing — which is exactly why the idle-gated
+// attention rail and the quiet-gated frozen-executing fallback both miss it. The
+// property under test: exactly ONE parent wake per open-request episode, with a
+// second stacked question re-arming and a resolution ending it.
+describe("awaiting_input parent wake (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-ask" as ThreadId;
+  const CHILD_ID = "child-ask" as ThreadId;
+
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  // Blocked inside `ask_user_question`: the turn stays open indefinitely, so
+  // nothing about this child looks stuck to a liveness measure.
+  const blockedChild = (attention: ReadonlyArray<AttentionReason>) =>
+    shell({
+      id: CHILD_ID as unknown as string,
+      parentThreadId: PARENT_ID,
+      planLane: "in_progress",
+      attention: [...attention],
+      session: runningSession({
+        threadId: CHILD_ID,
+        status: "running",
+        activeTurnId: "turn-1" as TurnId,
+      }),
+      latestTurn: latestTurn({ state: "running", completedAt: null }),
+    });
+
+  const buildDeps = (
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    openRef: Ref.Ref<ReadonlySet<string>>,
+    dispatched: Array<OrchestrationCommand>,
+    receipts: Set<string>,
+    events: PubSub.PubSub<OrchestrationEvent>,
+  ) => {
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          dispatched.push(command);
+          receipts.add(command.commandId as unknown as string);
+          return { sequence: dispatched.length };
+        }),
+      streamDomainEvents: Stream.fromPubSub(events),
+      subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+      latestSequence: Effect.succeed(0),
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.map(Ref.get(threadsRef), (threads) => ({
+          snapshotSequence: 1,
+          goals: [],
+          projects: [],
+          threads,
+          updatedAt: now,
+        })),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () => Effect.succeed([]),
+      // The heartbeat keeps advancing while the tool call blocks — the measured
+      // reality that makes the frozen-executing fallback unreachable here. If the
+      // wake depended on quiet, this stub would silence it.
+      getActivityFreshnessByThreadId: () =>
+        Effect.map(DateTime.now.pipe(Effect.map(DateTime.formatIso)), (iso) => ({
+          maxCreatedAt: iso,
+          heartbeatAt: iso,
+        })),
+      getOpenUserInputRequestIdsByThreadId: () => Ref.get(openRef),
+      getInFlightToolByThreadId: () => Effect.succeed(null),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receiptRepo = {
+      upsert: () => Effect.void,
+      getByCommandId: ({ commandId }: { commandId: unknown }) =>
+        Effect.succeed(
+          receipts.has(commandId as string)
+            ? Option.some({ status: "accepted" } as never)
+            : Option.none(),
+        ),
+    };
+
+    return Layer.mergeAll(
+      Layer.succeed(OrchestrationEngineService, engine),
+      Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+      Layer.succeed(OrchestrationCommandReceiptRepository, receiptRepo as never),
+      WorktreeProvisionerStub,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-awaiting-input-" }),
+    ).pipe(Layer.provideMerge(NodeServices.layer));
+  };
+
+  const parentWakes = (dispatched: ReadonlyArray<OrchestrationCommand>) =>
+    dispatched.filter(
+      (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+        c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+    );
+
+  // The rail's own re-pass trigger: the derived flag rides no attention event, so
+  // it is these two activity kinds that must run a pass.
+  const questionActivityEvent = (kind: string) =>
+    ({
+      type: "thread.activity-appended",
+      payload: { threadId: CHILD_ID, activity: { kind } },
+    }) as unknown as OrchestrationEvent;
+
+  effectIt.effect(
+    "wakes the parent exactly once per open-question episode, mid-turn and never quiet",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          const receipts = new Set<string>();
+          const events = yield* PubSub.unbounded<OrchestrationEvent>();
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+            parent,
+            blockedChild(["awaiting_input"]),
+          ]);
+          const openRef = yield* Ref.make<ReadonlySet<string>>(new Set(["req-1"]));
+
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            const first = parentWakes(dispatched);
+            expect(first).toHaveLength(1);
+            expect(first[0]!.message.text).toContain("blocked on a question");
+            expect(first[0]!.message.text).toContain(CHILD_ID);
+            // A question is not a fault: the rail must not raise needs_guidance on
+            // the child the way the idle backstop does.
+            expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(false);
+
+            // Re-passing on the SAME open set does not re-nag.
+            yield* PubSub.publish(events, { type: "thread.session-set" } as OrchestrationEvent);
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched)).toHaveLength(1);
+
+            // A second question stacks: the open set changes, so the episode
+            // re-arms and the parent hears about it exactly once more.
+            yield* Ref.set(openRef, new Set(["req-1", "req-2"]));
+            yield* PubSub.publish(events, questionActivityEvent("user-input.requested"));
+            yield* dispatcher.drain;
+            const second = parentWakes(dispatched);
+            expect(second).toHaveLength(2);
+            expect(second[1]!.message.text).toContain("2 questions");
+
+            // Settled: the flag vanishes with the count (one fold, two reads) and
+            // the rail goes quiet rather than re-firing on the empty set.
+            yield* Ref.set(openRef, new Set());
+            yield* Ref.set(threadsRef, [parent, blockedChild([])]);
+            yield* PubSub.publish(events, questionActivityEvent("user-input.resolved"));
+            yield* dispatcher.drain;
+            expect(parentWakes(dispatched)).toHaveLength(2);
+          }).pipe(
+            Effect.provide(
+              WorkstreamDispatcherLive.pipe(
+                Layer.provide(buildDeps(threadsRef, openRef, dispatched, receipts, events)),
+              ),
+            ),
+          );
         }),
       ),
   );

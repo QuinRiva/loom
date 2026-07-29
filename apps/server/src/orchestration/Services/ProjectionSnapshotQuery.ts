@@ -355,6 +355,17 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<ProjectionActivityFreshness, ProjectionRepositoryError>;
 
   /**
+   * Read the set of agent-question requestIds still OPEN on a thread, folded
+   * terminal-wins from its activity log (`@t3tools/shared/openRequests`). The
+   * shell carries only the count; the dispatcher's `awaiting_input` parent wake
+   * needs the identities to key its episode, so one question produces exactly
+   * one wake and a second question re-arms rather than being suppressed.
+   */
+  readonly getOpenUserInputRequestIdsByThreadId: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ReadonlySet<string>, ProjectionRepositoryError>;
+
+  /**
    * Read the tool call currently in flight within a thread's turn, or null
    * when no started call is pending completion.
    */

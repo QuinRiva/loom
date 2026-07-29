@@ -437,14 +437,19 @@ export function getThreadStatus(
   return { column, label: COLUMN_SHORT_LABELS[column], ...STATUS_STYLES[column] };
 }
 
-// The three STORED, human-blocking attention reasons that earn an animated node
-// pulse on the graph (the projected `awaiting_*`/`proposed_plan` overlays are
-// board-only). Hex strokes so the SVG ring can reuse the board's colour
-// families: rose error, orange needs-guidance, violet awaiting-acceptance.
+// The human-blocking attention reasons that earn an animated node pulse on the
+// graph. Hex strokes so the SVG ring can reuse the board's colour families: rose
+// error, orange needs-guidance, violet awaiting-acceptance, amber awaiting-input.
+// `awaiting_input` is here because an open question now arrives on the wire
+// `attention` array (server-unioned from the open-request fold), so the graph
+// pulse matches the board's badge treatment rather than only approximating it.
+// The still-client-derived overlays (`awaiting_approval`, `proposed_plan`) remain
+// board-only.
 const ATTENTION_PULSE_STROKES: Partial<Record<AttentionReason, string>> = {
   error: "#fb7185",
   needs_guidance: "#fb923c",
   awaiting_acceptance: "#a78bfa",
+  awaiting_input: "#fbbf24",
 };
 
 export interface AttentionPulse {

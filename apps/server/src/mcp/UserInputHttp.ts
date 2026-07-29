@@ -9,6 +9,7 @@ import {
   type PiAskUserOutcome,
   type PiAskUserPollResult,
 } from "../provider/Drivers/Pi/askUserBroker.ts";
+import { isCustomAnswer, renderUserInputOutcome } from "@t3tools/shared/userInputOutcome";
 import { resolveWorkstreamScope } from "./httpScope.ts";
 import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 
@@ -137,38 +138,34 @@ export const validateAskUserQuestions = (
   return { questions };
 };
 
-const answerText = (answer: unknown): string =>
-  Array.isArray(answer)
-    ? answer.map(String).join(", ")
-    : typeof answer === "string"
-      ? answer
-      : JSON.stringify(answer);
-
+// D13/D14: every terminal state the model can reach comes through here, with the
+// careful wording that distinguishes a delivery failure from a user decline —
+// including the paths that used to bypass it as a thrown HTTP status. The prose
+// itself is shared with the server's next-turn conversion so the model reads the
+// same thing whichever delivery path won.
 const renderOutcome = (outcome: PiAskUserOutcome) => {
   if (outcome.outcome === "could_not_present")
     return {
       pending: false as const,
       outcome: outcome.outcome,
-      rendered:
-        "The questions could not be presented because no live Loom pi session was available to receive them. This is a delivery failure, not a user decline: do not interpret it as the user refusing, cancelling, or choosing any option.",
+      rendered: renderUserInputOutcome({ outcome: outcome.outcome }),
     };
-  if (outcome.outcome === "cancelled")
+  if (outcome.outcome !== "answered")
     return {
       pending: false as const,
       requestId: outcome.requestId,
       outcome: outcome.outcome,
-      rendered:
-        "The questions were cancelled or interrupted without answers. Do not proceed on an assumed answer.",
+      rendered: renderUserInputOutcome(
+        outcome.outcome === "superseded"
+          ? { outcome: outcome.outcome, message: outcome.message }
+          : { outcome: outcome.outcome },
+      ),
     };
 
   const answers = Object.fromEntries(
     outcome.questions.map((question) => {
       const answer = outcome.answers[question.id];
-      const labels = new Set(question.options.map((option) => option.label));
-      const custom = Array.isArray(answer)
-        ? answer.some((value) => typeof value !== "string" || !labels.has(value))
-        : typeof answer !== "string" || !labels.has(answer);
-      return [question.id, { answer, custom }];
+      return [question.id, { answer, custom: isCustomAnswer(question, answer) }];
     }),
   );
   return {
@@ -176,18 +173,30 @@ const renderOutcome = (outcome: PiAskUserOutcome) => {
     requestId: outcome.requestId,
     outcome: outcome.outcome,
     answers,
-    rendered: [
-      "The user answered:",
-      ...outcome.questions.map((question) => {
-        const detail = answers[question.id] as { answer: unknown; custom: boolean };
-        return `- ${question.question}: ${answerText(detail.answer)}${detail.custom ? " (custom answer)" : ""}`;
-      }),
-    ].join("\n"),
+    rendered: renderUserInputOutcome({
+      outcome: outcome.outcome,
+      questions: outcome.questions,
+      answers: outcome.answers,
+    }),
   };
 };
 
 const renderPollResult = (result: PiAskUserPollResult) =>
   result.pending ? result : renderOutcome(result);
+
+// A delivery failure is a `could_not_present` OUTCOME, not an HTTP error. Every
+// path that used to throw a status (the tombstone-expiry 404, an internal 500,
+// the request-disappeared 500) lands here instead, because the shim treats a
+// status as fatal and the model then saw an opaque tool error where the taxonomy
+// had careful wording ready. `detail` is carried for the operator, never as the
+// model's only signal.
+const couldNotPresent = (detail: string) =>
+  HttpServerResponse.jsonUnsafe({
+    pending: false as const,
+    outcome: "could_not_present" as const,
+    detail,
+    rendered: renderUserInputOutcome({ outcome: "could_not_present" }),
+  });
 
 const handleAskUserQuestion = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -206,7 +215,9 @@ const handleAskUserQuestion = Effect.gen(function* () {
     );
     return result
       ? HttpServerResponse.jsonUnsafe(renderPollResult(result))
-      : jsonError(404, "No pending ask_user_question request with that id belongs to this thread.");
+      : couldNotPresent(
+          `No pending ask_user_question request '${requestId}' belongs to this thread; its settled outcome was already collected or its retention window elapsed.`,
+        );
   }
 
   const validated = validateAskUserQuestions(body.questions);
@@ -225,8 +236,8 @@ const handleAskUserQuestion = Effect.gen(function* () {
   );
   return result
     ? HttpServerResponse.jsonUnsafe(renderPollResult(result))
-    : jsonError(500, "The ask_user_question request disappeared before it could be polled.");
-}).pipe(Effect.catch((error) => Effect.succeed(jsonError(500, error.message))));
+    : couldNotPresent("The ask_user_question request disappeared before it could be polled.");
+}).pipe(Effect.catch((error) => Effect.succeed(couldNotPresent(error.message))));
 
 export const layer = HttpRouter.add(
   "POST",

@@ -202,9 +202,16 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
     thresholds,
   } = input;
 
-  // State B — waiting for input: a child with pending user input / approvals is
-  // intentionally paused, not dead and not stalled. Never flag it a fault.
-  if (thread.hasPendingUserInput || thread.hasPendingApprovals) return null;
+  // State B — waiting for input: a child with a pending APPROVAL is intentionally
+  // paused, not dead and not stalled. Never flag it a fault.
+  //
+  // A pending QUESTION is deliberately NOT exempt anymore. An open question now
+  // raises `awaiting_input` on the wire, so the caller's attention-aware handling
+  // already stops nudging it — but the State-A circuit breaker must keep judging
+  // it, because a questioning thread can still die, and this exemption was
+  // precisely what disarmed the one component that would have escalated a thread
+  // parked forever on a question nobody could see.
+  if (thread.hasPendingApprovals) return null;
 
   // State A — dead (circuit breaker): a session sustained in a failed state
   // past the cap (objective fault).

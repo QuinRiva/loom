@@ -173,10 +173,10 @@ describe("PiDriver user input", () => {
           yield* adapter.respondToUserInput(threadId, ApprovalRequestId.make(testCase.id), {
             [testCase.id]: testCase.answer,
           });
+          // DELIVERY only: the durable `user-input.resolved` was already written
+          // server-side (settle-first), so the adapter emits nothing here — a
+          // second row would double the timeline.
           expect(fake.writes.at(-1)).toEqual(testCase.response);
-          const resolved = yield* takeEvent(events, "user-input.resolved");
-          expect(resolved.requestId).toBe(testCase.id);
-          expect(resolved.payload.answers).toEqual({ [testCase.id]: testCase.answer });
         }
         yield* adapter.stopSession(threadId);
       }),
@@ -237,7 +237,7 @@ describe("PiDriver user input", () => {
     ),
   );
 
-  effectIt.effect("resolves broker questions through the same canonical event pair", () =>
+  effectIt.effect("releases a blocked broker question without a duplicate resolution event", () =>
     withAdapter((adapter, _fake, events) =>
       Effect.gen(function* () {
         const threadId = ThreadId.make("22222222-2222-4222-8222-222222222222");
@@ -267,15 +267,14 @@ describe("PiDriver user input", () => {
         yield* adapter.respondToUserInput(threadId, ApprovalRequestId.make(opened.requestId), {
           [questionId]: "B",
         });
+        // The blocked tool call is released with the answer; no runtime event is
+        // emitted, because the durable resolution already exists (settle-first).
         expect(yield* Effect.promise(() => result)).toMatchObject({
           pending: false,
           outcome: "answered",
           requestId: opened.requestId,
           answers: { [questionId]: "B" },
         });
-        const resolved = yield* takeEvent(events, "user-input.resolved");
-        expect(resolved.requestId).toBe(opened.requestId);
-        expect(resolved.payload.answers).toEqual({ [questionId]: "B" });
         yield* adapter.stopSession(threadId);
       }),
     ),
