@@ -979,4 +979,68 @@ describe("draft command intercepts: no non-success exit loses the draft", () => 
       expect(result.prompt).toBe("");
     }
   });
+
+  // The case the two accepted decisions only cover TOGETHER, and the one a
+  // reviewer flagged as losing the draft when the receipt is absent: a failure
+  // arriving after the human has typed something new. The no-clobber rule
+  // deliberately declines to restore (their content wins), so the ONLY thing
+  // keeping the submitted text on screen is the receipt. If a future change
+  // drops the receipt, or stops recording it before the dispatch, this fails.
+  it("keeps the submitted text recoverable via the receipt when the composer is not restored", async () => {
+    const submittedPrompt = "/handoff the audit trail misses soft-deleted rows";
+    const typedMeanwhile = "a totally unrelated new thought";
+    const state = { prompt: submittedPrompt, sendInFlight: false };
+    // Stands in for the receipt store: recorded BEFORE the RPC, holding the
+    // explanation verbatim, exactly as ChatView.onSend wires it.
+    const receipts: Array<{ explanation: string; failure: string | null }> = [];
+
+    const decision = decideHandoffSend({
+      trimmedPrompt: state.prompt.trim(),
+      hasAttachmentsOrContexts: false,
+    });
+    expect(decision.kind).toBe("dispatch");
+    if (decision.kind !== "dispatch") return;
+    const receipt = { explanation: decision.explanation, failure: null as string | null };
+    receipts.push(receipt);
+
+    const outcome = await runComposerDraftIntercept({
+      submittedPrompt,
+      setSendInFlight: (inFlight) => {
+        state.sendInFlight = inFlight;
+      },
+      clearComposer: () => {
+        state.prompt = "";
+        // The human starts a new thought while the RPC is still in flight.
+        state.prompt = typedMeanwhile;
+      },
+      readComposerContent: () => ({
+        prompt: state.prompt,
+        imageCount: 0,
+        terminalContextCount: 0,
+        elementContextCount: 0,
+        previewAnnotationCount: 0,
+        reviewCommentCount: 0,
+      }),
+      restoreComposer: (prompt) => {
+        state.prompt = prompt;
+      },
+      dispatch: () =>
+        Promise.resolve(AsyncResult.failure<{ ok: true }, string>(Cause.fail("rejected"))),
+      onSuccess: () => {},
+      onFailure: () => {
+        receipt.failure = "Source thread is busy.";
+      },
+    });
+
+    expect(outcome).toBe("failure");
+    // Their new content is untouched — never clobbered.
+    expect(state.prompt).toBe(typedMeanwhile);
+    // ...and the submitted text is still on screen, in full, via the receipt.
+    expect(receipts).toEqual([
+      {
+        explanation: "the audit trail misses soft-deleted rows",
+        failure: "Source thread is busy.",
+      },
+    ]);
+  });
 });
