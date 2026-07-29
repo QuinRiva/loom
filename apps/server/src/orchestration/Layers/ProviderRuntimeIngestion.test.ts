@@ -101,6 +101,7 @@ function isLegacyTurnCompletedEvent(
 function createProviderServiceHarness() {
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
   const runtimeSessions: ProviderSession[] = [];
+  let listSessionsCalls = 0;
 
   const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
   const service: ProviderServiceShape = {
@@ -110,7 +111,16 @@ function createProviderServiceHarness() {
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
-    listSessions: () => Effect.succeed([...runtimeSessions]),
+    // Ingestion runs on ONE serial worker, so a global session scan on the
+    // per-event path is the defect that wedged the pipeline (a full-table query
+    // per event). `listSessionsCalls` counts them so a per-event reintroduction
+    // is caught; the startup tool-reconcile legitimately needs the global list
+    // once, which is why this counts rather than dies.
+    listSessions: () =>
+      Effect.sync(() => {
+        listSessionsCalls += 1;
+        return [...runtimeSessions];
+      }),
     getSession: (threadId) =>
       Effect.succeed(runtimeSessions.find((session) => session.threadId === threadId)),
     getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
@@ -165,6 +175,7 @@ function createProviderServiceHarness() {
     service,
     emit,
     setSession,
+    listSessionsCalls: () => listSessionsCalls,
   };
 }
 
@@ -335,6 +346,7 @@ describe("ProviderRuntimeIngestion", () => {
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       emit: provider.emit,
       setProviderSession: provider.setSession,
+      providerListSessionsCalls: provider.listSessionsCalls,
       startIngestion,
       drain,
       queryUsageLedger: () =>
@@ -351,6 +363,9 @@ describe("ProviderRuntimeIngestion", () => {
   it("maps turn started/completed events into thread session updates", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
+    // The startup tool-reconcile legitimately lists sessions once; per-event
+    // ingestion must add nothing to this baseline.
+    const listSessionsAtStartup = harness.providerListSessionsCalls();
 
     harness.emit({
       type: "turn.started",
@@ -388,6 +403,10 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(thread.session?.status).toBe("error");
     expect(thread.session?.lastError).toBe("turn failed");
+    // Per-event ingestion must resolve a thread's session by thread id, never by
+    // listing all sessions: this ran on one serial worker and a global scan per
+    // event is what capped throughput at ~1 event/sec and diverged the queue.
+    expect(harness.providerListSessionsCalls()).toBe(listSessionsAtStartup);
   });
 
   it("applies provider session.state.changed transitions directly", async () => {

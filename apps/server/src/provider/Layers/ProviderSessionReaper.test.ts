@@ -18,9 +18,11 @@ import * as Stream from "effect/Stream";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
 import { ProviderValidationError } from "../Errors.ts";
+import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { ProviderSessionReaper } from "../Services/ProviderSessionReaper.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
@@ -151,7 +153,9 @@ function makeReadModel(
 
 describe("ProviderSessionReaper", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    ProviderSessionReaper | ProviderSessionRuntime.ProviderSessionRuntimeRepository,
+    | ProviderSessionReaper
+    | ProviderSessionDirectory
+    | ProviderSessionRuntime.ProviderSessionRuntimeRepository,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -169,10 +173,10 @@ describe("ProviderSessionReaper", () => {
 
   async function createHarness(input: {
     readonly readModel: ReturnType<typeof makeReadModel>;
+    readonly failThreadLivenessRead?: boolean;
     readonly stopSessionImplementation?: (input: {
       readonly threadId: ThreadId;
     }) => ReturnType<ProviderServiceShape["stopSession"]>;
-    readonly stoppedRetentionMs?: number;
   }) {
     const stoppedThreadIds = new Set<ThreadId>();
     const stopSession = vi.fn<ProviderServiceShape["stopSession"]>(
@@ -220,9 +224,6 @@ describe("ProviderSessionReaper", () => {
     const layer = makeProviderSessionReaperLive({
       inactivityThresholdMs: 1_000,
       sweepIntervalMs: 60_000,
-      // Tests that are not about retention must not have their stopped rows
-      // pruned out from under them.
-      stoppedRetentionMs: input.stoppedRetentionMs ?? 365 * 24 * 60 * 60 * 1_000,
     }).pipe(
       Layer.provideMerge(providerSessionDirectoryLayer),
       Layer.provideMerge(runtimeRepositoryLayer),
@@ -243,6 +244,14 @@ describe("ProviderSessionReaper", () => {
           getThreadCheckpointContext: () => Effect.die("unused"),
           getFullThreadDiffContext: () => Effect.die("unused"),
           getThreadShellById: (threadId) => {
+            if (input.failThreadLivenessRead) {
+              return Effect.fail(
+                new PersistenceSqlError({
+                  operation: "ProjectionSnapshotQuery.getThreadShellById:query",
+                  cause: new Error("simulated projection read failure"),
+                }),
+              );
+            }
             const found = input.readModel.threads.find((thread) => thread.id === threadId);
             return Effect.succeed(
               found
@@ -428,7 +437,7 @@ describe("ProviderSessionReaper", () => {
     expect(Option.isSome(remaining)).toBe(true);
   });
 
-  it("keeps stopped bindings within the retention window so they stay resumable", async () => {
+  it("keeps a stopped binding whose thread is still live so it stays resumable", async () => {
     const threadId = ThreadId.make("thread-reaper-stopped");
     const now = "2026-01-01T00:00:00.000Z";
     const harness = await createHarness({
@@ -648,44 +657,54 @@ describe("ProviderSessionReaper", () => {
     ]);
   });
 
-  it("prunes stopped bindings that outlive the retention window", async () => {
-    const staleThreadId = ThreadId.make("thread-reaper-prune-stale");
-    const freshThreadId = ThreadId.make("thread-reaper-prune-fresh");
+  it("prunes a stopped binding whose thread is no longer live", async () => {
+    const deadThreadId = ThreadId.make("thread-reaper-prune-dead");
+    const liveThreadId = ThreadId.make("thread-reaper-prune-live");
+    // `liveThreadId` is present in the read model; `deadThreadId` is not, which
+    // is what `getThreadShellById` reports for a deleted or archived thread
+    // (its query filters on `deleted_at IS NULL AND archived_at IS NULL`).
+    const now = "2026-01-01T00:00:00.000Z";
     const harness = await createHarness({
-      readModel: makeReadModel([]),
-      stoppedRetentionMs: 60_000,
+      readModel: makeReadModel([
+        {
+          id: liveThreadId,
+          session: {
+            threadId: liveThreadId,
+            status: "stopped",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      ]),
     });
     const repository = await runtime!.runPromise(
       Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
     );
-    const now = await runtime!.runPromise(DateTime.now.pipe(Effect.map(DateTime.formatIso)));
 
-    await runtime!.runPromise(
-      repository.upsert({
-        threadId: staleThreadId,
-        providerName: "claudeAgent",
-        providerInstanceId: null,
-        adapterKey: "claudeAgent",
-        runtimeMode: "full-access",
-        status: "stopped",
-        lastSeenAt: "2026-04-14T00:00:00.000Z",
-        resumeCursor: { opaque: "resume-prune-stale" },
-        runtimePayload: null,
-      }),
-    );
-    await runtime!.runPromise(
-      repository.upsert({
-        threadId: freshThreadId,
-        providerName: "codex",
-        providerInstanceId: null,
-        adapterKey: "codex",
-        runtimeMode: "full-access",
-        status: "stopped",
-        lastSeenAt: now,
-        resumeCursor: { opaque: "resume-prune-fresh" },
-        runtimePayload: null,
-      }),
-    );
+    for (const [threadId, providerName] of [
+      [deadThreadId, "claudeAgent"],
+      [liveThreadId, "codex"],
+    ] as const) {
+      await runtime!.runPromise(
+        repository.upsert({
+          threadId,
+          providerName,
+          providerInstanceId: null,
+          adapterKey: providerName,
+          runtimeMode: "full-access",
+          status: "stopped",
+          // Identical, very recent lastSeenAt on both rows: retention must not
+          // be judged from age. `runStopAll` rewrites every binding at shutdown,
+          // so all stopped rows share a fresh timestamp in production.
+          lastSeenAt: "2026-04-14T00:00:00.000Z",
+          resumeCursor: null,
+          runtimePayload: null,
+        }),
+      );
+    }
 
     const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
     scope = await runtime!.runPromise(Scope.make("sequential"));
@@ -693,14 +712,99 @@ describe("ProviderSessionReaper", () => {
 
     await waitFor(async () =>
       Option.isNone(
-        await runtime!.runPromise(repository.getByThreadId({ threadId: staleThreadId })),
+        await runtime!.runPromise(repository.getByThreadId({ threadId: deadThreadId })),
       ),
     );
 
-    // A recently stopped session keeps its persisted provider pointer so it can
-    // still be resumed after a restart; only long-dead rows are dropped.
-    const fresh = await runtime!.runPromise(repository.getByThreadId({ threadId: freshThreadId }));
-    expect(Option.isSome(fresh)).toBe(true);
+    // The live thread keeps its binding, so returning to it can still resume.
+    const live = await runtime!.runPromise(repository.getByThreadId({ threadId: liveThreadId }));
+    expect(Option.isSome(live)).toBe(true);
+    expect(harness.stopSession).not.toHaveBeenCalled();
+  });
+
+  it("does not prune a binding that a concurrent start promoted back to running", async () => {
+    // The sweep decides from a listBindings snapshot, so a start/recovery can
+    // re-upsert the row to `running` before the delete lands. The delete is
+    // conditional on the row still being `stopped`, so the live session's
+    // routing binding must survive.
+    const threadId = ThreadId.make("thread-reaper-prune-race");
+    const harness = await createHarness({ readModel: makeReadModel([]) });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-04-14T00:00:00.000Z",
+        resumeCursor: null,
+        runtimePayload: null,
+      }),
+    );
+
+    // Simulate the interleaving: the row is promoted to `running` after the
+    // snapshot the sweep would have read, but before the sweep's delete.
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: "2026-04-14T00:00:00.000Z",
+        resumeCursor: null,
+        runtimePayload: null,
+      }),
+    );
+
+    const directory = await runtime!.runPromise(Effect.service(ProviderSessionDirectory));
+    const removed = await runtime!.runPromise(directory.removeIfStopped(threadId));
+
+    expect(removed).toBe(false);
+    const surviving = await runtime!.runPromise(repository.getByThreadId({ threadId }));
+    expect(Option.isSome(surviving)).toBe(true);
+    expect(harness.stopSession).not.toHaveBeenCalled();
+  });
+  it("keeps a stopped binding when the thread-liveness read fails", async () => {
+    // A failed read must never be mistaken for "thread absent": deleting on a
+    // transient projection error would destroy a live thread's routing binding,
+    // which is unrecoverable, whereas keeping the row costs one more sweep.
+    const threadId = ThreadId.make("thread-reaper-liveness-unknown");
+    const harness = await createHarness({
+      readModel: makeReadModel([]),
+      failThreadLivenessRead: true,
+    });
+    const repository = await runtime!.runPromise(
+      Effect.service(ProviderSessionRuntime.ProviderSessionRuntimeRepository),
+    );
+
+    await runtime!.runPromise(
+      repository.upsert({
+        threadId,
+        providerName: "claudeAgent",
+        providerInstanceId: null,
+        adapterKey: "claudeAgent",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-04-14T00:00:00.000Z",
+        resumeCursor: null,
+        runtimePayload: null,
+      }),
+    );
+
+    const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
+    scope = await runtime!.runPromise(Scope.make("sequential"));
+    await runtime!.runPromise(reaper.start().pipe(Scope.provide(scope)));
+    await runtime!.runPromise(drainFibers);
+
+    const surviving = await runtime!.runPromise(repository.getByThreadId({ threadId }));
+    expect(Option.isSome(surviving)).toBe(true);
     expect(harness.stopSession).not.toHaveBeenCalled();
   });
 });

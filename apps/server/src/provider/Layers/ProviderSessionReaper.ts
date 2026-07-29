@@ -16,19 +16,10 @@ import { ProviderService } from "../Services/ProviderService.ts";
 
 const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
-// Stopping a session deliberately KEEPS its persisted binding so the session
-// can still be resumed from its provider pointer after a restart. Nothing ever
-// removed those rows, so `provider_session_runtime` grew without bound and
-// slowed every read of it. Retention: drop a stopped binding once it has been
-// untouched for this long — far beyond any realistic resume-after-restart
-// window, and independent of thread lifecycle so an archived-then-restored
-// thread is never denied a resume it would otherwise have had.
-const DEFAULT_STOPPED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ProviderSessionReaperLiveOptions {
   readonly inactivityThresholdMs?: number;
   readonly sweepIntervalMs?: number;
-  readonly stoppedRetentionMs?: number;
 }
 
 const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =>
@@ -42,10 +33,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       options?.inactivityThresholdMs ?? DEFAULT_INACTIVITY_THRESHOLD_MS,
     );
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
-    const stoppedRetentionMs = Math.max(
-      1,
-      options?.stoppedRetentionMs ?? DEFAULT_STOPPED_RETENTION_MS,
-    );
 
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
@@ -54,6 +41,65 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       let prunedCount = 0;
 
       for (const binding of bindings) {
+        // loom: retention. Stopped bindings are deliberately kept so a session can be
+        // resumed from its persisted provider pointer after a restart, but they
+        // were never removed either, so the table grew forever and every read of
+        // it got slower. Prune only the provably-dead class: a stopped session
+        // whose thread no longer exists as a live thread. `getThreadShellById`
+        // selects `deleted_at IS NULL AND archived_at IS NULL`, so a None here
+        // means the thread is deleted or archived and there is no UI path left
+        // that could ask this session to resume.
+        //
+        // Deliberately NOT age-based: `runStopAll` rewrites every binding at
+        // shutdown, which resets `lastSeenAt` on all stopped rows (observed:
+        // 1311 of 1326 rows sharing a single minute). Age measured from
+        // `lastSeenAt` is therefore not a liveness signal at all — it would sit
+        // at ~0 across restarts and then expire the whole table at once.
+        if (binding.status === "stopped") {
+          // Only a definitive None ("no live thread row") authorises deletion. A
+          // read FAILURE must never be read as absence, so it is mapped back to
+          // a keep rather than allowed to fall through to the delete.
+          const liveness = yield* projectionSnapshotQuery.getThreadShellById(binding.threadId).pipe(
+            Effect.map((thread) => (Option.isSome(thread) ? "live" : "absent")),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.reaper.liveness-read-failed", {
+                threadId: binding.threadId,
+                provider: binding.provider,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as("unknown" as const)),
+            ),
+          );
+          if (liveness !== "absent") {
+            continue;
+          }
+          // Conditional delete: the decision above is made from a `listBindings`
+          // snapshot, so a concurrent start/recovery may have re-upserted this
+          // row to `running` since. Deleting by thread id alone would drop a
+          // live session's routing binding and strand the next command with
+          // "no persisted provider binding exists".
+          const pruned = yield* directory.removeIfStopped(binding.threadId).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.reaper.prune-failed", {
+                threadId: binding.threadId,
+                provider: binding.provider,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+            ),
+          );
+          if (pruned) {
+            prunedCount += 1;
+            yield* Effect.logInfo("provider.session.binding-pruned", {
+              threadId: binding.threadId,
+              provider: binding.provider,
+              reason: "thread_deleted_or_archived",
+            });
+          }
+          continue;
+        }
+
+        // Reaping a LIVE session is age-based, and only this branch needs the
+        // timestamp (retention above is judged from thread liveness instead, so
+        // a corrupt timestamp must not keep a dead thread's row forever).
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -65,27 +111,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
 
         const idleDurationMs = now - lastSeenMs;
-
-        if (binding.status === "stopped") {
-          if (idleDurationMs < stoppedRetentionMs) {
-            continue;
-          }
-          const pruned = yield* directory.remove(binding.threadId).pipe(
-            Effect.as(true),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("provider.session.reaper.prune-failed", {
-                threadId: binding.threadId,
-                provider: binding.provider,
-                idleDurationMs,
-                cause: Cause.pretty(cause),
-              }).pipe(Effect.as(false)),
-            ),
-          );
-          if (pruned) {
-            prunedCount += 1;
-          }
-          continue;
-        }
 
         if (idleDurationMs < inactivityThresholdMs) {
           continue;
@@ -158,7 +183,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         yield* Effect.logInfo("provider.session.reaper.started", {
           inactivityThresholdMs,
           sweepIntervalMs,
-          stoppedRetentionMs,
         });
       });
 

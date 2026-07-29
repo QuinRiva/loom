@@ -1763,6 +1763,13 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
     Effect.succeed(Boolean(sessions.get(threadId) && !sessions.get(threadId)?.stopped));
 
+  const getSession: CodexAdapterShape["getSession"] = (threadId) => {
+    const session = sessions.get(threadId);
+    return session === undefined || session.stopped
+      ? Effect.succeed(undefined)
+      : session.runtime.getSession;
+  };
+
   const stopAll: CodexAdapterShape["stopAll"] = () =>
     Effect.forEach(Array.from(sessions.values()), stopSessionInternal, {
       concurrency: 1,
@@ -1792,6 +1799,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     stopSession,
     listSessions,
     hasSession,
+    getSession,
     stopAll,
     get streamEvents() {
       return Stream.fromQueue(runtimeEventQueue);

@@ -450,6 +450,9 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     const hasSession: ProviderAdapterShape<ProviderAdapterError>["hasSession"] = (threadId) =>
       Effect.succeed(sessions.has(threadId));
 
+    const getSession: ProviderAdapterShape<ProviderAdapterError>["getSession"] = (threadId) =>
+      Effect.sync(() => sessions.get(threadId)?.session);
+
     const readThread: ProviderAdapterShape<ProviderAdapterError>["readThread"] = (threadId) => {
       const state = sessions.get(threadId);
       if (!state) {
@@ -505,6 +508,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       stopSession,
       listSessions,
       hasSession,
+      getSession,
       readThread,
       rollbackThread,
       stopAll,

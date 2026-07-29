@@ -175,6 +175,11 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     (threadId: ThreadId): Effect.Effect<boolean> => Effect.succeed(sessions.has(threadId)),
   );
 
+  const getSession = vi.fn(
+    (threadId: ThreadId): Effect.Effect<ProviderSession | undefined> =>
+      Effect.sync(() => sessions.get(threadId)),
+  );
+
   const readThread = vi.fn(
     (
       threadId: ThreadId,
@@ -219,6 +224,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     stopSession,
     listSessions,
     hasSession,
+    getSession,
     readThread,
     rollbackThread,
     stopAll,
@@ -254,6 +260,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     stopSession,
     listSessions,
     hasSession,
+    getSession,
     readThread,
     rollbackThread,
     stopAll,
@@ -590,6 +597,137 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("ProviderServiceLive resolves one session without listing any adapter's sessions", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+      [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provide(directoryLayer),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const result = yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-get-session");
+      const started = yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: "/tmp/project-get-session",
+        runtimeMode: "approval-required",
+      });
+      yield* provider.sendTurn({ threadId, input: "hello", attachments: [] });
+      // The fake adapter's sendTurn does not write activeTurnId onto its session
+      // (the real drivers do), so set it explicitly: activeTurnId is the field
+      // the per-event ingestion path reads, so it must survive this lookup.
+      codex.updateSession(threadId, (session) => ({
+        ...session,
+        activeTurnId: asTurnId("turn-get-session"),
+      }));
+
+      codex.listSessions.mockClear();
+      claude.listSessions.mockClear();
+      const found = yield* provider.getSession(threadId);
+      const missing = yield* provider.getSession(asThreadId("thread-get-session-absent"));
+      return {
+        started,
+        found,
+        missing,
+        codexListCalls: codex.listSessions.mock.calls.length,
+        claudeListCalls: claude.listSessions.mock.calls.length,
+      } as const;
+    }).pipe(Effect.provide(providerLayer));
+
+    // Thread-addressed: the binding names the owning instance, so no adapter is
+    // asked to materialise its session list (for Codex that is a serial read per
+    // live runtime, which on the per-event path is the cost being removed).
+    assert.equal(result.codexListCalls, 0);
+    assert.equal(result.claudeListCalls, 0);
+
+    // Preserves every field the migrated hot-path callers consume.
+    assert.equal(result.found?.threadId, result.started.threadId);
+    assert.equal(result.found?.providerInstanceId, codexInstanceId);
+    assert.equal(result.found?.provider, "codex");
+    assert.equal(result.found?.cwd, "/tmp/project-get-session");
+    assert.equal(result.found?.runtimeMode, "approval-required");
+    assert.equal(result.found?.activeTurnId, asTurnId("turn-get-session"));
+
+    // Absent thread reports undefined rather than failing.
+    assert.equal(result.missing, undefined);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderServiceLive dies when getSession sees an adapter/binding provider mismatch",
+  () =>
+    Effect.gen(function* () {
+      const codex = makeFakeCodexAdapter();
+      const registry = makeAdapterRegistryMock({
+        [ProviderDriverKind.make("codex")]: codex.adapter,
+      });
+      const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+        Layer.provide(SqlitePersistenceMemory),
+      );
+      const directoryLayer = ProviderSessionDirectoryLive.pipe(
+        Layer.provide(runtimeRepositoryLayer),
+      );
+      const providerLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+        Layer.provideMerge(directoryLayer),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+
+      // The routing invariant `listSessions` enforces is preserved on the
+      // single-thread path: callers route turns from this result, so an adapter
+      // reporting a driver the persisted binding disagrees with must not be
+      // silently tolerated.
+      const exit = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+        const threadId = asThreadId("thread-get-session-mismatch");
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: "/tmp/project-get-session-mismatch",
+          runtimeMode: "full-access",
+        });
+        yield* directory.upsert({
+          threadId,
+          provider: CLAUDE_AGENT_DRIVER,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: "full-access",
+        });
+        return yield* Effect.exit(provider.getSession(threadId));
+      }).pipe(Effect.provide(providerLayer));
+
+      assert.equal(Exit.hasDies(exit), true);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("ProviderServiceLive lists sessions with a constant number of directory reads", () =>
   Effect.gen(function* () {
     const codex = makeFakeCodexAdapter();
@@ -645,7 +783,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
           listBindingsCalls += 1;
           return [...bindings.values()];
         }),
-      remove: () => Effect.void,
+      removeIfStopped: () => Effect.succeed(true),
     });
 
     const providerLayer = makeProviderServiceLive().pipe(
@@ -750,6 +888,88 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
     assert.equal(canonicalEvents.length, 1);
     assert.equal(canonicalEvents[0]?.threadId, "thread-canonical-thread-segment");
     assert.deepEqual(canonicalThreadIds, ["thread-canonical-thread-segment"]);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("ProviderServiceLive does not rewrite already-stopped bindings on shutdown", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    // A real file, not `:memory:`: each `Layer.provide(SqlitePersistenceMemory)`
+    // builds its own private in-memory database, so the row written before
+    // shutdown would not be visible to the reader afterwards.
+    const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-provider-stopall-"));
+    const dbPath = NodePath.join(tempDir, "orchestration.sqlite");
+    const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(persistenceLayer),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const stoppedThreadId = asThreadId("thread-stopall-already-stopped");
+
+    yield* Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      yield* directory.upsert({
+        threadId: stoppedThreadId,
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        status: "stopped",
+        runtimeMode: "full-access",
+      });
+    }).pipe(Effect.provide(directoryLayer));
+
+    const before = yield* Effect.gen(function* () {
+      const repository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      return yield* repository.getByThreadId({ threadId: stoppedThreadId });
+    }).pipe(Effect.provide(runtimeRepositoryLayer));
+
+    // Build and immediately release the provider layer so its scope finalizer
+    // (runStopAll) executes.
+    yield* Effect.gen(function* () {
+      yield* ProviderService.ProviderService;
+    }).pipe(
+      Effect.provide(
+        makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+          Layer.provide(directoryLayer),
+          Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(
+            Layer.succeed(
+              ProviderEventLoggers.ProviderEventLoggers,
+              ProviderEventLoggers.NoOpProviderEventLoggers,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    const after = yield* Effect.gen(function* () {
+      const repository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      return yield* repository.getByThreadId({ threadId: stoppedThreadId });
+    }).pipe(Effect.provide(runtimeRepositoryLayer));
+
+    // The row must be byte-identical: shutdown used to rewrite EVERY binding,
+    // which cost ~2 statements per historical row on the single serial SQL
+    // connection after the HTTP grace period, and reset `lastSeenAt` on all of
+    // them at once. `lastRuntimeEvent: "provider.stopAll"` is the marker
+    // runStopAll writes, so its absence proves this row was left alone
+    // (`lastSeenAt` alone cannot: a same-instant rewrite is indistinguishable).
+    const afterRow = Option.getOrUndefined(after);
+    assert.equal(afterRow?.status, "stopped");
+    assert.equal(afterRow?.lastSeenAt, Option.getOrUndefined(before)?.lastSeenAt);
+    const afterPayload = afterRow?.runtimePayload;
+    const stampedByStopAll =
+      afterPayload !== null &&
+      typeof afterPayload === "object" &&
+      !Array.isArray(afterPayload) &&
+      "lastRuntimeEvent" in afterPayload &&
+      afterPayload.lastRuntimeEvent === "provider.stopAll";
+    assert.equal(stampedByStopAll, false);
+
+    NodeFS.rmSync(tempDir, { recursive: true, force: true });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

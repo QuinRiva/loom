@@ -87,13 +87,17 @@ export interface ProviderServiceShape {
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
 
   /**
+   * loom: thread-addressed session lookup, added because the fork's workstream
+   * runs many concurrent threads through one serial ingestion worker where a
+   * global `listSessions` scan per event is a throughput ceiling.
+   *
    * Read the live adapter session for a single thread, if any.
    *
    * Hot paths (per-event ingestion, per-turn-start) that only need one
    * thread must use this instead of scanning `listSessions`, which also
    * reads the whole persisted runtime table. Reports adapter runtime state
    * only: the persisted-binding merge `listSessions` performs (resumeCursor,
-   * runtimeMode) is not applied.
+   * runtimeMode) is not applied, though the provider-consistency guard is.
    */
   readonly getSession: (threadId: ThreadId) => Effect.Effect<ProviderSession | undefined>;
 

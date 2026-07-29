@@ -64,15 +64,19 @@ export interface ProviderSessionDirectoryShape {
   >;
 
   /**
-   * Drop a persisted binding.
+   * loom: retention support — the fork's long-running workstream accumulates
+   * stopped bindings indefinitely, and nothing upstream ever removed them.
    *
-   * Used by retention sweeps to bound the runtime table: a removed binding is
-   * no longer resumable, so callers must only remove sessions that are dead
-   * beyond any resume window.
+   * Drop a persisted binding, but only while it is still `stopped`.
+   *
+   * Used by retention sweeps to bound the runtime table. The status predicate
+   * is evaluated atomically with the delete so a sweep that decided from a
+   * stale listing cannot remove a binding that a concurrent start or recovery
+   * has since promoted back to `running`. Reports whether a row was removed.
    */
-  readonly remove: (
+  readonly removeIfStopped: (
     threadId: ThreadId,
-  ) => Effect.Effect<void, ProviderSessionDirectoryPersistenceError>;
+  ) => Effect.Effect<boolean, ProviderSessionDirectoryPersistenceError>;
 }
 
 export class ProviderSessionDirectory extends Context.Service<
