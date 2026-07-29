@@ -138,6 +138,12 @@ describe("no keystroke can answer a question the user did not aim at a control",
 
     pressKey("Enter", document.body);
     pressKey("Enter", container.querySelector("[data-pending-question-card]") as Element);
+    // The free-text field lives behind a compact affordance until asked for.
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>("[data-pending-question-custom-answer-open]")
+        ?.click(),
+    );
     const field = container.querySelector<HTMLTextAreaElement>("textarea");
     expect(field).not.toBeNull();
     field?.focus();
