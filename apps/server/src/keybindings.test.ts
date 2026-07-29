@@ -274,10 +274,23 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     () =>
       Effect.gen(function* () {
         const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
-        yield* writeKeybindingsConfig(keybindingsConfigPath, [
-          { key: "mod+shift+t", command: "terminal.toggle" },
+        // The custom shortcuts must not collide with any default shortcut, or the
+        // startup sync legitimately skips the colliding default (covered by the
+        // conflict test below) and the "every default is present" check below fails
+        // for an unrelated reason.
+        const customRules: readonly KeybindingRule[] = [
+          { key: "mod+shift+u", command: "terminal.toggle" },
           { key: "mod+shift+r", command: "script.run-tests.run" },
-        ]);
+        ];
+        for (const rule of customRules) {
+          assert.isFalse(
+            Keybindings.DEFAULT_KEYBINDINGS.some(
+              (defaultRule) => defaultRule.key === rule.key && defaultRule.when === undefined,
+            ),
+            `fixture shortcut ${rule.key} now collides with a default keybinding; pick a free shortcut`,
+          );
+        }
+        yield* writeKeybindingsConfig(keybindingsConfigPath, customRules);
 
         yield* Effect.gen(function* () {
           const keybindings = yield* Keybindings.Keybindings;
@@ -289,7 +302,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
 
         const persistedToggle = byCommand.get("terminal.toggle");
         assert.isNotNull(persistedToggle);
-        assert.equal(persistedToggle?.key, "mod+shift+t");
+        assert.equal(persistedToggle?.key, "mod+shift+u");
         assert.isFalse(
           persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
         );
