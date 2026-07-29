@@ -39,6 +39,23 @@ export interface OrchestrationEngineShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
 
   /**
+   * loom: Replay ONE aggregate's events from an exclusive sequence cursor.
+   *
+   * Prefer this over {@link readEvents} when resuming a single aggregate (e.g. a
+   * thread subscription): filtering the global stream makes the limit bound
+   * events *scanned* rather than *returned*, silently omitting the aggregate's
+   * own events on a busy server. `limit` is required by design.
+   *
+   * @returns Stream containing that aggregate's ordered events.
+   */
+  readonly readStreamEvents: (input: {
+    readonly aggregateKind: string;
+    readonly streamId: string;
+    readonly sequenceExclusive: number;
+    readonly limit: number;
+  }) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
+
+  /**
    * Dispatch a validated orchestration command.
    *
    * @param command - Valid orchestration command.

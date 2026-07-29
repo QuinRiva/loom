@@ -47,6 +47,28 @@ export interface OrchestrationEventStoreShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
 
   /**
+   * loom: Replay ONE aggregate's events from an exclusive sequence cursor.
+   *
+   * Prefer this over {@link readFromSequence} when resuming a single aggregate.
+   * Filtering the global stream instead makes the limit bound events *scanned*
+   * rather than events *returned*, so on a busy server the aggregate's own
+   * events fall outside the bound and are silently omitted from the resume.
+   *
+   * `limit` is required: this is a fork-owned API, so there is no upstream
+   * contract to diverge from and no reason to permit a silent default.
+   *
+   * Served by the `(aggregate_kind, stream_id, sequence)` covering index.
+   *
+   * @returns Stream containing that aggregate's ordered events.
+   */
+  readonly readStreamFromSequence: (input: {
+    readonly aggregateKind: string;
+    readonly streamId: string;
+    readonly sequenceExclusive: number;
+    readonly limit: number;
+  }) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
    * Read all events from the beginning of the stream.
    *
    * @returns Stream containing all stored events.

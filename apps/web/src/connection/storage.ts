@@ -51,9 +51,22 @@ const StoredShellSnapshot = Schema.Struct({
 const StoredShellSnapshotJson = Schema.fromJsonString(StoredShellSnapshot);
 // v2 stores the snapshot sequence alongside the thread so a warm cache can
 // resume via `afterSequence` instead of re-downloading the full thread body.
-// Older v1 entries (no sequence) fail to decode and are treated as a cold cache.
-const StoredThreadSnapshot = Schema.Struct({
-  schemaVersion: Schema.Literal(2),
+// Entries from an older version fail to decode and are treated as a cold cache.
+//
+// loom: bumped to v3 to retire every v2 entry exactly once. A server-side bug
+// truncated thread catch-up replay, and where a later live event then advanced
+// and persisted the cursor past the omitted history, those events became
+// unreachable by ANY future resume — no server fix can recover them, because the
+// client will never ask for them again. Retiring v2 entries makes each affected
+// client take one full HTTP snapshot and be correct thereafter.
+//
+// Deliberately NOT a DATABASE_VERSION bump: that would also discard the shell,
+// server-config and VCS-refs caches, which are unaffected.
+// See plans/2026-07-28-thread-catchup-silent-truncation.md.
+export const THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION = 3;
+
+export const StoredThreadSnapshot = Schema.Struct({
+  schemaVersion: Schema.Literal(THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION),
   environmentId: EnvironmentId,
   threadId: ThreadId,
   snapshot: OrchestrationThreadDetailSnapshot,
@@ -559,7 +572,7 @@ export const connectionStorageLayer = Layer.effectContext(
       saveThread: (environmentId, snapshot) =>
         Effect.gen(function* () {
           const encoded = yield* encodeStoredThreadSnapshot({
-            schemaVersion: 2,
+            schemaVersion: THREAD_SNAPSHOT_CACHE_SCHEMA_VERSION,
             environmentId,
             threadId: snapshot.thread.id,
             snapshot,

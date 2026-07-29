@@ -42,8 +42,13 @@ const OrchestrationEngineReaderReplayLive = Layer.effect(
     const readerEventStore = yield* OrchestrationEventStore;
     return OrchestrationEngineReaderReplay.of({
       ...engine,
-      readEvents: (fromSequenceExclusive) =>
-        readerEventStore.readFromSequence(fromSequenceExclusive),
+      // loom: delegate opaquely. A hand-written `(from) => ...(from)` wrapper
+      // silently dropped `limit`, so every caller inherited the store's
+      // page-bounded default instead of the range it asked for — see
+      // plans/2026-07-28-thread-catchup-silent-truncation.md. Forwarding the
+      // reference itself cannot drop this argument, or any added later.
+      readEvents: readerEventStore.readFromSequence,
+      readStreamEvents: readerEventStore.readStreamFromSequence,
     });
   }),
 ).pipe(Layer.provide(OrchestrationEventStoreOnSqlReadClient));

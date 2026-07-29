@@ -285,6 +285,36 @@ const makeShellSnapshotWithThreads = (threads: ReadonlyArray<OrchestrationThread
 // A minimal thread domain event that flows through toShellStreamEvent's
 // getThreadShellById lookup branch (used by the shell catch-up silent-drop
 // tests).
+// loom: a thread DETAIL event (see isThreadDetailEvent in ws.ts). The thread
+// subscription only streams detail events, so lifecycle events such as
+// thread.unarchived are correctly filtered out of it — catch-up tests for the
+// thread path must use this rather than makeThreadUnarchivedEvent.
+const makeThreadDetailEvent = (
+  sequence: number,
+  threadId: ThreadId,
+): Extract<OrchestrationEvent, { type: "thread.message-sent" }> => ({
+  sequence,
+  eventId: EventId.make(`event-detail-${sequence}`),
+  aggregateKind: "thread",
+  aggregateId: threadId,
+  occurredAt: "2026-07-28T00:00:00.000Z",
+  commandId: null,
+  causationEventId: null,
+  correlationId: null,
+  metadata: {},
+  type: "thread.message-sent",
+  payload: {
+    threadId,
+    messageId: MessageId.make(`message-detail-${sequence}`),
+    role: "assistant",
+    text: `detail ${sequence}`,
+    turnId: null,
+    streaming: false,
+    createdAt: "2026-07-28T00:00:00.000Z",
+    updatedAt: "2026-07-28T00:00:00.000Z",
+  },
+});
+
 const makeThreadUnarchivedEvent = (
   sequence: number,
   threadId: ThreadId,
@@ -3906,7 +3936,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.environment.environmentId, testEnvironmentDescriptor.environmentId);
       assert.equal(response.auth.policy, "desktop-managed-local");
-      assert.equal(response.shellResumeCompletionMarker, true);
+      // loom: advertise only markers the server actually emits. The thread marker
+      // is implemented (same-queue, re-homed from upstream 8e3467fe6); the shell
+      // one is not, because loom's shell leg keeps its error channel by never
+      // forking into a value-only buffer and no client requests it.
+      assert.equal(response.shellResumeCompletionMarker, false);
       assert.equal(response.threadResumeCompletionMarker, true);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -5870,7 +5904,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       yield* buildAppUnderTest({
         layers: {
           orchestrationEngine: {
-            streamDomainEvents: Stream.fromPubSub(liveEvents),
+            // loom: the thread path now attaches EAGERLY via subscribeDomainEvents
+            // (closing its own connect-gap), so stub that rather than the lazy
+            // streamDomainEvents value it no longer reads.
+            subscribeDomainEvents: Effect.map(PubSub.subscribe(liveEvents), (subscription) =>
+              Stream.fromSubscription(subscription),
+            ),
           },
           projectionSnapshotQuery: {
             getThreadDetailSnapshot: () =>
@@ -6276,6 +6315,389 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           assert.equal(delivered.thread.id, threadId);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // ── loom: thread catch-up truncation fix ────────────────────────────────
+  // plans/2026-07-28-thread-catchup-silent-truncation.md
+  //
+  // THE incident test, in the reporter's terms: work done on one machine was
+  // invisible on another until IndexedDB was cleared. The thread resumes from a
+  // cached cursor; the server must deliver that thread's events even when a large
+  // amount of UNRELATED global traffic sits between the cursor and them.
+  //
+  // Ordering matters and is the whole point: the unrelated traffic must come
+  // FIRST so the thread's own events land beyond any global page bound. With the
+  // events at the front of the window the old code delivers them and the test
+  // passes against the bug — which is why the per-stream read (not merely a
+  // forwarded limit) is what this pins.
+  it.effect("catches a thread up past heavy unrelated global traffic", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-incident");
+      const afterSequence = 100;
+      // Unrelated traffic occupies (100, 1600]; this thread's events follow it,
+      // far outside a 1,000-event global window.
+      const unrelatedCount = 1_500;
+      const threadEventSequences = [1_601, 1_602, 1_603];
+      const requestedStreams: Array<{ aggregateKind: string; streamId: string }> = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            // A global read would have to scan past `unrelatedCount` events to
+            // reach this thread's; the per-stream read addresses them directly.
+            readEvents: (from, limit) =>
+              Stream.fromIterable(
+                Array.from({ length: Math.min(limit ?? 1_000, unrelatedCount) }, (_unused, index) =>
+                  makeThreadDetailEvent(from + 1 + index, ThreadId.make(`thread-noise-${index}`)),
+                ),
+              ),
+            readStreamEvents: (input) => {
+              requestedStreams.push({
+                aggregateKind: input.aggregateKind,
+                streamId: input.streamId,
+              });
+              return Stream.fromIterable(
+                threadEventSequences
+                  .filter((sequence) => sequence > input.sequenceExclusive)
+                  .slice(0, input.limit)
+                  .map((sequence) =>
+                    makeThreadDetailEvent(sequence, ThreadId.make(input.streamId)),
+                  ),
+              );
+            },
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1_700 }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({ threadId, afterSequence }).pipe(
+            Stream.take(threadEventSequences.length),
+            Stream.runCollect,
+            Effect.map((chunk) => Array.from(chunk)),
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      // Every one of this thread's events arrives — the bug delivered none.
+      assert.deepEqual(
+        items.map((item) => (item.kind === "event" ? item.event.sequence : null)),
+        threadEventSequences,
+      );
+      // And it was read from this thread's own stream, not the global one.
+      assert.deepEqual(requestedStreams, [{ aggregateKind: "thread", streamId: threadId }]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves a thread snapshot instead of replaying beyond the catch-up cap", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-capped");
+      const thread = makeDefaultOrchestrationReadModel().threads[0]!;
+      let snapshotServed = false;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            // 501 detail events: one past the cap, so the fallback must engage
+            // rather than emit a truncated prefix that looks complete.
+            readStreamEvents: (input) =>
+              Stream.fromIterable(
+                Array.from({ length: Math.min(input.limit, 501) }, (_unused, index) =>
+                  makeThreadDetailEvent(input.sequenceExclusive + 1 + index, threadId),
+                ),
+              ),
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 10_000 }),
+            getThreadDetailSnapshot: () =>
+              Effect.sync(() => {
+                snapshotServed = true;
+                return Option.some({ snapshotSequence: 10_000, thread });
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId,
+            afterSequence: 1,
+          }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.map((chunk) => Array.from(chunk)),
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      assert.equal(items.length, 1);
+      assert.equal(items[0]?.kind, "snapshot");
+      assertTrue(snapshotServed);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("replays the thread when the catch-up gap sits within the cap", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-within-cap");
+      const readLimits: number[] = [];
+      let snapshotServed = false;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readStreamEvents: (input) => {
+              readLimits.push(input.limit);
+              return Stream.make(
+                makeThreadDetailEvent(input.sequenceExclusive + 1, threadId),
+                makeThreadDetailEvent(input.sequenceExclusive + 2, threadId),
+              );
+            },
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 50 }),
+            getThreadDetailSnapshot: () =>
+              Effect.sync(() => {
+                snapshotServed = true;
+                return Option.none();
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId,
+            afterSequence: 10,
+          }).pipe(
+            Stream.take(2),
+            Stream.runCollect,
+            Effect.map((chunk) => Array.from(chunk)),
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      // Reads one past the cap so a full window is distinguishable from a
+      // truncated one, without a truncation signal on the store contract.
+      assert.deepEqual(readLimits, [501]);
+      assert.deepEqual(
+        items.map((item) => (item.kind === "event" ? item.event.sequence : null)),
+        [11, 12],
+      );
+      // Within the cap the replay is authoritative; no snapshot is loaded.
+      assertTrue(!snapshotServed);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves a thread snapshot when the client's cursor is ahead of the server", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-ahead");
+      const thread = makeDefaultOrchestrationReadModel().threads[0]!;
+      let streamReadCalled = false;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readStreamEvents: () => {
+              streamReadCalled = true;
+              return Stream.empty;
+            },
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 5 }),
+            getThreadDetailSnapshot: () =>
+              Effect.succeed(Option.some({ snapshotSequence: 5, thread })),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          // afterSequence (42) > snapshotSequence (5): restored backup / reset.
+          // Replay cannot make this client correct, so snapshot instead of
+          // leaving it confidently stale with unreachable history.
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId,
+            afterSequence: 42,
+          }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.map((chunk) => Array.from(chunk)),
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      assert.equal(items.length, 1);
+      assert.equal(items[0]?.kind, "snapshot");
+      assertTrue(!streamReadCalled);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: the thread path's own connect-gap (defect F). The durable live leg must
+  // attach EAGERLY (subscribeDomainEvents) before the snapshot read, or an event
+  // committed during the snapshot window lands on neither leg. The shell path was
+  // hardened for this; the thread path was not. Deferred-gated for determinism.
+  it.effect("delivers a thread event published during snapshot load after the snapshot", () =>
+    Effect.gen(function* () {
+      const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+      const snapshotInFlight = yield* Deferred.make<void>();
+      const releaseSnapshot = yield* Deferred.make<void>();
+      const threadId = defaultThreadId;
+      const thread = makeDefaultOrchestrationReadModel().threads[0]!;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+              Stream.fromSubscription(subscription),
+            ),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailSnapshot: () =>
+              Deferred.succeed(snapshotInFlight, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseSnapshot)),
+                Effect.as(Option.some({ snapshotSequence: 1, thread })),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            // Wait until the snapshot load is in flight — which, in fixed code,
+            // proves the eager subscribe already ran — then publish and release.
+            yield* Deferred.await(snapshotInFlight).pipe(
+              Effect.andThen(PubSub.publish(eventPubSub, makeThreadDetailEvent(500, threadId))),
+              Effect.andThen(Deferred.succeed(releaseSnapshot, undefined)),
+              Effect.forkChild,
+            );
+            return yield* client[ORCHESTRATION_WS_METHODS.subscribeThread]({ threadId }).pipe(
+              Stream.take(2),
+              Stream.runCollect,
+              Effect.map((chunk) => Array.from(chunk)),
+            );
+          }),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      assert.equal(items.length, 2);
+      assert.equal(items[0]?.kind, "snapshot");
+      assert.equal(items[1]?.kind, "event");
+      assert.equal(items[1]?.kind === "event" ? items[1].event.sequence : null, 500);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // loom: the thread completion marker, re-homed from upstream 8e3467fe6 (its
+  // server emission was lost in the fork's rehome while the advertised flag and
+  // client handler were kept). The ORDERING is the substance: the marker rides the
+  // same queue as the live events, so anything buffered during the snapshot/
+  // catch-up window is emitted BEFORE it. A marker merely concatenated ahead of
+  // the live leg would overtake those events and claim synchronisation too early.
+  it.effect("emits the thread completion marker after events buffered during catch-up", () =>
+    Effect.gen(function* () {
+      const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+      const catchUpInFlight = yield* Deferred.make<void>();
+      const releaseCatchUp = yield* Deferred.make<void>();
+      const threadId = ThreadId.make("thread-marker-order");
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            subscribeDomainEvents: Effect.map(PubSub.subscribe(eventPubSub), (subscription) =>
+              Stream.fromSubscription(subscription),
+            ),
+            // Signal that catch-up is in flight (so the eager subscribe has run),
+            // then block until a live event has been published into the buffer.
+            readStreamEvents: (input) =>
+              Stream.fromEffect(
+                Deferred.succeed(catchUpInFlight, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseCatchUp)),
+                  Effect.as(makeThreadDetailEvent(input.sequenceExclusive + 1, threadId)),
+                ),
+              ),
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 50 }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            yield* Deferred.await(catchUpInFlight).pipe(
+              Effect.andThen(PubSub.publish(eventPubSub, makeThreadDetailEvent(60, threadId))),
+              Effect.andThen(Deferred.succeed(releaseCatchUp, undefined)),
+              Effect.forkChild,
+            );
+            return yield* client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+              threadId,
+              afterSequence: 10,
+              requestCompletionMarker: true,
+            }).pipe(
+              Stream.take(3),
+              Stream.runCollect,
+              Effect.map((chunk) => Array.from(chunk)),
+            );
+          }),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      // Catch-up event, then the event buffered DURING catch-up, then the marker.
+      // The marker must be last: the buffered event precedes it in the queue.
+      assert.deepEqual(
+        items.map((item) => (item.kind === "event" ? `event:${item.event.sequence}` : item.kind)),
+        ["event:11", "event:60", "synchronized"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("omits the thread completion marker when it was not requested", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-marker-absent");
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            readStreamEvents: (input) =>
+              Stream.make(makeThreadDetailEvent(input.sequenceExclusive + 1, threadId)),
+          },
+          projectionSnapshotQuery: {
+            getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 50 }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const items = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
+            threadId,
+            afterSequence: 10,
+          }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.map((chunk) => Array.from(chunk)),
+          ),
+        ),
+      ).pipe(Effect.timeout("5 seconds"));
+
+      assert.deepEqual(
+        items.map((item) => item.kind),
+        ["event"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   // loom: error-preserving buffering shape (design §5 test 5 variant). A buffered

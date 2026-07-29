@@ -3537,3 +3537,70 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 });
+
+// loom: a projector further behind than the event store's default page bound
+// (1,000) must still catch up fully. Without an explicit read limit, bootstrap
+// silently stopped at the page bound and then recorded that truncated cursor as
+// if it were caught up, permanently skipping the remainder.
+// See plans/2026-07-28-thread-catchup-silent-truncation.md.
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-bootstrap-catchup-")))(
+  "OrchestrationProjectionPipeline bootstrap catch-up",
+  (it) => {
+    it.effect("applies every event when further behind than one read page", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = "2026-01-01T00:00:00.000Z";
+
+        // One past the store's default page bound, so a missing limit truncates.
+        const projectCount = 1_001;
+        for (let index = 0; index < projectCount; index += 1) {
+          const projectId = ProjectId.make(`project-bootstrap-${index}`);
+          const commandId = CommandId.make(`cmd-bootstrap-${index}`);
+          yield* eventStore.append({
+            type: "project.created",
+            eventId: EventId.make(`evt-bootstrap-${index}`),
+            aggregateKind: "project",
+            aggregateId: projectId,
+            occurredAt: now,
+            commandId,
+            causationEventId: null,
+            correlationId: commandId,
+            metadata: {},
+            payload: {
+              projectId,
+              title: `Bootstrap Project ${index}`,
+              workspaceRoot: `/tmp/${projectId}`,
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+
+        yield* projectionPipeline.bootstrap;
+
+        const projectRows = yield* sql<{ readonly total: number }>`
+          SELECT COUNT(*) AS "total" FROM projection_projects
+        `;
+        assert.equal(projectRows[0]?.total, projectCount);
+
+        // The recorded cursor must reflect the true tail, not a truncated page.
+        const stateRows = yield* sql<{
+          readonly projector: string;
+          readonly lastAppliedSequence: number;
+        }>`
+          SELECT
+            projector,
+            last_applied_sequence AS "lastAppliedSequence"
+          FROM projection_state
+        `;
+        for (const row of stateRows) {
+          assert.equal(row.lastAppliedSequence, projectCount);
+        }
+      }),
+    );
+  },
+);

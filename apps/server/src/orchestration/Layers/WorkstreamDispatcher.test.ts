@@ -1465,6 +1465,7 @@ describe("startup stale session reconciliation", () => {
         }));
         const engine = {
           readEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
           dispatch: (command: OrchestrationCommand) =>
             Effect.gen(function* () {
               // Per-thread isolation probe: simulate a failed/deferred resume
@@ -2741,6 +2742,7 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
   const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -2870,6 +2872,7 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -3018,6 +3021,7 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
           };
           const engine = {
             readEvents: () => Stream.empty,
+            readStreamEvents: () => Stream.empty,
             dispatch: (command: OrchestrationCommand) =>
               Effect.sync(() => {
                 dispatched.push(command);
@@ -3113,6 +3117,7 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
     const idleCmd = childWakeCommandId(CHILD_ID, `idle:${now}`);
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -3250,6 +3255,7 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
     const monitor = opts.monitor;
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -3459,6 +3465,7 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
   const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -3567,6 +3574,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
   const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -3763,6 +3771,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -4369,6 +4378,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -4521,6 +4531,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
   const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -4799,6 +4810,7 @@ describe("fan-in settlement releases dependents", () => {
         }));
         const engine = {
           readEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
           dispatch: (command: OrchestrationCommand) =>
             Effect.sync(() => {
               dispatched.push(command);
@@ -4877,6 +4889,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -5229,6 +5242,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -5365,6 +5379,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -5861,6 +5876,7 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
+      readStreamEvents: () => Stream.empty,
       dispatch: (command: OrchestrationCommand) =>
         Effect.sync(() => {
           dispatched.push(command);
@@ -6086,6 +6102,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
         }));
         const engine = {
           readEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
           dispatch: (command: OrchestrationCommand) =>
             Effect.gen(function* () {
               dispatched.push(command);
@@ -6413,6 +6430,7 @@ describe("notify_thread deferred-delivery rail", () => {
         };
         const engine = {
           readEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
           dispatch: (command: OrchestrationCommand) =>
             Effect.gen(function* () {
               if (command.type === "thread.turn.start" && command.requireIdle === true) {
