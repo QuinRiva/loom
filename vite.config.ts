@@ -76,6 +76,11 @@ export default defineConfig({
       perf: "warn",
     },
     rules: {
+      // Config objects of renderers are our normal shape (react-markdown's
+      // `components` map, command-descriptor `icon:` render props). Those are
+      // props, not components defined during render, so allow them and keep the
+      // rule live for genuine in-render component definitions.
+      "react/no-unstable-nested-components": ["warn", { allowAsProps: true }],
       "unicorn/no-array-sort": "off",
       "unicorn/consistent-function-scoping": "off",
       "oxc/no-map-spread": "off",

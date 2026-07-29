@@ -18,7 +18,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { assert, expect, it } from "@effect/vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
@@ -252,10 +252,10 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
         );
         const events = yield* decide(turnStart(CODER, { reopen: true }), readModel);
         const warning = events.find((event) => event.type === "thread.activity-appended");
-        expect(warning).toBeDefined();
-        expect(warning?.aggregateId).toBe(PARENT);
-        expect(warning?.payload).toMatchObject({ threadId: PARENT });
-        const activity = (warning?.payload as { activity: { kind: string; summary: string } })
+        assert(warning !== undefined, "expected a thread.activity-appended warning event");
+        expect(warning.aggregateId).toBe(PARENT);
+        expect(warning.payload).toMatchObject({ threadId: PARENT });
+        const activity = (warning.payload as { activity: { kind: string; summary: string } })
           .activity;
         expect(activity.kind).toBe("workstream.gate.reopened-with-started-dependents");
         expect(activity.summary).toContain("Warning");
