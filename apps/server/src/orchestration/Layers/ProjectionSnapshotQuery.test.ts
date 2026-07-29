@@ -2536,6 +2536,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         const promptDebugDir = (yield* ServerConfig).workstreamPromptDebugDir;
         NodeFS.mkdirSync(promptDebugDir, { recursive: true });
         NodeFS.writeFileSync(NodePath.join(promptDebugDir, "thread-pi.md"), "# capture", "utf8");
+        // A stale sidecar for the non-pi thread, so the provider gate is proven
+        // on its own rather than passing because the file is simply absent.
+        NodeFS.writeFileSync(NodePath.join(promptDebugDir, "thread-codex.md"), "# stale", "utf8");
 
         const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
         const byId = (id: string) => shellSnapshot.threads.find((t) => t.id === ThreadId.make(id));
@@ -2552,6 +2555,20 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(byId("thread-pi-nofile")?.promptDebugPath, undefined);
         // Non-pi thread: no path regardless of any file.
         assert.equal(byId("thread-codex")?.promptDebugPath, undefined);
+
+        // The single-thread lookup backs every `thread-upserted` shell-stream
+        // event, so it must agree with the full snapshot exactly. When it did
+        // not, the UI's Prompt button appeared on a fresh snapshot and vanished
+        // on the thread's very next event.
+        const shellById = (id: string) =>
+          snapshotQuery.getThreadShellById(ThreadId.make(id)).pipe(Effect.map(Option.getOrNull));
+        assert.equal(
+          (yield* shellById("thread-pi"))?.promptDebugPath,
+          piThread!.promptDebugPath,
+          "getThreadShellById must surface the same promptDebugPath as getShellSnapshot",
+        );
+        assert.equal((yield* shellById("thread-pi-nofile"))?.promptDebugPath, undefined);
+        assert.equal((yield* shellById("thread-codex"))?.promptDebugPath, undefined);
       }),
   );
 });
