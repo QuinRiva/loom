@@ -1,5 +1,6 @@
 import {
   type ApprovalRequestId,
+  type ProviderUserInputAnswers,
   PI_DEFAULT_MODEL,
   defaultInstanceIdForDriver,
   type EnvironmentId,
@@ -5181,7 +5182,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   const onRespondToUserInput = useCallback(
-    async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
+    async (requestId: ApprovalRequestId, answers: ProviderUserInputAnswers) => {
       if (!activeThreadId) return;
 
       setRespondingUserInputRequestIds((existing) =>

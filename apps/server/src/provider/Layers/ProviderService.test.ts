@@ -5,6 +5,7 @@ import * as NodePath from "node:path";
 
 import type {
   ProviderApprovalDecision,
+  UserInputResolvedOutcome,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -42,7 +43,11 @@ import {
   ProviderValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import {
+  userInputContentDelivered,
+  type ProviderAdapterShape,
+  type UserInputDeliveryResult,
+} from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
@@ -149,7 +154,9 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
       _threadId: ThreadId,
       _requestId: string,
       _answers: Record<string, unknown>,
-    ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
+      _settlement?: { readonly outcome: UserInputResolvedOutcome; readonly message?: string },
+    ): Effect.Effect<UserInputDeliveryResult, ProviderAdapterError> =>
+      Effect.succeed(userInputContentDelivered),
   );
 
   const stopSession = vi.fn(
@@ -883,6 +890,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
           sandbox_mode: "workspace-write",
         },
       });
+      // The settlement the adapter must hand its waiting tool call. Absent on the
+      // wire means `answered`, and the default is applied here so an adapter never
+      // has to re-derive it.
       assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
         [
           session.threadId,
@@ -890,6 +900,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           {
             sandbox_mode: "workspace-write",
           },
+          { outcome: "answered" },
         ],
       ]);
 

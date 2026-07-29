@@ -101,6 +101,12 @@ interface XAiAskUserQuestionAcceptedResponse {
 
 interface XAiAskUserQuestionCancelledResponse {
   readonly outcome: "cancelled";
+  // Optional prose explaining WHY, for the case where the cancellation is really
+  // a handoff: the question was superseded by a user message that could not ride
+  // this response and arrives as the next turn. Without it a supersede reads to
+  // the model as "nobody answered", and it may proceed on an assumption while the
+  // human's actual answer is one message away.
+  readonly reason?: string;
 }
 
 export type XAiAskUserQuestionResponse =
@@ -192,8 +198,10 @@ export function makeXAiAskUserQuestionResponse(
   };
 }
 
-export function makeXAiAskUserQuestionCancelledResponse(): XAiAskUserQuestionCancelledResponse {
-  return { outcome: "cancelled" };
+export function makeXAiAskUserQuestionCancelledResponse(
+  reason?: string,
+): XAiAskUserQuestionCancelledResponse {
+  return { outcome: "cancelled", ...(reason ? { reason } : {}) };
 }
 
 /**

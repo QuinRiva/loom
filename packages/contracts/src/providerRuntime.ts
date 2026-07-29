@@ -504,8 +504,27 @@ const UserInputRequestedPayload = Schema.Struct({
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
 
+// How a user-input request ended. Additive: an emitter that never sets it means
+// `answered`, which is what every pre-outcome emitter meant. `superseded` carries
+// the plain message the human sent instead of using the form; `cancelled` covers
+// runtime cancellation AND server reconciliation.
+export const UserInputResolvedOutcome = Schema.Literals([
+  "answered",
+  "dismissed",
+  "superseded",
+  "cancelled",
+]);
+export type UserInputResolvedOutcome = typeof UserInputResolvedOutcome.Type;
+export const DEFAULT_USER_INPUT_RESOLVED_OUTCOME: UserInputResolvedOutcome = "answered";
+
+// The default is applied by the CONTRACT, not by each consumer: a decoded
+// `user-input.resolved` payload always carries an explicit outcome, so the
+// documented invariant cannot drift with however many places read it.
 const UserInputResolvedPayload = Schema.Struct({
   answers: UnknownRecordSchema,
+  outcome: UserInputResolvedOutcome.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(DEFAULT_USER_INPUT_RESOLVED_OUTCOME)),
+  ),
 });
 export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 

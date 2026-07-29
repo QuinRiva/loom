@@ -1,9 +1,13 @@
 import {
+  ApprovalRequestId,
+  CommandId,
   EventId,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type ProviderUserInputAnswers,
   type ThreadId,
+  type UserInputResolvedOutcome,
   DEFAULT_THREAD_TITLE, // loom: §4 title provenance guard
   type TitleProvenance,
   canReplaceTitle, // loom: §4 title provenance guard
@@ -34,6 +38,11 @@ import {
 } from "./commandInvariants.loom.ts";
 import { projectEvent } from "./projector.ts";
 import { describeUnsatisfiedDependency } from "@t3tools/shared/workstreamDependencies";
+import { openRequestIds, openUserInputRequestIds } from "@t3tools/shared/openRequests";
+import {
+  ALREADY_SETTLED_REJECTION_MARKER,
+  userInputResolvedActivity,
+} from "./userInputSettlement.ts";
 // loom: subtreeOf powers collectLiveSubtreeIds (exported below) — the shared
 // archive/delete subtree sweep reused by the fork sibling's cancel cascade.
 import { subtreeOf } from "@t3tools/shared/workstreamGraph";
@@ -64,60 +73,54 @@ function resolveTitleProvenance(
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 /**
- * Blocked-on-you work derived from the thread's retained activities: an
- * approval or user-input request with no later resolution for the same
- * requestId. The server-side twin of the shell's hasPendingApprovals /
- * hasPendingUserInput flags, which the decider read model does not carry.
- * The clearing rules MUST match ProjectionPipeline's pending accounting —
- * resolved activities always clear, respond.failed clears only when the
- * failure detail marks the request stale/unknown — or settle would be
- * rejected on threads whose shell flags read as clear.
+ * APPROVALS only. Their clearing rules must keep mirroring the projection's
+ * `projection_pending_approvals` accounting — resolved clears, and a
+ * respond.failed clears when its detail marks the request stale/unknown — or
+ * settle would be rejected on threads whose shell flags read as clear.
+ *
+ * The user-input half of this predicate no longer lives here: questions are
+ * folded terminal-wins by `openUserInputRequestIds`, with resolution as the only
+ * clearing signal, because the server now guarantees a resolution always
+ * eventually lands. That asymmetry is deliberate and the two must not be
+ * re-merged until approvals gain the same guarantee.
  */
-function isStaleRequestFailureDetail(payload: Record<string, unknown> | null): boolean {
+function isStaleApprovalFailureDetail(payload: Record<string, unknown> | null): boolean {
   const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
   if (detail === null) return false;
   return (
     detail.includes("stale pending approval request") ||
     detail.includes("unknown pending approval request") ||
-    detail.includes("unknown pending permission request") ||
-    detail.includes("stale pending user-input request") ||
-    detail.includes("unknown pending user-input request") ||
-    detail.includes("unknown pending user input request") ||
-    detail.includes("unknown pending codex user input request")
+    detail.includes("unknown pending permission request")
   );
 }
 
-// Scans the read model's activities, which the projector caps at the most
-// recent 500. That bound is safe here: an OPEN approval/user-input request
-// blocks its turn, so the thread cannot accumulate hundreds of later
-// activities while one is outstanding — a request that has scrolled out of
-// the window is one whose turn kept running, i.e. it was resolved or went
-// stale. (The projection pipeline's pendingApprovalCount reads the same
-// capped stream and stays consistent with this view.)
+/**
+ * Blocked-on-you work derived from the thread's retained activities: an open
+ * approval or an open question. The server-side twin of the shell's
+ * hasPendingApprovals / hasPendingUserInput flags, which the decider read model
+ * does not carry.
+ *
+ * Scans the read model's activities, which the projector caps at the most
+ * recent 500. That bound is safe here: an OPEN approval/user-input request
+ * blocks its turn, so the thread cannot accumulate hundreds of later
+ * activities while one is outstanding.
+ */
 function hasOpenBlockingRequest(thread: {
   readonly activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>;
 }): boolean {
-  const openRequestIds = new Set<string>();
+  if (openUserInputRequestIds(thread.activities).size > 0) return true;
+  const openApprovalIds = new Set(openRequestIds(thread.activities, ["approval"]));
   for (const activity of thread.activities) {
+    if (activity.kind !== "provider.approval.respond.failed") continue;
     const payload =
       typeof activity.payload === "object" && activity.payload !== null
         ? (activity.payload as Record<string, unknown>)
         : null;
     const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
-    if (requestId === null) continue;
-    if (activity.kind === "approval.requested" || activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
-    } else if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
-    } else if (
-      (activity.kind === "provider.approval.respond.failed" ||
-        activity.kind === "provider.user-input.respond.failed") &&
-      isStaleRequestFailureDetail(payload)
-    ) {
-      openRequestIds.delete(requestId);
-    }
+    if (requestId !== null && isStaleApprovalFailureDetail(payload))
+      openApprovalIds.delete(requestId);
   }
-  return openRequestIds.size > 0;
+  return openApprovalIds.size > 0;
 }
 
 /**
@@ -210,6 +213,95 @@ export function withEventBase(
 
 // loom: exported so the fork sibling can type its planned events identically.
 export type PlannedOrchestrationEvent = Omit<OrchestrationEvent, "sequence">;
+
+/**
+ * Settle-first settlement of an agent question (design commitment 3), shared by
+ * respond, dismiss, and supersede. Emits the durable `user-input.resolved`
+ * activity and — only when there is something to deliver — the delivery intent,
+ * in ONE transaction. The settlement is therefore never contingent on the
+ * provider being reachable, which inverts the order that made a wedged question
+ * unanswerable.
+ *
+ * `requestId` absent means "settle whichever question is open" (supersede, which
+ * does not name one); a caller that names a request that is not open gets an
+ * empty array, so a duplicate or late settlement produces no spurious
+ * resolution. Callers decide what an empty result means for them — supersede
+ * treats it as "no question was open", a named settle rejects.
+ */
+export const userInputSettlementEvents = Effect.fn("userInputSettlementEvents")(function* (input: {
+  readonly threadId: ThreadId;
+  readonly commandId: CommandId;
+  readonly createdAt: string;
+  readonly openRequestIds: ReadonlySet<string>;
+  readonly requestId?: string;
+  readonly outcome: UserInputResolvedOutcome;
+  readonly answers?: ProviderUserInputAnswers;
+  readonly message?: string;
+  /** Skip the provider-delivery intent (nothing to hand to a tool call). */
+  readonly settleOnly?: boolean;
+}): Effect.fn.Return<
+  ReadonlyArray<PlannedOrchestrationEvent>,
+  PlatformError.PlatformError,
+  Crypto.Crypto
+> {
+  const requestId =
+    input.requestId !== undefined
+      ? input.openRequestIds.has(input.requestId)
+        ? input.requestId
+        : null
+      : ([...input.openRequestIds][0] ?? null);
+  if (requestId === null) return [];
+
+  const crypto = yield* Crypto.Crypto;
+  const activityId = EventId.make(yield* crypto.randomUUIDv4);
+  const settlementEvent: PlannedOrchestrationEvent = {
+    ...(yield* withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.threadId,
+      occurredAt: input.createdAt,
+      commandId: input.commandId,
+      metadata: { requestId: ApprovalRequestId.make(requestId) },
+    })),
+    type: "thread.activity-appended",
+    payload: {
+      threadId: input.threadId,
+      activity: userInputResolvedActivity({
+        activityId,
+        resolution: {
+          requestId,
+          outcome: input.outcome,
+          ...(input.answers !== undefined ? { answers: input.answers } : {}),
+          ...(input.message !== undefined ? { message: input.message } : {}),
+        },
+        turnId: null,
+        createdAt: input.createdAt,
+      }),
+    },
+  };
+  if (input.settleOnly === true) return [settlementEvent];
+  return [
+    settlementEvent,
+    {
+      ...(yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: input.threadId,
+        occurredAt: input.createdAt,
+        commandId: input.commandId,
+        metadata: { requestId: ApprovalRequestId.make(requestId) },
+      })),
+      causationEventId: settlementEvent.eventId,
+      type: "thread.user-input-response-requested",
+      payload: {
+        threadId: input.threadId,
+        requestId: ApprovalRequestId.make(requestId),
+        answers: input.answers ?? {},
+        outcome: input.outcome,
+        ...(input.message !== undefined ? { message: input.message } : {}),
+        createdAt: input.createdAt,
+      },
+    },
+  ];
+});
 
 // loom: exported so the fork sibling reuses this shared sweep for its cancel
 // cascade. Transitive closure of the live (non-deleted) subtree under a thread,
@@ -1259,6 +1351,41 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
+      // Supersede (design commitment 3): a plain human message sent while a
+      // question is open IS the human's response. The question resolves
+      // `superseded` and the text is delivered AS THE TOOL RESULT.
+      //
+      // Delivery is EXCLUSIVE: this returns WITHOUT the turn-start above. The
+      // blocked tool call returns the text and the existing turn resumes with it,
+      // so emitting a turn-start as well would send the same instruction twice —
+      // once as the tool result, once as a steer folded into the very same live
+      // turn (pi treats a send during an active turn as a steer) — and an
+      // action-bearing message would be executed twice. When the consumer turns
+      // out to be dead, the reactor converts the settlement into exactly one new
+      // turn instead; that is the only path that produces a turn-start here.
+      //
+      // A control-plane notice is excluded: it is not a human answering, and
+      // settling a question with an automated recovery notice would be a lie.
+      const supersedableRequestIds =
+        command.message.origin === undefined || command.message.origin === "human"
+          ? openUserInputRequestIds(targetThread.activities)
+          : new Set<string>();
+      if (supersedableRequestIds.size > 0) {
+        const supersedeEvents = yield* userInputSettlementEvents({
+          threadId: command.threadId,
+          commandId: command.commandId,
+          createdAt: command.createdAt,
+          openRequestIds: supersedableRequestIds,
+          outcome: "superseded",
+          message: command.message.text,
+        });
+        // The message is still recorded (the human said it, and it must appear in
+        // the transcript) and the lifecycle resets still apply — only the
+        // turn-start is withheld, because the turn is already running and the tool
+        // result is what resumes it.
+        return [...lifecycleResetEvents, userMessageEvent, ...supersedeEvents];
+      }
+
       // §7 unifying rule: a turn-start clears ALL stored attention (a running
       // thread is, by definition, no longer halted-awaiting-a-human). Applies to
       // every turn-start — a human/parent resume, an agent message, and the
@@ -1454,29 +1581,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.user-input.respond": {
-      yield* requireThread({
+      const respondThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      return {
-        ...(yield* withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-          metadata: {
-            requestId: command.requestId,
-          },
-        })),
-        type: "thread.user-input-response-requested",
-        payload: {
-          threadId: command.threadId,
-          requestId: command.requestId,
-          answers: command.answers,
-          createdAt: command.createdAt,
-        },
-      };
+      // Settle-first (design commitment 3). The durable resolution is emitted in
+      // the SAME transaction as the delivery intent, so the question is over the
+      // moment the command is accepted — provider delivery is best-effort after
+      // the fact. The inverted order is why sixteen answer attempts over 22 hours
+      // changed nothing: delivery failed, so nothing was ever settled.
+      const respondEvents = yield* userInputSettlementEvents({
+        threadId: command.threadId,
+        commandId: command.commandId,
+        createdAt: command.createdAt,
+        openRequestIds: openUserInputRequestIds(respondThread.activities),
+        requestId: command.requestId,
+        outcome: "answered",
+        answers: command.answers,
+      });
+      if (respondEvents.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `User-input request '${command.requestId}' on thread '${command.threadId}' is not open; it was already settled.`,
+        });
+      }
+      return respondEvents;
     }
 
     case "thread.checkpoint.revert": {
@@ -1710,6 +1840,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ? ((command.activity.payload as { requestId: string })
               .requestId as OrchestrationEvent["metadata"]["requestId"])
           : undefined;
+
+      // FIRST-TERMINAL-WINS, enforced at the serialised write authority.
+      //
+      // Several producers can append a `user-input.resolved` for one request: the
+      // human settlement (settle-first), each adapter's delivery echo when its
+      // blocked callback returns, the session-exit rule, and the startup scan. A
+      // projection-side pre-check cannot make that safe — it reads, then dispatches,
+      // and a settlement can commit in between, so the echo still lands second and
+      // the request ends up durably carrying two contradictory terminal outcomes
+      // (`dismissed` then `answered`), which every downstream consumer reads as the
+      // later one. The decider runs inside the engine's serialised command queue
+      // against the just-committed read model, so the check and the write are
+      // atomic with respect to each other. Rejecting is correct rather than
+      // lossy: by definition the request is ALREADY settled durably.
+      if (requestId !== undefined && command.activity.kind === "user-input.resolved") {
+        const alreadySettled = thread.activities.some(
+          (activity) =>
+            activity.kind === "user-input.resolved" &&
+            typeof activity.payload === "object" &&
+            activity.payload !== null &&
+            (activity.payload as { requestId?: unknown }).requestId === requestId,
+        );
+        if (alreadySettled) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `User-input request '${requestId}' on thread '${command.threadId}' ${ALREADY_SETTLED_REJECTION_MARKER}.`,
+          });
+        }
+      }
+
       const activityAppendedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",

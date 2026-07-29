@@ -13,6 +13,9 @@ import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
+import { dispatchUserInputResolutions } from "../orchestration/userInputSettlement.ts";
 
 import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -55,14 +58,30 @@ const startupContinueCommandId = (threadId: ThreadId, bootId: string) =>
 const CONTROL_PLANE_MARKER = "[T3 Workstream control plane — automated notice, not from the user]";
 
 // The control-notice injected into a thread whose turn was interrupted by a
-// redeploy. A fresh turn-start resumes the persisted provider session (recovered
-// from its resumeCursor by ProviderService.sendTurn's allowRecovery path) with
-// full prior context, so the agent picks up where it left off.
-const buildRestartContinueMessage = (): string =>
+// redeploy. A fresh turn-start resumes the persisted provider session with full
+// prior context, so the agent picks up where it left off.
+//
+// `queuedSteering` is the other half of a real data-loss bug: the reset below
+// wipes the session's queued messages, which for an interrupted thread are
+// HUMAN messages that were queued against a turn that will never resume. They
+// are already in the row being reset, so they are folded into the resume message
+// rather than discarded — "we no longer lose your replies" should not carry an
+// asterisk about restarts.
+const buildRestartContinueMessage = (queuedSteering: ReadonlyArray<string> = []): string =>
   [
     CONTROL_PLANE_MARKER,
     "",
     "The server was redeployed while your turn was in progress, so the turn was interrupted. This is an automated recovery notice, not a message from the user.",
+    ...(queuedSteering.length > 0
+      ? [
+          "",
+          queuedSteering.length === 1
+            ? "The user sent this message while the turn was in flight; it was never delivered, so it is included here. Treat it as their message to you:"
+            : "The user sent these messages while the turn was in flight; they were never delivered, so they are included here. Treat them as their messages to you:",
+          "",
+          ...queuedSteering.map((message) => `- ${message}`),
+        ]
+      : []),
     "",
     "Resume from where you left off and finish the work. If you had already completed it, proceed to your normal completion step (e.g. workstream_submit).",
   ].join("\n");
@@ -80,14 +99,59 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
     projectionSnapshotQuery.getPendingTurnStartThreadIds(),
     Effect.map(DateTime.now, DateTime.formatIso),
   ]);
-  // Threads parked on a human (pending approval / user input) must not be
-  // auto-resumed: their provider callback state does not survive recovery, and a
-  // resume would clear the human-facing wait. They still get the reset below.
+  // Settlement layer 3 (see `orchestration/userInputSettlement.ts`): the startup
+  // scan. A question whose asking process is gone — which after a restart is
+  // EVERY open question, since no provider callback state survives — is resolved
+  // cancelled here, so the resumed model may simply re-ask. This replaces the old
+  // `parkedThreadIds` exclusion, which left such threads flagged and excluded
+  // from continuation forever, waiting on an answer nothing could ever deliver.
+  //
+  // Pending APPROVALS keep the old treatment: they have their own persisted table
+  // and their own resolution path, and reconciling them is out of scope here.
   const parkedThreadIds = new Set(
-    shellSnapshot.threads
-      .filter((t) => t.hasPendingApprovals || t.hasPendingUserInput)
-      .map((t) => t.id),
+    shellSnapshot.threads.filter((t) => t.hasPendingApprovals).map((t) => t.id),
   );
+  // EVERY boot-inherited open question is settled, with no session-liveness
+  // exemption. An adapter appearing in `listSessions()` does NOT prove the
+  // specific request's consumer exists: the in-memory broker entry / SDK Deferred
+  // that the blocked callback waits on is process-local and never survives a
+  // restart (pi additionally has no resumeCursor at all — audit D4). Skipping a
+  // thread because its session looks active is therefore exactly the hole that
+  // leaves a persisted request with no consumer, defeating this layer's purpose.
+  //
+  // A live in-process request cannot be reached by this scan anyway: it is created
+  // after startup, so its `requested` row is not in this snapshot.
+  let settledUserInputRequests = 0;
+  let unsettledUserInputRequests = 0;
+  for (const shell of shellSnapshot.threads) {
+    if (!shell.hasPendingUserInput) continue;
+    const detail = yield* projectionSnapshotQuery
+      .getThreadDetailById(shell.id)
+      .pipe(Effect.map(Option.getOrUndefined));
+    const stillOpen = openUserInputRequestIds(detail?.activities ?? []);
+    if (stillOpen.size === 0) continue;
+    // Count CONFIRMED writes only. Reporting the attempted count would let a
+    // transient command-path failure look like success while the thread stays
+    // wedged — which is incident 1's signature, not a fix for it.
+    const report = yield* dispatchUserInputResolutions({
+      dispatch: orchestrationEngine.dispatch,
+      newId: crypto.randomUUIDv4,
+      threadId: shell.id,
+      resolutions: [...stillOpen].map((requestId) => ({
+        requestId,
+        outcome: "cancelled" as const,
+      })),
+      createdAt: now,
+      tag: "startup-scan",
+    });
+    settledUserInputRequests += report.persisted;
+    unsettledUserInputRequests += report.failed;
+  }
+  if (unsettledUserInputRequests > 0) {
+    yield* Effect.logError("startup could not settle every open user-input request", {
+      unsettledUserInputRequests,
+    });
+  }
   // Random per-boot id: makes each boot's continuation attempt a fresh command
   // (retryable next boot) rather than a cross-restart receipt-deduped one.
   const bootId = yield* crypto.randomUUIDv4;
@@ -119,6 +183,11 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
     // merely stuck-running session (activeTurnId null — the 914c1e1d4 "deaf
     // orchestrator" case). Only the former is resumed; both are reset.
     const wasInterrupted = session.activeTurnId !== null;
+    // Captured before the reset wipes them; folded into the resume message below
+    // rather than discarded.
+    const wipedSteering = session.queuedMessages.steering.filter(
+      (message) => message.trim().length > 0,
+    );
 
     yield* orchestrationEngine.dispatch({
       type: "thread.session.set",
@@ -141,9 +210,10 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
 
     // Resume the interrupted turn (Option 1). Excluded (reset only, never
     // resumed):
-    //  - threads parked on a human (pending approval / user input) or already
-    //    flagged for attention — a turn-start clears that flag (the decider
-    //    clears stored attention on any non-terminal turn-start);
+    //  - threads parked on a pending approval, or already flagged for attention
+    //    — a turn-start clears that flag (the decider clears stored attention on
+    //    any non-terminal turn-start). A thread parked on a QUESTION is no longer
+    //    excluded: the scan above settled it, so continuation is correct;
     //  - archived / soft-deleted / cancelled threads — reviving hidden or
     //    explicitly abandoned work is wrong. `done` IS resumed (interrupted
     //    follow-up turns are legitimate).
@@ -171,7 +241,7 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
             messageId,
             role: "user",
             origin: "control_notice",
-            text: buildRestartContinueMessage(),
+            text: buildRestartContinueMessage(wipedSteering),
             attachments: [],
           },
           titleSeed: thread.title,
@@ -193,11 +263,19 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
     }
   }
 
-  if (reconciledSessions > 0 || clearedPendingStarts > 0 || continuationAttempts > 0) {
+  if (
+    reconciledSessions > 0 ||
+    clearedPendingStarts > 0 ||
+    continuationAttempts > 0 ||
+    settledUserInputRequests > 0 ||
+    unsettledUserInputRequests > 0
+  ) {
     yield* Effect.logInfo("startup reconciled stale session lifecycle state", {
       reconciledSessions,
       clearedPendingStarts,
       continuationAttempts,
+      settledUserInputRequests,
+      unsettledUserInputRequests,
     });
   }
 });

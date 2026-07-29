@@ -22,6 +22,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   ProviderApprovalDecision,
+  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
   ThreadId,
   ProviderSendTurnInput,
 } from "@t3tools/contracts";
@@ -53,6 +54,10 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+} from "../Services/ProviderAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -1063,6 +1068,10 @@ function mapToRuntimeEvents(
         type: "user-input.resolved",
         payload: {
           answers: toCanonicalUserInputAnswers(payload.answers),
+          // The delivery echo of an already-settled request; ingestion drops it
+          // when the durable resolution exists. Stated explicitly so the payload
+          // never implies an outcome it did not observe.
+          outcome: DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
         },
       },
     ];
@@ -1686,17 +1695,32 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       ),
     );
 
+  // DELIVERY ONLY: the durable resolution already exists, so nothing here can
+  // leave the question open.
   const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
     threadId,
     requestId,
     answers,
+    settlement,
   ) =>
     requireSession(threadId).pipe(
-      Effect.flatMap((session) => session.runtime.respondToUserInput(requestId, answers)),
+      Effect.flatMap((session) =>
+        session.runtime.respondToUserInput(requestId, answers, settlement),
+      ),
       Effect.mapError((cause) =>
         cause._tag === "ProviderAdapterSessionNotFoundError"
           ? cause
           : mapCodexRuntimeError(threadId, "item/tool/requestUserInput", cause),
+      ),
+      // Codex's requestUserInput response is an answers map: it can carry an
+      // answer or a non-answer explanation, but not a supersede message as the
+      // model's own next input, so that content needs one new turn. The runtime
+      // call above already waits for the blocked handler to return before it
+      // completes for a supersede, so this result cannot be reported early.
+      Effect.as(
+        settlement?.outcome === "superseded"
+          ? userInputContentUndelivered
+          : userInputContentDelivered,
       ),
     );
 

@@ -2442,140 +2442,221 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
-  it.effect("clears stale pending user input from projected shell summaries", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-        eventStore
-          .append(event)
-          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+  // A respond.failed is a delivery diagnostic, never a lifecycle signal: the
+  // server guarantees a resolution always eventually lands, so the projection no
+  // longer clears a question from prose. Terminal-wins is asserted below by the
+  // resolution arriving BEFORE a duplicate `requested` row for the same id.
+  it.effect(
+    "keeps pending user input open on a delivery failure, and terminal-wins on resolve",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
 
-      yield* appendAndProject({
-        type: "project.created",
-        eventId: EventId.make("evt-stale-user-input-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.make("project-stale-user-input"),
-        occurredAt: "2026-02-26T12:35:00.000Z",
-        commandId: CommandId.make("cmd-stale-user-input-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.make("cmd-stale-user-input-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.make("project-stale-user-input"),
-          title: "Project Stale User Input",
-          workspaceRoot: "/tmp/project-stale-user-input",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: "2026-02-26T12:35:00.000Z",
-          updatedAt: "2026-02-26T12:35:00.000Z",
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.make("evt-stale-user-input-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.make("thread-stale-user-input"),
-        occurredAt: "2026-02-26T12:35:01.000Z",
-        commandId: CommandId.make("cmd-stale-user-input-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.make("cmd-stale-user-input-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.make("thread-stale-user-input"),
-          projectId: ProjectId.make("project-stale-user-input"),
-          title: "Thread Stale User Input",
-          modelSelection: {
-            instanceId: ProviderInstanceId.make("codex"),
-            model: "gpt-5-codex",
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.make("evt-stale-user-input-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.make("project-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:00.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.make("project-stale-user-input"),
+            title: "Project Stale User Input",
+            workspaceRoot: "/tmp/project-stale-user-input",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-02-26T12:35:00.000Z",
+            updatedAt: "2026-02-26T12:35:00.000Z",
           },
-          runtimeMode: "approval-required",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          createdAt: "2026-02-26T12:35:01.000Z",
-          updatedAt: "2026-02-26T12:35:01.000Z",
-        },
-      });
+        });
 
-      yield* appendAndProject({
-        type: "thread.activity-appended",
-        eventId: EventId.make("evt-stale-user-input-3"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.make("thread-stale-user-input"),
-        occurredAt: "2026-02-26T12:35:02.000Z",
-        commandId: CommandId.make("cmd-stale-user-input-3"),
-        causationEventId: null,
-        correlationId: CorrelationId.make("cmd-stale-user-input-3"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.make("thread-stale-user-input"),
-          activity: {
-            id: EventId.make("activity-stale-user-input-requested"),
-            tone: "info",
-            kind: "user-input.requested",
-            summary: "User input requested",
-            payload: {
-              requestId: "user-input-request-stale-1",
-              questions: [
-                {
-                  id: "sandbox_mode",
-                  header: "Sandbox",
-                  question: "Which mode should be used?",
-                  options: [
-                    {
-                      label: "workspace-write",
-                      description: "Allow workspace writes only",
-                    },
-                  ],
-                },
-              ],
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.make("evt-stale-user-input-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:01.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-stale-user-input"),
+            projectId: ProjectId.make("project-stale-user-input"),
+            title: "Thread Stale User Input",
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
             },
-            turnId: null,
-            createdAt: "2026-02-26T12:35:02.000Z",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-02-26T12:35:01.000Z",
+            updatedAt: "2026-02-26T12:35:01.000Z",
           },
-        },
-      });
+        });
 
-      yield* appendAndProject({
-        type: "thread.activity-appended",
-        eventId: EventId.make("evt-stale-user-input-4"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.make("thread-stale-user-input"),
-        occurredAt: "2026-02-26T12:35:03.000Z",
-        commandId: CommandId.make("cmd-stale-user-input-4"),
-        causationEventId: null,
-        correlationId: CorrelationId.make("cmd-stale-user-input-4"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.make("thread-stale-user-input"),
-          activity: {
-            id: EventId.make("activity-stale-user-input-failed"),
-            tone: "error",
-            kind: "provider.user-input.respond.failed",
-            summary: "Provider user input response failed",
-            payload: {
-              requestId: "user-input-request-stale-1",
-              detail:
-                "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: user-input-request-stale-1",
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-stale-user-input-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:02.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-stale-user-input"),
+            activity: {
+              id: EventId.make("activity-stale-user-input-requested"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: {
+                requestId: "user-input-request-stale-1",
+                questions: [
+                  {
+                    id: "sandbox_mode",
+                    header: "Sandbox",
+                    question: "Which mode should be used?",
+                    options: [
+                      {
+                        label: "workspace-write",
+                        description: "Allow workspace writes only",
+                      },
+                    ],
+                  },
+                ],
+              },
+              turnId: null,
+              createdAt: "2026-02-26T12:35:02.000Z",
             },
-            turnId: null,
-            createdAt: "2026-02-26T12:35:03.000Z",
           },
-        },
-      });
+        });
 
-      const threadRows = yield* sql<{
-        readonly pendingUserInputCount: number;
-      }>`
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-stale-user-input-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:03.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-stale-user-input"),
+            activity: {
+              id: EventId.make("activity-stale-user-input-failed"),
+              tone: "error",
+              kind: "provider.user-input.respond.failed",
+              summary: "Provider user input response failed",
+              payload: {
+                requestId: "user-input-request-stale-1",
+                detail:
+                  "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: user-input-request-stale-1",
+              },
+              turnId: null,
+              createdAt: "2026-02-26T12:35:03.000Z",
+            },
+          },
+        });
+
+        const afterFailure = yield* sql<{
+          readonly pendingUserInputCount: number;
+        }>`
         SELECT pending_user_input_count AS "pendingUserInputCount"
         FROM projection_threads
         WHERE thread_id = 'thread-stale-user-input'
       `;
-      assert.deepEqual(threadRows, [{ pendingUserInputCount: 0 }]);
-    }),
+        assert.deepEqual(afterFailure, [{ pendingUserInputCount: 1 }]);
+
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-stale-user-input-5"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:04.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-5"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-stale-user-input"),
+            activity: {
+              id: EventId.make("activity-stale-user-input-resolved"),
+              tone: "info",
+              kind: "user-input.resolved",
+              summary: "User input cancelled",
+              payload: {
+                requestId: "user-input-request-stale-1",
+                answers: {},
+                outcome: "cancelled",
+              },
+              turnId: null,
+              createdAt: "2026-02-26T12:35:04.000Z",
+            },
+          },
+        });
+
+        // A late duplicate of the ORIGINAL request, with a newer id and timestamp:
+        // terminal-wins means it can never reopen the settled request.
+        yield* appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make("evt-stale-user-input-6"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-stale-user-input"),
+          occurredAt: "2026-02-26T12:35:05.000Z",
+          commandId: CommandId.make("cmd-stale-user-input-6"),
+          causationEventId: null,
+          correlationId: CorrelationId.make("cmd-stale-user-input-6"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.make("thread-stale-user-input"),
+            activity: {
+              id: EventId.make("activity-stale-user-input-requested-again"),
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
+              payload: {
+                requestId: "user-input-request-stale-1",
+                questions: [
+                  {
+                    id: "sandbox_mode",
+                    header: "Sandbox",
+                    question: "Which mode should be used?",
+                    options: [
+                      { label: "workspace-write", description: "Allow workspace writes only" },
+                    ],
+                  },
+                ],
+              },
+              turnId: null,
+              createdAt: "2026-02-26T12:35:05.000Z",
+            },
+          },
+        });
+
+        const afterResolve = yield* sql<{
+          readonly pendingUserInputCount: number;
+        }>`
+        SELECT pending_user_input_count AS "pendingUserInputCount"
+        FROM projection_threads
+        WHERE thread_id = 'thread-stale-user-input'
+      `;
+        assert.deepEqual(afterResolve, [{ pendingUserInputCount: 0 }]);
+      }),
   );
 
   it.effect("ignores non-stale provider approval response failures", () =>

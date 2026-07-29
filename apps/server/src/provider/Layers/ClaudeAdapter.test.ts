@@ -3663,22 +3663,11 @@ describe("ClaudeAdapterLive", () => {
         "Which framework?": "React",
       });
 
-      // The adapter should emit a user-input.resolved event.
-      const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(resolvedEvent._tag, "Some");
-      if (resolvedEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(resolvedEvent.value.type, "user-input.resolved");
-      if (resolvedEvent.value.type !== "user-input.resolved") {
-        return;
-      }
-      assert.deepEqual(resolvedEvent.value.payload.answers, {
-        "Which framework?": "React",
-      });
-      assert.deepEqual(resolvedEvent.value.providerRefs, {
-        providerItemId: ProviderItemId.make("tool-ask-1"),
-      });
+      // The adapter deliberately emits NO `user-input.resolved`: the server
+      // settles the question durably BEFORE dispatching delivery here
+      // (settle-first), so a second terminal event would put a contradictory
+      // outcome on one request — an outcome-less `answered` overwriting a
+      // `dismissed` the human actually chose.
 
       // The canUseTool promise should resolve with the answers in SDK format.
       const permissionResult = yield* Effect.promise(() => permissionPromise);
@@ -3776,8 +3765,8 @@ describe("ClaudeAdapterLive", () => {
         "Deploy to which env?": "Staging",
       });
 
-      // Drain the resolved event.
-      yield* Stream.runHead(adapter.streamEvents);
+      // No resolved event to drain: the durable resolution is written server-side
+      // before delivery reaches this adapter (settle-first).
 
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
@@ -3789,6 +3778,95 @@ describe("ClaudeAdapterLive", () => {
       Effect.provide(harness.layer),
     );
   });
+
+  // Settle-first, per outcome: a dismissal and a supersede must NOT reach the
+  // model as an answer. Delivering `{}` as `allow` is how "the user dismissed
+  // this" became "the user chose nothing", and how a bridge/card consumer would
+  // report the wrong terminal outcome.
+  for (const scenario of [
+    { outcome: "dismissed" as const, expect: "dismissed these questions" },
+    { outcome: "superseded" as const, expect: "replied with a message" },
+  ]) {
+    it.effect(`denies AskUserQuestion with framing when the outcome is ${scenario.outcome}`, () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          runtimeMode: "approval-required",
+        });
+        yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+        const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+        assert.equal(typeof canUseTool, "function");
+        if (!canUseTool) return;
+
+        const permissionPromise = canUseTool(
+          "AskUserQuestion",
+          {
+            questions: [
+              {
+                question: "Which framework?",
+                header: "Framework",
+                options: [{ label: "React", description: "React" }],
+                multiSelect: false,
+              },
+            ],
+          },
+          { signal: new AbortController().signal, toolUseID: `tool-${scenario.outcome}` },
+        );
+
+        const requestedEvent = yield* Stream.runHead(adapter.streamEvents);
+        if (
+          requestedEvent._tag !== "Some" ||
+          requestedEvent.value.type !== "user-input.requested"
+        ) {
+          assert.fail("Expected user-input.requested event");
+          return;
+        }
+        const requestId = requestedEvent.value.requestId;
+
+        const delivery = yield* adapter.respondToUserInput(
+          session.threadId,
+          ApprovalRequestId.make(requestId!),
+          {},
+          { outcome: scenario.outcome },
+        );
+
+        // A supersede's CONTENT cannot ride this callback, so the caller is told to
+        // deliver it as one new turn; a dismissal needs no content.
+        assert.equal(delivery.deliveredContent, scenario.outcome !== "superseded");
+
+        // RELEASE-BEFORE-TURN. `respondToUserInput` must not report "needs a
+        // fallback turn" until the callback has produced its result and handed it
+        // back to the SDK, because the caller dispatches that turn the moment it
+        // does — and a turn dispatched while the provider is still blocked inside
+        // the question callback is folded in as a steer and swallowed.
+        //
+        // Proven here by the callback's promise being ALREADY settled: this awaits
+        // it with no intervening scheduler work, so if the adapter had reported the
+        // fallback while still blocked, this would hang and the test would time out
+        // rather than pass. (The end-to-end "no sendTurn races the live callback"
+        // assertion lives in ProviderCommandReactor.test.ts.)
+        const permissionResult = (yield* Effect.promise(
+          () => permissionPromise,
+        )) as PermissionResult;
+        assert.equal(
+          permissionResult.behavior,
+          "deny",
+          "the callback must have returned its result before delivery was reported",
+        );
+        assert.isTrue(
+          (permissionResult as { message: string }).message.includes(scenario.expect),
+          `Expected ${scenario.outcome} framing, got: ${(permissionResult as { message: string }).message}`,
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+  }
 
   it.effect("denies AskUserQuestion when the waiting turn is aborted", () => {
     const harness = makeHarness();
@@ -3839,14 +3917,9 @@ describe("ClaudeAdapterLive", () => {
 
       controller.abort();
 
-      const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(resolvedEvent._tag, "Some");
-      if (resolvedEvent._tag !== "Some" || resolvedEvent.value.type !== "user-input.resolved") {
-        assert.fail("Expected user-input.resolved event");
-        return;
-      }
-      assert.deepEqual(resolvedEvent.value.payload.answers, {});
-
+      // The abort releases the callback as CANCELLED without emitting a terminal
+      // event: settlement is the server's, and the SDK abort is the runtime cancel
+      // path whose own resolution rides the session's exit/interrupt handling.
       const permissionResult = yield* Effect.promise(() => permissionPromise);
       assert.deepEqual(permissionResult, {
         behavior: "deny",

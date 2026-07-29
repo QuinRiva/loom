@@ -15,6 +15,7 @@ import {
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
+  type UserInputResolvedOutcome,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -109,8 +110,11 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   );
 
   public readonly respondToUserInputImpl = vi.fn(
-    (_requestId: ApprovalRequestId, _answers: ProviderUserInputAnswers): Promise<void> =>
-      Promise.resolve(undefined),
+    (
+      _requestId: ApprovalRequestId,
+      _answers: ProviderUserInputAnswers,
+      _settlement?: { readonly outcome: UserInputResolvedOutcome; readonly message?: string },
+    ): Promise<void> => Promise.resolve(undefined),
   );
 
   public readonly closeImpl = vi.fn(() => Promise.resolve(undefined));
@@ -145,8 +149,12 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
     return Effect.promise(() => this.respondToRequestImpl(requestId, decision));
   }
 
-  respondToUserInput(requestId: ApprovalRequestId, answers: ProviderUserInputAnswers) {
-    return Effect.promise(() => this.respondToUserInputImpl(requestId, answers));
+  respondToUserInput(
+    requestId: ApprovalRequestId,
+    answers: ProviderUserInputAnswers,
+    settlement?: { readonly outcome: UserInputResolvedOutcome; readonly message?: string },
+  ) {
+    return Effect.promise(() => this.respondToUserInputImpl(requestId, answers, settlement));
   }
 
   get events() {
@@ -1083,6 +1091,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           NodeAssert.deepEqual(events[1].payload.answers, {
             sandbox_mode: "workspace-write",
           });
+          // The echo states its outcome rather than implying one: under
+          // settle-first the durable resolution already exists, and ingestion
+          // drops this row rather than letting it contradict that outcome.
+          NodeAssert.equal(events[1].payload.outcome, "answered");
         }
       }),
   );

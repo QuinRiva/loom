@@ -12,6 +12,7 @@ import {
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
+  type UserInputResolvedOutcome,
   RuntimeMode,
   ThreadId,
   TurnId,
@@ -19,6 +20,12 @@ import {
 import { resolveSpawnCommand, withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import { renderUserInputOutcomeHandoff } from "@t3tools/shared/userInputOutcome";
+
+// The single key a non-answer outcome's framing is delivered under. Codex's
+// requestUserInput response has no field for "the user did not answer", so the
+// explanation rides the answers map rather than masquerading as a selection.
+const CODEX_NON_ANSWER_OUTCOME_KEY = "t3_outcome";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -149,6 +156,7 @@ export interface CodexSessionRuntimeShape {
   readonly respondToUserInput: (
     requestId: ApprovalRequestId,
     answers: ProviderUserInputAnswers,
+    settlement?: { readonly outcome: UserInputResolvedOutcome; readonly message?: string },
   ) => Effect.Effect<void, CodexSessionRuntimeError>;
   readonly events: Stream.Stream<ProviderEvent, never>;
   readonly close: Effect.Effect<void>;
@@ -225,7 +233,21 @@ interface PendingUserInput {
   readonly requestId: ApprovalRequestId;
   readonly turnId: TurnId | undefined;
   readonly itemId: ProviderItemId | undefined;
-  readonly answers: Deferred.Deferred<ProviderUserInputAnswers>;
+  // The full settlement, not bare answers: the blocked server-request handler must
+  // be able to tell an answer from a dismissal. Delivery-only — the resolution is
+  // already durable by the time this completes.
+  readonly settlement: Deferred.Deferred<CodexPendingUserInputSettlement>;
+  // Completed by the server-request handler itself, immediately before it returns
+  // its response. Completing `settlement` only makes the value available to the
+  // blocked fibre; it does not prove the handler has returned. See ClaudeAdapter's
+  // `released` for the full rationale.
+  readonly released: Deferred.Deferred<void>;
+}
+
+interface CodexPendingUserInputSettlement {
+  readonly outcome: UserInputResolvedOutcome;
+  readonly answers: ProviderUserInputAnswers;
+  readonly message?: string;
 }
 
 type CodexServerNotification = {
@@ -838,17 +860,25 @@ export const makeCodexSessionRuntime = (
         ),
       );
 
-    const settlePendingUserInputs = (answers: ProviderUserInputAnswers) =>
-      Ref.get(pendingUserInputsRef).pipe(
-        Effect.flatMap((pendingUserInputs) =>
-          Effect.forEach(
-            Array.from(pendingUserInputs.values()),
-            (pendingUserInput) =>
-              Deferred.succeed(pendingUserInput.answers, answers).pipe(Effect.ignore),
-            { discard: true },
-          ),
+    // Session teardown: release every blocked question as CANCELLED, which is what
+    // actually happened. (It previously completed them with empty answers, which
+    // the handler could not distinguish from the user choosing nothing.)
+    const settlePendingUserInputsAsCancelled = Ref.get(pendingUserInputsRef).pipe(
+      Effect.flatMap((pendingUserInputs) =>
+        Effect.forEach(
+          Array.from(pendingUserInputs.values()),
+          (pendingUserInput) =>
+            Deferred.succeed(pendingUserInput.settlement, {
+              outcome: "cancelled" as const,
+              answers: {},
+            }).pipe(
+              Effect.andThen(Deferred.succeed(pendingUserInput.released, void 0)),
+              Effect.ignore,
+            ),
+          { discard: true },
         ),
-      );
+      ),
+    );
 
     const handleRawNotification = (notification: CodexServerNotification) =>
       Effect.gen(function* () {
@@ -1094,7 +1124,8 @@ export const makeCodexSessionRuntime = (
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("user-input-request"));
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
-        const answers = yield* Deferred.make<ProviderUserInputAnswers>();
+        const settlement = yield* Deferred.make<CodexPendingUserInputSettlement>();
+        const released = yield* Deferred.make<void>();
 
         yield* Ref.update(pendingUserInputsRef, (current) => {
           const next = new Map(current);
@@ -1102,7 +1133,8 @@ export const makeCodexSessionRuntime = (
             requestId,
             turnId,
             itemId,
-            answers,
+            settlement,
+            released,
           });
           return next;
         });
@@ -1117,7 +1149,7 @@ export const makeCodexSessionRuntime = (
           payload,
         });
 
-        const resolvedAnswers = yield* Deferred.await(answers).pipe(
+        const resolved = yield* Deferred.await(settlement).pipe(
           Effect.ensuring(
             Ref.update(pendingUserInputsRef, (current) => {
               const next = new Map(current);
@@ -1127,8 +1159,23 @@ export const makeCodexSessionRuntime = (
           ),
         );
 
-        return {
-          answers: yield* toCodexUserInputAnswers(resolvedAnswers).pipe(
+        // Codex's response is an answers map keyed by question id — it has no field
+        // for "the user did not answer". A non-answer outcome therefore carries its
+        // framing under a reserved key rather than fabricating a selection, and for
+        // a supersede the message itself is re-delivered as one new turn by the
+        // caller (see `respondToUserInput`'s delivery result).
+        const deliveredAnswers: ProviderUserInputAnswers =
+          resolved.outcome === "answered"
+            ? resolved.answers
+            : {
+                [CODEX_NON_ANSWER_OUTCOME_KEY]: renderUserInputOutcomeHandoff({
+                  outcome: resolved.outcome,
+                  ...(resolved.message !== undefined ? { message: resolved.message } : {}),
+                }),
+              };
+
+        const response = {
+          answers: yield* toCodexUserInputAnswers(deliveredAnswers).pipe(
             Effect.mapError((error) =>
               CodexErrors.CodexAppServerRequestError.invalidParams(error.message, {
                 questionId: error.questionId,
@@ -1136,6 +1183,10 @@ export const makeCodexSessionRuntime = (
             ),
           ),
         } satisfies EffectCodexSchema.ToolRequestUserInputResponse;
+        // Last thing before returning: the caller gates its fallback turn on this,
+        // so it can never be dispatched while this handler is still blocked.
+        yield* Deferred.succeed(released, void 0);
+        return response;
       }),
     );
 
@@ -1270,7 +1321,7 @@ export const makeCodexSessionRuntime = (
         return;
       }
       yield* settlePendingApprovals("cancel");
-      yield* settlePendingUserInputs({});
+      yield* settlePendingUserInputsAsCancelled;
       yield* updateSession(sessionRef, {
         status: "closed",
         activeTurnId: undefined,
@@ -1401,7 +1452,9 @@ export const makeCodexSessionRuntime = (
             },
           });
         }),
-      respondToUserInput: (requestId, answers) =>
+      // DELIVERY ONLY: the durable resolution already exists, so nothing here can
+      // leave the question open.
+      respondToUserInput: (requestId, answers, settlement) =>
         Effect.gen(function* () {
           const pending = (yield* Ref.get(pendingUserInputsRef)).get(requestId);
           if (!pending) {
@@ -1409,13 +1462,18 @@ export const makeCodexSessionRuntime = (
               requestId,
             });
           }
+          const outcome = settlement?.outcome ?? "answered";
           const codexAnswers = yield* toCodexUserInputAnswers(answers);
           yield* Ref.update(pendingUserInputsRef, (current) => {
             const next = new Map(current);
             next.delete(requestId);
             return next;
           });
-          yield* Deferred.succeed(pending.answers, answers);
+          yield* Deferred.succeed(pending.settlement, {
+            outcome,
+            answers,
+            ...(settlement?.message !== undefined ? { message: settlement.message } : {}),
+          });
           yield* emitEvent({
             kind: "notification",
             threadId: options.threadId,
@@ -1425,8 +1483,14 @@ export const makeCodexSessionRuntime = (
             ...(pending.itemId ? { itemId: pending.itemId } : {}),
             payload: {
               answers: codexAnswers,
+              outcome,
             },
           });
+          // A supersede's content cannot ride the requestUserInput response, so the
+          // caller opens one new turn for it — but only once the blocked handler
+          // has actually returned, or that turn would be folded into the live agent
+          // loop as a steer and swallowed.
+          if (outcome === "superseded") yield* Deferred.await(pending.released);
         }),
       events: Stream.fromQueue(events),
       close,

@@ -358,19 +358,20 @@ function requestKindFromRequestType(requestType: unknown): PendingApproval["requ
   }
 }
 
-function isStalePendingRequestFailureDetail(detail: string | undefined): boolean {
+// Approvals only. The user-input equivalent is deleted: the server now guarantees
+// a `user-input.resolved` always eventually lands, so a question's death is never
+// again inferred from prose — four hand-maintained copies of this list had
+// already diverged, and none of them matched the wording the real incident
+// produced, which is how one question stayed on screen unanswerable for 22 hours.
+function isStalePendingApprovalFailureDetail(detail: string | undefined): boolean {
   const normalized = detail?.toLowerCase();
   if (!normalized) {
     return false;
   }
   return (
     normalized.includes("stale pending approval request") ||
-    normalized.includes("stale pending user-input request") ||
     normalized.includes("unknown pending approval request") ||
-    normalized.includes("unknown pending permission request") ||
-    normalized.includes("unknown pending user-input request") ||
-    normalized.includes("unknown pending user input request") ||
-    normalized.includes("unknown pending codex user input request")
+    normalized.includes("unknown pending permission request")
   );
 }
 
@@ -418,7 +419,7 @@ export function derivePendingApprovals(
     if (
       activity.kind === "provider.approval.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isStalePendingApprovalFailureDetail(detail)
     ) {
       openByRequestId.delete(requestId);
       continue;
@@ -430,10 +431,17 @@ export function derivePendingApprovals(
   );
 }
 
+/**
+ * Open questions, cleared by `user-input.resolved` and nothing else. Terminal-wins
+ * per requestId, matching the server's fold exactly — a resolved request can never
+ * be reopened by a late or duplicate `requested` row, so the panel cannot
+ * reappear for a question that is over.
+ */
 export function derivePendingUserInputs(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingUserInput[] {
   const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
+  const resolvedRequestIds = new Set<ApprovalRequestId>();
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
 
   for (const activity of ordered) {
@@ -445,9 +453,17 @@ export function derivePendingUserInputs(
       payload && typeof payload.requestId === "string"
         ? ApprovalRequestId.make(payload.requestId)
         : null;
-    const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
+    if (requestId === null) {
+      continue;
+    }
 
-    if (activity.kind === "user-input.requested" && requestId) {
+    if (activity.kind === "user-input.resolved") {
+      resolvedRequestIds.add(requestId);
+      openByRequestId.delete(requestId);
+      continue;
+    }
+
+    if (activity.kind === "user-input.requested" && !resolvedRequestIds.has(requestId)) {
       const questions = parseUserInputQuestions(payload);
       if (!questions) {
         continue;
@@ -457,20 +473,6 @@ export function derivePendingUserInputs(
         createdAt: activity.createdAt,
         questions,
       });
-      continue;
-    }
-
-    if (activity.kind === "user-input.resolved" && requestId) {
-      openByRequestId.delete(requestId);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      requestId &&
-      isStalePendingRequestFailureDetail(detail)
-    ) {
-      openByRequestId.delete(requestId);
     }
   }
 

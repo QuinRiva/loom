@@ -23,6 +23,7 @@ import {
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as Cause from "effect/Cause";
@@ -815,7 +816,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "provider.thread_id": input.threadId,
         "provider.request_id": input.requestId,
       });
-      yield* routed.adapter.respondToUserInput(routed.threadId, input.requestId, input.answers);
+      return yield* routed.adapter.respondToUserInput(
+        routed.threadId,
+        input.requestId,
+        input.answers,
+        {
+          outcome: input.outcome ?? DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
+          ...(input.message !== undefined ? { message: input.message } : {}),
+        },
+      );
     }).pipe(
       withMetrics({
         counter: providerTurnsTotal,

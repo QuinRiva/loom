@@ -13,11 +13,16 @@ import {
   type ProjectId,
   type OrchestrationSession,
   ThreadId,
+  MessageId,
   type ProviderSession,
   type RuntimeMode,
   type TurnId,
+  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shared/git";
+import { renderUserInputOutcomeAsTurnOpener } from "@t3tools/shared/userInputOutcome";
+import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
+import { dispatchUserInputResolutions } from "../userInputSettlement.ts";
 import { slugify } from "@t3tools/shared/String";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -170,28 +175,7 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
   );
 }
 
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = findProviderAdapterRequestError(cause);
-  if (error) {
-    const detail = error.detail.toLowerCase();
-    return (
-      detail.includes("unknown pending user-input request") ||
-      detail.includes("unknown pending user input request") ||
-      detail.includes("unknown pending codex user input request")
-    );
-  }
-  const message = Cause.pretty(cause).toLowerCase();
-  return (
-    message.includes("unknown pending user-input request") ||
-    message.includes("unknown pending user input request") ||
-    message.includes("unknown pending codex user input request")
-  );
-}
-
-function stalePendingRequestDetail(
-  requestKind: "approval" | "user-input",
-  requestId: string,
-): string {
+function stalePendingRequestDetail(requestKind: "approval", requestId: string): string {
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
@@ -1324,6 +1308,44 @@ const make = Effect.gen(function* () {
       .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
   });
 
+  /**
+   * Settle every question open on a thread from the COMMAND path, before any
+   * adapter call — the interrupt/stop half of the settlement guarantee.
+   *
+   * The runtime cancel paths only fire when the adapter is reachable
+   * (`ProviderService.stopSession` calls `adapter.stopSession` solely when
+   * `routed.isActive`, and interrupt returns early when no session is bound), so
+   * a stop or interrupt against an already-dead provider used to clear nothing —
+   * reproducing incident 1's stale shape from a deliberate human action, and
+   * leaving the Stop control unable to unwedge the very state it looks like it
+   * should fix. Settling here first makes provider cancellation pure
+   * delivery/cleanup: if it also emits a resolution, ingestion drops that echo.
+   */
+  const settleOpenUserInputRequests = Effect.fn("settleOpenUserInputRequests")(function* (input: {
+    readonly thread: { readonly id: ThreadId; readonly activities: ReadonlyArray<unknown> };
+    readonly createdAt: string;
+    readonly tag: string;
+  }) {
+    const openRequestIds = openUserInputRequestIds(
+      input.thread.activities as ReadonlyArray<{
+        readonly kind: string;
+        readonly payload: unknown;
+      }>,
+    );
+    if (openRequestIds.size === 0) return;
+    yield* dispatchUserInputResolutions({
+      dispatch: orchestrationEngine.dispatch,
+      newId: crypto.randomUUIDv4,
+      threadId: input.thread.id,
+      resolutions: [...openRequestIds].map((requestId) => ({
+        requestId,
+        outcome: "cancelled" as const,
+      })),
+      createdAt: input.createdAt,
+      tag: input.tag,
+    });
+  });
+
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-interrupt-requested" }>,
   ) {
@@ -1331,6 +1353,15 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    // Settle BEFORE the liveness check: an interrupt of a thread whose provider is
+    // already gone must still end its open questions, or a human pressing Stop on
+    // a wedged thread changes nothing.
+    yield* settleOpenUserInputRequests({
+      thread,
+      createdAt: event.payload.createdAt,
+      tag: "turn-interrupt",
+    });
+
     const hasSession = thread.session && thread.session.status !== "stopped";
     if (!hasSession) {
       return yield* appendProviderFailureActivity({
@@ -1390,6 +1421,19 @@ const make = Effect.gen(function* () {
       );
   });
 
+  /**
+   * Deliver an ALREADY-SETTLED question outcome (the decider settled it in the
+   * same transaction that produced this event — see `userInputSettlementEvents`).
+   * Delivery is therefore best-effort by design: nothing here can leave the
+   * question open, and a `respond.failed` activity is a delivery diagnostic that
+   * clears nothing (no consumer prose-matches it anymore).
+   *
+   * When there is no live consumer — dead session, restarted server, relaunched
+   * process — the outcome is converted into a normal turn instead of being lost:
+   * the human's answer opens the next turn, tagged to the request. That is the
+   * durable consumer the original plan argued did not exist; it does, it is just
+   * the next turn rather than the dead tool call.
+   */
   const processUserInputResponseRequested = Effect.fn("processUserInputResponseRequested")(
     function* (
       event: Extract<ProviderIntentEvent, { type: "thread.user-input-response-requested" }>,
@@ -1398,40 +1442,88 @@ const make = Effect.gen(function* () {
       if (!thread) {
         return;
       }
+      const outcome = event.payload.outcome ?? DEFAULT_USER_INPUT_RESOLVED_OUTCOME;
+      // EXACTLY-ONCE, durably. Both ids are derived from the causative settlement
+      // event, not minted fresh per attempt: `event.eventId` is the id of the
+      // durable `thread.user-input-response-requested` that triggered this
+      // delivery, so a reactor retry, a redelivery, or a replay of that event
+      // produces the SAME command id and the engine's command receipt turns the
+      // second dispatch into a no-op. A random id would open a duplicate turn and
+      // deliver an action-bearing human message twice.
+      const fallbackCommandId = CommandId.make(
+        `server:user-input-late-delivery:${event.payload.requestId}:${event.eventId}`,
+      );
+      const fallbackMessageId = MessageId.make(`user-input-late-delivery:${event.eventId}`);
+      const deliverAsNextTurn = (detail: string) =>
+        Effect.gen(function* () {
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.user-input.respond.failed",
+            summary: "Provider user input delivery failed; delivered as a new turn instead",
+            detail,
+            turnId: null,
+            createdAt: event.payload.createdAt,
+            requestId: event.payload.requestId,
+          });
+          const messageId = fallbackMessageId;
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.turn.start",
+              commandId: fallbackCommandId,
+              threadId: event.payload.threadId,
+              message: {
+                messageId,
+                role: "user",
+                origin: "control_notice",
+                text: renderUserInputOutcomeAsTurnOpener({
+                  requestId: event.payload.requestId,
+                  outcome,
+                  answers: event.payload.answers,
+                  ...(event.payload.message !== undefined
+                    ? { message: event.payload.message }
+                    : {}),
+                }),
+                attachments: [],
+              },
+              titleSeed: thread.title,
+              runtimeMode: thread.runtimeMode,
+              interactionMode: thread.interactionMode,
+              createdAt: event.payload.createdAt,
+            })
+            .pipe(Effect.ignoreCause({ log: true }));
+        });
+
       const hasSession = thread.session && thread.session.status !== "stopped";
       if (!hasSession) {
-        return yield* appendProviderFailureActivity({
-          threadId: event.payload.threadId,
-          kind: "provider.user-input.respond.failed",
-          summary: "Provider user input response failed",
-          detail: "No active provider session is bound to this thread.",
-          turnId: null,
-          createdAt: event.payload.createdAt,
-          requestId: event.payload.requestId,
-        });
+        return yield* deliverAsNextTurn("No active provider session is bound to this thread.");
       }
 
-      yield* providerService
+      const delivery = yield* providerService
         .respondToUserInput({
           threadId: event.payload.threadId,
           requestId: event.payload.requestId,
           answers: event.payload.answers,
+          outcome,
+          ...(event.payload.message !== undefined ? { message: event.payload.message } : {}),
         })
         .pipe(
+          Effect.map(Option.some),
           Effect.catchCause((cause) =>
-            appendProviderFailureActivity({
-              threadId: event.payload.threadId,
-              kind: "provider.user-input.respond.failed",
-              summary: "Provider user input response failed",
-              detail: isUnknownPendingUserInputRequestError(cause)
-                ? stalePendingRequestDetail("user-input", event.payload.requestId)
-                : Cause.pretty(cause),
-              turnId: null,
-              createdAt: event.payload.createdAt,
-              requestId: event.payload.requestId,
-            }),
+            deliverAsNextTurn(Cause.pretty(cause)).pipe(Effect.as(Option.none())),
           ),
         );
+
+      // The callback was released but could not carry the outcome's CONTENT — in
+      // practice a supersede message on a provider whose question protocol models
+      // only accepted/cancelled. The human's words must still reach the model, so
+      // they open exactly one new turn. This is the ONLY path that produces a
+      // turn-start for a supersede: the decider deliberately withholds one, so
+      // there is no route by which the same instruction is delivered twice.
+      if (Option.isSome(delivery) && !delivery.value.deliveredContent) {
+        yield* deliverAsNextTurn(
+          `The ${thread.session?.providerName ?? "provider"} question callback cannot carry a '${outcome}' outcome's content; delivering it as a new turn instead.`,
+        );
+      }
     },
   );
 
@@ -1444,6 +1536,10 @@ const make = Effect.gen(function* () {
     }
 
     const now = event.payload.createdAt;
+    // As with interrupt: settle from the command path first, so a stop against an
+    // inactive adapter (where `ProviderService` skips `adapter.stopSession`
+    // entirely) still ends the thread's open questions.
+    yield* settleOpenUserInputRequests({ thread, createdAt: now, tag: "session-stop" });
     if (thread.session && thread.session.status !== "stopped") {
       yield* providerService.stopSession({ threadId: thread.id });
     }

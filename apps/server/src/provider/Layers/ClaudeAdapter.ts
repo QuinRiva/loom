@@ -25,6 +25,10 @@ import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import {
+  renderUserInputOutcome,
+  renderUserInputOutcomeHandoff,
+} from "@t3tools/shared/userInputOutcome";
+import {
   ApprovalRequestId,
   type AccountUsageWindow,
   type CanonicalItemType,
@@ -49,6 +53,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  type UserInputResolvedOutcome,
 } from "@t3tools/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -94,6 +99,10 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import {
+  userInputContentDelivered,
+  userInputContentUndelivered,
+} from "../Services/ProviderAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
 const decodeUnknownJsonStringExit = Schema.decodeUnknownExit(Schema.UnknownFromJsonString);
@@ -162,7 +171,24 @@ interface PendingApproval {
 
 interface PendingUserInput {
   readonly questions: ReadonlyArray<UserInputQuestion>;
-  readonly answers: Deferred.Deferred<ProviderUserInputAnswers>;
+  // The full settlement, not bare answers: the blocked callback must be able to
+  // tell an answer from a dismissal, or the model reads "the user chose nothing"
+  // as a choice. Delivery-only — the server already persisted the resolution.
+  readonly settlement: Deferred.Deferred<PendingUserInputSettlement>;
+  // Completed by the callback ITSELF, immediately before it returns its result to
+  // the SDK. Completing `settlement` only makes the value available to the blocked
+  // fibre; it does NOT prove the callback has handed control back to the provider
+  // loop. `respondToUserInput` awaits this before telling the caller a fallback
+  // turn is needed, so the fallback can never be dispatched while the provider is
+  // still inside the question callback (where it would be folded in as a steer and
+  // swallowed — the exact loss this seam exists to prevent).
+  readonly released: Deferred.Deferred<void>;
+}
+
+interface PendingUserInputSettlement {
+  readonly outcome: UserInputResolvedOutcome;
+  readonly answers: ProviderUserInputAnswers;
+  readonly message?: string;
 }
 
 interface ToolInFlight {
@@ -3238,6 +3264,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
       const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
+      // The `released` Deferred of the question callback currently in flight, set by
+      // `handleAskUserQuestion` and completed by `canUseTool` once the SDK's promise
+      // has actually settled. The SDK serialises `canUseTool` per turn, so one slot
+      // is sufficient.
+      let releasedForCall: Deferred.Deferred<void> | undefined;
       const inFlightTools = new Map<number, ToolInFlight>();
       const claudeTasks = new Map<string, ClaudeTaskState>();
 
@@ -3278,11 +3309,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }),
         );
 
-        const answersDeferred = yield* Deferred.make<ProviderUserInputAnswers>();
+        const settlementDeferred = yield* Deferred.make<PendingUserInputSettlement>();
+        const releasedDeferred = yield* Deferred.make<void>();
+        releasedForCall = releasedDeferred;
         let aborted = false;
         const pendingInput: PendingUserInput = {
           questions,
-          answers: answersDeferred,
+          settlement: settlementDeferred,
+          released: releasedDeferred,
         };
 
         // Emit user-input.requested so the UI can present the questions.
@@ -3322,45 +3356,48 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           }
           aborted = true;
           pendingUserInputs.delete(requestId);
-          runFork(Deferred.succeed(answersDeferred, {} as ProviderUserInputAnswers));
+          runFork(Deferred.succeed(settlementDeferred, { outcome: "cancelled", answers: {} }));
         };
         callbackOptions.signal.addEventListener("abort", onAbort, {
           once: true,
         });
 
-        // Block until the user provides answers.
-        const answers = yield* Deferred.await(answersDeferred);
+        // Block until the question is settled. Settlement is durable BEFORE this
+        // resolves (the server settles first, then delivers), so this adapter
+        // deliberately emits NO `user-input.resolved` of its own — a second
+        // terminal event would put a contradictory outcome on one request, e.g.
+        // an outcome-less `answered` overwriting the `dismissed` the human chose.
+        const settled = yield* Deferred.await(settlementDeferred);
         pendingUserInputs.delete(requestId);
 
-        // Emit user-input.resolved so the UI knows the interaction completed.
-        const resolvedStamp = yield* makeEventStamp();
-        yield* offerRuntimeEvent({
-          type: "user-input.resolved",
-          eventId: resolvedStamp.eventId,
-          provider: PROVIDER,
-          createdAt: resolvedStamp.createdAt,
-          threadId: context.session.threadId,
-          ...(context.turnState
-            ? {
-                turnId: asCanonicalTurnId(context.turnState.turnId),
-              }
-            : {}),
-          requestId: asRuntimeRequestId(requestId),
-          payload: { answers },
-          providerRefs: nativeProviderRefs(context, {
-            providerItemId: callbackOptions.toolUseID,
-          }),
-          raw: {
-            source: "claude.sdk.permission",
-            method: "canUseTool/AskUserQuestion/resolved",
-            payload: { answers },
-          },
-        });
-
-        if (aborted) {
+        if (aborted || settled.outcome === "cancelled") {
           return {
             behavior: "deny",
             message: "User cancelled tool execution.",
+          } satisfies PermissionResult;
+        }
+
+        // A dismissal is not a choice: denying with explicit framing is the only
+        // honest option, because `updatedInput.answers` has no way to say "the
+        // user declined to answer" — an empty answers map reads as a selection.
+        if (settled.outcome === "dismissed") {
+          return {
+            behavior: "deny",
+            message: renderUserInputOutcome({ outcome: "dismissed" }),
+          } satisfies PermissionResult;
+        }
+
+        // A supersede's CONTENT (the human's message) cannot ride this callback,
+        // so the release SAYS the message arrives next rather than reading as a
+        // bare cancellation the model might proceed past. `respondToUserInput`
+        // then reports it undelivered and the caller opens exactly one new turn.
+        if (settled.outcome === "superseded") {
+          return {
+            behavior: "deny",
+            message: renderUserInputOutcomeHandoff({
+              outcome: "superseded",
+              ...(settled.message !== undefined ? { message: settled.message } : {}),
+            }),
           } satisfies PermissionResult;
         }
 
@@ -3370,7 +3407,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           behavior: "allow",
           updatedInput: {
             questions: toolInput.questions,
-            answers,
+            answers: settled.answers,
           },
         } satisfies PermissionResult;
       });
@@ -3530,8 +3567,24 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         } satisfies PermissionResult;
       });
 
-      const canUseTool: CanUseTool = (toolName, toolInput, callbackOptions) =>
-        runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
+      // Release is signalled HERE, at the promise boundary, and only AFTER the
+      // promise the SDK holds has settled — which is why this awaits `settled`
+      // rather than attaching a `.then`. Completing the Deferred any earlier
+      // (mid-effect, or from a sibling `.then`) proves only that a result was
+      // computed, not that the SDK has it; `respondToUserInput` gates the fallback
+      // turn on this signal, and a turn dispatched while the provider is still
+      // inside the callback is folded in as a steer and swallowed.
+      // `releasedForCall` is set by `handleAskUserQuestion` for the call in flight.
+      const canUseTool: CanUseTool = async (toolName, toolInput, callbackOptions) => {
+        releasedForCall = undefined;
+        try {
+          return await runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
+        } finally {
+          const deferred = releasedForCall;
+          releasedForCall = undefined;
+          if (deferred) runFork(Deferred.succeed(deferred, void 0).pipe(Effect.ignore));
+        }
+      };
 
       const claudeBinaryPath = claudeSdkExecutablePath;
       const extraArgs = parseCliArgs(claudeSettings.launchArgs).flags;
@@ -3921,7 +3974,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const respondToUserInput: ClaudeAdapterShape["respondToUserInput"] = Effect.fn(
     "respondToUserInput",
-  )(function* (threadId, requestId, answers) {
+  )(function* (threadId, requestId, answers, settlement) {
     const context = yield* requireSession(threadId);
     const pending = context.pendingUserInputs.get(requestId);
     if (!pending) {
@@ -3932,8 +3985,21 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       });
     }
 
+    const outcome = settlement?.outcome ?? "answered";
     context.pendingUserInputs.delete(requestId);
-    yield* Deferred.succeed(pending.answers, answers);
+    yield* Deferred.succeed(pending.settlement, {
+      outcome,
+      answers,
+      ...(settlement?.message !== undefined ? { message: settlement.message } : {}),
+    });
+    // The SDK's canUseTool result can allow-with-answers or deny-with-a-message;
+    // it cannot hand the model a supersede message as the tool's own output, so
+    // that content needs a new turn. AWAIT the callback's own release signal
+    // first: a fallback turn dispatched while the provider is still inside the
+    // question callback would be folded in as a steer and swallowed.
+    if (outcome !== "superseded") return userInputContentDelivered;
+    yield* Deferred.await(pending.released);
+    return userInputContentUndelivered;
   });
 
   const stopSession: ClaudeAdapterShape["stopSession"] = Effect.fn("stopSession")(

@@ -14,6 +14,7 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
+  ApprovalRequestId,
   CommandId,
   EventId,
   GoalId,
@@ -137,10 +138,12 @@ export const DEFAULT_THREAD_PLAN_LANE: ThreadPlanLane = "planned";
 // Axis 3 — attention (needs-a-human; the single notification surface). A set of
 // reason-tagged flags that co-exist with any plan lane and bubble up. Only the
 // non-derivable reasons are STORED on a thread (`error`, `awaiting_acceptance`,
-// `needs_guidance`); `awaiting_approval`/`awaiting_input` are projected from
-// open approval/input requests and never stored. `error` is server-only (the
-// liveness sweep sets it); the decider rejects an agent-issued `error` raise
-// and rejects the two projected reasons outright.
+// `needs_guidance`); `awaiting_approval`/`awaiting_input` are derived from open
+// approval/input requests, never stored, and `awaiting_input` is unioned into
+// shell attention values at the read boundary (so every out-of-web rail sees a
+// real flag that cannot drift from the open-request set). `error` is server-only
+// (the liveness sweep sets it); the decider rejects an agent-issued `error`
+// raise and rejects the two derived reasons outright.
 export const AttentionReason = Schema.Literals([
   "error",
   "awaiting_approval",
@@ -926,6 +929,18 @@ const ThreadAttentionClearCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+// The human's unconditional escape hatch from an open agent question. Settles
+// the durable record with no provider round-trip on the critical path: a live
+// tool call learns it was dismissed, a dead one is simply never told, and either
+// way the question is over. Same authorisation as `thread.user-input.respond`.
+const ThreadUserInputDismissCommand = Schema.Struct({
+  type: Schema.Literal("thread.user-input.dismiss"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestId: ApprovalRequestId,
+  createdAt: IsoDateTime,
+});
+
 const ThreadDependenciesSetCommand = Schema.Struct({
   type: Schema.Literal("thread.dependencies.set"),
   commandId: CommandId,
@@ -1094,6 +1109,7 @@ export const LoomClientCommandMembers = [
   ThreadPlanLaneSetCommand,
   ThreadAttentionRaiseCommand,
   ThreadAttentionClearCommand,
+  ThreadUserInputDismissCommand,
   ThreadDependenciesSetCommand,
 ] as const;
 
@@ -1599,6 +1615,7 @@ export const LOOM_COMMAND_TYPES = [
   "thread.plan-lane.set",
   "thread.attention.raise",
   "thread.attention.clear",
+  "thread.user-input.dismiss",
   "thread.dependencies.set",
   "thread.message.reasoning.complete",
   "thread.work.submit",

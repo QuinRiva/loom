@@ -248,3 +248,44 @@ boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
   Pill deep-link scope ("pi\0carl@") now filters rows via declared coverage.
 - Updated docs/providers/claude.md example + local settings.json
   (providerIds: ["cliproxy"] on both sources). Server restart needed.
+
+## ask_user_question settlement: SDK-provider supersede delivery — 2026-07-29
+
+- Q: the revised design's commitment 3 says a superseded question's message is
+  delivered **as the tool result**. Pi can do that (its broker poll carries the
+  prose). The five other providers cannot: Claude's `canUseTool` result is
+  allow-with-answers or deny-with-a-message, Grok's ask_user_question models only
+  accepted/cancelled, Cursor's and Codex's responses are answers maps, and
+  OpenCode's `question.reject` takes no body. Releasing those callbacks with a
+  bare cancellation would drop the human's message.
+- Consulted the author of the current indefinite-blocking revision,
+  `5185872f-ccf7-438e-91a1-1c47f1e74e73` (role=plan). **Confidence: HIGH.**
+  Decision: **Option 1 — accept the exactly-once new-turn fallback and amend the
+  plan to say so.** This is delivery mechanics within the settled design, not a
+  departure from it, so no escalation. Acceptance is conditional on three
+  invariants, all now implemented and regression-tested:
+  1. **Release-before-turn, proven not assumed.** The callback must have handed
+     its result back before the fallback turn dispatches. Completing a `Deferred`
+     is _not_ proof (it only makes the value available to the blocked fibre), so
+     each adapter carries an explicit `released` signal completed at the real
+     boundary — for Claude that is after the SDK's promise settles, for OpenCode
+     it is OpenCode's own `question.rejected` event (bounded by a timeout so a
+     missing event cannot strand the message). `respondToUserInput` awaits it
+     before reporting `deliveredContent: false`.
+  2. **Exactly-once, durably.** The fallback turn's command id is derived from the
+     causative settlement event (`server:user-input-late-delivery:<requestId>:<eventId>`),
+     so a reactor retry or event redelivery is receipt-deduped instead of
+     delivering an action-bearing message twice. The settlement helper likewise
+     allocates its resolution id _outside_ its retry.
+  3. **The released callback frames the handoff.** Not a bare `cancelled`:
+     `renderUserInputOutcomeHandoff` says the questions are settled, the user's
+     message arrives as the next message, and the model must not assume or re-ask.
+     OpenCode is the one exception — `question.reject` has no body — so there the
+     framing rides the fallback turn's opener alone.
+- Also settled here: **first-terminal-wins is enforced in the decider**, not by a
+  projection pre-check. A pre-check reads then dispatches, so a settlement
+  committing in between still lets an adapter's delivery echo land second and
+  leave one request carrying two contradictory terminal outcomes. The decider runs
+  inside the engine's serialised command queue against the just-committed read
+  model, so the check and the write are atomic; a rejected echo is expected and
+  tolerated by ingestion.

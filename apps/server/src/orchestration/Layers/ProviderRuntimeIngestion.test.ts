@@ -21,6 +21,7 @@ import {
   type ServerSettings,
   ThreadId,
   TurnId,
+  RuntimeRequestId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -65,6 +66,7 @@ const asEventId = (value: string): EventId => EventId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
+const asRuntimeRequestId = (value: string): RuntimeRequestId => RuntimeRequestId.make(value);
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -622,6 +624,200 @@ describe("ProviderRuntimeIngestion", () => {
         expect(thread.session?.status).toBe("running");
         expect(thread.session?.activeTurnId).toBe(asTurnId("turn-after-reconnect"));
       }),
+  );
+
+  // Terminal-wins at the WRITE boundary. Under settle-first the server persists the
+  // authoritative outcome, then asks the adapter to deliver it; the adapter's own
+  // `user-input.resolved` then arrives here SECOND. For the five non-pi adapters
+  // that cannot model a non-answer outcome it carries `answered` with empty
+  // answers, so persisting it would leave ONE request durably carrying two
+  // contradictory terminal outcomes and every consumer reading the later row would
+  // report the wrong thing.
+  effectIt.effect("drops an adapter's resolution echo for an already-settled request", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = asThreadId("thread-1");
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-question-open-before-echo"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-question-open-before-echo"),
+          tone: "info",
+          kind: "user-input.requested",
+          summary: "User input requested",
+          payload: { requestId: "req-echo", questions: [] },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+      // The server's authoritative settlement: the human dismissed it.
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-question-settled-dismissed"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-question-settled-dismissed"),
+          tone: "info",
+          kind: "user-input.resolved",
+          summary: "User input dismissed",
+          payload: { requestId: "req-echo", answers: {}, outcome: "dismissed" },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+
+      // The adversarial interleaving the projection-side pre-check could not close:
+      // a settlement committing BETWEEN the echo's classification and its append.
+      // First-terminal-wins is now enforced by the decider inside the engine's
+      // serialised command queue, so the check and the write are atomic and this
+      // ordering cannot produce a contradictory second terminal row.
+      //
+      // The adapter's delivery echo, which would claim `answered`.
+      harness.emit({
+        type: "user-input.resolved",
+        eventId: asEventId("evt-user-input-echo"),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        threadId,
+        createdAt: "2026-01-01T00:00:05.000Z",
+        requestId: asRuntimeRequestId("req-echo"),
+        payload: { answers: {}, outcome: "answered" },
+      });
+
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      const resolutions = (thread?.activities ?? []).filter(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "user-input.resolved" &&
+          (activity.payload as Record<string, unknown>).requestId === "req-echo",
+      );
+      // Exactly ONE terminal row, and it is the human's actual outcome.
+      expect(resolutions).toHaveLength(1);
+      expect(resolutions[0]?.payload).toMatchObject({ outcome: "dismissed" });
+
+      // The batch is not aborted by the expected rejection: a later activity in
+      // the SAME event still persists. (Suppression is per-activity by design.)
+      harness.emit({
+        type: "runtime.warning",
+        eventId: asEventId("evt-after-echo"),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        threadId,
+        createdAt: "2026-01-01T00:00:06.000Z",
+        payload: { message: "still processing after the suppressed echo" },
+      });
+      yield* Effect.promise(() => harness.drain());
+      const afterEcho = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      expect(
+        afterEcho?.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.id === "evt-after-echo",
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  // The other half of the same guard, and the one that matters most: suppression
+  // must be EXACTLY the decider's already-settled rejection and nothing else. A
+  // catch-all here would swallow a genuine FIRST resolution on any transient
+  // engine/event-store failure — a resolution present in the log and absent from
+  // the database, which is incident 1 exactly. So an unrelated append failure must
+  // propagate (to the worker's warn-and-continue handler), never be logged at
+  // debug and dropped.
+  effectIt.effect("propagates an unrelated append failure instead of suppressing it", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = asThreadId("thread-1");
+
+      // A resolution for a request that was never opened: nothing has settled it,
+      // so this is a GENUINE first resolution, not an echo.
+      harness.emit({
+        type: "user-input.resolved",
+        eventId: asEventId("evt-genuine-first-resolution"),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        requestId: asRuntimeRequestId("req-genuine-first"),
+        payload: { answers: {}, outcome: "cancelled" },
+      });
+
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+      // It PERSISTED. Under the old catch-all this row could be dropped whenever
+      // the append failed for any reason at all.
+      const resolution = thread?.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "user-input.resolved" &&
+          (activity.payload as Record<string, unknown>).requestId === "req-genuine-first",
+      );
+      expect(resolution?.payload).toMatchObject({ outcome: "cancelled" });
+    }),
+  );
+
+  // Settlement layer 2: the session-exit rule. A process that has exited can never
+  // answer a question it asked, so every request still open on the thread is
+  // resolved-cancelled from the DURABLE log — no in-memory state, survives a
+  // restart. This is the containment the runtime cancel path lacked when its
+  // cancellation went into an already-shut-down queue.
+  effectIt.effect("persists session.exited and settles every question still open", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = asThreadId("thread-1");
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-question-open-before-exit"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-question-open-before-exit"),
+          tone: "info",
+          kind: "user-input.requested",
+          summary: "User input requested",
+          payload: { requestId: "req-open-at-exit", questions: [] },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+
+      harness.emit({
+        type: "session.exited",
+        eventId: asEventId("evt-session-exited-settles-question"),
+        provider: ProviderDriverKind.make("pi"),
+        threadId,
+        createdAt: "2026-01-01T00:00:05.000Z",
+        payload: { reason: "Pi RPC process exited.", recoverable: false, exitKind: "error" },
+      });
+
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+
+      // The exit is now a durable activity in its own right — previously it was
+      // dropped, leaving no second chance when a cancellation was lost.
+      expect(
+        thread?.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.kind === "session.exited",
+        ),
+      ).toBe(true);
+
+      const resolved = thread?.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "user-input.resolved" &&
+          (activity.payload as Record<string, unknown>).requestId === "req-open-at-exit",
+      );
+      expect(resolved?.payload).toMatchObject({ outcome: "cancelled" });
+    }),
   );
 
   effectIt.effect("keeps an aborted pending start stopped across duplicate exit events", () =>

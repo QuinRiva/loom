@@ -1139,18 +1139,22 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
       assert.equal(requestedEvent.payload.questions[0]?.question, "Which scope should Grok use?");
       assert.equal(requestedEvent.raw?.method, "_x.ai/ask_user_question");
 
-      yield* adapter.respondToUserInput(
+      const delivery = yield* adapter.respondToUserInput(
         threadId,
         ApprovalRequestId.make(String(requestedEvent.requestId)),
         {
           "Which scope should Grok use?": "Workspace",
         },
       );
+      // An answered outcome rides the callback whole.
+      assert.isTrue(delivery.deliveredContent);
 
       const resolvedEvent = yield* Deferred.await(resolved);
       assert.deepEqual(resolvedEvent.payload.answers, {
         "Which scope should Grok use?": "Workspace",
       });
+      // The echo now states its outcome rather than implying one.
+      assert.equal(resolvedEvent.payload.outcome, "answered");
       assert.equal(String(resolvedEvent.turnId), String(requestedEvent.turnId));
       yield* Fiber.join(sendTurnFiber);
 
@@ -1158,6 +1162,65 @@ it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
       yield* adapter.stopSession(threadId);
     }),
   );
+
+  // Settle-first, non-answer outcomes. Grok's ask_user_question protocol models
+  // only accepted/cancelled, so a dismissal/supersede must be delivered as
+  // CANCELLED — never as an answer of `{}` — and a supersede's content must be
+  // reported as undelivered so the caller re-delivers it as one new turn.
+  for (const scenario of [
+    { outcome: "dismissed" as const, deliveredContent: true },
+    { outcome: "superseded" as const, deliveredContent: false },
+  ]) {
+    it.effect(`delivers a ${scenario.outcome} outcome as cancelled, never as an answer`, () =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make(`grok-xai-ask-${scenario.outcome}`);
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockGrokWrapper({ T3_ACP_EMIT_XAI_ASK_USER_QUESTION: "1" }),
+        );
+        const adapter = yield* makeTestAdapter(wrapperPath);
+        const requested =
+          yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "user-input.requested" }>>();
+        const resolved =
+          yield* Deferred.make<Extract<ProviderRuntimeEvent, { type: "user-input.resolved" }>>();
+
+        const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) => {
+          if (String(event.threadId) !== String(threadId)) return Effect.void;
+          if (event.type === "user-input.requested")
+            return Deferred.succeed(requested, event).pipe(Effect.ignore);
+          if (event.type === "user-input.resolved")
+            return Deferred.succeed(resolved, event).pipe(Effect.ignore);
+          return Effect.void;
+        }).pipe(Effect.forkChild);
+
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("grok"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        const sendTurnFiber = yield* adapter
+          .sendTurn({ threadId, input: "ask before continuing", attachments: [] })
+          .pipe(Effect.forkChild);
+
+        const requestedEvent = yield* Deferred.await(requested);
+        const delivery = yield* adapter.respondToUserInput(
+          threadId,
+          ApprovalRequestId.make(String(requestedEvent.requestId)),
+          {},
+          { outcome: scenario.outcome },
+        );
+        assert.equal(delivery.deliveredContent, scenario.deliveredContent);
+
+        const resolvedEvent = yield* Deferred.await(resolved);
+        assert.equal(resolvedEvent.payload.outcome, "cancelled");
+        assert.deepEqual(resolvedEvent.payload.answers, {});
+
+        yield* Fiber.join(sendTurnFiber);
+        yield* Fiber.interrupt(eventsFiber);
+        yield* adapter.stopSession(threadId);
+      }),
+    );
+  }
 
   it.effect("continues streaming events when native notification logging fails", () =>
     Effect.gen(function* () {

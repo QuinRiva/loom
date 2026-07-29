@@ -19,11 +19,29 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
+  UserInputResolvedOutcome,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
+
+/**
+ * The outcome of delivering an already-settled question to a provider.
+ *
+ * `deliveredContent: false` means the callback was released but the outcome's
+ * content (today: a `superseded` message) could not be conveyed through that
+ * provider's protocol, so the caller must deliver it as a new turn instead.
+ */
+export interface UserInputDeliveryResult {
+  readonly deliveredContent: boolean;
+}
+
+/** Content-bearing delivery: the model received the outcome in-callback. */
+export const userInputContentDelivered: UserInputDeliveryResult = { deliveredContent: true };
+
+/** The callback was released, but its content must be re-delivered as a turn. */
+export const userInputContentUndelivered: UserInputDeliveryResult = { deliveredContent: false };
 
 export interface ProviderAdapterCapabilities {
   /**
@@ -78,13 +96,35 @@ export interface ProviderAdapterShape<TError> {
   ) => Effect.Effect<void, TError>;
 
   /**
-   * Respond to a structured user-input request.
+   * Hand an already-settled user-input outcome to a waiting callback.
+   *
+   * The durable settlement has already happened server-side, so this is DELIVERY
+   * ONLY: an adapter here must never emit its own `user-input.resolved` (that
+   * would put a second, contradictory terminal outcome on one request — ingestion
+   * drops such echoes, but an adapter should not produce them), and a failure
+   * here can never leave the question open.
+   *
+   * `settlement` names the terminal outcome so the blocked callback returns what
+   * actually happened rather than always reading as an answer. Handling it is
+   * mandatory, not optional: delivering `{}` as if it were an answer is how a
+   * dismissal reaches the model as "the user chose nothing", and OpenCode can
+   * stay blocked when an empty form is rejected.
+   *
+   * The result reports whether the outcome's CONTENT reached the model. It is
+   * false when an adapter's protocol cannot carry the content — in practice a
+   * `superseded` message on the five ACP/SDK adapters, whose question callbacks
+   * model only accepted/cancelled. The caller then converts the settlement into
+   * exactly one new turn, so the human's message is never silently dropped.
    */
   readonly respondToUserInput: (
     threadId: ThreadId,
     requestId: ApprovalRequestId,
     answers: ProviderUserInputAnswers,
-  ) => Effect.Effect<void, TError>;
+    settlement?: {
+      readonly outcome: UserInputResolvedOutcome;
+      readonly message?: string;
+    },
+  ) => Effect.Effect<UserInputDeliveryResult, TError>;
 
   /**
    * Stop one provider session.

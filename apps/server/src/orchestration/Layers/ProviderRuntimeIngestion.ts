@@ -18,6 +18,8 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  type ProviderUserInputAnswers,
+  DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -29,6 +31,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 
 import { AccountUsageRegistry } from "../../provider/Services/AccountUsageRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -47,6 +50,13 @@ import {
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  dispatchUserInputResolutions,
+  isAlreadySettledRejection,
+  registerUserInputSettlementReporter,
+  registerUserInputSettlementSink,
+  userInputResolvedActivity,
+} from "../userInputSettlement.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -347,6 +357,30 @@ export function runtimeEventToActivities(
       : {};
   })();
   switch (event.type) {
+    // A durable record that the provider process is gone. Its purpose is
+    // reconciliation, not chrome: it is the anchor for settling every question
+    // still open on the thread (below), so "this question can no longer be
+    // answered by the runtime" survives a restart instead of living only in an
+    // in-memory broker whose queue may already be shut down.
+    case "session.exited": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "session.exited",
+          summary: "Provider session exited",
+          payload: {
+            ...(event.payload.reason ? { detail: truncateDetail(event.payload.reason) } : {}),
+            ...(event.payload.exitKind ? { exitKind: event.payload.exitKind } : {}),
+            recoverable: event.payload.recoverable ?? false,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
         return [];
@@ -515,18 +549,26 @@ export function runtimeEventToActivities(
     }
 
     case "user-input.resolved": {
+      // The outcome is stamped onto the durable row here (defaulting for
+      // adapters that never set it), so every consumer of the persisted record
+      // reads an explicit outcome rather than re-deriving the default. The row
+      // shape is owned by `userInputResolvedActivity` — the server's other two
+      // settlement layers write the identical row.
       return [
         {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "info",
-          kind: "user-input.resolved",
-          summary: "User input submitted",
-          payload: {
-            ...(event.requestId ? { requestId: event.requestId } : {}),
-            answers: event.payload.answers,
-          },
-          turnId: toTurnId(event.turnId) ?? null,
+          ...userInputResolvedActivity({
+            activityId: event.eventId,
+            resolution: {
+              requestId: event.requestId,
+              // Decode-defaulted by the contract for anything read off the wire;
+              // the `??` also covers an in-process emitter that built the event
+              // object directly and skipped the schema.
+              outcome: event.payload.outcome ?? DEFAULT_USER_INPUT_RESOLVED_OUTCOME,
+              answers: event.payload.answers as ProviderUserInputAnswers,
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            createdAt: event.createdAt,
+          }),
           ...maybeSequence,
         },
       ];
@@ -2244,6 +2286,17 @@ const make = Effect.gen(function* () {
         ...runtimeEventToActivities(event, taskTitle),
         ...(event.type === "session.exited" ? interruptedActivitiesForThread(thread.id, now) : []),
       ];
+      // FIRST-TERMINAL-WINS is enforced by the DECIDER, not here. Several producers
+      // can append a `user-input.resolved` for one request — the human settlement
+      // (settle-first), each adapter's delivery echo when its blocked callback
+      // returns, the session-exit rule, the startup scan — and a pre-check in this
+      // layer could not make that safe: it would read the open set, then dispatch,
+      // and a settlement committing in between would still let the echo land second.
+      // The decider runs inside the engine's serialised command queue against the
+      // just-committed read model, so it rejects a second resolution atomically. A
+      // rejected echo is expected and harmless (the resolution is already durable),
+      // which is why the dispatch below tolerates THAT rejection specifically — and
+      // nothing else; see the catch for why the narrowness is load-bearing.
       yield* Effect.forEach(
         activities.filter((activity) => shouldPersistActivity(thread.id, activity)),
         (activity) =>
@@ -2257,8 +2310,58 @@ const make = Effect.gen(function* () {
                 createdAt: activity.createdAt,
               }),
             ),
+            // Tolerate EXACTLY ONE failure: the decider's first-terminal-wins
+            // rejection, which means this row is a delivery echo of a request that
+            // is already durably settled. Every other cause propagates.
+            //
+            // The narrowness is the whole point. Catching all causes here would
+            // silently drop a genuine FIRST resolution on any transient
+            // engine/event-store failure — a resolution present in the log and
+            // absent from the database, which is incident 1 exactly. An error
+            // handler that can reproduce the bug the handler exists to prevent is
+            // worse than no handler.
+            //
+            // Per-activity rather than around the whole `forEach`, so one expected
+            // echo cannot abort the rest of the batch.
+            Effect.catchIf(isAlreadySettledRejection, (rejection) =>
+              Effect.logDebug("provider runtime ingestion skipped a settled resolution", {
+                threadId: thread.id,
+                requestId: activityPayloadRecord(activity)?.requestId,
+                detail: rejection.detail,
+              }),
+            ),
           ),
       ).pipe(Effect.asVoid);
+
+      // Settlement layer 2 (see `userInputSettlement.ts`): the session-exit
+      // rule. A process that has exited can never answer a question it asked,
+      // so every request still open on the thread is resolved-cancelled here.
+      // This is durable, needs no in-memory state, and works after a restart —
+      // it is the containment the runtime cancel path lacked when its
+      // cancellation was emitted into an already-shut-down queue. Reading the
+      // detail AFTER the appends above means an in-band cancellation that did
+      // land is already visible, so this adds nothing for the healthy path.
+      if (event.type === "session.exited") {
+        const detailAfterExit = yield* resolveThreadDetail(thread.id);
+        const stillOpen = openUserInputRequestIds(detailAfterExit?.activities ?? []);
+        if (stillOpen.size > 0) {
+          yield* Effect.logInfo("provider-runtime-ingestion.session-exit-settles-user-input", {
+            threadId: thread.id,
+            requestIds: [...stillOpen],
+          });
+          yield* dispatchUserInputResolutions({
+            dispatch: orchestrationEngine.dispatch,
+            newId: crypto.randomUUIDv4,
+            threadId: thread.id,
+            resolutions: [...stillOpen].map((requestId) => ({
+              requestId,
+              outcome: "cancelled" as const,
+            })),
+            createdAt: now,
+            tag: "session-exit",
+          });
+        }
+      }
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;
@@ -2347,6 +2450,46 @@ const make = Effect.gen(function* () {
 
   const start: ProviderRuntimeIngestionShape["start"] = () =>
     Effect.gen(function* () {
+      // Settlement layer 1's out-of-runtime half: the pi process-exit handler
+      // runs from a Node `exit` listener with no Effect context, so it hands
+      // resolutions to this sink instead of emitting into a session event queue
+      // that may already be shut down (`userInputSettlement.ts`). The closure
+      // captures the resolved engine, so the write is an ordinary serialised
+      // command — durable by the same path as every other activity.
+      const settlementServices = yield* Effect.context<never>();
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          registerUserInputSettlementSink((input) =>
+            Effect.runPromiseWith(settlementServices)(
+              Effect.gen(function* () {
+                const createdAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
+                return yield* dispatchUserInputResolutions({
+                  dispatch: orchestrationEngine.dispatch,
+                  newId: crypto.randomUUIDv4,
+                  threadId: input.threadId,
+                  resolutions: input.resolutions,
+                  createdAt,
+                  tag: input.tag,
+                });
+              }),
+            ),
+          ),
+        ),
+        (unregister) => Effect.sync(unregister),
+      );
+      // Route the out-of-runtime "not persisted" report to the real logger while
+      // this layer is alive. Without it the message falls back to a process
+      // warning, which is still visible but easy to miss.
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          registerUserInputSettlementReporter((message) =>
+            Effect.runPromiseWith(settlementServices)(Effect.logError(message)).catch(
+              () => undefined,
+            ),
+          ),
+        ),
+        (unregister) => Effect.sync(unregister),
+      );
       yield* reconcileInterruptedToolActivitiesOnStartup.pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("provider runtime ingestion startup reconcile failed", {

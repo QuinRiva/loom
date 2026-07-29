@@ -37,15 +37,14 @@ describe("pi ask-user broker settlement", () => {
     const unregister = registerPiAskUserEmitter(threadId, async (event) => {
       events.push(event);
       if (event.type === "resolved") await resolvedGate;
+      return true;
     });
 
     const opened = await openPiAskUserQuestion(threadId, questions);
     if ("outcome" in opened) throw new Error("Expected a registered emitter.");
     const cancellation = cancelPiAskUserQuestions(threadId);
     // Cancellation claimed the record synchronously before awaiting its event.
-    expect(await resolvePiAskUserQuestion(threadId, opened.requestId, { answer: "Yes" })).toBe(
-      true,
-    );
+    expect(resolvePiAskUserQuestion(threadId, opened.requestId, { answer: "Yes" })).toBe(true);
     releaseResolved();
     await cancellation;
 
@@ -61,7 +60,7 @@ describe("pi ask-user broker settlement", () => {
   it("removes an uncollected terminal tombstone after bounded retention", async () => {
     vi.useFakeTimers();
     const threadId = ThreadId.make("broker-tombstone-thread");
-    const unregister = registerPiAskUserEmitter(threadId, async () => undefined);
+    const unregister = registerPiAskUserEmitter(threadId, async () => true);
     const opened = await openPiAskUserQuestion(threadId, questions);
     if ("outcome" in opened) throw new Error("Expected a registered emitter.");
 

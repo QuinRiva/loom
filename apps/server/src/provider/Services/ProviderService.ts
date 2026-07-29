@@ -29,7 +29,7 @@ import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 
 import type { ProviderServiceError } from "../Errors.ts";
-import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
+import type { ProviderAdapterCapabilities, UserInputDeliveryResult } from "./ProviderAdapter.ts";
 import type { ProviderInstanceRoutingInfo } from "./ProviderAdapterRegistry.ts";
 
 /**
@@ -70,7 +70,7 @@ export interface ProviderServiceShape {
    */
   readonly respondToUserInput: (
     input: ProviderRespondToUserInputInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
+  ) => Effect.Effect<UserInputDeliveryResult, ProviderServiceError>;
 
   /**
    * Stop a provider session.
