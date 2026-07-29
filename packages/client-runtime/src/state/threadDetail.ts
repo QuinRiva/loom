@@ -30,6 +30,17 @@ const EMPTY_CHECKPOINTS: ReadonlyArray<OrchestrationCheckpointSummary> = Object.
  * consumers must use the shell branch/worktree/project fields so they do not target
  * a stale checkout while retaining messages, activities, plans, and checkpoints
  * from the detail subscription.
+ *
+ * loom: a field mutated by an event the thread-detail subscription does NOT carry
+ * must be taken from the shell. `isThreadDetailEvent` (apps/server/src/ws.ts)
+ * deliberately delivers only the message/activity/session set, so
+ * `thread.meta-updated` (goalId/role/purpose) and `thread.kickoff-brief-set`
+ * (kickoffBriefPath) never reach an open thread's detail stream: taking those from
+ * the detail pinned them to their values as of the detail snapshot for the whole
+ * session. That silently disabled goal-bound surfaces on a thread that does have a
+ * goal (a goal attached seconds after thread creation is the normal path), and
+ * stranded the staged-brief preview. Fields written only by `thread.created`
+ * (parentThreadId, forkFromThreadId, brief) cannot go stale and stay on the detail.
  */
 export function mergeEnvironmentThread(
   detail: EnvironmentThread | null,
@@ -47,6 +58,10 @@ export function mergeEnvironmentThread(
     environmentId: shell.environmentId,
     id: shell.id,
     projectId: shell.projectId,
+    goalId: shell.goalId,
+    role: shell.role,
+    purpose: shell.purpose,
+    kickoffBriefPath: shell.kickoffBriefPath,
     title: shell.title,
     modelSelection: shell.modelSelection,
     runtimeMode: shell.runtimeMode,
