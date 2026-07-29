@@ -2358,6 +2358,17 @@ function ChatViewContent(props: ChatViewProps) {
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
+  // Whether the conversation has visibly begun, for the staged overlay cards
+  // (kickoff offer / brief preview). Derived from what is actually RENDERED plus
+  // the in-flight send, not from server state alone: `onSend` clears the composer
+  // draft and inserts the optimistic user message long before the server echoes
+  // it back, so a server-only test (`threadHasStarted`) goes false again for the
+  // whole round-trip and the overlay reappears in front of the conversation it is
+  // supposed to have handed over to. `threadHasStarted` stays in the disjunction
+  // for the cases the timeline cannot see (a resumed thread carrying a session or
+  // turn but no messages yet).
+  const stagedOverlayConversationStarted =
+    timelineEntries.length > 0 || isSendBusy || threadHasStarted(activeThread);
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
@@ -6002,7 +6013,7 @@ function ChatViewContent(props: ChatViewProps) {
               shouldShowStagedKickoff({
                 parentThreadId: activeThread.parentThreadId,
                 brief: activeThread.brief,
-                messageCount: activeThread.messages.length,
+                hasStarted: stagedOverlayConversationStarted,
                 composerDraftPrompt,
               }) ? (
                 <StagedKickoffCard
@@ -6019,7 +6030,7 @@ function ChatViewContent(props: ChatViewProps) {
               {activeThread.kickoffBriefPath &&
               shouldShowStagedBriefPreview({
                 kickoffBriefPath: activeThread.kickoffBriefPath,
-                hasStarted: threadHasStarted(activeThread),
+                hasStarted: stagedOverlayConversationStarted,
                 composerDraftPrompt,
               }) ? (
                 <StagedBriefPreviewCard

@@ -13,8 +13,13 @@ import { StagedCard } from "./StagedCard";
  * does, so `StagedKickoffCard` never fires for it and the brief is invisible
  * until launch. This surfaces that brief for human review while the node is
  * still parked (planned or awaiting-launch), which is the whole point of holding
- * a node as `planned`. It disappears the moment the thread starts (a message,
- * turn, or session exists) or the human begins typing in the composer.
+ * a node as `planned`. It disappears the moment the conversation starts or the
+ * human begins typing in the composer.
+ *
+ * As with the staged-kickoff offer, `hasStarted` must reflect the conversation as
+ * RENDERED (optimistic message and in-flight send included) rather than durable
+ * server state, or this overlay flashes back over a launching conversation. See
+ * `stagedOverlayConversationStarted`.
  */
 export function shouldShowStagedBriefPreview(input: {
   kickoffBriefPath: string | null;
