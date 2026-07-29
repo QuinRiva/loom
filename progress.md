@@ -374,3 +374,33 @@ the source test cannot see (`window.addEventListener` + `queueMicrotask` +
 no `Number.parseInt`): the source test passed it, this one failed in 4 places.
 `composerQuestionIsolation.test.ts` is retained and re-scoped to what source
 matching can honestly guarantee — the prop boundary, which renders no output.
+
+## ask_user_question: derived attention on the wire — 2026-07-29
+
+Increment 1's attention half (design commitment 2, plus the dispatcher wake).
+Two things worth recording because they are not spelled out in the plan.
+
+- **The dispatcher needed a re-pass TRIGGER, not just a wake rail.** The plan
+  specifies the non-idle-gated `awaiting_input` wake and its requestId-keyed
+  episode, both implemented as written. But `awaiting_input` is derived from the
+  activity log, so an opening question raises no `thread.attention-raised` — and
+  the dispatcher's event subscription had no `thread.activity-appended` trigger,
+  so the wake would have waited on the 60-second periodic tick. Added a trigger
+  gated on `user-input.requested`/`user-input.resolved` specifically:
+  `thread.activity-appended` is the highest-frequency event in the system (every
+  tool tick), and running a whole dispatcher pass per row would be a real cost for
+  a rail only those two kinds can affect.
+- **The wake reads the open requestIds through a NEW narrow query**
+  (`getOpenUserInputRequestIdsByThreadId`), not the shell count and not
+  `getThreadDetailById`. The episode key needs identities, so one question yields
+  one wake and a second re-arms rather than being suppressed; the detail read
+  caps activities at a 500-row window, which would silently drop an old
+  `requested` row and mis-key the episode. The new query is kind-filtered and
+  uncapped, folded by the same shared `openUserInputRequestIds` the shell count
+  and the decider's `hasOpenBlockingRequest` use, so all three cannot disagree.
+
+The decider-exclusion invariant is pinned by an actual restart diff
+(`OrchestrationEngine.test.ts`): two engines over one database file, the same
+`set_lane done` probe (whose clear-all branch is exactly what a leaked derived
+member would flip), asserting identical emitted-event streams. Verified
+mutation-sensitive — adding the union to `getCommandReadModel` fails it.

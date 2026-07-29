@@ -17,6 +17,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig, layerTest as serverConfigLayerTest } from "../../config.ts";
@@ -2245,6 +2246,155 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
         );
       }),
+  );
+
+  // Derived attention at the shell boundary (redesign commitment 2). The
+  // invariant under test is two-sided: `awaiting_input ∈ shell.attention ⇺
+  // pendingUserInputCount > 0` on EVERY shell surface, AND
+  // `awaiting_input ∉ getCommandReadModel().attention` always — because the engine
+  // hydrates the decider's in-memory model from that query, where every attention
+  // member is event-owned.
+  it.effect(
+    "unions a derived awaiting_input into shell attention, never into the command read model",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+
+        yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-1', 'Project 1', '/tmp/project-1',
+          '{"provider":"pi","model":"claude-opus-4-8"}', '[]',
+          '2026-06-01T00:00:00.000Z', '2026-06-01T00:00:01.000Z', NULL
+        )
+      `;
+
+        // Four rows spanning the whole invariant surface: count 0 with no stored
+        // reasons; count 1 with none (the pure-derived case); count 1 alongside a
+        // stored reason (the union must ADD, not replace); and an archived row with
+        // an open question (the archived board reads the same union).
+        yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode,
+          interaction_mode, branch, worktree_path, latest_turn_id,
+          latest_user_message_at, attention, pending_approval_count,
+          pending_user_input_count, has_actionable_proposed_plan,
+          created_at, updated_at, archived_at, deleted_at
+        ) VALUES
+          ('thread-quiet', 'project-1', 'Quiet', '{"provider":"pi","model":"claude-opus-4-8"}',
+           'full-access', 'default', NULL, NULL, NULL, NULL, '[]', 0, 0, 0,
+           '2026-06-01T00:00:02.000Z', '2026-06-01T00:00:03.000Z', NULL, NULL),
+          ('thread-asking', 'project-1', 'Asking', '{"provider":"pi","model":"claude-opus-4-8"}',
+           'full-access', 'default', NULL, NULL, NULL, NULL, '[]', 0, 1, 0,
+           '2026-06-01T00:00:02.000Z', '2026-06-01T00:00:03.000Z', NULL, NULL),
+          ('thread-asking-flagged', 'project-1', 'Asking + flagged', '{"provider":"pi","model":"claude-opus-4-8"}',
+           'full-access', 'default', NULL, NULL, NULL, NULL, '["needs_guidance"]', 0, 2, 0,
+           '2026-06-01T00:00:02.000Z', '2026-06-01T00:00:03.000Z', NULL, NULL),
+          ('thread-archived-asking', 'project-1', 'Archived asking', '{"provider":"pi","model":"claude-opus-4-8"}',
+           'full-access', 'default', NULL, NULL, NULL, NULL, '[]', 0, 1, 0,
+           '2026-06-01T00:00:02.000Z', '2026-06-01T00:00:03.000Z', '2026-06-01T00:00:04.000Z', NULL)
+      `;
+
+        const attentionOf = (
+          threads: ReadonlyArray<{
+            readonly id: ThreadId;
+            readonly attention: ReadonlyArray<string>;
+          }>,
+          id: string,
+        ) => threads.find((t) => t.id === ThreadId.make(id))?.attention;
+
+        const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+        assert.deepStrictEqual(attentionOf(shellSnapshot.threads, "thread-quiet"), []);
+        assert.deepStrictEqual(attentionOf(shellSnapshot.threads, "thread-asking"), [
+          "awaiting_input",
+        ]);
+        // The union ADDS to the stored set rather than replacing it.
+        assert.deepStrictEqual(attentionOf(shellSnapshot.threads, "thread-asking-flagged"), [
+          "needs_guidance",
+          "awaiting_input",
+        ]);
+
+        // Per-thread shell lookup (the WS thread-upserted subscription view) reads
+        // the same union — this is the surface the bridge and the dispatcher see.
+        const threadShell = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-asking"));
+        assert.deepStrictEqual(Option.getOrUndefined(threadShell)?.attention, ["awaiting_input"]);
+        const quietShell = yield* snapshotQuery.getThreadShellById(ThreadId.make("thread-quiet"));
+        assert.deepStrictEqual(Option.getOrUndefined(quietShell)?.attention, []);
+
+        const archivedSnapshot = yield* snapshotQuery.getArchivedShellSnapshot();
+        assert.deepStrictEqual(attentionOf(archivedSnapshot.threads, "thread-archived-asking"), [
+          "awaiting_input",
+        ]);
+
+        // The decider's hydration source carries STORED reasons only, on every row.
+        const readModel = yield* snapshotQuery.getCommandReadModel();
+        for (const thread of readModel.threads) {
+          assert.ok(
+            !thread.attention.includes("awaiting_input"),
+            `command read model leaked a derived awaiting_input on ${thread.id}`,
+          );
+        }
+        assert.deepStrictEqual(attentionOf(readModel.threads, "thread-asking"), []);
+        assert.deepStrictEqual(attentionOf(readModel.threads, "thread-asking-flagged"), [
+          "needs_guidance",
+        ]);
+
+        // Resolving every open request clears the flag with the count, in one step:
+        // the two are one value, so there is no second write that could go missing.
+        yield* sql`
+        UPDATE projection_threads SET pending_user_input_count = 0
+        WHERE thread_id IN ('thread-asking', 'thread-asking-flagged')
+      `;
+        const afterResolve = yield* snapshotQuery.getShellSnapshot();
+        assert.deepStrictEqual(attentionOf(afterResolve.threads, "thread-asking"), []);
+        assert.deepStrictEqual(attentionOf(afterResolve.threads, "thread-asking-flagged"), [
+          "needs_guidance",
+        ]);
+      }),
+  );
+
+  // The `awaiting-input` parent wake keys its episode on the open requestId set,
+  // so the fold must be exposed by identity and not merely by count — terminal-wins
+  // and order-independent, matching the shell's count exactly.
+  it.effect("reads the OPEN user-input requestIds terminal-wins, regardless of row order", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_activities`;
+
+      // `req-b` is resolved by a row that lands BEFORE its request (replay /
+      // out-of-order ingestion); `req-c` gets a duplicate request row with a
+      // distinct activity id AFTER its resolution. Neither may reopen.
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at
+        ) VALUES
+          ('a1', 'thread-open', NULL, 'info', 'user-input.requested', 'q', '{"requestId":"req-a"}', 1, '2026-06-02T00:00:01.000Z'),
+          ('a2', 'thread-open', NULL, 'info', 'user-input.resolved', 'r', '{"requestId":"req-b"}', 2, '2026-06-02T00:00:02.000Z'),
+          ('a3', 'thread-open', NULL, 'info', 'user-input.requested', 'q', '{"requestId":"req-b"}', 3, '2026-06-02T00:00:03.000Z'),
+          ('a4', 'thread-open', NULL, 'info', 'user-input.requested', 'q', '{"requestId":"req-c"}', 4, '2026-06-02T00:00:04.000Z'),
+          ('a5', 'thread-open', NULL, 'info', 'user-input.resolved', 'r', '{"requestId":"req-c"}', 5, '2026-06-02T00:00:05.000Z'),
+          ('a6', 'thread-open', NULL, 'info', 'user-input.requested', 'q', '{"requestId":"req-c"}', 6, '2026-06-02T00:00:06.000Z'),
+          ('a7', 'thread-open', NULL, 'info', 'user-input.requested', 'q', '{"requestId":"req-d"}', 7, '2026-06-02T00:00:07.000Z')
+      `;
+
+      const open = yield* snapshotQuery.getOpenUserInputRequestIdsByThreadId(
+        ThreadId.make("thread-open"),
+      );
+      assert.deepStrictEqual([...open].toSorted(), ["req-a", "req-d"]);
+
+      const none = yield* snapshotQuery.getOpenUserInputRequestIdsByThreadId(
+        ThreadId.make("thread-without-activities"),
+      );
+      assert.equal(none.size, 0);
+    }),
   );
 
   it.effect(

@@ -107,6 +107,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+          getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
           getRecentToolActivityByThreadId: () => Effect.succeed([]),
           getThreadProgressSignal: () =>
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -183,6 +184,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -241,6 +243,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
@@ -305,6 +308,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+        getOpenUserInputRequestIdsByThreadId: () => Effect.die("unused in this test"),
         getRecentToolActivityByThreadId: () => Effect.succeed([]),
         getThreadProgressSignal: () =>
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),

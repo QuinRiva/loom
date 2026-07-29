@@ -22,6 +22,11 @@ type NodeSpec = {
 
 // Only the fields rollupGraphState consumes are populated; the rest are cast
 // away so the edge-case table stays readable.
+//
+// `input` models what the SERVER now sends: an open question arrives as
+// `awaiting_input` already on the wire `attention` array (unioned at the shell
+// read boundary from the same fold that sets `hasPendingUserInput`), so the two
+// always travel together and the client never re-derives the reason.
 const node = (spec: NodeSpec): SidebarThreadSummary =>
   ({
     id: spec.id as ThreadId,
@@ -29,7 +34,7 @@ const node = (spec: NodeSpec): SidebarThreadSummary =>
     title: `thread ${spec.id}`,
     parentThreadId: (spec.parent === undefined ? ROOT : spec.parent) as ThreadId | null,
     planLane: spec.planLane ?? "planned",
-    attention: spec.attention ?? [],
+    attention: [...(spec.attention ?? []), ...(spec.input ? (["awaiting_input"] as const) : [])],
     blockedBy: (spec.blockedBy ?? []).map((id) => id as ThreadId),
     session: spec.sessionStatus ? { status: spec.sessionStatus } : null,
     latestTurn: spec.turnState ? { state: spec.turnState } : null,
@@ -119,6 +124,19 @@ describe("rollupGraphState", () => {
       { id: "b", reason: "awaiting_approval" },
       { id: "a", reason: "awaiting_input" },
     ]);
+  });
+
+  // The render-time union is deleted: the server-unioned wire array is the single
+  // source. A count with no flag (an impossible state on the wire, since one fold
+  // produces both) must therefore NOT be re-derived into attention here.
+  it("does not re-derive awaiting_input from the count — the wire array is the source", () => {
+    const bare = {
+      ...node({ id: "a", planLane: "in_progress" }),
+      hasPendingUserInput: true,
+    } as SidebarThreadSummary;
+    const r = rollup([bare]);
+    expect(r.graphState).toBe("idle");
+    expect(r.attentionCount).toBe(0);
   });
 
   it("a raised `error` flag outranks derived gates", () => {
