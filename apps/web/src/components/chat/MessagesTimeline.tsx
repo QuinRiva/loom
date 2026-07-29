@@ -103,6 +103,9 @@ import { useUiStateStore } from "~/uiStateStore";
 import { ReasoningBlock } from "~/loom/ReasoningBlock";
 import { SpawnCardSection } from "~/loom/SpawnCardSection";
 import { ConsultCardSection } from "~/loom/ConsultCardSection";
+// loom: `/handoff` receipt row.
+import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
+import { type HandoffReceiptView } from "~/loom/handoffReceipts.logic";
 import { ControlDigestCard } from "~/loom/ControlDigestCard";
 import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
 import { type ReasoningDisplayMode, type TimestampFormat } from "@t3tools/contracts/settings";
@@ -197,6 +200,8 @@ interface MessagesTimelineProps {
   onLoadOlder?: () => void;
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
+  // loom: `/handoff` receipts submitted from this thread in this browser session.
+  handoffReceipts?: ReadonlyArray<HandoffReceiptView>;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +240,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onLoadOlder,
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
+  handoffReceipts, // loom:
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -326,6 +332,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnStartedAt,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
+        handoffReceipts, // loom:
       }),
     [
       timelineEntries,
@@ -337,6 +344,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
+      handoffReceipts, // loom:
     ],
   );
   const rows = useStableRows(rawRows);
@@ -925,6 +933,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
+      {/* loom: */}
+      {row.kind === "handoff-receipt" ? <HandoffReceiptRow row={row} /> : null}
     </div>
   );
 });

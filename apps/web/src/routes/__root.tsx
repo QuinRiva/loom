@@ -20,6 +20,8 @@ import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPrompt
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { TurnFailureToastCoordinator } from "../components/TurnFailureToastCoordinator";
+// loom: `/handoff` away-from-source surfacing.
+import { HandoffReceiptToastCoordinator } from "../loom/HandoffReceiptToastCoordinator";
 import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
@@ -147,6 +149,8 @@ function RootRouteView() {
         <SshPasswordPromptDialog />
         <SlowRpcRequestToastCoordinator />
         <TurnFailureToastCoordinator />
+        <HandoffReceiptToastCoordinator />
+        {/* loom: */}
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}

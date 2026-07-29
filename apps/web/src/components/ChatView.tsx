@@ -180,6 +180,14 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams } from "../threadRoutes";
 import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
+// loom: `/handoff` receipts — the source-local acknowledgement for a handoff
+// that deliberately writes nothing to this thread.
+import {
+  recordHandoffDispatch,
+  recordHandoffDrafter,
+  recordHandoffFailure,
+} from "../loom/handoffReceiptStore";
+import { useHandoffReceipts } from "../loom/useHandoffReceipts";
 // loom: centre-panel thread tabs — sending in a thread pins its preview tab.
 import { useThreadTabsStore } from "../loom/threadTabsStore";
 import {
@@ -286,6 +294,8 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  runComposerDraftIntercept,
+  shouldRestoreSubmittedDraft,
   threadHasStarted,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -1498,6 +1508,10 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  // loom: `/handoff` receipts submitted from this thread in this browser session.
+  // Keyed on the ACTIVE thread (not the route), so a draft promoted to a server
+  // thread keeps its receipts.
+  const handoffReceipts = useHandoffReceipts(activeThreadKey);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -4556,6 +4570,64 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
+  // Wire the shared `/handoff` + `/retro` intercept sequencing (clear before
+  // the await, guard held across it) to this component's composer effects.
+  const dispatchComposerDraftIntercept = <A, E>(options: {
+    sourceThreadId: ThreadId;
+    submittedPrompt: string;
+    dispatch: () => Promise<AtomCommandResult<A, E>>;
+    failureMessage: string;
+    // loom: `/handoff` receipt hooks — the receipt is the only feedback the
+    // source thread gets, since the handoff never becomes a message here.
+    onDispatched?: (value: A) => void;
+    onDispatchFailed?: (message: string) => void;
+  }) =>
+    runComposerDraftIntercept({
+      submittedPrompt: options.submittedPrompt,
+      dispatch: options.dispatch,
+      setSendInFlight: (inFlight) => {
+        sendInFlightRef.current = inFlight;
+      },
+      clearComposer: () => {
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+      },
+      readComposerContent: () => {
+        const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+        return {
+          prompt: promptRef.current,
+          imageCount: composerImagesRef.current.length,
+          terminalContextCount: composerTerminalContextsRef.current.length,
+          elementContextCount: composerElementContextsRef.current.length,
+          previewAnnotationCount: draft?.previewAnnotations.length ?? 0,
+          reviewCommentCount: draft?.reviewComments.length ?? 0,
+        };
+      },
+      restoreComposer: (prompt) => {
+        promptRef.current = prompt;
+        setComposerDraftPrompt(composerDraftTarget, prompt);
+        composerRef.current?.resetCursorState({
+          cursor: collapseExpandedComposerCursor(prompt, prompt.length),
+          prompt,
+          detectTrigger: true,
+        });
+      },
+      onSuccess: (result) => {
+        setThreadError(options.sourceThreadId, null);
+        options.onDispatched?.(result.value);
+      },
+      onFailure: (result) => {
+        // Surface the server error inline (source not found / non-pi / mid-turn
+        // busy arrive as OrchestrationDispatchCommandError).
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        const message = error instanceof Error ? error.message : options.failureMessage;
+        setThreadError(options.sourceThreadId, message);
+        options.onDispatchFailed?.(message);
+      },
+    });
+
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     if (
@@ -4623,27 +4695,26 @@ function ChatViewContent(props: ChatViewProps) {
         setThreadError(sourceThreadId, handoffDecision.message);
         return;
       }
-      const handoffResult = await draftHandoff({
-        environmentId,
-        input: { sourceThreadId, explanation: handoffDecision.explanation },
+      // loom: record the receipt BEFORE the RPC, so the in-flight row is on
+      // screen from the keystroke rather than from the acknowledgement.
+      const receiptId = recordHandoffDispatch({
+        sourceThreadKey: scopedThreadKey(
+          scopeThreadRef(activeThread.environmentId, sourceThreadId),
+        ),
+        explanation: handoffDecision.explanation,
       });
-      if (handoffResult._tag === "Failure") {
-        // Preserve the draft; surface the server error inline (source not found
-        // / non-pi / mid-turn busy arrive as OrchestrationDispatchCommandError).
-        if (!isAtomCommandInterrupted(handoffResult)) {
-          const error = squashAtomCommandFailure(handoffResult);
-          setThreadError(
-            sourceThreadId,
-            error instanceof Error ? error.message : "Could not hand off this work.",
-          );
-        }
-        return;
-      }
-      // Success: clear the composer only now.
-      setThreadError(sourceThreadId, null);
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
+      await dispatchComposerDraftIntercept({
+        sourceThreadId,
+        submittedPrompt: promptForSend,
+        dispatch: () =>
+          draftHandoff({
+            environmentId,
+            input: { sourceThreadId, explanation: handoffDecision.explanation },
+          }),
+        failureMessage: "Could not hand off this work.",
+        onDispatched: (result) => recordHandoffDrafter(receiptId, result.drafterThreadId),
+        onDispatchFailed: (message) => recordHandoffFailure(receiptId, message),
+      });
       return;
     }
     // `/retro [focus]` mirrors the `/handoff` intercept: recognised drafts
@@ -4663,29 +4734,19 @@ function ChatViewContent(props: ChatViewProps) {
         setThreadError(sourceThreadId, retroDecision.message);
         return;
       }
-      const retroResult = await draftRetro({
-        environmentId,
-        input: {
-          sourceThreadId,
-          ...(retroDecision.focus !== undefined ? { focus: retroDecision.focus } : {}),
-        },
+      await dispatchComposerDraftIntercept({
+        sourceThreadId,
+        submittedPrompt: promptForSend,
+        dispatch: () =>
+          draftRetro({
+            environmentId,
+            input: {
+              sourceThreadId,
+              ...(retroDecision.focus !== undefined ? { focus: retroDecision.focus } : {}),
+            },
+          }),
+        failureMessage: "Could not start the retro.",
       });
-      if (retroResult._tag === "Failure") {
-        // Preserve the draft; surface the server error inline (source not found
-        // / non-pi / mid-turn busy arrive as OrchestrationDispatchCommandError).
-        if (!isAtomCommandInterrupted(retroResult)) {
-          const error = squashAtomCommandFailure(retroResult);
-          setThreadError(
-            sourceThreadId,
-            error instanceof Error ? error.message : "Could not start the retro.",
-          );
-        }
-        return;
-      }
-      setThreadError(sourceThreadId, null);
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
       return;
     }
     if (showPlanFollowUpPrompt && activeProposedPlan) {
@@ -4995,15 +5056,16 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     if (failure !== null) {
+      const draftOnFailure = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
       if (
-        promptRef.current.length === 0 &&
-        composerImagesRef.current.length === 0 &&
-        composerTerminalContextsRef.current.length === 0 &&
-        composerElementContextsRef.current.length === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
-          .length ?? 0) === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
-          .length ?? 0) === 0
+        shouldRestoreSubmittedDraft({
+          prompt: promptRef.current,
+          imageCount: composerImagesRef.current.length,
+          terminalContextCount: composerTerminalContextsRef.current.length,
+          elementContextCount: composerElementContextsRef.current.length,
+          previewAnnotationCount: draftOnFailure?.previewAnnotations.length ?? 0,
+          reviewCommentCount: draftOnFailure?.reviewComments.length ?? 0,
+        })
       ) {
         setOptimisticUserMessages((existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
@@ -6006,6 +6068,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onLoadOlder={loadOlderActivities}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
+                handoffReceipts={handoffReceipts} // loom:
               />
 
               {/* Staged kickoff offer for a not-yet-launched handoff root. */}
