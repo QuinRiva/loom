@@ -1,5 +1,6 @@
 import {
   EnvironmentId,
+  GoalId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -262,6 +263,74 @@ describe("environment entity projections", () => {
       worktreePath: "/repo/current-worktree",
     });
     expect(merged?.messages).toBe(messages);
+  });
+
+  // `thread.meta-updated` (goalId/role/purpose) and `thread.kickoff-brief-set`
+  // (kickoffBriefPath) are NOT thread-detail events, so an open thread's detail
+  // subscription never sees them and only the shell carries the new value. Taking
+  // them from the detail pinned them for the whole session, which disabled Goal
+  // tasks on a thread that does have a goal (a goal is attached seconds AFTER
+  // thread creation on the normal path) and stranded the staged-brief preview.
+  it("takes shell values for fields the detail subscription never receives", () => {
+    const detail = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      goalId: null,
+      role: null,
+      purpose: null,
+      kickoffBriefPath: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    } satisfies OrchestrationThread & { readonly environmentId: EnvironmentId };
+    const shell = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      goalId: GoalId.make("goal-1"),
+      role: "coder",
+      purpose: "Attach the goal after creation",
+      kickoffBriefPath: "/state/workstream-briefs/thread-1.md",
+    };
+
+    expect(mergeEnvironmentThread(detail, shell)).toMatchObject({
+      goalId: "goal-1",
+      role: "coder",
+      purpose: "Attach the goal after creation",
+      kickoffBriefPath: "/state/workstream-briefs/thread-1.md",
+    });
+  });
+
+  // The counterpart bound: fields written only by `thread.created` cannot go stale,
+  // so they must keep coming from the detail rather than being swept into the
+  // shell-authoritative set along with the fields above.
+  it("keeps creation-only lineage fields from the detail", () => {
+    const detail = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      parentThreadId: ThreadId.make("parent-1"),
+      forkFromThreadId: ThreadId.make("fork-source-1"),
+      brief: "Original assignment",
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    } satisfies OrchestrationThread & { readonly environmentId: EnvironmentId };
+    const shell = {
+      ...THREAD_SHELL,
+      environmentId: ENVIRONMENT_ID,
+      parentThreadId: null,
+      forkFromThreadId: null,
+      brief: null,
+    };
+
+    expect(mergeEnvironmentThread(detail, shell)).toMatchObject({
+      parentThreadId: "parent-1",
+      forkFromThreadId: "fork-source-1",
+      brief: "Original assignment",
+    });
   });
 
   it("preserves untouched project and thread identities across unrelated shell updates", () => {
