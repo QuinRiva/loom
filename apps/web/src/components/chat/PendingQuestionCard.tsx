@@ -1,6 +1,6 @@
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilLineIcon } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 
 import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
 import {
@@ -93,6 +93,26 @@ export const PendingQuestionCard = memo(function PendingQuestionCard({
     ? openedQuestionId
     : firstUnansweredId(questions);
 
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  // Set only by an aimed activation inside the card that is about to unmount the
+  // control the user is standing on, so focus is never taken from elsewhere (the
+  // composer included) and never moves on a plain mount.
+  const focusAfterAdvanceRef = useRef<string | null>(null);
+
+  // An advance unmounts the option or confirm button that triggered it, which
+  // drops focus to <body> — outside the card — and forces a keyboard user to
+  // restart tab traversal after every question. Focus moves to the newly expanded
+  // question's header, or to submit when that was the last one, so the keyboard
+  // path lands exactly where the flow continues. A layout effect keyed on the
+  // resolved expansion, rather than a timer, so it runs once the row it targets is
+  // actually in the DOM.
+  useLayoutEffect(() => {
+    const target = focusAfterAdvanceRef.current;
+    if (target === null) return;
+    focusAfterAdvanceRef.current = null;
+    cardRef.current?.querySelector<HTMLElement>(target)?.focus();
+  }, [expandedQuestionId]);
+
   /**
    * Collapse `questionId` and open the next question still unanswered, wrapping
    * past the end so answering out of order cannot skip anything. `null` — every
@@ -101,13 +121,21 @@ export const PendingQuestionCard = memo(function PendingQuestionCard({
    */
   const advancePast = (questionId: string) => {
     const index = questions.findIndex((question) => question.id === questionId);
-    setOpenedQuestionId(
-      firstUnansweredId([...questions.slice(index + 1), ...questions.slice(0, index)]),
-    );
+    const next = firstUnansweredId([...questions.slice(index + 1), ...questions.slice(0, index)]);
+    // A lone question never collapses, so the control the user activated is still
+    // there and focus must be left exactly where they put it.
+    if (questions.length > 1) {
+      focusAfterAdvanceRef.current =
+        next === null
+          ? "[data-pending-question-submit]"
+          : `[data-pending-question-header="${next}"]`;
+    }
+    setOpenedQuestionId(next);
   };
 
   return (
     <div
+      ref={cardRef}
       data-pending-question-card="true"
       data-pending-question-request-id={pendingUserInput.requestId}
       className="rounded-t-[19px] border-b border-border/65 bg-muted/20 px-4 py-3 sm:px-5"
@@ -140,6 +168,15 @@ export const PendingQuestionCard = memo(function PendingQuestionCard({
               // nothing.
               collapsible={questions.length > 1}
               expanded={questions.length === 1 || expandedQuestionId === question.id}
+              // Whether advancing from here lands on another question, so the
+              // advance control can say where it goes instead of implying that it
+              // validates the answer.
+              advancesToAnother={
+                questions.some(
+                  (other) =>
+                    other.id !== question.id && answerSummary(other, drafts[other.id]) === null,
+                ) && questions.length > 1
+              }
               onExpand={() => setOpenedQuestionId(question.id)}
               onAnswered={() => advancePast(question.id)}
               onToggleOption={onToggleOption}
@@ -188,6 +225,7 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
   disabled,
   collapsible,
   expanded,
+  advancesToAnother,
   onExpand,
   onAnswered,
   onToggleOption,
@@ -198,6 +236,7 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
   readonly disabled: boolean;
   readonly collapsible: boolean;
   readonly expanded: boolean;
+  readonly advancesToAnother: boolean;
   readonly onExpand: () => void;
   /** The question just became answered by an explicit act: collapse and advance. */
   readonly onAnswered: () => void;
@@ -265,6 +304,18 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
               {summary ?? question.question}
             </span>
           )}
+          {/* A multi-select answer is complete at one selection, so a collapsed row
+              can hold a set the user was still building. The count states the
+              extent of what would be submitted — a bare tick would read as a
+              deliberate final choice either way. */}
+          {summary !== null && !expanded && question.multiSelect && !usingCustomAnswer ? (
+            <span
+              data-pending-question-selected-count={question.id}
+              className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground/60"
+            >
+              {selectedOptionLabels.length} of {question.options.length}
+            </span>
+          ) : null}
           {summary !== null && !expanded ? (
             <CheckIcon className="size-3.5 shrink-0 translate-y-0.5 text-primary" />
           ) : null}
@@ -410,7 +461,13 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
           )}
 
           {/* Only an accordion has somewhere to advance to: a lone question needs
-              no confirm step, and adding one would read as a second submit. */}
+              no advance control, and adding one would read as a second submit.
+
+              This control ADVANCES; it does not validate. A multi-select answer is
+              complete once one option is selected (the shared contract's rule,
+              which mobile submits on identically), so the label says where it goes
+              rather than "Confirm" — which would imply a commitment gate the answer
+              contract does not have, and which the row state could not honour. */}
           {collapsible && (question.multiSelect || customAnswerExpanded) ? (
             <div className="mt-2 flex justify-end">
               <Button
@@ -422,7 +479,7 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
                 disabled={disabled || summary === null}
                 onClick={onAnswered}
               >
-                {question.multiSelect && !usingCustomAnswer ? "Confirm selection" : "Use this text"}
+                {advancesToAnother ? "Next question" : "Done"}
               </Button>
             </div>
           ) : null}

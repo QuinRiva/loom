@@ -339,7 +339,7 @@ describe("the accordion: a question at a time, none of them hidden", () => {
     expect(expandedQuestionIds()).toEqual(["rollout"]);
   });
 
-  it("keeps a multi-select question open across toggles and advances only on an explicit confirm", () => {
+  it("keeps a multi-select question open across toggles and advances only on an explicit act", () => {
     const questions = [
       question({ id: "targets", header: "Targets", multiSelect: true }),
       question({ id: "compat", header: "Compat" }),
@@ -355,6 +355,69 @@ describe("the accordion: a question at a time, none of them hidden", () => {
 
     expect(expandedQuestionIds()).toEqual(["compat"]);
     expect(summaryOf("targets")).toBe("Orchestration-first, Client-first");
+  });
+
+  it("states how much of a multi-select set a collapsed row holds, so a part-built set does not read as a final choice", () => {
+    // A multi-select answer is complete at ONE selection under the shared answer
+    // contract, so leaving a question mid-selection is reachable by design (here:
+    // opening another header without using the advance control). What must not
+    // happen is that the row then looks identical to a deliberate full answer.
+    const questions = [
+      question({
+        id: "targets",
+        header: "Targets",
+        multiSelect: true,
+        options: [
+          { label: "Web", description: "Web" },
+          { label: "Mobile", description: "Mobile" },
+          { label: "Desktop", description: "Desktop" },
+        ],
+      }),
+      question({ id: "compat", header: "Compat" }),
+    ];
+    mountLive(questions);
+
+    clickOption("Web");
+    click('[data-pending-question-header="compat"]');
+
+    // Collapsed with only part of the set chosen: the extent is on the row.
+    expect(expandedQuestionIds()).toEqual(["compat"]);
+    expect(summaryOf("targets")).toBe("Web");
+    const count = () =>
+      container
+        .querySelector<HTMLElement>('[data-pending-question-selected-count="targets"]')
+        ?.textContent?.trim();
+    expect(count()).toBe("1 of 3");
+
+    // Re-opening and adding to the set updates it rather than hiding the extent.
+    click('[data-pending-question-header="targets"]');
+    clickOption("Desktop");
+    click('[data-pending-question-confirm="targets"]');
+    expect(summaryOf("targets")).toBe("Web, Desktop");
+    expect(count()).toBe("2 of 3");
+  });
+
+  it("labels the advance control by where it goes, not as a validation of the answer", () => {
+    const questions = [
+      question({ id: "targets", header: "Targets", multiSelect: true }),
+      question({ id: "compat", header: "Compat" }),
+    ];
+    mountLive(questions);
+
+    clickOption("Orchestration-first");
+    const label = () =>
+      container
+        .querySelector<HTMLElement>('[data-pending-question-confirm="targets"]')
+        ?.textContent?.trim();
+    // Another question is still unanswered, so that is what the control says.
+    expect(label()).toBe("Next question");
+
+    click('[data-pending-question-header="compat"]');
+    clickOption("Client-first");
+    click('[data-pending-question-header="targets"]');
+
+    // Nothing left to advance to: the control no longer promises a next question.
+    expect(label()).toBe("Done");
   });
 
   it("keeps a custom answer expanded while it is typed and summarises it once committed", () => {
@@ -401,6 +464,73 @@ describe("the accordion: a question at a time, none of them hidden", () => {
     expect(document.activeElement).toBe(rollout);
     act(() => rollout?.click());
     expect(expandedQuestionIds()).toEqual(["rollout"]);
+  });
+
+  it("keeps keyboard focus inside the card when an answer advances past the control that had it", () => {
+    // An advance unmounts the option button the user activated. Without a deliberate
+    // hand-off focus falls to <body>, and a keyboard-only user has to restart tab
+    // traversal from the document after every single question.
+    mountLive(THREE_QUESTIONS);
+
+    const firstOption = [...container.querySelectorAll<HTMLButtonElement>("[aria-pressed]")][0];
+    firstOption?.focus();
+    expect(document.activeElement).toBe(firstOption);
+
+    act(() => firstOption?.click());
+
+    // Focus landed on the newly expanded question's header: where the flow went.
+    expect(expandedQuestionIds()).toEqual(["compat"]);
+    expect(document.activeElement).toBe(
+      container.querySelector('[data-pending-question-header="compat"]'),
+    );
+    expect(container.contains(document.activeElement)).toBe(true);
+  });
+
+  it("hands focus to submit when the last unanswered question is answered", () => {
+    mountLive(THREE_QUESTIONS, {
+      scope: { selectedOptionLabels: ["Client-first"] },
+      compat: { selectedOptionLabels: ["Client-first"] },
+    });
+
+    // Only `rollout` is left, so answering it has no next question to move to.
+    const option = [...container.querySelectorAll<HTMLButtonElement>("[aria-pressed]")][0];
+    option?.focus();
+    act(() => option?.click());
+
+    expect(expandedQuestionIds()).toEqual([]);
+    expect(document.activeElement).toBe(container.querySelector("[data-pending-question-submit]"));
+  });
+
+  it("keeps focus inside the card when the advance control is the thing that disappears", () => {
+    const questions = [
+      question({ id: "targets", header: "Targets", multiSelect: true }),
+      question({ id: "compat", header: "Compat" }),
+    ];
+    mountLive(questions);
+
+    clickOption("Orchestration-first");
+    const confirm = container.querySelector<HTMLButtonElement>(
+      '[data-pending-question-confirm="targets"]',
+    );
+    confirm?.focus();
+    expect(document.activeElement).toBe(confirm);
+
+    act(() => confirm?.click());
+
+    expect(document.activeElement).toBe(
+      container.querySelector('[data-pending-question-header="compat"]'),
+    );
+  });
+
+  it("leaves focus alone on a lone question, where nothing collapses out from under it", () => {
+    mountLive([question()]);
+
+    const option = [...container.querySelectorAll<HTMLButtonElement>("[aria-pressed]")][0];
+    option?.focus();
+    act(() => option?.click());
+
+    // The control the user aimed at is still mounted, so focus must not be moved.
+    expect(document.activeElement).toBe(option);
   });
 
   it("keeps submit and dismiss present and enabled in every accordion state", () => {
