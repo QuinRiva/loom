@@ -10,9 +10,11 @@ import type {
   OrchestrationThreadShell,
   ProviderApprovalDecision,
   ProviderInteractionMode,
+  ProviderUserInputAnswers,
   RuntimeMode,
   ServerConfig as T3ServerConfig,
   ThreadId,
+  UserInputQuestion,
 } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -26,12 +28,8 @@ import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import type {
-  PendingApproval,
-  PendingUserInput,
-  PendingUserInputDraftAnswer,
-  ThreadFeedEntry,
-} from "../../lib/threadActivity";
+import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
+import type { PendingApproval, PendingUserInput, ThreadFeedEntry } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import {
@@ -53,9 +51,11 @@ export interface ThreadDetailScreenProps {
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
-  readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
-  readonly activePendingUserInputAnswers: Record<string, string> | null;
+  readonly activePendingUserInputCount: number;
+  readonly activePendingUserInputDrafts: Record<string, UserInputAnswerDraft>;
+  readonly activePendingUserInputAnswers: ProviderUserInputAnswers | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
+  readonly dismissingUserInputId: ApprovalRequestId | null;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
   readonly connectionStateLabel: EnvironmentConnectionPhase;
@@ -87,7 +87,7 @@ export interface ThreadDetailScreenProps {
   ) => Promise<unknown>;
   readonly onSelectUserInputOption: (
     requestId: ApprovalRequestId,
-    questionId: string,
+    question: UserInputQuestion,
     label: string,
   ) => void;
   readonly onChangeUserInputCustomAnswer: (
@@ -96,6 +96,7 @@ export interface ThreadDetailScreenProps {
     customAnswer: string,
   ) => void;
   readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onDismissUserInput: () => Promise<unknown>;
   readonly showContent?: boolean;
 }
 
@@ -404,12 +405,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   {props.activePendingUserInput ? (
                     <PendingUserInputCard
                       pendingUserInput={props.activePendingUserInput}
+                      pendingCount={props.activePendingUserInputCount}
                       drafts={props.activePendingUserInputDrafts}
                       answers={props.activePendingUserInputAnswers}
                       respondingUserInputId={props.respondingUserInputId}
+                      dismissingUserInputId={props.dismissingUserInputId}
                       onSelectOption={props.onSelectUserInputOption}
                       onChangeCustomAnswer={props.onChangeUserInputCustomAnswer}
                       onSubmit={props.onSubmitUserInput}
+                      onDismiss={props.onDismissUserInput}
                     />
                   ) : null}
                 </Animated.View>

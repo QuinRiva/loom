@@ -234,6 +234,10 @@
     "./userInputOutcome": {
       "types": "./src/userInputOutcome.ts",
       "import": "./src/userInputOutcome.ts"
+    },
+    "./userInputAnswers": {
+      "types": "./src/userInputAnswers.ts",
+      "import": "./src/userInputAnswers.ts"
     }
   },
   "scripts": {

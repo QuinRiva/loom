@@ -289,3 +289,88 @@ boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
   inside the engine's serialised command queue against the just-committed read
   model, so the check and the write are atomic; a rejected echo is expected and
   tolerated by ingestion.
+
+## ask_user_question: the non-modal question card (web + mobile) — 2026-07-29
+
+The composer takeover is **deleted, not relocated**. A question now renders as
+`apps/web/src/components/chat/PendingQuestionCard.tsx`, above the composer and
+owning every answering control; `ChatComposer` receives the card as an opaque
+`ReactNode` plus a boolean for header spacing, so it can no longer read a
+question's answer state at all. That prop shape is the structural guarantee — the
+S9 hard locks cannot be re-added without re-plumbing the props, and
+`composerQuestionIsolation.test.ts` pins their absence at source level.
+
+Deleted with it: the editor value swap, the `onPromptChange` reroute, the
+`applyPromptReplacement` answer branch, the `promptRef`-syncing effect, the Enter
+hijack in `onSend`, the option-click `promptRef.current = ""`, the document-level
+digit listener and its 200 ms auto-advance-submit, the placeholder swap, the
+image/terminal-context/review-comment/annotation suppressions, the mobile
+compact-answer row, and `ComposerPendingUserInputPanel.tsx`. `ComposerPrimaryActions`
+lost its whole pending branch, so `isRunning` (the stop button) is now the first
+branch in the component — stop can never be structurally unreachable again.
+
+Two shared modules replace four divergent copies of the same logic:
+
+- `packages/shared/src/userInputAnswers.ts` — the draft shape and the rules for
+  turning drafts into the `string | string[]` wire contract. Mobile previously
+  carried a singular `selectedOptionLabel` and silently truncated a multi-select
+  answer to one label (S10); one definition makes that unrepresentable rather
+  than fixed-on-one-client.
+- The draft collection itself — entries keyed by `(environmentId, requestId)`,
+  tagged with their owning thread, and the transitions over them (toggle, custom
+  answer, evict-on-resolve) — also lives in that shared module. `apps/web`'s
+  `userInputAnswerDraftStore.ts` and mobile's `user-input-drafts.ts` are now only
+  the zustand/atom bindings. **Round 1 found why that matters**: I first wrote the
+  eviction rule twice, and the two copies diverged — mobile evicted by _environment_
+  prefix against the selected thread's open set, so switching away from a thread
+  with a partial answer deleted it. Web's copy was correct. One rule, one place.
+  Deliberately not persisted: a reload loses an unsubmitted partial selection, per
+  the design.
+
+Send-while-open: the early return that turned Enter into an answer submit is gone.
+A plain send is a supersede (server-side), and the card resolves visibly to
+"Answered by your message" rather than vanishing. Sending is never blocked.
+
+**Live verification** (dev-verify recipe, two stacked questions injected on a
+running instance): the card showed "1 more pending"; a draft typed in the composer
+stayed intact while options were clicked, including multi-select; digits pressed
+with focus on `document.body` landed in the draft and selected nothing (the S4
+class is gone); dismiss dispatched `thread.user-input.dismiss` with the right
+requestId; and a question resolved through the real engine path cleared its card
+while the count went to 0.
+
+One thing worth knowing for future live verification: **the startup scan settles
+every open question at boot by design (commitment 1)**, so a question seeded into
+`seedWorkstream.ts` is always resolved-cancelled before the UI can show it. An
+open question has to be injected into an already-running instance. Raw sqlite
+inserts do not work either — the running server does not re-read them — so this
+is a genuine gap in the dev-verify recipe for question UI, not something the
+recipe covers today.
+
+### Round 1 review: two findings, both upheld
+
+**Mobile eviction destroyed another thread's draft (must-fix).** Real, and my
+round-0 report overclaimed by saying the cross-thread case was handled — it was
+handled on web only. The fix is not a patch to mobile's copy: the _rule_ moved into
+`@t3tools/shared/userInputAnswers` (`withResolvedUserInputDraftsEvicted` and
+friends, keyed on an explicit `threadKey` per entry), so both clients execute the
+same code. The same reasoning as the multi-select truncation fix — a rule written
+twice is a rule that will diverge. Mobile's atom moved to
+`apps/mobile/src/state/user-input-drafts.ts` so it is reachable without importing
+the hook's React Native graph, which is what made an atom-level regression possible.
+Pinned in both `packages/shared/src/userInputAnswers.test.ts` (5 cases, incl. the
+outcome-agnostic startup-`cancelled` path the reviewer asked for) and
+`apps/mobile/src/state/user-input-drafts.test.ts` (5 cases). Both suites verified to
+FAIL against a reintroduced environment-prefix rule before being accepted.
+
+**The S4 source test pinned spellings, not behaviour (nice-to-have).** Also right,
+and worth more than the "broaden the identifiers" remedy suggested: identifiers are
+still spellings. `pendingQuestionKeyboardSafety.test.tsx` now renders the card into
+jsdom and asserts the invariant directly — an unaimed digit or Enter (body,
+document, the card, a focused option button, the free-text field, and after a delay
+past any auto-advance window) reaches none of the select/submit/dismiss callbacks,
+while real clicks still do. Validated by rebuilding the deleted hazard in the shape
+the source test cannot see (`window.addEventListener` + `queueMicrotask` +
+no `Number.parseInt`): the source test passed it, this one failed in 4 places.
+`composerQuestionIsolation.test.ts` is retained and re-scoped to what source
+matching can honestly guarantee — the prop boundary, which renders no output.

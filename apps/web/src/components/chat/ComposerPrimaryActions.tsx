@@ -1,22 +1,13 @@
 import { memo, type PointerEventHandler } from "react";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 
-interface PendingActionState {
-  questionIndex: number;
-  isLastQuestion: boolean;
-  canAdvance: boolean;
-  isResponding: boolean;
-  isComplete: boolean;
-}
-
 interface ComposerPrimaryActionsProps {
   compact: boolean;
-  pendingAction: PendingActionState | null;
   isRunning: boolean;
   showPlanFollowUpPrompt: boolean;
   promptHasText: boolean;
@@ -26,28 +17,9 @@ interface ComposerPrimaryActionsProps {
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
-  onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
 }
-
-export const formatPendingPrimaryActionLabel = (input: {
-  compact: boolean;
-  isLastQuestion: boolean;
-  isResponding: boolean;
-  questionIndex: number;
-}) => {
-  if (input.isResponding) {
-    return "Submitting...";
-  }
-  if (input.compact) {
-    return input.isLastQuestion ? "Submit" : "Next";
-  }
-  if (!input.isLastQuestion) {
-    return "Next question";
-  }
-  return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
-};
 
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
@@ -55,7 +27,6 @@ const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
 
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
-  pendingAction,
   isRunning,
   showPlanFollowUpPrompt,
   promptHasText,
@@ -65,7 +36,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
-  onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
@@ -74,57 +44,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     : undefined;
   const stageBackdropVariant = useSidebarStageBackdropVariant();
 
-  if (pendingAction) {
-    return (
-      <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {pendingAction.questionIndex > 0 ? (
-          compact ? (
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="rounded-full"
-              {...pointerFocusProps}
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-              aria-label="Previous question"
-            >
-              <ChevronLeftIcon className="size-3.5" />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              {...pointerFocusProps}
-              onClick={onPreviousPendingQuestion}
-              disabled={pendingAction.isResponding}
-            >
-              Previous
-            </Button>
-          )
-        ) : null}
-        <Button
-          type="submit"
-          size="sm"
-          className={cn("rounded-full", compact ? "px-3" : "px-4")}
-          {...pointerFocusProps}
-          disabled={
-            isEnvironmentUnavailable ||
-            pendingAction.isResponding ||
-            (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
-          }
-        >
-          {formatPendingPrimaryActionLabel({
-            compact,
-            isLastQuestion: pendingAction.isLastQuestion,
-            isResponding: pendingAction.isResponding,
-            questionIndex: pendingAction.questionIndex,
-          })}
-        </Button>
-      </div>
-    );
-  }
-
+  // Stop comes first, and no branch may precede it: an open agent question used
+  // to return above this point, which removed the stop button from the DOM at
+  // the exact moment the user most wanted it (client audit S2).
   if (isRunning) {
     return (
       <button

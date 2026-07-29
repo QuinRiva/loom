@@ -356,6 +356,54 @@ describe("derivePendingUserInputs", () => {
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
   });
+
+  // Two stacked requests: the card answers the oldest and counts the rest, so the
+  // second is visible immediately and becomes the answered-one the moment the
+  // first resolves. Under the old panel a wedged first request masked every
+  // subsequent question on the thread forever (S8).
+  it("orders stacked requests oldest-first so the next one surfaces when the first resolves", () => {
+    const question = {
+      id: "choice",
+      header: "Choice",
+      question: "Continue?",
+      options: [{ label: "yes", description: "Continue execution" }],
+      multiSelect: false,
+    };
+    const requested = (requestId: string, createdAt: string): OrchestrationThreadActivity =>
+      makeActivity({
+        id: `open-${requestId}`,
+        createdAt,
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId, questions: [question] },
+      });
+    const both = [
+      requested("req-second", "2026-02-23T00:00:02.000Z"),
+      requested("req-first", "2026-02-23T00:00:01.000Z"),
+    ];
+
+    expect(derivePendingUserInputs(both).map((entry) => entry.requestId)).toEqual([
+      "req-first",
+      "req-second",
+    ]);
+
+    const afterFirstResolves = [
+      ...both,
+      makeActivity({
+        id: "resolved-first",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: { requestId: "req-first", answers: { choice: "yes" }, outcome: "answered" },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(afterFirstResolves).map((entry) => entry.requestId)).toEqual([
+      "req-second",
+    ]);
+  });
 });
 
 describe("deriveActivePlanState", () => {

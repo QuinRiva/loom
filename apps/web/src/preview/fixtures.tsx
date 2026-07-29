@@ -4,7 +4,7 @@ import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 
 import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
-import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
+import { PendingQuestionCard } from "../components/chat/PendingQuestionCard";
 import type { SidebarThreadSummary } from "../types";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
@@ -445,20 +445,23 @@ function pendingUserInputFixture(
     description,
     render: () => (
       <div className="mx-auto w-full min-w-0 max-w-3xl p-6">
-        <div className="rounded-[19px] border border-border/65 bg-muted/20">
-          <ComposerPendingUserInputPanel
-            pendingUserInputs={[
-              {
-                requestId: "preview-request" as ApprovalRequestId,
-                createdAt: "2026-02-23T00:00:00.000Z",
-                questions,
-              },
-            ]}
-            respondingRequestIds={[]}
-            answers={{}}
-            questionIndex={0}
+        <div className="overflow-hidden rounded-[19px] border border-border/65">
+          <PendingQuestionCard
+            pendingUserInput={{
+              requestId: "preview-request" as ApprovalRequestId,
+              createdAt: "2026-02-23T00:00:00.000Z",
+              questions,
+            }}
+            pendingCount={1}
+            drafts={{}}
+            answers={null}
+            isResponding={false}
+            isDismissing={false}
+            supersededByMessage={false}
             onToggleOption={() => {}}
-            onAdvance={() => {}}
+            onChangeCustomAnswer={() => {}}
+            onSubmit={() => {}}
+            onDismiss={() => {}}
           />
         </div>
       </div>
@@ -499,7 +502,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "pending-user-input-multi",
         "Multi-select (no previews, neither field)",
         PENDING_USER_INPUT_MULTI_QUESTIONS,
-        "Multi-select questions never show previews, and with neither `stakes` nor `recommended` set the panel must be pixel-identical to today — every non-pi provider sends questions in this shape.",
+        "Multi-select questions never show previews, and with neither `stakes` nor `recommended` set the card is the plain option list — every non-pi provider sends questions in this shape.",
       ),
     ],
   },
