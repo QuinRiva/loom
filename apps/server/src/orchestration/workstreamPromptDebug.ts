@@ -46,3 +46,19 @@ export const readPromptDebugSidecarNames = (dir: string): ReadonlySet<string> =>
     return new Set();
   }
 };
+
+/**
+ * Whether a single thread's sidecar is present — the per-thread counterpart of
+ * `readPromptDebugSidecarNames`, for the single-thread shell lookup that backs
+ * every `thread-upserted` shell-stream event. Both paths must apply the same
+ * existence gate: if the incremental lookup omitted the path while the full
+ * snapshot surfaced it, the UI surface would appear on a fresh snapshot and then
+ * disappear on the thread's next event. Best-effort (an unreadable dir ⇒ false).
+ */
+export const promptDebugSidecarExists = (dir: string, threadId: ThreadId): boolean => {
+  try {
+    return NodeFS.existsSync(promptDebugSidecarPath(dir, threadId));
+  } catch {
+    return false;
+  }
+};

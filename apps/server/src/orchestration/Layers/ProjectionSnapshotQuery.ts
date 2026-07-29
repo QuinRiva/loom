@@ -61,6 +61,7 @@ import {
 } from "../../persistence/Errors.ts";
 import { ServerConfig } from "../../config.ts";
 import {
+  promptDebugSidecarExists,
   promptDebugSidecarFileName,
   promptDebugSidecarPath,
   readPromptDebugSidecarNames,
@@ -3453,6 +3454,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         spawnGeneration: threadRow.value.spawnGeneration,
         forkFromThreadId: threadRow.value.forkFromThreadId,
         reportPath: threadRow.value.reportPath,
+        // Debugging-only effective-prompt sidecar path. Must apply the SAME pi-
+        // only + file-exists gate as `getShellSnapshot`: this lookup backs every
+        // `thread-upserted` shell-stream event, so omitting it here made the UI's
+        // Prompt button appear on a fresh snapshot and vanish on the thread's
+        // next event.
+        ...(Option.isSome(sessionRow) &&
+        sessionRow.value.providerName === "pi" &&
+        promptDebugSidecarExists(promptDebugDir, threadRow.value.threadId)
+          ? { promptDebugPath: promptDebugSidecarPath(promptDebugDir, threadRow.value.threadId) }
+          : {}),
         graphKey: threadRow.value.graphKey,
         kickoffBriefPath: threadRow.value.kickoffBriefPath,
         routes: threadRow.value.routes,
