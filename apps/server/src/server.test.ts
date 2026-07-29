@@ -39,6 +39,8 @@ import {
 } from "@t3tools/shared/dpop";
 import { RELAY_HEALTH_REQUEST_TYP, RELAY_MINT_REQUEST_TYP } from "@t3tools/shared/relayJwt";
 import * as RelayClient from "@t3tools/shared/relayClient";
+import { subtreeOf } from "@t3tools/shared/workstreamGraph";
+
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import * as Clock from "effect/Clock";
@@ -52,6 +54,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -281,6 +284,36 @@ const makeShellSnapshotWithThreads = (threads: ReadonlyArray<OrchestrationThread
   threads,
   updatedAt: "1970-01-01T00:00:00.000Z",
 });
+
+// The archive teardown sweep set, derived from thread shells the same way the
+// real `getLiveSubtreeSessionLiveness` query derives it from the projection:
+// the subtree rooted at `threadId`, each member flagged with session liveness,
+// with the commanded root always present even when it is unknown.
+const makeSubtreeSessionLiveness =
+  (threads: ReadonlyArray<OrchestrationThreadShell>) => (threadId: ThreadId) => {
+    const sweep = subtreeOf(threadId, threads).map((thread) => ({
+      threadId: thread.id,
+      hasLiveSession: thread.session !== null && thread.session.status !== "stopped",
+    }));
+    return sweep.some((entry) => entry.threadId === threadId)
+      ? sweep
+      : [{ threadId, hasLiveSession: false }, ...sweep];
+  };
+
+// Archive acks before its session/terminal teardown finishes (the teardown is
+// forked so a slow PTY close can never make the archive button feel dead), so
+// assertions on those effects must wait for them rather than read immediately.
+const awaitEffects = (effects: ReadonlyArray<string>, expectedCount: number) =>
+  Effect.retry(
+    Effect.suspend(() =>
+      effects.length >= expectedCount
+        ? Effect.void
+        : Effect.fail(
+            `expected ${expectedCount} effects, saw ${effects.length}: ${effects.join()}`,
+          ),
+    ),
+    Schedule.spaced(Duration.millis(5)).pipe(Schedule.take(200)),
+  );
 
 // A minimal thread domain event that flows through toShellStreamEvent's
 // getThreadShellById lookup branch (used by the shell catch-up silent-drop
@@ -6851,9 +6884,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.succeed(
-                makeShellSnapshotWithThreads([
+                makeSubtreeSessionLiveness([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -6868,7 +6901,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ]),
+                ])(target),
               ),
           },
         },
@@ -6886,6 +6919,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(dispatchResult.sequence, 1);
+      yield* awaitEffects(effects, 3);
       assert.deepEqual(effects, [
         "dispatch:thread.archive",
         "dispatch:thread.session.stop",
@@ -6927,10 +6961,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.sync(() => {
-                effects.push(`query:shell-snapshot:${archived ? "archived" : "active"}`);
-                return makeShellSnapshotWithThreads(
+                effects.push(`query:subtree-liveness:${archived ? "archived" : "active"}`);
+                return makeSubtreeSessionLiveness(
                   archived
                     ? []
                     : [
@@ -6949,7 +6983,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                           },
                         }),
                       ],
-                );
+                )(target);
               }),
           },
         },
@@ -6967,8 +7001,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(dispatchResult.sequence, 1);
+      yield* awaitEffects(effects, 4);
       assert.deepEqual(effects, [
-        "query:shell-snapshot:active",
+        "query:subtree-liveness:active",
         "dispatch:thread.archive",
         "dispatch:thread.session.stop",
         `terminal.close:${threadId}`,
@@ -7005,9 +7040,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.succeed(
-                makeShellSnapshotWithThreads([
+                makeSubtreeSessionLiveness([
                   makeDefaultOrchestrationThreadShell({
                     id: rootThreadId,
                     updatedAt: now,
@@ -7028,7 +7063,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ]),
+                ])(target),
               ),
           },
         },
@@ -7048,6 +7083,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(dispatchResult.sequence, 1);
       // Root has no session (terminal close only); the child's live session is
       // stopped and its terminal closed as part of the same archive sweep.
+      yield* awaitEffects(effects, 4);
       assert.deepEqual(effects, [
         "dispatch:thread.archive",
         `terminal.close:${rootThreadId}`,
@@ -7087,11 +7123,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.succeed(
-                makeShellSnapshotWithThreads([
+                makeSubtreeSessionLiveness([
                   makeDefaultOrchestrationThreadShell({ id: threadId, session: null }),
-                ]),
+                ])(target),
               ),
           },
         },
@@ -7109,6 +7145,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(dispatchResult.sequence, 1);
+      yield* awaitEffects(effects, 2);
       assert.deepEqual(effects, ["dispatch:thread.archive", `terminal.close:${threadId}`]);
       assert.deepEqual(
         dispatchedCommands.map((command) => command.type),
@@ -7143,9 +7180,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 }),
             },
             projectionSnapshotQuery: {
-              getShellSnapshot: () =>
+              getLiveSubtreeSessionLiveness: (target) =>
                 Effect.succeed(
-                  makeShellSnapshotWithThreads([
+                  makeSubtreeSessionLiveness([
                     makeDefaultOrchestrationThreadShell({
                       id: threadId,
                       updatedAt: now,
@@ -7160,7 +7197,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                         updatedAt: now,
                       },
                     }),
-                  ]),
+                  ])(target),
                 ),
             },
           },
@@ -7178,6 +7215,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
 
         assert.equal(dispatchResult.sequence, 1);
+        yield* awaitEffects(effects, 2);
         assert.deepEqual(effects, ["dispatch:thread.archive", `terminal.close:${threadId}`]);
         assert.deepEqual(
           dispatchedCommands.map((command) => command.type),
@@ -7217,9 +7255,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.succeed(
-                makeShellSnapshotWithThreads([
+                makeSubtreeSessionLiveness([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -7234,7 +7272,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ]),
+                ])(target),
               ),
           },
         },
@@ -7252,6 +7290,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(dispatchResult.sequence, 1);
+      yield* awaitEffects(effects, 3);
       assert.deepEqual(effects, [
         "dispatch:thread.archive",
         "dispatch:thread.session.stop",
@@ -7290,9 +7329,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
+            getLiveSubtreeSessionLiveness: (target) =>
               Effect.succeed(
-                makeShellSnapshotWithThreads([
+                makeSubtreeSessionLiveness([
                   makeDefaultOrchestrationThreadShell({
                     id: threadId,
                     updatedAt: now,
@@ -7307,7 +7346,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       updatedAt: now,
                     },
                   }),
-                ]),
+                ])(target),
               ),
           },
         },
@@ -7325,6 +7364,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(dispatchResult.sequence, 1);
+      yield* awaitEffects(effects, 3);
       assert.deepEqual(effects, [
         "dispatch:thread.archive",
         "dispatch:thread.session.stop",

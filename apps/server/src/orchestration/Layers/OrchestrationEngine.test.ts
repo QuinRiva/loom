@@ -265,6 +265,7 @@ describe("OrchestrationEngine", () => {
           getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
+          getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>

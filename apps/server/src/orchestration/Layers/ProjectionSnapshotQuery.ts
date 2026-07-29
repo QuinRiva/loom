@@ -226,6 +226,12 @@ const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
 });
+const ProjectionSubtreeSessionLivenessRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  // SQLite has no boolean type: the CASE below yields 0/1, decoded as an int
+  // and mapped to a boolean by the caller (matching `hasActionableProposedPlan`).
+  hasLiveSession: NonNegativeInt,
+});
 const ActivityFreshnessRowSchema = Schema.Struct({
   maxCreatedAt: Schema.NullOr(IsoDateTime),
   heartbeatAt: Schema.NullOr(IsoDateTime),
@@ -1803,6 +1809,62 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE turn_id IS NULL
       `,
   });
+
+  // Lineage walk + session liveness for one subtree (the archive teardown
+  // sweep). Recursive CTE over idx_projection_threads_parent_thread_id so the
+  // cost tracks the subtree rather than the whole projection. Deleted threads
+  // are excluded but archived ones are not: the decider's cascade and this
+  // sweep must agree, and a re-archive of an already-archived branch still owes
+  // its descendants a teardown.
+  const listSubtreeSessionLivenessRows = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionSubtreeSessionLivenessRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        WITH RECURSIVE subtree(thread_id) AS (
+          SELECT thread_id
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+            AND deleted_at IS NULL
+          UNION
+          SELECT threads.thread_id
+          FROM subtree
+          JOIN projection_threads threads
+            ON threads.parent_thread_id = subtree.thread_id
+          WHERE threads.deleted_at IS NULL
+        )
+        SELECT
+          subtree.thread_id AS "threadId",
+          CASE
+            WHEN sessions.thread_id IS NOT NULL AND sessions.status <> 'stopped' THEN 1
+            ELSE 0
+          END AS "hasLiveSession"
+        FROM subtree
+        LEFT JOIN projection_thread_sessions sessions
+          ON sessions.thread_id = subtree.thread_id
+        ORDER BY subtree.thread_id ASC
+      `,
+  });
+
+  const getLiveSubtreeSessionLiveness: ProjectionSnapshotQueryShape["getLiveSubtreeSessionLiveness"] =
+    (threadId) =>
+      listSubtreeSessionLivenessRows({ threadId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getLiveSubtreeSessionLiveness:query",
+            "ProjectionSnapshotQuery.getLiveSubtreeSessionLiveness:decodeRows",
+          ),
+        ),
+        Effect.map((rows) => {
+          const sweep = rows.map((row) => ({
+            threadId: row.threadId,
+            hasLiveSession: row.hasLiveSession !== 0,
+          }));
+          return sweep.some((entry) => entry.threadId === threadId)
+            ? sweep
+            : [{ threadId, hasLiveSession: false }, ...sweep];
+        }),
+      );
 
   const getPendingTurnStartThreadIds: ProjectionSnapshotQueryShape["getPendingTurnStartThreadIds"] =
     () =>
@@ -3743,6 +3805,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadDetailSnapshotById,
     getThreadActivitiesPage,
     getThreadLifecycle,
+    getLiveSubtreeSessionLiveness,
     getPendingTurnStartThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,

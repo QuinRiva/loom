@@ -143,7 +143,6 @@ import { buildRetroDraftTurnStart } from "./loom/retroDraft.ts"; // loom: `/retr
 import { readLaunchIdentity } from "./orchestration/workstreamLaunchIdentity.ts"; // loom:
 import { isThreadIdle } from "./orchestration/threadIdle.ts"; // loom:
 import * as RelayClient from "@t3tools/shared/relayClient";
-import { subtreeOf } from "@t3tools/shared/workstreamGraph";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 // loom: `/handoff` fork-drafter (plan D4) — validate a source's captured
 // launch-identity selection before seeding the drafter with it.
@@ -943,64 +942,67 @@ const makeWsRpcLayer = (
               // thread.archive cascades over the live subtree in the decider,
               // so the post-archive session/terminal teardown must sweep the
               // same set — a workstream child with a running session would
-              // otherwise keep burning after its root is archived.
+              // otherwise keep burning after its root is archived. The sweep
+              // set is read with a narrow lineage query, NOT getShellSnapshot():
+              // that snapshot hydrates every active thread and shells out to
+              // `git` per workspace root to resolve repository identities
+              // (hundreds of ms, sometimes >1s) — an enormous price to pay on
+              // the click-to-ack path just to learn a handful of thread ids.
               const threadsToStopAfterArchive =
                 normalizedCommand.type === "thread.archive"
-                  ? yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-                      Effect.map((snapshot) => {
-                        const members = subtreeOf(normalizedCommand.threadId, snapshot.threads);
-                        const sweep = members.map((thread) => ({
-                          threadId: thread.id,
-                          hasLiveSession:
-                            thread.session !== null && thread.session.status !== "stopped",
-                        }));
-                        // The commanded root is always swept, even when the
-                        // snapshot no longer lists it (subtreeOf omits an
-                        // unknown root).
-                        return sweep.some((entry) => entry.threadId === normalizedCommand.threadId)
-                          ? sweep
-                          : [
-                              { threadId: normalizedCommand.threadId, hasLiveSession: false },
-                              ...sweep,
-                            ];
-                      }),
-                      Effect.orElseSucceed(() => [
-                        { threadId: normalizedCommand.threadId, hasLiveSession: false },
-                      ]),
-                    )
+                  ? yield* projectionSnapshotQuery
+                      .getLiveSubtreeSessionLiveness(normalizedCommand.threadId)
+                      .pipe(
+                        Effect.orElseSucceed(() => [
+                          { threadId: normalizedCommand.threadId, hasLiveSession: false },
+                        ]),
+                      )
                   : [];
               const result = yield* dispatchNormalizedCommand(normalizedCommand);
-              for (const { threadId, hasLiveSession } of threadsToStopAfterArchive) {
-                if (hasLiveSession) {
-                  yield* Effect.gen(function* () {
-                    const stopCommand = yield* normalizeDispatchCommand({
-                      type: "thread.session.stop",
-                      commandId: CommandId.make(
-                        `session-stop-for-archive:${normalizedCommand.commandId}:${threadId}`,
-                      ),
-                      threadId,
-                      createdAt: yield* nowIso,
-                    });
+              // Teardown runs detached: the archive is already committed and
+              // the shell-stream `thread-removed` event has been published, so
+              // the row is gone from the client's sidebar the moment we ack.
+              // Stopping provider sessions and closing PTYs is slow, serial
+              // best-effort cleanup whose result the caller never inspects —
+              // holding the ack behind it made the button feel dead.
+              if (threadsToStopAfterArchive.length > 0) {
+                yield* Effect.forEach(
+                  threadsToStopAfterArchive,
+                  ({ threadId, hasLiveSession }) =>
+                    Effect.gen(function* () {
+                      if (hasLiveSession) {
+                        yield* Effect.gen(function* () {
+                          const stopCommand = yield* normalizeDispatchCommand({
+                            type: "thread.session.stop",
+                            commandId: CommandId.make(
+                              `session-stop-for-archive:${normalizedCommand.commandId}:${threadId}`,
+                            ),
+                            threadId,
+                            createdAt: yield* nowIso,
+                          });
 
-                    yield* dispatchNormalizedCommand(stopCommand);
-                  }).pipe(
-                    Effect.catchCause((cause) =>
-                      Effect.logWarning("failed to stop provider session during archive", {
-                        threadId,
-                        cause: Cause.pretty(cause),
-                      }),
-                    ),
-                  );
-                }
+                          yield* dispatchNormalizedCommand(stopCommand);
+                        }).pipe(
+                          Effect.catchCause((cause) =>
+                            Effect.logWarning("failed to stop provider session during archive", {
+                              threadId,
+                              cause: Cause.pretty(cause),
+                            }),
+                          ),
+                        );
+                      }
 
-                yield* terminalManager.close({ threadId }).pipe(
-                  Effect.catch((error) =>
-                    Effect.logWarning("failed to close thread terminals after archive", {
-                      threadId,
-                      error: error.message,
+                      yield* terminalManager.close({ threadId }).pipe(
+                        Effect.catch((error) =>
+                          Effect.logWarning("failed to close thread terminals after archive", {
+                            threadId,
+                            error: error.message,
+                          }),
+                        ),
+                      );
                     }),
-                  ),
-                );
+                  { discard: true },
+                ).pipe(Effect.forkDetach);
               }
               return result;
             }).pipe(

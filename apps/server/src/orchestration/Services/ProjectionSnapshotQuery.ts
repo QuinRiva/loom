@@ -205,6 +205,27 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * Read the live subtree rooted at a thread, with each member's session
+   * liveness — the exact input the archive teardown sweep needs.
+   *
+   * This exists so archive does NOT pay for `getShellSnapshot()`, which
+   * hydrates every active thread and shells out to `git` per workspace root to
+   * resolve repository identities (hundreds of ms, sometimes >1s) purely to
+   * derive a handful of thread ids. The lineage walk is a recursive CTE over
+   * `idx_projection_threads_parent_thread_id`, so the cost tracks the subtree,
+   * not the whole projection.
+   *
+   * The commanded root is always included, even when it is absent from the
+   * projection, so the caller's sweep set matches the decider's cascade.
+   */
+  readonly getLiveSubtreeSessionLiveness: (
+    threadId: ThreadId,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly threadId: ThreadId; readonly hasLiveSession: boolean }>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read archived thread shell summaries for the archive page.
    *
    * This query is separate from the main shell snapshot so archived threads
