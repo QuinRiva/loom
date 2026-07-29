@@ -2824,6 +2824,7 @@ const handleWorkstreamPrompt = Effect.gen(function* () {
       role: target.value.role,
       brief,
       message,
+      gateTargetId: gateLoopTargetOf(target.value),
     });
   }
 
