@@ -6,23 +6,28 @@ import { Button } from "../ui/button";
 import { StagedCard } from "./StagedCard";
 
 /**
- * Whether the staged-kickoff card should be offered for a thread. Derived
- * purely from server state (a parent-less handoff root carrying a stored brief
- * that has not been launched) plus the persisted composer draft — so the offer
- * survives reloads and disappears the moment the human takes over (Edit first
- * seeds the draft; typing/sending seeds the draft or a message). No in-memory
- * "already seeded" flag, which is what broke this across reloads previously.
+ * Whether the staged-kickoff card should be offered for a thread: a parent-less
+ * handoff root carrying a stored brief whose conversation has not begun, and
+ * whose composer the human has not taken over (Edit first seeds the draft, as
+ * does typing). Keying off the persisted draft rather than an in-memory
+ * "already seeded" flag is what makes the offer survive reloads.
+ *
+ * `hasStarted` must reflect the conversation as RENDERED — including the
+ * optimistic user message and the in-flight send — not just durable server
+ * state. This card is an overlay drawn in front of the timeline, so a
+ * server-only test would let it reappear over the launching conversation for
+ * the whole turn-start round-trip. See `stagedOverlayConversationStarted`.
  */
 export function shouldShowStagedKickoff(input: {
   parentThreadId: string | null;
   brief: string | null;
-  messageCount: number;
+  hasStarted: boolean;
   composerDraftPrompt: string;
 }): boolean {
   return (
     input.parentThreadId === null &&
     (input.brief?.trim().length ?? 0) > 0 &&
-    input.messageCount === 0 &&
+    !input.hasStarted &&
     input.composerDraftPrompt.trim().length === 0
   );
 }
