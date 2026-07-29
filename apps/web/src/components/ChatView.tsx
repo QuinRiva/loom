@@ -180,6 +180,14 @@ import {
 } from "../logicalProject";
 import { buildDraftThreadRouteParams } from "../threadRoutes";
 import { useLoomThreadExtensions } from "../loom/useLoomThreadExtensions";
+// loom: `/handoff` receipts — the source-local acknowledgement for a handoff
+// that deliberately writes nothing to this thread.
+import {
+  recordHandoffDispatch,
+  recordHandoffDrafter,
+  recordHandoffFailure,
+} from "../loom/handoffReceiptStore";
+import { useHandoffReceipts } from "../loom/useHandoffReceipts";
 // loom: centre-panel thread tabs — sending in a thread pins its preview tab.
 import { useThreadTabsStore } from "../loom/threadTabsStore";
 import {
@@ -1500,6 +1508,10 @@ function ChatViewContent(props: ChatViewProps) {
     [activeThread],
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  // loom: `/handoff` receipts submitted from this thread in this browser session.
+  // Keyed on the ACTIVE thread (not the route), so a draft promoted to a server
+  // thread keeps its receipts.
+  const handoffReceipts = useHandoffReceipts(activeThreadKey);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -4565,6 +4577,10 @@ function ChatViewContent(props: ChatViewProps) {
     submittedPrompt: string;
     dispatch: () => Promise<AtomCommandResult<A, E>>;
     failureMessage: string;
+    // loom: `/handoff` receipt hooks — the receipt is the only feedback the
+    // source thread gets, since the handoff never becomes a message here.
+    onDispatched?: (value: A) => void;
+    onDispatchFailed?: (message: string) => void;
   }) =>
     runComposerDraftIntercept({
       submittedPrompt: options.submittedPrompt,
@@ -4597,16 +4613,18 @@ function ChatViewContent(props: ChatViewProps) {
           detectTrigger: true,
         });
       },
-      onSuccess: () => setThreadError(options.sourceThreadId, null),
+      onSuccess: (result) => {
+        setThreadError(options.sourceThreadId, null);
+        options.onDispatched?.(result.value);
+      },
       onFailure: (result) => {
         // Surface the server error inline (source not found / non-pi / mid-turn
         // busy arrive as OrchestrationDispatchCommandError).
         if (isAtomCommandInterrupted(result)) return;
         const error = squashAtomCommandFailure(result);
-        setThreadError(
-          options.sourceThreadId,
-          error instanceof Error ? error.message : options.failureMessage,
-        );
+        const message = error instanceof Error ? error.message : options.failureMessage;
+        setThreadError(options.sourceThreadId, message);
+        options.onDispatchFailed?.(message);
       },
     });
 
@@ -4677,6 +4695,14 @@ function ChatViewContent(props: ChatViewProps) {
         setThreadError(sourceThreadId, handoffDecision.message);
         return;
       }
+      // loom: record the receipt BEFORE the RPC, so the in-flight row is on
+      // screen from the keystroke rather than from the acknowledgement.
+      const receiptId = recordHandoffDispatch({
+        sourceThreadKey: scopedThreadKey(
+          scopeThreadRef(activeThread.environmentId, sourceThreadId),
+        ),
+        explanation: handoffDecision.explanation,
+      });
       await dispatchComposerDraftIntercept({
         sourceThreadId,
         submittedPrompt: promptForSend,
@@ -4686,6 +4712,8 @@ function ChatViewContent(props: ChatViewProps) {
             input: { sourceThreadId, explanation: handoffDecision.explanation },
           }),
         failureMessage: "Could not hand off this work.",
+        onDispatched: (result) => recordHandoffDrafter(receiptId, result.drafterThreadId),
+        onDispatchFailed: (message) => recordHandoffFailure(receiptId, message),
       });
       return;
     }
@@ -6040,6 +6068,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onLoadOlder={loadOlderActivities}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
+                handoffReceipts={handoffReceipts} // loom:
               />
 
               {/* Staged kickoff offer for a not-yet-launched handoff root. */}

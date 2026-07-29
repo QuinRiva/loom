@@ -159,7 +159,7 @@ export async function runComposerDraftIntercept<A, E>(ports: {
   readonly readComposerContent: () => ComposerContentSnapshot;
   readonly restoreComposer: (prompt: string) => void;
   readonly dispatch: () => Promise<AtomCommandResult<A, E>>;
-  readonly onSuccess: () => void;
+  readonly onSuccess: (result: Extract<AtomCommandResult<A, E>, { _tag: "Success" }>) => void;
   readonly onFailure: (result: Extract<AtomCommandResult<A, E>, { _tag: "Failure" }>) => void;
 }): Promise<ComposerDraftInterceptOutcome> {
   ports.setSendInFlight(true);
@@ -173,7 +173,7 @@ export async function runComposerDraftIntercept<A, E>(ports: {
       ports.onFailure(result);
       return "failure";
     }
-    ports.onSuccess();
+    ports.onSuccess(result);
     return "success";
   } finally {
     ports.setSendInFlight(false);

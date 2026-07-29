@@ -8,6 +8,8 @@ import {
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@t3tools/contracts";
+// loom: `/handoff` receipt row (presentation-only, never a message).
+import { type HandoffReceiptView } from "../../loom/handoffReceipts.logic";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
 export const TIMELINE_MINIMAP_ITEM_SPACING = 8;
@@ -189,7 +191,15 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null };
+  | { kind: "working"; id: string; createdAt: string | null }
+  // loom: `/handoff` receipt. Like `spawn`/`consult`/`turn-fold`/`work-toggle`/
+  // `working`, this row has NO corresponding `ChatMessage`: it is derived from
+  // browser-local receipt facts that never enter `deriveTimelineEntries`, and it
+  // carries no message payload for anything downstream to send. The provider is
+  // sent `ChatMessage`s only, so a receipt cannot become a turn — structurally,
+  // not by policy. That is the whole point of `/handoff`: the explanation must
+  // never enter the source thread's context.
+  | { kind: "handoff-receipt"; id: string; createdAt: string; receipt: HandoffReceiptView };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -436,6 +446,10 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
+  // loom: receipts for `/handoff`s submitted from this thread in this browser
+  // session. Deliberately a SEPARATE input from `timelineEntries`, so no message
+  // can ever be mistaken for a receipt or vice versa.
+  handoffReceipts?: ReadonlyArray<HandoffReceiptView> | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -663,7 +677,46 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
-  return nextRows;
+  // loom: splice receipts in at their submission time so a handoff stays where it
+  // happened rather than sliding below later conversation.
+  return insertHandoffReceiptRows(nextRows, input.handoffReceipts ?? []);
+}
+
+/**
+ * loom: chronological insertion of `/handoff` receipt rows, so a handoff stays
+ * where it happened rather than sliding below later conversation. Insertion
+ * rather than a re-sort: the derived rows carry their own deliberate ordering
+ * (a turn fold shares its anchor entry's timestamp, the working indicator has
+ * none), and re-sorting could perturb it. Each receipt lands before the first
+ * row that is strictly later, which puts it last — above the working indicator —
+ * when nothing later exists yet.
+ */
+function insertHandoffReceiptRows(
+  rows: MessagesTimelineRow[],
+  receipts: ReadonlyArray<HandoffReceiptView>,
+): MessagesTimelineRow[] {
+  if (receipts.length === 0) {
+    return rows;
+  }
+  const result = [...rows];
+  for (const receipt of receipts) {
+    const row: MessagesTimelineRow = {
+      kind: "handoff-receipt",
+      id: `handoff-receipt:${receipt.id}`,
+      createdAt: receipt.createdAt,
+      receipt,
+    };
+    const index = result.findIndex(
+      (candidate) => candidate.createdAt !== null && candidate.createdAt > receipt.createdAt,
+    );
+    if (index === -1) {
+      const workingIndex = result.findIndex((candidate) => candidate.kind === "working");
+      result.splice(workingIndex === -1 ? result.length : workingIndex, 0, row);
+    } else {
+      result.splice(index, 0, row);
+    }
+  }
+  return result;
 }
 
 export function computeStableMessagesTimelineRows(
@@ -693,6 +746,17 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   switch (a.kind) {
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
+
+    // loom: receipt views are rebuilt per derivation, so compare by value.
+    case "handoff-receipt": {
+      const br = b as typeof a;
+      return (
+        a.receipt.state === br.receipt.state &&
+        a.receipt.explanation === br.receipt.explanation &&
+        a.receipt.drafterThreadId === br.receipt.drafterThreadId &&
+        a.receipt.failureReason === br.receipt.failureReason
+      );
+    }
 
     case "turn-fold": {
       const bf = b as typeof a;
