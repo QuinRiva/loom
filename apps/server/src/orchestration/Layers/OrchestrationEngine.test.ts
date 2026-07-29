@@ -102,6 +102,7 @@ describe("OrchestrationEngine", () => {
           return savedEvent;
         }),
       readFromSequence: () => Stream.empty,
+      readStreamFromSequence: () => Stream.empty,
       readAll: () =>
         Stream.fail(
           new PersistenceSqlError({
@@ -953,6 +954,16 @@ describe("OrchestrationEngine", () => {
       readFromSequence(sequenceExclusive) {
         return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
       },
+      readStreamFromSequence(input) {
+        return Stream.fromIterable(
+          events.filter(
+            (event) =>
+              event.aggregateKind === input.aggregateKind &&
+              event.aggregateId === input.streamId &&
+              event.sequence > input.sequenceExclusive,
+          ),
+        );
+      },
       readAll() {
         return Stream.fromIterable(events);
       },
@@ -1189,6 +1200,16 @@ describe("OrchestrationEngine", () => {
       },
       readFromSequence(sequenceExclusive) {
         return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
+      },
+      readStreamFromSequence(input) {
+        return Stream.fromIterable(
+          events.filter(
+            (event) =>
+              event.aggregateKind === input.aggregateKind &&
+              event.aggregateId === input.streamId &&
+              event.sequence > input.sequenceExclusive,
+          ),
+        );
       },
       readAll() {
         return Stream.fromIterable(events);

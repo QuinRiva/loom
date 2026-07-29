@@ -146,7 +146,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     } as const;
     const reconcileReadModelAfterDispatchFailure = Effect.gen(function* () {
       const persistedEvents = yield* Stream.runCollect(
-        eventStore.readFromSequence(dispatchStartSequence),
+        // loom: reconciliation must observe every event persisted since the
+        // dispatch started; an implicit page bound could silently omit some and
+        // leave the read model diverged from the store.
+        eventStore.readFromSequence(dispatchStartSequence, Number.MAX_SAFE_INTEGER),
       ).pipe(Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)));
       if (persistedEvents.length === 0) {
         return;
@@ -441,6 +444,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive, limit) =>
     eventStore.readFromSequence(fromSequenceExclusive, limit);
 
+  // loom: per-aggregate replay (see the Service docs for why this exists).
+  const readStreamEvents: OrchestrationEngineShape["readStreamEvents"] =
+    eventStore.readStreamFromSequence;
+
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
@@ -454,6 +461,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   return {
     readEvents,
+    readStreamEvents,
     dispatch,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)

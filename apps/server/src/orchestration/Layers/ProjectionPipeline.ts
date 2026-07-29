@@ -2331,8 +2331,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         .pipe(
           Effect.flatMap((stateRow) =>
             Stream.runForEach(
+              // loom: bootstrap must apply EVERY event after the projector's
+              // cursor. Without an explicit bound the store's page-bounded
+              // default (1,000) silently truncates, and the projector then
+              // records the truncated cursor as if it were caught up.
               eventStore.readFromSequence(
                 Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
+                Number.MAX_SAFE_INTEGER,
               ),
               (event) => runProjectorForEvent(projector, event),
             ),

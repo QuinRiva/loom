@@ -1,0 +1,214 @@
+# Technical review — cross-client thread catch-up
+
+<Callout tone="decision">
+  **Verdict:** the primary diagnosis is correct, and the proposed per-stream replay plus bounded
+  snapshot fallback is the right long-term direction. The plan is not implementation-ready yet:
+  accept the recommendations below unless explicitly rejected. Four must-fix corrections close one
+  independent silent-loss race, repair tests that would otherwise give false confidence, and remove
+  two factual/contract ambiguities.
+</Callout>
+
+<Table
+  filterable
+  density="compact"
+  columns={["ID", "Severity", "Subject", "Recommendation"]}
+  rows={[
+    [
+      "M1",
+      "Must-fix",
+      "Catch-up/live seam",
+      "Use the engine's genuinely eager subscription API and test the pre-attach race",
+    ],
+    [
+      "M2",
+      "Must-fix",
+      "Reported-scenario regression",
+      "Put >1,000 unrelated events before the target events",
+    ],
+    [
+      "M3",
+      "Must-fix",
+      "Per-stream equivalence",
+      "Retain the thread-detail event-type filter; fix the equivalence test",
+    ],
+    [
+      "M4",
+      "Must-fix",
+      "Cache/cursor diagnosis",
+      "Remove the claim that a truncated prefix advances beyond omitted events",
+    ],
+    [
+      "M5",
+      "Must-fix",
+      "Store contract",
+      "Choose required-limit stream or discriminated truncation result; the draft specifies both",
+    ],
+    ["N1", "Nice-to-have", "Completion marker impact", "Correct the state-machine description"],
+    [
+      "N2",
+      "Nice-to-have",
+      "Production measurements",
+      "Record one read snapshot, exact SQL, and non-covering query plan",
+    ],
+  ]}
+/>
+
+## What is verified
+
+The end-to-end primary chain is real:
+
+1. `subscribeThread` requests `readEvents(afterSequence, Number.MAX_SAFE_INTEGER)` and filters by aggregate and event type afterwards at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/ws.ts:1382-1400,1448-1461`.
+2. The loom reader-lane wrapper replaces that method with a one-argument closure at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/persistence/Layers/SqliteLanes.ts:43-47`.
+3. The omitted argument activates the 1,000-event default at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/persistence/Layers/OrchestrationEventStore.ts:71,215-219`.
+4. Production does provide this fork-only layer at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/server.ts:310-311`.
+
+The live database also reproduces the incident shape read-only. At the plan's historical cutoff (`sequence <= 503941`), there are exactly 346,778 events. With cursor 479,072 (approximately 24 hours earlier), thread `561ff3fa-6861-4509-af0b-1698e8792de3` has 148 aggregate events after the cursor, while the first 1,000 global rows end at 480,072 and contain zero events for that thread. The dropped limit is therefore sufficient to explain the reported overnight stale cache.
+
+The IndexedDB cache does not need a schema bump. It holds a valid historical projection and a cursor no later than the last applied thread event. Once replay is complete (or a fresh snapshot is served), the existing snapshot wholesale-replace and sequence-dedup paths at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/packages/client-runtime/src/state/threads.ts:193-246` heal it in place.
+
+<Card
+  heading="M1 · The plan misses a second independent silent connect-gap"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["correctness", "silent event loss", "recovery may require cache reset"]}
+>
+  The plan says to sample the projection cursor after an “eager live attach”, but the thread path does not currently perform one. It builds `streamDomainEvents` lazily and forks its consumer; `forkScoped` returns without establishing that the PubSub subscription as a stated invariant. An event committed after the sampled cursor but before the child fibre subscribes is in neither replay nor the live buffer. A later delivered event can then advance the persisted cursor past the missed event — the same permanent-cache failure class under review.
+
+The shell hardening already replaced this shape with `yield* orchestrationEngine.subscribeDomainEvents`. The thread plan must explicitly require the same API before any cursor/snapshot read, rather than relying on the current queue comments. It also needs a gated connect-gap test that publishes immediately after handler entry, before releasing the cursor/snapshot read; the existing 25 ms sleep test at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/server.test.ts:5848-5912` gives the fork time to attach and does not exercise the race.
+
+<Details summary="Decisive code evidence">
+  - Lazy source and asynchronous buffer producers:
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/ws.ts:1386-1425`. -
+  Genuinely eager API:
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/orchestration/Layers/OrchestrationEngine.ts:464-470`
+  and its contract at
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/orchestration/Services/OrchestrationEngine.ts:54-77`.
+  - The prior shell plan explicitly identifies `Effect.forkScoped(streamDomainEvents…)` as a
+  lazy-attach hazard:
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/plans/2026-07-19-shell-catchup-silent-drop.md`,
+  §3.2.
+</Details>
+
+  <ReviewChoice itemId="m1-eager-attach" label="M1" placeholder="Reason if rejecting the eager-attach correction" />
+</Card>
+
+<Card
+  heading="M2 · The highest-value regression test is ordered backwards"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["validation", "false-green before fix"]}
+>
+  The plan's test appends target-thread events first and then >1,000 unrelated events (`plan.md:346-348`). Current code reads the first 1,000 global events after the cursor, so those early target events are delivered and the test passes before the fix. To reproduce the user failure, append >1,000 unrelated events first, then append the target-thread events; assert the fixed subscription returns all target events. Keep the reader-lane >1,000 explicit-limit test as the direct contract regression.
+
+  <Details summary="Why ordering changes the result">
+    Current SQL is `WHERE sequence > cursor ORDER BY sequence ASC LIMIT 1000` at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/persistence/Layers/OrchestrationEventStore.ts:156-160`. Therefore only events positioned after the first 1,000 global rows are omitted.
+  </Details>
+
+  <ReviewChoice itemId="m2-test-order" label="M2" placeholder="Reason if rejecting the regression-test correction" />
+</Card>
+
+<Card
+  heading="M3 · The claimed per-stream equivalence is false unless the event-type filter remains"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["behavioural contract", "test specification", "cap semantics"]}
+>
+  `readStreamFromSequence({ aggregateKind: "thread", streamId })` returns every event on the thread aggregate, while today's WebSocket path additionally applies `isThreadDetailEvent`. The production database currently has many same-stream types outside that nine-type predicate, including `thread.plan-lane-set`, `thread.meta-updated`, `thread.report-set`, `thread.created`, and `thread.outcome-recorded`. The plan's evidence proves that all selected detail types live on the thread stream; it does not prove the converse.
+
+Require `subscribeThread` to retain `Stream.filter(isThisThreadDetailEvent)` after the per-stream read (or add an explicit event-type predicate to the store query). Define whether the 500 cap counts all thread-aggregate rows or only detail rows. Then compare **per-stream + the retained predicate** against global-read + the same predicate. As written, §4.4's raw equivalence assertion must fail on real data.
+
+<Details summary="Decisive code and data evidence">
+  - Nine-type predicate:
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/ws.ts:274-302`. - The
+  client reducer visibly handles additional same-stream mutations such as deletion, metadata, and
+  plan lane at
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/packages/client-runtime/src/state/threadReducer.ts:234-365`.
+  - Read-only production counts include 2,633 `thread.plan-lane-set`, 2,133 `thread.meta-updated`,
+  1,405 `thread.report-set`, 1,322 `thread.created`, and 1,300 `thread.outcome-recorded` rows, all
+  outside the server predicate.
+</Details>
+
+  <ReviewChoice itemId="m3-stream-filter" label="M3" placeholder="Reason if rejecting the equivalence correction" />
+</Card>
+
+<Card
+  heading="M4 · Truncation does not advance the thread cursor beyond omitted events"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["diagnostic accuracy", "cache remains valid"]}
+>
+  The plan imports the shell incident's “gap sealing” mechanism into thread detail, but the reducer advances `lastSequence` only for events actually delivered to this thread. Because the store returns an ordered global prefix, any omitted target-thread event has a higher sequence than every delivered target-thread event. A truncated prefix therefore leaves a valid historical state and a cursor before the omission; it cannot advance beyond it.
+
+For the reported zero-delivery case, reconnects are still permanently stuck because the unchanged cursor repeatedly scans the same irrelevant 1,000-row window. If a truncated window contains some target events, subsequent reconnects can crawl forward from the last delivered target event. Correct §1.3 and retain the no-schema-bump conclusion.
+
+<Details summary="Decisive client evidence">
+  Sequence dedup and advancement occur at
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/packages/client-runtime/src/state/threads.ts:235-246`;
+  persistence uses that exact `lastSequence` at
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/packages/client-runtime/src/state/threads.ts:145-161`.
+  No unrelated global event reaches this reducer because of
+  `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/ws.ts:1382-1400,1450-1455`.
+</Details>
+
+  <ReviewChoice itemId="m4-cursor-mechanism" label="M4" placeholder="Reason if rejecting the cursor-diagnosis correction" />
+</Card>
+
+<Card
+  heading="M5 · §3.1 specifies two incompatible store contracts"
+  tone="risk"
+  badge="MUST-FIX"
+  meta={["implementation ambiguity", "API surface"]}
+>
+  The prose requires an observable truncation signal and says the store gains a sibling returning a discriminated result (`plan.md:186-190`), but the shown signature still returns only `Stream&lt;OrchestrationEvent,…&gt;` and later §3.3 deliberately keeps the store simple by probing `cap + 1`. Pick one contract. The smaller sound design is: make `limit` required end-to-end, directly delegate the reader lane, and let bounded callers detect overflow with `cap + 1`; remove the unused discriminated-result promise.
+
+Also make both `OrchestrationEventStoreShape.readFromSequence` and `OrchestrationEngineShape.readEvents` require the limit. Otherwise the intended compiler forcing function is only partially specified.
+
+  <ReviewChoice itemId="m5-store-contract" label="M5" placeholder="Reason if preferring an explicit truncation-result API" />
+</Card>
+
+## Nice-to-have corrections
+
+<Card
+  heading="N1 · Completion-marker defect is real, but its stated fallback paths are not"
+  tone="warning"
+  badge="NICE-TO-HAVE"
+  meta={["state-machine prose", "independent status bug"]}
+>
+  The server advertises the marker and never emits it; implementing the gated marker is sound. However, an unrelated live event does not move the client to `live`: `setThread` keeps status `synchronizing` while `awaitingCompletion` is true, and the supervisor's ready transition also writes `synchronizing`. Only a marker clears the flag and sets `live`; errors/disconnects leave synchronizing but do not establish live state.
+
+Evidence: `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/packages/client-runtime/src/state/threads.ts:119-160,193-202,278-323` and server capability advertisement at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-d0e78679/apps/server/src/ws.ts:900-906`.
+
+  <ReviewChoice itemId="n1-marker-impact" label="N1" placeholder="Optional note" />
+</Card>
+
+<Card
+  heading="N2 · Production measurements need a reproducible, single-snapshot appendix"
+  tone="warning"
+  badge="NICE-TO-HAVE"
+  meta={["empirical claims", "read-only DB"]}
+>
+  The primary 148/0 example reproduces, but other quoted figures were collected from a changing live database without their SQL or cutoff. At `sequence <= 503941`, the total is exactly 346,778, but the nine detail types total 330,009 rather than the stated 339,332; the latter is close to a later live count. The actual full-row per-stream query uses `idx_orch_events_stream_sequence` but is **not covering**, because event payload columns require table lookups. On the current warm DB its SQL execution is sub-millisecond for this thread; ~15 ms may include Effect/schema decoding, but the plan does not say so. The “83 of 100” denominator/method cannot be independently re-derived from the document.
+
+Record one transaction cutoff, exact SQL, selection rule for the 100 threads, and whether timings include decoding. This does not undermine the root cause; it makes the evidence auditable.
+
+  <ReviewChoice itemId="n2-measurements" label="N2" placeholder="Optional note" />
+</Card>
+
+## Required validation adjustments
+
+- Direct lane test: >1,000 persisted rows and `readEvents(0, Number.MAX_SAFE_INTEGER)` returns all — valid and fails today.
+- Incident test: >1,000 unrelated rows **before** the target rows — required correction from M2.
+- Overflow boundary: `cap + 1` matching detail rows snapshots; exactly `cap` replays; unrelated same-stream rows follow the explicit cap semantics chosen in M3.
+- Client-ahead case: snapshot replacement — valid.
+- Per-stream equivalence: compare after the same detail predicate — required correction from M3.
+- Seam test: acquire `subscribeDomainEvents`, hold the cursor/snapshot read on a deferred, publish, release, then assert replay/snapshot → marker (when requested) → buffered event with no loss — required addition from M1.
+- Marker tests: requested exactly once between initial leg and live leg; unrequested absent — valid.
+- Projector >1,000 behind: valid; a cheaper unit test can additionally assert `bootstrapProjector` supplies the explicit unbounded limit.
+
+<Callout tone="success">
+  **Bottom line:** the dropped reader-lane limit is the demonstrated primary cause, production
+  wiring really uses it, and a fixed cache self-heals without IndexedDB migration. The optimal fix
+  remains required explicit limits + a per-thread bounded read + snapshot fallback + truthful
+  completion marker. Before implementation, amend the design for M1–M5; M1 is the only newly
+  identified independent content-loss bug.
+</Callout>

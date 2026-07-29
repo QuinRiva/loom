@@ -159,6 +159,15 @@ const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 // blips, short sleep). A large overnight gap — the incident habitat — snapshots.
 const SHELL_CATCHUP_MAX_EVENTS = 500;
 
+// loom: cap catch-up replay on the thread subscription's afterSequence path.
+// Unlike the shell cap this counts ONE thread's detail events (the per-stream
+// read makes that the natural unit), so it is far more generous in practice: the
+// incident that motivated this work needed 148. A thread exceeding it is a
+// long-running one where a single snapshot beats a long event tail. Semantics:
+// replay up to and including 500 detail events; snapshot only when a 501st
+// exists. See plans/2026-07-28-thread-catchup-silent-truncation.md.
+const THREAD_CATCHUP_MAX_EVENTS = 500;
+
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
 function unexpectedCompatibilityError(error: never): never {
@@ -901,7 +910,18 @@ const makeWsRpcLayer = (
             otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
           },
           settings,
-          shellResumeCompletionMarker: true,
+          // loom: NOT advertised. Upstream emits a shell `synchronized` marker by
+          // offering it into a value-only live buffer, but loom's shell leg
+          // deliberately maps `toShellStreamEvent` on the CONSUMING stream and
+          // never forks into such a buffer, so a mapper failure keeps its error
+          // channel (the silent-drop fix). A marker concatenated ahead of the live
+          // leg would also overtake events already buffered in the subscription
+          // during the snapshot read — the ordering hazard the thread path avoids
+          // via its shared queue. No client requests this marker, so advertise
+          // only what is honoured rather than restructuring that invariant for no
+          // consumer. The thread marker below IS implemented (its client uses it).
+          // See plans/2026-07-28-thread-catchup-silent-truncation.md.
+          shellResumeCompletionMarker: false,
           threadResumeCompletionMarker: true,
         };
       });
@@ -1236,6 +1256,9 @@ const makeWsRpcLayer = (
                   maximum: Number.MAX_SAFE_INTEGER,
                   minimum: 0,
                 }),
+                // loom: replay means replay — state the bound explicitly rather
+                // than inheriting the store's page-bounded default.
+                Number.MAX_SAFE_INTEGER,
               ),
             ).pipe(
               Effect.map((events) => Array.from(events)),
@@ -1383,7 +1406,15 @@ const makeWsRpcLayer = (
                 event.aggregateId === input.threadId &&
                 isThreadDetailEvent(event);
 
-              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+              // loom: EAGER attach (`subscribeDomainEvents`), matching the shell
+              // path. The lazy `streamDomainEvents` value only subscribed when the
+              // forked fibre first pulled, leaving a silent connect-gap for events
+              // committed between the snapshot/cursor read below and that first
+              // pull. The gap-free-seam reasoning further down DEPENDS on the
+              // subscription existing before the cursor is sampled.
+              // See plans/2026-07-28-thread-catchup-silent-truncation.md.
+              const rawThreadLive = yield* orchestrationEngine.subscribeDomainEvents;
+              const liveStream = rawThreadLive.pipe(
                 Stream.filter(isThisThreadDetailEvent),
                 Stream.map((event) => ({
                   kind: "event" as const,
@@ -1425,6 +1456,27 @@ const makeWsRpcLayer = (
               );
               const bufferedLiveStream = Stream.fromQueue(liveBuffer);
 
+              // loom: re-homed from upstream 8e3467fe6, whose server-side emission
+              // was lost in the fork's upstream-rehome (777bd20f8) while the
+              // advertised `threadResumeCompletionMarker` flag and the whole client
+              // handler were kept — so clients waited on a marker that never came.
+              //
+              // The marker is OFFERED INTO THE SAME QUEUE as the live events, not
+              // concatenated ahead of the stream. FIFO ordering is the point: a
+              // marker concatenated before `bufferedLiveStream` would overtake
+              // events already buffered during the snapshot/catch-up window, so the
+              // client would be told "synchronised" before applying them.
+              // See plans/2026-07-28-thread-catchup-silent-truncation.md.
+              const withThreadCompletionMarker = () =>
+                input.requestCompletionMarker === true
+                  ? Stream.concat(
+                      Stream.fromEffect(
+                        Queue.offer(liveBuffer, { kind: "synchronized" as const }),
+                      ).pipe(Stream.drain),
+                      bufferedLiveStream,
+                    )
+                  : bufferedLiveStream;
+
               // When the client already loaded the snapshot over HTTP it passes
               // that snapshot's sequence, and we resume the live subscription by
               // replaying persisted events after it instead of re-sending the
@@ -1438,58 +1490,116 @@ const makeWsRpcLayer = (
               // catch-up followed by the buffered/ongoing live events. Overlapping
               // events are deduped by sequence on the client.
               //
-              // Read the full range after the cursor (not the store's default
-              // page-bounded limit): the range is normally tiny (a fresh HTTP
-              // snapshot sequence) and the per-thread filter runs after reading,
-              // so a global cap could otherwise omit this thread's events.
-              if (input.afterSequence !== undefined) {
-                const afterSequence = input.afterSequence;
-                const catchUpStream = orchestrationEngine
-                  .readEvents(afterSequence, Number.MAX_SAFE_INTEGER)
+              // loom: load the authoritative snapshot frame. Hoisted so both the
+              // ordinary path and the catch-up fallbacks below can serve it.
+              const loadThreadSnapshotItem = Effect.gen(function* () {
+                const snapshot = yield* projectionSnapshotQuery
+                  .getThreadDetailSnapshot(input.threadId)
                   .pipe(
-                    Stream.filter(isThisThreadDetailEvent),
-                    Stream.map((event) => ({ kind: "event" as const, event })),
-                    Stream.mapError(
+                    Effect.mapError(
                       (cause) =>
                         new OrchestrationGetSnapshotError({
-                          message: `Failed to replay thread ${input.threadId} events`,
+                          message: `Failed to load thread ${input.threadId}`,
                           cause,
                         }),
                     ),
                   );
-                // loom: bufferedLiveStream already carries the transient reasoning
-                // deltas (forked into the shared buffer above), so reasoning still
-                // streams on the afterSequence resume path.
-                return Stream.concat(catchUpStream, bufferedLiveStream);
-              }
+                if (Option.isNone(snapshot)) {
+                  return yield* new OrchestrationGetSnapshotError({
+                    message: `Thread ${input.threadId} was not found`,
+                    cause: input.threadId,
+                  });
+                }
+                return { kind: "snapshot" as const, snapshot: snapshot.value };
+              });
 
-              const snapshot = yield* projectionSnapshotQuery
-                .getThreadDetailSnapshot(input.threadId)
-                .pipe(
+              // loom: bounded, per-stream catch-up with a snapshot fallback — the
+              // shape the shell path already uses.
+              //
+              // Previously this read the GLOBAL stream after the cursor and filtered
+              // to this thread afterwards, so the limit bounded events *scanned*,
+              // not events *returned*. Combined with the reader lane dropping the
+              // limit entirely, a busy server pushed the thread's own events past
+              // the bound and the resume delivered NOTHING — silently, because a
+              // truncated stream still succeeds. Clients then stayed stale across
+              // machines until their cache was cleared by hand.
+              // See plans/2026-07-28-thread-catchup-silent-truncation.md.
+              if (input.afterSequence !== undefined) {
+                const afterSequence = input.afterSequence;
+                // Sample the cursor AFTER the eager live attach above: an event
+                // publishes to the PubSub only once its projection update commits,
+                // so anything missing from the already-attached subscription is
+                // ≤ this cursor and therefore inside the read interval — the
+                // catch-up/live seam is gap-free.
+                const { snapshotSequence } = yield* projectionSnapshotQuery
+                  .getSnapshotSequence()
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: "Failed to read orchestration projection cursor",
+                          cause,
+                        }),
+                    ),
+                  );
+
+                // Client ahead of the server (restored DB backup, projection
+                // reset): its cursor references events this server does not have,
+                // so replay cannot make it correct. Snapshot instead.
+                if (afterSequence > snapshotSequence) {
+                  return Stream.concat(
+                    Stream.make(yield* loadThreadSnapshotItem),
+                    bufferedLiveStream,
+                  );
+                }
+
+                // Read one past the cap so a full window is distinguishable from a
+                // truncated one without adding a truncation signal to the store.
+                // The cap counts this thread's DETAIL events — the ones actually
+                // sent — so lifecycle churn cannot trip the fallback on its own.
+                const catchUpEvents = yield* Stream.runCollect(
+                  orchestrationEngine
+                    .readStreamEvents({
+                      aggregateKind: "thread",
+                      streamId: input.threadId,
+                      sequenceExclusive: afterSequence,
+                      limit: THREAD_CATCHUP_MAX_EVENTS + 1,
+                    })
+                    .pipe(Stream.filter(isThreadDetailEvent)),
+                ).pipe(
+                  Effect.map((chunk) => Array.from(chunk)),
                   Effect.mapError(
                     (cause) =>
                       new OrchestrationGetSnapshotError({
-                        message: `Failed to load thread ${input.threadId}`,
+                        message: `Failed to replay thread ${input.threadId} events`,
                         cause,
                       }),
                   ),
                 );
 
-              if (Option.isNone(snapshot)) {
-                return yield* new OrchestrationGetSnapshotError({
-                  message: `Thread ${input.threadId} was not found`,
-                  cause: input.threadId,
-                });
+                // Beyond the cap a snapshot is both cheaper and honest; emitting a
+                // truncated prefix would look like a complete resume.
+                if (catchUpEvents.length > THREAD_CATCHUP_MAX_EVENTS) {
+                  return Stream.concat(
+                    Stream.make(yield* loadThreadSnapshotItem),
+                    bufferedLiveStream,
+                  );
+                }
+
+                const catchUpStream = Stream.fromIterable(
+                  catchUpEvents.map((event) => ({ kind: "event" as const, event })),
+                );
+                // bufferedLiveStream already carries the transient reasoning deltas
+                // (forked into the shared buffer above), so reasoning still streams
+                // on the afterSequence resume path.
+                return Stream.concat(catchUpStream, withThreadCompletionMarker());
               }
 
               return Stream.concat(
-                Stream.make({
-                  kind: "snapshot" as const,
-                  snapshot: snapshot.value,
-                }),
+                Stream.make(yield* loadThreadSnapshotItem),
                 // loom: bufferedLiveStream carries both durable events and the
                 // transient reasoning deltas forked into the shared buffer above.
-                bufferedLiveStream,
+                withThreadCompletionMarker(),
               );
             }),
             { "rpc.aggregate": "orchestration" },

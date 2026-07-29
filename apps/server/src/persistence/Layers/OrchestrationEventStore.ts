@@ -68,6 +68,13 @@ const ReadFromSequenceRequestSchema = Schema.Struct({
   sequenceExclusive: NonNegativeInt,
   limit: Schema.Number,
 });
+// loom: per-stream catch-up reads (see readStreamFromSequence).
+const ReadStreamFromSequenceRequestSchema = Schema.Struct({
+  aggregateKind: Schema.String,
+  streamId: Schema.String,
+  sequenceExclusive: NonNegativeInt,
+  limit: Schema.Number,
+});
 const DEFAULT_READ_FROM_SEQUENCE_LIMIT = 1_000;
 const READ_PAGE_SIZE = 500;
 
@@ -185,6 +192,38 @@ const makeEventStore = Effect.gen(function* () {
       `,
   });
 
+  // loom: read ONE aggregate's events after a cursor. Resuming a single thread by
+  // reading the global stream and filtering afterwards means the limit bounds
+  // events *scanned* rather than events *returned*, so a busy server pushes the
+  // thread's own events outside any bound. This is served by the existing
+  // (aggregate_kind, stream_id, sequence) covering index.
+  // See plans/2026-07-28-thread-catchup-silent-truncation.md.
+  const readStreamEventRowsFromSequence = SqlSchema.findAll({
+    Request: ReadStreamFromSequenceRequestSchema,
+    Result: OrchestrationEventPersistedRowSchema,
+    execute: (request) =>
+      sql`
+        SELECT
+          sequence,
+          event_id AS "eventId",
+          event_type AS "type",
+          aggregate_kind AS "aggregateKind",
+          stream_id AS "aggregateId",
+          occurred_at AS "occurredAt",
+          command_id AS "commandId",
+          causation_event_id AS "causationEventId",
+          correlation_id AS "correlationId",
+          payload_json AS "payload",
+          metadata_json AS "metadata"
+        FROM orchestration_events
+        WHERE aggregate_kind = ${request.aggregateKind}
+          AND stream_id = ${request.streamId}
+          AND sequence > ${request.sequenceExclusive}
+        ORDER BY sequence ASC
+        LIMIT ${request.limit}
+      `,
+  });
+
   const append: OrchestrationEventStoreShape["append"] = (event) =>
     appendEventRow({
       eventId: event.eventId,
@@ -264,9 +303,68 @@ const makeEventStore = Effect.gen(function* () {
     return readPage(sequenceExclusive, normalizedLimit);
   };
 
+  // loom: unlike readFromSequence, the limit here is REQUIRED — this is a
+  // fork-owned API, so the stricter contract costs no upstream divergence and
+  // makes a silent page-bounded default impossible.
+  const readStreamFromSequence: OrchestrationEventStoreShape["readStreamFromSequence"] = (
+    input,
+  ) => {
+    const normalizedLimit = Math.max(0, Math.floor(input.limit));
+    if (normalizedLimit === 0) {
+      return Stream.empty;
+    }
+    const readPage = (
+      cursor: number,
+      remaining: number,
+    ): Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError> =>
+      Stream.fromEffect(
+        readStreamEventRowsFromSequence({
+          aggregateKind: input.aggregateKind,
+          streamId: input.streamId,
+          sequenceExclusive: cursor,
+          limit: Math.min(remaining, READ_PAGE_SIZE),
+        }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "OrchestrationEventStore.readStreamFromSequence:query",
+              "OrchestrationEventStore.readStreamFromSequence:decodeRows",
+            ),
+          ),
+          Effect.flatMap((rows) =>
+            Effect.forEach(rows, (row) =>
+              decodeEvent(row).pipe(
+                Effect.mapError(
+                  toPersistenceDecodeError(
+                    "OrchestrationEventStore.readStreamFromSequence:rowToEvent",
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ).pipe(
+        Stream.flatMap((events) => {
+          if (events.length === 0) {
+            return Stream.empty;
+          }
+          const nextRemaining = remaining - events.length;
+          if (nextRemaining <= 0) {
+            return Stream.fromIterable(events);
+          }
+          return Stream.concat(
+            Stream.fromIterable(events),
+            readPage(events[events.length - 1]!.sequence, nextRemaining),
+          );
+        }),
+      );
+
+    return readPage(input.sequenceExclusive, normalizedLimit);
+  };
+
   return {
     append,
     readFromSequence,
+    readStreamFromSequence,
     readAll: () => readFromSequence(0, Number.MAX_SAFE_INTEGER),
   } satisfies OrchestrationEventStoreShape;
 });
