@@ -103,6 +103,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
+          getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
@@ -180,6 +181,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
+        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
@@ -239,6 +241,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
+        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
@@ -304,6 +307,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
+        getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>

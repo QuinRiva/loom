@@ -871,6 +871,85 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("reads a thread's live subtree with per-member session liveness", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-subtree', 'Subtree', '/tmp/subtree',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-06T00:00:00.000Z', '2026-04-06T00:00:01.000Z', NULL
+        )
+      `;
+
+      // root → child → grandchild, plus a deleted child (excluded) and an
+      // unrelated thread (never reachable through the lineage edge).
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, parent_thread_id, title, model_selection_json,
+          runtime_mode, interaction_mode, latest_user_message_at,
+          pending_approval_count, pending_user_input_count,
+          has_actionable_proposed_plan, created_at, updated_at, archived_at, deleted_at
+        ) VALUES
+          ('subtree-root', 'project-subtree', NULL, 'Root',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:02.000Z', '2026-04-06T00:00:02.000Z', NULL, NULL),
+          ('subtree-child', 'project-subtree', 'subtree-root', 'Child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:03.000Z', '2026-04-06T00:00:03.000Z', NULL, NULL),
+          ('subtree-grandchild', 'project-subtree', 'subtree-child', 'Grandchild',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:04.000Z', '2026-04-06T00:00:04.000Z', NULL, NULL),
+          ('subtree-deleted', 'project-subtree', 'subtree-root', 'Deleted',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:05.000Z', '2026-04-06T00:00:05.000Z', NULL,
+           '2026-04-06T00:00:06.000Z'),
+          ('subtree-unrelated', 'project-subtree', NULL, 'Unrelated',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:07.000Z', NULL, NULL)
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_sessions (
+          thread_id, status, provider_name, provider_session_id,
+          provider_thread_id, runtime_mode, active_turn_id, last_error, updated_at
+        ) VALUES
+          ('subtree-child', 'running', 'codex', NULL, NULL, 'full-access', NULL, NULL,
+           '2026-04-06T00:00:08.000Z'),
+          ('subtree-grandchild', 'stopped', 'codex', NULL, NULL, 'full-access', NULL, NULL,
+           '2026-04-06T00:00:08.000Z')
+      `;
+
+      const sweep = yield* snapshotQuery.getLiveSubtreeSessionLiveness(
+        ThreadId.make("subtree-root"),
+      );
+      assert.deepEqual(sweep, [
+        { threadId: ThreadId.make("subtree-child"), hasLiveSession: true },
+        { threadId: ThreadId.make("subtree-grandchild"), hasLiveSession: false },
+        { threadId: ThreadId.make("subtree-root"), hasLiveSession: false },
+      ]);
+
+      // An unknown root still yields itself, so the archive sweep never skips
+      // the thread the command actually named.
+      const unknownSweep = yield* snapshotQuery.getLiveSubtreeSessionLiveness(
+        ThreadId.make("subtree-missing"),
+      );
+      assert.deepEqual(unknownSweep, [
+        { threadId: ThreadId.make("subtree-missing"), hasLiveSession: false },
+      ]);
+    }),
+  );
+
   it.effect("keeps settled threads in the shell snapshot with non-null settlement fields", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

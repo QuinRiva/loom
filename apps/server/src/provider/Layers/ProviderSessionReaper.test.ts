@@ -255,6 +255,7 @@ describe("ProviderSessionReaper", () => {
           getThreadDetailSnapshotById: () => Effect.die("unused"),
           getThreadActivitiesPage: () => Effect.die("unused"),
           getThreadLifecycle: () => Effect.die("unused"),
+          getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
