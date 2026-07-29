@@ -25,6 +25,14 @@ describe("kickoffTextForPrompt (D8 workstream_prompt kickoff re-delivery)", () =
     expect(text).not.toContain(brief);
   });
 
+  it("states gate membership in the kickoff when the child carries a loop route", () => {
+    const gated = workstreamChildPrompt({ role: "reviewer", brief, gateTargetId: "coder-123" });
+    expect(gated).toContain("You are inside a review gate");
+    expect(gated).toContain("coder-123");
+    const ungated = workstreamChildPrompt({ role: "reviewer", brief });
+    expect(ungated).not.toContain("review gate");
+  });
+
   it("falls back to the raw brief for a role-less legacy child", () => {
     const text = kickoffTextForPrompt({ delivered: false, role: null, brief, message });
     expect(text).toBe(`${brief}\n\n${message}`);

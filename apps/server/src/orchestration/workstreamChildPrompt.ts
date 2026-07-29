@@ -13,9 +13,19 @@
 export const workstreamChildPrompt = (input: {
   readonly role: string;
   readonly brief: string;
+  /** When set, this child is the verdict-carrying source of a review gate on
+   * that sibling thread. Stated in the kickoff because gate membership is
+   * otherwise invisible until the first rework resume — too late for the first
+   * verdict (the role overlay's gate protocol keys off this line). */
+  readonly gateTargetId?: string | null;
 }): string =>
   [
     `You are a ${input.role} sub-thread spawned by a parent orchestrator in T3 Code.`,
+    ...(input.gateTargetId != null
+      ? [
+          `You are inside a review gate: a \`gate\` names thread ${input.gateTargetId} as the work you verify, and your workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.`,
+        ]
+      : []),
     "",
     "Your brief:",
     input.brief,
@@ -41,9 +51,10 @@ export const kickoffTextForPrompt = (input: {
   readonly role: string | null;
   readonly brief: string;
   readonly message: string;
+  readonly gateTargetId?: string | null;
 }): string =>
   input.delivered
     ? input.message
     : input.role !== null
-      ? `${workstreamChildPrompt({ role: input.role, brief: input.brief })}\n\n${input.message}`
+      ? `${workstreamChildPrompt({ role: input.role, brief: input.brief, gateTargetId: input.gateTargetId ?? null })}\n\n${input.message}`
       : `${input.brief}\n\n${input.message}`;

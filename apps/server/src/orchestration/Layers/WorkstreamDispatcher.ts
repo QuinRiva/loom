@@ -2047,7 +2047,7 @@ const make = Effect.gen(function* () {
         messageId: MessageId.make(yield* crypto.randomUUIDv4),
         role: "user",
         origin: "kickoff",
-        text: workstreamChildPrompt({ role, brief }),
+        text: workstreamChildPrompt({ role, brief, gateTargetId: gateLoopTargetOf(thread) }),
         attachments: [],
       },
       titleSeed: thread.title,

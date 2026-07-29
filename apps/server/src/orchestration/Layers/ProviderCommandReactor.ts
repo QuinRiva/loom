@@ -24,6 +24,7 @@ import { renderUserInputOutcomeAsTurnOpener } from "@t3tools/shared/userInputOut
 import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { dispatchUserInputResolutions } from "../userInputSettlement.ts";
 import { slugify } from "@t3tools/shared/String";
+import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -1153,7 +1154,7 @@ const make = Effect.gen(function* () {
         : (thread.brief ?? thread.purpose);
     const effectiveMessageText =
       recoveredNeverStartedChild && thread.role !== null && kickoffBrief !== null
-        ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief })}\n\n${message.text}`
+        ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief, gateTargetId: gateLoopTargetOf(thread) })}\n\n${message.text}`
         : message.text;
 
     const userMessages = thread.messages.filter((entry) => entry.role === "user");
