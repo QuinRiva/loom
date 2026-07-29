@@ -180,7 +180,7 @@ describe("sanitizeWireframeHtml — srcset scheme validation [S3]", () => {
   it("strips javascript: srcset but keeps a safe candidate list", () => {
     const el = parse(
       sanitizeWireframeHtml(
-        "<img srcset='javascript:pwn() 1x' />" + "<source srcset='/a.png 1x, /b.png 2x' />",
+        "<img srcset='javascript:pwn() 1x' /><source srcset='/a.png 1x, /b.png 2x' />",
       ),
     );
     expect(el.querySelector("img")?.getAttribute("srcset")).toBeNull();

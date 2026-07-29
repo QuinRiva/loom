@@ -471,7 +471,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         preserveThemeClasses: design,
         onStrip: (message) => stripped.push(message),
       });
-      for (const message of [...new Set(stripped)]) {
+      for (const message of new Set(stripped)) {
         findings.push({
           severity: "warning",
           ...at(node),
