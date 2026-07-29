@@ -26,6 +26,7 @@ import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it } from "vite-plus/test";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -79,16 +80,21 @@ async function createOrchestrationSystem(baseDir?: string) {
     Layer.provide(RepositoryIdentityResolver.layer),
     // A shared baseDir needs a FILE-backed database for the restart to see the
     // first system's rows; the default in-memory client is per-connection.
-    Layer.provide(baseDir === undefined ? SqlitePersistenceMemory : sqlitePersistenceLayerConfig),
+    // `provideMerge` exposes the SqlClient so a test can snapshot the database.
+    Layer.provideMerge(
+      baseDir === undefined ? SqlitePersistenceMemory : sqlitePersistenceLayerConfig,
+    ),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
   const runtime = ManagedRuntime.make(orchestrationLayer);
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
+  const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   return {
     engine,
     snapshotQuery,
+    sql,
     readModel: () => runtime.runPromise(snapshotQuery.getSnapshot()),
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
@@ -439,12 +445,28 @@ describe("OrchestrationEngine", () => {
       );
     };
 
-    // The probe command: `set_lane done` emits a clear-ALL `attention-cleared`
-    // only when `attention.length > 0`. That branch is exactly what a leaked
-    // derived member would flip, so the same command id in both runs makes the two
-    // event streams directly comparable.
-    const setLaneDone = (system: Awaited<ReturnType<typeof createOrchestrationSystem>>) =>
-      system.run(
+    // The probe: `set_lane done` emits a clear-ALL `attention-cleared` only when
+    // `attention.length > 0`. That branch is exactly what a leaked derived member
+    // would flip, so the probe's OWN emitted events are the behavioural signal.
+    //
+    // Each case runs the probe exactly ONCE, against its own copy of the seeded
+    // database. Two earlier mistakes are deliberately excluded by that design:
+    // dispatching the same command id twice against ONE database makes the second
+    // dispatch return from the accepted-receipt guard
+    // (`OrchestrationEngine.ts:172`) without ever invoking the decider, and
+    // reading the whole event log from one shared database compares a history to
+    // itself. Both make the comparison tautological.
+    const probe = async (system: Awaited<ReturnType<typeof createOrchestrationSystem>>) => {
+      // Cursor taken BEFORE the probe, so only events the probe itself emitted are
+      // compared — never the seed history the two cases share by construction.
+      const beforeSequence = await system.run(
+        Stream.runCollect(system.engine.readEvents(0)).pipe(
+          Effect.map((chunk) => Array.from(chunk).length),
+        ),
+      );
+      const shell = await system.run(system.snapshotQuery.getShellSnapshot());
+      const readModel = await system.run(system.snapshotQuery.getCommandReadModel());
+      await system.run(
         system.engine
           .dispatch({
             type: "thread.plan-lane.set",
@@ -455,45 +477,66 @@ describe("OrchestrationEngine", () => {
           })
           .pipe(Effect.result),
       );
-
-    const emittedTypes = (system: Awaited<ReturnType<typeof createOrchestrationSystem>>) =>
-      system.run(
-        Stream.runCollect(system.engine.readEvents(0)).pipe(
+      const emitted = await system.run(
+        Stream.runCollect(system.engine.readEvents(beforeSequence)).pipe(
           Effect.map((chunk) => Array.from(chunk).map((event) => event.type)),
         ),
       );
+      return {
+        shellAttention: shell.threads.find((t) => t.id === threadId)?.attention,
+        readModelAttention: readModel.threads.find((t) => t.id === threadId)?.attention,
+        emitted,
+      };
+    };
 
-    const live = await createOrchestrationSystem(baseDir);
-    await seed(live);
-    // The shell DOES carry the derived flag — this is the wire contract the board,
-    // the parent-wake rail, and the bridge read.
-    const liveShell = await live.run(live.snapshotQuery.getShellSnapshot());
-    expect(liveShell.threads.find((t) => t.id === threadId)?.attention).toEqual(["awaiting_input"]);
-    // The decider's hydration source does NOT.
-    const liveReadModel = await live.run(live.snapshotQuery.getCommandReadModel());
-    expect(liveReadModel.threads.find((t) => t.id === threadId)?.attention).toEqual([]);
-    await setLaneDone(live);
-    const liveEvents = await emittedTypes(live);
-    await live.dispose();
+    // The LIVE case is the engine that has been running since the seed: its
+    // decider model was built incrementally by the in-memory projector, which is
+    // the "before" half of before-and-after-a-restart. Snapshotting it into a
+    // separate database first (`VACUUM INTO`, so the copy is a consistent
+    // standalone file rather than a mid-WAL one) lets the RESTARTED case hydrate
+    // from byte-identical persisted state via `getCommandReadModel` while the live
+    // engine keeps its in-memory model. Probing two freshly-created systems would
+    // make BOTH cases hydration paths and the comparison tautological again.
+    const liveSystem = await createOrchestrationSystem(baseDir);
+    await seed(liveSystem);
 
-    // Fresh engine, same database: the decider's in-memory model is rebuilt from
-    // `getCommandReadModel` rather than from live projection.
-    const restarted = await createOrchestrationSystem(baseDir);
-    const restartedReadModel = await restarted.run(restarted.snapshotQuery.getCommandReadModel());
-    expect(restartedReadModel.threads.find((t) => t.id === threadId)?.attention).toEqual([]);
-    const restartedShell = await restarted.run(restarted.snapshotQuery.getShellSnapshot());
-    expect(restartedShell.threads.find((t) => t.id === threadId)?.attention).toEqual([
-      "awaiting_input",
-    ]);
-    await setLaneDone(restarted);
-    const restartedEvents = await emittedTypes(restarted);
-    await restarted.dispose();
+    const restartedDir = NodeFS.mkdtempSync(
+      NodePath.join(NodeOS.tmpdir(), "t3-engine-restart-after-"),
+    );
+    NodeFS.mkdirSync(NodePath.join(restartedDir, "userdata"), { recursive: true });
+    const restartedDbPath = NodePath.join(restartedDir, "userdata", "state.sqlite");
+    await liveSystem.run(liveSystem.sql`VACUUM INTO ${restartedDbPath}`.pipe(Effect.orDie));
 
-    // The diff: identical event streams, and neither emitted an attention-clear
-    // — the decider saw an EMPTY stored set both times. A leaked derived member
-    // would have produced a clear-all on whichever side saw it.
-    expect(restartedEvents).toEqual(liveEvents);
-    expect(liveEvents.filter((type) => type === "thread.attention-cleared")).toEqual([]);
+    const live = await probe(liveSystem);
+    await liveSystem.dispose();
+
+    const restartedSystem = await createOrchestrationSystem(restartedDir);
+    const restarted = await probe(restartedSystem);
+    await restartedSystem.dispose();
+
+    // The shell DOES carry the derived flag — the wire contract the board, the
+    // parent-wake rail, and the bridge read — in both cases.
+    expect(live.shellAttention).toEqual(["awaiting_input"]);
+    expect(restarted.shellAttention).toEqual(["awaiting_input"]);
+    // The decider's hydration source does NOT, in either case.
+    expect(live.readModelAttention).toEqual([]);
+    expect(restarted.readModelAttention).toEqual([]);
+
+    // The behavioural pin: each probe ran the decider for real, and emitted the
+    // SAME events. A derived member reaching hydration would make the probe emit a
+    // clear-all `thread.attention-cleared`, so this comparison — not just the
+    // direct assertions above — fails on a leak.
+    expect(restarted.emitted).toEqual(live.emitted);
+    expect(live.emitted).toContain("thread.plan-lane-set");
+    expect(live.emitted).not.toContain("thread.attention-cleared");
+    expect(restarted.emitted).not.toContain("thread.attention-cleared");
+
+    // These two dirs are created outside the layer scope (the databases must
+    // outlive their engines), so they are not swept by the scoped-temp-dir
+    // cleanup the rest of the harness gets.
+    for (const dir of [baseDir, restartedDir]) {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("notify_thread: an idle target that became terminal in the serial boundary is not re-engaged", async () => {

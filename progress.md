@@ -399,8 +399,28 @@ Two things worth recording because they are not spelled out in the plan.
   uncapped, folded by the same shared `openUserInputRequestIds` the shell count
   and the decider's `hasOpenBlockingRequest` use, so all three cannot disagree.
 
-The decider-exclusion invariant is pinned by an actual restart diff
-(`OrchestrationEngine.test.ts`): two engines over one database file, the same
-`set_lane done` probe (whose clear-all branch is exactly what a leaked derived
-member would flip), asserting identical emitted-event streams. Verified
-mutation-sensitive — adding the union to `getCommandReadModel` fails it.
+The decider-exclusion invariant is pinned by a real restart diff
+(`OrchestrationEngine.test.ts`), and getting that test to actually test anything
+took two corrections worth recording, because both failure modes look like
+passing tests:
+
+1. **Dispatching the same command id twice against one database never reaches the
+   decider the second time.** The accepted receipt short-circuits at
+   `OrchestrationEngine.ts:172`, so the "restarted" probe returned the first
+   probe's sequence without deciding anything.
+2. **Reading the whole event log from a shared database compares a history to
+   itself.** Both probes must be compared on the events _they_ emitted (a cursor
+   taken before each probe), not on the log they share by construction.
+
+The shape that actually pins it: seed a live engine (its decider model built
+incrementally by the in-memory projector — the genuine "before"), snapshot the
+database with `VACUUM INTO` to a second path, run the SAME `set_lane done` probe
+once in each, and compare only each probe's newly-emitted events. `set_lane done`
+is the probe because its clear-all branch is gated on `attention.length > 0`,
+which is exactly what a leaked derived member flips.
+
+Mutation-verified the way a reviewer would attack it: with the union leaked into
+`getCommandReadModel` AND the direct stored-only assertions neutralised, the
+event-stream _equality itself_ fails (live emits one event, restarted emits two).
+An earlier version of this test passed under that same procedure — the direct
+assertions were doing all the work and the diff was decorative.
