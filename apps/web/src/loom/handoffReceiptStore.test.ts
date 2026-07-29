@@ -23,7 +23,7 @@ describe("handoffReceiptStore", () => {
     expect(receipt?.id).toBe(id);
     // Verbatim: the receipt is the recoverable second copy of what was typed.
     expect(receipt?.explanation).toBe("  the retry logic in FooService is broken  ");
-    expect(receipt?.drafterThreadId).toBeNull();
+    expect(receipt?.intake).toBeNull();
     expect(receipt?.failure).toBeNull();
   });
 
@@ -32,11 +32,18 @@ describe("handoffReceiptStore", () => {
     const settledId = recordHandoffDispatch({ sourceThreadKey: "env:t1", explanation: "a" });
     const failedId = recordHandoffDispatch({ sourceThreadKey: "env:t1", explanation: "b" });
 
+    const beforeAckMs = Date.now();
     recordHandoffDrafter(settledId, "drafter-1" as ThreadId);
     recordHandoffFailure(failedId, "Source thread is busy.");
 
     const receipts = useHandoffReceiptStore.getState().receipts;
-    expect(receipts.find((entry) => entry.id === settledId)?.drafterThreadId).toBe("drafter-1");
+    const acknowledged = receipts.find((entry) => entry.id === settledId);
+    expect(acknowledged?.intake?.drafterThreadId).toBe("drafter-1");
+    // The acknowledgement is stamped when intake returns, so the shell-replay
+    // grace starts when the drafter began to exist rather than at submission.
+    expect(Date.parse(acknowledged?.intake?.acknowledgedAt ?? "")).toBeGreaterThanOrEqual(
+      beforeAckMs,
+    );
     expect(receipts.find((entry) => entry.id === failedId)?.failure).toBe("Source thread is busy.");
   });
 

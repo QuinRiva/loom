@@ -40,7 +40,7 @@ export function useHandoffReceipts(
   const drafterShellsById = useMemo(() => {
     const wanted = new Set(
       receipts
-        .map((receipt) => receipt.drafterThreadId)
+        .map((receipt) => receipt.intake?.drafterThreadId ?? null)
         .filter((id): id is NonNullable<typeof id> => id !== null),
     );
     const byId = new Map<string, HandoffDrafterShell>();

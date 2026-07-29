@@ -16,12 +16,14 @@ const DRAFTER_ID = "drafter-1" as ThreadId;
 const CREATED_AT = "2026-01-01T00:00:00.000Z";
 const CREATED_AT_MS = Date.parse(CREATED_AT);
 
+// By default, submission and acknowledgement coincide (a fast intake). Tests
+// that care about a slow intake set `intake.acknowledgedAt` explicitly.
 const receipt = (overrides: Partial<HandoffReceipt> = {}): HandoffReceipt => ({
   id: "handoff_1",
   sourceThreadKey: "env:thread-1",
   explanation: "the retry logic in FooService is broken, out of scope here",
   createdAt: CREATED_AT,
-  drafterThreadId: DRAFTER_ID,
+  intake: { drafterThreadId: DRAFTER_ID, acknowledgedAt: CREATED_AT },
   failure: null,
   ...overrides,
 });
@@ -37,9 +39,21 @@ describe("deriveHandoffReceiptState", () => {
   it("is dispatching until intake acknowledges", () => {
     expect(
       deriveHandoffReceiptState({
-        receipt: receipt({ drafterThreadId: null }),
+        receipt: receipt({ intake: null }),
         drafterShell: null,
         nowMs: CREATED_AT_MS,
+      }),
+    ).toBe("dispatching");
+  });
+
+  it("stays dispatching however long intake takes", () => {
+    // Long before the grace could matter: with no acknowledgement there is no
+    // drafter yet, so absence of a shell says nothing about settlement.
+    expect(
+      deriveHandoffReceiptState({
+        receipt: receipt({ intake: null }),
+        drafterShell: null,
+        nowMs: CREATED_AT_MS + 10 * HANDOFF_DRAFTER_APPEARANCE_GRACE_MS,
       }),
     ).toBe("dispatching");
   });
@@ -47,7 +61,7 @@ describe("deriveHandoffReceiptState", () => {
   it("is failed when intake itself rejected the handoff", () => {
     expect(
       deriveHandoffReceiptState({
-        receipt: receipt({ drafterThreadId: null, failure: "Source thread is busy." }),
+        receipt: receipt({ intake: null, failure: "Source thread is busy." }),
         drafterShell: null,
         nowMs: CREATED_AT_MS,
       }),
@@ -107,6 +121,55 @@ describe("deriveHandoffReceiptState", () => {
       }),
     ).toBe("settled");
   });
+
+  it("anchors the grace to acknowledgement, not submission, when intake is slow", () => {
+    // The regression: a slow intake (longer than the whole grace) followed by a
+    // just-created drafter that has not replayed yet. Measuring from submission
+    // burns the window before the drafter could possibly appear, so the FIRST
+    // render after acknowledgement reports a live drafter as settled — telling
+    // the human a goal was staged while it may still fail.
+    const slowIntakeMs = HANDOFF_DRAFTER_APPEARANCE_GRACE_MS * 2;
+    const acknowledgedAt = new Date(CREATED_AT_MS + slowIntakeMs).toISOString();
+
+    expect(
+      deriveHandoffReceiptState({
+        receipt: receipt({ intake: { drafterThreadId: DRAFTER_ID, acknowledgedAt } }),
+        drafterShell: null,
+        // Acknowledged this very instant; dispatch has already run for 10s.
+        nowMs: CREATED_AT_MS + slowIntakeMs,
+      }),
+    ).toBe("drafting");
+
+    // Still drafting just before the POST-ACK grace expires.
+    expect(
+      deriveHandoffReceiptState({
+        receipt: receipt({ intake: { drafterThreadId: DRAFTER_ID, acknowledgedAt } }),
+        drafterShell: null,
+        nowMs: CREATED_AT_MS + slowIntakeMs + HANDOFF_DRAFTER_APPEARANCE_GRACE_MS - 1,
+      }),
+    ).toBe("drafting");
+
+    // ...and only then does absence legitimately mean archived-hence-settled.
+    expect(
+      deriveHandoffReceiptState({
+        receipt: receipt({ intake: { drafterThreadId: DRAFTER_ID, acknowledgedAt } }),
+        drafterShell: null,
+        nowMs: CREATED_AT_MS + slowIntakeMs + HANDOFF_DRAFTER_APPEARANCE_GRACE_MS + 1,
+      }),
+    ).toBe("settled");
+  });
+
+  it("never reports success from an unparseable acknowledgement timestamp", () => {
+    expect(
+      deriveHandoffReceiptState({
+        receipt: receipt({
+          intake: { drafterThreadId: DRAFTER_ID, acknowledgedAt: "not a timestamp" },
+        }),
+        drafterShell: null,
+        nowMs: CREATED_AT_MS + 10 * HANDOFF_DRAFTER_APPEARANCE_GRACE_MS,
+      }),
+    ).toBe("drafting");
+  });
 });
 
 describe("deriveHandoffReceiptViews", () => {
@@ -124,7 +187,7 @@ describe("deriveHandoffReceiptViews", () => {
 
   it("prefers the dispatch error over the generic drafter reason", () => {
     const [view] = deriveHandoffReceiptViews({
-      receipts: [receipt({ drafterThreadId: null, failure: "Source thread is busy." })],
+      receipts: [receipt({ intake: null, failure: "Source thread is busy." })],
       drafterShellsById: new Map(),
       nowMs: CREATED_AT_MS,
     });

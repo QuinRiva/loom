@@ -46,6 +46,13 @@ export interface HandoffReceiptView {
  * mockup, whose reloaded row stayed on "forking" forever — it makes a stuck
  * in-flight row unreachable: replay is milliseconds, a drafter turn is seconds
  * to minutes, so the grace only ever expires on a drafter that really has gone.
+ *
+ * It is measured from `intake.acknowledgedAt`, NOT from when the human pressed
+ * Enter. The window exists to cover the gap between the drafter being created
+ * and its shell replaying, and that gap only opens once intake returns. Anchoring
+ * it to submission would let a slow intake consume the entire window before the
+ * drafter could possibly appear, so the very first render after acknowledgement
+ * would report a live drafter as settled.
  */
 export const HANDOFF_DRAFTER_APPEARANCE_GRACE_MS = 5_000;
 
@@ -67,7 +74,8 @@ export function deriveHandoffReceiptState(input: {
   if (input.receipt.failure !== null) {
     return "failed";
   }
-  if (input.receipt.drafterThreadId === null) {
+  const intake = input.receipt.intake;
+  if (intake === null) {
     return "dispatching";
   }
   if (input.drafterShell !== null) {
@@ -76,8 +84,12 @@ export function deriveHandoffReceiptState(input: {
     }
     return input.drafterShell.archivedAt === null ? "drafting" : "settled";
   }
-  const elapsedMs = input.nowMs - Date.parse(input.receipt.createdAt);
-  return Number.isFinite(elapsedMs) && elapsedMs < HANDOFF_DRAFTER_APPEARANCE_GRACE_MS
+  // Absent shell: only call it settled once the post-acknowledgement grace has
+  // actually elapsed. An unparseable timestamp would make `elapsedMs` NaN, and
+  // every comparison on NaN is false — so treat that as still-drafting rather
+  // than letting it fall through to a false success.
+  const elapsedMs = input.nowMs - Date.parse(intake.acknowledgedAt);
+  return !Number.isFinite(elapsedMs) || elapsedMs < HANDOFF_DRAFTER_APPEARANCE_GRACE_MS
     ? "drafting"
     : "settled";
 }
@@ -91,10 +103,9 @@ export function deriveHandoffReceiptViews(input: {
   readonly nowMs: number;
 }): HandoffReceiptView[] {
   return input.receipts.map((receipt) => {
+    const drafterThreadId = receipt.intake?.drafterThreadId ?? null;
     const drafterShell =
-      receipt.drafterThreadId === null
-        ? null
-        : (input.drafterShellsById.get(receipt.drafterThreadId) ?? null);
+      drafterThreadId === null ? null : (input.drafterShellsById.get(drafterThreadId) ?? null);
     const state = deriveHandoffReceiptState({ receipt, drafterShell, nowMs: input.nowMs });
     return {
       id: receipt.id,
@@ -102,7 +113,7 @@ export function deriveHandoffReceiptViews(input: {
       state,
       explanation: receipt.explanation,
       createdAt: receipt.createdAt,
-      drafterThreadId: receipt.drafterThreadId,
+      drafterThreadId,
       failureReason: state === "failed" ? (receipt.failure ?? DRAFTER_FAILURE_REASON) : null,
     };
   });

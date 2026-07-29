@@ -31,15 +31,32 @@ import { create } from "zustand";
  * state that outlives one component (the coordinator at the app root and the
  * timeline row both read it) but must not outlive the page.
  */
+/**
+ * What intake returned, and WHEN it returned it — one nullable object rather
+ * than two independently-nullable fields.
+ *
+ * That shape is deliberate: the drafter id and the acknowledgement time must
+ * never disagree about whether intake has happened. The appearance grace in
+ * `handoffReceipts.logic.ts` is measured from `acknowledgedAt`, so an id present
+ * without its timestamp would silently fall back to the wrong clock. Making them
+ * one value makes that state unrepresentable instead of merely unlikely.
+ */
+export interface HandoffReceiptIntake {
+  readonly drafterThreadId: ThreadId;
+  /** When the server acknowledged intake — NOT when the human pressed Enter. */
+  readonly acknowledgedAt: string;
+}
+
 export interface HandoffReceipt {
   readonly id: string;
   /** `scopedThreadKey` of the thread the human typed `/handoff` in. */
   readonly sourceThreadKey: string;
   /** The human's explanation, verbatim — never truncated in the store. */
   readonly explanation: string;
+  /** When the human submitted. Drives row ordering, never settlement timing. */
   readonly createdAt: string;
   /** Set once intake acknowledges; null while the RPC is still in flight. */
-  readonly drafterThreadId: ThreadId | null;
+  readonly intake: HandoffReceiptIntake | null;
   /** Terminal dispatch failure (intake rejected/failed); null otherwise. */
   readonly failure: string | null;
 }
@@ -79,7 +96,7 @@ export const useHandoffReceiptStore = create<HandoffReceiptStoreState>((set) => 
       sourceThreadKey,
       explanation,
       createdAt: new Date().toISOString(),
-      drafterThreadId: null,
+      intake: null,
       failure: null,
     };
     set((state) => ({
@@ -91,7 +108,15 @@ export const useHandoffReceiptStore = create<HandoffReceiptStoreState>((set) => 
   recordDrafter: (receiptId, drafterThreadId) =>
     set((state) => ({
       receipts: state.receipts.map((receipt) =>
-        receipt.id === receiptId ? { ...receipt, drafterThreadId } : receipt,
+        receipt.id === receiptId
+          ? {
+              ...receipt,
+              // Stamped HERE, not at dispatch: the shell-replay grace must start
+              // when the drafter began to exist, otherwise a slow intake burns
+              // the whole window before the drafter could possibly appear.
+              intake: { drafterThreadId, acknowledgedAt: new Date().toISOString() },
+            }
+          : receipt,
       ),
     })),
 
