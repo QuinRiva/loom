@@ -1,6 +1,12 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
+import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
+import {
+  buildUserInputAnswers,
+  setUserInputCustomAnswer,
+  toggleUserInputOptionSelection,
+} from "@t3tools/shared/userInputAnswers";
 
 import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
@@ -433,6 +439,103 @@ const PENDING_USER_INPUT_MULTI_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
   },
 ];
 
+const PENDING_USER_INPUT_THREE_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "principles_home",
+    header: "Principles home",
+    question: "Where should the shared principles live?",
+    stakes: "Getting this wrong means every agent reads a different rulebook.",
+    multiSelect: false,
+    options: [
+      {
+        label: "Global AGENTS.md + posture",
+        description: "One file every project inherits, with a per-project posture override.",
+        recommended: true,
+      },
+      {
+        label: "Per-project only",
+        description: "Each project restates what it needs; nothing is inherited.",
+      },
+      { label: "Skill module", description: "Loaded on demand rather than always in context." },
+    ],
+  },
+  {
+    id: "enforcement",
+    header: "Enforcement",
+    question: "How hard should the rules bind?",
+    multiSelect: false,
+    options: [
+      { label: "Advisory", description: "Guidance the agent may depart from with a reason." },
+      { label: "Checked", description: "A lint rule fails the run when the shape is violated." },
+      { label: "Blocking", description: "The tool refuses outright." },
+    ],
+  },
+  {
+    id: "rollout",
+    header: "Rollout",
+    question: "Which surfaces adopt it first?",
+    multiSelect: true,
+    options: [
+      { label: "Web", description: "The composer and the chat surfaces." },
+      { label: "Mobile", description: "The pending-input card." },
+      { label: "Slack bridge", description: "Announcements and structured replies." },
+    ],
+  },
+];
+
+/**
+ * The card wired to real answer drafts through the shared transitions, the way
+ * `ChatView` wires it. Answering is the whole of the accordion's behaviour — a
+ * fixture holding `drafts={{}}` could never show a question collapsing to its
+ * summary or the next one opening. Submit and dismiss are inert here: the preview
+ * harness has no backend, and dispatch is not what these fixtures are for.
+ */
+function PendingUserInputPreview({
+  questions,
+}: {
+  readonly questions: ReadonlyArray<UserInputQuestion>;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, UserInputAnswerDraft>>({});
+
+  return (
+    <div className="mx-auto w-full min-w-0 max-w-3xl p-6">
+      <div className="overflow-hidden rounded-[19px] border border-border/65">
+        <PendingQuestionCard
+          pendingUserInput={{
+            requestId: "preview-request" as ApprovalRequestId,
+            createdAt: "2026-02-23T00:00:00.000Z",
+            questions,
+          }}
+          pendingCount={1}
+          drafts={drafts}
+          answers={buildUserInputAnswers(questions, drafts)}
+          isResponding={false}
+          isDismissing={false}
+          supersededByMessage={false}
+          onToggleOption={(question, optionLabel) =>
+            setDrafts((current) => ({
+              ...current,
+              [question.id]: toggleUserInputOptionSelection(
+                question,
+                current[question.id],
+                optionLabel,
+              ),
+            }))
+          }
+          onChangeCustomAnswer={(questionId, customAnswer) =>
+            setDrafts((current) => ({
+              ...current,
+              [questionId]: setUserInputCustomAnswer(current[questionId], customAnswer),
+            }))
+          }
+          onSubmit={() => {}}
+          onDismiss={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
 function pendingUserInputFixture(
   id: string,
   title: string,
@@ -443,29 +546,9 @@ function pendingUserInputFixture(
     id,
     title,
     description,
-    render: () => (
-      <div className="mx-auto w-full min-w-0 max-w-3xl p-6">
-        <div className="overflow-hidden rounded-[19px] border border-border/65">
-          <PendingQuestionCard
-            pendingUserInput={{
-              requestId: "preview-request" as ApprovalRequestId,
-              createdAt: "2026-02-23T00:00:00.000Z",
-              questions,
-            }}
-            pendingCount={1}
-            drafts={{}}
-            answers={null}
-            isResponding={false}
-            isDismissing={false}
-            supersededByMessage={false}
-            onToggleOption={() => {}}
-            onChangeCustomAnswer={() => {}}
-            onSubmit={() => {}}
-            onDismiss={() => {}}
-          />
-        </div>
-      </div>
-    ),
+    // Keyed by fixture id: switching fixtures renders the same component type, so
+    // without it one fixture's answers would carry into the next.
+    render: () => <PendingUserInputPreview key={id} questions={questions} />,
   };
 }
 
@@ -497,6 +580,12 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "Recommended only",
         PENDING_USER_INPUT_RECOMMENDED_ONLY,
         "A pick with no stakes line: the badge renders and the question spacing is unchanged from today.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-accordion",
+        "Three questions (accordion)",
+        PENDING_USER_INPUT_THREE_QUESTIONS,
+        "The height case the accordion exists for: rendered in parallel this request cost ~1600px. At rest exactly one question is expanded and the other two keep a one-line header row, so the card reads as a prompt. Click any header to move the expansion; the free-text field stays behind its affordance until asked for.",
       ),
       pendingUserInputFixture(
         "pending-user-input-multi",
