@@ -1,0 +1,190 @@
+# `/handoff` feedback — independent comparative verdict
+
+<Callout tone="decision">
+  **Decision protocol.** There are two independent build choices: the feedback surface and the composer send-guard. Use each card’s Accept / Reject / Discuss control. **Silence means accept the recommendation.** Accepting the feedback recommendation means building the small hybrid described below, not accepting every mockup it borrows from.
+</Callout>
+
+## Verdict in one minute
+
+**Feedback surface:** use a **composer-local pending token/tether as the immediate receipt**, let the **real staged destination row** remain the durable success artefact, and raise an **app-level toast only when the source view is no longer active or the drafter needs guidance**. Keep the existing surfaced drafter row as the durable failure backstop. Do **not** create an optimistic sidebar destination row, durable timeline ledger, or general background-jobs tray in the first increment.
+
+**Send-guard (RESOLVED — simplified on review):** clear the composer **before** the intercepted `await`, exactly as the normal send path already does, and set/release the in-flight guard around it. That is the entire fix. Restore on failure only when the composer is still empty; the accepted feedback marker holds the verbatim text otherwise. The pending token and the five-second watchdog are **dropped**, and with them MF-2 and the idempotency-key follow-up.
+
+The hybrid keeps the drafter ephemeral: the token describes the action, not the actor; healthy drafters remain absent from sidebar, palette, mentions, and the source model’s messages. Only a broken drafter becomes navigable, matching the existing `needs_guidance` rule.
+
+<Table
+  filterable
+  density="compact"
+  columns={["Candidate", "Notice at send", "Away / reload", "Failure", "Multiple", "Cost / verdict"]}
+  rows={[
+    ["Baseline A · toast", "High but corner-local", "Follows navigation; expires and is lost across reload", "Good if sticky/actionable", "Noisy stack", "Low cost; fallback only"],
+    ["Baseline B · composer pill", "Best locality", "Unmounts away; client state is reload-fragile", "Excellent while source is open", "Acceptable for a few", "Low–moderate; keep as primary receipt"],
+    ["Baseline C · sidebar ghost", "Mockup showed no row at dispatch or at t+550 ms", "Sidebar-global after it exists", "Can morph to surfaced drafter", "Rows scale, but one-to-many morph is awkward", "Synthetic ordering/correlation cost; reject"],
+    ["Baseline D · activity chip", "Visible but distant", "Good if mounted app-wide", "Still needs a push toast", "Excellent count/tray", "Category has one real member; defer"],
+    ["Destination A · forming row", "Peripheral and missed in the eye-on-composer test", "Settled row persists; in-flight proxy is lost on reload", "Good row backstop", "One proxy splitting into N rows", "Solves the wrong moment; reject"],
+    ["Destination B · forming kickoff card", "Impossible to miss", "Source-local", "Strong", "Large cards become heavy", "Wrong object in source transcript space; reject"],
+    ["Destination C · row + tether", "Excellent", "Real destination persists; tether does not", "Strong", "Tethers stack", "Best lens, but omit the optimistic row"],
+    ["Timeline A · inline marker", "Good locality, quieter than composer token", "Only durable with new server projection", "Source-local", "Best historical scaling", "Useful provenance, disproportionate contract cost now"],
+    ["Timeline B · ghost bubble", "Very high", "Same persistence problem", "Source-local", "Clutters", "Looks like model-visible speech; reject"],
+    ["Timeline C · pinned ledger", "High", "Still source-local", "Good", "Excellent", "Converges on a composer banner with extra history; reject"],
+    ["Global A/B/C · chip, sidebar section, strip", "Distant from the keystroke", "Best navigation behaviour", "Passive without toast", "Best live concurrency", "Registry/actions/history are overbuilt for one actor; defer"],
+  ]}
+/>
+
+## Decision 1 — feedback surface
+
+<Card
+  heading="Feedback surface · composer receipt + natural destination + conditional toast"
+  tone="accent"
+  badge="RECOMMENDED"
+  meta={["immediate", "ephemeral actor preserved", "moderate blast radius"]}
+>
+  The composer is where the human is looking when they press Enter. A slim pending token directly above it gives an immediate, persistent-for-the-operation receipt without pretending the handoff entered the transcript. Once the server accepts intake, the token can follow the returned `drafterThreadId`; success can collapse to “Handoff staged” (and to links/counts only if destination IDs are genuinely exposed), while failure can link to the now-visible drafter.
+
+  The real staged destination row is already the durable success object. Do not create a second optimistic sidebar object merely to anticipate it. If the human navigates away, a root-level coordinator should push **failure always** and **success only when the source receipt is no longer visible**. This combines the strongest parts of baseline B, destination C, and toast A without inheriting their duplicate surfaces.
+
+  <Details summary="Browser-driven evidence across the mockups">
+    <Table
+      density="compact"
+      columns={["Exercise", "Observed result", "Design implication"]}
+      rows={[
+        ["Baseline B at dispatch", "Composer pill immediately read ‘Handing off…’ and settled to ‘Handed off’", "Best cause → effect locality"],
+        ["Baseline C at dispatch and t+550 ms", "Ghost slot was empty; it appeared only when a destination or failure row existed", "A sidebar-only answer does not acknowledge the keystroke"],
+        ["Destination A, other project", "Only the collapsed project count changed from 1 to 2", "Natural destination alone is insufficient for cross-project success"],
+        ["Destination C, other project", "Tether named ‘Staged … in quinriva / api’", "Composer receipt can bridge location changes"],
+        ["Destination C, two destinations", "One drafting tether became two staged links", "Small-N concurrency is legible"],
+        ["Global tray, three at once", "Topbar collapsed to ‘3 running’; tray enumerated handoff, retro, and a hypothetical scan", "Global tray wins at concurrency, but two of three jobs were not real category members"],
+        ["Global failure, toast disabled", "Only a distant amber ‘Handoff needs you’ chip changed", "Passive failure is not sufficient"],
+        ["Timeline A, three weeks", "Markers aged clearly and preserved provenance", "Valuable, but it is history rather than the immediate receipt problem"],
+      ]}
+    />
+  </Details>
+
+  <ReviewChoice itemId="feedback-surface" label="Feedback surface" placeholder="Why, if rejecting or discussing…" />
+</Card>
+
+## Decision 2 — composer send-guard
+
+<Callout tone="decision">
+  **RESOLVED (human, 2026-07-29) — accepted with simplifications.** The recommendation below was challenged on the grounds that a normal message cannot double-send simply *because the composer is cleared on send*. That is correct, and it collapses most of this card. The agreed resolution is the three steps in “Agreed resolution”; the pending token, the watchdog and MF-2 are **dropped**.
+</Callout>
+
+<Card
+  heading="Send-guard · clear before the await (agreed resolution)"
+  tone="accent"
+  badge="ACCEPTED"
+  meta={["bug fix", "/handoff + /retro", "no new machinery"]}
+>
+  **Why it is this small.** `onSend` is `async`, but every statement from entry to `sendInFlightRef.current = true` (`ChatView.tsx:4751`) is synchronous, and the normal path clears the composer at `:4864` before any network call. A second Enter therefore cannot interleave. The intercept branches break exactly one thing: they `await` at `:4615` (`/handoff`) and `:4655` (`/retro`) and clear only *after*, at `:4633` / `:4675`. That yield point is the whole bug.
+
+  **Agreed resolution:**
+
+  1. Move the clear (`promptRef.current = ""`, `clearComposerDraftContent(composerDraftTarget)`, `resetCursorState()`) **above** the `await` in both branches.
+  2. Set `sendInFlightRef.current = true` before the `await` and release it in a `finally` covering every exit, for `/handoff` and `/retro` alike.
+  3. On failure, restore the submitted text into the composer **only when the composer is still empty** (the collision rule the ordinary path already applies at `:4986-5019`). When it is not empty, leave the composer alone — the text is not lost, because the accepted feedback marker renders the explanation verbatim and is copyable.
+
+  **No watchdog, no pending-token store, no idempotency key, no contract change.**
+</Card>
+
+<Card
+  heading="Draft safety · the receipt is the second copy"
+  tone="info"
+  meta={["parity with normal messages", "edge case, accepted"]}
+>
+  A normal message survives a failed send with a non-empty composer because the optimistic bubble (`ChatView.tsx:4837`) still holds the text on screen to copy from. `/handoff` writes nothing to the transcript, so it needs the same property from somewhere else — and the feedback surface accepted in Decision 1 already provides it, displaying the explanation in full.
+
+  Requirements this places on Decision 1: the marker must show the explanation **in full (not truncated) at least in the failed state**, carry a copy affordance (reuse `MessageCopyButton` / `anchoredToastManager`), and keep its non-message visual grammar — full-width, kicker, `⊘ NOT IN CONTEXT` — most strictly in that state, when the text is most bubble-like.
+
+  **Scope note (human):** the length concern is *not* the typed explanation, which is short. The long artefact is the brief the drafter generates, and that lives on the destination's kickoff card regardless. Treated as an accepted edge case; no extra machinery for it.
+</Card>
+
+<Details summary="Measured send-guard behaviour (all five candidates, for the record)">
+    <Table
+      density="compact"
+      columns={["Behaviour", "Five rapid sends", "Server rejection", "Hung RPC after 5 s"]}
+      rows={[
+        ["Today", "5 dispatches → 5 drafters → 4 duplicate goals", "Draft intact", "5 unresolved dispatches; composer looks usable"],
+        ["Lock composer", "1 dispatch", "Draft intact", "Locked indefinitely"],
+        ["Optimistic clear", "1 dispatch", "Draft restored", "Mockup restored and re-armed after watchdog — unsafe without idempotent intake"],
+        ["Pending token", "1 dispatch", "Submitted text retained out-of-band", "Best representation, but its watchdog has the same late-success ambiguity"],
+        ["Server dedupe only", "5 dispatches → 1 accepted", "Draft intact", "No visible ownership; free-text dedupe guesses at intent"],
+      ]}
+    />
+</Details>
+
+<ReviewChoice itemId="send-guard" label="Composer send-guard" placeholder="Why, if rejecting or discussing…" />
+
+## Must-fix findings
+
+<Card
+  heading="MF-1 · The current intercept is genuinely re-entrant"
+  tone="risk"
+  badge="MUST FIX"
+  meta={["current code", "high triggerability", "manual cleanup"]}
+>
+  `sendInFlightRef.current` is read at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/apps/web/src/components/ChatView.tsx:4548-4557`, but both intercepts return before it is set at line 4751. The browser labs reproduced five drafters from five rapid submissions; the dedicated lab also reproduced 25 from held-key repeat.
+
+  **Consequence if left:** duplicate staged goals for one issue. **Recovery cost:** manually identify and delete/archive the extras; cheap per incident, but it directly defeats the feature’s send-guard objective and is easy to trigger during a slow fork.
+</Card>
+
+<Card
+  heading="MF-2 · The proposed watchdog is not an exactly-once boundary — WITHDRAWN"
+  tone="warning"
+  badge="WITHDRAWN"
+  meta={["moot: no watchdog is being built", "retained for the record"]}
+>
+  **Withdrawn 2026-07-29.** This finding is real *only* for a design that auto-restores and re-arms on silence. The agreed resolution does not do that, so the late-success race cannot arise and the idempotency-key follow-up is dropped from scope. The analysis is retained below because it is the reason auto-retry must not be added later without an idempotency/receipt design.
+
+  The send-guard mockup claims a five-second watchdog makes optimistic restore safe. It only makes the UI responsive. The RPC contract in `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/packages/contracts/src/server.ts:486-495` carries no client idempotency key, and `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/packages/client-runtime/src/state/runtime.ts:609-631` adds no unary timeout or cancellation receipt. If the server creates a drafter after the client watchdog restores and re-arms, a retry creates another drafter.
+
+  **Consequence if implemented as shown:** the mechanism intended to prevent duplicates can itself produce duplicates under delayed acknowledgement. **Recovery cost:** the same manual goal cleanup, plus ambiguity over whether the first request is still running. Do not auto-rearm on silence without an idempotency/receipt design.
+</Card>
+
+## Material corrections and missed issues
+
+<Card
+  heading="C-1 · The attention-pill premise is stale"
+  tone="warning"
+  badge="CORRECTION"
+  meta={["actual source differs", "failure already has a durable row"]}
+>
+  Several mockups repeat that a surfaced drafter is an ordinary sidebar row whose status pill ignores `attention`. Current source does not: `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/apps/web/src/components/Sidebar.logic.ts:627-642` ranks `needs_guidance` first and returns **Needs Attention**, and `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/apps/web/src/components/Sidebar.tsx:487-494` uses that resolver. The destination mockup itself shows the corrected pill.
+
+  The product still benefits from a push toast because a sidebar row can be off-screen, but the tray should not be justified as filling a missing durable failure surface. That surface already exists.
+</Card>
+
+<Card
+  heading="C-2 · Destination links are not presently a free client capability"
+  tone="warning"
+  badge="CONTRACT GAP"
+  meta={["mockups overstate low cost", "multiple destinations"]}
+>
+  The intake result exposes only `drafterThreadId` at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/packages/contracts/src/server.ts:492-495`. The durable `thread.handoff-recorded` payload does carry destination goal/thread IDs at `/home/Carl/.t3/cockpit/worktrees/loom/t3code-9e16f6b7/packages/contracts/src/orchestration.loom.ts:1362-1366`, but the drafter read model projects only `handoffCount`. Therefore “Open goal” in pills, toasts, trays, and timeline rows needs a real projection/query/subscription change or a brittle client-side match; it is not zero-cost.
+</Card>
+
+<Card
+  heading="C-3 · One driven mockup state did not do what it claimed"
+  tone="warning"
+  badge="MOCKUP DEFECT"
+  meta={["timeline lens", "reload"]}
+>
+  In the timeline mockup’s **Server-durable** mode, clicking reload mid-flight changed the copy to “rebuilt … and keeps animating”, but the row remained forever in “Forking this session” and did not settle after the original timer elapsed. A server-durable run that settled before switching device did render correctly on the other device. This does not disprove the product direction, but it means the mockup did not actually demonstrate its strongest reload claim.
+</Card>
+
+## What I would not build
+
+1. **No general background-work tray yet.** `/retro` becomes a visible root and the mockup’s scan job is hypothetical; the registry, cancel/retry semantics, inspection drawer, history, and destination matching are category infrastructure for one real job type.
+2. **No always-present status strip.** It permanently spends chrome on an uncommon operation and still needs a toast for failures.
+3. **No ghost bubble.** Even with a “not in context” chip, echoing `/handoff …` where a user message normally appears invites exactly the model-context misunderstanding this feature exists to avoid.
+4. **No forming kickoff card in the source thread.** It is visually dominant, occupies another thread’s card grammar, and scales poorly.
+5. **No vanish-on-settle timeline row.** If provenance is not worth retaining, a composer receipt is cheaper; if it is worth retaining, the row needs durable server data and should be a separate feature decision.
+6. **No free-text server dedupe as the primary guard.** It cannot distinguish an accidental double-fire from a deliberate repeated handoff.
+
+<ReviewChoice itemId="not-building" label="Defer the rejected surfaces" placeholder="Name any surface you still want retained…" />
+
+## Degradation summary
+
+- **Multiple handoffs:** small composer tokens remain understandable; the real destinations naturally become N rows. If high concurrency becomes normal, revisit the global tray with actual usage evidence.
+- **Navigate away:** the token unmounts, so settlement/failure coordination must live at the app root. Push failure always; push success only when the source receipt is not visible.
+- **Reload mid-flight:** a live drafter can be rediscovered from raw thread shells while it remains unarchived. If it settles during the reload gap, the staged destination or surfaced failure row remains authoritative. Cross-project success can still be missed without a durable source→destination projection; accept that as an honest first-increment limitation or fund the contract change explicitly.
+- **Model context:** none of the recommended UI records are `ChatMessage`s or turn input. The source transcript and provider context remain unchanged.
