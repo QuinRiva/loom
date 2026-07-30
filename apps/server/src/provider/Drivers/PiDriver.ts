@@ -35,6 +35,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
+import { directoryExists } from "../../git/Utils.ts"; // post-completion engagement: dangling-worktree resume fallback
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -2052,15 +2053,21 @@ export function makePiAdapter(input: {
           const existingSessionFile =
             forkSource === undefined ? resolveSessionFilePath(threadSessionId) : undefined;
           const isResume = existingSessionFile !== undefined;
+          // Existence-check fallback (plan §4.2): on a resume, a recorded worktree
+          // path that dangles (relocated at fan-in / reaped) would make pi's
+          // `--cwd` (and the OS spawn) fail against a dead directory. Fall back to
+          // the server's project workspace root, which always exists. Scoped to
+          // resumes: a first launch provisions its own live worktree.
+          const resumeCwd = isResume && !directoryExists(piCwd) ? input.serverConfig.cwd : piCwd;
           return (input.createProcess ?? createPiRpcProcess)({
             binaryPath: input.settings.binaryPath,
             platform,
-            cwd: piCwd,
+            cwd: isResume ? resumeCwd : piCwd,
             // Resume: name the file + pin the cwd. First launch/fork: the
             // deterministic per-thread session id so pi create-or-resumes the
             // SAME file across restarts instead of spawning an amnesiac session.
             ...(isResume
-              ? { sessionFilePath: existingSessionFile, cwdOverride: piCwd }
+              ? { sessionFilePath: existingSessionFile, cwdOverride: resumeCwd }
               : { sessionId: threadSessionId }),
             ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),

@@ -3618,6 +3618,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         blockedBy: threadRow.value.blockedBy,
         spawnGeneration: threadRow.value.spawnGeneration,
         forkFromThreadId: threadRow.value.forkFromThreadId,
+        finalCommitSha: threadRow.value.finalCommitSha,
         reportPath: threadRow.value.reportPath,
         // Debugging-only effective-prompt sidecar path. Must apply the SAME pi-
         // only + file-exists gate as `getShellSnapshot`: this lookup backs every
@@ -3776,6 +3777,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             blockedBy: threadRow.value.blockedBy,
             spawnGeneration: threadRow.value.spawnGeneration,
             forkFromThreadId: threadRow.value.forkFromThreadId,
+            finalCommitSha: threadRow.value.finalCommitSha,
             reportPath: threadRow.value.reportPath,
             graphKey: threadRow.value.graphKey,
             kickoffBriefPath: threadRow.value.kickoffBriefPath,

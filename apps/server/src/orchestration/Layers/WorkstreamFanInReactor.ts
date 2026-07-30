@@ -201,7 +201,20 @@ const make = Effect.gen(function* () {
       } satisfies OrchestrationCommand);
     });
 
-  const repointMeta = (threadId: ThreadId, branch: string | null, worktreePath: string | null) =>
+  // Post-completion engagement (plan §8 item 3): the child's tip commit is
+  // recorded on the SAME meta.update that repoints the child off its removed
+  // worktree — stamped exactly when the workspace is relocated, which is exactly
+  // when the Discuss relocation preamble should surface it. Folded into repoint
+  // (rather than a separate dispatch) so a held/undisposed worktree generates no
+  // spurious meta mutation. `finalCommitSha` is a historical marker only —
+  // nothing reads it for control flow. It rides ONLY the child's own repoint
+  // (passed explicitly), never a resident's.
+  const repointMeta = (
+    threadId: ThreadId,
+    branch: string | null,
+    worktreePath: string | null,
+    finalCommitSha?: string | null,
+  ) =>
     Effect.gen(function* () {
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
@@ -209,25 +222,9 @@ const make = Effect.gen(function* () {
         threadId,
         branch,
         worktreePath,
+        ...(finalCommitSha != null ? { finalCommitSha } : {}),
       } satisfies OrchestrationCommand);
     });
-
-  // Post-completion engagement (plan §8 item 3): record the child's tip commit on
-  // its shell when fan-in merges it (or, at cancel, the kept branch tip). A
-  // historical source-identity marker — nothing reads it for control flow; the
-  // Discuss relocation preamble surfaces it. Partial meta.update so it never
-  // clobbers branch/worktreePath. Skipped when the sha is unknown (unborn HEAD).
-  const stampFinalCommitSha = (threadId: ThreadId, finalCommitSha: string | null) =>
-    finalCommitSha === null
-      ? Effect.void
-      : Effect.gen(function* () {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.meta.update",
-            commandId: yield* serverCommandId("final-commit"),
-            threadId,
-            finalCommitSha,
-          } satisfies OrchestrationCommand);
-        });
 
   const appendActivity = (input: {
     readonly threadId: ThreadId;
@@ -346,14 +343,23 @@ const make = Effect.gen(function* () {
     readonly parentWorktreePath: string | null;
     readonly threads: ReadonlyArray<OrchestrationThreadShell>;
     readonly projects: ReadonlyArray<ProjectRef>;
+    // Post-completion engagement (plan §8 item 3): the child's tip commit, stamped
+    // onto its shell by the SAME repoint that relocates it off the removed
+    // worktree. Resolved lazily so the deferred-removal sweep (which holds no
+    // fresh commit result) still records it — `commitAll` on the now-clean tree
+    // returns the branch HEAD.
+    readonly finalCommitSha?: string | null;
   }) {
+    const finalCommitSha =
+      input.finalCommitSha ??
+      (yield* gitWorkflow.commitAll(input.childCwd, "wip: fan-in settle", "")).commitSha;
     yield* gitWorkflow
       .removeWorktree({ cwd: input.parentCwd, path: input.childCwd, force: true })
       .pipe(Effect.ignoreCause({ log: true }));
     yield* gitWorkflow
       .deleteBranch({ cwd: input.parentCwd, branch: input.childBranch, force: false })
       .pipe(Effect.ignoreCause({ log: true }));
-    yield* repointMeta(input.childId, input.parentBranch, input.parentWorktreePath);
+    yield* repointMeta(input.childId, input.parentBranch, input.parentWorktreePath, finalCommitSha);
     yield* repointResidents({
       childId: input.childId,
       childCwd: input.childCwd,
@@ -491,7 +497,6 @@ const make = Effect.gen(function* () {
           return;
         }
         yield* setFanInState(child.id, "completed");
-        yield* stampFinalCommitSha(child.id, childCommit.commitSha);
         if (!hasDependentResident(child.id, childCwd, threads, projects)) {
           yield* removeExclusively(
             childCwd,
@@ -504,6 +509,8 @@ const make = Effect.gen(function* () {
               parentWorktreePath: parent.worktreePath,
               threads,
               projects,
+              // The child's tip commit — recorded on its shell by the repoint.
+              finalCommitSha: childCommit.commitSha,
             }),
           );
         }
@@ -528,9 +535,10 @@ const make = Effect.gen(function* () {
     yield* worktreeMutationLock.withLock(
       parentCwd,
       Effect.gen(function* () {
-        // The kept branch tip is the cancelled child's `finalCommitSha` marker.
+        // The kept branch tip is the cancelled child's `finalCommitSha` marker,
+        // stamped by the child repoint inside the lease (so a held worktree that
+        // is NOT removed leaves the shell untouched).
         const childCommit = yield* gitWorkflow.commitAll(childCwd, "wip: cancelled", "");
-        yield* stampFinalCommitSha(child.id, childCommit.commitSha);
         yield* removeExclusively(
           childCwd,
           Effect.gen(function* () {
@@ -541,7 +549,12 @@ const make = Effect.gen(function* () {
             // safe; keep its branch name for discovery/recovery. Also repoint any
             // resident (e.g. a cascade-cancelled attached reviewer) off the removed
             // worktree so its meta does not dangle (review finding 1c).
-            yield* repointMeta(child.id, child.branch, parent.worktreePath ?? null);
+            yield* repointMeta(
+              child.id,
+              child.branch,
+              parent.worktreePath ?? null,
+              childCommit.commitSha,
+            );
             yield* repointResidents({
               childId: child.id,
               childCwd,

@@ -119,6 +119,17 @@ describe("ProviderCommandReactor", () => {
   // Post-completion engagement tests create real pi session files under the
   // sessions root (that is what `resolveSessionFilePath` scans); cleaned here.
   const createdSessionDirs = new Set<string>();
+  let engagementSessionSeq = 0;
+  const makeEngagementSessionDir = (): string => {
+    engagementSessionSeq += 1;
+    const dir = NodePath.join(
+      defaultSessionsRoot(),
+      `t3code-engagement-test-${process.pid}-${engagementSessionSeq}`,
+    );
+    NodeFS.mkdirSync(dir, { recursive: true });
+    createdSessionDirs.add(dir);
+    return dir;
+  };
 
   afterEach(async () => {
     for (const dir of createdSessionDirs) {
@@ -829,12 +840,7 @@ describe("ProviderCommandReactor", () => {
       } as never),
     );
     // The durable proof it has run: a real pi session file with prior history.
-    const dir = NodePath.join(
-      defaultSessionsRoot(),
-      `t3code-engagement-test-${Math.random().toString(36).slice(2)}`,
-    );
-    NodeFS.mkdirSync(dir, { recursive: true });
-    createdSessionDirs.add(dir);
+    const dir = makeEngagementSessionDir();
     NodeFS.writeFileSync(
       NodePath.join(dir, `2026-01-01T00-00-00_${piSessionIdForThread(threadIdRaw)}.jsonl`),
       '{"type":"session-start"}\n{"role":"user","content":"prior context"}\n',
@@ -919,12 +925,7 @@ describe("ProviderCommandReactor", () => {
       } as never),
     );
     // Give it a session file (it has run), but keep it non-terminal (planned).
-    const dir = NodePath.join(
-      defaultSessionsRoot(),
-      `t3code-engagement-test-${Math.random().toString(36).slice(2)}`,
-    );
-    NodeFS.mkdirSync(dir, { recursive: true });
-    createdSessionDirs.add(dir);
+    const dir = makeEngagementSessionDir();
     NodeFS.writeFileSync(
       NodePath.join(dir, `2026-01-01T00-00-00_${piSessionIdForThread("child-active")}.jsonl`),
       '{"type":"session-start"}\n',

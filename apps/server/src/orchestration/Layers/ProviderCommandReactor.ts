@@ -65,7 +65,6 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { listRoleOverlays, loadRoleOverlay } from "../roleOverlay.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
-import { directoryExists } from "../../git/Utils.ts"; // post-completion engagement: dangling-worktree fallback
 import {
   WorktreeProvisioner,
   isProvisionedChildBranch,
@@ -639,19 +638,15 @@ const make = Effect.gen(function* () {
       }
     }
     const project = yield* resolveProject(thread.projectId);
-    const resolvedCwd = resolveThreadWorkspaceCwd({
+    // Canonical workspace cwd: the thread's worktree if provisioned, else the
+    // project workspaceRoot. The existence-check fallback for a DANGLING worktree
+    // (relocated/reaped) lives at the launch boundary (PiDriver), NOT here — the
+    // reactor's cwd drives cwd-change restart detection, which must compare the
+    // recorded worktree path, not an existence-substituted one.
+    const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: project ? [project] : [],
     });
-    // Existence check (plan §4.2): a dangling worktree path (relocated at fan-in
-    // or reaped) falls back to the project workspaceRoot, so the launch never
-    // spawns pi (or the OS process) against a dead directory. By construction the
-    // workspaceRoot always exists; when it too is somehow gone we keep the
-    // resolved value and let the launch surface a loud error.
-    const effectiveCwd =
-      resolvedCwd !== undefined && !directoryExists(resolvedCwd)
-        ? (project?.workspaceRoot ?? resolvedCwd)
-        : resolvedCwd;
 
     // Discuss launch (plan §5.1/§5.3): the engagement mode is a pure function of
     // durable thread state at launch time. A thread in a terminal lane
