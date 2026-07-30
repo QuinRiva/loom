@@ -9,7 +9,10 @@ packages:
 # true = allowed to run build scripts; false mirrors the pnpm 10 behavior
 # where anything outside onlyBuiltDependencies was silently not built.
 allowBuilds:
-  "@google/genai": set this to true or false
+  # pi transitive SDKs ship pre-built dist in their registry tarballs; their
+  # install scripts only rebuild dev artefacts (protobufjs: an advisory
+  # version-scheme WARN; @google/genai: rollup/api-extractor) — not needed.
+  "@google/genai": false
   browser-tabs-lock: false
   bufferutil: false
   core-js: false
@@ -19,7 +22,7 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   node-pty: true
-  protobufjs: set this to true or false
+  protobufjs: false
   sharp: true
   utf-8-validate: false
   workerd: false
