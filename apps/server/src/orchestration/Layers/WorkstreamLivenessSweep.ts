@@ -17,9 +17,12 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
@@ -111,6 +114,17 @@ export interface LivenessSweepThresholds {
    */
   readonly briefNeededGraceMs: number;
   /**
+   * Scaffold-brief backstop RE-RAISE clock: once a raised backstop flag has been
+   * cleared by hand while the node is STILL brief-needed, how long to wait before
+   * raising it again. This is the backstop's own grace clock, deliberately NOT
+   * the (stable, never-advancing) `briefNeededSince` episode — see
+   * {@link decideBriefNeededBackstop} for why the episode key cannot carry
+   * re-armability. Generous by design: a re-raise is a repeat nag at a human who
+   * already dismissed one, so it must be slow enough not to be noise and fast
+   * enough that a genuinely wedged node cannot sit silent for days.
+   */
+  readonly briefNeededReRaiseGraceMs: number;
+  /**
    * Stuck-launch backstop: how long a session may sit `starting` with no live
    * provider launch before the sweep treats it as wedged and recovers it. See
    * {@link DEFAULT_STUCK_LAUNCH_GRACE_MS} for why this is deliberately far larger
@@ -136,6 +150,7 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   noProgressWindowMs: 600_000,
   progressInputSampleSize: 16,
   briefNeededGraceMs: 600_000,
+  briefNeededReRaiseGraceMs: 1_800_000,
   stuckLaunchGraceMs: DEFAULT_STUCK_LAUNCH_GRACE_MS,
   stuckLaunchRecoveryCap: 2,
 };
@@ -239,6 +254,94 @@ export const decideStuckLaunchAction = (input: {
     ? { action: "escalate", next: { attempts: attempts + 1, lastEpisodeMs: episodeMs } }
     : { action: "recover", next: { attempts: attempts + 1, lastEpisodeMs: episodeMs } };
 };
+
+/**
+ * Per-child scaffold-brief backstop bookkeeping: the eligibility episode it was
+ * raised for, which re-raise round the last raise used (0 = the original), and
+ * when that raise happened (the re-raise grace clock).
+ */
+export interface BriefNeededBackstopState {
+  readonly episodeMs: number;
+  readonly round: number;
+  readonly raisedAtMs: number;
+}
+
+export type BriefNeededBackstopDecision =
+  | { readonly raise: false; readonly next: BriefNeededBackstopState | null }
+  | { readonly raise: true; readonly next: BriefNeededBackstopState };
+
+/**
+ * Pure scaffold-brief backstop decision — the re-armable successor to raising on
+ * {@link briefNeededBackstopDue} alone.
+ *
+ * The problem it solves: `briefNeededSinceMs` is deliberately STABLE (only real
+ * eligibility transitions advance it), which is what stops the wake/backstop
+ * re-arming in a loop — but it also means that once the episode's receipt is
+ * spent and the raised flag is later cleared by hand, an episode-keyed raise can
+ * never fire again. A node observed in the wild sat genuinely stalled for 10 days
+ * with an empty `attention` array behind exactly that hole.
+ *
+ * The resolution rests on brief-needed being an EXACTLY COMPUTABLE state, unlike
+ * a heuristic stall: `isBriefNeeded` is still true means the graph is still
+ * wedged at this node — nobody attached a brief and nobody cancelled it. So a
+ * cleared flag on a still-brief-needed node is a dismissal, not a resolution, and
+ * a repeat raise is owed. Re-arm is therefore driven by the observable
+ * flag-cleared transition and rate-limited by the backstop's OWN clock
+ * (`reRaiseGraceMs` since the last raise), never by the episode key:
+ *   - within the initial grace → nothing owed, and no state is carried;
+ *   - a new/unseen episode past grace → raise round 0 (the original id, so
+ *     existing receipts keep deduping);
+ *   - same episode, parent still flagged → the notice is pending; say nothing;
+ *   - same episode, flag cleared, within the re-raise grace → wait;
+ *   - same episode, flag cleared, past the re-raise grace → raise the next round.
+ *
+ * `parentFlagged` is any stored `needs_guidance` on the parent, not just ours: if
+ * a human already has a reason to look at this orchestrator, adding another is
+ * noise. The anti-loop property is preserved because a raise costs a full
+ * `reRaiseGraceMs` AND a human clearing the flag — a sweep tick alone can never
+ * produce one.
+ */
+export const decideBriefNeededBackstop = (input: {
+  readonly prior: BriefNeededBackstopState | null;
+  readonly episodeMs: number;
+  readonly now: number;
+  readonly graceMs: number;
+  readonly reRaiseGraceMs: number;
+  readonly parentFlagged: boolean;
+}): BriefNeededBackstopDecision => {
+  const { prior, episodeMs, now, graceMs, reRaiseGraceMs, parentFlagged } = input;
+  if (!briefNeededBackstopDue({ sinceMs: episodeMs, now, graceMs })) {
+    return { raise: false, next: null };
+  }
+  if (prior === null || prior.episodeMs !== episodeMs) {
+    return { raise: true, next: { episodeMs, round: 0, raisedAtMs: now } };
+  }
+  if (parentFlagged || now - prior.raisedAtMs < reRaiseGraceMs) {
+    return { raise: false, next: prior };
+  }
+  return { raise: true, next: { episodeMs, round: prior.round + 1, raisedAtMs: now } };
+};
+
+/**
+ * Episode key for the backstop's deterministic command ids. Round 0 is the bare
+ * episode ms — byte-identical to the pre-re-raise id, so receipts already written
+ * for a live episode keep deduping and a deploy cannot re-notify every currently
+ * brief-needed node.
+ */
+const briefNeededEpisodeKey = (episodeMs: number, round: number): string =>
+  round === 0 ? `${episodeMs}` : `${episodeMs}:r${round}`;
+
+/**
+ * The backstop's attention-raise command id — the one that decides whether a
+ * human is actually told, so it is the id the delivery dedup keys on.
+ */
+export const briefNeededBackstopAttentionId = (
+  parentId: ThreadId,
+  childId: ThreadId,
+  episodeMs: number,
+  round: number,
+): string =>
+  `server:workstream-liveness:brief-needed-attn:${parentId}:${childId}:${briefNeededEpisodeKey(episodeMs, round)}`;
 
 /**
  * Pure Stage-1 liveness classification for one active sub-thread. Returns the
@@ -447,6 +550,7 @@ const makeWorkstreamLivenessSweep = (
 ) =>
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
+    const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const directory = yield* ProviderSessionDirectory;
     const healthRegistry = yield* ProviderHealthRegistry;
@@ -494,6 +598,25 @@ const makeWorkstreamLivenessSweep = (
     // mirroring stallNudges). Cleared whenever the thread is not a busy,
     // progressing sub-thread so a fresh episode re-arms cleanly.
     const progressLoop = new Map<string, ProgressLoopState>();
+
+    // Scaffold-brief backstop bookkeeping (serial-safe, mirroring stallNudges):
+    // which episode/round was last raised for a brief-needed child and when, so a
+    // dismissed flag on a still-wedged node can be re-raised on the backstop's own
+    // grace clock. Cleared the moment the child stops being brief-needed.
+    const briefNeededBackstops = new Map<string, BriefNeededBackstopState>();
+
+    // Receipt-deduped delivery for the backstop (the shared rail convention, as
+    // in WorkstreamDispatcher/WorkstreamFanInReactor). The engine already dedups
+    // any deterministic `server:` id, but it reports an accepted-receipt
+    // short-circuit as an ordinary success — so the sweep could not tell a real
+    // delivery from a no-op and logged/counted both. `deliverOnce` gives back that
+    // distinction, which is what keeps `actionedCount` and the log honest.
+    const dedup = yield* makeReceiptDedupedDelivery({
+      hasAcceptedReceipt: (commandId: string) =>
+        commandReceiptRepository
+          .getByCommandId({ commandId: CommandId.make(commandId) })
+          .pipe(Effect.map(Option.isSome)),
+    });
 
     const appendLivenessActivity = (
       thread: OrchestrationThreadShell,
@@ -759,19 +882,23 @@ const makeWorkstreamLivenessSweep = (
 
     // Scaffold-brief backstop (scaffold plan §3): a scaffolded child stuck
     // brief-needed past its grace has no session (never launched) and cannot help
-    // itself, so attention is raised on the PARENT. Deterministic id keyed by
-    // the eligibility episode makes it idempotent within an episode and re-arm on
-    // a fresh one (matching the dispatcher's brief-needed wake dedup).
+    // itself, so attention is raised on the PARENT. Deterministic ids keyed by the
+    // eligibility episode AND the re-raise round make it idempotent within a round
+    // (matching the dispatcher's brief-needed wake dedup) while still letting
+    // `decideBriefNeededBackstop` raise a fresh round after a dismissed flag.
     const raiseBriefNeededBackstop = Effect.fn("workstreamLiveness.briefNeededBackstop")(function* (
       child: OrchestrationThreadShell,
       parentId: ThreadId,
       episodeMs: number,
+      round: number,
+      nowMs: number,
     ) {
       const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      const episodeKey = briefNeededEpisodeKey(episodeMs, round);
       yield* orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: CommandId.make(
-          `server:workstream-liveness:brief-needed:${parentId}:${child.id}:${episodeMs}`,
+          `server:workstream-liveness:brief-needed:${parentId}:${child.id}:${episodeKey}`,
         ),
         threadId: parentId,
         activity: {
@@ -781,7 +908,11 @@ const makeWorkstreamLivenessSweep = (
           summary:
             `Sub-thread ${child.graphKey !== null ? `'${child.graphKey}' ` : ""}(${child.id}) has ` +
             `been unblocked and released but has no kickoff brief, so it cannot launch. ` +
-            `Attach it with workstream_brief (or cancel it) — the graph is stalled at this node.`,
+            `Attach it with workstream_brief (or cancel it) — the graph is stalled at this node.` +
+            (round === 0
+              ? ""
+              : ` (Repeat notice #${round}: an earlier one was dismissed and the node is still ` +
+                `unbriefed after ${Math.round((nowMs - episodeMs) / 60_000)} min.)`),
           payload: { kind: "brief-needed", childId: child.id },
           turnId: null,
           createdAt: now,
@@ -791,7 +922,7 @@ const makeWorkstreamLivenessSweep = (
       yield* orchestrationEngine.dispatch({
         type: "thread.attention.raise",
         commandId: CommandId.make(
-          `server:workstream-liveness:brief-needed-attn:${parentId}:${child.id}:${episodeMs}`,
+          briefNeededBackstopAttentionId(parentId, child.id, episodeMs, round),
         ),
         threadId: parentId,
         reason: "needs_guidance",
@@ -869,6 +1000,7 @@ const makeWorkstreamLivenessSweep = (
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
           progressLoop.delete(thread.id);
+          briefNeededBackstops.delete(thread.id);
           continue;
         }
         const session = thread.session;
@@ -881,29 +1013,69 @@ const makeWorkstreamLivenessSweep = (
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
           progressLoop.delete(thread.id);
-          if (thread.parentThreadId !== null && isBriefNeeded(thread, threadsById)) {
-            const sinceMs = briefNeededSinceMs(thread, threadsById);
-            if (briefNeededBackstopDue({ sinceMs, now, graceMs: thresholds.briefNeededGraceMs })) {
-              yield* raiseBriefNeededBackstop(thread, thread.parentThreadId, sinceMs).pipe(
-                Effect.tap(() =>
-                  Effect.logInfo("workstream.liveness.brief-needed", {
-                    threadId: thread.id,
-                    parentId: thread.parentThreadId,
-                    sinceMs,
-                  }),
-                ),
-                Effect.catchCause((cause) =>
-                  Effect.logWarning("workstream.liveness.brief-needed-failed", {
-                    threadId: thread.id,
-                    cause: Cause.pretty(cause),
-                  }),
-                ),
-              );
-              actionedCount += 1;
-            }
+          const parentId = thread.parentThreadId;
+          if (!isBriefNeeded(thread, threadsById)) {
+            // No longer wedged (briefed, launched, or cancelled) → drop the episode
+            // so a genuinely new stall later starts from round 0.
+            briefNeededBackstops.delete(thread.id);
+            continue;
           }
+          const sinceMs = briefNeededSinceMs(thread, threadsById);
+          const decision = decideBriefNeededBackstop({
+            prior: briefNeededBackstops.get(thread.id) ?? null,
+            episodeMs: sinceMs,
+            now,
+            graceMs: thresholds.briefNeededGraceMs,
+            reRaiseGraceMs: thresholds.briefNeededReRaiseGraceMs,
+            // Any stored `needs_guidance` on the parent means a human already has a
+            // reason to look here; a second flag would be pure noise.
+            parentFlagged: threadsById.get(parentId)?.attention.includes("needs_guidance") ?? false,
+          });
+          if (!decision.raise) {
+            if (decision.next === null) briefNeededBackstops.delete(thread.id);
+            else briefNeededBackstops.set(thread.id, decision.next);
+            continue;
+          }
+          const { round } = decision.next;
+          // `deliverOnce` on the attention-raise id: the engine's own
+          // receipt short-circuit is indistinguishable from a real dispatch, so
+          // without this the log line and `actionedCount` below reported a
+          // delivery on every 60s tick of an already-spent episode (observed for
+          // 10 days straight with zero state change). Only a real delivery counts.
+          //
+          // `already-handled` is the post-restart path: the in-memory episode map
+          // is empty, so the first sweep re-decides a round-0 raise whose receipt
+          // already exists. It is silent AND still commits the episode state, which
+          // is what arms the re-raise clock from the restart onward.
+          const outcome = yield* dedup
+            .deliverOnce(
+              briefNeededBackstopAttentionId(parentId, thread.id, sinceMs, round),
+              raiseBriefNeededBackstop(thread, parentId, sinceMs, round, now),
+            )
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("workstream.liveness.brief-needed-failed", {
+                  threadId: thread.id,
+                  cause: Cause.pretty(cause),
+                }).pipe(Effect.as("failed" as const)),
+              ),
+            );
+          // A failed/deferred dispatch commits nothing, so the next sweep retries
+          // this same round rather than burning the whole re-raise grace on it.
+          if (outcome === "failed" || outcome === "deferred") continue;
+          briefNeededBackstops.set(thread.id, decision.next);
+          if (outcome !== "delivered") continue;
+          yield* Effect.logInfo("workstream.liveness.brief-needed", {
+            threadId: thread.id,
+            parentId,
+            sinceMs,
+            round,
+          });
+          actionedCount += 1;
           continue;
         }
+        // A launched child is not brief-needed by construction — drop any episode.
+        briefNeededBackstops.delete(thread.id);
 
         // Stuck-launch backstop: a session wedged in `starting` with no active
         // turn and no live provider launch (see `stuckLaunchRecovery`). This state

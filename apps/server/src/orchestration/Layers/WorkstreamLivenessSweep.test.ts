@@ -13,6 +13,8 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vite-plus/test";
@@ -31,12 +33,15 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { WorkstreamLivenessSweep } from "../Services/WorkstreamLivenessSweep.ts";
-
+import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import {
   buildStallNudgeMessage,
+  briefNeededBackstopAttentionId,
   classifyLiveness,
   computeProgressFingerprint,
+  decideBriefNeededBackstop,
   decideProgressLoop,
   decideStallAction,
   decideStuckLaunchAction,
@@ -44,6 +49,7 @@ import {
   briefNeededBackstopDue,
   makeWorkstreamLivenessSweepLive,
   submitSupersedesFailure,
+  type BriefNeededBackstopState,
   type ProgressLoopState,
 } from "./WorkstreamLivenessSweep.ts";
 import { briefNeededSinceMs } from "./WorkstreamDispatcher.ts";
@@ -597,6 +603,150 @@ describe("briefNeededBackstopDue (scaffold-brief backstop grace clock, plan §3)
   });
 });
 
+describe("decideBriefNeededBackstop (re-armable brief-needed backstop)", () => {
+  const graceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs;
+  const reRaiseGraceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededReRaiseGraceMs;
+  const episodeMs = now - graceMs - 60_000; // due, comfortably past the initial grace
+  const decide = (
+    overrides: Partial<Parameters<typeof decideBriefNeededBackstop>[0]> = {},
+  ): ReturnType<typeof decideBriefNeededBackstop> =>
+    decideBriefNeededBackstop({
+      prior: null,
+      episodeMs,
+      now,
+      graceMs,
+      reRaiseGraceMs,
+      parentFlagged: false,
+      ...overrides,
+    });
+  const raised = (overrides: Partial<BriefNeededBackstopState> = {}): BriefNeededBackstopState => ({
+    episodeMs,
+    round: 0,
+    raisedAtMs: now,
+    ...overrides,
+  });
+
+  it("does not raise (and carries no state) while within the initial grace", () => {
+    const decision = decide({ episodeMs: now - 60_000 });
+    expect(decision.raise).toBe(false);
+    expect(decision.next).toBeNull();
+  });
+
+  it("raises round 0 on the first due observation of an episode", () => {
+    const decision = decide();
+    expect(decision.raise).toBe(true);
+    expect(decision.next).toEqual({ episodeMs, round: 0, raisedAtMs: now });
+  });
+
+  it("stays silent while the parent is still flagged — no re-raise loop", () => {
+    // The load-bearing anti-loop property: an already-flagged parent is never
+    // re-raised, however long the episode has been due.
+    const prior = raised({ raisedAtMs: now - 10 * reRaiseGraceMs });
+    const decision = decide({ prior, parentFlagged: true });
+    expect(decision.raise).toBe(false);
+    expect(decision.next).toBe(prior);
+  });
+
+  it("does not raise every tick even once the flag is cleared (rate-limited)", () => {
+    // Flag cleared, but the backstop's own grace has not elapsed → wait. This is
+    // what keeps a cleared flag from turning into a 60s re-raise loop.
+    const prior = raised({ raisedAtMs: now - reRaiseGraceMs + 1 });
+    const decision = decide({ prior });
+    expect(decision.raise).toBe(false);
+    expect(decision.next).toBe(prior);
+  });
+
+  it("RE-ARMS: raises the next round once the cleared flag has aged past the re-raise grace", () => {
+    // The 10-day-silent-stall bug: episode key is stable, the receipt is spent,
+    // the flag was cleared by hand, and the node is STILL brief-needed.
+    const prior = raised({ raisedAtMs: now - reRaiseGraceMs });
+    const decision = decide({ prior });
+    expect(decision.raise).toBe(true);
+    expect(decision.next).toEqual({ episodeMs, round: 1, raisedAtMs: now });
+  });
+
+  it("keeps escalating rounds so each re-raise gets a fresh command id", () => {
+    const prior = raised({ round: 3, raisedAtMs: now - reRaiseGraceMs });
+    const decision = decide({ prior });
+    expect(decision).toEqual({
+      raise: true,
+      next: { episodeMs, round: 4, raisedAtMs: now },
+    });
+    // Distinct ids per round is what lets the engine's receipt dedup pass a
+    // genuine re-raise through instead of short-circuiting it.
+    expect(
+      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 4),
+    ).not.toBe(
+      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 3),
+    );
+  });
+
+  it("round 0's command id is byte-identical to the pre-re-raise id (no deploy re-notify)", () => {
+    expect(
+      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 0),
+    ).toBe(`server:workstream-liveness:brief-needed-attn:parent-1:child-1:${episodeMs}`);
+  });
+
+  it("a genuinely new episode raises round 0 again, resetting the round counter", () => {
+    const prior = raised({ episodeMs: episodeMs - 5 * 60_000, round: 7 });
+    const decision = decide({ prior });
+    expect(decision.raise).toBe(true);
+    expect(decision.next).toEqual({ episodeMs, round: 0, raisedAtMs: now });
+  });
+});
+
+describe("brief-needed backstop delivery accounting (no double-count)", () => {
+  const attnId = briefNeededBackstopAttentionId(
+    "parent-1" as ThreadId,
+    "child-1" as ThreadId,
+    now - DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs - 1,
+    0,
+  );
+
+  effectIt.effect(
+    "a repeat sweep of a spent episode reports already-handled, so it is never logged or counted",
+    () =>
+      Effect.gen(function* () {
+        // The observed bug: the raise dispatch is idempotent downstream, but the
+        // sweep's log + actionedCount sat OUTSIDE that dedup and so claimed a
+        // delivery on every 60s tick for 10 days. Routing the raise through
+        // `deliverOnce` is what restores the distinction.
+        const dedup = yield* makeReceiptDedupedDelivery({
+          hasAcceptedReceipt: () => Effect.succeed(false),
+        });
+        const raises = yield* Ref.make(0);
+        const raise = Ref.update(raises, (n) => n + 1);
+
+        let actionedCount = 0;
+        for (let tick = 0; tick < 5; tick += 1) {
+          const outcome = yield* dedup.deliverOnce(attnId, raise);
+          if (outcome === "delivered") actionedCount += 1;
+        }
+
+        // One real raise across five sweep ticks, and the count reflects it.
+        expect(yield* Ref.get(raises)).toBe(1);
+        expect(actionedCount).toBe(1);
+      }),
+  );
+
+  effectIt.effect("an episode already receipted before this process is silent, not counted", () =>
+    Effect.gen(function* () {
+      // Post-restart: the in-memory episode map is empty so the sweep re-decides a
+      // round-0 raise, but the durable receipt proves the parent was already told.
+      const dedup = yield* makeReceiptDedupedDelivery({
+        hasAcceptedReceipt: (commandId: string) => Effect.succeed(commandId === attnId),
+      });
+      const raises = yield* Ref.make(0);
+      const outcome = yield* dedup.deliverOnce(
+        attnId,
+        Ref.update(raises, (n) => n + 1),
+      );
+      expect(outcome).toBe("already-handled");
+      expect(yield* Ref.get(raises)).toBe(0);
+    }),
+  );
+});
+
 describe("decideStuckLaunchAction", () => {
   const cap = 2;
 
@@ -848,6 +998,13 @@ describe("liveness sweep stuck-launch backstop", () => {
         Layer.succeed(ServerSettingsService, {
           getSettings: Effect.succeed({ providerInstances: [] }),
         } as unknown as ServerSettingsService["Service"]),
+        // The brief-needed backstop's delivery dedup reads receipts. Stuck-launch
+        // recovery never consults them, so an always-empty repository keeps this
+        // harness focused on the launch ladder.
+        Layer.succeed(OrchestrationCommandReceiptRepository, {
+          upsert: () => Effect.void,
+          getByCommandId: () => Effect.succeed(Option.none()),
+        } as unknown as OrchestrationCommandReceiptRepository["Service"]),
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-liveness-stuck-launch-" }),
       ).pipe(Layer.provideMerge(NodeServices.layer));
 
