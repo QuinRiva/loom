@@ -141,6 +141,43 @@ const discussRelocationClause = (finalCommitSha: string | null): string =>
     finalCommitSha ? ` Your work was committed as \`${finalCommitSha}\`.` : ""
   } The files you see now are the parent's CURRENT state, which has moved on since you finished — any absolute paths you remember are historical. Exact historical file contents live in git at that commit.`;
 
+// Post-completion engagement — the two durable-state decisions of Phase 1,
+// extracted as pure functions so the capability is unit-testable without the
+// provider harness (plan §5.1/§5.3/§8 item 4).
+
+/**
+ * Discuss-launch decision (plan §5.1/§5.3): a thread in a terminal lane
+ * (`done`/`cancelled`) that has provably run — its pi session file exists —
+ * resumes READ-ONLY. Every other thread takes the normal full launch. Session
+ * existence is required so a terminal thread that never actually ran (no session)
+ * is not mistaken for a completed interlocutor.
+ */
+export const isDiscussLaunch = (input: {
+  readonly planLane: string;
+  readonly sessionFileExists: boolean;
+}): boolean =>
+  (input.planLane === "done" || input.planLane === "cancelled") && input.sessionFileExists;
+
+/**
+ * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
+ * an isolated child ONLY when it has NOT provably run (no session file) AND its
+ * branch still points at the parent (never provisioned). A thread whose session
+ * file exists has run — fan-in repoints its branch to the parent's, so the
+ * branch-name predicate alone can no longer distinguish "never provisioned" from
+ * "provisioned, fanned in, worktree reaped"; session-file existence resolves it.
+ * Re-provisioning a thread that has run is the bug that cut a fresh worktree and
+ * re-delivered the kickoff brief to a completed child.
+ */
+export const shouldReprovisionIsolatedChild = (input: {
+  readonly sessionFileExists: boolean;
+  readonly isolation: string;
+  readonly branch: string | null;
+  readonly threadId: ThreadId;
+}): boolean =>
+  !input.sessionFileExists &&
+  input.isolation === "isolated" &&
+  !isProvisionedChildBranch(input.branch, input.threadId);
+
 const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
   opts?: { readonly asChildBackground?: boolean },
@@ -655,9 +692,10 @@ const make = Effect.gen(function* () {
     // — no lane change, no spawnGeneration bump, no parent notification (a
     // sticky-terminal turn-start touches none of those). Every other thread
     // takes the normal full launch. (Edit mode is a later phase.)
-    const isTerminalLane = thread.planLane === "done" || thread.planLane === "cancelled";
-    const discussMode =
-      isTerminalLane && resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined;
+    const discussMode = isDiscussLaunch({
+      planLane: thread.planLane,
+      sessionFileExists: resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined,
+    });
 
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
@@ -1189,12 +1227,14 @@ const make = Effect.gen(function* () {
     // existence is the durable, unambiguous "has provably run" proof. The
     // re-provision path below stays for GENUINELY never-started children (no
     // session file yet) — its legitimate purpose.
-    const threadHasRun = resolveSessionFilePath(piSessionIdForThread(thread.id)) !== undefined;
     let recoveredNeverStartedChild = false;
     if (
-      !threadHasRun &&
-      thread.isolation === "isolated" &&
-      !isProvisionedChildBranch(thread.branch, thread.id)
+      shouldReprovisionIsolatedChild({
+        sessionFileExists: resolveSessionFilePath(piSessionIdForThread(thread.id)) !== undefined,
+        isolation: thread.isolation,
+        branch: thread.branch,
+        threadId: thread.id,
+      })
     ) {
       const provisioned = yield* worktreeProvisioner.ensureIsolatedChildProvisioned({
         threadId: thread.id,
