@@ -1844,6 +1844,21 @@ export function makePiAdapter(input: {
   // an unplanned crash of the CURRENT process settles the session.
   const replacedProcesses = new WeakSet<PiRpcProcess>();
 
+  // Processes we deliberately SIGTERMed via stopSession/stopAll. Their exit must
+  // still tear the session down and settle open questions — a stopped process can
+  // no more answer a question than a crashed one — but it is not a failure, so it
+  // is labelled `graceful` and never dresses harmless stderr (pi's
+  // "creating a new session with that id" warning, say) up as an error reason.
+  const stoppedProcesses = new WeakSet<PiRpcProcess>();
+
+  // Mark before the SIGTERM: the exit handler runs on the process's own `exit`
+  // event, so the marking has to be in place before the signal is sent.
+  const stopProcessGracefully = (process: PiRpcProcess): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      stoppedProcesses.add(process);
+      return Effect.promise(() => process.stop());
+    });
+
   // Attach this adapter's stream subscription + crash handler to a pi process.
   // Shared by session start and relaunch so both wire identical semantics.
   const wirePiProcess = (active: ActivePiSession, process: PiRpcProcess): void => {
@@ -1852,6 +1867,7 @@ export function makePiAdapter(input: {
     );
     process.child.once("exit", () => {
       if (replacedProcesses.has(process)) return;
+      const graceful = stoppedProcesses.has(process);
       if (active.retry?.timer !== undefined) clearTimeout(active.retry.timer);
       sessions.delete(active.session.threadId);
       void (async () => {
@@ -1869,11 +1885,13 @@ export function makePiAdapter(input: {
               raw: { source: "pi.rpc.synthetic", payload: { stderr: process.stderrTail() } },
             }),
             type: "session.exited",
-            payload: {
-              reason: process.stderrTail() || "Pi RPC process exited.",
-              recoverable: false,
-              exitKind: "error",
-            },
+            payload: graceful
+              ? { reason: "Session stopped.", recoverable: false, exitKind: "graceful" }
+              : {
+                  reason: process.stderrTail() || "Pi RPC process exited.",
+                  recoverable: false,
+                  exitKind: "error",
+                },
           }),
         ).catch(() => undefined);
       })();
@@ -2449,7 +2467,7 @@ export function makePiAdapter(input: {
       requireSession(threadId).pipe(
         Effect.flatMap((session) =>
           cancelPendingUserInputs(session).pipe(
-            Effect.andThen(Effect.promise(() => session.process.stop())),
+            Effect.andThen(stopProcessGracefully(session.process)),
             Effect.tap(() =>
               Effect.sync(() => {
                 if (session.retry?.timer !== undefined) clearTimeout(session.retry.timer);
@@ -2477,7 +2495,7 @@ export function makePiAdapter(input: {
         [...sessions.values()],
         (session) =>
           cancelPendingUserInputs(session).pipe(
-            Effect.andThen(Effect.promise(() => session.process.stop())),
+            Effect.andThen(stopProcessGracefully(session.process)),
             Effect.tap(() => Effect.sync(() => session.unregisterAskUserEmitter())),
           ),
         { concurrency: "unbounded", discard: true },

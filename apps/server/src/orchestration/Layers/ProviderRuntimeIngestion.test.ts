@@ -842,6 +842,59 @@ describe("ProviderRuntimeIngestion", () => {
     }),
   );
 
+  // The settlement rule is about the process being GONE, not about it having
+  // failed: a deliberate stop (pi's stopSession/stopAll emit exitKind "graceful")
+  // can no more answer an open question than a crash can, so it must settle too.
+  effectIt.effect("settles open questions on a graceful exit too", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const threadId = asThreadId("thread-1");
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-question-open-before-graceful-exit"),
+        threadId,
+        activity: {
+          id: EventId.make("activity-question-open-before-graceful-exit"),
+          tone: "info",
+          kind: "user-input.requested",
+          summary: "User input requested",
+          payload: { requestId: "req-open-at-graceful-exit", questions: [] },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+
+      harness.emit({
+        type: "session.exited",
+        eventId: asEventId("evt-session-exited-graceful-settles-question"),
+        provider: ProviderDriverKind.make("pi"),
+        threadId,
+        createdAt: "2026-01-01T00:00:05.000Z",
+        payload: { reason: "Session stopped.", recoverable: false, exitKind: "graceful" },
+      });
+
+      yield* Effect.promise(() => harness.drain());
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === threadId,
+      );
+
+      expect(
+        thread?.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.kind === "session.exited",
+        ),
+      ).toBe(true);
+      const resolvedGracefully = thread?.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "user-input.resolved" &&
+          (activity.payload as Record<string, unknown>).requestId === "req-open-at-graceful-exit",
+      );
+      expect(resolvedGracefully?.payload).toMatchObject({ outcome: "cancelled" });
+    }),
+  );
+
   effectIt.effect("keeps an aborted pending start stopped across duplicate exit events", () =>
     Effect.gen(function* () {
       const harness = yield* Effect.promise(() => createHarness());

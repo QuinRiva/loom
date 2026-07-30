@@ -38,12 +38,13 @@ const makeFakeProcess = () => {
   const child = new NodeEvents.EventEmitter();
   const writes: Array<Record<string, unknown>> = [];
   let listener: (message: unknown) => void = () => undefined;
+  let stderr = "";
   const process = {
     child,
     command: "pi",
     args: [],
     cwd: undefined,
-    stderrTail: () => "",
+    stderrTail: () => stderr,
     request: () => Promise.resolve({ type: "response", command: "test", success: true, data: {} }),
     write: (command: Record<string, unknown>) => {
       writes.push(command);
@@ -53,13 +54,22 @@ const makeFakeProcess = () => {
       listener = next;
       return () => undefined;
     },
-    stop: () => Promise.resolve(),
+    // Real `stop()` SIGTERMs pi and resolves on its `exit`, so the driver's exit
+    // handler always runs on a deliberate stop too — the fake has to reproduce
+    // that or the graceful path is untested.
+    stop: () => {
+      child.emit("exit", 0, "SIGTERM");
+      return Promise.resolve();
+    },
   } as unknown as PiRpcProcess;
   return {
     process,
     writes,
     factory: (_options: PiRpcProcessOptions) => Promise.resolve(process),
     emit: (message: unknown) => listener(message),
+    setStderr: (next: string) => {
+      stderr = next;
+    },
   };
 };
 
@@ -212,6 +222,65 @@ describe("PiDriver user input", () => {
         const stopped = yield* takeEvent(events, "user-input.resolved");
         expect(stopped.requestId).toBe("stop-editor");
         expect(stopped.payload.answers).toEqual({});
+      }),
+    ),
+  );
+
+  // A deliberate stop is not a failure, but it MUST still emit session.exited:
+  // ingestion uses that event to cancel every question still open on the thread
+  // (durable settlement that survives a restart). Graceful labelling, same event.
+  effectIt.effect("reports a deliberate stop as graceful and still settles open input", () =>
+    withAdapter((adapter, fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("66666666-6666-4666-8666-666666666666");
+        yield* startSession(adapter, threadId);
+        // Harmless pi startup noise must NOT become the user-visible exit reason.
+        fake.setStderr(
+          "Warning: No project session found with id 'x'; creating a new session with that id.",
+        );
+        fake.emit({
+          type: "extension_ui_request",
+          id: "stopped-select",
+          method: "select",
+          message: "Choose",
+          options: ["A", "B"],
+        });
+        yield* takeEvent(events, "user-input.requested");
+
+        yield* adapter.stopSession(threadId);
+
+        const resolved = yield* takeEvent(events, "user-input.resolved");
+        expect(resolved.requestId).toBe("stopped-select");
+        const exited = yield* takeEvent(events, "session.exited");
+        expect(exited.payload).toMatchObject({ exitKind: "graceful", reason: "Session stopped." });
+      }),
+    ),
+  );
+
+  effectIt.effect("reports stopAll as graceful", () =>
+    withAdapter((adapter, _fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("77777777-7777-4777-8777-777777777777");
+        yield* startSession(adapter, threadId);
+        yield* adapter.stopAll();
+        const exited = yield* takeEvent(events, "session.exited");
+        expect(exited.payload.exitKind).toBe("graceful");
+      }),
+    ),
+  );
+
+  effectIt.effect("reports an unplanned crash as an error carrying its stderr tail", () =>
+    withAdapter((adapter, fake, events) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("88888888-8888-4888-8888-888888888888");
+        yield* startSession(adapter, threadId);
+        fake.setStderr("Stored session working directory does not exist");
+        fake.process.child.emit("exit", 1, null);
+        const exited = yield* takeEvent(events, "session.exited");
+        expect(exited.payload).toMatchObject({
+          exitKind: "error",
+          reason: "Stored session working directory does not exist",
+        });
       }),
     ),
   );
