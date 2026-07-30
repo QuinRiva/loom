@@ -20,6 +20,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -6818,6 +6819,126 @@ describe("notify_thread deferred-delivery rail", () => {
         }),
     );
 
+    // Snapshot-staleness regression (review round 2). The pass takes ONE shell
+    // snapshot at its start, but a gate rework leg can REOPEN a `done` target
+    // (`done` → `in_progress`) later in that same pass. Expiry is irreversible and
+    // has no atomic engine re-check behind it, so expiring against the pass-start
+    // lane would destroy a queued message whose contract said it stayed pending.
+    // The target here is a `done` coder holding an open rework round whose
+    // reviewer has looped — exactly the shape that reopens — with a notification
+    // queued for it.
+    effectIt.effect(
+      "does NOT expire a queued notification for a `done` gate target this pass reopens",
+      () =>
+        Effect.gen(function* () {
+          const REVIEWER = "notify-gate-reviewer" as ThreadId;
+          const dispatched: Array<OrchestrationCommand> = [];
+          // Target: a `done` coder with an OPEN rework round (`pendingRework`).
+          const reopenableTarget = shell({
+            id: TARGET,
+            parentThreadId: null,
+            planLane: "done",
+            pendingRework: true,
+            session: null,
+          });
+          // Source: the reviewer that routed the rework back to it (`loop`).
+          const reviewer = shell({
+            id: REVIEWER as unknown as string,
+            parentThreadId: null,
+            planLane: "in_progress",
+            routes: [{ kind: "loop", on: ["needs_rework"], to: TARGET }],
+            gateRounds: 1,
+            lastOutcome: {
+              outcome: "needs_rework",
+              decision: "loop",
+              round: 1,
+              at: now,
+              recordedByEventId: EventId.make("11111111-1111-4111-8111-111111111111"),
+            },
+            session: null,
+          });
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // The rework leg ran and reopened the target.
+            const rework = dispatched.filter(
+              (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+                c.type === "thread.turn.start" && c.threadId === TARGET && c.reopen === true,
+            );
+            expect(rework).toHaveLength(1);
+
+            // The queued message MUST survive — the target is no longer terminal.
+            expect(expires(dispatched)).toHaveLength(0);
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [reopenableTarget, reviewer],
+              }),
+            ),
+          );
+        }),
+    );
+
+    // The complementary direction, and the reason the exemption is keyed on the
+    // pass's actual reopen rather than on `pendingRework`: a `done` target whose
+    // rework leg was ALREADY delivered (receipt present) is not reopened by this
+    // pass, so it is genuinely terminal and its queued message must still expire.
+    // A blanket "never expire a pendingRework target" fix would strand the
+    // message forever on a dead gate; this pins that we did not do that.
+    effectIt.effect(
+      "still expires for a `done` pending-rework target this pass does NOT reopen",
+      () =>
+        Effect.gen(function* () {
+          const REVIEWER = "notify-gate-reviewer-handled" as ThreadId;
+          const dispatched: Array<OrchestrationCommand> = [];
+          const doneTarget = shell({
+            id: TARGET,
+            parentThreadId: null,
+            planLane: "done",
+            pendingRework: true,
+            session: null,
+          });
+          const reviewer = shell({
+            id: REVIEWER as unknown as string,
+            parentThreadId: null,
+            planLane: "in_progress",
+            routes: [{ kind: "loop", on: ["needs_rework"], to: TARGET }],
+            gateRounds: 1,
+            lastOutcome: {
+              outcome: "needs_rework",
+              decision: "loop",
+              round: 1,
+              at: now,
+              recordedByEventId: EventId.make("22222222-2222-4222-8222-222222222222"),
+            },
+            session: null,
+          });
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // The rework leg was already handled, so nothing reopened the target.
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === TARGET),
+            ).toHaveLength(0);
+            // Terminal target -> the queued message is expired, as before.
+            expect(expires(dispatched)).toHaveLength(1);
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [doneTarget, reviewer],
+                deliveredReceipts: new Set([gateCommandId(REVIEWER, 1, "rework")]),
+              }),
+            ),
+          );
+        }),
+    );
+
     effectIt.effect(
       "expires when the target is absent from the active snapshot (archived/deleted)",
       () =>
@@ -6934,4 +7055,279 @@ describe("notify_thread deferred-delivery rail", () => {
       }),
     );
   });
+});
+
+// Pass coalescing + one-snapshot-per-pass (survey finding 1). Eleven event types
+// feed the single dispatcher trigger, the highest-volume of them peaking around
+// 1.5/s against a ~1.5s pass — so a queueing worker's backlog diverges and a
+// restart discards it. These tests pin the two properties that make coalescing
+// safe: a burst collapses (bounded work), and no trigger is ever absorbed into a
+// pass that had already read its snapshot (no lost wakes).
+describe("pass coalescing + single shell snapshot per pass (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-coalesce" as ThreadId;
+
+  // A quiescent workstream: one idle root parent and one fresh (within-grace)
+  // idle child, so every pass runs all rails to completion but dispatches
+  // nothing. The assertions are then purely about pass/query COUNTS.
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const child = shell({
+    id: "child-coalesce",
+    parentThreadId: PARENT_ID,
+    planLane: "in_progress",
+    kickoffBriefPath: null,
+    session: runningSession({
+      threadId: "child-coalesce" as ThreadId,
+      status: "ready",
+      activeTurnId: null,
+    }),
+    latestTurn: latestTurn({ completedAt: now }),
+  });
+
+  const buildLayer = (input: {
+    readonly events: PubSub.PubSub<OrchestrationEvent>;
+    readonly snapshotCalls: { count: number };
+    /**
+     * Pass counter. `listPendingPeerMessages` is the LAST rail of `runPass` and
+     * is called exactly once there, so it counts completed passes independently
+     * of the snapshot reads under test.
+     */
+    readonly passCalls?: { count: number };
+    /** Runs at the start of every `getShellSnapshot`, i.e. inside the pass. */
+    readonly onSnapshot?: (call: number) => Effect.Effect<void>;
+    /**
+     * Observes every event the dispatcher's subscription fibre pulls, BEFORE it
+     * decides whether to trigger. `Stream.runForEach` is sequential, so a test
+     * that awaits a trailing sentinel here knows every earlier event has already
+     * been handed to the trigger — without this handshake a burst test races the
+     * subscription fibre and passes even with a non-coalescing worker.
+     */
+    readonly onEvent?: (event: OrchestrationEvent) => Effect.Effect<void>;
+  }) => {
+    const domainEvents = Stream.fromPubSub(input.events).pipe(
+      input.onEvent === undefined ? (self) => self : Stream.tap(input.onEvent),
+    );
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: () => Effect.succeed({ sequence: 1 }),
+      streamDomainEvents: domainEvents,
+      subscribeDomainEvents: Effect.succeed(domainEvents),
+      latestSequence: Effect.succeed(0),
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.suspend(() => {
+          input.snapshotCalls.count += 1;
+          const call = input.snapshotCalls.count;
+          return (input.onSnapshot?.(call) ?? Effect.void).pipe(
+            Effect.as({
+              snapshotSequence: 1,
+              goals: [],
+              projects: [],
+              threads: [parent, child],
+              updatedAt: now,
+            } satisfies OrchestrationShellSnapshot),
+          );
+        }),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () =>
+        Effect.sync(() => {
+          if (input.passCalls) input.passCalls.count += 1;
+          return [];
+        }),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-coalesce-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect("takes exactly ONE shell snapshot per pass (was three)", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotCalls = { count: 0 };
+        const passCalls = { count: 0 };
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          // Several triggers over time, each free to run its own pass.
+          for (let i = 0; i < 4; i += 1) {
+            yield* PubSub.publish(events, { type: "thread.plan-lane-set" } as OrchestrationEvent);
+            yield* dispatcher.drain;
+          }
+          expect(passCalls.count).toBeGreaterThanOrEqual(5);
+          expect(snapshotCalls.count).toBe(passCalls.count);
+        }).pipe(Effect.provide(buildLayer({ events, snapshotCalls, passCalls })));
+      }),
+    ),
+  );
+
+  // `thread.activity-appended` is deliberately NOT one of the dispatcher's 11
+  // trigger types, so it serves as a sentinel: observing it in `onEvent` proves
+  // the subscription fibre has already processed every event published before it,
+  // without itself requesting a pass. `runForEach` is sequential, so this is the
+  // handshake that makes "the burst was absorbed into the trigger" an assertion
+  // rather than a race.
+  const SENTINEL = "thread.activity-appended";
+
+  /**
+   * Both tests below drive the dispatcher through a pass they hold open, so they
+   * share this shape: settle the startup passes, wait until the event
+   * subscription is provably live, then open a pass, land triggers inside it, and
+   * measure how many passes follow.
+   */
+  const withHeldPass = (
+    body: (input: {
+      readonly dispatcher: { readonly drain: Effect.Effect<void> };
+      /** Publish these events and return once the subscription has absorbed them. */
+      readonly publishAndAbsorb: (
+        types: ReadonlyArray<string>,
+      ) => Effect.Effect<void, never, never>;
+      /** Release the held pass. */
+      readonly release: Effect.Effect<void>;
+      readonly passCalls: { count: number };
+      readonly snapshotCalls: { count: number };
+      /** Passes completed before the held pass opened. */
+      readonly baseline: number;
+    }) => Effect.Effect<void>,
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotCalls = { count: 0 };
+        const passCalls = { count: 0 };
+        const heldPassRunning = yield* Deferred.make<void>();
+        const releaseHeldPass = yield* Deferred.make<void>();
+        // Which pass to hold open: the startup passes must settle first (their
+        // count is timing-dependent — the startup enqueue and the immediate
+        // re-pass tick may or may not coalesce), so the held pass is chosen by
+        // number once that baseline is known.
+        const holdFromCall = { value: Number.POSITIVE_INFINITY };
+        let absorbed: Deferred.Deferred<void> | null = null;
+
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+
+          // The subscription fibre subscribes lazily when the stream runs, so
+          // publishing before that silently drops the event. Keep offering the
+          // sentinel until one is observed; from then on the channel is live.
+          const live = yield* Deferred.make<void>();
+          absorbed = live;
+          yield* PubSub.publish(events, { type: SENTINEL } as OrchestrationEvent).pipe(
+            Effect.andThen(Effect.sleep(Duration.millis(1))),
+            Effect.repeat({ until: () => Deferred.isDone(live) }),
+          );
+          yield* Deferred.await(live);
+          yield* dispatcher.drain;
+
+          const publishAndAbsorb = (types: ReadonlyArray<string>) =>
+            Effect.gen(function* () {
+              const seen = yield* Deferred.make<void>();
+              absorbed = seen;
+              for (const type of types) {
+                yield* PubSub.publish(events, { type } as OrchestrationEvent);
+              }
+              yield* PubSub.publish(events, { type: SENTINEL } as OrchestrationEvent);
+              yield* Deferred.await(seen);
+            });
+
+          const baseline = passCalls.count;
+          // Open the next pass and hold it.
+          holdFromCall.value = snapshotCalls.count + 1;
+          yield* publishAndAbsorb(["thread.plan-lane-set"]);
+          yield* Deferred.await(heldPassRunning);
+
+          yield* body({
+            dispatcher,
+            publishAndAbsorb,
+            release: Deferred.succeed(releaseHeldPass, undefined).pipe(Effect.asVoid, Effect.orDie),
+            passCalls,
+            snapshotCalls,
+            baseline,
+          });
+        }).pipe(
+          Effect.provide(
+            buildLayer({
+              events,
+              snapshotCalls,
+              passCalls,
+              onSnapshot: (call) =>
+                call === holdFromCall.value
+                  ? Deferred.succeed(heldPassRunning, undefined).pipe(
+                      Effect.orDie,
+                      Effect.andThen(Deferred.await(releaseHeldPass)),
+                    )
+                  : Effect.void,
+              onEvent: (event) =>
+                event.type === SENTINEL && absorbed !== null
+                  ? Deferred.succeed(absorbed, undefined).pipe(Effect.asVoid, Effect.orDie)
+                  : Effect.void,
+            }),
+          ),
+        );
+      }),
+    );
+
+  effectIt.live("collapses a burst of triggers arriving mid-pass into ONE follow-up pass", () =>
+    withHeldPass(({ dispatcher, publishAndAbsorb, release, passCalls, snapshotCalls, baseline }) =>
+      Effect.gen(function* () {
+        // 25 triggers while a pass is mid-flight — the shape of the measured
+        // 88-events/minute peak. A queueing worker would run 25 more identical
+        // passes; coalescing must run exactly ONE.
+        yield* publishAndAbsorb(Array.from({ length: 25 }, () => "thread.session-set"));
+        // The held pass has already read its snapshot and has not completed.
+        expect(passCalls.count).toBe(baseline);
+
+        yield* release;
+        yield* dispatcher.drain;
+
+        // The held pass + exactly ONE coalesced follow-up — not 26 passes.
+        expect(passCalls.count).toBe(baseline + 2);
+        expect(snapshotCalls.count - baseline).toBe(2);
+      }),
+    ),
+  );
+
+  effectIt.live(
+    "no lost wake: a trigger landing AFTER the pass read its snapshot still causes a later pass",
+    () =>
+      withHeldPass(
+        ({ dispatcher, publishAndAbsorb, release, passCalls, snapshotCalls, baseline }) =>
+          Effect.gen(function* () {
+            // The hazard this guards: the trigger arrives strictly AFTER the held
+            // pass read its snapshot, so that pass cannot possibly observe the
+            // state it signals. Coalescing must therefore still run a pass that
+            // STARTS after it — an implementation that absorbs the trigger into
+            // the running pass loses this wake silently.
+            yield* publishAndAbsorb(["thread.session-set"]);
+            expect(passCalls.count).toBe(baseline);
+
+            yield* release;
+            yield* dispatcher.drain;
+
+            // A second FULL pass ran, reading a fresh snapshot after the trigger.
+            expect(passCalls.count).toBe(baseline + 2);
+            expect(snapshotCalls.count - baseline).toBe(2);
+          }),
+      ),
+  );
 });

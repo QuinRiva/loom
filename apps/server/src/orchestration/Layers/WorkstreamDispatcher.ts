@@ -21,7 +21,7 @@ import {
   isTerminalForJoin,
   isWaitingInGate,
 } from "@t3tools/shared/workstreamGraph";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 import { isFanInPending } from "@t3tools/shared/workstreamIsolation";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -2127,9 +2127,14 @@ const make = Effect.gen(function* () {
       .pipe(Effect.ignoreCause({ log: true }));
   });
 
-  const promoteReadyThreads = Effect.fn("promoteReadyThreads")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const selected = selectThreadsToDispatch(snapshot.threads);
+  // Takes the PASS-WIDE snapshot (see `runPass`) rather than reading its own:
+  // this is the pass's first phase, so the hoisted snapshot is byte-identical to
+  // the one it used to load here.
+  const promoteReadyThreads = Effect.fn("promoteReadyThreads")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+  ) {
+    const selected = selectThreadsToDispatch(threads);
     // loom: forkFrom (D7) — a fork child whose own pi session file does not yet
     // exist may only be promoted once its SOURCE is idle; otherwise `pi --fork`
     // would copy a mid-turn transcript and the persisted kickoff would strand it
@@ -2141,7 +2146,6 @@ const make = Effect.gen(function* () {
     const pendingTurnStartThreadIds = hasForkPending
       ? yield* projectionSnapshotQuery.getPendingTurnStartThreadIds()
       : new Set<ThreadId>();
-    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
     for (const thread of selected) {
       if (thread.forkFromThreadId !== null) {
         const source = threadsById.get(thread.forkFromThreadId);
@@ -2737,11 +2741,24 @@ const make = Effect.gen(function* () {
   // was resumed" marker). No `requireIdle`: the gate serialises its parties by
   // construction (exactly one is ever active), and a mid-loop parent prompt is
   // the parent's prerogative (last-write-wins, as with any steer).
-  const routeGateTraversals = Effect.fn("routeGateTraversals")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-    const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
-
-    for (const source of snapshot.threads) {
+  // Reads the PASS-WIDE snapshot (see `runPass`). It used to re-read one AFTER
+  // `promoteReadyThreads`, but no traversal leg can be enabled by a promotion: a
+  // just-promoted node is un-started, so `gateRounds === 0`, `lastOutcome ===
+  // null` and `pendingRework === false`, and both legs below require a recorded
+  // `loop` outcome on a party. So the pass-start snapshot decides identically.
+  //
+  // RETURNS the targets this pass actually REOPENED (`done` → `in_progress` via
+  // the rework leg's `reopen`). That is the one lane transition the pass makes
+  // that contradicts the pass-start snapshot, and a later phase
+  // (`deliverPendingNotifications`) must not treat such a target as terminal.
+  // Returning the delta keeps that phase current-state-correct without paying for
+  // a second full shell snapshot.
+  const routeGateTraversals = Effect.fn("routeGateTraversals")(function* (
+    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+  ) {
+    const reopenedTargets = new Set<ThreadId>();
+    for (const source of threads) {
       const loopTo = gateLoopTargetOf(source);
       if (loopTo === null) continue;
       // A terminal source resolves/dissolves the gate (derived, not stored):
@@ -2775,7 +2792,8 @@ const make = Effect.gen(function* () {
         const report = yield* readReportFor(source);
         const messageId = MessageId.make(yield* crypto.randomUUIDv4);
         const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-        yield* dedup.deliverOnce(
+        const reopens = target.planLane === "done";
+        const outcome = yield* dedup.deliverOnce(
           commandId,
           orchestrationEngine.dispatch({
             type: "thread.turn.start",
@@ -2791,10 +2809,17 @@ const make = Effect.gen(function* () {
             titleSeed: target.title,
             runtimeMode: target.runtimeMode,
             interactionMode: target.interactionMode,
-            ...(target.planLane === "done" ? { reopen: true } : {}),
+            ...(reopens ? { reopen: true } : {}),
             createdAt: now,
           } satisfies OrchestrationCommand),
         );
+        // Record the reopen only when a delivery actually committed it, so the set
+        // means precisely "targets whose lane this pass changed". Today that is
+        // every reopening leg that reaches here (`already-handled` was skipped
+        // above, and this leg sets no `requireIdle` so the engine cannot defer it),
+        // but keying on the outcome rather than on intent is what keeps the set
+        // honest if the leg ever gains an idle gate.
+        if (reopens && outcome === "delivered") reopenedTargets.add(target.id);
       } else if (source.gateRounds > 0 && target.lastOutcome?.decision === "loop") {
         // Re-verify leg: the target routed its rework back; resume the source
         // (in_progress-idle, so a plain turn-start resumes it — no reopen).
@@ -2824,6 +2849,7 @@ const make = Effect.gen(function* () {
         );
       }
     }
+    return reopenedTargets as ReadonlySet<ThreadId>;
   });
 
   // Yield rail (review-gates design §6): wake the parent of every `yielded`
@@ -3120,8 +3146,19 @@ const make = Effect.gen(function* () {
   // delivered. Only the oldest per target is attempted per pass — the accepted
   // delivery makes the target busy, and its next `thread.session-set` re-runs the
   // pass for the next one (strict FIFO, one notification per target turn).
+  //
+  // `reopenedTargets` (from `routeGateTraversals`) is load-bearing, not a
+  // micro-optimisation: expiry is IRREVERSIBLE and, unlike the delivery path, has
+  // no atomic engine re-check behind it. The pass-start snapshot can say a gate
+  // target is `done` when this very pass has since reopened it to `in_progress`
+  // for a rework round, and expiring on that stale read would destroy a queued
+  // message whose contract promised it stayed pending. Before the snapshot was
+  // hoisted, the (then third) snapshot was taken AFTER gate traversal and so saw
+  // the reopen; carrying the reopened set forward preserves that exact semantics
+  // for the one lane transition the pass itself can make.
   const deliverPendingNotifications = Effect.fn("deliverPendingNotifications")(function* (
     threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    reopenedTargets: ReadonlySet<ThreadId>,
   ) {
     const pending = yield* projectionSnapshotQuery.listPendingPeerMessages();
     const attemptedTargets = new Set<ThreadId>();
@@ -3132,14 +3169,20 @@ const make = Effect.gen(function* () {
       attemptedTargets.add(row.targetThreadId);
       const target = threadsById.get(row.targetThreadId);
       const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      // A target this pass reopened is NOT terminal any more, whatever the
+      // pass-start snapshot says: fall through to the delivery path, where the
+      // engine's atomic `requireIdle` gate defers while the rework turn starts and
+      // leaves the row pending for the target's next idle.
+      const reopened = reopenedTargets.has(row.targetThreadId);
       // Terminal/archived target (archived threads are absent from the active
       // shell snapshot, so `undefined` here) -> expire: sticky-terminal holds
       // even for a queued message; the edge survives marked `expired`.
       if (
         target === undefined ||
-        target.planLane === "done" ||
-        target.planLane === "cancelled" ||
-        target.archivedAt !== null
+        (!reopened &&
+          (target.planLane === "done" ||
+            target.planLane === "cancelled" ||
+            target.archivedAt !== null))
       ) {
         yield* orchestrationEngine.dispatch({
           type: "thread.peer-message.expire",
@@ -3205,19 +3248,51 @@ const make = Effect.gen(function* () {
   // onto their wakes, and the final flush delivers any leftovers standalone.
   // Rails run serially on the drainable worker, so the plain mutable map needs
   // no synchronisation.
+  //
+  // ONE shell snapshot per pass, threaded to every phase. It used to be read
+  // three times (here, in `promoteReadyThreads`, and in `routeGateTraversals`),
+  // and the read is dominated by a window-function scan over every assistant
+  // message of every live thread — on the server's single serial sqlite
+  // connection each one is tens of ms of GLOBAL stall, so two of the three were
+  // pure tax. Those two only ever differed from this one by the writes THIS pass
+  // had just made, and no phase needs to observe those:
+  //   - `routeGateTraversals` cannot be enabled by a promotion (see its comment).
+  //   - The ONE genuine same-pass dependency: a rework leg can REOPEN a `done`
+  //     gate target, and `deliverPendingNotifications` would otherwise expire a
+  //     queued message against the stale terminal lane — irreversibly, with no
+  //     atomic engine re-check to catch it (unlike the delivery path). So gate
+  //     traversal returns the set of targets it reopened and that phase honours
+  //     it, reproducing the pre-hoist ordering exactly for that transition.
+  //   - The wake/digest rails only ever need to read an earlier-in-this-pass
+  //     turn-start (a promotion, or a gate leg) as "this thread is now busy", and
+  //     they take that from `getPendingTurnStartThreadIds()`, which each rail
+  //     still queries FRESH after those phases. The pending-turn-start row is
+  //     written by the projector inside the dispatching transaction, so the idle
+  //     gate sees the write even though the shell snapshot predates it. (And the
+  //     engine re-checks idleness atomically for every `requireIdle` command, so
+  //     a stale idle read can defer a wake but never clobber a live turn.)
+  //   - A phase-1 PARK (`parkForkForUnpersistedSelection` /
+  //     `parkThreadForBriefReadFailure`) raises an attention flag the wake rails
+  //     would previously have picked up later in the same pass. It emits
+  //     `thread.attention-raised`, which is a pass trigger, and the worker
+  //     coalesces rather than drops triggers — so the follow-up pass is
+  //     guaranteed and the notice is deferred by one pass, not lost.
   const runPass = Effect.fn("runPass")(function* () {
-    yield* promoteReadyThreads();
-    yield* routeGateTraversals();
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threads = snapshot.threads;
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
+    yield* promoteReadyThreads(threads, threadsById);
+    // The reopened-target delta: the ONE lane transition this pass makes that
+    // contradicts the snapshot above, threaded to the phase whose decision is
+    // irreversible (see `deliverPendingNotifications`).
+    const reopenedTargets = yield* routeGateTraversals(threads, threadsById);
     const pending: PendingDigests = new Map();
     yield* collectTerminalDeltas(threads, threadsById, pending);
     yield* wakeIdleAndErroredChildren(threads, threadsById, pending);
     yield* wakeYieldedChildren(threads, threadsById, pending);
     yield* wakeBriefNeededChildren(threads, threadsById);
     yield* flushPendingDigests(threads, threadsById, pending);
-    yield* deliverPendingNotifications(threadsById);
+    yield* deliverPendingNotifications(threadsById, reopenedTargets);
   });
 
   const runPassSafely = runPass().pipe(
@@ -3231,7 +3306,21 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const worker = yield* makeDrainableWorker((_trigger: void) => runPassSafely);
+  // COALESCING worker (not the queueing default). Eleven event types below feed
+  // this one trigger, including `thread.session-set` — the highest-volume
+  // lifecycle event, which peaks around 1.5/s. A pass costs ~1.5s, so with a
+  // queueing worker peak arrival exceeds the pass rate: the unbounded in-memory
+  // queue diverges, wakes/promotions arrive minutes late, and a restart discards
+  // the backlog silently (exactly the 2026-07-29 provider-ingestion incident's
+  // failure mode, reached by a different road).
+  //
+  // Coalescing is sound here precisely because the pass is a full recompute from
+  // durable state, idempotent by receipt + handled-set dedup — N queued triggers
+  // only ever did the same work N times. What it must NOT do is drop a wake, and
+  // it does not: a trigger arriving mid-pass sets a pending flag that is cleared
+  // only inside the transaction that starts the NEXT pass, so every trigger is
+  // followed by a pass that begins after it arrived. See `makeCoalescingWorker`.
+  const worker = yield* makeCoalescingWorker(runPassSafely);
 
   const start: WorkstreamDispatcherShape["start"] = Effect.fn("start")(function* () {
     yield* Effect.forkScoped(
@@ -3293,7 +3382,9 @@ const make = Effect.gen(function* () {
     // periodic tick re-runs the pass so a genuinely-idle child is still woken
     // once its grace passes. Passes are idempotent (receipt + handled-set dedup),
     // so the extra runs are harmless. Mirrors the liveness sweep's spaced
-    // schedule.
+    // schedule. Under coalescing this tick keeps its role unchanged: it is a
+    // trigger like any other, so it either starts a pass or guarantees one
+    // follows the pass already running.
     yield* Effect.forkScoped(
       worker
         .enqueue()
