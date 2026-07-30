@@ -192,9 +192,11 @@ type EffectiveResolution =
 interface ActivePiSession {
   session: ProviderSession;
   process: PiRpcProcess;
-  // Recreate the pi process with this session's exact launch options (same
-  // sessionId, so pi re-reads the same on-disk file). Used to relaunch from a
-  // freshly sanitised history when a live session crosses into an
+  // Recreate the pi process with this session's exact launch options. The
+  // closure recomputes `resolveSessionFilePath`, so a relaunch of a thread
+  // that has run resumes by explicit `--session <file> --cwd <dir>` (never
+  // session-id + cwd-slug derivation — the silent-amnesia guard). Used to
+  // relaunch from a freshly sanitised history when a live session crosses into an
   // Anthropic-family model carrying codex-poisoned tool ids in its in-memory
   // history (which we cannot rewrite — pi owns it), so the replay is clean.
   launch: () => Promise<PiRpcProcess>;

@@ -1432,25 +1432,11 @@ describe("terminalEpisodeKey (delta reported-marker episode)", () => {
   // keyed by `childReportedCommandId(childId, terminalEpisodeKey(child))`, and a
   // read-only Discuss turn changes NEITHER the child's `lastOutcome` (it has no
   // workstream extension, so it cannot submit) NOR its `spawnGeneration` (no
-  // lane reopen). So the episode key is identical before and after the turn, the
-  // parent-report marker is already recorded, and no fresh wake fires.
-  it("a Discuss turn on a done child leaves the terminal episode key (and its wake marker) unchanged", () => {
-    const childId = ThreadId.make("discuss-child");
-    const beforeTurn = {
-      lastOutcome: { recordedByEventId: EventId.make("evt-outcome-final") },
-      spawnGeneration: "gen-3",
-    };
-    // A Discuss turn appends activity/turn rows but touches neither of the two
-    // fields the episode key derives from.
-    const afterDiscussTurn = {
-      lastOutcome: { recordedByEventId: EventId.make("evt-outcome-final") },
-      spawnGeneration: "gen-3",
-    };
-    expect(terminalEpisodeKey(afterDiscussTurn)).toBe(terminalEpisodeKey(beforeTurn));
-    expect(childReportedCommandId(childId, terminalEpisodeKey(afterDiscussTurn))).toBe(
-      childReportedCommandId(childId, terminalEpisodeKey(beforeTurn)),
-    );
-  });
+  // lane reopen). The derivation from exactly those two fields is pinned by the
+  // `terminalEpisodeKey` unit tests above; a self-comparing before/after test
+  // added here originally was tautological (f(x)===f(x)) and was removed on
+  // review — the structural read-only guarantees live in
+  // ProviderCommandReactor.engagement.test.ts and RpcProcess.test.ts.
 });
 
 describe("startup stale session reconciliation", () => {

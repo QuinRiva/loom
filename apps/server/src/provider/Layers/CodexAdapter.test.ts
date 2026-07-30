@@ -1260,9 +1260,10 @@ const emitsExitRuntimeFactory = (() => {
       // spawned app-server child (killed with a force-kill timer), the CodexClient
       // layer, and three fibres forked into `runtimeScope`. Closing it therefore
       // yields, which is what lets the event fibre drain the `session/closed` offer
-      // before `stopSessionInternal` interrupts it. A finalizer that yields
+      // before `stopSessionInternal` interrupts it. The yielding finalizer below
       // reproduces that; without it the mock scope closes synchronously and the
       // event is lost to the interrupt — an artefact of the mock, not the adapter.
+      yield* Effect.addFinalizer(() => Effect.yieldNow);
       const runtime = makeClosingRuntime(options);
       runtimes.push(runtime);
       return runtime;
