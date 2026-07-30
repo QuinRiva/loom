@@ -1145,8 +1145,12 @@ export const LoomInternalCommandMembers = [
 // with its own `ModelSelection` schema and splices the result into the internal
 // command union — exactly the pattern `makeLoomOrchestrationEventMembers` uses
 // for the fork event members.
-export const makeLoomScaffoldCommandMembers = <const MS extends Schema.Top>(deps: {
+export const makeLoomScaffoldCommandMembers = <
+  const MS extends Schema.Top,
+  const SESSION extends Schema.Top,
+>(deps: {
   readonly ModelSelection: MS;
+  readonly OrchestrationSession: SESSION;
 }) => {
   const WorkstreamScaffoldNode = Schema.Struct({
     // Preallocated by the HTTP handler; validated absent by the decider.
@@ -1168,6 +1172,57 @@ export const makeLoomScaffoldCommandMembers = <const MS extends Schema.Top>(deps
     forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
     modelSelection: deps.ModelSelection,
   });
+  // Stuck-launch recovery: the COMPARE-AND-SWAP repair of a session wedged in
+  // `starting` with no confirmed turn (see the server's `stuckLaunchRecovery`).
+  //
+  // Why this exists instead of a `turn-start.fail` + `session.set` pair: that
+  // pair is two independent, unconditional transactions, so a real turn-start
+  // landing between the caller's liveness sample and the writes would be ERASED
+  // by them — and that erasure then satisfies the `requireIdle` gate on the
+  // resume, producing exactly the double-launch the recovery must never cause.
+  // Here the caller passes the session state it OBSERVED
+  // (`expectedSessionUpdatedAt`) and the decider refuses the whole repair unless
+  // the thread is still in that state. The pending-clear and the reset therefore
+  // land as ONE transaction at the serial command boundary, or neither lands.
+  //
+  // Lives in this factory (not the plain member list) because
+  // `OrchestrationSession` is defined in the upstream-owned `orchestration.ts`,
+  // which this file must never value-import — the same constraint that forces
+  // `ModelSelection` through here.
+  const ThreadStuckLaunchRecoverCommand = Schema.Struct({
+    type: Schema.Literal("thread.stuck-launch.recover"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    // CAS token 1: `session.updatedAt` as observed when the wedge was judged.
+    // Catches anything that rewrites the session row — notably the `starting`
+    // restamp ProviderCommandReactor makes once a launch gets going.
+    expectedSessionUpdatedAt: IsoDateTime,
+    // CAS token 2: the thread's latest USER-message timestamp as observed.
+    //
+    // Token 1 alone is NOT sufficient, and this is the subtle part. A genuine
+    // `thread.turn.start` does not touch the session in its own transaction: the
+    // decider emits `thread.message-sent` + `thread.turn-start-requested`, and
+    // only later, asynchronously, does ProviderCommandReactor restamp `starting`.
+    // So there is a real window in which a turn has been accepted, its pending
+    // row replaced, and yet `session.updatedAt` is untouched — during which a
+    // session-only CAS would wrongly succeed, clear the NEW pending row, reset to
+    // `ready`, and let the recovery's `requireIdle` prompt launch alongside the
+    // real one.
+    //
+    // `thread.message-sent` IS written synchronously in that same transaction and
+    // bumps this field, so pairing the two tokens closes the window: any accepted
+    // turn-start moves at least one of them. Null when the thread has never had a
+    // user message.
+    expectedLatestUserMessageAt: Schema.NullOr(IsoDateTime),
+    // The reconciled session to install when the CAS holds.
+    session: deps.OrchestrationSession,
+    // True when the caller observed a stale pending turn-start row that must be
+    // cleared in the same transaction (it would otherwise keep the thread
+    // permanently non-idle).
+    clearPendingTurnStart: Schema.optional(Schema.Boolean),
+    detail: Schema.String,
+    createdAt: IsoDateTime,
+  });
   const ThreadScaffoldCommand = Schema.Struct({
     type: Schema.Literal("thread.scaffold"),
     commandId: CommandId,
@@ -1178,7 +1233,7 @@ export const makeLoomScaffoldCommandMembers = <const MS extends Schema.Top>(deps
     nodes: Schema.Array(WorkstreamScaffoldNode),
     createdAt: IsoDateTime,
   });
-  return [ThreadScaffoldCommand] as const;
+  return [ThreadScaffoldCommand, ThreadStuckLaunchRecoverCommand] as const;
 };
 
 // ---------------------------------------------------------------------------
@@ -1628,6 +1683,7 @@ export const LOOM_COMMAND_TYPES = [
   "thread.turn-start.fail",
   "thread.kickoff-brief.set",
   "thread.scaffold",
+  "thread.stuck-launch.recover",
 ] as const;
 export type LoomCommandType = (typeof LOOM_COMMAND_TYPES)[number];
 

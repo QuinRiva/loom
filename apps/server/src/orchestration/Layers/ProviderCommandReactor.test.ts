@@ -43,6 +43,19 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import {
+  ProviderLaunchClaims,
+  ProviderLaunchClaimsLive,
+} from "../../provider/Services/ProviderLaunchClaims.ts"; // loom:
+// loom: the REAL liveness sweep, composed against this harness's services so the
+// production claim guard (not a test-local copy of it) is what suppresses recovery.
+import {
+  DEFAULT_LIVENESS_THRESHOLDS,
+  makeWorkstreamLivenessSweepLive,
+} from "./WorkstreamLivenessSweep.ts";
+import { WorkstreamLivenessSweep } from "../Services/WorkstreamLivenessSweep.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
 import { makeProviderRegistryLayer } from "../../provider/testUtils/providerRegistryMock.ts";
 import { TextGeneration, type TextGenerationShape } from "../../textGeneration/TextGeneration.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
@@ -93,7 +106,10 @@ async function waitFor(
 
 describe("ProviderCommandReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderCommandReactor | ProjectionSnapshotQuery,
+    | OrchestrationEngineService
+    | ProviderCommandReactor
+    | ProjectionSnapshotQuery
+    | ProviderLaunchClaims, // loom:
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -421,6 +437,8 @@ describe("ProviderCommandReactor", () => {
       ),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+      // loom: in-flight provider-launch claims held across the launch span.
+      Layer.provideMerge(ProviderLaunchClaimsLive),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
@@ -428,6 +446,9 @@ describe("ProviderCommandReactor", () => {
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
+    // loom: the SAME claims instance the reactor holds claims on, so an integrated
+    // test can observe the real claim rather than a stand-in.
+    const launchClaims = await runtime.runPromise(Effect.service(ProviderLaunchClaims));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(reactor.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(reactor.drain);
@@ -481,6 +502,7 @@ describe("ProviderCommandReactor", () => {
       stateDir,
       drain,
       snapshotQuery,
+      launchClaims, // loom:
     };
   }
 
@@ -3419,4 +3441,173 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
     expect(thread?.session?.activeTurnId).toBeNull();
   });
+
+  // ─── Integrated regression guard: claim span vs. stuck-launch recovery ──────
+  // The pieces are unit-tested elsewhere (claim semantics in isolation; sweep
+  // behaviour given a claim). This test wires the REAL reactor to the REAL recovery
+  // path and blocks the original `startSession` on a Deferred, reproducing the
+  // round-3 race end to end: while that launch is unresolved the reactor has
+  // already written `session.starting` + the user message and writes nothing
+  // further, so every durable signal reads "wedged" and both CAS tokens match.
+  //
+  // The assertion that matters is the SEND COUNT: exactly one provider send, ever.
+  // If a future refactor shrinks the claim span (moves it inside `startSession`, or
+  // drops it from the turn-start path), recovery fires into that window and this
+  // becomes 2 — verified by mutation, not assumed.
+  effectIt.effect(
+    "does not double-send when a stuck-launch recovery races an in-flight startSession",
+    () =>
+      Effect.gen(function* () {
+        const releaseLaunch = yield* Deferred.make<void>();
+        const launchStarted = yield* Deferred.make<void>();
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            // Model a slow provider launch: process spawn / pi fork / MCP handshake.
+            startSessionEffect: (session) =>
+              Effect.gen(function* () {
+                yield* Deferred.succeed(launchStarted, undefined);
+                yield* Deferred.await(releaseLaunch);
+                return session;
+              }),
+          }),
+        );
+        const now = "2026-01-01T00:00:00.000Z";
+        // A SUB-thread: the liveness sweep only judges threads with a parent, so a
+        // root would be skipped before the claim check is ever reached and the test
+        // would pass for the wrong reason.
+        const THREAD = ThreadId.make("child-in-flight");
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-create-child-in-flight"),
+          threadId: THREAD,
+          projectId: asProjectId("project-1"),
+          parentThreadId: ThreadId.make("thread-1"),
+          role: "coder",
+          purpose: "exercise the in-flight launch window",
+          planLane: "in_progress",
+          title: "Child in flight",
+          titleProvenance: "curated",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+        } as never);
+
+        // The genuine turn-start. It will park inside startSession.
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-in-flight"),
+          threadId: THREAD,
+          message: {
+            messageId: asMessageId("user-message-in-flight"),
+            role: "user",
+            text: "the original prompt",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+
+        // Wait until the launch is genuinely on the stack and unresolved.
+        yield* Deferred.await(launchStarted);
+        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+
+        // Preconditions: exactly the shape the recovery judges to be a wedge.
+        const wedged = yield* Effect.promise(() => harness.readModel());
+        const thread = wedged.threads.find((entry) => entry.id === THREAD);
+        expect(thread?.session?.status).toBe("starting");
+        expect(thread?.session?.activeTurnId).toBeNull();
+        // ...and nothing sent yet, so a double-send would be observable.
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+
+        // The ONE signal that separates mid-launch from wedged, read off the SAME
+        // claims instance the reactor holds — that wiring is what is under test.
+        expect(yield* harness.launchClaims.isClaimed(THREAD)).toBe(true);
+
+        // Drive a REAL WorkstreamLivenessSweep pass, composed against the harness's
+        // actual engine / projection / claims instances. Deliberately NOT a
+        // test-local reimplementation of the guard: the production sweep's own
+        // claim check must be the thing that suppresses recovery here, so deleting
+        // it makes this test fail.
+        //
+        // Everything else is arranged to make the sweep WANT to recover: the thread
+        // is a sub-thread past the stuck-launch grace with no adapter session and no
+        // runtime binding. Only the held claim stands in the way.
+        // Count completed sweep passes by observing the snapshot read each pass
+        // begins with, so the test waits on a real signal instead of a sleep.
+        let sweepPassCount = 0;
+        const sweepPasses = () => sweepPassCount;
+        const countingSnapshotQuery = {
+          ...harness.snapshotQuery,
+          getShellSnapshot: () =>
+            harness.snapshotQuery.getShellSnapshot().pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  sweepPassCount += 1;
+                }),
+              ),
+            ),
+        } as unknown as ProjectionSnapshotQuery["Service"];
+
+        const sweepDeps = Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, harness.engine),
+          Layer.succeed(ProjectionSnapshotQuery, countingSnapshotQuery),
+          Layer.succeed(ProviderLaunchClaims, harness.launchClaims),
+          Layer.succeed(ProviderSessionDirectory, {
+            // No binding yet — `bindSessionToThread` only runs once startSession
+            // resolves, which is precisely the window under test.
+            listBindings: () => Effect.succeed([]),
+          } as unknown as ProviderSessionDirectory["Service"]),
+          Layer.succeed(ProviderService, {
+            // No adapter-reported session either.
+            listSessions: () => Effect.succeed([]),
+          } as unknown as ProviderService["Service"]),
+          Layer.succeed(ProviderHealthRegistry, {
+            isExhausted: () => Effect.succeed(false),
+            exhaustedUntil: () => Effect.succeed(null),
+            markExhausted: () => Effect.void,
+            snapshot: Effect.succeed([]),
+            streamChanges: Stream.empty,
+          } as unknown as ProviderHealthRegistry["Service"]),
+          Layer.succeed(ServerSettingsService, {
+            getSettings: Effect.succeed({ providerInstances: [] }),
+          } as unknown as ServerSettingsService["Service"]),
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3code-reactor-sweep-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer));
+
+        // A zero grace window makes the wedge immediately "old enough", so the pass
+        // reaches its liveness decision without any clock manipulation (this suite
+        // runs on the real clock).
+        const sweepLayer = makeWorkstreamLivenessSweepLive({
+          ...DEFAULT_LIVENESS_THRESHOLDS,
+          stuckLaunchGraceMs: 0,
+        }).pipe(Layer.provide(sweepDeps));
+
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const sweep = yield* WorkstreamLivenessSweep;
+            yield* sweep.start();
+            // Let the forked sweep fibre run its first pass to completion.
+            yield* Effect.promise(() => waitFor(() => sweepPasses() >= 1));
+          }).pipe(Effect.provide(sweepLayer)),
+        );
+
+        // Let the original launch finish and settle.
+        yield* Deferred.succeed(releaseLaunch, undefined);
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length >= 1));
+        yield* Effect.promise(() => harness.drain());
+
+        // THE guard: one launch, one send — the original prompt and nothing else.
+        expect(harness.startSession.mock.calls.length).toBe(1);
+        expect(harness.sendTurn.mock.calls.length).toBe(1);
+        // The claim is released, so a genuine later wedge stays recoverable.
+        expect(yield* harness.launchClaims.isClaimed(THREAD)).toBe(false);
+      }),
+  );
 });

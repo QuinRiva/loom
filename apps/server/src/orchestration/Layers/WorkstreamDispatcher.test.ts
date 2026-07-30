@@ -104,7 +104,10 @@ import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { ProviderLaunchClaims } from "../../provider/Services/ProviderLaunchClaims.ts";
 import { reconcileStartupStaleSessionState } from "../../loom/startup.ts";
+import { latestUserMessageAtOf } from "../stuckLaunchRecovery.ts";
 // loom: forkFrom (D2/D7) tests.
 import { writeLaunchIdentity } from "../workstreamLaunchIdentity.ts";
 
@@ -1453,11 +1456,19 @@ describe("startup stale session reconciliation", () => {
     providerSessions: ReadonlyArray<ProviderSession> = [],
     threadsSeed: ReadonlyArray<OrchestrationThreadShell> = defaultThreads(),
     failTurnStart = false,
+    pendingTurnStartSeed: ReadonlySet<ThreadId> = new Set(),
+    // Durable provider bindings: the restart-survivor evidence boot consults. A
+    // non-`stopped` row means a provider process may have outlived the previous
+    // server, so the thread must be left alone.
+    bindings: ReadonlyArray<{ readonly threadId: ThreadId; readonly status: string }> = [],
+    // Threads with a provider launch in flight RIGHT NOW (blocked inside
+    // `startSession`), which writes no session event and no binding while it waits.
+    claimedThreadIds: ReadonlySet<ThreadId> = new Set(),
   ) =>
     Layer.unwrap(
       Effect.gen(function* () {
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
-        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(new Set());
+        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(pendingTurnStartSeed);
         const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>(threadsSeed);
         const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
           snapshotSequence: 1,
@@ -1479,6 +1490,52 @@ describe("startup stale session reconciliation", () => {
               if (command.type === "thread.session.set") {
                 yield* Ref.update(threads, (current) =>
                   current.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, session: command.session }
+                      : thread,
+                  ),
+                );
+              }
+              // Mirror the real decider's compare-and-swap for the stuck-launch
+              // repair: reject the WHOLE command (writing nothing) unless the
+              // thread is still in the exact session state the caller observed.
+              // Modelling the rejection here is what lets these tests exercise the
+              // real double-launch guard rather than a permissive stub.
+              if (command.type === "thread.stuck-launch.recover") {
+                const current = (yield* Ref.get(threads)).find((t) => t.id === command.threadId);
+                const session = current?.session ?? null;
+                // Mirror the decider's derivation: the latest USER message stamp,
+                // which a real turn-start bumps synchronously via `message-sent`
+                // even though it writes no session event. These shell fixtures
+                // carry no `messages`, so the observed value is null.
+                const latestUserMessageAt = latestUserMessageAtOf({
+                  messages:
+                    (
+                      current as unknown as {
+                        readonly messages?: ReadonlyArray<{
+                          readonly role: string;
+                          readonly createdAt: string;
+                        }>;
+                      }
+                    ).messages ?? [],
+                });
+                if (
+                  session === null ||
+                  session.updatedAt !== command.expectedSessionUpdatedAt ||
+                  session.status !== "starting" ||
+                  session.activeTurnId !== null ||
+                  latestUserMessageAt !== command.expectedLatestUserMessageAt
+                ) {
+                  return yield* Effect.die(new Error("stuck-launch CAS rejected: state moved"));
+                }
+                if (command.clearPendingTurnStart === true) {
+                  yield* Ref.update(
+                    pendingTurnStarts,
+                    (ids) => new Set([...ids].filter((id) => id !== command.threadId)),
+                  );
+                }
+                yield* Ref.update(threads, (threadList) =>
+                  threadList.map((thread) =>
                     thread.id === command.threadId
                       ? { ...thread, session: command.session }
                       : thread,
@@ -1520,28 +1577,43 @@ describe("startup stale session reconciliation", () => {
         const providerService = {
           listSessions: () => Effect.succeed(providerSessions),
         } as unknown as ProviderService["Service"];
+        const providerSessionDirectory = {
+          listBindings: () => Effect.succeed(bindings),
+        } as unknown as ProviderSessionDirectory["Service"];
+        // In-flight launch claims: no launch is in flight in these fixtures unless a
+        // test says otherwise (see the in-flight startSession test).
+        const providerLaunchClaims = {
+          withClaim: (_id: ThreadId, effect: unknown) => effect,
+          isClaimed: (id: ThreadId) => Effect.succeed(claimedThreadIds.has(id)),
+        } as unknown as ProviderLaunchClaims["Service"];
         const receipts = {
           upsert: () => Effect.void,
           getByCommandId: () => Effect.succeed(Option.none()),
         };
 
+        const serverConfig = ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3-workstream-startup-reconcile-",
+        });
         const deps = Layer.mergeAll(
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
           WorktreeProvisionerStub,
-          ServerConfig.layerTest(process.cwd(), {
-            prefix: "t3-workstream-startup-reconcile-",
-          }),
+          serverConfig,
         ).pipe(Layer.provideMerge(NodeServices.layer));
         return Layer.mergeAll(
           WorkstreamDispatcherLive.pipe(Layer.provide(deps)),
           Layer.succeed(ProviderService, providerService),
+          Layer.succeed(ProviderSessionDirectory, providerSessionDirectory),
+          Layer.succeed(ProviderLaunchClaims, providerLaunchClaims),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationEngineService, engine),
-          // Surface Crypto (via NodeServices) to `reconcileStartupStaleSessionState`,
-          // which needs it for the restart-continuation message/boot ids.
-          NodeServices.layer,
+          // Surface Crypto + FileSystem (via NodeServices) to
+          // `reconcileStartupStaleSessionState`, which needs them for the
+          // restart-continuation message/boot ids and the stuck-launch recovery's
+          // kickoff-brief re-read; ServerConfig supplies the launch-identity dir
+          // that recovery reads the kickoff-delivered marker from.
+          serverConfig.pipe(Layer.provideMerge(NodeServices.layer)),
         );
       }),
     );
@@ -1819,6 +1891,263 @@ describe("startup stale session reconciliation", () => {
           expect(resetIds).toContain(OTHER_ID);
         }),
       ),
+  );
+
+  // ─── Stuck-launch recovery (`starting` + no active turn) ───────────────────
+  // The state that previously had ZERO coverage: the old skip condition
+  // `(status !== "running" && activeTurnId === null)` passed straight over it, so
+  // the session stayed `starting` forever, the dispatcher would not re-dispatch
+  // (it needs `session === null`) and the liveness sweep could not see it.
+  const stuckLaunchShell = (
+    overrides: Omit<Partial<OrchestrationThreadShell>, "id"> = {},
+  ): OrchestrationThreadShell =>
+    shell({
+      id: WORKER_ID,
+      parentThreadId: "some-parent" as ThreadId,
+      planLane: "in_progress" as ThreadPlanLane,
+      latestUserMessageAt: now,
+      session: runningSession({
+        threadId: WORKER_ID,
+        status: "starting",
+        activeTurnId: null,
+      }),
+      ...overrides,
+    });
+
+  effectIt.effect("resets AND resumes a session wedged in `starting` with no active turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(buildLayer(dispatched, [], [stuckLaunchShell()])),
+        );
+        // The repair is ONE compare-and-swap command, not an unconditional
+        // session.set: it carries the observed session state as its precondition.
+        const repair = dispatched.find((c) => c.type === "thread.stuck-launch.recover");
+        if (repair?.type !== "thread.stuck-launch.recover") {
+          throw new Error("expected a stuck-launch CAS repair");
+        }
+        expect(repair.commandId.startsWith("server:stuck-launch-recover:boot:")).toBe(true);
+        expect(repair.expectedSessionUpdatedAt).toBe(stuckLaunchShell().session?.updatedAt);
+        expect(repair.session.status).toBe("ready");
+        expect(repair.session.activeTurnId).toBeNull();
+        // No unconditional session write may be used for this repair.
+        expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(false);
+
+        const resumes = turnStartsFor(dispatched, WORKER_ID);
+        expect(resumes).toHaveLength(1);
+        const resume = resumes[0];
+        if (resume?.type !== "thread.turn.start") throw new Error("expected a resume turn-start");
+        // Defence in depth on top of the CAS: the engine re-checks idleness at the
+        // serialized boundary too.
+        expect(resume.requireIdle).toBe(true);
+        expect(resume.setInProgress).toBeUndefined();
+        expect(resume.message.origin).toBe("control_notice");
+        // The repair lands BEFORE the resume, else requireIdle would defer forever.
+        expect(dispatched.indexOf(repair)).toBeLessThan(dispatched.indexOf(resume));
+      }),
+    ),
+  );
+
+  effectIt.effect("clears the wedged thread's stale pending turn-start before resuming it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell()], false, new Set([WORKER_ID])),
+          ),
+        );
+        // The pending-clear rides INSIDE the CAS transaction rather than being a
+        // separate unconditional command, so there is no window where the pending
+        // row is gone but the session is not yet reset.
+        const repair = dispatched.find((c) => c.type === "thread.stuck-launch.recover");
+        if (repair?.type !== "thread.stuck-launch.recover") {
+          throw new Error("expected a stuck-launch CAS repair");
+        }
+        expect(repair.clearPendingTurnStart).toBe(true);
+        expect(dispatched.some((c) => c.type === "thread.turn-start.fail")).toBe(false);
+        // A surviving pending row keeps `isThreadIdle` false, so the requireIdle
+        // resume would defer for good — it MUST be cleared first.
+        const resume = turnStartsFor(dispatched, WORKER_ID)[0];
+        expect(resume).toBeDefined();
+        expect(dispatched.indexOf(repair)).toBeLessThan(dispatched.indexOf(resume!));
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does NOT touch a `starting` session whose provider launch is actually live",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The negative case that makes the recovery safe: an adapter-reported
+          // session for this thread means a launch is genuinely in flight, so
+          // nothing may be written even though the read model says `starting`.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [{ threadId: WORKER_ID, activeTurnId: "turn-live" as TurnId } as ProviderSession],
+                [stuckLaunchShell()],
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "does NOT touch a live provider session with NO active turn, even with a pending start",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The launch-in-flight window: the adapter has a session but the runtime
+          // has not reported `turn.started` yet, so `activeTurnId` is still null.
+          // The pending turn-start row is that launch's ONLY durable busy guard —
+          // clearing it (as the weaker active-turn-only check used to allow) would
+          // strand or double-launch genuinely live work.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [{ threadId: WORKER_ID } as ProviderSession],
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "does NOT recover when the adapter is empty but a durable non-`stopped` binding survives",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The restart-survivor case. A provider process that outlived the previous
+          // server is INVISIBLE to this process's adapter (its session map is
+          // process-local) and mutates no orchestration state, so the CAS cannot
+          // detect it either. The durable binding row is the only authoritative
+          // evidence, so boot must consult it and leave the thread alone.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [], // adapter reports nothing
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+                [{ threadId: WORKER_ID, status: "running" }],
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect("DOES recover once the surviving binding has been marked `stopped`", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Control for the test above: a `stopped` row is not survivor evidence, so
+        // the wedge is repaired normally. This is what bounds the deferral — the
+        // reaper marking the row `stopped` is what releases recovery.
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell()], false, new Set(), [
+              { threadId: WORKER_ID, status: "stopped" },
+            ]),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does NOT recover while the original startSession is still in flight (claim held)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The reconcile runs after the reactors start, so a turn-start accepted in
+          // that window can already be blocked inside `startSession` — having written
+          // `session.starting` and its user message, and nothing since. No adapter
+          // session, no binding, both CAS tokens matching: only the claim can tell.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [],
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+                [],
+                new Set([WORKER_ID]),
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect("resets but does NOT resume a wedged thread parked on a human", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell({ hasPendingApprovals: true })]),
+          ),
+        );
+        // The reset still lands (it is what unwedges the "Connecting" UI); only
+        // the resume is withheld, because a turn-start would clear the human wait.
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect("resets but does NOT resume a wedged cancelled thread", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(
+              dispatched,
+              [],
+              [stuckLaunchShell({ planLane: "cancelled" as ThreadPlanLane })],
+            ),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect("isolates a failed wedge resume: the session is still reset", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(buildLayer(dispatched, [], [stuckLaunchShell()], true)),
+        );
+        // The reset is the load-bearing half and must survive a failed resume.
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+      }),
+    ),
   );
 });
 

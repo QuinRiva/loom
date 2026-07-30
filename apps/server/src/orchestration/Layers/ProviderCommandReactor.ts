@@ -47,6 +47,8 @@ import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
 import { buildThreadInterpretationPrompt } from "../../textGeneration/TextGenerationPrompts.ts";
 import { sanitizeThreadTitle } from "../../textGeneration/TextGenerationUtils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+// loom: in-flight launch claims — the stuck-launch recovery guard.
+import { ProviderLaunchClaims } from "../../provider/Services/ProviderLaunchClaims.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { renderGoalTaskTree } from "../goalTaskRender.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -208,6 +210,8 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  // loom: stuck-launch recovery guard (see `processTurnStartRequested`).
+  const launchClaims = yield* ProviderLaunchClaims;
   const providerRegistry = yield* ProviderRegistry;
   const gitWorkflow = yield* GitWorkflowService;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
@@ -1062,7 +1066,15 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const processTurnStartRequested = Effect.fn("processTurnStartRequested")(function* (
+  // loom: stuck-launch recovery guard. This span writes `session.starting` and
+  // then BLOCKS in `providerService.startSession` (process spawn / pi fork / MCP
+  // handshake) without writing anything further — no session event, and no runtime
+  // binding until `bindSessionToThread` runs after it resolves. A liveness sweep
+  // sampling that quiet window sees a textbook wedge whose CAS tokens both match,
+  // and would recover it into a SECOND prompt. An in-memory launch claim held
+  // across the whole span is the only evidence that distinguishes "mid-launch" from
+  // "wedged", so recovery fails closed while it is held.
+  const processTurnStartRequestedInner = Effect.fn("processTurnStartRequestedInner")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
   ) {
     const key = turnStartKeyForEvent(event);
@@ -1336,6 +1348,16 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
       tag: input.tag,
     });
+  });
+
+  // loom: the claim wrapper (see the note above `processTurnStartRequestedInner`).
+  const processTurnStartRequested = Effect.fn("processTurnStartRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+  ) {
+    return yield* launchClaims.withClaim(
+      event.payload.threadId,
+      processTurnStartRequestedInner(event),
+    );
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (

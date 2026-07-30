@@ -1200,6 +1200,117 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
       };
     }
 
+    // Stuck-launch recovery (compare-and-swap). The ONE atomic, conditional
+    // repair of a session wedged in `starting` with no confirmed turn.
+    //
+    // The precondition is the whole point. A caller (boot reconcile / liveness
+    // sweep) judges the wedge from a SNAPSHOT plus a provider-liveness sample,
+    // both of which are stale by the time the write arrives. If the repair were
+    // unconditional, a real turn-start that landed in between would have its
+    // pending row cleared and its `starting` session overwritten with a stale
+    // `ready` — which then makes `isThreadIdle` true and lets the follow-up
+    // `requireIdle` resume through, double-launching the thread. So the caller
+    // passes the `session.updatedAt` it OBSERVED and this decider refuses the
+    // entire repair on any mismatch. Every session write bumps that field
+    // (including the `starting` write ProviderCommandReactor makes on a fresh
+    // turn-start), so the token is a sound CAS witness.
+    //
+    // Rejected as an INVARIANT error, not a deferral: a stale repair must never
+    // be retried against newer state — it is not "too early", it is wrong. The
+    // recorded rejection also makes the near-miss visible on the audit trail. The
+    // caller re-judges from a fresh snapshot on its next pass.
+    case "thread.stuck-launch.recover": {
+      const target = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const current = target.session;
+      if (current === null || current.updatedAt !== command.expectedSessionUpdatedAt) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            `thread ${command.threadId} is no longer in the wedged session state the recovery ` +
+            `observed (expected session updatedAt '${command.expectedSessionUpdatedAt}', found ` +
+            `'${current?.updatedAt ?? "no session"}'); the repair is stale and was not applied.`,
+        });
+      }
+      // Second CAS token, and the one that closes the window the session token
+      // cannot see. A real `thread.turn.start` writes NO session event in its own
+      // transaction — it emits `thread.message-sent` + `thread.turn-start-requested`,
+      // and the `starting` restamp arrives later from ProviderCommandReactor. So
+      // between those two moments the session token still matches while a turn has
+      // in fact been accepted and its pending row replaced. Checking the latest
+      // user-message stamp (written synchronously by `message-sent`) means any
+      // accepted turn-start moves at least one token and this repair is refused.
+      const latestUserMessageAt = (target.messages ?? []).reduce<string | null>(
+        (latest, message) =>
+          message.role !== "user"
+            ? latest
+            : latest === null || Date.parse(message.createdAt) > Date.parse(latest)
+              ? message.createdAt
+              : latest,
+        null,
+      );
+      if (latestUserMessageAt !== command.expectedLatestUserMessageAt) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            `thread ${command.threadId} accepted a turn-start after the recovery judged it ` +
+            `(expected latest user message '${command.expectedLatestUserMessageAt ?? "none"}', ` +
+            `found '${latestUserMessageAt ?? "none"}'); the repair is stale and was not applied.`,
+        });
+      }
+      // Re-assert the wedge shape itself, so a caller that misjudged (or a
+      // hand-crafted command) can never turn this into a general "force a session
+      // to ready" primitive: only `starting` with no confirmed turn is repairable.
+      if (current.status !== "starting" || current.activeTurnId !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            `thread ${command.threadId} is not wedged mid-launch (session status ` +
+            `'${current.status}', activeTurnId '${current.activeTurnId ?? "null"}'); ` +
+            `stuck-launch recovery only applies to 'starting' with no active turn.`,
+        });
+      }
+      const events: Array<PlannedOrchestrationEvent> = [];
+      // Clear the stale pending turn-start FIRST and in this same transaction: it
+      // would otherwise keep the thread permanently non-idle, stranding the
+      // resume forever. Same event the standalone `turn-start.fail` emits, so the
+      // projection path is unchanged.
+      if (command.clearPendingTurnStart === true) {
+        events.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.turn-start-failed",
+          payload: {
+            threadId: command.threadId,
+            detail: command.detail,
+            createdAt: command.createdAt,
+          },
+        });
+      }
+      events.push({
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+          metadata: {},
+        })),
+        type: "thread.session-set",
+        payload: {
+          threadId: command.threadId,
+          session: command.session,
+        },
+      });
+      return events;
+    }
+
     // Scaffold-first graph authoring (plan §1a + `workstream_brief`): attach the
     // on-disk kickoff-brief pointer to a scaffolded child. Permissive by design
     // — the "child has not started yet" precondition is a handler-level check

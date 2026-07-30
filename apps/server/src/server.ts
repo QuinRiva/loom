@@ -19,6 +19,7 @@ import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory.ts";
+import { ProviderLaunchClaimsLive } from "./provider/Services/ProviderLaunchClaims.ts"; // loom:
 import * as ProviderSessionRuntime from "./persistence/ProviderSessionRuntime.ts";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry.ts";
 import * as ProviderEventLoggers from "./provider/Layers/ProviderEventLoggers.ts";
@@ -198,6 +199,11 @@ const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
 const ProviderLayerLive = ProviderServiceLive.pipe(
   Layer.provide(ProviderAdapterRegistryLive),
   Layer.provideMerge(ProviderSessionDirectoryLayerLive),
+  // loom: in-flight provider-launch claims. Merged out so BOTH the producer
+  // (ProviderCommandReactor, which holds a claim across its launch span) and the
+  // consumers (the liveness sweep and the startup reconcile, which fail closed
+  // while a claim is held) share one registry instance.
+  Layer.provideMerge(ProviderLaunchClaimsLive),
 );
 
 const PersistenceLayerLive = Layer.empty.pipe(

@@ -15,6 +15,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
@@ -22,7 +23,17 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
+import { ProviderLaunchClaims } from "../../provider/Services/ProviderLaunchClaims.ts";
+import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  DEFAULT_STUCK_LAUNCH_GRACE_MS,
+  isRecoveryResumable,
+  isStuckLaunch,
+  recoverStuckLaunch,
+  stuckLaunchEpisodeMs,
+} from "../stuckLaunchRecovery.ts";
 import {
   formatResetHint,
   subscriptionScopeForSelection,
@@ -99,6 +110,21 @@ export interface LivenessSweepThresholds {
    * real runs. Measured from the `briefNeededSince` episode, NOT createdAt.
    */
   readonly briefNeededGraceMs: number;
+  /**
+   * Stuck-launch backstop: how long a session may sit `starting` with no live
+   * provider launch before the sweep treats it as wedged and recovers it. See
+   * {@link DEFAULT_STUCK_LAUNCH_GRACE_MS} for why this is deliberately far larger
+   * than any real launch — a missed wedge costs one more sweep cycle, a
+   * false-positive reset kills live work.
+   */
+  readonly stuckLaunchGraceMs: number;
+  /**
+   * Stuck-launch backstop: how many recovery attempts one thread gets before the
+   * sweep stops retrying and escalates to a human instead. A thread that re-wedges
+   * after being recovered twice has a systemic problem the recovery cannot fix,
+   * and looping resets/resumes on it would be worse than saying so.
+   */
+  readonly stuckLaunchRecoveryCap: number;
 }
 
 export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
@@ -110,6 +136,8 @@ export const DEFAULT_LIVENESS_THRESHOLDS: LivenessSweepThresholds = {
   noProgressWindowMs: 600_000,
   progressInputSampleSize: 16,
   briefNeededGraceMs: 600_000,
+  stuckLaunchGraceMs: DEFAULT_STUCK_LAUNCH_GRACE_MS,
+  stuckLaunchRecoveryCap: 2,
 };
 
 export type LivenessVerdictKind = "dead" | "stalled";
@@ -183,6 +211,34 @@ export const briefNeededBackstopDue = (input: {
   readonly now: number;
   readonly graceMs: number;
 }): boolean => input.now - input.sinceMs >= input.graceMs;
+
+/** Per-thread stuck-launch bookkeeping: how many recoveries this thread has been
+ * given, and the episode of the most recent one. */
+export interface StuckLaunchState {
+  readonly attempts: number;
+  readonly lastEpisodeMs: number;
+}
+
+/**
+ * Pure stuck-launch ladder decision. `recover` while the thread still has
+ * attempts left; `escalate` exactly once at the cap (a thread that keeps
+ * re-wedging needs a human, not another reset); `wait` for every later sighting
+ * of an episode already acted on, so one wedge produces at most one action.
+ */
+export const decideStuckLaunchAction = (input: {
+  readonly prior: StuckLaunchState | null;
+  readonly episodeMs: number;
+  readonly cap: number;
+}): { readonly action: "recover" | "escalate" | "wait"; readonly next: StuckLaunchState } => {
+  const { prior, episodeMs, cap } = input;
+  if (prior !== null && prior.lastEpisodeMs === episodeMs) {
+    return { action: "wait", next: prior };
+  }
+  const attempts = prior?.attempts ?? 0;
+  return attempts >= cap
+    ? { action: "escalate", next: { attempts: attempts + 1, lastEpisodeMs: episodeMs } }
+    : { action: "recover", next: { attempts: attempts + 1, lastEpisodeMs: episodeMs } };
+};
 
 /**
  * Pure Stage-1 liveness classification for one active sub-thread. Returns the
@@ -394,8 +450,18 @@ const makeWorkstreamLivenessSweep = (
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const directory = yield* ProviderSessionDirectory;
     const healthRegistry = yield* ProviderHealthRegistry;
+    const providerService = yield* ProviderService;
+    // In-flight launch claims: the only evidence that distinguishes a launch
+    // blocked inside `startSession` from a genuinely wedged session (see
+    // ProviderLaunchClaims).
+    const launchClaims = yield* ProviderLaunchClaims;
     const serverSettings = yield* ServerSettingsService;
     const crypto = yield* Crypto.Crypto;
+    const launchIdentityDir = (yield* ServerConfig).workstreamLaunchIdentityDir;
+    // Captured so the stuck-launch recovery's brief re-read carries no FileSystem
+    // requirement into `start`, whose shape is Scope-only (same posture as
+    // ExhaustionResumeSweep).
+    const fileSystem = yield* FileSystem.FileSystem;
 
     // Consecutive failed-state observations per thread (the circuit-breaker
     // counter). Reset to 0 the moment the thread is observed healthy. Plain
@@ -417,6 +483,12 @@ const makeWorkstreamLivenessSweep = (
         readonly context: StallContext | null;
       }
     >();
+
+    // Stuck-launch backstop bookkeeping (serial-safe, mirroring stallNudges):
+    // per-thread recovery attempts + the episode of the last one, so one wedge
+    // yields at most one action and a repeatedly re-wedging thread escalates
+    // instead of being reset forever.
+    const stuckLaunches = new Map<string, StuckLaunchState>();
 
     // State D: per-thread work-product fingerprint bookkeeping (serial-safe,
     // mirroring stallNudges). Cleared whenever the thread is not a busy,
@@ -560,6 +632,84 @@ const makeWorkstreamLivenessSweep = (
       );
     });
 
+    // Stuck-launch backstop, step 1 (recover): the audit trail for a recovery the
+    // sweep just performed. `info`, not `error` — the wedge is an infrastructure
+    // fault the control plane repaired, and flagging attention here would suppress
+    // the very resume that was just sent (the resume clears nothing, but a raised
+    // flag makes the NEXT wedge unresumable).
+    const appendStuckLaunchActivity = Effect.fn("workstreamLiveness.stuckLaunchActivity")(
+      function* (thread: OrchestrationThreadShell, episodeMs: number, resumed: boolean) {
+        const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make(
+              `server:workstream-liveness:stuck-launch:${thread.id}:${episodeMs}`,
+            ),
+            threadId: thread.id,
+            activity: {
+              id: EventId.make(yield* crypto.randomUUIDv4),
+              tone: "info",
+              kind: "workstream.liveness.stuck-launch",
+              summary:
+                `Session was wedged mid-launch (\`starting\` with no confirmed turn and no live ` +
+                `provider process) past the grace window. The control plane reset the session` +
+                (resumed
+                  ? ` and re-launched the turn.`
+                  : `; the turn was NOT re-launched (the thread is waiting on a human or is no ` +
+                    `longer active), so it needs a prompt to continue.`),
+              payload: { kind: "stuck-launch", resumed },
+              turnId: null,
+              createdAt: now,
+            },
+            createdAt: now,
+          } satisfies OrchestrationCommand)
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("workstream.liveness.stuck-launch-activity-failed", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+      },
+    );
+
+    // Stuck-launch backstop, step 2 (escalate): the thread has re-wedged past the
+    // recovery cap, so another reset is not the answer. `needs_guidance`
+    // (recoverable, a human is needed) rather than `error` — nothing has failed,
+    // the launch just never takes.
+    const escalateStuckLaunch = Effect.fn("workstreamLiveness.escalateStuckLaunch")(function* (
+      thread: OrchestrationThreadShell,
+      attempts: number,
+      episodeMs: number,
+    ) {
+      const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+      const verdict: LivenessVerdict = {
+        kind: "stalled",
+        reason:
+          `Session keeps wedging mid-launch: it has been reset and re-launched ${attempts} ` +
+          `time(s) and each time returned to \`starting\` with no confirmed turn. Automated ` +
+          `recovery has been exhausted; this needs a human.`,
+      };
+      yield* orchestrationEngine.dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(
+          `server:workstream-liveness:stuck-launch-escalate:${thread.id}:${episodeMs}`,
+        ),
+        threadId: thread.id,
+        reason: "needs_guidance",
+        createdAt: now,
+      } satisfies OrchestrationCommand);
+      yield* appendLivenessActivity(
+        thread,
+        verdict,
+        verdict.reason,
+        `stuck-launch-escalate-reason:${episodeMs}`,
+        now,
+      );
+    });
+
     // State D (possibly spinning): a NON-TERMINAL advisory. Wakes the parent via
     // attention `needs_guidance` (system-raised — sanctioned high-confidence by
     // the status-model author, see progress.md; `error` would over-escalate a
@@ -653,10 +803,61 @@ const makeWorkstreamLivenessSweep = (
       const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
       const now = yield* Clock.currentTimeMillis;
       const threadsById = new Map(snapshot.threads.map((thread) => [thread.id, thread] as const));
-      const boundThreadIds = new Set(
-        (yield* directory.listBindings()).map((binding) => binding.threadId),
-      );
+      const bindings = yield* directory.listBindings();
+      const boundThreadIds = new Set(bindings.map((binding) => binding.threadId));
       let actionedCount = 0;
+
+      // Authoritative provider liveness for the stuck-launch backstop, fetched at
+      // most ONCE per sweep and only when a candidate exists (`listSessions` walks
+      // every adapter, so it is not worth paying for on a healthy sweep).
+      //
+      // FAIL CLOSED is the whole safety story: on any error every thread is
+      // reported live, so the backstop does nothing this cycle rather than
+      // resetting a session it cannot vouch for. "Live" is deliberately broad —
+      // an adapter-reported session OR a persisted binding that is not `stopped`
+      // — so a launch in ANY stage of coming up is protected.
+      //
+      // EFFECTIVE THRESHOLD, not the advertised one: because a persisted binding
+      // counts as live, a wedge whose binding row is still non-`stopped` is not
+      // recovered at `stuckLaunchGraceMs` (15m) but only once ProviderSessionReaper
+      // flips that row to `stopped` — its own inactivity threshold is 30m, so the
+      // real worst case is ~30–35m. That is a deliberate trade, not an oversight:
+      // the binding is the only durable cross-restart evidence of a live provider
+      // process (the adapter's session map is process-local and empty after a
+      // restart), so trusting it is what protects an orphaned survivor from being
+      // double-launched. Recovering late is cheap; double-launching is not.
+      let providerLiveThreadIds: ReadonlySet<ThreadId> | null = null;
+      const isProviderLaunchLive = (threadId: ThreadId) =>
+        Effect.gen(function* () {
+          // Checked FIRST and per-thread (not from the cached set): a launch can
+          // begin at any point during the sweep, and this is the one signal that
+          // catches a `startSession` still on the stack — which writes no session
+          // event and no binding while it blocks, so both CAS tokens keep matching
+          // and nothing else can tell it apart from a wedge.
+          if (yield* launchClaims.isClaimed(threadId)) return true;
+          if (providerLiveThreadIds === null) {
+            providerLiveThreadIds = yield* providerService.listSessions().pipe(
+              Effect.map(
+                (sessions) =>
+                  new Set<ThreadId>([
+                    ...sessions.map((providerSession) => providerSession.threadId),
+                    ...bindings
+                      .filter((binding) => binding.status !== "stopped")
+                      .map((binding) => binding.threadId),
+                  ]),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("workstream.liveness.stuck-launch-liveness-unavailable", {
+                  cause: Cause.pretty(cause),
+                }).pipe(
+                  // Fail closed: every snapshot thread counts as live.
+                  Effect.as(new Set<ThreadId>(snapshot.threads.map((t) => t.id))),
+                ),
+              ),
+            );
+          }
+          return providerLiveThreadIds.has(threadId);
+        });
 
       for (const thread of snapshot.threads) {
         // Only sub-threads; never re-judge a plan-terminal thread.
@@ -703,6 +904,114 @@ const makeWorkstreamLivenessSweep = (
           }
           continue;
         }
+
+        // Stuck-launch backstop: a session wedged in `starting` with no active
+        // turn and no live provider launch (see `stuckLaunchRecovery`). This state
+        // has no other coverage at runtime — the dispatcher requires
+        // `session === null` to re-dispatch and `classifyLiveness` only judges an
+        // OPEN turn — so without this branch it stays "Connecting" forever.
+        //
+        // Placed BEFORE the attention skip on purpose: an attention-flagged wedge
+        // still gets its session reset (which is what unwedges the UI and makes
+        // the thread promptable), it just is not resumed.
+        if (
+          isStuckLaunch({
+            session,
+            // The expensive check is last: `isStuckLaunch` short-circuits on the
+            // cheap status/grace conditions, so the provider query only runs for a
+            // genuine candidate.
+            hasLiveProviderLaunch: false,
+            now,
+            graceMs: thresholds.stuckLaunchGraceMs,
+          }) &&
+          !(yield* isProviderLaunchLive(thread.id))
+        ) {
+          const episodeMs = stuckLaunchEpisodeMs(session);
+          const { action, next } = decideStuckLaunchAction({
+            prior: stuckLaunches.get(thread.id) ?? null,
+            episodeMs,
+            cap: thresholds.stuckLaunchRecoveryCap,
+          });
+          stuckLaunches.set(thread.id, next);
+          if (action === "wait") continue;
+          failureCounts.delete(thread.id);
+          stallNudges.delete(thread.id);
+          progressLoop.delete(thread.id);
+          if (action === "escalate") {
+            yield* escalateStuckLaunch(thread, next.attempts - 1, episodeMs).pipe(
+              Effect.tap(() =>
+                Effect.logInfo("workstream.liveness.stuck-launch-escalate", {
+                  threadId: thread.id,
+                  attempts: next.attempts - 1,
+                }),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("workstream.liveness.stuck-launch-escalate-failed", {
+                  threadId: thread.id,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+            actionedCount += 1;
+            continue;
+          }
+          const { repaired, resumed } = yield* recoverStuckLaunch({
+            thread,
+            session,
+            latestUserMessageAt: thread.latestUserMessageAt,
+            // The stale pending turn-start row is what would make the recovery's
+            // `requireIdle` resume defer forever, so clear it whenever one exists.
+            // It is cleared in the SAME compare-and-swap transaction as the reset.
+            clearPendingTurnStart:
+              (yield* projectionSnapshotQuery.getPendingTurnStartThreadIds()).has(thread.id),
+            resume: isRecoveryResumable({
+              attentionCount: thread.attention.length,
+              parkedOnHuman: thread.hasPendingApprovals || thread.hasPendingUserInput,
+              archived: Boolean(thread.archivedAt),
+              // Soft-deleted threads are absent from the shell snapshot, and
+              // `cancelled` was filtered out at the top of the loop.
+              deleted: false,
+              cancelled: false,
+            }),
+            launchIdentityDir,
+            scope: "sweep",
+          }).pipe(
+            Effect.tap((outcome) =>
+              Effect.logInfo("workstream.liveness.stuck-launch-recovered", {
+                threadId: thread.id,
+                attempt: next.attempts,
+                ...outcome,
+              }),
+            ),
+            // A failed recovery reports "not repaired", so the audit row below can
+            // never overstate what happened.
+            Effect.catchCause((cause) =>
+              Effect.logWarning("workstream.liveness.stuck-launch-recover-failed", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as({ repaired: false, resumed: false })),
+            ),
+            // The recovery resolves its own services from context; hand it the
+            // ones this sweep already holds so `start` stays Scope-only.
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(OrchestrationEngineService, orchestrationEngine),
+            Effect.provideService(Crypto.Crypto, crypto),
+          );
+          // The compare-and-swap lost: the thread left the state we judged (most
+          // likely it came alive on its own), so nothing was written and there is
+          // nothing to narrate. Re-arm the episode so a genuinely fresh wedge is
+          // judged from scratch next pass rather than being counted against the cap.
+          if (!repaired) {
+            stuckLaunches.delete(thread.id);
+            continue;
+          }
+          yield* appendStuckLaunchActivity(thread, episodeMs, resumed);
+          actionedCount += 1;
+          continue;
+        }
+        // Not wedged (or the wedge was already cleared): re-arm so a future wedge
+        // gets a fresh recovery budget.
+        if (session.status !== "starting") stuckLaunches.delete(thread.id);
 
         // A failed observation: the runtime reported a session error, or the
         // read model thinks a turn is active but the provider binding is gone
