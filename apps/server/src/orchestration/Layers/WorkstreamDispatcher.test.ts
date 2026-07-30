@@ -1426,6 +1426,31 @@ describe("terminalEpisodeKey (delta reported-marker episode)", () => {
   it("falls back to a constant only when neither is present", () => {
     expect(terminalEpisodeKey({ lastOutcome: null, spawnGeneration: null })).toBe("terminal");
   });
+
+  // CAPABILITY (post-completion engagement, plan §6.1): conversing with a
+  // fanned-in child does NOT notify the orchestrator. The delta-rail wake is
+  // keyed by `childReportedCommandId(childId, terminalEpisodeKey(child))`, and a
+  // read-only Discuss turn changes NEITHER the child's `lastOutcome` (it has no
+  // workstream extension, so it cannot submit) NOR its `spawnGeneration` (no
+  // lane reopen). So the episode key is identical before and after the turn, the
+  // parent-report marker is already recorded, and no fresh wake fires.
+  it("a Discuss turn on a done child leaves the terminal episode key (and its wake marker) unchanged", () => {
+    const childId = ThreadId.make("discuss-child");
+    const beforeTurn = {
+      lastOutcome: { recordedByEventId: EventId.make("evt-outcome-final") },
+      spawnGeneration: "gen-3",
+    };
+    // A Discuss turn appends activity/turn rows but touches neither of the two
+    // fields the episode key derives from.
+    const afterDiscussTurn = {
+      lastOutcome: { recordedByEventId: EventId.make("evt-outcome-final") },
+      spawnGeneration: "gen-3",
+    };
+    expect(terminalEpisodeKey(afterDiscussTurn)).toBe(terminalEpisodeKey(beforeTurn));
+    expect(childReportedCommandId(childId, terminalEpisodeKey(afterDiscussTurn))).toBe(
+      childReportedCommandId(childId, terminalEpisodeKey(beforeTurn)),
+    );
+  });
 });
 
 describe("startup stale session reconciliation", () => {

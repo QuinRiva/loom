@@ -458,6 +458,10 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            // Post-completion engagement (plan §8 item 3): fan-in tip marker.
+            ...(payload.finalCommitSha !== undefined
+              ? { finalCommitSha: payload.finalCommitSha }
+              : {}),
             // loom: fork meta fields (goalId/role/purpose).
             ...(payload.goalId !== undefined ? { goalId: payload.goalId } : {}),
             ...(payload.role !== undefined ? { role: payload.role } : {}),

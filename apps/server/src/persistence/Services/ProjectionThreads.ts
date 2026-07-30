@@ -47,6 +47,10 @@ export const ProjectionThread = Schema.Struct({
   // Thread fork (MVP): the source thread this thread was forked from (null when
   // not a fork). Read by the driver at first launch to fork the pi session.
   forkFromThreadId: Schema.NullOr(ThreadId),
+  // Post-completion engagement (plan §8 item 3): the child's tip commit recorded
+  // at fan-in / cancel (null until disposed). Historical marker only. Optional
+  // so it need not appear in row literals; the SELECT always aliases the column.
+  finalCommitSha: Schema.optional(Schema.NullOr(Schema.String)),
   reportPath: Schema.NullOr(Schema.String),
   // Scaffold-first graph authoring: the symbolic graph key (unique-forever per
   // parent) and the on-disk kickoff-brief pointer. Both null for legacy

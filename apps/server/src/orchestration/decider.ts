@@ -1052,6 +1052,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(branch !== undefined ? { branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          // Post-completion engagement (plan §8 item 3): the fan-in tip marker.
+          ...(command.finalCommitSha !== undefined
+            ? { finalCommitSha: command.finalCommitSha }
+            : {}),
           // loom: fork payload fields (goalId/role/purpose).
           ...(command.goalId !== undefined ? { goalId: command.goalId } : {}),
           ...(command.role !== undefined ? { role: command.role } : {}),

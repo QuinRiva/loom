@@ -841,6 +841,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,
             forkFromThreadId: event.payload.forkFromThreadId ?? null,
+            // Post-completion engagement (plan §8 item 3): stamped at fan-in/cancel.
+            finalCommitSha: null,
             reportPath: null,
             // loom: scaffold-first graph authoring. graphKey is seeded from the
             // created payload; a scaffold node is born unbriefed.
@@ -1013,6 +1015,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.finalCommitSha !== undefined
+              ? { finalCommitSha: event.payload.finalCommitSha }
               : {}),
             ...(event.payload.goalId !== undefined ? { goalId: event.payload.goalId } : {}),
             ...(event.payload.role !== undefined ? { role: event.payload.role } : {}),

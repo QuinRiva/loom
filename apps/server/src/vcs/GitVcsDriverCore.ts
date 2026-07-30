@@ -2627,7 +2627,19 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         { allowNonZeroExit: true },
       );
       if (staged.exitCode === 0) {
-        return { committed: false, commitSha: null };
+        // Clean tree: nothing to commit, but still report the resulting HEAD so
+        // callers get the current tip (the fan-in `finalCommitSha` marker needs
+        // the child branch tip even when the child committed nothing new at
+        // fan-in). `committed:false` remains the "did we create a commit" signal.
+        // A repo with no HEAD yet (unborn branch) has nothing to resolve → null.
+        const head = yield* executeGit(
+          "GitVcsDriver.commitAll.revParseHead",
+          cwd,
+          ["rev-parse", "HEAD"],
+          { allowNonZeroExit: true },
+        );
+        const commitSha = head.exitCode === 0 ? head.stdout.trim() || null : null;
+        return { committed: false, commitSha };
       }
       const { commitSha } = yield* commit(cwd, subject, body, { noVerify: true });
       return { committed: true, commitSha };

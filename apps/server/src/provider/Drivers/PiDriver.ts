@@ -2042,14 +2042,26 @@ export function makePiAdapter(input: {
             // (identity capture is a cache optimisation, never a launch gate).
             deleteLaunchIdentity(launchIdentityDir, startInput.threadId);
           }
+          // Resume launch (plan §4.2): a thread whose deterministic session file
+          // already exists resumes it EXPLICITLY by path (`--session <file>`)
+          // with the canonical cwd pinned (`--cwd <dir>`), never by `--session-id`
+          // from a possibly-relocated cwd — which silently forks an empty same-id
+          // session (amnesia, plan fact 2). First launches of NEW threads and the
+          // `--fork` first launch keep `--session-id` (no file yet / forking).
+          const threadSessionId = piSessionIdForThread(startInput.threadId);
+          const existingSessionFile =
+            forkSource === undefined ? resolveSessionFilePath(threadSessionId) : undefined;
+          const isResume = existingSessionFile !== undefined;
           return (input.createProcess ?? createPiRpcProcess)({
             binaryPath: input.settings.binaryPath,
             platform,
             cwd: piCwd,
-            // Deterministic per-thread session id so pi create-or-resumes the
-            // SAME session file across server restarts / reconnects, instead
-            // of silently spawning a fresh, amnesiac session each time.
-            sessionId: piSessionIdForThread(startInput.threadId),
+            // Resume: name the file + pin the cwd. First launch/fork: the
+            // deterministic per-thread session id so pi create-or-resumes the
+            // SAME file across restarts instead of spawning an amnesiac session.
+            ...(isResume
+              ? { sessionFilePath: existingSessionFile, cwdOverride: piCwd }
+              : { sessionId: threadSessionId }),
             ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
             ...(skills && skills.length > 0 ? { skills } : {}),

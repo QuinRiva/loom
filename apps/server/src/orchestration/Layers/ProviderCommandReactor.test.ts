@@ -76,6 +76,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
 import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
+import { defaultSessionsRoot, piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
@@ -115,8 +116,15 @@ describe("ProviderCommandReactor", () => {
   let scope: Scope.Closeable | null = null;
   const createdStateDirs = new Set<string>();
   const createdBaseDirs = new Set<string>();
+  // Post-completion engagement tests create real pi session files under the
+  // sessions root (that is what `resolveSessionFilePath` scans); cleaned here.
+  const createdSessionDirs = new Set<string>();
 
   afterEach(async () => {
+    for (const dir of createdSessionDirs) {
+      NodeFS.rmSync(dir, { recursive: true, force: true });
+    }
+    createdSessionDirs.clear();
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -760,6 +768,178 @@ describe("ProviderCommandReactor", () => {
     const input = request?.input ?? "";
     expect(input).toBe("retry provisioning and continue");
     expect(input).not.toContain("sub-thread");
+  });
+
+  // --- Post-completion sub-thread engagement (plan Phase 1) -----------------
+
+  // Create a `done`, fanned-in isolated child that has provably RUN: its pi
+  // session file exists on disk (with prior history), its branch is repointed to
+  // the parent (as fan-in leaves it), and its worktree is gone. This is exactly
+  // the shape a human opens to ask "why is this written this way?".
+  const createFannedInDoneChild = async (
+    harness: Awaited<ReturnType<typeof createHarness>>,
+    threadIdRaw: string,
+  ) => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const threadId = ThreadId.make(threadIdRaw);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`cmd-create-${threadIdRaw}`),
+        threadId,
+        projectId: asProjectId("project-1"),
+        parentThreadId: ThreadId.make("thread-1"),
+        role: "coder",
+        purpose: "do the work",
+        isolation: "isolated",
+        title: "Fanned-in child",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        // Fan-in repointed the branch/worktree back to the parent's values.
+        branch: "main",
+        worktreePath: "/tmp/parent-worktree",
+        createdAt: now,
+      } as never),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.fanin.set",
+        commandId: CommandId.make(`cmd-fanin-${threadIdRaw}`),
+        threadId,
+        fanInState: "completed",
+        createdAt: now,
+      } as never),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make(`cmd-final-${threadIdRaw}`),
+        threadId,
+        finalCommitSha: "abc1234deadbeef",
+      } as never),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.plan-lane.set",
+        commandId: CommandId.make(`cmd-done-${threadIdRaw}`),
+        threadId,
+        planLane: "done",
+        createdAt: now,
+      } as never),
+    );
+    // The durable proof it has run: a real pi session file with prior history.
+    const dir = NodePath.join(
+      defaultSessionsRoot(),
+      `t3code-engagement-test-${Math.random().toString(36).slice(2)}`,
+    );
+    NodeFS.mkdirSync(dir, { recursive: true });
+    createdSessionDirs.add(dir);
+    NodeFS.writeFileSync(
+      NodePath.join(dir, `2026-01-01T00-00-00_${piSessionIdForThread(threadIdRaw)}.jsonl`),
+      '{"type":"session-start"}\n{"role":"user","content":"prior context"}\n',
+    );
+    return threadId;
+  };
+
+  const startTerminalChildTurn = (
+    harness: Awaited<ReturnType<typeof createHarness>>,
+    threadId: ThreadId,
+    text: string,
+  ) =>
+    Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`cmd-terminal-turn-${threadId}`),
+        threadId,
+        message: {
+          messageId: asMessageId(`terminal-msg-${threadId}`),
+          role: "user",
+          text,
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+  it("CAPABILITY: a human can converse with a fanned-in child (no reprovision, no brief re-delivery, read-only)", async () => {
+    const harness = await createHarness();
+    const threadId = await createFannedInDoneChild(harness, "child-done");
+
+    await startTerminalChildTurn(harness, threadId, "why is this written this way?");
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    // NO worktree was (re)provisioned — a thread that has provably run is never
+    // re-provisioned, whatever its (repointed) branch name looks like.
+    expect(harness.ensureIsolatedChildProvisioned).not.toHaveBeenCalled();
+    // NO kickoff brief was re-delivered: the turn carries the human's text only.
+    const sent = harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined;
+    expect(sent?.input).toBe("why is this written this way?");
+    expect(sent?.input ?? "").not.toContain("sub-thread");
+    // The launch is READ-ONLY (Discuss): read-only tools + readOnly flag (which
+    // suppresses the workstream MCP session/extension), plus a relocation
+    // preamble naming the final commit.
+    const startInput = harness.startSession.mock.calls.find(
+      (call) => (call[1] as { threadId?: string })?.threadId === threadId,
+    )?.[1] as
+      | { tools?: ReadonlyArray<string>; readOnly?: boolean; appendSystemPrompt?: string }
+      | undefined;
+    expect(startInput?.readOnly).toBe(true);
+    expect(startInput?.tools).toEqual(["read", "grep", "find", "ls"]);
+    expect(startInput?.appendSystemPrompt ?? "").toContain("READ-ONLY");
+    expect(startInput?.appendSystemPrompt ?? "").toContain("abc1234deadbeef");
+  });
+
+  it("CAPABILITY: a NON-terminal child still gets the full (writable) launch", async () => {
+    // Guards the mode split: session-file existence alone must NOT force Discuss;
+    // only a terminal lane does. A running child that has a session file resumes
+    // with full tools + workstream extension.
+    const harness = await createHarness();
+    const threadId = ThreadId.make("child-active");
+    const now = "2026-01-01T00:00:00.000Z";
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-create-child-active"),
+        threadId,
+        projectId: asProjectId("project-1"),
+        parentThreadId: ThreadId.make("thread-1"),
+        role: "coder",
+        purpose: "do the work",
+        isolation: "isolated",
+        title: "Active child",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: "ws/main/coder-child-ac",
+        worktreePath: "/tmp/child-active-worktree",
+        createdAt: now,
+      } as never),
+    );
+    // Give it a session file (it has run), but keep it non-terminal (planned).
+    const dir = NodePath.join(
+      defaultSessionsRoot(),
+      `t3code-engagement-test-${Math.random().toString(36).slice(2)}`,
+    );
+    NodeFS.mkdirSync(dir, { recursive: true });
+    createdSessionDirs.add(dir);
+    NodeFS.writeFileSync(
+      NodePath.join(dir, `2026-01-01T00-00-00_${piSessionIdForThread("child-active")}.jsonl`),
+      '{"type":"session-start"}\n',
+    );
+
+    await startTerminalChildTurn(harness, threadId, "keep going");
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls.find(
+      (call) => (call[1] as { threadId?: string })?.threadId === threadId,
+    )?.[1] as { readOnly?: boolean; tools?: ReadonlyArray<string> } | undefined;
+    // Not a Discuss launch: no readOnly flag, tools are the role's (not the
+    // read-only allowlist).
+    expect(startInput?.readOnly).not.toBe(true);
+    expect(startInput?.tools ?? []).not.toEqual(["read", "grep", "find", "ls"]);
   });
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>

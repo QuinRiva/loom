@@ -212,6 +212,23 @@ const make = Effect.gen(function* () {
       } satisfies OrchestrationCommand);
     });
 
+  // Post-completion engagement (plan §8 item 3): record the child's tip commit on
+  // its shell when fan-in merges it (or, at cancel, the kept branch tip). A
+  // historical source-identity marker — nothing reads it for control flow; the
+  // Discuss relocation preamble surfaces it. Partial meta.update so it never
+  // clobbers branch/worktreePath. Skipped when the sha is unknown (unborn HEAD).
+  const stampFinalCommitSha = (threadId: ThreadId, finalCommitSha: string | null) =>
+    finalCommitSha === null
+      ? Effect.void
+      : Effect.gen(function* () {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: yield* serverCommandId("final-commit"),
+            threadId,
+            finalCommitSha,
+          } satisfies OrchestrationCommand);
+        });
+
   const appendActivity = (input: {
     readonly threadId: ThreadId;
     readonly kind: string;
@@ -417,8 +434,14 @@ const make = Effect.gen(function* () {
   ) {
     const childCwd = child.worktreePath!;
     const childBranch = child.branch!;
-    // Commit the child's own worktree first (its own single-writer tree).
-    yield* gitWorkflow.commitAll(childCwd, `wip(${child.role ?? "child"}): ${child.title}`, "");
+    // Commit the child's own worktree first (its own single-writer tree). The
+    // result carries the child branch tip (the new commit, or the existing HEAD
+    // when the tree was already clean) — the durable `finalCommitSha` marker.
+    const childCommit = yield* gitWorkflow.commitAll(
+      childCwd,
+      `wip(${child.role ?? "child"}): ${child.title}`,
+      "",
+    );
 
     yield* worktreeMutationLock.withLock(
       parentCwd,
@@ -468,6 +491,7 @@ const make = Effect.gen(function* () {
           return;
         }
         yield* setFanInState(child.id, "completed");
+        yield* stampFinalCommitSha(child.id, childCommit.commitSha);
         if (!hasDependentResident(child.id, childCwd, threads, projects)) {
           yield* removeExclusively(
             childCwd,
@@ -504,7 +528,9 @@ const make = Effect.gen(function* () {
     yield* worktreeMutationLock.withLock(
       parentCwd,
       Effect.gen(function* () {
-        yield* gitWorkflow.commitAll(childCwd, "wip: cancelled", "");
+        // The kept branch tip is the cancelled child's `finalCommitSha` marker.
+        const childCommit = yield* gitWorkflow.commitAll(childCwd, "wip: cancelled", "");
+        yield* stampFinalCommitSha(child.id, childCommit.commitSha);
         yield* removeExclusively(
           childCwd,
           Effect.gen(function* () {

@@ -193,6 +193,12 @@ export interface GitRemoteStatusOptions {
 export interface GitCommitAllResult {
   /** False when the working tree was already clean (nothing to commit). */
   readonly committed: boolean;
+  /**
+   * The resulting HEAD commit after the call — the new commit when `committed`,
+   * otherwise the existing tip of a clean tree. Null only when the repo has no
+   * HEAD to resolve (unborn branch). Callers wanting the branch tip (e.g. the
+   * fan-in `finalCommitSha` marker) can read it regardless of `committed`.
+   */
   readonly commitSha: string | null;
 }
 
