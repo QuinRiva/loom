@@ -1,8 +1,29 @@
-# Local patches to the installed pi CLI
+# Local patches to the pi CLI
 
-pi (`@earendil-works/pi-coding-agent`) is installed globally as compiled JS, so
-these patches target `dist/` and must be re-applied after every `pi update` or
-reinstall:
+This directory is the human-readable **source of truth** for _why_ Loom patches
+pi (`@earendil-works/pi-coding-agent`) and how to re-derive each patch. pi ships
+as compiled JS, so the patches target `dist/`.
+
+## How the patch is actually applied (primary path)
+
+Loom **bundles pi as a workspace dependency** and applies these patches
+automatically at install time via pnpm's `patchedDependencies`:
+
+- `apps/server/package.json` pins `@earendil-works/pi-coding-agent` at an **exact**
+  version (no `^`): the pnpm patch key is version-scoped, so a version bump that
+  forgets the patch fails `pnpm install` loudly instead of silently shipping an
+  unpatched pi.
+- `pnpm-workspace.yaml` → `patchedDependencies` maps that exact version to
+  `patches/@earendil-works__pi-coding-agent@<version>.patch` (generated from the
+  patch below — see "Re-deriving").
+- `apps/server`'s `resolveBundledPiCliPath()` (`src/provider/Layers/Pi/Cli.ts`)
+  prefers this node_modules copy, so the running RPC process is the bundled,
+  patched binary — not whatever `pi` is on `PATH`.
+
+This replaces the old machine-state coupling where the patch lived only in a
+global `npm i -g` install and any `pi update` silently reverted it.
+
+## `apply.sh` is legacy / dev-only
 
 ```bash
 infra/pi-patches/apply.sh          # apply (idempotent)
@@ -10,8 +31,30 @@ infra/pi-patches/apply.sh --check  # check: are they applied?
 infra/pi-patches/apply.sh --revert # back out
 ```
 
-Authored against pi **0.82.1**. If a patch stops applying cleanly, upstream has
-moved: re-derive it against the new dist rather than force-applying.
+`apply.sh` patches a **globally installed** pi in place. Loom no longer needs it
+— the bundled dependency is what Loom runs. Keep it only for patching a global
+pi you use for _interactive_ `pi --session … --cwd …` at the terminal; it is not
+part of Loom's build or runtime.
+
+Authored against pi **0.82.1**; re-verified clean against **0.83.0** (the
+currently bundled pin). If a patch stops applying cleanly, upstream has moved:
+re-derive it against the new dist rather than force-applying.
+
+## Re-deriving after a pi version bump
+
+Because the pnpm patch key is exact-version-scoped, bumping the bundled pi
+requires regenerating the pnpm patch:
+
+```bash
+pnpm patch @earendil-works/pi-coding-agent@<newVersion>
+# apply the diff below into the printed editable dir, e.g.:
+git apply -p1 --directory=<editable-dir> \
+  infra/pi-patches/0001-pi-cwd-override-rpc-resume.patch
+pnpm patch-commit <editable-dir>   # writes patches/… and registers it
+pnpm install                        # confirm --cwd lands in the resolved copy
+```
+
+Then confirm `PiCwdOverride.contract.test.ts` runs (not skips) and passes.
 
 ## 0001 — `--cwd <dir>` for headless session resume
 
