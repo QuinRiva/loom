@@ -9,6 +9,7 @@ packages:
 # true = allowed to run build scripts; false mirrors the pnpm 10 behavior
 # where anything outside onlyBuiltDependencies was silently not built.
 allowBuilds:
+  "@google/genai": set this to true or false
   browser-tabs-lock: false
   bufferutil: false
   core-js: false
@@ -18,6 +19,7 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   node-pty: true
+  protobufjs: set this to true or false
   sharp: true
   utf-8-validate: false
   workerd: false
@@ -106,6 +108,7 @@ packageExtensions:
       vite: "catalog:"
 
 patchedDependencies:
+  "@earendil-works/pi-coding-agent@0.83.0": patches/@earendil-works__pi-coding-agent@0.83.0.patch
   "@effect/vitest@4.0.0-beta.78": patches/@effect__vitest@4.0.0-beta.78.patch
   "@expo/metro-config@56.0.14": patches/@expo%2Fmetro-config@56.0.14.patch
   "@ff-labs/fff-node@0.9.4": patches/@ff-labs__fff-node@0.9.4.patch
