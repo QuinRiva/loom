@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
-import * as NodeUrl from "node:url";
+import * as NodeURL from "node:url";
 
 export const DEFAULT_PI_BINARY_PATH = "pi";
 
@@ -20,7 +20,7 @@ export function resolveBundledPiCliPath(): string | undefined {
       // `require.resolve` nor a `/package.json` subpath resolve works. Resolve
       // the package's main entry via the `import` condition, walk up to the
       // package root, and take the CLI declared in `bin.pi` (dist/cli.js).
-      let dir = NodePath.dirname(NodeUrl.fileURLToPath(import.meta.resolve(packageName)));
+      let dir = NodePath.dirname(NodeURL.fileURLToPath(import.meta.resolve(packageName)));
       while (dir !== NodePath.dirname(dir)) {
         const manifestPath = NodePath.join(dir, "package.json");
         if (NodeFS.existsSync(manifestPath)) {
