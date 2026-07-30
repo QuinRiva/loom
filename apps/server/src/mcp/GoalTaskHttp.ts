@@ -89,10 +89,11 @@ const resolveActiveGoal = Effect.fn("GoalTaskHttp.resolveActiveGoal")(function* 
       error: jsonError(400, "This thread has no active goal, so there is no task tree to mutate."),
     };
   }
-  const snapshot = yield* projection.getSnapshot();
-  const goal = snapshot.goals.find((g) => g.id === goalId && g.deletedAt === null);
-  if (!goal) return { error: jsonError(404, "This thread's active goal was not found.") };
-  return { goal };
+  const goal = yield* projection.getGoalById(goalId);
+  if (Option.isNone(goal)) {
+    return { error: jsonError(404, "This thread's active goal was not found.") };
+  }
+  return { goal: goal.value };
 });
 
 const handleGoalTaskList = Effect.gen(function* () {

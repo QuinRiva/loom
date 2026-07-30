@@ -14,6 +14,7 @@ import type {
   OrchestrationGetThreadActivitiesResult,
   OrchestrationGetThreadLifecycleInput,
   OrchestrationGetThreadLifecycleResult,
+  OrchestrationGoal,
   OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
@@ -35,6 +36,17 @@ import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 export interface ProjectionSnapshotCounts {
   readonly projectCount: number;
   readonly threadCount: number;
+}
+
+/**
+ * The identity of one active project — all that a caller resolving a project by
+ * id or title needs. Deliberately narrower than `OrchestrationProject`: it
+ * carries no `repositoryIdentity`, so listing projects costs one indexed read
+ * and never shells git per workspace root.
+ */
+export interface ProjectionActiveProjectRef {
+  readonly id: ProjectId;
+  readonly title: string;
 }
 
 /**
@@ -270,6 +282,33 @@ export interface ProjectionSnapshotQueryShape {
   readonly getGoalShellById: (
     goalId: GoalId,
   ) => Effect.Effect<Option.Option<OrchestrationGoalShell>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single non-deleted goal (with its assembled task tree) by id.
+   *
+   * Unlike `getGoalShellById` an ARCHIVED goal is still returned: a thread whose
+   * goal has been archived may still read and mutate its task tree.
+   */
+  readonly getGoalById: (
+    goalId: GoalId,
+  ) => Effect.Effect<Option.Option<OrchestrationGoal>, ProjectionRepositoryError>;
+
+  /**
+   * Read every goal slug of a project, INCLUDING deleted goals — slugs are
+   * unique per project over all rows, so a uniqueness check must see them all.
+   */
+  readonly listGoalSlugsByProjectId: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<string>, ProjectionRepositoryError>;
+
+  /**
+   * Read the identities of all active projects in creation order, for callers
+   * that resolve a project by id or title without needing project bodies.
+   */
+  readonly listActiveProjectRefs: () => Effect.Effect<
+    ReadonlyArray<ProjectionActiveProjectRef>,
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read the earliest active thread for a project.

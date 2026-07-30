@@ -2,6 +2,7 @@
 import {
   CheckpointRef,
   EventId,
+  GoalId,
   MessageId,
   ProjectId,
   ThreadId,
@@ -32,6 +33,63 @@ const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const asGoalId = (value: string): GoalId => GoalId.make(value);
+
+/**
+ * Two projects (one deleted), four goals (active / archived / deleted / other
+ * project) and a nested task tree with one deleted task — the shapes the goal
+ * MCP endpoints must resolve correctly.
+ */
+const seedGoalFixture = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function* () {
+    yield* sql`DELETE FROM projection_goal_tasks`;
+    yield* sql`DELETE FROM projection_goals`;
+    yield* sql`DELETE FROM projection_projects`;
+    yield* sql`DELETE FROM projection_threads`;
+
+    yield* sql`
+      INSERT INTO projection_projects (
+        project_id, title, workspace_root, default_model_selection_json, scripts_json,
+        created_at, updated_at, deleted_at
+      ) VALUES
+        ('project-1', 'Project 1', '/tmp/project-1', NULL, '[]',
+         '2026-04-06T00:00:00.000Z', '2026-04-06T00:00:01.000Z', NULL),
+        ('project-2', 'Project 2', '/tmp/project-2', NULL, '[]',
+         '2026-04-06T00:00:02.000Z', '2026-04-06T00:00:03.000Z', NULL),
+        ('project-3', 'Project 3 (deleted)', '/tmp/project-3', NULL, '[]',
+         '2026-04-06T00:00:04.000Z', '2026-04-06T00:00:05.000Z', '2026-04-06T00:00:06.000Z')
+    `;
+
+    yield* sql`
+      INSERT INTO projection_goals (
+        goal_id, project_id, slug, title, title_provenance, description,
+        created_at, updated_at, archived_at, deleted_at
+      ) VALUES
+        ('goal-1', 'project-1', 'goal-one', 'Goal One', 'curated', 'Objective one.',
+         '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, NULL),
+        ('goal-archived', 'project-1', 'archived-goal', 'Archived Goal', 'curated', '',
+         '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', '2026-04-06T00:00:09.000Z', NULL),
+        ('goal-deleted', 'project-1', 'deleted-goal', 'Deleted Goal', 'curated', '',
+         '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, '2026-04-06T00:00:10.000Z'),
+        ('goal-other', 'project-2', 'other-project-goal', 'Other Project Goal', 'curated', '',
+         '2026-04-06T00:00:07.000Z', '2026-04-06T00:00:08.000Z', NULL, NULL)
+    `;
+
+    yield* sql`
+      INSERT INTO projection_goal_tasks (
+        task_id, goal_id, parent_task_id, position, text, done,
+        created_at, updated_at, deleted_at
+      ) VALUES
+        ('task-1', 'goal-1', NULL, 0, 'Parent task', 0,
+         '2026-04-06T00:00:11.000Z', '2026-04-06T00:00:11.000Z', NULL),
+        ('task-1a', 'goal-1', 'task-1', 0, 'Child task', 1,
+         '2026-04-06T00:00:12.000Z', '2026-04-06T00:00:12.000Z', NULL),
+        ('task-gone', 'goal-1', NULL, 1, 'Deleted task', 0,
+         '2026-04-06T00:00:13.000Z', '2026-04-06T00:00:13.000Z', '2026-04-06T00:00:14.000Z'),
+        ('task-other', 'goal-other', NULL, 0, 'Other goal task', 0,
+         '2026-04-06T00:00:15.000Z', '2026-04-06T00:00:15.000Z', NULL)
+    `;
+  });
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
@@ -2570,6 +2628,101 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal((yield* shellById("thread-pi-nofile"))?.promptDebugPath, undefined);
         assert.equal((yield* shellById("thread-codex"))?.promptDebugPath, undefined);
       }),
+  );
+
+  // The agent-facing goal endpoints (goal_task_*, goal_update, goal_handoff,
+  // goal_continue) resolve one goal / one project list per call. They used to
+  // do it by scanning a full `getSnapshot()`; these narrow queries must return
+  // exactly what that scan did.
+  it.effect("getGoalById returns the goal with its task tree, matching the full snapshot", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* seedGoalFixture(sql);
+
+      const goal = yield* snapshotQuery.getGoalById(asGoalId("goal-1"));
+      assert.ok(Option.isSome(goal));
+
+      const fullSnapshot = yield* snapshotQuery.getSnapshot();
+      const fromSnapshot = fullSnapshot.goals.find(
+        (candidate) => candidate.id === asGoalId("goal-1") && candidate.deletedAt === null,
+      );
+      assert.deepStrictEqual(goal.value, fromSnapshot);
+
+      // Task tree shape: deleted tasks excluded, children nested under parents.
+      assert.deepStrictEqual(
+        goal.value.tasks.map((task) => task.id),
+        ["task-1"],
+      );
+      assert.deepStrictEqual(
+        goal.value.tasks[0]?.children.map((task) => task.id),
+        ["task-1a"],
+      );
+    }),
+  );
+
+  it.effect("getGoalById returns an archived goal but never a deleted or missing one", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* seedGoalFixture(sql);
+
+      // Archived is still resolvable: an archived goal's task tree stays usable.
+      const archived = yield* snapshotQuery.getGoalById(asGoalId("goal-archived"));
+      assert.ok(Option.isSome(archived));
+      assert.equal(archived.value.archivedAt, "2026-04-06T00:00:09.000Z");
+
+      // Deleted and unknown goals are both absent, as the old snapshot
+      // `find(g => g.id === goalId && g.deletedAt === null)` was.
+      assert.ok(Option.isNone(yield* snapshotQuery.getGoalById(asGoalId("goal-deleted"))));
+      assert.ok(Option.isNone(yield* snapshotQuery.getGoalById(asGoalId("goal-missing"))));
+    }),
+  );
+
+  it.effect("listGoalSlugsByProjectId scopes to the project and includes deleted goals", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* seedGoalFixture(sql);
+
+      const slugs = yield* snapshotQuery.listGoalSlugsByProjectId(asProjectId("project-1"));
+      // `goal-deleted` is in project-1 and its slug is still taken.
+      assert.deepStrictEqual(slugs.toSorted(), ["archived-goal", "deleted-goal", "goal-one"]);
+
+      assert.deepStrictEqual(
+        yield* snapshotQuery.listGoalSlugsByProjectId(asProjectId("project-2")),
+        ["other-project-goal"],
+      );
+      assert.deepStrictEqual(
+        yield* snapshotQuery.listGoalSlugsByProjectId(asProjectId("project-missing")),
+        [],
+      );
+    }),
+  );
+
+  it.effect("listActiveProjectRefs matches the full snapshot's active projects, in order", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* seedGoalFixture(sql);
+
+      const refs = yield* snapshotQuery.listActiveProjectRefs();
+      const fullSnapshot = yield* snapshotQuery.getSnapshot();
+      assert.deepStrictEqual(
+        refs,
+        fullSnapshot.projects
+          .filter((project) => project.deletedAt === null)
+          .map((project) => ({ id: project.id, title: project.title })),
+      );
+      assert.deepStrictEqual(
+        refs.map((project) => project.id),
+        [asProjectId("project-1"), asProjectId("project-2")],
+      );
+    }),
   );
 });
 
