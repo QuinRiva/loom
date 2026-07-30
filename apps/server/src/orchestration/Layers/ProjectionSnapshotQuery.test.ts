@@ -1010,6 +1010,205 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("reads a thread's outstanding obligations for the session reaper", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-obligations', 'Obligations', '/tmp/obligations',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-06T00:00:00.000Z', '2026-04-06T00:00:01.000Z', NULL
+        )
+      `;
+
+      // `waiting` is a fanned-out orchestrator: one live child, one done child,
+      // one cancelled child, one deleted child. Only the live one is an
+      // obligation. `finished` has only terminal children. `gated` is blocked on
+      // a not-done sibling AND on a done sibling AND on a dangling id (which
+      // must not gate). `questioned` is parked on an open question.
+      //
+      // The fan-in shapes matter most: `ob-idle-isolated` is an ordinary
+      // in-flight isolated coder (fanInState 'none') and `ob-conflicted` has a
+      // settled-but-conflicted fan-in. Neither owes the PROVIDER anything —
+      // fan-in is pure git work in WorkstreamFanInReactor — so both must stay
+      // reapable, or every isolated coder's process leaks forever.
+      // `ob-fanin-dep`/`ob-fanin-blocked` and `ob-reviewer`/`ob-two-hop` cover
+      // the two gates a lane-only proxy would miss: a DONE isolated dependency
+      // whose merge has not landed, and a DONE attached reviewer whose gated
+      // coder has not fanned in.
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, parent_thread_id, blocked_by, plan_lane,
+          pending_rework, isolation, fan_in_state, title, model_selection_json,
+          runtime_mode, interaction_mode, latest_user_message_at,
+          pending_approval_count, pending_user_input_count,
+          has_actionable_proposed_plan, created_at, updated_at, archived_at, deleted_at
+        ) VALUES
+          ('ob-waiting', 'project-obligations', NULL, '[]', 'in_progress',
+           0, 'shared', 'none', 'Waiting orchestrator',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:02.000Z', '2026-04-06T00:00:02.000Z', NULL, NULL),
+          ('ob-live-child', 'project-obligations', 'ob-waiting', '[]', 'in_progress',
+           0, 'shared', 'none', 'Live child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:03.000Z', '2026-04-06T00:00:03.000Z', NULL, NULL),
+          ('ob-done-child', 'project-obligations', 'ob-waiting', '[]', 'done',
+           0, 'shared', 'none', 'Done child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:04.000Z', '2026-04-06T00:00:04.000Z', NULL, NULL),
+          ('ob-cancelled-child', 'project-obligations', 'ob-waiting', '[]', 'cancelled',
+           0, 'shared', 'none', 'Cancelled child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:05.000Z', '2026-04-06T00:00:05.000Z', NULL, NULL),
+          ('ob-deleted-child', 'project-obligations', 'ob-waiting', '[]', 'in_progress',
+           0, 'shared', 'none', 'Deleted child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:06.000Z', '2026-04-06T00:00:06.000Z', NULL,
+           '2026-04-06T00:00:07.000Z'),
+          ('ob-finished', 'project-obligations', NULL, '[]', 'in_progress',
+           0, 'shared', 'none', 'Finished orchestrator',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:08.000Z', '2026-04-06T00:00:08.000Z', NULL, NULL),
+          ('ob-finished-child', 'project-obligations', 'ob-finished', '[]', 'done',
+           0, 'shared', 'none', 'Finished child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:09.000Z', '2026-04-06T00:00:09.000Z', NULL, NULL),
+          ('ob-gated', 'project-obligations', 'ob-finished',
+           '["ob-finished-child","ob-open-dep","ob-dangling"]', 'ready',
+           0, 'isolated', 'none', 'Gated sibling',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:10.000Z', '2026-04-06T00:00:10.000Z', NULL, NULL),
+          ('ob-open-dep', 'project-obligations', 'ob-finished', '[]', 'in_progress',
+           0, 'shared', 'none', 'Open dependency',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:11.000Z', '2026-04-06T00:00:11.000Z', NULL, NULL),
+          ('ob-questioned', 'project-obligations', NULL, '[]', 'in_progress',
+           1, 'isolated', 'completed', 'Questioned thread',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 2, 0, '2026-04-06T00:00:12.000Z', '2026-04-06T00:00:12.000Z', NULL, NULL),
+          ('ob-idle-isolated', 'project-obligations', NULL, '[]', 'in_progress',
+           0, 'isolated', 'none', 'Ordinary idle isolated coder',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:13.000Z', '2026-04-06T00:00:13.000Z', NULL, NULL),
+          ('ob-conflicted', 'project-obligations', NULL, '[]', 'done',
+           0, 'isolated', 'conflicted', 'Settled conflicted fan-in',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:14.000Z', '2026-04-06T00:00:14.000Z', NULL, NULL),
+          ('ob-fanin-parent', 'project-obligations', NULL, '[]', 'in_progress',
+           0, 'shared', 'none', 'Fan-in gate parent',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:15.000Z', '2026-04-06T00:00:15.000Z', NULL, NULL),
+          ('ob-fanin-dep', 'project-obligations', 'ob-fanin-parent', '[]', 'done',
+           0, 'isolated', 'none', 'Done isolated dep, fan-in not landed',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:16.000Z', '2026-04-06T00:00:16.000Z', NULL, NULL),
+          ('ob-fanin-blocked', 'project-obligations', 'ob-fanin-parent', '["ob-fanin-dep"]',
+           'ready', 0, 'shared', 'none', 'Blocked behind unlanded fan-in',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:17.000Z', '2026-04-06T00:00:17.000Z', NULL, NULL),
+          ('ob-coder', 'project-obligations', 'ob-fanin-parent', '[]', 'done',
+           0, 'isolated', 'none', 'Gated coder, fan-in not landed',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:18.000Z', '2026-04-06T00:00:18.000Z', NULL, NULL),
+          ('ob-reviewer', 'project-obligations', 'ob-fanin-parent', '["ob-coder"]', 'done',
+           0, 'attached', 'none', 'Done attached reviewer',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:19.000Z', '2026-04-06T00:00:19.000Z', NULL, NULL),
+          ('ob-two-hop', 'project-obligations', 'ob-fanin-parent', '["ob-reviewer"]', 'ready',
+           0, 'shared', 'none', 'Blocked two hops behind fan-in',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:20.000Z', '2026-04-06T00:00:20.000Z', NULL, NULL)
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_sessions (
+          thread_id, status, provider_name, provider_session_id,
+          provider_thread_id, runtime_mode, active_turn_id, last_error, updated_at
+        ) VALUES
+          ('ob-waiting', 'running', 'codex', NULL, NULL, 'full-access', 'turn-ob-waiting', NULL,
+           '2026-04-06T00:00:21.000Z')
+      `;
+
+      const NONE = {
+        activeTurnId: null,
+        liveChildCount: 0,
+        hasUnmetDependencies: false,
+        openUserInputCount: 0,
+        pendingRework: false,
+      };
+
+      // A waiting orchestrator: exactly the one non-terminal, non-deleted child.
+      // Its active turn rides along on the same read (no second query).
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-waiting")), {
+        ...NONE,
+        activeTurnId: TurnId.make("turn-ob-waiting"),
+        liveChildCount: 1,
+      });
+
+      // `ob-gated`: only the not-done sibling gates; the done one and the
+      // dangling id do not.
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-gated")), {
+        ...NONE,
+        hasUnmetDependencies: true,
+      });
+
+      // Open questions and an open rework round are obligations.
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-questioned")), {
+        ...NONE,
+        openUserInputCount: 2,
+        pendingRework: true,
+      });
+
+      // Regression — the leak this must never reintroduce: an ordinary in-flight
+      // isolated coder (fanInState 'none') owes nothing, and neither does one
+      // whose fan-in settled as `conflicted`. A thread's own fan-in is not a
+      // provider obligation, so both stay reapable.
+      assert.deepEqual(
+        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-idle-isolated")),
+        NONE,
+      );
+      assert.deepEqual(
+        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-conflicted")),
+        NONE,
+      );
+
+      // The two gates a lane-only proxy misses. Both dependencies are `done`, so
+      // only the shared predicate's fan-in refinement keeps these blocked.
+      assert.deepEqual(
+        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-fanin-blocked")),
+        { ...NONE, hasUnmetDependencies: true },
+      );
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-two-hop")), {
+        ...NONE,
+        hasUnmetDependencies: true,
+      });
+
+      // An orchestrator whose children are all terminal owes nothing — still
+      // reapable. (`ob-gated`/`ob-open-dep` are its children, both non-terminal,
+      // so assert on the leaf instead.)
+      assert.deepEqual(
+        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-finished-child")),
+        NONE,
+      );
+
+      // An unknown / deleted thread owes nothing, so a stale binding stays
+      // reapable rather than becoming immortal.
+      assert.deepEqual(
+        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-missing")),
+        NONE,
+      );
+    }),
+  );
+
   it.effect("keeps settled threads in the shell snapshot with non-null settlement fields", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

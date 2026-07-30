@@ -148,6 +148,51 @@ export interface ProjectionSnapshotSequence {
 }
 
 /**
+ * The outstanding-obligation summary for ONE thread — the liveness input the
+ * provider-session reaper needs to decide whether an idle session may be
+ * stopped. "Idle" on its own is not enough: an orchestrator that has fanned out
+ * work has no active turn of its own and its runtime row's `lastSeenAt` is
+ * bumped only by its OWN activity (each child has its own row), so a parent
+ * waiting two hours on a child looks exactly like an abandoned session. Reaping
+ * it kills the session the parent must be resumed into when its children report.
+ *
+ * Deliberately a narrow aggregate query rather than a shell/snapshot hydration:
+ * the sweep runs every 5 minutes over every binding, so per-thread cost matters.
+ *
+ * - `liveChildCount`: direct children in a non-terminal plan lane (anything but
+ *   `done`/`cancelled`). Those are the obligations the parent is waiting on.
+ * - `hasUnmetDependencies`: whether this thread is still gated, decided by the
+ *   SHARED `areDependenciesSatisfied` predicate rather than a lane proxy — so a
+ *   `done` isolated dependency whose fan-in has not landed, and a `done`
+ *   attached reviewer whose gated coder has not fanned in, both count. Running
+ *   the real predicate (over the thread's sibling set, which is where every
+ *   gating edge lives) is what keeps this from drifting from the gate that
+ *   actually decides whether the thread may run.
+ * - `openUserInputCount`: open agent questions (`pending_user_input_count`). The
+ *   exit handler force-cancels every open question on the thread, so reaping a
+ *   thread parked on a question destroys a human's pending answer.
+ * - `pendingRework`: an open review-gate rework round the dispatcher still owes
+ *   this thread a resume for.
+ *
+ * `activeTurnId` rides along so the sweep's liveness check is ONE read per stale
+ * binding instead of a shell hydration plus an obligations read.
+ *
+ * A thread's OWN pending fan-in is deliberately NOT an obligation: fan-in is a
+ * pure git operation in `WorkstreamFanInReactor` (it never touches
+ * `ProviderService`), so a `done` isolated thread awaiting its merge does not
+ * need its provider process alive. Treating it as one would leak the process of
+ * every ordinary isolated coder forever — strictly worse than the over-eager
+ * reap this guard exists to fix.
+ */
+export interface ProjectionThreadObligations {
+  readonly activeTurnId: TurnId | null;
+  readonly liveChildCount: number;
+  readonly hasUnmetDependencies: boolean;
+  readonly openUserInputCount: number;
+  readonly pendingRework: boolean;
+}
+
+/**
  * One pending notify_thread delivery, for the dispatcher's deferred-delivery
  * rail. `recordId` is the stable correlation key the delivery/expire/mark
  * command ids derive from; `framedMessage` is the exact bytes to land in the
@@ -381,6 +426,19 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadLifecycle: (
     input: OrchestrationGetThreadLifecycleInput,
   ) => Effect.Effect<OrchestrationGetThreadLifecycleResult, ProjectionRepositoryError>;
+
+  /**
+   * Read the outstanding obligations still pending on ONE thread — its active
+   * turn, live children, unmet dependencies, open user-input requests and open
+   * rework round. This is the provider-session reaper's whole liveness input: a
+   * thread with any obligation is waiting, not abandoned.
+   *
+   * Returns the empty (no-obligation) result for an unknown thread id, so a
+   * binding whose projection row is gone stays reapable.
+   */
+  readonly getThreadObligations: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProjectionThreadObligations, ProjectionRepositoryError>;
 
   /**
    * Read the set of thread ids that currently have a pending turn-start (a

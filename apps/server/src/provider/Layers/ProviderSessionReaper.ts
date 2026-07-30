@@ -4,7 +4,6 @@ import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -116,14 +115,50 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
           continue;
         }
 
-        const thread = yield* projectionSnapshotQuery
-          .getThreadShellById(binding.threadId)
-          .pipe(Effect.map(Option.getOrUndefined));
-        if (thread?.session?.activeTurnId != null) {
+        // One narrow read carries the whole liveness verdict: the thread's active
+        // turn plus its outstanding obligations.
+        const obligations = yield* projectionSnapshotQuery.getThreadObligations(binding.threadId);
+        if (obligations.activeTurnId != null) {
           yield* Effect.logDebug("provider.session.reaper.skipped-active-turn", {
             threadId: binding.threadId,
-            activeTurnId: thread.session.activeTurnId,
+            activeTurnId: obligations.activeTurnId,
             idleDurationMs,
+          });
+          continue;
+        }
+
+        // An active turn is not the only form of liveness. The dominant shape in
+        // this product is an ORCHESTRATOR waiting on children it spawned: its own
+        // turn ended when it finished spawning, and its binding's `lastSeenAt` is
+        // bumped only by its OWN activity (each child has its own runtime row),
+        // so a parent whose child runs for two hours looks exactly as idle as an
+        // abandoned session — and was reaped at the 30-minute mark every time.
+        // Same for a thread parked on an open question: stopping it force-cancels
+        // every open request, destroying a slow human's pending answer.
+        //
+        // So: reap ≝ idle AND no outstanding obligations. Genuinely abandoned
+        // sessions (all children terminal, nothing open) still reap on idleness —
+        // this guard must never turn into "never reap". Note a thread's own
+        // pending fan-in is deliberately NOT an obligation: fan-in is pure git
+        // work that never touches the provider, so counting it would leak the
+        // process of every ordinary isolated coder forever.
+        const pendingReasons = [
+          obligations.liveChildCount > 0 ? "live_children" : null,
+          obligations.hasUnmetDependencies ? "unmet_dependencies" : null,
+          obligations.openUserInputCount > 0 ? "open_user_input" : null,
+          obligations.pendingRework ? "pending_rework" : null,
+        ].filter((reason): reason is string => reason !== null);
+        if (pendingReasons.length > 0) {
+          // Info, not debug: "why is this session still alive after hours idle"
+          // is a routine debugging question, and the answer must be in the log
+          // someone actually has at default level.
+          yield* Effect.logInfo("provider.session.reaper.skipped-pending-work", {
+            threadId: binding.threadId,
+            provider: binding.provider,
+            idleDurationMs,
+            reasons: pendingReasons,
+            liveChildCount: obligations.liveChildCount,
+            openUserInputCount: obligations.openUserInputCount,
           });
           continue;
         }

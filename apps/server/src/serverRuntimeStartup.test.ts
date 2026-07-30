@@ -107,6 +107,14 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+          getThreadObligations: () =>
+            Effect.succeed({
+              activeTurnId: null,
+              liveChildCount: 0,
+              hasUnmetDependencies: false,
+              openUserInputCount: 0,
+              pendingRework: false,
+            }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
           getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
@@ -189,6 +197,14 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+        getThreadObligations: () =>
+          Effect.succeed({
+            activeTurnId: null,
+            liveChildCount: 0,
+            hasUnmetDependencies: false,
+            openUserInputCount: 0,
+            pendingRework: false,
+          }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
@@ -253,6 +269,14 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+        getThreadObligations: () =>
+          Effect.succeed({
+            activeTurnId: null,
+            liveChildCount: 0,
+            hasUnmetDependencies: false,
+            openUserInputCount: 0,
+            pendingRework: false,
+          }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
@@ -323,6 +347,14 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
+        getThreadObligations: () =>
+          Effect.succeed({
+            activeTurnId: null,
+            liveChildCount: 0,
+            hasUnmetDependencies: false,
+            openUserInputCount: 0,
+            pendingRework: false,
+          }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),

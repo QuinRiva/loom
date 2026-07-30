@@ -33,12 +33,16 @@ import {
   type ToolLifecycleItemType,
   ModelSelection,
   ThreadAttention,
+  ThreadFanInState,
+  ThreadIsolation,
+  ThreadPlanLane,
   WorkOutcomeRecord,
   WorkstreamRoute,
   GoalId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
+import { areDependenciesSatisfied } from "@t3tools/shared/workstreamDependencies";
 import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
 import { NOTIFY_PAIR_WINDOW_MS } from "@t3tools/shared/notify";
@@ -247,6 +251,28 @@ const ProjectionSubtreeSessionLivenessRowSchema = Schema.Struct({
 const ActivityFreshnessRowSchema = Schema.Struct({
   maxCreatedAt: Schema.NullOr(IsoDateTime),
   heartbeatAt: Schema.NullOr(IsoDateTime),
+});
+const ThreadObligationsRowSchema = Schema.Struct({
+  activeTurnId: Schema.NullOr(TurnId),
+  liveChildCount: NonNegativeInt,
+  openUserInputCount: NonNegativeInt,
+  // SQLite has no boolean type: 0/1 ints decoded and mapped by the caller.
+  pendingRework: NonNegativeInt,
+  // Gate inputs for the shared `areDependenciesSatisfied` predicate, which owns
+  // the dependency verdict (this query must not re-decide it in SQL).
+  parentThreadId: Schema.NullOr(ThreadId),
+  blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
+  planLane: ThreadPlanLane,
+  isolation: ThreadIsolation,
+  fanInState: ThreadFanInState,
+});
+const DependencyGateSiblingRowSchema = Schema.Struct({
+  id: ThreadId,
+  parentThreadId: Schema.NullOr(ThreadId),
+  blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
+  planLane: ThreadPlanLane,
+  isolation: ThreadIsolation,
+  fanInState: ThreadFanInState,
 });
 const RecentToolActivityInput = Schema.Struct({
   threadId: ThreadId,
@@ -2037,6 +2063,136 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           heartbeatAt: row.heartbeatAt,
         })),
       );
+
+  // Outstanding obligations on ONE thread, as a single aggregate row (the
+  // provider-session reaper's liveness guard). Every branch is an indexed
+  // point/range read: the thread's own row by primary key, its direct children
+  // via idx_projection_threads_parent_thread_id, and its gating siblings by id
+  // through a json_each expansion of `blocked_by`. Deleted threads never count
+  // as obligations.
+  //
+  // The dependency decision is NOT made here. This query only gathers the gate
+  // fields for the thread and its sibling set (the scope every gating edge lives
+  // in); the verdict comes from the shared `areDependenciesSatisfied` predicate
+  // below, so the reaper cannot drift from the gate that actually decides whether
+  // a thread may run. A hand-written lane comparison in SQL would silently miss
+  // the two fan-in refinements the real gate applies.
+  //
+  // `activeTurnId` is selected here too so the sweep needs ONE read per stale
+  // binding rather than a shell hydration plus this.
+  const getThreadObligationsRow = SqlSchema.findOneOption({
+    Request: ThreadIdLookupInput,
+    Result: ThreadObligationsRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          threads.blocked_by AS "blockedBy",
+          threads.parent_thread_id AS "parentThreadId",
+          threads.plan_lane AS "planLane",
+          threads.isolation AS "isolation",
+          threads.fan_in_state AS "fanInState",
+          threads.pending_user_input_count AS "openUserInputCount",
+          threads.pending_rework AS "pendingRework",
+          sessions.active_turn_id AS "activeTurnId",
+          (
+            SELECT COUNT(*)
+            FROM projection_threads children
+            WHERE children.parent_thread_id = threads.thread_id
+              AND children.deleted_at IS NULL
+              AND children.plan_lane NOT IN ('done', 'cancelled')
+          ) AS "liveChildCount"
+        FROM projection_threads AS threads
+        LEFT JOIN projection_thread_sessions sessions
+          ON sessions.thread_id = threads.thread_id
+        WHERE threads.thread_id = ${threadId}
+          AND threads.deleted_at IS NULL
+        LIMIT 1
+      `,
+  });
+
+  // The thread's sibling set (same parent) with just the dependency-gate fields.
+  // `areDependenciesSatisfied` ignores self-references, dangling ids and
+  // cross-parent ids, so siblings are the complete input; the extra rows needed
+  // for the attached-reviewer two-hop case are siblings too.
+  const listDependencyGateSiblingRows = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: DependencyGateSiblingRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          siblings.thread_id AS "id",
+          siblings.parent_thread_id AS "parentThreadId",
+          siblings.blocked_by AS "blockedBy",
+          siblings.plan_lane AS "planLane",
+          siblings.isolation AS "isolation",
+          siblings.fan_in_state AS "fanInState"
+        FROM projection_threads AS siblings
+        JOIN projection_threads AS target
+          ON target.thread_id = ${threadId}
+        WHERE siblings.deleted_at IS NULL
+          AND siblings.parent_thread_id IS target.parent_thread_id
+      `,
+  });
+
+  const NO_THREAD_OBLIGATIONS = {
+    activeTurnId: null,
+    liveChildCount: 0,
+    hasUnmetDependencies: false,
+    openUserInputCount: 0,
+    pendingRework: false,
+  } as const;
+
+  const getThreadObligations: ProjectionSnapshotQueryShape["getThreadObligations"] = (threadId) =>
+    Effect.gen(function* () {
+      const row = yield* getThreadObligationsRow({ threadId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getThreadObligations:query",
+            "ProjectionSnapshotQuery.getThreadObligations:decodeRow",
+          ),
+        ),
+      );
+      // A binding whose projection row is gone (deleted thread) owes nothing and
+      // stays reapable.
+      if (Option.isNone(row)) return NO_THREAD_OBLIGATIONS;
+      const thread = row.value;
+
+      // Only a thread that actually has dependency edges pays for the sibling
+      // read — the common case (no `blockedBy`) stays a single query.
+      const hasUnmetDependencies =
+        thread.blockedBy.length === 0
+          ? false
+          : yield* listDependencyGateSiblingRows({ threadId }).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getThreadObligations:listSiblings:query",
+                  "ProjectionSnapshotQuery.getThreadObligations:listSiblings:decodeRows",
+                ),
+              ),
+              Effect.map(
+                (siblings) =>
+                  !areDependenciesSatisfied(
+                    {
+                      id: threadId,
+                      parentThreadId: thread.parentThreadId,
+                      blockedBy: thread.blockedBy,
+                      planLane: thread.planLane,
+                      isolation: thread.isolation,
+                      fanInState: thread.fanInState,
+                    },
+                    new Map(siblings.map((sibling) => [sibling.id, sibling] as const)),
+                  ),
+              ),
+            );
+
+      return {
+        activeTurnId: thread.activeTurnId,
+        liveChildCount: thread.liveChildCount,
+        hasUnmetDependencies,
+        openUserInputCount: thread.openUserInputCount,
+        pendingRework: thread.pendingRework !== 0,
+      };
+    });
 
   // The two activity kinds the open-request fold cares about, read narrowly (no
   // detail-window cap) so the fold sees the WHOLE request history for a thread —
@@ -3987,6 +4143,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadActivitiesPage,
     getThreadLifecycle,
     getLiveSubtreeSessionLiveness,
+    getThreadObligations,
     getPendingTurnStartThreadIds,
     getDeletedThreadIds,
     listPendingPeerMessages,
