@@ -6,6 +6,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import { TestClock } from "effect/testing";
 
 import type {
   OrchestrationCommand,
@@ -17,12 +18,13 @@ import type {
 import * as ServerConfigModule from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { layer as WorktreeMutationLockLive } from "../../git/WorktreeMutationLock.ts";
+import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
 import type { GitWorktreeListEntry } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorktreeReaper } from "../Services/WorktreeReaper.ts";
 import { WORKTREE_REAP_AGE_MS } from "../worktreeClassification.ts";
-import { WorktreeReaperLive } from "./WorktreeReaper.ts";
+import { WORKTREE_REAP_INTERVAL_MS, WorktreeReaperLive } from "./WorktreeReaper.ts";
 
 // `it.effect` runs on the TestClock (now = epoch 0), so "older than the reap
 // threshold" means a timestamp before 1970 minus the threshold.
@@ -140,6 +142,7 @@ describe("WorktreeReaper", () => {
           Layer.provide(projectionLayer),
           Layer.provide(gitLayer),
           Layer.provide(WorktreeMutationLockLive),
+          Layer.provide(Layer.effect(WorkspaceLease, makeWorkspaceLease)),
           Layer.provide(Layer.succeed(ServerConfigModule.ServerConfig, config)),
           Layer.provideMerge(NodeServices.layer),
         );
@@ -179,6 +182,124 @@ describe("WorktreeReaper", () => {
           ServerConfigModule.layerTest(process.cwd(), { prefix: "worktree-reaper-test-" }).pipe(
             Layer.provideMerge(NodeServices.layer),
           ),
+        ),
+        Effect.scoped,
+      );
+    }),
+  );
+
+  // Capability: a worktree is never removed under a live process — with the
+  // REAPER as the remover (plan §9 test 5, guarding Defect A′). The reaper
+  // carried its own independent copy of the terminal-lane occupancy proxy, so a
+  // fix confined to the fan-in reactor would have left the identical
+  // destructive race here, just on a six-hour timer.
+  it.effect("never reaps a worktree a live process holds, and reaps it once released", () =>
+    Effect.gen(function* () {
+      const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+      const record = (tag: string) => Ref.update(gitCalls, (xs) => [...xs, tag]);
+      const entriesRef = yield* Ref.make<ReadonlyArray<GitWorktreeListEntry>>([]);
+      const lease = yield* makeWorkspaceLease;
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        dispatch: () => Effect.succeed({ sequence: 0 }),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        listWorktrees: () => Ref.get(entriesRef),
+        hasWorkingTreeChanges: () => Effect.succeed(false),
+        isAncestor: () => Effect.succeed(true),
+        removeWorktree: (input: { path: string }) => record(`removeWorktree:${input.path}`),
+        deleteBranch: (input: { branch: string }) => record(`deleteBranch:${input.branch}`),
+      } as never);
+
+      yield* Effect.gen(function* () {
+        const config = yield* ServerConfigModule.ServerConfig;
+        // Provably dead by every classification predicate — terminal, fanned in,
+        // clean, merged, old. The ONLY thing standing between it and deletion is
+        // the process a human resumed in it.
+        const dead = NodePath.join(config.worktreesDir, "repo", "ws-main-coder-11111111");
+        yield* Ref.set(entriesRef, [
+          {
+            path: "/repo",
+            branch: "main",
+            head: "abc",
+            isMain: true,
+            locked: false,
+            prunable: false,
+          },
+          {
+            path: dead,
+            branch: "ws/main/coder-11111111",
+            head: "abc",
+            isMain: false,
+            locked: false,
+            prunable: false,
+          },
+        ]);
+
+        const project = {
+          id: "p1",
+          title: "p",
+          workspaceRoot: "/repo",
+        } as unknown as OrchestrationProjectShell;
+        const threads = [
+          thread({
+            id: "parent",
+            planLane: "in_progress",
+            isolation: "shared",
+            branch: "main",
+            worktreePath: "/repo",
+          }),
+          thread({
+            id: "11111111-aaaa-bbbb-cccc-dddddddddddd",
+            parentThreadId: "parent" as ThreadId,
+            worktreePath: dead,
+          }),
+        ];
+        const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+          getShellSnapshot: () =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              projects: [project],
+              goals: [],
+              threads,
+              updatedAt: OLD,
+            }),
+        } as never);
+
+        const layer = WorktreeReaperLive.pipe(
+          Layer.provide(engineLayer),
+          Layer.provide(projectionLayer),
+          Layer.provide(gitLayer),
+          Layer.provide(WorktreeMutationLockLive),
+          Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+          Layer.provide(Layer.succeed(ServerConfigModule.ServerConfig, config)),
+          Layer.provideMerge(NodeServices.layer),
+        );
+
+        yield* Effect.gen(function* () {
+          const reaper = yield* WorktreeReaper;
+          const held = yield* lease.hold(dead, "resumed-session");
+
+          yield* reaper.start();
+          yield* reaper.drain;
+          expect(yield* Ref.get(gitCalls)).toEqual([]);
+          // The chip is honest about why it survived, not silently "reapable".
+          expect(
+            (yield* reaper.classifyWorktrees()).find((c) => c.path === dead)?.disposition,
+          ).toBe("active");
+
+          // The process exits (its lease releases) and the next periodic sweep
+          // collects the tree — a skip costs one tick, never the worktree.
+          yield* held.release;
+          yield* TestClock.adjust(`${WORKTREE_REAP_INTERVAL_MS} millis`);
+          yield* reaper.drain;
+          expect(yield* Ref.get(gitCalls)).toContain(`removeWorktree:${dead}`);
+        }).pipe(Effect.scoped, Effect.provide(layer));
+      }).pipe(
+        Effect.provide(
+          ServerConfigModule.layerTest(process.cwd(), {
+            prefix: "worktree-reaper-lease-test-",
+          }).pipe(Layer.provideMerge(NodeServices.layer)),
         ),
         Effect.scoped,
       );

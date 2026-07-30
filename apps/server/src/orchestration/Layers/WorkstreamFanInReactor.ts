@@ -18,6 +18,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -25,6 +26,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
+import { WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
@@ -57,6 +59,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const gitWorkflow = yield* GitWorkflowService;
   const worktreeMutationLock = yield* WorktreeMutationLock;
+  const workspaceLease = yield* WorkspaceLease;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -254,11 +257,24 @@ const make = Effect.gen(function* () {
     projects: ReadonlyArray<ProjectRef>,
   ): string | undefined => resolveThreadWorkspaceCwd({ thread, projects });
 
-  // Occupancy (plan §3 step 4 / §7): worktree removal + branch deletion defer
-  // while another NON-TERMINAL thread still resides in the child's worktree (a
-  // shared/attached descendant mid-work) or targets its branch for fan-in (an
-  // isolated descendant). Terminal residents do not defer — they are repointed.
-  const isOccupied = (
+  // Structural deferral (plan §3 step 4 / §7): another thread still DEPENDS on
+  // this child's workspace or branch, so removing them would destroy work in
+  // progress rather than merely a spent checkout. Two cases:
+  //   - a live isolated descendant will later fan into the child's BRANCH; the
+  //     path-keyed lease cannot express a branch dependency, so this predicate
+  //     owns it,
+  //   - a non-terminal thread's workspace resolves to the child's worktree (a
+  //     shared/attached resident mid-work): that checkout IS its work, whether
+  //     or not a process happens to be running in it this instant. Terminal
+  //     residents do not defer — they are repointed.
+  //
+  // Liveness is deliberately NOT this predicate's job. It used to be — a
+  // terminal plan lane was read as "no process is using this directory", which
+  // is exactly false for a `done` child a human is talking to, and destroyed a
+  // worktree three seconds after a resume provisioned it. Live-process safety
+  // now belongs to `WorkspaceLease.withExclusive`, which makes check+remove
+  // atomic; this predicate is only the structural half.
+  const hasDependentResident = (
     childId: ThreadId,
     childCwd: string,
     threads: ReadonlyArray<OrchestrationThreadShell>,
@@ -300,6 +316,10 @@ const make = Effect.gen(function* () {
   // `-d` (force: false) so an unmerged branch — e.g. one still carrying a
   // grandchild's un-propagated commits — is refused rather than destroyed
   // (review finding 5).
+  //
+  // Runs ONLY inside `WorkspaceLease.withExclusive` (see `removeExclusively`):
+  // no caller may invoke it directly, or the atomicity the lease exists to
+  // provide is lost.
   const finaliseRemoval = Effect.fn("finaliseRemoval")(function* (input: {
     readonly childId: ThreadId;
     readonly childCwd: string;
@@ -325,6 +345,25 @@ const make = Effect.gen(function* () {
       threads: input.threads,
     });
   });
+
+  // The lease boundary for this reactor: every worktree removal it performs
+  // passes through here. `withExclusive` yields `Option.none` while any process
+  // holds the workspace (a resumed Discuss session, a turn that is mid-launch
+  // and has not spawned yet), and blocks new holds for the removal's duration —
+  // so a start cannot slip in between the decision and `git worktree remove`.
+  // A skip is not an error: this pass is idempotent and re-armed by events plus
+  // the 60s tick, so the removal simply happens on a later pass once the last
+  // hold releases.
+  const removeExclusively = <A, E, R>(childCwd: string, removal: Effect.Effect<A, E, R>) =>
+    workspaceLease.withExclusive(childCwd, removal).pipe(
+      Effect.tap((outcome) =>
+        Option.isNone(outcome)
+          ? Effect.logInfo("workstream fan-in: worktree removal skipped, workspace is occupied", {
+              childCwd,
+            })
+          : Effect.void,
+      ),
+    );
 
   // Defer the merge only while the child's runtime turn is genuinely in flight
   // (state "running") — then the worktree is mid-write and the pass is re-armed
@@ -429,17 +468,20 @@ const make = Effect.gen(function* () {
           return;
         }
         yield* setFanInState(child.id, "completed");
-        if (!isOccupied(child.id, childCwd, threads, projects)) {
-          yield* finaliseRemoval({
-            childId: child.id,
+        if (!hasDependentResident(child.id, childCwd, threads, projects)) {
+          yield* removeExclusively(
             childCwd,
-            childBranch,
-            parentCwd,
-            parentBranch: parent.branch,
-            parentWorktreePath: parent.worktreePath,
-            threads,
-            projects,
-          });
+            finaliseRemoval({
+              childId: child.id,
+              childCwd,
+              childBranch,
+              parentCwd,
+              parentBranch: parent.branch,
+              parentWorktreePath: parent.worktreePath,
+              threads,
+              projects,
+            }),
+          );
         }
       }),
     );
@@ -454,25 +496,35 @@ const make = Effect.gen(function* () {
     const childCwd = child.worktreePath!;
     // Snapshot whatever is in the worktree onto the (kept) branch, then remove
     // the worktree — abandoned work stays recoverable via plain git (plan §3).
+    // Removal + repoint sit inside the lease: a cancelled child whose workspace
+    // is still held (a human reading it through a live session) keeps its
+    // checkout, and its meta is NOT repointed either — repointing without
+    // removing would hide the worktree from this disposition entirely. The whole
+    // step is retried on a later pass instead; the snapshot commit is idempotent.
     yield* worktreeMutationLock.withLock(
       parentCwd,
       Effect.gen(function* () {
         yield* gitWorkflow.commitAll(childCwd, "wip: cancelled", "");
-        yield* gitWorkflow
-          .removeWorktree({ cwd: parentCwd, path: childCwd, force: true })
-          .pipe(Effect.ignoreCause({ log: true }));
-        // Land the dead thread's meta in the parent tree so a later reopen is
-        // safe; keep its branch name for discovery/recovery. Also repoint any
-        // resident (e.g. a cascade-cancelled attached reviewer) off the removed
-        // worktree so its meta does not dangle (review finding 1c).
-        yield* repointMeta(child.id, child.branch, parent.worktreePath ?? null);
-        yield* repointResidents({
-          childId: child.id,
+        yield* removeExclusively(
           childCwd,
-          parentBranch: child.branch,
-          parentWorktreePath: parent.worktreePath ?? null,
-          threads,
-        });
+          Effect.gen(function* () {
+            yield* gitWorkflow
+              .removeWorktree({ cwd: parentCwd, path: childCwd, force: true })
+              .pipe(Effect.ignoreCause({ log: true }));
+            // Land the dead thread's meta in the parent tree so a later reopen is
+            // safe; keep its branch name for discovery/recovery. Also repoint any
+            // resident (e.g. a cascade-cancelled attached reviewer) off the removed
+            // worktree so its meta does not dangle (review finding 1c).
+            yield* repointMeta(child.id, child.branch, parent.worktreePath ?? null);
+            yield* repointResidents({
+              childId: child.id,
+              childCwd,
+              parentBranch: child.branch,
+              parentWorktreePath: parent.worktreePath ?? null,
+              threads,
+            });
+          }),
+        );
       }),
     );
   });
@@ -574,22 +626,26 @@ const make = Effect.gen(function* () {
             parentCwd === undefined ||
             child.branch === null ||
             NodePath.resolve(child.worktreePath) === NodePath.resolve(parentCwd) ||
-            isOccupied(child.id, child.worktreePath, threads, projects)
+            hasDependentResident(child.id, child.worktreePath, threads, projects)
           ) {
             return;
           }
+          const deferredCwd = child.worktreePath;
           yield* worktreeMutationLock.withLock(
             parentCwd,
-            finaliseRemoval({
-              childId: child.id,
-              childCwd: child.worktreePath,
-              childBranch: child.branch,
-              parentCwd,
-              parentBranch: parent.branch,
-              parentWorktreePath: parent.worktreePath,
-              threads,
-              projects,
-            }),
+            removeExclusively(
+              deferredCwd,
+              finaliseRemoval({
+                childId: child.id,
+                childCwd: deferredCwd,
+                childBranch: child.branch,
+                parentCwd,
+                parentBranch: parent.branch,
+                parentWorktreePath: parent.worktreePath,
+                threads,
+                projects,
+              }),
+            ),
           );
         }
       });

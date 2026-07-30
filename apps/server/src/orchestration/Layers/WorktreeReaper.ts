@@ -15,11 +15,13 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
+import { WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorktreeReaper, type WorktreeReaperShape } from "../Services/WorktreeReaper.ts";
@@ -52,6 +54,7 @@ const make = Effect.gen(function* () {
   const gitWorkflow = yield* GitWorkflowService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const workspaceLease = yield* WorkspaceLease;
 
   const worktreesRoot = NodePath.resolve(config.worktreesDir) + NodePath.sep;
 
@@ -94,6 +97,11 @@ const make = Effect.gen(function* () {
       .listWorktrees(project.workspaceRoot)
       .pipe(Effect.orElseSucceed(() => []));
     const threads = snapshot.threads.filter((t) => t.projectId === project.id);
+    // Advisory only (plan §7.3): a held workspace is displayed as `active` so
+    // the maintenance panel and the reaper's own log tell the truth about why a
+    // tree survives. The protection itself is the lease taken at removal time —
+    // this snapshot can go stale the instant after it is read.
+    const occupiedPaths = yield* workspaceLease.occupiedPaths;
     return yield* Effect.forEach(
       entries,
       (entry) =>
@@ -113,6 +121,7 @@ const make = Effect.gen(function* () {
                   projects: snapshot.projects,
                   facts: { dirty: null, mergedIntoParentBranch: null },
                   nowMs,
+                  occupiedPaths,
                 });
                 const merged =
                   entry.branch !== null && probe.parentBranch !== null
@@ -133,6 +142,7 @@ const make = Effect.gen(function* () {
             projects: snapshot.projects,
             facts,
             nowMs,
+            occupiedPaths,
           });
         }),
       { concurrency: WORKTREE_CLASSIFY_CONCURRENCY },
@@ -158,17 +168,30 @@ const make = Effect.gen(function* () {
   // it from the project root would wrongly compare against the root's branch.
   // Failures are logged and left for the visibility surface — GC is
   // best-effort by design.
+  //
+  // `performWorktreeRemoval` runs the git steps inside
+  // `WorkspaceLease.withExclusive` (plan §7.3), so a worktree with a live
+  // process in it is skipped rather than deleted. That matters here in its own
+  // right: the reaper carried an INDEPENDENT copy of the terminal-lane occupancy
+  // proxy, so a fix confined to the fan-in reactor would have left the identical
+  // destructive race on a six-hour timer. One authority, two removers. A skip
+  // costs one tick, never the worktree.
   const reapOne = Effect.fn("reapOne")(function* (
     workspaceRoot: string,
     entry: ClassifiedWorktree,
   ) {
-    yield* performWorktreeRemoval({
+    const removed = yield* performWorktreeRemoval({
       cwd: entry.parentCwd ?? workspaceRoot,
       path: entry.path,
       branch: entry.branch,
       forceWorktree: false,
       deleteBranchWhenMerged: true,
     });
+    if (Option.isNone(removed)) {
+      return yield* Effect.logInfo("worktree reaper: skipped occupied worktree", {
+        path: entry.path,
+      });
+    }
     if (entry.threadId !== null) {
       yield* appendReapedActivity(entry.threadId, entry);
     }

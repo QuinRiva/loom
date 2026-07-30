@@ -125,6 +125,13 @@ export interface ClassifyWorktreeInput {
   readonly facts: WorktreeGitFacts;
   readonly nowMs: number;
   readonly reapAgeMs?: number;
+  /**
+   * Resolved workspace paths a live process currently holds, from
+   * `WorkspaceLease`. Advisory: it makes the chip honest about why a tree
+   * survives, but it is a snapshot and can go stale immediately — the lease
+   * taken at removal time is what actually protects the worktree.
+   */
+  readonly occupiedPaths?: ReadonlySet<string>;
 }
 
 export const classifyWorktree = (input: ClassifyWorktreeInput): ClassifiedWorktree => {
@@ -160,9 +167,14 @@ export const classifyWorktree = (input: ClassifyWorktreeInput): ClassifiedWorktr
   });
 
   if (entry.isMain) return active;
-  // Occupancy: ANY live (non-terminal) thread resolved into this worktree makes
-  // it active — mirrors the fan-in reactor's occupancy semantics.
   const resolvedPath = NodePath.resolve(entry.path);
+  // A process is live in this tree right now (lease truth), so it is in use
+  // whatever the plan lanes say — including the case this input exists for: a
+  // human conversing with a thread whose lane is terminal.
+  if (input.occupiedPaths?.has(resolvedPath) === true) return active;
+  // Structural occupancy: a non-terminal thread's workspace resolves here, so
+  // this checkout is its work in progress. Mirrors the fan-in reactor's
+  // `hasDependentResident`.
   const occupied = threads.some((t) => {
     if (isTerminal(t.planLane)) return false;
     const cwd = resolveThreadWorkspaceCwd({ thread: t, projects });

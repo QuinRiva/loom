@@ -1770,6 +1770,8 @@ export function makeOpenCodeAdapter(
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "in-session",
+        // `stopSession` emits `session.exited` directly (:1682-1690).
+        emitsExitOnStop: true,
       },
       startSession,
       sendTurn,

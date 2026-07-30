@@ -1926,7 +1926,10 @@ export function makePiAdapter(input: {
 
   return {
     provider: DRIVER_KIND,
-    capabilities: { sessionModelSwitch: "in-session" },
+    // `stopSession` awaits `process.stop()`, whose child `exit` handler is NOT
+    // short-circuited by `replacedProcesses` and therefore emits `session.exited`
+    // from a floating async block (:1850-1876) — i.e. after the stop returns.
+    capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
     startSession: (startInput) =>
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;

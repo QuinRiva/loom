@@ -28,6 +28,7 @@ import {
 import { causeErrorTag } from "@t3tools/shared/observability";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -57,7 +58,17 @@ import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import { WorkspaceLease, type WorkspaceHold } from "../../workspace/WorkspaceLease.ts";
 const isModelSelection = Schema.is(ModelSelection);
+
+/**
+ * How long a released launch's `session.exited` may still be in flight before its
+ * attribution token lapses (see `noteLaunchEnded`). Generous relative to the real
+ * delay — drivers emit from a floating async block on process exit
+ * (`PiDriver.ts:1854-1876`), i.e. microseconds to milliseconds — and bounded so a
+ * driver that never emits cannot leave a token that swallows a later real exit.
+ */
+const STRAGGLER_EXIT_WINDOW = Duration.seconds(30);
 
 /**
  * Hook for tests that want to override the canonical event logger pulled
@@ -214,8 +225,213 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const workspaceLease = yield* WorkspaceLease;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+
+  // Workspace occupancy (plan §7). Adapters register a live child only AFTER
+  // spawn, so an occupancy check that scraped them would miss a launch already
+  // in flight — the exact gap in which a worktree got deleted from under a
+  // starting pi process. Instead the lease is taken HERE, before
+  // `adapter.startSession`, and released on exit or on a failed launch. A leaked
+  // hold makes a worktree permanently immortal, so every path out of a start is
+  // accounted for: failure/interrupt via `Effect.onExit` at the acquisition
+  // site, and process death via the `session.exited` runtime event below.
+  //
+  // Holds are LAUNCH-scoped, not thread-scoped (round-1 review finding 2). A
+  // restart on a model/instance/runtime-mode change re-launches into the SAME
+  // cwd without `cwdChanged` (`ProviderCommandReactor.ts:751-757`), so one
+  // thread legitimately has a superseded launch and a live launch on one
+  // workspace. A thread-keyed release would let the superseded process's late
+  // `session.exited` drop the LIVE launch's hold and expose a running process to
+  // removal — the same hazard `PiDriver.replacedProcesses`
+  // (`PiDriver.ts:1841-1851`) exists to prevent for session teardown. Each
+  // launch therefore gets a unique holder token and releases only its own.
+  let nextLaunchSeq = 0;
+  interface LaunchHold {
+    readonly hold: WorkspaceHold;
+    readonly generation: number;
+  }
+  const currentLaunchHold = new Map<ThreadId, LaunchHold>();
+
+  /**
+   * Drop a specific launch's hold. Only clears the thread's current-launch
+   * pointer if it still points at THIS launch, so a superseded launch releasing
+   * can never disown its replacement.
+   */
+  const releaseLaunchHold = (threadId: ThreadId, launch: LaunchHold) =>
+    Effect.suspend(() => {
+      if (currentLaunchHold.get(threadId) === launch) currentLaunchHold.delete(threadId);
+      return Effect.andThen(launch.hold.release, workspaceLease.releaseHolder(launch.hold.holder));
+    });
+
+  /**
+   * Drop whichever launch currently holds this thread's workspace, whatever its
+   * generation. Used by every path that ends a launch: a start superseding its
+   * predecessor, a stop, a failed start, and shutdown.
+   */
+  const releaseCurrentLaunchHold = (threadId: ThreadId) =>
+    Effect.suspend(() => {
+      const launch = currentLaunchHold.get(threadId);
+      return launch === undefined ? Effect.void : releaseLaunchHold(threadId, launch);
+    });
+
+  /**
+   * Hold the session's workspace across a start, keeping the hold only if the
+   * start succeeds.
+   *
+   * The invariant, enforced structurally rather than by bookkeeping: **at most
+   * one live hold per thread, and none once no process is live.** Acquiring a
+   * new launch's hold releases the previous one, so a second hold for the same
+   * thread cannot exist; a failed start releases its own.
+   *
+   * Note the acquire-before-release ordering below is deliberate on the restart
+   * path: releasing first would open a window in which the workspace looks
+   * unoccupied even though a process is (briefly) still there. Holding two at
+   * once momentarily is safe — it can only over-protect — whereas holding none
+   * is the deletion race this whole component exists to prevent.
+   */
+  const withWorkspaceHold = <A, E, R>(
+    threadId: ThreadId,
+    cwd: string | undefined,
+    start: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> =>
+    cwd === undefined
+      ? start
+      : Effect.gen(function* () {
+          const previous = currentLaunchHold.get(threadId);
+          const generation = nextLaunchSeq++;
+          const acquired: LaunchHold = {
+            hold: yield* workspaceLease.hold(cwd, `provider-session:${threadId}:${generation}`),
+            generation,
+          };
+          currentLaunchHold.set(threadId, acquired);
+          if (previous !== undefined) {
+            // The superseded launch's process may still emit; record its generation
+            // so that exit spends the token instead of the live launch's hold.
+            yield* noteLaunchEnded(threadId, previous.generation);
+            yield* releaseLaunchHold(threadId, previous);
+          }
+          return yield* start.pipe(
+            // A failed start releases its own hold — and records a token, because
+            // a start can fail AFTER spawning a process that will later emit
+            // `session.exited`: `PiDriver.ts:2159-2162` stops the process when
+            // `applyModelSelection` fails, which routes through the exit handler
+            // (`:1850-1876`). Without the token that late exit would release a
+            // RETRY's live hold. Same rule as every other path that ends a launch.
+            Effect.onExit((exit) =>
+              exit._tag === "Success"
+                ? Effect.void
+                : noteLaunchEnded(threadId, acquired.generation).pipe(
+                    Effect.andThen(releaseLaunchHold(threadId, acquired)),
+                  ),
+            ),
+          );
+        });
+
+  /**
+   * Release on `session.exited`.
+   *
+   * A runtime event carries no launch identity (`ProviderRuntimeEventBase` has no
+   * launch/generation field), so an arriving exit cannot be attributed to a
+   * particular launch by inspecting it. An earlier round tried a per-thread "owed
+   * exits" COUNTER, which provably cannot work: it must answer both "is an exit
+   * still owed?" and "will an exit ever come?" with one number, and the release
+   * paths need opposite answers. Guessing one way deletes a live worktree; the
+   * other immortalises one.
+   *
+   * So the debt is IDENTIFIED: `endedLaunches` records, per thread, the GENERATION
+   * of the launch whose hold we dropped while its process still owed an exit. An
+   * arriving exit spends that token — it belongs to a known-dead launch and must
+   * NOT touch the live one — and otherwise releases the live launch, the ordinary
+   * death path.
+   *
+   * A token is recorded ONLY when an exit is genuinely owed, which is what keeps it
+   * from leaking into a permanent hold. "Is one owed?" is answered by the adapter's
+   * declared {@link ProviderAdapterCapabilities.emitsExitOnStop}, not guessed: a
+   * silent stop records nothing, so there is no stale token for a later genuine
+   * exit to be absorbed by. That distinction cannot be made at exit time (see the
+   * capability's docs), so it is made at stop time, where it is statically known.
+   *
+   * Why generations and not liveness: `hasSession` cannot be the signal. PiDriver
+   * keys sessions by THREAD and its exit handler deletes that entry
+   * unconditionally (`PiDriver.ts:1850-1853`), so a superseded launch's exit
+   * transiently reports no live session while its replacement is genuinely running.
+   */
+  const endedLaunches = new Map<ThreadId, number>();
+
+  /**
+   * Record that `generation`'s hold was dropped while its process still owed a
+   * `session.exited`, replacing any earlier token for the thread: only the most
+   * recently ended launch can still owe an in-flight exit.
+   */
+  const noteLaunchEnded = (threadId: ThreadId, generation: number) =>
+    Effect.sync(() => endedLaunches.set(threadId, generation)).pipe(
+      // Expire the token after the straggler window — a BOUNDED BACKSTOP, no longer
+      // the primary guard.
+      //
+      // `emitsExitOnStop` now decides the stop path structurally, which is the case
+      // that was actually broken (a silent stop's token absorbed the next launch's
+      // genuine exit, leaking the hold with no recovery). But three record sites
+      // remain where "an exit is owed" cannot be known for certain even in
+      // principle, so a token can still be recorded and never redeemed:
+      //   1. a restart superseding a LIVE launch — the orphaned process emits only
+      //      when it eventually dies, which may be much later or never if it hangs;
+      //   2. a start that failed BEFORE spawning (validation, disabled instance) —
+      //      no process exists, so no exit is ever coming;
+      //   3. `OpenCodeAdapter`, whose stop emits only when `stopOpenCodeContext`
+      //      reports it actually stopped something (`:1679-1690`), so even
+      //      `emitsExitOnStop: true` does not guarantee an event.
+      // Distinguishing these at record time is not possible, so they are bounded in
+      // time instead of guessed.
+      //
+      // A lapsed token is the safe direction: it degrades to "an exit releases the
+      // live hold", and for a straggler arriving absurdly late the worst case is
+      // releasing early — where the removers' structural predicates and the
+      // exclusive lease still stand between that and a deletion. The failure it
+      // prevents (a permanently leaked hold) has no backstop at all.
+      Effect.andThen(
+        Effect.forkDetach(
+          Effect.sleep(STRAGGLER_EXIT_WINDOW).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                if (endedLaunches.get(threadId) === generation) endedLaunches.delete(threadId);
+              }),
+            ),
+          ),
+        ),
+      ),
+      Effect.asVoid,
+    );
+
+  const releaseWorkspaceHoldOnExit = (threadId: ThreadId) =>
+    Effect.suspend(() => {
+      // An exit releases the live launch only if that launch could plausibly be the
+      // one that exited: it must have been established BEFORE any later launch
+      // superseded it. `endedLaunches` records the newest generation whose hold we
+      // dropped while its process might still emit; an exit arriving while the live
+      // launch is NEWER than that token is a straggler from the dead predecessor and
+      // must not touch the live hold.
+      //
+      // The token is consumed on that straggler, so it cannot linger to swallow a
+      // later genuine exit. When a driver stops silently no straggler ever arrives,
+      // and the token is instead discarded by the next launch that supersedes it
+      // (see `withWorkspaceHold`), which is what keeps a silent stop from
+      // immortalising the workspace.
+      const endedGeneration = endedLaunches.get(threadId);
+      const live = currentLaunchHold.get(threadId);
+      if (
+        endedGeneration !== undefined &&
+        live !== undefined &&
+        live.generation > endedGeneration
+      ) {
+        endedLaunches.delete(threadId);
+        return Effect.void;
+      }
+      endedLaunches.delete(threadId);
+      return releaseCurrentLaunchHold(threadId);
+    });
+
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
       Effect.tap((credential) =>
@@ -283,6 +499,39 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       });
     });
 
+  // Death-time reconciliation (plan §7.4). A driver deletes its in-memory entry
+  // and emits `session.exited` when its process dies, but nothing used to
+  // persist the stop: ten runtime rows were observed claiming `running` against
+  // zero live processes. So the exit releases the lease AND marks the row
+  // stopped in the same breath — without the release a crashed process would
+  // make its worktree immortal, and without the row write the projections keep
+  // lying about liveness until the next startup reconciliation.
+  const reconcileExitedSession = (
+    source: { readonly instanceId: ProviderInstanceId; readonly provider: ProviderDriverKind },
+    event: ProviderRuntimeEvent,
+  ): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      yield* releaseWorkspaceHoldOnExit(event.threadId);
+      yield* directory.upsert({
+        threadId: event.threadId,
+        provider: source.provider,
+        providerInstanceId: source.instanceId,
+        status: "stopped",
+        runtimePayload: {
+          activeTurnId: null,
+          lastRuntimeEvent: "session.exited",
+          lastRuntimeEventAt: yield* nowIso,
+        },
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("failed to reconcile exited provider session", {
+          threadId: event.threadId,
+          errorTag: causeErrorTag(cause),
+        }),
+      ),
+    );
+
   const processRuntimeEvent = (
     source: {
       readonly instanceId: ProviderInstanceId;
@@ -295,7 +544,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         increment(providerRuntimeEventsTotal, {
           provider: canonicalEvent.provider,
           eventType: canonicalEvent.type,
-        }).pipe(Effect.andThen(publishRuntimeEvent(canonicalEvent))),
+        }).pipe(
+          Effect.andThen(
+            canonicalEvent.type === "session.exited"
+              ? reconcileExitedSession(source, canonicalEvent)
+              : Effect.void,
+          ),
+          Effect.andThen(publishRuntimeEvent(canonicalEvent)),
+        ),
       ),
     );
 
@@ -400,17 +656,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
-      const resumed = yield* adapter
-        .startSession({
-          threadId: input.binding.threadId,
-          provider: input.binding.provider,
-          providerInstanceId: bindingInstanceId,
-          ...(persistedCwd ? { cwd: persistedCwd } : {}),
-          ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
-          ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
-          runtimeMode: input.binding.runtimeMode ?? "full-access",
-        })
-        .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
+      const resumed = yield* withWorkspaceHold(
+        input.binding.threadId,
+        persistedCwd ?? undefined,
+        adapter
+          .startSession({
+            threadId: input.binding.threadId,
+            provider: input.binding.provider,
+            providerInstanceId: bindingInstanceId,
+            ...(persistedCwd ? { cwd: persistedCwd } : {}),
+            ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
+            ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
+            runtimeMode: input.binding.runtimeMode ?? "full-access",
+          })
+          .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId))),
+      );
       if (resumed.provider !== adapter.provider) {
         yield* clearMcpSession(input.binding.threadId);
         return yield* toValidationError(
@@ -593,14 +853,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
         yield* prepareMcpSession(threadId, resolvedInstanceId);
-        const session = yield* adapter
-          .startSession({
-            ...input,
-            providerInstanceId: resolvedInstanceId,
-            ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
-            ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
-          })
-          .pipe(Effect.onError(() => clearMcpSession(threadId)));
+        // The pre-spawn hold: from here until the process exits (or this start
+        // fails), no remover may delete `effectiveCwd`.
+        const session = yield* withWorkspaceHold(
+          threadId,
+          effectiveCwd,
+          adapter
+            .startSession({
+              ...input,
+              providerInstanceId: resolvedInstanceId,
+              ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
+              ...(effectiveResumeCursor !== undefined
+                ? { resumeCursor: effectiveResumeCursor }
+                : {}),
+            })
+            .pipe(Effect.onError(() => clearMcpSession(threadId))),
+        );
 
         if (session.provider !== adapter.provider) {
           yield* clearMcpSession(threadId);
@@ -859,6 +1127,30 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (routed.isActive) {
           yield* routed.adapter.stopSession(routed.threadId);
         }
+        // A stop ends the launch, so its hold goes now rather than waiting for an
+        // exit event that may never come.
+        //
+        // Whether to record an owed-exit token is decided by the adapter's declared
+        // `emitsExitOnStop`, NOT guessed — and only when a session was actually
+        // live, since a stop against an already-dead adapter emits nothing whatever
+        // the driver would normally do. Recording when nothing is coming is the
+        // permanent-leak bug (the stale token later absorbs a genuine exit);
+        // omitting it when an exit IS coming lets that straggler release a
+        // subsequent launch's hold. This is the single place the two are told
+        // apart, because at exit time they are indistinguishable.
+        if (routed.isActive && routed.adapter.capabilities.emitsExitOnStop) {
+          yield* Effect.suspend(() => {
+            const launch = currentLaunchHold.get(input.threadId);
+            return launch === undefined
+              ? Effect.void
+              : noteLaunchEnded(input.threadId, launch.generation);
+          });
+        } else {
+          // No exit is owed for this thread any more. Clear any token so it cannot
+          // outlive the launch that owed it and swallow a later real exit.
+          endedLaunches.delete(input.threadId);
+        }
+        yield* releaseCurrentLaunchHold(input.threadId);
         yield* clearMcpSession(input.threadId);
         yield* directory.upsert({
           threadId: input.threadId,
@@ -1103,6 +1395,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ),
     ).pipe(Effect.asVoid);
     yield* Effect.forEach(currentAdapters, ([, adapter]) => adapter.stopAll()).pipe(Effect.asVoid);
+    // Same rule as the single-session stop, minus the token bookkeeping: this runs
+    // as the shutdown finalizer, so there is no subsequent launch for a late exit
+    // to affect. Clear both hold and residue outright.
+    yield* Effect.forEach(
+      activeSessions,
+      (session) =>
+        releaseCurrentLaunchHold(session.threadId).pipe(
+          Effect.andThen(Effect.sync(() => endedLaunches.delete(session.threadId))),
+        ),
+      { discard: true },
+    );
     yield* McpSessionRegistry.revokeAllActiveMcpCredentials();
     McpProviderSession.clearAllMcpProviderSessions();
     const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));

@@ -96,6 +96,7 @@ import {
   LoomProviderRuntimeLive,
   LoomReactorsLive,
   LoomRuntimeCoreLive,
+  LoomWorkspaceLeaseLive,
   LoomWorktreeMutationLockLive,
 } from "./loom/serverLayers.ts"; // loom:
 import {
@@ -330,7 +331,11 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
-  Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive)),
+  // loom: WorkspaceLease joins this mergeAll — the first step BELOW the provider
+  // runtime, so the one occupancy authority reaches both the provider service
+  // that holds workspaces and the reactors that remove worktrees (later provides
+  // to earlier); see loom/serverLayers.ts.
+  Layer.provideMerge(Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, LoomWorkspaceLeaseLive)),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(Keybindings.layer),
   Layer.provideMerge(ProviderRegistryLive),

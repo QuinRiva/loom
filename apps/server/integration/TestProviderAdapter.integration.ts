@@ -499,6 +499,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       provider,
       capabilities: {
         sessionModelSwitch: "in-session",
+        emitsExitOnStop: true,
       },
       startSession,
       sendTurn,

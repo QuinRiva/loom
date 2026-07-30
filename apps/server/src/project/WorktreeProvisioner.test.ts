@@ -25,6 +25,7 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
+import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceLease.ts";
 
 // The snapshot commit races the parent agent's own git subprocess (index.lock
 // contention). The retry schedule must absorb a brief failure but stay bounded
@@ -115,6 +116,7 @@ describe("ensureIsolatedChildProvisioned", () => {
       Layer.provide(lockStub),
       Layer.provide(setupStub),
       Layer.provide(vcsStub),
+      Layer.provide(WorkspaceLeaseLive),
       Layer.provide(NodeServices.layer),
     );
     return { dispatched, layer };

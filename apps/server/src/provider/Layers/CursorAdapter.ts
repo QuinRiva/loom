@@ -1233,7 +1233,8 @@ export function makeCursorAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session" },
+      // `stopSession` → `stopSessionInternal` emits `session.exited` (:501-508).
+      capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
       startSession,
       sendTurn,
       interruptTurn,

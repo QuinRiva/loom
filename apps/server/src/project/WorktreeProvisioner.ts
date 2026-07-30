@@ -23,6 +23,7 @@ import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
+import { WorkspaceLease } from "../workspace/WorkspaceLease.ts";
 
 /**
  * WorktreeProvisioner — the single provisioning tail shared by the root
@@ -143,6 +144,13 @@ export const SNAPSHOT_COMMIT_RETRY = Schedule.exponential(Duration.millis(150)).
   Schedule.take(2),
 );
 
+/**
+ * How long a freshly provisioned worktree is held before the provider launch is
+ * expected to have taken its own hold. Generous relative to provision → setup →
+ * launch (seconds), and bounded so the hold can never leak.
+ */
+export const FRESH_WORKTREE_HOLD = Duration.minutes(5);
+
 // Normalise a setup-runner failure to a human detail, preserving the pre-refactor
 // behaviour: an operation error unwraps its `cause.message` (Error or plain
 // object) and falls back to a stringified cause; a project-not-found error gets
@@ -169,6 +177,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const setupRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
+  const workspaceLease = yield* WorkspaceLease;
 
   const serverCommandId = (tag: string) =>
     crypto.randomUUIDv4.pipe(
@@ -214,6 +223,24 @@ const make = Effect.gen(function* () {
     vcsStatusBroadcaster
       .refreshStatus(cwd)
       .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
+
+  // Hold the tree we just cut (plan §7.1). The window this closes is the one
+  // that produced the reported failure: provisioning creates the worktree, then
+  // setup and the provider launch follow asynchronously, and in between a
+  // fan-in/reaper pass could decide the fresh tree is removable. The launch
+  // takes its own hold before spawning, so this one only has to bridge the gap
+  // — and it is released on a timer rather than by a handover, because a hold
+  // whose release depends on a launch that may never come is a permanently
+  // immortal worktree. After the window the ordinary predicates apply again (a
+  // just-provisioned child is non-terminal with an unsettled fan-in, so no
+  // remover targets it anyway); this is belt, not the structural guarantee.
+  const holdFreshWorktree = (threadId: ThreadId, worktreePath: string) =>
+    workspaceLease.hold(worktreePath, `worktree-provision:${threadId}`).pipe(
+      Effect.flatMap((held) =>
+        Effect.forkDetach(Effect.andThen(Effect.sleep(FRESH_WORKTREE_HOLD), held.release)),
+      ),
+      Effect.asVoid,
+    );
 
   // Fire-and-forget setup (plan §2): observe completion in a detached fibre so
   // the provider turn starts without waiting; the breadcrumb + activities carry
@@ -316,6 +343,7 @@ const make = Effect.gen(function* () {
       path: null,
     });
     const worktreePath = worktree.worktree.path;
+    yield* holdFreshWorktree(input.threadId, worktreePath);
     yield* orchestrationEngine.dispatch({
       type: "thread.meta.update",
       commandId: yield* serverCommandId("meta-update"),

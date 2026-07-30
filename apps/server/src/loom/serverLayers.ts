@@ -31,6 +31,7 @@ import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthR
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 import { layer as WorktreeProvisionerLive } from "../project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "../git/WorktreeMutationLock.ts";
+import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceLease.ts";
 import { UsageBreakdownQueryOnSqlReadClient } from "../persistence/Layers/SqliteLanes.ts";
 import * as WorkstreamSpawnHttp from "../mcp/WorkstreamSpawnHttp.ts";
 import * as GoalTaskHttp from "../mcp/GoalTaskHttp.ts";
@@ -89,6 +90,17 @@ export const LoomRuntimeCoreLive = Layer.mergeAll(
  * (an earlier RuntimeCore step) and the fan-in reactor in the reactor layer.
  */
 export const LoomWorktreeMutationLockLive = WorktreeMutationLockLive;
+
+/**
+ * `WorkspaceLease` — the single occupancy authority: the provider service takes
+ * a hold before spawning a process, and every worktree remover (fan-in reactor,
+ * reaper, maintenance panel) runs inside its exclusive gate. It must therefore
+ * be provided to BOTH the reactor layer and the provider runtime, which sit at
+ * different steps of the RuntimeCore pipe, so it rides its own late,
+ * dependency-free `provideMerge` positioned after `ProviderRuntimeLayerLive`
+ * (later provides to earlier, so one step below every consumer covers them all).
+ */
+export const LoomWorkspaceLeaseLive = WorkspaceLeaseLive;
 
 /**
  * Exhaustion state (`ProviderHealthRegistryLive`) + the ephemeral,

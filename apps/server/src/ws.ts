@@ -114,6 +114,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import { WorktreeProvisioner } from "./project/WorktreeProvisioner.ts";
+import { WorkspaceLease } from "./workspace/WorkspaceLease.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -468,6 +469,7 @@ const makeWsRpcLayer = (
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const worktreeProvisioner = yield* WorktreeProvisioner;
+      const workspaceLease = yield* WorkspaceLease;
       const repositoryIdentityResolver =
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -2026,10 +2028,33 @@ const makeWsRpcLayer = (
             gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
+        // Gated on the workspace lease like every other remover (post-completion
+        // engagement plan §7). This is the client-driven path — thread delete
+        // calls it with `force: true` — so it can target a server-managed
+        // worktree that a live provider process is sitting in. An occupied
+        // worktree is left alone rather than deleted under the process; the
+        // deferred-removal sweep collects it once the process exits.
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceLease
+              .withExclusive(
+                input.path,
+                gitWorkflow
+                  .removeWorktree(input)
+                  .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+              )
+              .pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () =>
+                      Effect.logInfo("vcsRemoveWorktree skipped: workspace is occupied", {
+                        path: input.path,
+                      }),
+                    onSome: () => Effect.void,
+                  }),
+                ),
+              ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
