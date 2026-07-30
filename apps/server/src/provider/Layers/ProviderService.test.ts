@@ -79,6 +79,10 @@ const claudeAgentInstanceId = ProviderInstanceId.make("claudeAgent");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CLAUDE_AGENT_DRIVER = ProviderDriverKind.make("claudeAgent");
 const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
+const PI_DRIVER = ProviderDriverKind.make("pi");
+const GROK_DRIVER = ProviderDriverKind.make("grok");
+const piInstanceId = ProviderInstanceId.make("pi");
+const grokInstanceId = ProviderInstanceId.make("grok");
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -95,14 +99,29 @@ type LegacyProviderRuntimeEvent = {
 
 function makeFakeCodexAdapter(
   provider: ProviderDriverKind = CODEX_DRIVER,
-  // Mirrors the real capability: `true` = this driver's `stopSession` produces a
-  // `session.exited` (PiDriver/OpenCode/Grok/Claude/Cursor), `false` = it stops
-  // silently (Codex). Workspace-hold accounting branches on it, so tests must be
-  // able to exercise both.
-  options?: { readonly emitsExitOnStop?: boolean },
+  // `emitsExitOnStop` mirrors the real capability: `true` = this driver's
+  // `stopSession` produces a `session.exited` (PiDriver/OpenCode/Grok/Claude/
+  // Cursor), `false` = it stops silently (Codex). Workspace-hold accounting
+  // branches on it, so tests must be able to exercise both.
+  options?: {
+    readonly emitsExitOnStop?: boolean;
+    /**
+     * Emulate a driver that never produces an opaque resume cursor (pi). Such a
+     * driver's resume state lives elsewhere — on disk for pi — so the recovery
+     * gate must consult the driver rather than demand a cursor.
+     */
+    readonly emitResumeCursor?: boolean;
+    readonly resumeState?: "resume-cursor" | "session-file";
+    /** Whether driver-owned resume state (e.g. a session file) exists. */
+    readonly canResume?: (input: {
+      readonly threadId: ThreadId;
+      readonly cwd?: string | undefined;
+    }) => boolean;
+  },
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
+  const emitResumeCursor = options?.emitResumeCursor ?? true;
 
   const startSession = vi.fn((input: ProviderSessionStartInput) =>
     Effect.sync(() => {
@@ -115,9 +134,13 @@ function makeFakeCodexAdapter(
         status: "ready",
         runtimeMode: input.runtimeMode,
         threadId: input.threadId,
-        resumeCursor: input.resumeCursor ?? {
-          opaque: `resume-${String(input.threadId)}`,
-        },
+        ...(emitResumeCursor
+          ? {
+              resumeCursor: input.resumeCursor ?? {
+                opaque: `resume-${String(input.threadId)}`,
+              },
+            }
+          : {}),
         cwd: input.cwd ?? process.cwd(),
         createdAt: now,
         updatedAt: now,
@@ -222,12 +245,21 @@ function makeFakeCodexAdapter(
       }),
   );
 
+  const canResumeThread = vi.fn(
+    (input: {
+      readonly threadId: ThreadId;
+      readonly cwd?: string | undefined;
+    }): Effect.Effect<boolean> => Effect.sync(() => options?.canResume?.(input) ?? false),
+  );
+
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
     capabilities: {
       sessionModelSwitch: "in-session",
       emitsExitOnStop: options?.emitsExitOnStop ?? true,
+      ...(options?.resumeState !== undefined ? { resumeState: options.resumeState } : {}),
     },
+    ...(options?.resumeState === "session-file" ? { canResumeThread } : {}),
     startSession,
     sendTurn,
     interruptTurn,
@@ -288,6 +320,7 @@ function makeFakeCodexAdapter(
     rollbackThread,
     stopAll,
     emitSessionExited,
+    canResumeThread,
   };
 }
 
@@ -309,10 +342,23 @@ function makeProviderServiceLayer() {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
+  // A pi-shaped driver: no resume cursor is ever produced, and resumability is
+  // answered from driver-owned state (the on-disk session file), toggled here.
+  const piSessionFile = { exists: true };
+  const pi = makeFakeCodexAdapter(PI_DRIVER, {
+    emitResumeCursor: false,
+    resumeState: "session-file",
+    canResume: () => piSessionFile.exists,
+  });
+  // A cursor-only driver that never persists a cursor: the control case that
+  // must keep failing recovery rather than starting a fresh, amnesiac session.
+  const grok = makeFakeCodexAdapter(GROK_DRIVER, { emitResumeCursor: false });
   const registry = makeAdapterRegistryMock({
     [ProviderDriverKind.make("codex")]: codex.adapter,
     [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
     [ProviderDriverKind.make("cursor")]: cursor.adapter,
+    [PI_DRIVER]: pi.adapter,
+    [GROK_DRIVER]: grok.adapter,
   });
 
   const providerAdapterLayer = Layer.succeed(
@@ -350,6 +396,9 @@ function makeProviderServiceLayer() {
     codex,
     claude,
     cursor,
+    pi,
+    piSessionFile,
+    grok,
     layer,
   };
 }
@@ -1731,6 +1780,124 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, initial.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("resumes a stopped pi session from its on-disk session file (no cursor)", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+
+      const initial = yield* provider.startSession(asThreadId("thread-pi-resume"), {
+        provider: PI_DRIVER,
+        providerInstanceId: piInstanceId,
+        threadId: asThreadId("thread-pi-resume"),
+        cwd: "/tmp/project-pi-resume",
+        runtimeMode: "full-access",
+      });
+      // pi genuinely persists no resume cursor — the exact condition that used to
+      // make a reaped or stopped pi thread permanently unrecoverable.
+      assert.equal(initial.resumeCursor, undefined);
+      const persisted = yield* runtimeRepository.getByThreadId({ threadId: initial.threadId });
+      assert.equal(Option.isSome(persisted), true);
+      if (Option.isSome(persisted)) {
+        assert.equal(persisted.value.resumeCursor, null);
+      }
+
+      yield* provider.stopSession({ threadId: initial.threadId });
+      routing.pi.startSession.mockClear();
+      routing.pi.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "wake after stop",
+        attachments: [],
+      });
+
+      // Recovery restarted the session and the turn landed on it.
+      assert.equal(routing.pi.startSession.mock.calls.length, 1);
+      assert.equal(routing.pi.sendTurn.mock.calls.length, 1);
+      const resumedStartInput = routing.pi.startSession.mock.calls[0]?.[0] as {
+        provider?: string;
+        cwd?: string;
+        resumeCursor?: unknown;
+        threadId?: string;
+      };
+      assert.equal(resumedStartInput.provider, PI_DRIVER);
+      // Same thread id => same deterministic pi session id => same session file,
+      // so the resumed process continues the SAME conversation.
+      assert.equal(resumedStartInput.threadId, initial.threadId);
+      assert.equal(resumedStartInput.cwd, "/tmp/project-pi-resume");
+      assert.equal(resumedStartInput.resumeCursor, undefined);
+
+      // The resumability probe must be asked about the SAME cwd the resume then
+      // launches with: pi scopes its session lookup to that cwd's project dir, so
+      // probing a different one could green-light a launch that finds nothing and
+      // silently starts an empty session.
+      const probeInput = routing.pi.canResumeThread.mock.calls.at(-1)?.[0];
+      assert.equal(probeInput?.threadId, initial.threadId);
+      assert.equal(probeInput?.cwd, "/tmp/project-pi-resume");
+      assert.equal(probeInput?.cwd, resumedStartInput.cwd);
+
+      yield* provider.stopSession({ threadId: initial.threadId });
+    }),
+  );
+
+  it.effect("refuses to recover a pi thread with no session file on disk", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-pi-no-file"), {
+        provider: PI_DRIVER,
+        providerInstanceId: piInstanceId,
+        threadId: asThreadId("thread-pi-no-file"),
+        runtimeMode: "full-access",
+      });
+      yield* provider.stopSession({ threadId: initial.threadId });
+      routing.pi.startSession.mockClear();
+      routing.piSessionFile.exists = false;
+
+      const failure = yield* Effect.flip(
+        provider.sendTurn({
+          threadId: initial.threadId,
+          input: "wake with nothing to resume",
+          attachments: [],
+        }),
+      );
+      routing.piSessionFile.exists = true;
+
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "no provider resume state is persisted");
+      assert.equal(routing.pi.startSession.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("refuses to recover a cursor-only driver with no persisted cursor", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-grok-no-cursor"), {
+        provider: GROK_DRIVER,
+        providerInstanceId: grokInstanceId,
+        threadId: asThreadId("thread-grok-no-cursor"),
+        runtimeMode: "full-access",
+      });
+      yield* provider.stopSession({ threadId: initial.threadId });
+      routing.grok.startSession.mockClear();
+
+      const failure = yield* Effect.flip(
+        provider.sendTurn({
+          threadId: initial.threadId,
+          input: "wake",
+          attachments: [],
+        }),
+      );
+
+      // The gate is NOT weakened globally: a driver whose resume state is a
+      // cursor still fails loudly rather than starting an amnesiac session.
+      assert.instanceOf(failure, ProviderValidationError);
+      assert.include(failure.issue, "no provider resume state is persisted");
+      assert.equal(routing.grok.startSession.mock.calls.length, 0);
     }),
   );
 

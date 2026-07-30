@@ -27,6 +27,20 @@ import type * as Stream from "effect/Stream";
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
 /**
+ * How a driver's resume state is held, which decides what the recovery gate
+ * must find before it may restart a stopped session.
+ *
+ * - `resume-cursor`: the driver can only resume from an opaque cursor handed
+ *   back by the provider, so recovery without a persisted cursor is impossible
+ *   and must fail loudly.
+ * - `session-file`: the driver's own on-disk session is the source of truth for
+ *   a resume (pi's deterministic per-thread `.jsonl`), so a start with no
+ *   cursor genuinely continues the same conversation. The gate asks the driver
+ *   whether that state exists via `canResumeThread`.
+ */
+export type ProviderResumeStateKind = "resume-cursor" | "session-file";
+
+/**
  * The outcome of delivering an already-settled question to a provider.
  *
  * `deliveredContent: false` means the callback was released but the outcome's
@@ -71,6 +85,14 @@ export interface ProviderAdapterCapabilities {
    * rather than inferred at runtime.
    */
   readonly emitsExitOnStop: boolean;
+
+  /**
+   * Where this driver's resume state lives. Omitted means `resume-cursor` —
+   * the conservative default, so a driver that never opts in keeps failing
+   * recovery when no cursor is persisted rather than starting an amnesiac
+   * session that silently loses the conversation.
+   */
+  readonly resumeState?: ProviderResumeStateKind;
 }
 
 export interface ProviderThreadTurnSnapshot {
@@ -176,6 +198,25 @@ export interface ProviderAdapterShape<TError> {
    * not grow with the number of live sessions.
    */
   readonly getSession: (threadId: ThreadId) => Effect.Effect<ProviderSession | undefined, TError>;
+
+  /**
+   * Whether a thread with no live session can still be resumed from state this
+   * driver owns outside the persisted resume cursor — for pi, its deterministic
+   * on-disk session file. Only meaningful for `resumeState: "session-file"`
+   * drivers; the recovery gate consults it instead of demanding a cursor.
+   *
+   * A true answer must mean the ensuing `startSession` will really CONTINUE that
+   * state, not merely that something plausible exists: a driver whose provider
+   * silently starts a fresh session when it rejects the state must answer false,
+   * so the refusal stays loud instead of resuming into an empty conversation.
+   *
+   * `cwd` is the cwd recovery will launch with, since resume state can be scoped
+   * to it (pi lists candidate sessions per project directory).
+   */
+  readonly canResumeThread?: (input: {
+    readonly threadId: ThreadId;
+    readonly cwd?: string | undefined;
+  }) => Effect.Effect<boolean>;
 
   /**
    * Read a provider thread snapshot.

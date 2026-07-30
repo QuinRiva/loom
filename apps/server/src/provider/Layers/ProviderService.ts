@@ -645,15 +645,34 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         }
       }
 
-      if (!hasResumeCursor) {
+      const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
+      const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+
+      // A cursor is not the only shape resume state comes in. A `session-file`
+      // driver (pi) owns a deterministic per-thread session on disk and
+      // create-or-resumes it on every start, so disk — not a cursor — is the
+      // source of truth for its resume; pi never produces a cursor at all, so
+      // demanding one made every stopped pi thread permanently unrecoverable.
+      // Ask the DRIVER whether resumable state exists rather than special-casing
+      // a kind here; a cursor-only driver has no such answer and still fails.
+      // The probe is handed the SAME cwd the resume below launches with, because
+      // resume state can be scoped to it — asking about a different cwd could
+      // green-light a launch that then finds nothing and starts empty.
+      const canResumeFromDriverState =
+        !hasResumeCursor &&
+        adapter.capabilities.resumeState === "session-file" &&
+        adapter.canResumeThread !== undefined
+          ? yield* adapter.canResumeThread({
+              threadId: input.binding.threadId,
+              ...(persistedCwd !== undefined ? { cwd: persistedCwd } : {}),
+            })
+          : false;
+      if (!hasResumeCursor && !canResumeFromDriverState) {
         return yield* toValidationError(
           input.operation,
           `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
         );
       }
-
-      const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
-      const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
       yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
       const resumed = yield* withWorkspaceHold(
@@ -685,7 +704,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
       yield* analytics.record("provider.session.recovered", {
         provider: resumed.provider,
-        strategy: "resume-thread",
+        strategy: canResumeFromDriverState ? "resume-session-file" : "resume-thread",
         hasResumeCursor: resumed.resumeCursor !== undefined,
       });
       return { adapter, session: resumed } as const;

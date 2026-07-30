@@ -108,7 +108,11 @@ import {
   resolvePiAskUserQuestion,
 } from "./Pi/askUserBroker.ts";
 import { ensurePiSearchGuardExtension } from "./Pi/searchGuardExtension.ts";
-import { piSessionIdForThread, resolveSessionFilePath } from "../piSessionFiles.ts";
+import {
+  piSessionIdForThread,
+  resolveResumableSessionFile,
+  resolveSessionFilePath,
+} from "../piSessionFiles.ts";
 // loom: forkFrom launch-identity capture/replay + kickoff-delivered marker (D2/D8).
 import {
   deleteLaunchIdentity,
@@ -1950,7 +1954,17 @@ export function makePiAdapter(input: {
     // `stopSession` awaits `process.stop()`, whose child `exit` handler is NOT
     // short-circuited by `replacedProcesses` and therefore emits `session.exited`
     // from a floating async block (:1850-1876) — i.e. after the stop returns.
-    capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
+    //
+    // `resumeState: "session-file"` — pi launches against a deterministic
+    // per-thread session id and create-or-resumes that same `.jsonl`, so disk is
+    // the source of truth for a pi resume and no opaque cursor exists (or is
+    // needed). This is what lets the recovery gate restart a reaped/stopped pi
+    // thread into the SAME conversation instead of refusing for a missing cursor.
+    capabilities: {
+      sessionModelSwitch: "in-session",
+      emitsExitOnStop: true,
+      resumeState: "session-file",
+    },
     startSession: (startInput) =>
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;
@@ -2481,6 +2495,24 @@ export function makePiAdapter(input: {
     listSessions: () => Effect.sync(() => [...sessions.values()].map((session) => session.session)),
     hasSession: (threadId) => Effect.sync(() => sessions.has(threadId)),
     getSession: (threadId) => Effect.sync(() => sessions.get(threadId)?.session),
+    // Resumable exactly when pi would REALLY open this thread's session file for
+    // `--session-id` in the cwd the resume will launch with. Deliberately not "a
+    // file with that name exists somewhere": pi scopes the lookup to the project
+    // dir for its cwd and only accepts a file that parses as a session whose
+    // HEADER id matches, otherwise it warns and creates a NEW session with that
+    // id. Answering true for state pi rejects would resume the thread into an
+    // empty conversation — alive-looking but with its orchestration context
+    // silently gone — which is worse than the loud refusal we give instead. The
+    // cwd fallback must match `startSession`'s (`input.serverConfig.cwd`) or the
+    // probe would inspect a different project dir than the launch.
+    canResumeThread: ({ threadId, cwd }) =>
+      Effect.sync(
+        () =>
+          resolveResumableSessionFile(
+            piSessionIdForThread(threadId),
+            cwd ?? input.serverConfig.cwd,
+          ) !== undefined,
+      ),
     readThread: (threadId) =>
       requireSession(threadId).pipe(
         Effect.map((session) => ({
