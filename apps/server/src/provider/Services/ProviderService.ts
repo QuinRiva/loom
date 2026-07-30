@@ -95,9 +95,13 @@ export interface ProviderServiceShape {
    *
    * Hot paths (per-event ingestion, per-turn-start) that only need one
    * thread must use this instead of scanning `listSessions`, which also
-   * reads the whole persisted runtime table. Reports adapter runtime state
-   * only: the persisted-binding merge `listSessions` performs (resumeCursor,
-   * runtimeMode) is not applied, though the provider-consistency guard is.
+   * reads the whole persisted runtime table.
+   *
+   * Matches `listSessions`' notion of an active session (adapter-reported,
+   * found with or without a persisted binding) and its consistency guards
+   * (provider and instance mismatches die). Differs only in the merge:
+   * `resumeCursor` / `runtimeMode` are NOT back-filled from the binding,
+   * because no hot-path caller reads them from here.
    */
   readonly getSession: (threadId: ThreadId) => Effect.Effect<ProviderSession | undefined>;
 

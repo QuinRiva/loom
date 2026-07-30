@@ -1,3 +1,4 @@
+import type { ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
@@ -37,6 +38,18 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
       const now = yield* Clock.currentTimeMillis;
+      // loom: one query for the whole deleted-thread set. Classifying each
+      // stopped binding with `getThreadShellById` instead would cost six
+      // statements per row on the single serial SQL connection, every sweep —
+      // a periodic global stall of exactly the kind this work exists to remove.
+      // A failed read yields an empty set, which prunes nothing.
+      const deletedThreadIds = yield* projectionSnapshotQuery.getDeletedThreadIds().pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider.session.reaper.deleted-threads-read-failed", {
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(new Set<ThreadId>())),
+        ),
+      );
       let reapedCount = 0;
       let prunedCount = 0;
 
@@ -44,11 +57,11 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         // loom: retention. Stopped bindings are deliberately kept so a session can be
         // resumed from its persisted provider pointer after a restart, but they
         // were never removed either, so the table grew forever and every read of
-        // it got slower. Prune only the provably-dead class: a stopped session
-        // whose thread no longer exists as a live thread. `getThreadShellById`
-        // selects `deleted_at IS NULL AND archived_at IS NULL`, so a None here
-        // means the thread is deleted or archived and there is no UI path left
-        // that could ask this session to resume.
+        // it got slower. Prune only the IRREVERSIBLE class: a stopped session
+        // whose thread has been deleted. Archived threads are excluded on
+        // purpose — `thread.archive` has a matching `thread.unarchive` command
+        // and UI affordance, so an archived thread can be restored and must keep
+        // its provider pointer; there is no undelete counterpart.
         //
         // Deliberately NOT age-based: `runStopAll` rewrites every binding at
         // shutdown, which resets `lastSeenAt` on all stopped rows (observed:
@@ -56,20 +69,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         // `lastSeenAt` is therefore not a liveness signal at all — it would sit
         // at ~0 across restarts and then expire the whole table at once.
         if (binding.status === "stopped") {
-          // Only a definitive None ("no live thread row") authorises deletion. A
-          // read FAILURE must never be read as absence, so it is mapped back to
-          // a keep rather than allowed to fall through to the delete.
-          const liveness = yield* projectionSnapshotQuery.getThreadShellById(binding.threadId).pipe(
-            Effect.map((thread) => (Option.isSome(thread) ? "live" : "absent")),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("provider.session.reaper.liveness-read-failed", {
-                threadId: binding.threadId,
-                provider: binding.provider,
-                cause: Cause.pretty(cause),
-              }).pipe(Effect.as("unknown" as const)),
-            ),
-          );
-          if (liveness !== "absent") {
+          if (!deletedThreadIds.has(binding.threadId)) {
             continue;
           }
           // Conditional delete: the decision above is made from a `listBindings`
@@ -91,15 +91,15 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
             yield* Effect.logInfo("provider.session.binding-pruned", {
               threadId: binding.threadId,
               provider: binding.provider,
-              reason: "thread_deleted_or_archived",
+              reason: "thread_deleted",
             });
           }
           continue;
         }
 
         // Reaping a LIVE session is age-based, and only this branch needs the
-        // timestamp (retention above is judged from thread liveness instead, so
-        // a corrupt timestamp must not keep a dead thread's row forever).
+        // timestamp (retention above is judged from thread deletion instead, so
+        // a corrupt timestamp must not keep a deleted thread's row forever).
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {

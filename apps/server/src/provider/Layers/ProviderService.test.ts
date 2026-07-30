@@ -39,6 +39,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
+  ProviderSessionDirectoryPersistenceError,
   ProviderUnsupportedError,
   ProviderValidationError,
   type ProviderAdapterError,
@@ -597,6 +598,194 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("ProviderServiceLive getSession finds an active session with no persisted binding", () =>
+  Effect.gen(function* () {
+    // `listSessions` derives truth from the adapters, so an adapter-active
+    // session is reported even with no binding row. getSession must agree: if a
+    // missing binding made a live session invisible, ingestion would lose its
+    // expected turn id and the command reactor could start a SECOND session for
+    // a thread that already has one.
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const threadId = asThreadId("thread-get-session-no-binding");
+
+    let getBindingCalls = 0;
+    const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
+      upsert: () => Effect.void,
+      getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
+      getBinding: () =>
+        Effect.sync(() => {
+          getBindingCalls += 1;
+          return Option.none();
+        }),
+      listThreadIds: () => Effect.succeed([]),
+      listBindings: () => Effect.succeed([]),
+      removeIfStopped: () => Effect.succeed(true),
+    });
+
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provide(directoryLayer),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const found = yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: "/tmp/project-get-session-no-binding",
+        runtimeMode: "full-access",
+      });
+      return yield* provider.getSession(threadId);
+    }).pipe(Effect.provide(providerLayer));
+
+    assert.equal(getBindingCalls > 0, true);
+    assert.equal(found?.threadId, threadId);
+    assert.equal(found?.providerInstanceId, codexInstanceId);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderServiceLive getSession finds an active session when the binding read fails",
+  () =>
+    Effect.gen(function* () {
+      // A directory read FAILURE must degrade to the adapter-derived answer, not
+      // to "no session": the failure mode that matters is reporting a live
+      // session as absent on the hot path.
+      const codex = makeFakeCodexAdapter();
+      const registry = makeAdapterRegistryMock({
+        [ProviderDriverKind.make("codex")]: codex.adapter,
+      });
+      const threadId = asThreadId("thread-get-session-binding-read-fails");
+
+      // `startSession` also reads the binding, so only start failing once the
+      // session is live — the scenario under test is a read failure at lookup
+      // time, not a broken directory throughout.
+      let failBindingReads = false;
+      const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
+        upsert: () => Effect.void,
+        getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
+        getBinding: () =>
+          failBindingReads
+            ? Effect.fail(
+                new ProviderSessionDirectoryPersistenceError({
+                  operation: "ProviderSessionDirectory.getBinding:getByThreadId",
+                  detail: "simulated directory read failure",
+                }),
+              )
+            : Effect.succeed(Option.none()),
+        listThreadIds: () => Effect.succeed([]),
+        listBindings: () => Effect.succeed([]),
+        removeIfStopped: () => Effect.succeed(true),
+      });
+
+      const providerLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+        Layer.provide(directoryLayer),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+
+      const found = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: "/tmp/project-get-session-binding-read-fails",
+          runtimeMode: "full-access",
+        });
+        failBindingReads = true;
+        return yield* provider.getSession(threadId);
+      }).pipe(Effect.provide(providerLayer));
+
+      assert.equal(found?.threadId, threadId);
+      assert.equal(found?.providerInstanceId, codexInstanceId);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderServiceLive getSession dies when a session is live on a non-binding instance",
+  () =>
+    Effect.gen(function* () {
+      // Live in instance B while the binding names A. `listSessions` treats this
+      // as a routing invariant violation; getSession must too, rather than
+      // reporting the session as absent (which would hide the inconsistency and
+      // let a second session be started).
+      const codex = makeFakeCodexAdapter();
+      const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+      const registry = makeAdapterRegistryMock({
+        [ProviderDriverKind.make("codex")]: codex.adapter,
+        [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
+      });
+      const threadId = asThreadId("thread-get-session-wrong-instance");
+
+      const directoryLayer = Layer.succeed(ProviderSessionDirectory.ProviderSessionDirectory, {
+        upsert: () => Effect.void,
+        getProvider: () => Effect.die(new Error("getProvider is not used in this test")),
+        // Binding names the claudeAgent instance...
+        getBinding: () =>
+          Effect.succeed(
+            Option.some({
+              threadId,
+              provider: CLAUDE_AGENT_DRIVER,
+              providerInstanceId: claudeAgentInstanceId,
+              status: "running" as const,
+              runtimeMode: "full-access" as const,
+            }),
+          ),
+        listThreadIds: () => Effect.succeed([]),
+        listBindings: () => Effect.succeed([]),
+        removeIfStopped: () => Effect.succeed(true),
+      });
+
+      const providerLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+        Layer.provide(directoryLayer),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+
+      const exit = yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        // ...but the session is actually live on the codex instance.
+        yield* provider.startSession(threadId, {
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: "/tmp/project-get-session-wrong-instance",
+          runtimeMode: "full-access",
+        });
+        return yield* Effect.exit(provider.getSession(threadId));
+      }).pipe(Effect.provide(providerLayer));
+
+      assert.equal(Exit.hasDies(exit), true);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("ProviderServiceLive resolves one session without listing any adapter's sessions", () =>
   Effect.gen(function* () {
     const codex = makeFakeCodexAdapter();
@@ -643,22 +832,33 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
 
       codex.listSessions.mockClear();
       claude.listSessions.mockClear();
+      codex.getSession.mockClear();
+      claude.getSession.mockClear();
       const found = yield* provider.getSession(threadId);
+      const codexGetCalls = codex.getSession.mock.calls.length;
+      const claudeGetCalls = claude.getSession.mock.calls.length;
       const missing = yield* provider.getSession(asThreadId("thread-get-session-absent"));
       return {
         started,
         found,
         missing,
+        codexGetCalls,
+        claudeGetCalls,
         codexListCalls: codex.listSessions.mock.calls.length,
         claudeListCalls: claude.listSessions.mock.calls.length,
       } as const;
     }).pipe(Effect.provide(providerLayer));
 
-    // Thread-addressed: the binding names the owning instance, so no adapter is
-    // asked to materialise its session list (for Codex that is a serial read per
-    // live runtime, which on the per-event path is the cost being removed).
+    // Thread-addressed: no adapter is asked to materialise its session list (for
+    // Codex that is a serial read per live runtime, which on the per-event path
+    // is the cost being removed).
     assert.equal(result.codexListCalls, 0);
     assert.equal(result.claudeListCalls, 0);
+
+    // And in the steady state the binding orders the adapters so the OWNING one
+    // answers first: exactly one keyed adapter read, no walk over the others.
+    assert.equal(result.codexGetCalls, 1);
+    assert.equal(result.claudeGetCalls, 0);
 
     // Preserves every field the migrated hot-path callers consume.
     assert.equal(result.found?.threadId, result.started.threadId);

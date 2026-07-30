@@ -105,6 +105,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getThreadLifecycle: () => Effect.succeed([]),
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -183,6 +184,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -243,6 +245,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
@@ -309,6 +312,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
           Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),

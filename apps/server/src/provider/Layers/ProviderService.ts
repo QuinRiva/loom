@@ -959,19 +959,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
-  // loom: single-thread lookup for callers that only need one session. Thread-
-  // addressed end to end: the persisted binding names the owning instance, so
-  // this resolves one adapter and asks it for one session, instead of listing
-  // every adapter's sessions and scanning. Cost is independent of both the
-  // number of persisted rows and the number of active sessions, which is what
-  // makes it safe on the per-event ingestion path (`listSessions` was O(rows)
-  // queries; a listSessions-based scan would still have been O(active
-  // sessions), and for Codex that means a serial read per live runtime).
+  // loom: single-thread lookup for callers that only need one session.
+  // Thread-addressed: every adapter read is a keyed `getSession(threadId)`, so
+  // cost never grows with the number of persisted rows OR the number of active
+  // sessions. That is what makes it safe on the per-event ingestion path
+  // (`listSessions` was O(rows) queries, and a listSessions-based scan would
+  // still have been O(active sessions) — for Codex, a serial read per live
+  // runtime, per event).
   //
-  // Carries over the consistency guard `listSessions` applies: an adapter
-  // reporting a session under a driver the persisted binding disagrees with is
-  // a routing invariant violation, and callers here go on to route turns from
-  // it, so it must not be silently tolerated.
+  // The persisted binding is a HINT that orders the adapters, not the source of
+  // truth: truth is what the adapters report, exactly as in `listSessions`.
+  // Consequently this preserves `listSessions`' semantics — a live session is
+  // still found with no binding at all, and a session live on an instance the
+  // binding disagrees with is still reported as a mismatch rather than hidden.
   const getSession: ProviderServiceMethod<"getSession"> = Effect.fn("getSession")(
     function* (threadId) {
       const bindingOption = yield* directory
@@ -982,30 +982,55 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ),
         );
       const binding = Option.getOrUndefined(bindingOption);
-      if (!binding?.providerInstanceId) {
-        return undefined;
+      const currentAdapters = yield* getAdapterEntries;
+      // The binding names the likely owner, so try that adapter FIRST: in the
+      // steady state this is one keyed lookup and the loop below never runs.
+      // But the binding is only a hint — `listSessions` derives truth from the
+      // adapters, so a session that is genuinely live must still be found when
+      // the binding is missing, unreadable, or names the wrong instance.
+      // Skipping that fallback would report a live session as absent, which on
+      // the hot paths means ingestion loses its expected turn id and the command
+      // reactor starts a SECOND session for a thread that already has one.
+      const orderedAdapters =
+        binding?.providerInstanceId !== undefined
+          ? [
+              ...currentAdapters.filter(([id]) => id === binding.providerInstanceId),
+              ...currentAdapters.filter(([id]) => id !== binding.providerInstanceId),
+            ]
+          : currentAdapters;
+      for (const [instanceId, adapter] of orderedAdapters) {
+        const session = yield* adapter
+          .getSession(threadId)
+          .pipe(Effect.orElseSucceed(() => undefined));
+        if (!session) {
+          continue;
+        }
+        // Same invariants `listSessions` enforces, and for the same reason:
+        // callers route turns from this result, so a session whose live location
+        // contradicts its persisted binding must fail loudly rather than be
+        // routed as if consistent.
+        if (binding !== undefined) {
+          if (binding.provider !== session.provider) {
+            return yield* Effect.die(
+              new Error(
+                `ProviderService.getSession: thread '${threadId}' is active on provider '${session.provider}' but persisted binding names provider '${binding.provider}'.`,
+              ),
+            );
+          }
+          if (
+            binding.providerInstanceId !== undefined &&
+            binding.providerInstanceId !== instanceId
+          ) {
+            return yield* Effect.die(
+              new Error(
+                `ProviderService.getSession: thread '${threadId}' is active on provider instance '${instanceId}' but persisted binding names '${binding.providerInstanceId}'.`,
+              ),
+            );
+          }
+        }
+        return { ...session, providerInstanceId: instanceId };
       }
-      const adapterOption = yield* registry
-        .getByInstance(binding.providerInstanceId)
-        .pipe(Effect.option);
-      if (Option.isNone(adapterOption)) {
-        return undefined;
-      }
-      const adapter = adapterOption.value;
-      const session = yield* adapter
-        .getSession(threadId)
-        .pipe(Effect.orElseSucceed(() => undefined));
-      if (!session) {
-        return undefined;
-      }
-      if (binding.provider !== session.provider) {
-        return yield* Effect.die(
-          new Error(
-            `ProviderService.getSession: thread '${threadId}' is active on provider '${session.provider}' but persisted binding names provider '${binding.provider}'.`,
-          ),
-        );
-      }
-      return { ...session, providerInstanceId: binding.providerInstanceId };
+      return undefined;
     },
   );
 

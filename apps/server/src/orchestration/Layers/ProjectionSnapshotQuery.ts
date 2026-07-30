@@ -1867,6 +1867,31 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  // loom: retention support for the provider-session reaper. Deleted only —
+  // archived threads are restorable via `thread.unarchive`, so their bindings
+  // must survive.
+  const listDeletedThreadRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: () =>
+      sql`
+        SELECT thread_id AS "threadId"
+        FROM projection_threads
+        WHERE deleted_at IS NOT NULL
+      `,
+  });
+
+  const getDeletedThreadIds: ProjectionSnapshotQueryShape["getDeletedThreadIds"] = () =>
+    listDeletedThreadRows(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getDeletedThreadIds:query",
+          "ProjectionSnapshotQuery.getDeletedThreadIds:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
+    );
+
   const getPendingTurnStartThreadIds: ProjectionSnapshotQueryShape["getPendingTurnStartThreadIds"] =
     () =>
       listPendingTurnStartRows(undefined).pipe(
@@ -3818,6 +3843,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadLifecycle,
     getLiveSubtreeSessionLiveness,
     getPendingTurnStartThreadIds,
+    getDeletedThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
     getOpenUserInputRequestIdsByThreadId,
