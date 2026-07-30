@@ -1,0 +1,123 @@
+--- a/dist/cli/args.js
++++ b/dist/cli/args.js
+@@ -73,6 +73,9 @@
+         else if (arg === "--session-dir" && i + 1 < args.length) {
+             result.sessionDir = args[++i];
+         }
++        else if (arg === "--cwd" && i + 1 < args.length) {
++            result.cwdOverride = args[++i];
++        }
+         else if (arg === "--models" && i + 1 < args.length) {
+             result.models = args[++i].split(",").map((s) => s.trim());
+         }
+@@ -236,6 +239,8 @@
+   --session-id <id>              Use exact project session ID, creating it if missing
+   --fork <path|id>               Fork specific session file or partial UUID into a new session
+   --session-dir <dir>            Directory for session storage and lookup
++  --cwd <dir>                    Working directory for a --session resume, instead of the
++                                 session's recorded cwd (use when that directory is gone)
+   --no-session                   Don't save session (ephemeral)
+   --name, -n <name>              Set session display name
+   --models <patterns>            Comma-separated model patterns for Ctrl+P cycling
+--- a/dist/cli/args.d.ts
++++ b/dist/cli/args.d.ts
+@@ -22,6 +22,8 @@
+     sessionId?: string;
+     fork?: string;
+     sessionDir?: string;
++    /** Working directory override for an explicit `--session <path>` resume. */
++    cwdOverride?: string;
+     models?: string[];
+     tools?: string[];
+     excludeTools?: string[];
+--- a/dist/main.js
++++ b/dist/main.js
+@@ -4,6 +4,7 @@
+  * This file handles CLI argument parsing and translates them into
+  * createAgentSession() options. The SDK does the heavy lifting.
+  */
++import { existsSync, statSync } from "node:fs";
+ import { createInterface } from "node:readline";
+ import { modelsAreEqual } from "@earendil-works/pi-ai";
+ import chalk from "chalk";
+@@ -182,9 +183,39 @@
+         process.exit(1);
+     }
+ }
+-function openSessionOrExit(path, sessionDir) {
++/**
++ * Validate `--cwd <dir>`: a per-launch working directory for resuming an explicit
++ * `--session <path>` whose recorded cwd no longer exists. Returns the resolved
++ * absolute directory, or undefined when the flag was not passed.
++ */
++function resolveCwdOverrideOrExit(parsed, cwd) {
++    if (parsed.cwdOverride === undefined)
++        return undefined;
++    const conflictingFlags = [
++        parsed.sessionId !== undefined ? "--session-id" : undefined,
++        parsed.fork ? "--fork" : undefined,
++        parsed.continue ? "--continue" : undefined,
++        parsed.resume ? "--resume" : undefined,
++        parsed.noSession ? "--no-session" : undefined,
++    ].filter((flag) => flag !== undefined);
++    if (conflictingFlags.length > 0) {
++        console.error(chalk.red(`Error: --cwd cannot be combined with ${conflictingFlags.join(", ")}`));
++        process.exit(1);
++    }
++    if (!parsed.session) {
++        console.error(chalk.red("Error: --cwd requires --session <path> (it overrides the working directory of an existing session)"));
++        process.exit(1);
++    }
++    const resolved = resolvePath(parsed.cwdOverride, cwd);
++    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
++        console.error(chalk.red(`Error: --cwd directory does not exist: ${resolved}`));
++        process.exit(1);
++    }
++    return resolved;
++}
++function openSessionOrExit(path, sessionDir, cwdOverride) {
+     try {
+-        return SessionManager.open(path, sessionDir);
++        return SessionManager.open(path, sessionDir, cwdOverride);
+     }
+     catch (error) {
+         const message = error instanceof Error ? error.message : String(error);
+@@ -202,7 +233,7 @@
+         process.exit(1);
+     }
+ }
+-async function createSessionManager(parsed, cwd, sessionDir, settingsManager) {
++async function createSessionManager(parsed, cwd, sessionDir, settingsManager, cwdOverride) {
+     if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
+         return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
+     }
+@@ -227,6 +258,12 @@
+     }
+     if (parsed.session) {
+         const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
++        // With an explicit --cwd the caller has already named the directory to work
++        // from, so a session belonging to another project is opened there directly
++        // rather than forked (the flag exists precisely for that case).
++        if (cwdOverride !== undefined && resolved.type !== "not_found") {
++            return openSessionOrExit(resolved.path, sessionDir, cwdOverride);
++        }
+         switch (resolved.type) {
+             case "path":
+             case "local":
+@@ -431,6 +468,7 @@
+     }
+     validateForkFlags(parsed);
+     validateSessionIdFlags(parsed);
++    const cwdOverride = resolveCwdOverrideOrExit(parsed, cwd);
+     // Run migrations (pass cwd for project-local migrations)
+     const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
+     time("runMigrations");
+@@ -451,7 +489,7 @@
+     const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
+         (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
+         startupSettingsManager.getSessionDir();
+-    let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager);
++    let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, cwdOverride);
+     const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
+     if (missingSessionCwdIssue) {
+         if (appMode === "interactive") {
