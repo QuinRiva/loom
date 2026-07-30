@@ -7515,6 +7515,13 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
   // handshake that makes "the burst was absorbed into the trigger" an assertion
   // rather than a race.
   const SENTINEL = "thread.activity-appended";
+  // The production event filter inspects activity payloads for this event type;
+  // give the sentinel a harmless non-triggering payload so it remains a valid
+  // event while still proving subscription ordering.
+  const sentinelEvent = {
+    type: SENTINEL,
+    payload: { activity: { kind: "sentinel" } },
+  } as unknown as OrchestrationEvent;
 
   /**
    * Both tests below drive the dispatcher through a pass they hold open, so they
@@ -7561,7 +7568,7 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
           // sentinel until one is observed; from then on the channel is live.
           const live = yield* Deferred.make<void>();
           absorbed = live;
-          yield* PubSub.publish(events, { type: SENTINEL } as OrchestrationEvent).pipe(
+          yield* PubSub.publish(events, sentinelEvent).pipe(
             Effect.andThen(Effect.sleep(Duration.millis(1))),
             Effect.repeat({ until: () => Deferred.isDone(live) }),
           );
@@ -7575,7 +7582,7 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
               for (const type of types) {
                 yield* PubSub.publish(events, { type } as OrchestrationEvent);
               }
-              yield* PubSub.publish(events, { type: SENTINEL } as OrchestrationEvent);
+              yield* PubSub.publish(events, sentinelEvent);
               yield* Deferred.await(seen);
             });
 
