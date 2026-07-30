@@ -1598,8 +1598,9 @@ const make = Effect.gen(function* () {
 
   const getExpectedProviderTurnIdForThread = Effect.fn("getExpectedProviderTurnIdForThread")(
     function* (threadId: ThreadId) {
-      const sessions = yield* providerService.listSessions();
-      const session = sessions.find((entry) => entry.threadId === threadId);
+      // Runs per ingested event on the single serial worker: must resolve one
+      // thread directly rather than scanning every session.
+      const session = yield* providerService.getSession(threadId);
       return session?.activeTurnId;
     },
   );

@@ -113,6 +113,10 @@ function createProviderServiceHarness(
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
     listSessions,
+    getSession: (threadId) =>
+      Effect.map(listSessions() as Effect.Effect<ReadonlyArray<ProviderSession>>, (sessions) =>
+        sessions.find((session) => session.threadId === threadId),
+      ),
     getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
     getInstanceInfo: (instanceId) =>
       Effect.succeed({

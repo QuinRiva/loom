@@ -1210,6 +1210,12 @@ export function makeCursorAdapter(
         return c !== undefined && !c.stopped;
       });
 
+    const getSession: CursorAdapterShape["getSession"] = (threadId) =>
+      Effect.sync(() => {
+        const c = sessions.get(threadId);
+        return c === undefined ? undefined : { ...c.session };
+      });
+
     const stopAll: CursorAdapterShape["stopAll"] = () =>
       Effect.forEach(sessions.values(), stopSessionInternal, { discard: true });
 
@@ -1238,6 +1244,7 @@ export function makeCursorAdapter(
       stopSession,
       listSessions,
       hasSession,
+      getSession,
       stopAll,
       streamEvents,
     } satisfies CursorAdapterShape;

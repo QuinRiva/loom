@@ -4020,6 +4020,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return context !== undefined && !context.stopped;
     });
 
+  const getSession: ClaudeAdapterShape["getSession"] = (threadId) =>
+    Effect.sync(() => {
+      const context = sessions.get(threadId);
+      return context === undefined ? undefined : { ...context.session };
+    });
+
   const stopAll: ClaudeAdapterShape["stopAll"] = () =>
     Effect.forEach(
       sessions,
@@ -4061,6 +4067,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     stopSession,
     listSessions,
     hasSession,
+    getSession,
     stopAll,
     get streamEvents() {
       return Stream.fromQueue(runtimeEventQueue);

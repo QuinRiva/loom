@@ -1697,6 +1697,9 @@ export function makeOpenCodeAdapter(
     const hasSession: OpenCodeAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => sessions.has(threadId));
 
+    const getSession: OpenCodeAdapterShape["getSession"] = (threadId) =>
+      Effect.sync(() => sessions.get(threadId)?.session);
+
     const readThread: OpenCodeAdapterShape["readThread"] = Effect.fn("readThread")(
       function* (threadId) {
         const context = yield* ensureSessionContext(sessions, threadId);
@@ -1776,6 +1779,7 @@ export function makeOpenCodeAdapter(
       stopSession,
       listSessions,
       hasSession,
+      getSession,
       readThread,
       rollbackThread,
       stopAll,

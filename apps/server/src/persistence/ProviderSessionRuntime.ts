@@ -99,6 +99,20 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
     readonly deleteByThreadId: (
       input: DeleteProviderSessionRuntimeInput,
     ) => Effect.Effect<void, ProviderSessionRuntimeRepositoryError>;
+
+    /**
+     * loom: retention support (see `ProviderSessionDirectory.removeIfStopped`).
+     *
+     * Delete a runtime row only while it is still `stopped`.
+     *
+     * Retention sweeps decide from a list snapshot, so a concurrent start or
+     * recovery may have promoted the row back to `running` in between. The
+     * status predicate lives in the DELETE's WHERE clause so the check and the
+     * delete are one atomic statement. Reports whether a row was removed.
+     */
+    readonly deleteStoppedByThreadId: (
+      input: DeleteProviderSessionRuntimeInput,
+    ) => Effect.Effect<boolean, ProviderSessionRuntimeRepositoryError>;
   }
 >()("t3/persistence/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
 
@@ -235,6 +249,21 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  // RETURNING makes the outcome observable: an empty result means the row was
+  // no longer `stopped` (a concurrent start/recovery won the race) and nothing
+  // was deleted, so the caller must not treat it as pruned.
+  const deleteStoppedRuntimeByThreadId = SqlSchema.findAll({
+    Request: DeleteRuntimeRequestSchema,
+    Result: Schema.Struct({ threadId: Schema.String }),
+    execute: ({ threadId }) =>
+      sql`
+        DELETE FROM provider_session_runtime
+        WHERE thread_id = ${threadId}
+          AND status = 'stopped'
+        RETURNING thread_id AS "threadId"
+      `,
+  });
+
   const upsert: ProviderSessionRuntimeRepository["Service"]["upsert"] = (runtime) =>
     upsertRuntimeRow(runtime).pipe(
       Effect.mapError(
@@ -322,11 +351,26 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const deleteStoppedByThreadId: ProviderSessionRuntimeRepository["Service"]["deleteStoppedByThreadId"] =
+    (input) =>
+      deleteStoppedRuntimeByThreadId(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PersistenceSqlError({
+              operation: "ProviderSessionRuntimeRepository.deleteStoppedByThreadId:query",
+              correlation: { threadId: input.threadId },
+              cause,
+            }),
+        ),
+        Effect.map((rows) => rows.length > 0),
+      );
+
   return {
     upsert,
     getByThreadId,
     list,
     deleteByThreadId,
+    deleteStoppedByThreadId,
   } satisfies ProviderSessionRuntimeRepository["Service"];
 });
 

@@ -257,6 +257,9 @@ describe("OrchestrationEngine", () => {
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getProjectShellById: () => Effect.succeed(Option.none()),
           getGoalShellById: () => Effect.succeed(Option.none()),
+          getGoalById: () => Effect.succeed(Option.none()),
+          listGoalSlugsByProjectId: () => Effect.succeed([]),
+          listActiveProjectRefs: () => Effect.succeed([]),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
@@ -267,6 +270,7 @@ describe("OrchestrationEngine", () => {
           getThreadLifecycle: () => Effect.succeed([]),
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
             Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),

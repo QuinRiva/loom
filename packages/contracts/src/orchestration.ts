@@ -926,9 +926,10 @@ const ThreadRevertCompleteCommand = Schema.Struct({
 
 const InternalOrchestrationCommand = Schema.Union([
   ...LoomInternalCommandMembers, // loom:
-  // loom: scaffold command factored out (needs ModelSelection, which this file
-  // owns); spliced here so orchestration.loom.ts never value-imports it.
-  ...makeLoomScaffoldCommandMembers({ ModelSelection }),
+  // loom: scaffold + stuck-launch-recover commands factored out (they need
+  // ModelSelection / OrchestrationSession, which this file owns); spliced here so
+  // orchestration.loom.ts never value-imports them.
+  ...makeLoomScaffoldCommandMembers({ ModelSelection, OrchestrationSession }),
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,

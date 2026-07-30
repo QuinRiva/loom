@@ -35,6 +35,7 @@ import {
   ThreadAttention,
   WorkOutcomeRecord,
   WorkstreamRoute,
+  GoalId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -194,8 +195,18 @@ const WorkspaceRootLookupInput = Schema.Struct({
 const ProjectIdLookupInput = Schema.Struct({
   projectId: ProjectId,
 });
+const GoalIdLookupInput = Schema.Struct({
+  goalId: GoalId,
+});
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
+});
+const ProjectionGoalSlugRowSchema = Schema.Struct({
+  slug: Schema.String,
+});
+const ProjectionActiveProjectRefRowSchema = Schema.Struct({
+  projectId: ProjectId,
+  title: Schema.String,
 });
 
 /**
@@ -667,6 +678,79 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           deleted_at AS "deletedAt"
         FROM projection_goal_tasks
         ORDER BY position ASC, created_at ASC, task_id ASC
+      `,
+  });
+
+  // Agent-facing goal endpoints resolve ONE goal, so they read one goal row +
+  // that goal's tasks rather than every goal and task in the database.
+  const getGoalRowById = SqlSchema.findOneOption({
+    Request: GoalIdLookupInput,
+    Result: ProjectionGoal,
+    execute: ({ goalId }) =>
+      sql`
+        SELECT
+          goal_id AS "goalId",
+          project_id AS "projectId",
+          slug,
+          title,
+          title_provenance AS "titleProvenance",
+          description,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
+          deleted_at AS "deletedAt"
+        FROM projection_goals
+        WHERE goal_id = ${goalId}
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
+  });
+
+  const listGoalTaskRowsByGoal = SqlSchema.findAll({
+    Request: GoalIdLookupInput,
+    Result: ProjectionGoalTask,
+    execute: ({ goalId }) =>
+      sql`
+        SELECT
+          task_id AS "taskId",
+          goal_id AS "goalId",
+          parent_task_id AS "parentTaskId",
+          position,
+          text,
+          done,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          deleted_at AS "deletedAt"
+        FROM projection_goal_tasks
+        WHERE goal_id = ${goalId}
+        ORDER BY position ASC, created_at ASC, task_id ASC
+      `,
+  });
+
+  // Slug uniqueness is per project over ALL rows (the decider clashes against
+  // deleted goals too), so this deliberately has no `deleted_at` filter.
+  const listGoalSlugRowsByProject = SqlSchema.findAll({
+    Request: ProjectIdLookupInput,
+    Result: ProjectionGoalSlugRowSchema,
+    execute: ({ projectId }) =>
+      sql`
+        SELECT slug
+        FROM projection_goals
+        WHERE project_id = ${projectId}
+      `,
+  });
+
+  const listActiveProjectRefRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionActiveProjectRefRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          project_id AS "projectId",
+          title
+        FROM projection_projects
+        WHERE deleted_at IS NULL
+        ORDER BY created_at ASC, project_id ASC
       `,
   });
 
@@ -1866,6 +1950,31 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             : [{ threadId, hasLiveSession: false }, ...sweep];
         }),
       );
+
+  // loom: retention support for the provider-session reaper. Deleted only —
+  // archived threads are restorable via `thread.unarchive`, so their bindings
+  // must survive.
+  const listDeletedThreadRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: () =>
+      sql`
+        SELECT thread_id AS "threadId"
+        FROM projection_threads
+        WHERE deleted_at IS NOT NULL
+      `,
+  });
+
+  const getDeletedThreadIds: ProjectionSnapshotQueryShape["getDeletedThreadIds"] = () =>
+    listDeletedThreadRows(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getDeletedThreadIds:query",
+          "ProjectionSnapshotQuery.getDeletedThreadIds:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => new Set(rows.map((row) => row.threadId))),
+    );
 
   const getPendingTurnStartThreadIds: ProjectionSnapshotQueryShape["getPendingTurnStartThreadIds"] =
     () =>
@@ -3288,6 +3397,54 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       return shell === undefined ? Option.none<OrchestrationGoalShell>() : Option.some(shell);
     });
 
+  const getGoalById: ProjectionSnapshotQueryShape["getGoalById"] = (goalId) =>
+    Effect.gen(function* () {
+      const goalRow = yield* getGoalRowById({ goalId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getGoalById:getGoal:query",
+            "ProjectionSnapshotQuery.getGoalById:getGoal:decodeRow",
+          ),
+        ),
+      );
+      if (Option.isNone(goalRow)) {
+        return Option.none<OrchestrationGoal>();
+      }
+      const goalTaskRows = yield* listGoalTaskRowsByGoal({ goalId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getGoalById:listGoalTasks:query",
+            "ProjectionSnapshotQuery.getGoalById:listGoalTasks:decodeRows",
+          ),
+        ),
+      );
+      return Option.some(assembleGoals([goalRow.value], goalTaskRows)[0]!);
+    });
+
+  const listGoalSlugsByProjectId: ProjectionSnapshotQueryShape["listGoalSlugsByProjectId"] = (
+    projectId,
+  ) =>
+    listGoalSlugRowsByProject({ projectId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listGoalSlugsByProjectId:query",
+          "ProjectionSnapshotQuery.listGoalSlugsByProjectId:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.map((row) => row.slug)),
+    );
+
+  const listActiveProjectRefs: ProjectionSnapshotQueryShape["listActiveProjectRefs"] = () =>
+    listActiveProjectRefRows(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.listActiveProjectRefs:query",
+          "ProjectionSnapshotQuery.listActiveProjectRefs:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.map((row) => ({ id: row.projectId, title: row.title }))),
+    );
+
   const getFirstActiveThreadIdByProjectId: ProjectionSnapshotQueryShape["getFirstActiveThreadIdByProjectId"] =
     (projectId) =>
       getFirstActiveThreadIdByProject({ projectId }).pipe(
@@ -3808,6 +3965,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getGoalShellById,
+    getGoalById,
+    listGoalSlugsByProjectId,
+    listActiveProjectRefs,
     getFirstActiveThreadIdByProjectId,
     getThreadCheckpointContext,
     getFullThreadDiffContext,
@@ -3818,6 +3978,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadLifecycle,
     getLiveSubtreeSessionLiveness,
     getPendingTurnStartThreadIds,
+    getDeletedThreadIds,
     listPendingPeerMessages,
     getActivityFreshnessByThreadId,
     getOpenUserInputRequestIdsByThreadId,

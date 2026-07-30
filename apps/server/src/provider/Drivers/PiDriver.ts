@@ -2438,6 +2438,7 @@ export function makePiAdapter(input: {
       ),
     listSessions: () => Effect.sync(() => [...sessions.values()].map((session) => session.session)),
     hasSession: (threadId) => Effect.sync(() => sessions.has(threadId)),
+    getSession: (threadId) => Effect.sync(() => sessions.get(threadId)?.session),
     readThread: (threadId) =>
       requireSession(threadId).pipe(
         Effect.map((session) => ({

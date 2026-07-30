@@ -90,8 +90,7 @@ const handleGoalHandoff = Effect.gen(function* () {
     ? appendDrafterConsultPointer(brief, callerThread.id)
     : brief;
 
-  const snapshot = yield* projection.getSnapshot();
-  const activeProjects = snapshot.projects.filter((project) => project.deletedAt === null);
+  const activeProjects = yield* projection.listActiveProjectRefs();
 
   // Resolve the target project: default to the caller's own, unless `project`
   // names another (exact id, else case-insensitive title). Inbox roles get no
@@ -124,9 +123,7 @@ const handleGoalHandoff = Effect.gen(function* () {
   // Per-project slug uniqueness mirrors the decider's `requireUniqueGoalSlug`
   // (which clashes against ALL goals in the project, including deleted ones).
   // Auto-suffix `-2`, `-3`, … rather than failing back to the agent.
-  const takenSlugs = new Set(
-    snapshot.goals.filter((goal) => goal.projectId === targetProject.id).map((goal) => goal.slug),
-  );
+  const takenSlugs = new Set(yield* projection.listGoalSlugsByProjectId(targetProject.id));
   const baseSlug = slugifyTitle(title);
   let slug = baseSlug;
   for (let suffix = 2; takenSlugs.has(slug); suffix += 1) {
@@ -236,11 +233,10 @@ const handleGoalContinue = Effect.gen(function* () {
   if (goalId === null) {
     return jsonError(400, "This thread has no active goal to continue (use goal_handoff instead).");
   }
-  const snapshot = yield* projection.getSnapshot();
-  const goal = snapshot.goals.find((g) => g.id === goalId && g.deletedAt === null);
-  if (!goal) return jsonError(404, "This thread's active goal was not found.");
+  const goal = yield* projection.getGoalById(goalId);
+  if (Option.isNone(goal)) return jsonError(404, "This thread's active goal was not found.");
 
-  const threadTitle = trimString(body.threadTitle) ?? `${goal.title} (continued)`;
+  const threadTitle = trimString(body.threadTitle) ?? `${goal.value.title} (continued)`;
   // Keep the successor able to drill into the spent context without the brief
   // having to carry the whole history.
   const briefWithPredecessor =

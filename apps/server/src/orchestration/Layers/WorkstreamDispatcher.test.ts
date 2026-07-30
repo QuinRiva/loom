@@ -20,6 +20,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -103,7 +104,10 @@ import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { isThreadIdle, shouldRefuseForkLaunch } from "../threadIdle.ts";
 import { workstreamChildPrompt } from "../workstreamChildPrompt.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
+import { ProviderLaunchClaims } from "../../provider/Services/ProviderLaunchClaims.ts";
 import { reconcileStartupStaleSessionState } from "../../loom/startup.ts";
+import { latestUserMessageAtOf } from "../stuckLaunchRecovery.ts";
 // loom: forkFrom (D2/D7) tests.
 import { writeLaunchIdentity } from "../workstreamLaunchIdentity.ts";
 
@@ -1452,11 +1456,19 @@ describe("startup stale session reconciliation", () => {
     providerSessions: ReadonlyArray<ProviderSession> = [],
     threadsSeed: ReadonlyArray<OrchestrationThreadShell> = defaultThreads(),
     failTurnStart = false,
+    pendingTurnStartSeed: ReadonlySet<ThreadId> = new Set(),
+    // Durable provider bindings: the restart-survivor evidence boot consults. A
+    // non-`stopped` row means a provider process may have outlived the previous
+    // server, so the thread must be left alone.
+    bindings: ReadonlyArray<{ readonly threadId: ThreadId; readonly status: string }> = [],
+    // Threads with a provider launch in flight RIGHT NOW (blocked inside
+    // `startSession`), which writes no session event and no binding while it waits.
+    claimedThreadIds: ReadonlySet<ThreadId> = new Set(),
   ) =>
     Layer.unwrap(
       Effect.gen(function* () {
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
-        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(new Set());
+        const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(pendingTurnStartSeed);
         const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>(threadsSeed);
         const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
           snapshotSequence: 1,
@@ -1478,6 +1490,52 @@ describe("startup stale session reconciliation", () => {
               if (command.type === "thread.session.set") {
                 yield* Ref.update(threads, (current) =>
                   current.map((thread) =>
+                    thread.id === command.threadId
+                      ? { ...thread, session: command.session }
+                      : thread,
+                  ),
+                );
+              }
+              // Mirror the real decider's compare-and-swap for the stuck-launch
+              // repair: reject the WHOLE command (writing nothing) unless the
+              // thread is still in the exact session state the caller observed.
+              // Modelling the rejection here is what lets these tests exercise the
+              // real double-launch guard rather than a permissive stub.
+              if (command.type === "thread.stuck-launch.recover") {
+                const current = (yield* Ref.get(threads)).find((t) => t.id === command.threadId);
+                const session = current?.session ?? null;
+                // Mirror the decider's derivation: the latest USER message stamp,
+                // which a real turn-start bumps synchronously via `message-sent`
+                // even though it writes no session event. These shell fixtures
+                // carry no `messages`, so the observed value is null.
+                const latestUserMessageAt = latestUserMessageAtOf({
+                  messages:
+                    (
+                      current as unknown as {
+                        readonly messages?: ReadonlyArray<{
+                          readonly role: string;
+                          readonly createdAt: string;
+                        }>;
+                      }
+                    ).messages ?? [],
+                });
+                if (
+                  session === null ||
+                  session.updatedAt !== command.expectedSessionUpdatedAt ||
+                  session.status !== "starting" ||
+                  session.activeTurnId !== null ||
+                  latestUserMessageAt !== command.expectedLatestUserMessageAt
+                ) {
+                  return yield* Effect.die(new Error("stuck-launch CAS rejected: state moved"));
+                }
+                if (command.clearPendingTurnStart === true) {
+                  yield* Ref.update(
+                    pendingTurnStarts,
+                    (ids) => new Set([...ids].filter((id) => id !== command.threadId)),
+                  );
+                }
+                yield* Ref.update(threads, (threadList) =>
+                  threadList.map((thread) =>
                     thread.id === command.threadId
                       ? { ...thread, session: command.session }
                       : thread,
@@ -1519,28 +1577,43 @@ describe("startup stale session reconciliation", () => {
         const providerService = {
           listSessions: () => Effect.succeed(providerSessions),
         } as unknown as ProviderService["Service"];
+        const providerSessionDirectory = {
+          listBindings: () => Effect.succeed(bindings),
+        } as unknown as ProviderSessionDirectory["Service"];
+        // In-flight launch claims: no launch is in flight in these fixtures unless a
+        // test says otherwise (see the in-flight startSession test).
+        const providerLaunchClaims = {
+          withClaim: (_id: ThreadId, effect: unknown) => effect,
+          isClaimed: (id: ThreadId) => Effect.succeed(claimedThreadIds.has(id)),
+        } as unknown as ProviderLaunchClaims["Service"];
         const receipts = {
           upsert: () => Effect.void,
           getByCommandId: () => Effect.succeed(Option.none()),
         };
 
+        const serverConfig = ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3-workstream-startup-reconcile-",
+        });
         const deps = Layer.mergeAll(
           Layer.succeed(OrchestrationEngineService, engine),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
           WorktreeProvisionerStub,
-          ServerConfig.layerTest(process.cwd(), {
-            prefix: "t3-workstream-startup-reconcile-",
-          }),
+          serverConfig,
         ).pipe(Layer.provideMerge(NodeServices.layer));
         return Layer.mergeAll(
           WorkstreamDispatcherLive.pipe(Layer.provide(deps)),
           Layer.succeed(ProviderService, providerService),
+          Layer.succeed(ProviderSessionDirectory, providerSessionDirectory),
+          Layer.succeed(ProviderLaunchClaims, providerLaunchClaims),
           Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
           Layer.succeed(OrchestrationEngineService, engine),
-          // Surface Crypto (via NodeServices) to `reconcileStartupStaleSessionState`,
-          // which needs it for the restart-continuation message/boot ids.
-          NodeServices.layer,
+          // Surface Crypto + FileSystem (via NodeServices) to
+          // `reconcileStartupStaleSessionState`, which needs them for the
+          // restart-continuation message/boot ids and the stuck-launch recovery's
+          // kickoff-brief re-read; ServerConfig supplies the launch-identity dir
+          // that recovery reads the kickoff-delivered marker from.
+          serverConfig.pipe(Layer.provideMerge(NodeServices.layer)),
         );
       }),
     );
@@ -1818,6 +1891,263 @@ describe("startup stale session reconciliation", () => {
           expect(resetIds).toContain(OTHER_ID);
         }),
       ),
+  );
+
+  // ─── Stuck-launch recovery (`starting` + no active turn) ───────────────────
+  // The state that previously had ZERO coverage: the old skip condition
+  // `(status !== "running" && activeTurnId === null)` passed straight over it, so
+  // the session stayed `starting` forever, the dispatcher would not re-dispatch
+  // (it needs `session === null`) and the liveness sweep could not see it.
+  const stuckLaunchShell = (
+    overrides: Omit<Partial<OrchestrationThreadShell>, "id"> = {},
+  ): OrchestrationThreadShell =>
+    shell({
+      id: WORKER_ID,
+      parentThreadId: "some-parent" as ThreadId,
+      planLane: "in_progress" as ThreadPlanLane,
+      latestUserMessageAt: now,
+      session: runningSession({
+        threadId: WORKER_ID,
+        status: "starting",
+        activeTurnId: null,
+      }),
+      ...overrides,
+    });
+
+  effectIt.effect("resets AND resumes a session wedged in `starting` with no active turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(buildLayer(dispatched, [], [stuckLaunchShell()])),
+        );
+        // The repair is ONE compare-and-swap command, not an unconditional
+        // session.set: it carries the observed session state as its precondition.
+        const repair = dispatched.find((c) => c.type === "thread.stuck-launch.recover");
+        if (repair?.type !== "thread.stuck-launch.recover") {
+          throw new Error("expected a stuck-launch CAS repair");
+        }
+        expect(repair.commandId.startsWith("server:stuck-launch-recover:boot:")).toBe(true);
+        expect(repair.expectedSessionUpdatedAt).toBe(stuckLaunchShell().session?.updatedAt);
+        expect(repair.session.status).toBe("ready");
+        expect(repair.session.activeTurnId).toBeNull();
+        // No unconditional session write may be used for this repair.
+        expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(false);
+
+        const resumes = turnStartsFor(dispatched, WORKER_ID);
+        expect(resumes).toHaveLength(1);
+        const resume = resumes[0];
+        if (resume?.type !== "thread.turn.start") throw new Error("expected a resume turn-start");
+        // Defence in depth on top of the CAS: the engine re-checks idleness at the
+        // serialized boundary too.
+        expect(resume.requireIdle).toBe(true);
+        expect(resume.setInProgress).toBeUndefined();
+        expect(resume.message.origin).toBe("control_notice");
+        // The repair lands BEFORE the resume, else requireIdle would defer forever.
+        expect(dispatched.indexOf(repair)).toBeLessThan(dispatched.indexOf(resume));
+      }),
+    ),
+  );
+
+  effectIt.effect("clears the wedged thread's stale pending turn-start before resuming it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell()], false, new Set([WORKER_ID])),
+          ),
+        );
+        // The pending-clear rides INSIDE the CAS transaction rather than being a
+        // separate unconditional command, so there is no window where the pending
+        // row is gone but the session is not yet reset.
+        const repair = dispatched.find((c) => c.type === "thread.stuck-launch.recover");
+        if (repair?.type !== "thread.stuck-launch.recover") {
+          throw new Error("expected a stuck-launch CAS repair");
+        }
+        expect(repair.clearPendingTurnStart).toBe(true);
+        expect(dispatched.some((c) => c.type === "thread.turn-start.fail")).toBe(false);
+        // A surviving pending row keeps `isThreadIdle` false, so the requireIdle
+        // resume would defer for good — it MUST be cleared first.
+        const resume = turnStartsFor(dispatched, WORKER_ID)[0];
+        expect(resume).toBeDefined();
+        expect(dispatched.indexOf(repair)).toBeLessThan(dispatched.indexOf(resume!));
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does NOT touch a `starting` session whose provider launch is actually live",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The negative case that makes the recovery safe: an adapter-reported
+          // session for this thread means a launch is genuinely in flight, so
+          // nothing may be written even though the read model says `starting`.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [{ threadId: WORKER_ID, activeTurnId: "turn-live" as TurnId } as ProviderSession],
+                [stuckLaunchShell()],
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "does NOT touch a live provider session with NO active turn, even with a pending start",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The launch-in-flight window: the adapter has a session but the runtime
+          // has not reported `turn.started` yet, so `activeTurnId` is still null.
+          // The pending turn-start row is that launch's ONLY durable busy guard —
+          // clearing it (as the weaker active-turn-only check used to allow) would
+          // strand or double-launch genuinely live work.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [{ threadId: WORKER_ID } as ProviderSession],
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "does NOT recover when the adapter is empty but a durable non-`stopped` binding survives",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The restart-survivor case. A provider process that outlived the previous
+          // server is INVISIBLE to this process's adapter (its session map is
+          // process-local) and mutates no orchestration state, so the CAS cannot
+          // detect it either. The durable binding row is the only authoritative
+          // evidence, so boot must consult it and leave the thread alone.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [], // adapter reports nothing
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+                [{ threadId: WORKER_ID, status: "running" }],
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect("DOES recover once the surviving binding has been marked `stopped`", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Control for the test above: a `stopped` row is not survivor evidence, so
+        // the wedge is repaired normally. This is what bounds the deferral — the
+        // reaper marking the row `stopped` is what releases recovery.
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell()], false, new Set(), [
+              { threadId: WORKER_ID, status: "stopped" },
+            ]),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+      }),
+    ),
+  );
+
+  effectIt.effect(
+    "does NOT recover while the original startSession is still in flight (claim held)",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The reconcile runs after the reactors start, so a turn-start accepted in
+          // that window can already be blocked inside `startSession` — having written
+          // `session.starting` and its user message, and nothing since. No adapter
+          // session, no binding, both CAS tokens matching: only the claim can tell.
+          yield* reconcileStartupStaleSessionState.pipe(
+            Effect.provide(
+              buildLayer(
+                dispatched,
+                [],
+                [stuckLaunchShell()],
+                false,
+                new Set([WORKER_ID]),
+                [],
+                new Set([WORKER_ID]),
+              ),
+            ),
+          );
+          expect(dispatched).toEqual([]);
+        }),
+      ),
+  );
+
+  effectIt.effect("resets but does NOT resume a wedged thread parked on a human", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(dispatched, [], [stuckLaunchShell({ hasPendingApprovals: true })]),
+          ),
+        );
+        // The reset still lands (it is what unwedges the "Connecting" UI); only
+        // the resume is withheld, because a turn-start would clear the human wait.
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect("resets but does NOT resume a wedged cancelled thread", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(
+            buildLayer(
+              dispatched,
+              [],
+              [stuckLaunchShell({ planLane: "cancelled" as ThreadPlanLane })],
+            ),
+          ),
+        );
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+        expect(turnStartsFor(dispatched, WORKER_ID)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  effectIt.effect("isolates a failed wedge resume: the session is still reset", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationCommand> = [];
+        yield* reconcileStartupStaleSessionState.pipe(
+          Effect.provide(buildLayer(dispatched, [], [stuckLaunchShell()], true)),
+        );
+        // The reset is the load-bearing half and must survive a failed resume.
+        expect(dispatched.some((c) => c.type === "thread.stuck-launch.recover")).toBe(true);
+      }),
+    ),
   );
 });
 
@@ -6818,6 +7148,126 @@ describe("notify_thread deferred-delivery rail", () => {
         }),
     );
 
+    // Snapshot-staleness regression (review round 2). The pass takes ONE shell
+    // snapshot at its start, but a gate rework leg can REOPEN a `done` target
+    // (`done` → `in_progress`) later in that same pass. Expiry is irreversible and
+    // has no atomic engine re-check behind it, so expiring against the pass-start
+    // lane would destroy a queued message whose contract said it stayed pending.
+    // The target here is a `done` coder holding an open rework round whose
+    // reviewer has looped — exactly the shape that reopens — with a notification
+    // queued for it.
+    effectIt.effect(
+      "does NOT expire a queued notification for a `done` gate target this pass reopens",
+      () =>
+        Effect.gen(function* () {
+          const REVIEWER = "notify-gate-reviewer" as ThreadId;
+          const dispatched: Array<OrchestrationCommand> = [];
+          // Target: a `done` coder with an OPEN rework round (`pendingRework`).
+          const reopenableTarget = shell({
+            id: TARGET,
+            parentThreadId: null,
+            planLane: "done",
+            pendingRework: true,
+            session: null,
+          });
+          // Source: the reviewer that routed the rework back to it (`loop`).
+          const reviewer = shell({
+            id: REVIEWER as unknown as string,
+            parentThreadId: null,
+            planLane: "in_progress",
+            routes: [{ kind: "loop", on: ["needs_rework"], to: TARGET }],
+            gateRounds: 1,
+            lastOutcome: {
+              outcome: "needs_rework",
+              decision: "loop",
+              round: 1,
+              at: now,
+              recordedByEventId: EventId.make("11111111-1111-4111-8111-111111111111"),
+            },
+            session: null,
+          });
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // The rework leg ran and reopened the target.
+            const rework = dispatched.filter(
+              (c): c is Extract<OrchestrationCommand, { type: "thread.turn.start" }> =>
+                c.type === "thread.turn.start" && c.threadId === TARGET && c.reopen === true,
+            );
+            expect(rework).toHaveLength(1);
+
+            // The queued message MUST survive — the target is no longer terminal.
+            expect(expires(dispatched)).toHaveLength(0);
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [reopenableTarget, reviewer],
+              }),
+            ),
+          );
+        }),
+    );
+
+    // The complementary direction, and the reason the exemption is keyed on the
+    // pass's actual reopen rather than on `pendingRework`: a `done` target whose
+    // rework leg was ALREADY delivered (receipt present) is not reopened by this
+    // pass, so it is genuinely terminal and its queued message must still expire.
+    // A blanket "never expire a pendingRework target" fix would strand the
+    // message forever on a dead gate; this pins that we did not do that.
+    effectIt.effect(
+      "still expires for a `done` pending-rework target this pass does NOT reopen",
+      () =>
+        Effect.gen(function* () {
+          const REVIEWER = "notify-gate-reviewer-handled" as ThreadId;
+          const dispatched: Array<OrchestrationCommand> = [];
+          const doneTarget = shell({
+            id: TARGET,
+            parentThreadId: null,
+            planLane: "done",
+            pendingRework: true,
+            session: null,
+          });
+          const reviewer = shell({
+            id: REVIEWER as unknown as string,
+            parentThreadId: null,
+            planLane: "in_progress",
+            routes: [{ kind: "loop", on: ["needs_rework"], to: TARGET }],
+            gateRounds: 1,
+            lastOutcome: {
+              outcome: "needs_rework",
+              decision: "loop",
+              round: 1,
+              at: now,
+              recordedByEventId: EventId.make("22222222-2222-4222-8222-222222222222"),
+            },
+            session: null,
+          });
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+
+            // The rework leg was already handled, so nothing reopened the target.
+            expect(
+              dispatched.filter((c) => c.type === "thread.turn.start" && c.threadId === TARGET),
+            ).toHaveLength(0);
+            // Terminal target -> the queued message is expired, as before.
+            expect(expires(dispatched)).toHaveLength(1);
+          }).pipe(
+            Effect.provide(
+              buildRailLayer(dispatched, {
+                pending: [pendingRow()],
+                threads: [doneTarget, reviewer],
+                deliveredReceipts: new Set([gateCommandId(REVIEWER, 1, "rework")]),
+              }),
+            ),
+          );
+        }),
+    );
+
     effectIt.effect(
       "expires when the target is absent from the active snapshot (archived/deleted)",
       () =>
@@ -6934,4 +7384,286 @@ describe("notify_thread deferred-delivery rail", () => {
       }),
     );
   });
+});
+
+// Pass coalescing + one-snapshot-per-pass (survey finding 1). Eleven event types
+// feed the single dispatcher trigger, the highest-volume of them peaking around
+// 1.5/s against a ~1.5s pass — so a queueing worker's backlog diverges and a
+// restart discards it. These tests pin the two properties that make coalescing
+// safe: a burst collapses (bounded work), and no trigger is ever absorbed into a
+// pass that had already read its snapshot (no lost wakes).
+describe("pass coalescing + single shell snapshot per pass (full dispatcher layer)", () => {
+  const PARENT_ID = "parent-coalesce" as ThreadId;
+
+  // A quiescent workstream: one idle root parent and one fresh (within-grace)
+  // idle child, so every pass runs all rails to completion but dispatches
+  // nothing. The assertions are then purely about pass/query COUNTS.
+  const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
+  const child = shell({
+    id: "child-coalesce",
+    parentThreadId: PARENT_ID,
+    planLane: "in_progress",
+    kickoffBriefPath: null,
+    session: runningSession({
+      threadId: "child-coalesce" as ThreadId,
+      status: "ready",
+      activeTurnId: null,
+    }),
+    latestTurn: latestTurn({ completedAt: now }),
+  });
+
+  const buildLayer = (input: {
+    readonly events: PubSub.PubSub<OrchestrationEvent>;
+    readonly snapshotCalls: { count: number };
+    /**
+     * Pass counter. `listPendingPeerMessages` is the LAST rail of `runPass` and
+     * is called exactly once there, so it counts completed passes independently
+     * of the snapshot reads under test.
+     */
+    readonly passCalls?: { count: number };
+    /** Runs at the start of every `getShellSnapshot`, i.e. inside the pass. */
+    readonly onSnapshot?: (call: number) => Effect.Effect<void>;
+    /**
+     * Observes every event the dispatcher's subscription fibre pulls, BEFORE it
+     * decides whether to trigger. `Stream.runForEach` is sequential, so a test
+     * that awaits a trailing sentinel here knows every earlier event has already
+     * been handed to the trigger — without this handshake a burst test races the
+     * subscription fibre and passes even with a non-coalescing worker.
+     */
+    readonly onEvent?: (event: OrchestrationEvent) => Effect.Effect<void>;
+  }) => {
+    const domainEvents = Stream.fromPubSub(input.events).pipe(
+      input.onEvent === undefined ? (self) => self : Stream.tap(input.onEvent),
+    );
+    const engine = {
+      readEvents: () => Stream.empty,
+      dispatch: () => Effect.succeed({ sequence: 1 }),
+      streamDomainEvents: domainEvents,
+      subscribeDomainEvents: Effect.succeed(domainEvents),
+      latestSequence: Effect.succeed(0),
+    } as unknown as OrchestrationEngineShape;
+
+    const snapshotQuery = {
+      getShellSnapshot: () =>
+        Effect.suspend(() => {
+          input.snapshotCalls.count += 1;
+          const call = input.snapshotCalls.count;
+          return (input.onSnapshot?.(call) ?? Effect.void).pipe(
+            Effect.as({
+              snapshotSequence: 1,
+              goals: [],
+              projects: [],
+              threads: [parent, child],
+              updatedAt: now,
+            } satisfies OrchestrationShellSnapshot),
+          );
+        }),
+      getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
+      listPendingPeerMessages: () =>
+        Effect.sync(() => {
+          if (input.passCalls) input.passCalls.count += 1;
+          return [];
+        }),
+      getActivityFreshnessByThreadId: () =>
+        Effect.succeed({ maxCreatedAt: now, heartbeatAt: null }),
+    } as unknown as ProjectionSnapshotQueryShape;
+
+    const receipts = {
+      upsert: () => Effect.void,
+      getByCommandId: () => Effect.succeed(Option.none()),
+    };
+
+    return WorkstreamDispatcherLive.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.succeed(OrchestrationEngineService, engine),
+          Layer.succeed(ProjectionSnapshotQuery, snapshotQuery),
+          Layer.succeed(OrchestrationCommandReceiptRepository, receipts as never),
+          WorktreeProvisionerStub,
+          ServerConfig.layerTest(process.cwd(), { prefix: "t3-workstream-coalesce-" }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+  };
+
+  effectIt.effect("takes exactly ONE shell snapshot per pass (was three)", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotCalls = { count: 0 };
+        const passCalls = { count: 0 };
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+          // Several triggers over time, each free to run its own pass.
+          for (let i = 0; i < 4; i += 1) {
+            yield* PubSub.publish(events, { type: "thread.plan-lane-set" } as OrchestrationEvent);
+            yield* dispatcher.drain;
+          }
+          expect(passCalls.count).toBeGreaterThanOrEqual(5);
+          expect(snapshotCalls.count).toBe(passCalls.count);
+        }).pipe(Effect.provide(buildLayer({ events, snapshotCalls, passCalls })));
+      }),
+    ),
+  );
+
+  // `thread.activity-appended` is deliberately NOT one of the dispatcher's 11
+  // trigger types, so it serves as a sentinel: observing it in `onEvent` proves
+  // the subscription fibre has already processed every event published before it,
+  // without itself requesting a pass. `runForEach` is sequential, so this is the
+  // handshake that makes "the burst was absorbed into the trigger" an assertion
+  // rather than a race.
+  const SENTINEL = "thread.activity-appended";
+  // The production event filter inspects activity payloads for this event type;
+  // give the sentinel a harmless non-triggering payload so it remains a valid
+  // event while still proving subscription ordering.
+  const sentinelEvent = {
+    type: SENTINEL,
+    payload: { activity: { kind: "sentinel" } },
+  } as unknown as OrchestrationEvent;
+
+  /**
+   * Both tests below drive the dispatcher through a pass they hold open, so they
+   * share this shape: settle the startup passes, wait until the event
+   * subscription is provably live, then open a pass, land triggers inside it, and
+   * measure how many passes follow.
+   */
+  const withHeldPass = (
+    body: (input: {
+      readonly dispatcher: { readonly drain: Effect.Effect<void> };
+      /** Publish these events and return once the subscription has absorbed them. */
+      readonly publishAndAbsorb: (
+        types: ReadonlyArray<string>,
+      ) => Effect.Effect<void, never, never>;
+      /** Release the held pass. */
+      readonly release: Effect.Effect<void>;
+      readonly passCalls: { count: number };
+      readonly snapshotCalls: { count: number };
+      /** Passes completed before the held pass opened. */
+      readonly baseline: number;
+    }) => Effect.Effect<void>,
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const events = yield* PubSub.unbounded<OrchestrationEvent>();
+        const snapshotCalls = { count: 0 };
+        const passCalls = { count: 0 };
+        const heldPassRunning = yield* Deferred.make<void>();
+        const releaseHeldPass = yield* Deferred.make<void>();
+        // Which pass to hold open: the startup passes must settle first (their
+        // count is timing-dependent — the startup enqueue and the immediate
+        // re-pass tick may or may not coalesce), so the held pass is chosen by
+        // number once that baseline is known.
+        const holdFromCall = { value: Number.POSITIVE_INFINITY };
+        let absorbed: Deferred.Deferred<void> | null = null;
+
+        yield* Effect.gen(function* () {
+          const dispatcher = yield* WorkstreamDispatcher;
+          yield* dispatcher.start();
+          yield* dispatcher.drain;
+
+          // The subscription fibre subscribes lazily when the stream runs, so
+          // publishing before that silently drops the event. Keep offering the
+          // sentinel until one is observed; from then on the channel is live.
+          const live = yield* Deferred.make<void>();
+          absorbed = live;
+          yield* PubSub.publish(events, sentinelEvent).pipe(
+            Effect.andThen(Effect.sleep(Duration.millis(1))),
+            Effect.repeat({ until: () => Deferred.isDone(live) }),
+          );
+          yield* Deferred.await(live);
+          yield* dispatcher.drain;
+
+          const publishAndAbsorb = (types: ReadonlyArray<string>) =>
+            Effect.gen(function* () {
+              const seen = yield* Deferred.make<void>();
+              absorbed = seen;
+              for (const type of types) {
+                yield* PubSub.publish(events, { type } as OrchestrationEvent);
+              }
+              yield* PubSub.publish(events, sentinelEvent);
+              yield* Deferred.await(seen);
+            });
+
+          const baseline = passCalls.count;
+          // Open the next pass and hold it.
+          holdFromCall.value = snapshotCalls.count + 1;
+          yield* publishAndAbsorb(["thread.plan-lane-set"]);
+          yield* Deferred.await(heldPassRunning);
+
+          yield* body({
+            dispatcher,
+            publishAndAbsorb,
+            release: Deferred.succeed(releaseHeldPass, undefined).pipe(Effect.asVoid, Effect.orDie),
+            passCalls,
+            snapshotCalls,
+            baseline,
+          });
+        }).pipe(
+          Effect.provide(
+            buildLayer({
+              events,
+              snapshotCalls,
+              passCalls,
+              onSnapshot: (call) =>
+                call === holdFromCall.value
+                  ? Deferred.succeed(heldPassRunning, undefined).pipe(
+                      Effect.orDie,
+                      Effect.andThen(Deferred.await(releaseHeldPass)),
+                    )
+                  : Effect.void,
+              onEvent: (event) =>
+                event.type === SENTINEL && absorbed !== null
+                  ? Deferred.succeed(absorbed, undefined).pipe(Effect.asVoid, Effect.orDie)
+                  : Effect.void,
+            }),
+          ),
+        );
+      }),
+    );
+
+  effectIt.live("collapses a burst of triggers arriving mid-pass into ONE follow-up pass", () =>
+    withHeldPass(({ dispatcher, publishAndAbsorb, release, passCalls, snapshotCalls, baseline }) =>
+      Effect.gen(function* () {
+        // 25 triggers while a pass is mid-flight — the shape of the measured
+        // 88-events/minute peak. A queueing worker would run 25 more identical
+        // passes; coalescing must run exactly ONE.
+        yield* publishAndAbsorb(Array.from({ length: 25 }, () => "thread.session-set"));
+        // The held pass has already read its snapshot and has not completed.
+        expect(passCalls.count).toBe(baseline);
+
+        yield* release;
+        yield* dispatcher.drain;
+
+        // The held pass + exactly ONE coalesced follow-up — not 26 passes.
+        expect(passCalls.count).toBe(baseline + 2);
+        expect(snapshotCalls.count - baseline).toBe(2);
+      }),
+    ),
+  );
+
+  effectIt.live(
+    "no lost wake: a trigger landing AFTER the pass read its snapshot still causes a later pass",
+    () =>
+      withHeldPass(
+        ({ dispatcher, publishAndAbsorb, release, passCalls, snapshotCalls, baseline }) =>
+          Effect.gen(function* () {
+            // The hazard this guards: the trigger arrives strictly AFTER the held
+            // pass read its snapshot, so that pass cannot possibly observe the
+            // state it signals. Coalescing must therefore still run a pass that
+            // STARTS after it — an implementation that absorbs the trigger into
+            // the running pass loses this wake silently.
+            yield* publishAndAbsorb(["thread.session-set"]);
+            expect(passCalls.count).toBe(baseline);
+
+            yield* release;
+            yield* dispatcher.drain;
+
+            // A second FULL pass ran, reading a fresh snapshot after the trigger.
+            expect(passCalls.count).toBe(baseline + 2);
+            expect(snapshotCalls.count - baseline).toBe(2);
+          }),
+      ),
+  );
 });

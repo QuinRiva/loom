@@ -142,6 +142,19 @@ export interface ProviderAdapterShape<TError> {
   readonly hasSession: (threadId: ThreadId) => Effect.Effect<boolean>;
 
   /**
+   * loom: added for the fork's per-event ingestion path (see
+   * `ProviderServiceShape.getSession`).
+   *
+   * Read one active session by thread id, if this adapter owns it.
+   *
+   * Thread-addressed counterpart to `listSessions` for hot paths (per-event
+   * ingestion, per-turn-start) that need a single thread: implementations must
+   * resolve it directly rather than materialising every session, so cost does
+   * not grow with the number of live sessions.
+   */
+  readonly getSession: (threadId: ThreadId) => Effect.Effect<ProviderSession | undefined, TError>;
+
+  /**
    * Read a provider thread snapshot.
    */
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;

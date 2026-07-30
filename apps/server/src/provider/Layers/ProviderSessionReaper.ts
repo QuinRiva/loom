@@ -1,3 +1,4 @@
+import type { ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
@@ -37,13 +38,68 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
       const now = yield* Clock.currentTimeMillis;
+      // loom: one query for the whole deleted-thread set. Classifying each
+      // stopped binding with `getThreadShellById` instead would cost six
+      // statements per row on the single serial SQL connection, every sweep —
+      // a periodic global stall of exactly the kind this work exists to remove.
+      // A failed read yields an empty set, which prunes nothing.
+      const deletedThreadIds = yield* projectionSnapshotQuery.getDeletedThreadIds().pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider.session.reaper.deleted-threads-read-failed", {
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(new Set<ThreadId>())),
+        ),
+      );
       let reapedCount = 0;
+      let prunedCount = 0;
 
       for (const binding of bindings) {
+        // loom: retention. Stopped bindings are deliberately kept so a session can be
+        // resumed from its persisted provider pointer after a restart, but they
+        // were never removed either, so the table grew forever and every read of
+        // it got slower. Prune only the IRREVERSIBLE class: a stopped session
+        // whose thread has been deleted. Archived threads are excluded on
+        // purpose — `thread.archive` has a matching `thread.unarchive` command
+        // and UI affordance, so an archived thread can be restored and must keep
+        // its provider pointer; there is no undelete counterpart.
+        //
+        // Deliberately NOT age-based: `runStopAll` rewrites every binding at
+        // shutdown, which resets `lastSeenAt` on all stopped rows (observed:
+        // 1311 of 1326 rows sharing a single minute). Age measured from
+        // `lastSeenAt` is therefore not a liveness signal at all — it would sit
+        // at ~0 across restarts and then expire the whole table at once.
         if (binding.status === "stopped") {
+          if (!deletedThreadIds.has(binding.threadId)) {
+            continue;
+          }
+          // Conditional delete: the decision above is made from a `listBindings`
+          // snapshot, so a concurrent start/recovery may have re-upserted this
+          // row to `running` since. Deleting by thread id alone would drop a
+          // live session's routing binding and strand the next command with
+          // "no persisted provider binding exists".
+          const pruned = yield* directory.removeIfStopped(binding.threadId).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.reaper.prune-failed", {
+                threadId: binding.threadId,
+                provider: binding.provider,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(false)),
+            ),
+          );
+          if (pruned) {
+            prunedCount += 1;
+            yield* Effect.logInfo("provider.session.binding-pruned", {
+              threadId: binding.threadId,
+              provider: binding.provider,
+              reason: "thread_deleted",
+            });
+          }
           continue;
         }
 
+        // Reaping a LIVE session is age-based, and only this branch needs the
+        // timestamp (retention above is judged from thread deletion instead, so
+        // a corrupt timestamp must not keep a deleted thread's row forever).
         const lastSeenMs = Date.parse(binding.lastSeenAt);
         if (Number.isNaN(lastSeenMs)) {
           yield* Effect.logWarning("provider.session.reaper.invalid-last-seen", {
@@ -55,6 +111,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
 
         const idleDurationMs = now - lastSeenMs;
+
         if (idleDurationMs < inactivityThresholdMs) {
           continue;
         }
@@ -96,9 +153,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         }
       }
 
-      if (reapedCount > 0) {
+      if (reapedCount > 0 || prunedCount > 0) {
         yield* Effect.logInfo("provider.session.reaper.sweep-complete", {
           reapedCount,
+          prunedCount,
           totalBindings: bindings.length,
         });
       }

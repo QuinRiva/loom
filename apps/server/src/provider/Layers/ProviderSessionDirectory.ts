@@ -174,13 +174,34 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     repository.list().pipe(
       Effect.mapError(toPersistenceError("ProviderSessionDirectory.listBindings:list")),
       Effect.flatMap((rows) =>
+        // Skip rows whose persisted provider is unknown to this build instead of
+        // failing the whole listing — enumerating sessions must not be disabled
+        // by a single row written by another build.
         Effect.forEach(
           rows,
-          (row) => toRuntimeBinding(row, "ProviderSessionDirectory.listBindings"),
+          (row) =>
+            toRuntimeBinding(row, "ProviderSessionDirectory.listBindings").pipe(
+              Effect.map(Option.some),
+              Effect.catch((error) =>
+                Effect.logWarning("provider.session.directory.binding-skipped", {
+                  threadId: row.threadId,
+                  detail: error.detail,
+                }).pipe(Effect.as(Option.none<ProviderRuntimeBindingWithMetadata>())),
+              ),
+            ),
           { concurrency: "unbounded" },
-        ),
+        ).pipe(Effect.map((bindings) => bindings.filter(Option.isSome).map((one) => one.value))),
       ),
     );
+
+  const removeIfStopped: ProviderSessionDirectoryShape["removeIfStopped"] = (threadId) =>
+    repository
+      .deleteStoppedByThreadId({ threadId })
+      .pipe(
+        Effect.mapError(
+          toPersistenceError("ProviderSessionDirectory.removeIfStopped:deleteStoppedByThreadId"),
+        ),
+      );
 
   return {
     upsert,
@@ -188,6 +209,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     getBinding,
     listThreadIds,
     listBindings,
+    removeIfStopped,
   } satisfies ProviderSessionDirectoryShape;
 });
 

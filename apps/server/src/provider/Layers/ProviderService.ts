@@ -898,34 +898,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ),
       );
       const activeSessions = sessionsByProvider.flatMap((sessions) => sessions);
-      const persistedBindings = yield* directory.listThreadIds().pipe(
-        Effect.flatMap((threadIds) =>
-          Effect.forEach(
-            threadIds,
-            (threadId) =>
-              directory
-                .getBinding(threadId)
-                .pipe(
-                  Effect.orElseSucceed(() =>
-                    Option.none<ProviderSessionDirectory.ProviderRuntimeBinding>(),
-                  ),
-                ),
-            { concurrency: "unbounded" },
+      // One query for every persisted binding. Re-reading each row by id (the
+      // former shape) made this O(rows) queries, and since the runtime table
+      // retains stopped sessions that cost grew with every session ever run.
+      const persistedBindings = yield* directory
+        .listBindings()
+        .pipe(
+          Effect.orElseSucceed(
+            () => [] as ReadonlyArray<ProviderSessionDirectory.ProviderRuntimeBinding>,
           ),
-        ),
-        Effect.orElseSucceed(
-          () => [] as Array<Option.Option<ProviderSessionDirectory.ProviderRuntimeBinding>>,
-        ),
-      );
+        );
       const bindingsByThreadId = new Map<
         ThreadId,
         ProviderSessionDirectory.ProviderRuntimeBinding
       >();
-      for (const bindingOption of persistedBindings) {
-        const binding = Option.getOrUndefined(bindingOption);
-        if (binding) {
-          bindingsByThreadId.set(binding.threadId, binding);
-        }
+      for (const binding of persistedBindings) {
+        bindingsByThreadId.set(binding.threadId, binding);
       }
 
       const sessions: ProviderSession[] = [];
@@ -968,6 +956,81 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         sessions.push(Object.assign({}, session, overrides));
       }
       return sessions;
+    },
+  );
+
+  // loom: single-thread lookup for callers that only need one session.
+  // Thread-addressed: every adapter read is a keyed `getSession(threadId)`, so
+  // cost never grows with the number of persisted rows OR the number of active
+  // sessions. That is what makes it safe on the per-event ingestion path
+  // (`listSessions` was O(rows) queries, and a listSessions-based scan would
+  // still have been O(active sessions) — for Codex, a serial read per live
+  // runtime, per event).
+  //
+  // The persisted binding is a HINT that orders the adapters, not the source of
+  // truth: truth is what the adapters report, exactly as in `listSessions`.
+  // Consequently this preserves `listSessions`' semantics — a live session is
+  // still found with no binding at all, and a session live on an instance the
+  // binding disagrees with is still reported as a mismatch rather than hidden.
+  const getSession: ProviderServiceMethod<"getSession"> = Effect.fn("getSession")(
+    function* (threadId) {
+      const bindingOption = yield* directory
+        .getBinding(threadId)
+        .pipe(
+          Effect.orElseSucceed(() =>
+            Option.none<ProviderSessionDirectory.ProviderRuntimeBinding>(),
+          ),
+        );
+      const binding = Option.getOrUndefined(bindingOption);
+      const currentAdapters = yield* getAdapterEntries;
+      // The binding names the likely owner, so try that adapter FIRST: in the
+      // steady state this is one keyed lookup and the loop below never runs.
+      // But the binding is only a hint — `listSessions` derives truth from the
+      // adapters, so a session that is genuinely live must still be found when
+      // the binding is missing, unreadable, or names the wrong instance.
+      // Skipping that fallback would report a live session as absent, which on
+      // the hot paths means ingestion loses its expected turn id and the command
+      // reactor starts a SECOND session for a thread that already has one.
+      const orderedAdapters =
+        binding?.providerInstanceId !== undefined
+          ? [
+              ...currentAdapters.filter(([id]) => id === binding.providerInstanceId),
+              ...currentAdapters.filter(([id]) => id !== binding.providerInstanceId),
+            ]
+          : currentAdapters;
+      for (const [instanceId, adapter] of orderedAdapters) {
+        const session = yield* adapter
+          .getSession(threadId)
+          .pipe(Effect.orElseSucceed(() => undefined));
+        if (!session) {
+          continue;
+        }
+        // Same invariants `listSessions` enforces, and for the same reason:
+        // callers route turns from this result, so a session whose live location
+        // contradicts its persisted binding must fail loudly rather than be
+        // routed as if consistent.
+        if (binding !== undefined) {
+          if (binding.provider !== session.provider) {
+            return yield* Effect.die(
+              new Error(
+                `ProviderService.getSession: thread '${threadId}' is active on provider '${session.provider}' but persisted binding names provider '${binding.provider}'.`,
+              ),
+            );
+          }
+          if (
+            binding.providerInstanceId !== undefined &&
+            binding.providerInstanceId !== instanceId
+          ) {
+            return yield* Effect.die(
+              new Error(
+                `ProviderService.getSession: thread '${threadId}' is active on provider instance '${instanceId}' but persisted binding names '${binding.providerInstanceId}'.`,
+              ),
+            );
+          }
+        }
+        return { ...session, providerInstanceId: instanceId };
+      }
+      return undefined;
     },
   );
 
@@ -1045,6 +1108,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
     yield* Effect.forEach(bindings, (binding) =>
       Effect.gen(function* () {
+        // loom: already-stopped bindings need no rewrite. This runs as a scope
+        // finalizer after the HTTP grace period is exhausted, and each upsert is
+        // a read-then-write pair on the single serial SQL connection — so
+        // rewriting every historical row cost ~2x(row count) statements on the
+        // shutdown path. It also reset `lastSeenAt` on every stopped row at once
+        // (observed: 1311 of 1326 rows sharing one minute), destroying the only
+        // age signal the runtime table carries.
+        if (binding.status === "stopped") {
+          return;
+        }
         const providerInstanceId = dieOnMissingBindingInstanceId(
           "ProviderService.stopAll",
           binding,
@@ -1086,6 +1159,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToUserInput,
     stopSession,
     listSessions,
+    getSession,
     getCapabilities,
     getInstanceInfo,
     rollbackConversation,
