@@ -96,7 +96,9 @@ Files: `dist/cli/args.js`, `dist/cli/args.d.ts`, `dist/main.js`.
 
 Pinned by the contract test
 `apps/server/src/provider/Layers/Pi/PiCwdOverride.contract.test.ts`, which
-drives the installed binary over RPC and skips if pi is absent or unpatched.
+drives the bundled binary over RPC. Because pi is now a workspace dependency it
+is always present, so the test runs (never skips) and **fails loudly** if the
+bundled copy is unpatched — exactly the upstream drift we want to hear about.
 
 Upstreamable as-is: "headless resume after the working directory moved" is
 needed by any daemon embedding pi, and interactive mode's prompt shows the
