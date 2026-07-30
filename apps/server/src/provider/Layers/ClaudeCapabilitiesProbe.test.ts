@@ -14,6 +14,25 @@ import {
 
 const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
+/**
+ * Poll until `pid` is gone. The Agent SDK terminates an aborted subprocess on a
+ * timer (SIGTERM after ~2s, SIGKILL after ~5s more), so this cannot be observed
+ * synchronously — and it uses wall-clock timers, so `Effect.sleep` (virtualised
+ * under `it.effect`) would never let them fire.
+ */
+async function awaitProcessExit(pid: number, attempts = 300): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    // @effect-diagnostics-next-line globalTimers:off - Wall-clock poll; Effect's Clock is virtualised under `it.effect`.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
 it("isolates Claude capability probes without dropping workspace setting sources", () => {
   const abortController = new AbortController();
   const options = buildClaudeCapabilitiesProbeQueryOptions({
@@ -65,6 +84,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "}",
           "writeFileSync(process.env.T3_PROBE_INVOCATION_PATH, JSON.stringify({",
           "  args,",
+          "  pid: process.pid,",
           "  cwd: process.cwd(),",
           "  connectorEnv: process.env.ENABLE_CLAUDEAI_MCP_SERVERS,",
           "  mcpConfig,",
@@ -122,6 +142,7 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       // @effect-diagnostics-next-line preferSchemaOverJson:off
       const invocation = JSON.parse(yield* fs.readFileString(invocationPath)) as {
         readonly args: ReadonlyArray<string>;
+        readonly pid: number;
         readonly cwd: string;
         readonly connectorEnv: string;
         readonly mcpConfig: unknown;
@@ -133,6 +154,11 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
       assert.equal(invocation.mcpConfig, undefined);
 
       assert.equal(invocation.args.includes("--setting-sources=user,project,local"), true);
+
+      // The fixture ignores stdin closing and keeps its event loop alive, exactly like a
+      // wedged Claude subprocess. Aborting the probe must still terminate it, so wait for
+      // the process to actually disappear rather than leaking it into the host.
+      assert.equal(yield* Effect.promise(() => awaitProcessExit(invocation.pid)), true);
     }).pipe(Effect.scoped),
   );
 });
