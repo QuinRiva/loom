@@ -666,6 +666,15 @@ describe("ProviderCommandReactor", () => {
     );
   };
 
+  // Route engine dispatches through a helper so test bodies do not call the
+  // effect runtime directly (t3code/no-manual-effect-runtime-in-tests permits
+  // `Effect.runPromise` inside helpers, which is the pattern the rest of this
+  // harness uses).
+  const runDispatch = (
+    harness: Awaited<ReturnType<typeof createHarness>>,
+    command: Parameters<Awaited<ReturnType<typeof createHarness>>["engine"]["dispatch"]>[0],
+  ) => Effect.runPromise(harness.engine.dispatch(command));
+
   const startChildTurn = (harness: Awaited<ReturnType<typeof createHarness>>, id: string) =>
     Effect.runPromise(
       harness.engine.dispatch({
@@ -3475,70 +3484,64 @@ describe("ProviderCommandReactor", () => {
       ),
     );
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-for-user-input-error"),
+    await runDispatch(harness, {
+      type: "thread.session.set",
+      commandId: CommandId.make("cmd-session-set-for-user-input-error"),
+      threadId: ThreadId.make("thread-1"),
+      session: {
         threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "claudeAgent",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
+        status: "running",
+        providerName: "claudeAgent",
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
+        updatedAt: now,
+      },
+      createdAt: now,
+    });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.make("cmd-user-input-requested"),
-        threadId: ThreadId.make("thread-1"),
-        activity: {
-          id: EventId.make("activity-user-input-requested"),
-          tone: "info",
-          kind: "user-input.requested",
-          summary: "User input requested",
-          payload: {
-            requestId: "user-input-request-1",
-            questions: [
-              {
-                id: "sandbox_mode",
-                header: "Sandbox",
-                question: "Which mode should be used?",
-                options: [
-                  {
-                    label: "workspace-write",
-                    description: "Allow workspace writes only",
-                  },
-                ],
-              },
-            ],
-          },
-          turnId: null,
-          createdAt: now,
+    await runDispatch(harness, {
+      type: "thread.activity.append",
+      commandId: CommandId.make("cmd-user-input-requested"),
+      threadId: ThreadId.make("thread-1"),
+      activity: {
+        id: EventId.make("activity-user-input-requested"),
+        tone: "info",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        payload: {
+          requestId: "user-input-request-1",
+          questions: [
+            {
+              id: "sandbox_mode",
+              header: "Sandbox",
+              question: "Which mode should be used?",
+              options: [
+                {
+                  label: "workspace-write",
+                  description: "Allow workspace writes only",
+                },
+              ],
+            },
+          ],
         },
+        turnId: null,
         createdAt: now,
-      }),
-    );
+      },
+      createdAt: now,
+    });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.user-input.respond",
-        commandId: CommandId.make("cmd-user-input-respond-stale"),
-        threadId: ThreadId.make("thread-1"),
-        requestId: asApprovalRequestId("user-input-request-1"),
-        answers: {
-          sandbox_mode: "workspace-write",
-        },
-        createdAt: now,
-      }),
-    );
+    await runDispatch(harness, {
+      type: "thread.user-input.respond",
+      commandId: CommandId.make("cmd-user-input-respond-stale"),
+      threadId: ThreadId.make("thread-1"),
+      requestId: asApprovalRequestId("user-input-request-1"),
+      answers: {
+        sandbox_mode: "workspace-write",
+      },
+      createdAt: now,
+    });
 
     await waitFor(async () => {
       const readModel = await harness.readModel();
@@ -3585,34 +3588,30 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-for-stop"),
+    await runDispatch(harness, {
+      type: "thread.session.set",
+      commandId: CommandId.make("cmd-session-set-for-stop"),
+      threadId: ThreadId.make("thread-1"),
+      session: {
         threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "ready",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex_work"),
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          queuedMessages: { steering: [], followUp: [] },
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
+        status: "ready",
+        providerName: "codex",
+        providerInstanceId: ProviderInstanceId.make("codex_work"),
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
+        updatedAt: now,
+      },
+      createdAt: now,
+    });
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.stop",
-        commandId: CommandId.make("cmd-session-stop"),
-        threadId: ThreadId.make("thread-1"),
-        createdAt: now,
-      }),
-    );
+    await runDispatch(harness, {
+      type: "thread.session.stop",
+      commandId: CommandId.make("cmd-session-stop"),
+      threadId: ThreadId.make("thread-1"),
+      createdAt: now,
+    });
 
     await waitFor(() => harness.stopSession.mock.calls.length === 1);
     const readModel = await harness.readModel();
