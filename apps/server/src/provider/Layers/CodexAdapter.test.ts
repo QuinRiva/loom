@@ -166,6 +166,10 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   emit(event: ProviderEvent) {
     return Queue.offer(this.eventQueue, event).pipe(Effect.asVoid);
   }
+
+  emitUnsafe(event: ProviderEvent) {
+    Queue.offerUnsafe(this.eventQueue, event);
+  }
 }
 
 function makeRuntimeFactory() {
@@ -1206,6 +1210,148 @@ scopedLifecycleLayer("CodexAdapterLive scoped lifecycle", (it) => {
         asThreadId("thread-stop"),
       ]);
       NodeAssert.equal(yield* adapter.hasSession(asThreadId("thread-stop")), false);
+    }),
+  );
+});
+
+// `emitsExitOnStop` correctness (post-completion engagement plan §7 / round-5
+// review). `ProviderService` uses this capability to decide whether a stopped
+// launch still owes a `session.exited`, and declaring it wrongly silently breaks
+// workspace-hold accounting: `false` on an emitter lets the straggler release a
+// LIVE launch's hold and expose a running process to `git worktree remove --force`.
+//
+// The existing scoped-lifecycle test cannot catch that, because its fake runtime's
+// `close` emits nothing — it asserts the scope is released, not what reaches the
+// event stream. So this asserts the declaration against the adapter's REAL
+// `streamEvents`, with a runtime whose `close` reproduces the ordering of the
+// production `CodexSessionRuntime.close` (`CodexSessionRuntime.ts:1318-1337`):
+// offer `session/closed` onto the runtime's own event queue, then tear the scope
+// down (which in production kills a child process, closes the client layer, and
+// interrupts three fibres forked into `runtimeScope` — all real yield points),
+// then shut the queues. The adapter translates `session/closed` → `session.exited`
+// (`CodexAdapter.ts:671-679`).
+// `closeImpl` performs the offer, reproducing the production ordering: the
+// `session/closed` notification is queued by `close`, before the queues would shut
+// down. `Queue.offerUnsafe` keeps this synchronous, matching the base fake's own
+// synchronous queue construction and avoiding a manual Effect runtime in a test.
+const makeClosingRuntime = (options: CodexSessionRuntimeOptions) => {
+  const runtime = new FakeCodexRuntime(options);
+  runtime.closeImpl.mockImplementation(() => {
+    runtime.emitUnsafe({
+      id: asEventId("evt-codex-session-closed"),
+      kind: "notification",
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      method: "session/closed",
+      threadId: asThreadId("thread-emits-exit"),
+      message: "Session stopped",
+    } as ProviderEvent);
+    return Promise.resolve(undefined);
+  });
+  return runtime;
+};
+
+const emitsExitRuntimeFactory = (() => {
+  const runtimes: Array<FakeCodexRuntime> = [];
+  const factory = vi.fn((options: CodexSessionRuntimeOptions) =>
+    Effect.gen(function* () {
+      yield* Scope.Scope;
+      // Production's session scope owns the whole `CodexSessionRuntime` — the
+      // spawned app-server child (killed with a force-kill timer), the CodexClient
+      // layer, and three fibres forked into `runtimeScope`. Closing it therefore
+      // yields, which is what lets the event fibre drain the `session/closed` offer
+      // before `stopSessionInternal` interrupts it. The yielding finalizer below
+      // reproduces that; without it the mock scope closes synchronously and the
+      // event is lost to the interrupt — an artefact of the mock, not the adapter.
+      yield* Effect.addFinalizer(() => Effect.yieldNow);
+      const runtime = makeClosingRuntime(options);
+      runtimes.push(runtime);
+      return runtime;
+    }),
+  );
+  return {
+    factory,
+    get lastRuntime(): FakeCodexRuntime | undefined {
+      return runtimes.at(-1);
+    },
+  };
+})();
+
+const emitsExitLayer = it.layer(
+  Layer.effect(
+    CodexAdapter,
+    Effect.gen(function* () {
+      const codexConfig = decodeCodexSettings({});
+      return yield* makeCodexAdapter(codexConfig, {
+        makeRuntime: emitsExitRuntimeFactory.factory,
+      });
+    }),
+  ).pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+emitsExitLayer("CodexAdapterLive emitsExitOnStop declaration", (it) => {
+  it.effect("stopSession yields session.exited on the real event stream", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const threadId = asThreadId("thread-emits-exit");
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      // Collect into a local array rather than `runHead`: `stopSession` tears the
+      // session's event fibre down, so a fibre awaiting the stream's head can be
+      // left pending. Observing side-effectfully asserts what was actually
+      // delivered, without depending on the stream terminating.
+      const observed: Array<string> = [];
+      yield* Effect.forkChild(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            observed.push(event.type);
+          }),
+        ),
+        { startImmediately: true },
+      );
+
+      // `streamEvents` is a CONSUMING read off one queue, and the forked observer is
+      // not subscribed the instant it is forked. Emit a warm-up notification and
+      // wait until it lands: that proves the observer is attached, so a later
+      // absence is a real absence rather than a subscription race.
+      const runtime = emitsExitRuntimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      yield* runtime.emit({
+        id: asEventId("evt-observer-warmup"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "session/closed",
+        threadId,
+        message: "warm-up",
+      } as ProviderEvent);
+      while (observed.length === 0) {
+        yield* Effect.yieldNow;
+      }
+      const beforeStop = observed.length;
+
+      yield* adapter.stopSession(threadId);
+      yield* Effect.yieldNow;
+
+      NodeAssert.ok(
+        observed.length > beforeStop && observed.at(-1) === "session.exited",
+        `CodexAdapter.stopSession produced no session.exited on its real event stream (saw: ${observed.join(", ")})`,
+      );
+
+      // The declaration must match the behaviour just observed. This is the check
+      // the flag battery in ProviderService.test.ts structurally cannot make: that
+      // enforces flag-vs-fake consistency, this pins flag-vs-real-adapter.
+      NodeAssert.equal(adapter.capabilities.emitsExitOnStop, true);
     }),
   );
 });

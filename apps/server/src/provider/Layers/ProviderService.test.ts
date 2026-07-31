@@ -64,6 +64,9 @@ import {
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
+import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
+
+const WorkspaceLeaseTestLive = Layer.effect(WorkspaceLease, makeWorkspaceLease);
 
 const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTest();
 
@@ -90,7 +93,14 @@ type LegacyProviderRuntimeEvent = {
   readonly [key: string]: unknown;
 };
 
-function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
+function makeFakeCodexAdapter(
+  provider: ProviderDriverKind = CODEX_DRIVER,
+  // Mirrors the real capability: `true` = this driver's `stopSession` produces a
+  // `session.exited` (PiDriver/OpenCode/Grok/Claude/Cursor), `false` = it stops
+  // silently (Codex). Workspace-hold accounting branches on it, so tests must be
+  // able to exercise both.
+  options?: { readonly emitsExitOnStop?: boolean },
+) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
 
@@ -216,6 +226,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     provider,
     capabilities: {
       sessionModelSwitch: "in-session",
+      emitsExitOnStop: options?.emitsExitOnStop ?? true,
     },
     startSession,
     sendTurn,
@@ -236,6 +247,17 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
 
   const emit = (event: LegacyProviderRuntimeEvent): void => {
     Effect.runSync(PubSub.publish(runtimeEventPubSub, event as unknown as ProviderRuntimeEvent));
+  };
+
+  // Emit a `session.exited` the way EVERY real driver does: the adapter's live
+  // session entry is removed before/as the event is published (`PiDriver.ts:1853`
+  // → `:1868`, `ClaudeAdapter.ts:3187`, `CodexAdapter.ts:1741`,
+  // `OpenCodeAdapter.ts:1678`, `GrokAdapter.ts:539`, `CursorAdapter.ts:501`).
+  // Publishing an exit while `hasSession` still reports true would model a
+  // process that died without the driver noticing, which no driver does.
+  const emitSessionExited = (event: LegacyProviderRuntimeEvent): void => {
+    sessions.delete(event.threadId);
+    emit(event);
   };
 
   const updateSession = (
@@ -265,6 +287,7 @@ function makeFakeCodexAdapter(provider: ProviderDriverKind = CODEX_DRIVER) {
     readThread,
     rollbackThread,
     stopAll,
+    emitSessionExited,
   };
 }
 
@@ -307,6 +330,7 @@ function makeProviderServiceLayer() {
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -358,6 +382,7 @@ it.effect("ProviderServiceLive catches stopAll failures during shutdown", () =>
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -417,6 +442,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
       Layer.provide(providerAdapterLayer),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -501,6 +527,7 @@ it.effect(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(serverSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -571,6 +598,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
       Layer.provide(providerAdapterLayer),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -630,6 +658,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -695,6 +724,7 @@ it.effect(
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -761,6 +791,7 @@ it.effect(
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -803,6 +834,7 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -892,6 +924,7 @@ it.effect(
         Layer.provideMerge(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -991,6 +1024,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -1060,6 +1094,7 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
       Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -1136,6 +1171,7 @@ it.effect("ProviderServiceLive does not rewrite already-stopped bindings on shut
           Layer.provide(directoryLayer),
           Layer.provide(defaultServerSettingsLayer),
           Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(
             Layer.succeed(
               ProviderEventLoggers.ProviderEventLoggers,
@@ -1202,6 +1238,7 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
       Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -1268,6 +1305,7 @@ it.effect(
         ),
         Layer.provide(firstDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1327,6 +1365,7 @@ it.effect(
         ),
         Layer.provide(secondDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1842,6 +1881,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(firstDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1880,6 +1920,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(secondDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1948,6 +1989,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(firstDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
             Layer.succeed(
@@ -1981,6 +2023,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(secondDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
             Layer.succeed(
@@ -2427,3 +2470,721 @@ validation.layer("ProviderServiceLive validation", (it) => {
     }),
   );
 });
+
+// Capability: occupancy outlives projection staleness (plan §7.4, test 6).
+//
+// The bug: when a provider process dies, the driver removes its in-memory entry
+// and emits `session.exited`, but nothing persisted the stop — ten
+// `provider_session_runtime` rows were observed reading `running` against zero
+// live pi processes. Occupancy built on those rows would have traded a
+// destructive race for a permanent worktree leak, so the exit must release the
+// lease AND reconcile the row, in the same breath.
+it.effect("a process death without clean shutdown releases the lease and reconciles the row", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-workspace");
+    // One persistence instance shared by the service and the row assertion:
+    // `SqlitePersistenceMemory` builds a fresh database per layer construction.
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-death");
+    const resolvedWorkspace = NodePath.resolve(workspace);
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      // Let the adapter event subscription attach before anything is emitted.
+      yield* advanceTestClock(10);
+      yield* provider.startSession(threadId, {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId,
+        cwd: workspace,
+        runtimeMode: "full-access",
+      });
+
+      // The session start took the hold, so no remover can delete this tree.
+      assert.equal((yield* lease.occupiedPaths).has(resolvedWorkspace), true);
+      assert.equal(Option.isNone(yield* lease.withExclusive(workspace, Effect.void)), true);
+
+      // The process dies. No stopSession, no clean shutdown — just the exit
+      // event the driver emits from its process `exit` handler (which, as in
+      // every real driver, has already dropped the live session entry).
+      codex.emitSessionExited({
+        eventId: asEventId("evt-lease-death"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "session.exited",
+        payload: { reason: "Pi RPC process exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+
+      // Lease released: the workspace is collectable again, so a crash cannot
+      // make a worktree immortal.
+      assert.equal((yield* lease.occupiedPaths).has(resolvedWorkspace), false);
+      assert.equal(Option.isSome(yield* lease.withExclusive(workspace, Effect.void)), true);
+
+      // Row reconciled at death, not merely at the next startup sweep.
+      const repository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const runtime = yield* repository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime)) {
+        assert.equal(runtime.value.status, "stopped");
+      }
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// Round-1 review finding 2: a stale exit event for a SUPERSEDED launch must not
+// release the live launch's hold. `PiDriver` guards exactly this with
+// `replacedProcesses` (a swapped-out process's exit must not tear down its
+// replacement); the lease needs the same launch-scoped identity, because a
+// restart on model/instance/runtime-mode change re-launches into the SAME cwd
+// (`ProviderCommandReactor` restarts without requiring `cwdChanged`).
+it.effect("a superseded launch's exit event does not release the live launch's hold", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-superseded");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-superseded");
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      // Launch 1, then a restart into the SAME cwd — launch 2 is now the live
+      // process holding this workspace.
+      yield* start();
+      yield* start();
+
+      // Launch 1's process finally dies; its exit event lands late.
+      codex.emitSessionExited({
+        eventId: asEventId("evt-superseded-exit"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "session.exited",
+        payload: { reason: "superseded process exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+
+      // Launch 2 is still live, so the workspace must stay protected.
+      assert.equal(
+        Option.isNone(yield* lease.withExclusive(workspace, Effect.void)),
+        true,
+        "a superseded launch's exit released the live launch's hold",
+      );
+
+      // Absorbing the predecessor's exit must not make the live launch's hold
+      // un-releasable: when launch 2 itself dies, the workspace is collectable.
+      // (Otherwise finding 2's fix would trade a deletion race for a leak.)
+      codex.emitSessionExited({
+        eventId: asEventId("evt-live-exit"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        type: "session.exited",
+        payload: { reason: "live process exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+      assert.equal(
+        Option.isSome(yield* lease.withExclusive(workspace, Effect.void)),
+        true,
+        "the live launch's own exit failed to release its hold",
+      );
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// Round-2 review (residual of finding 2): an explicit stop ALSO produces an
+// asynchronous `session.exited` — PiDriver's `stopSession` does not add the
+// process to `replacedProcesses`, so its `child.once("exit")` handler emits
+// (`PiDriver.ts:2424-2438` → `:1846-1876`), and `OpenCodeAdapter.stopSession`
+// emits directly (`:1682-1690`). So a stop supersedes its launch exactly as a
+// restart does, and must record the same absorption debt: otherwise a
+// stop→restart→late-exit ordering releases the LIVE launch's hold.
+it.effect("a stopped launch's late exit does not release the next launch's hold", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-stop-restart");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-stop-restart");
+    const exited = (eventId: string, at: string) =>
+      codex.emitSessionExited({
+        eventId: asEventId(eventId),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: at,
+        type: "session.exited",
+        payload: { reason: "process exited.", recoverable: false, exitKind: "graceful" },
+      });
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      // 1. Launch 1 holds the workspace.
+      yield* start();
+      // 2. The human stops the thread. The adapter's exit event is NOT delivered
+      //    yet — that is the whole point of the ordering.
+      yield* provider.stopSession({ threadId });
+      // 3. The human sends a new message: launch 2 spawns into the same cwd.
+      yield* start();
+      // 4. Launch 1's exit finally lands.
+      exited("evt-stopped-late-exit", "2026-01-01T00:00:00.000Z");
+      yield* advanceTestClock(20);
+
+      // Launch 2's pi process is live, so the workspace must stay protected.
+      assert.equal(
+        Option.isNone(yield* lease.withExclusive(workspace, Effect.void)),
+        true,
+        "a stopped launch's late exit released the live launch's hold",
+      );
+
+      // And the debt must not outlive its purpose: launch 2's own exit still
+      // releases, or the fix trades a deletion race for a permanent leak.
+      exited("evt-live-exit-after-stop", "2026-01-01T00:00:01.000Z");
+      yield* advanceTestClock(20);
+      assert.equal(
+        Option.isSome(yield* lease.withExclusive(workspace, Effect.void)),
+        true,
+        "the live launch's own exit failed to release its hold",
+      );
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// The failure mode the stop-path debt could introduce: a debt that outlives its
+// purpose would absorb a LATER real exit and immortalise the workspace. Guards
+// the stop→exit→start→exit ordering, i.e. the stop's exit arrives (spending the
+// debt) before the next launch, whose own exit must then still release.
+it.effect("a stop's absorption debt does not survive to swallow a later launch's exit", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-stop-exit-start");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-stop-exit-start");
+    const exited = (eventId: string, at: string) =>
+      codex.emitSessionExited({
+        eventId: asEventId(eventId),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: at,
+        type: "session.exited",
+        payload: { reason: "process exited.", recoverable: false, exitKind: "graceful" },
+      });
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      yield* start();
+      yield* provider.stopSession({ threadId });
+      // The stopped launch's exit lands BEFORE any new launch, spending the debt.
+      exited("evt-stop-exit-first", "2026-01-01T00:00:00.000Z");
+      yield* advanceTestClock(20);
+      // Nothing is live, so the workspace is collectable.
+      assert.equal(Option.isSome(yield* lease.withExclusive(workspace, Effect.void)), true);
+
+      // A fresh launch now holds it, and its own exit must still release: a
+      // stale debt here would leave the workspace permanently un-removable.
+      yield* start();
+      assert.equal(Option.isNone(yield* lease.withExclusive(workspace, Effect.void)), true);
+      exited("evt-fresh-launch-exit", "2026-01-01T00:00:02.000Z");
+      yield* advanceTestClock(20);
+      assert.equal(
+        Option.isSome(yield* lease.withExclusive(workspace, Effect.void)),
+        true,
+        "a stale absorption debt swallowed the live launch's exit (immortal workspace)",
+      );
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// ---------------------------------------------------------------------------
+// The invariant, asserted directly rather than inferred from whether a removal
+// happens to be refused: AT MOST ONE live hold per thread at any time, and ZERO
+// once the thread has no live process.
+//
+// Every defect found across review rounds 0-2 was a violation of one half of
+// this: a permit leak, a superseded launch's exit releasing the live launch's
+// hold, and a debt that swallowed a real exit (leaving a hold forever). Rather
+// than one regression test per ordering discovered, this drives every ordering
+// now known and checks the invariant after each step, so a future ordering that
+// breaks it fails here even if nobody thought to write its scenario.
+// ---------------------------------------------------------------------------
+it.effect("holds obey at-most-one-live-per-thread across every launch ordering", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-invariant");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-invariant");
+
+    // Liveness is tracked by the test rather than read from the fake adapter: the
+    // fake keeps ONE session slot per thread, so a predecessor's exit clears the
+    // slot even when a successor launch is genuinely live (a real driver's
+    // `startSession` re-registers the successor). `expectLive` is the test's own
+    // model of "is a process running for this thread", which is what the second
+    // half of the invariant is about.
+    const assertInvariant = (label: string, expectLive: boolean) =>
+      Effect.gen(function* () {
+        const holders = yield* lease.holdersOf(workspace);
+        assert.isAtMost(holders.length, 1, `${label}: more than one live hold (${holders.length})`);
+        if (!expectLive) {
+          assert.equal(holders.length, 0, `${label}: hold leaked with no live process`);
+        } else {
+          assert.equal(holders.length, 1, `${label}: live process is not protected by a hold`);
+        }
+      });
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+      const exit = (id: string) =>
+        codex.emitSessionExited({
+          eventId: asEventId(id),
+          provider: ProviderDriverKind.make("codex"),
+          threadId,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          type: "session.exited",
+          payload: { reason: "exited.", recoverable: false, exitKind: "graceful" },
+        });
+
+      yield* assertInvariant("initial", false);
+
+      // 1. plain start, then death.
+      yield* start();
+      yield* assertInvariant("after start", true);
+      exit("inv-1");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after death", false);
+
+      // 2. restart into the same cwd (launch superseded while live), then the
+      //    predecessor's late exit, then the live launch's own exit.
+      yield* start();
+      yield* start();
+      yield* assertInvariant("after restart", true);
+      exit("inv-2-late");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after superseded late exit", true);
+      // The live launch's own exit now releases (one launch, one exit owed).
+      exit("inv-2-live");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after live exit", false);
+
+      // 3. stop that DOES emit an exit, with a restart in between.
+      yield* start();
+      yield* provider.stopSession({ threadId });
+      yield* assertInvariant("after stop", false);
+      yield* start();
+      exit("inv-3-late");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after stopped launch's late exit", true);
+      exit("inv-3-live");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after live exit post-stop", false);
+
+      // 4. stop on a driver that DOES emit, restarted well within the straggler
+      //    window: the stopped launch's exit is genuinely owed, so it must be
+      //    absorbed rather than release the new launch's hold.
+      yield* start();
+      yield* provider.stopSession({ threadId });
+      yield* start();
+      yield* assertInvariant("after emitting stop + sub-window restart", true);
+      exit("inv-4-straggler");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after stopped launch's straggler", true);
+      exit("inv-4-live");
+      yield* advanceTestClock(20);
+      yield* assertInvariant("after live exit", false);
+
+      // 5. runStopAll (shutdown finalizer) leaves nothing held.
+      yield* start();
+      yield* provider.stopSession({ threadId });
+      yield* assertInvariant("after final stop", false);
+    }).pipe(Effect.provide(providerLayer));
+
+    // Scope closed ⇒ the stopAll finalizer has run; nothing may remain held.
+    assert.deepEqual(yield* lease.holdersOf(workspace), []);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// MUST-FIX 1 (round-2 review): a start can fail AFTER spawning a process, and that
+// process still emits `session.exited` — `PiDriver.ts:2159-2162` stops it when
+// `applyModelSelection` fails, which routes through the exit handler
+// (`:1850-1876`). The failed launch must therefore leave an attribution token, or
+// its straggler exit releases the RETRY's hold and exposes a live process.
+//
+// Isolated fixture on purpose: in a longer sequence an earlier token can already
+// have lapsed, leaving `endedLaunches` empty and making the assertion pass whether
+// or not the failed start records a token.
+it.effect("a failed start's straggler exit does not release the retry's hold", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter();
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-failed-start");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-failed-start");
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      // The launch spawns a process and then fails.
+      codex.startSession.mockImplementationOnce(
+        () =>
+          Effect.fail(
+            new ProviderAdapterRequestError({
+              provider: CODEX_DRIVER,
+              method: "startSession",
+              detail: "failed after spawn",
+            }),
+          ) as never,
+      );
+      const failed = yield* Effect.result(start());
+      assert.equal(failed._tag, "Failure", "setup: the start did not fail");
+      assert.deepEqual(yield* lease.holdersOf(workspace), [], "a failed start kept its hold");
+
+      // The turn is retried and its process is now live in the same workspace.
+      yield* start();
+      const retryHolders = yield* lease.holdersOf(workspace);
+      assert.equal(retryHolders.length, 1);
+
+      // The failed launch's process now emits, INSIDE the straggler window. It must
+      // not disturb the retry's hold.
+      codex.emitSessionExited({
+        eventId: asEventId("evt-failed-start-straggler"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "session.exited",
+        payload: { reason: "failed launch exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+      assert.deepEqual(
+        yield* lease.holdersOf(workspace),
+        retryHolders,
+        "a failed start's straggler exit released the retry's hold",
+      );
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// Round-3 review finding (MF2, the ordering that was still broken): a driver whose
+// `stopSession` emits NOTHING (`CodexAdapter`) leaves no exit owed, so a stop must
+// record no attribution token. If it does record one, the next launch's GENUINE
+// exit is absorbed by that stale token and the hold is leaked permanently — the
+// workspace can never be reaped, and there is no backstop for that direction.
+//
+// The restart happens 2s after the stop: deliberately INSIDE the straggler window,
+// because that is the ordinary interaction (stop a thread, send a new message
+// seconds later) and the previous design was correct only after the window lapsed.
+it.effect("a silent-stop driver leaks no hold when restarted within the window", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter(CODEX_DRIVER, { emitsExitOnStop: false });
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-silent-subwindow");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-silent-subwindow");
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      yield* start();
+      // Silent stop: the adapter tears the session down without emitting.
+      yield* provider.stopSession({ threadId });
+      // The user sends a new message seconds later — well inside the window.
+      yield* advanceTestClock(2_000);
+      yield* start();
+      assert.equal((yield* lease.holdersOf(workspace)).length, 1, "the retry holds the workspace");
+
+      // This launch genuinely dies. Its exit must release the hold, not be eaten.
+      codex.emitSessionExited({
+        eventId: asEventId("evt-silent-subwindow"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "session.exited",
+        payload: { reason: "process exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+      assert.deepEqual(
+        yield* lease.holdersOf(workspace),
+        [],
+        "the live launch's exit was absorbed by a stale token — hold leaked",
+      );
+
+      // And the leak is not merely deferred: ten minutes on, still released.
+      yield* advanceTestClock(10 * 60_000);
+      assert.deepEqual(yield* lease.holdersOf(workspace), []);
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+// The reviewer's round-2 MF2 scenario, verbatim in shape and timing: silent stop,
+// restart at the default 20ms event spacing (no clock advance between stop and
+// start), then the live launch genuinely dies. This is the repro that still failed
+// after round 3 — it passed only when a >30s wait was inserted, i.e. only when the
+// straggler window had lapsed. It must now pass with no wait at all.
+it.effect("MF2 repro: silent stop then immediate restart, live exit still releases", () =>
+  Effect.gen(function* () {
+    const codex = makeFakeCodexAdapter(CODEX_DRIVER, { emitsExitOnStop: false });
+    const registry = makeAdapterRegistryMock({
+      [ProviderDriverKind.make("codex")]: codex.adapter,
+    });
+    const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const lease = yield* makeWorkspaceLease;
+    const workspace = NodePath.join(NodeOS.tmpdir(), "t3-lease-mf2-repro");
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+      Layer.provideMerge(Layer.mergeAll(directoryLayer, runtimeRepositoryLayer)),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(
+        Layer.succeed(
+          ProviderEventLoggers.ProviderEventLoggers,
+          ProviderEventLoggers.NoOpProviderEventLoggers,
+        ),
+      ),
+    );
+
+    const threadId = asThreadId("thread-lease-mf2-repro");
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      yield* advanceTestClock(10);
+
+      const start = () =>
+        provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: codexInstanceId,
+          threadId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+
+      yield* start();
+      yield* provider.stopSession({ threadId });
+      yield* start();
+      codex.emitSessionExited({
+        eventId: asEventId("evt-mf2-repro"),
+        provider: ProviderDriverKind.make("codex"),
+        threadId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "session.exited",
+        payload: { reason: "process exited.", recoverable: false, exitKind: "error" },
+      });
+      yield* advanceTestClock(20);
+
+      assert.deepEqual(
+        yield* lease.holdersOf(workspace),
+        [],
+        "MF2: the live launch's exit was absorbed by the silent stop's stale token",
+      );
+      assert.equal(Option.isSome(yield* lease.withExclusive(workspace, Effect.void)), true);
+    }).pipe(Effect.provide(providerLayer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

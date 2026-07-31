@@ -117,6 +117,67 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
+// Post-completion engagement — Discuss launch (plan §5.1). The read-only tool
+// allowlist a terminal thread resumes with, identical to the `consult_thread`
+// fork's restriction (`workstreamAsk.READONLY_FORK_TOOLS`): no bash/edit/write.
+// pi applies the allowlist to extension tools too, so this also blocks any
+// workstream tool — but Discuss launches carry no workstream extension anyway
+// (`readOnly` skips the MCP session), which is the structural guarantee.
+const DISCUSS_READONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
+
+// The read-only framing prepended on a Discuss launch: the human is still
+// talking to the same thread, but it can no longer act. Mirrors the fork oracle
+// prompt (`workstreamAsk`) adapted for a resumed (not forked) session.
+const DISCUSS_READONLY_PROMPT =
+  "You are being re-opened READ-ONLY for a human to talk to after your work completed. This is the SAME conversation continuing, with your full history intact — not a fresh session. You have only read-only tools (read, grep, find, ls) and no workstream tools: you cannot edit, run commands, submit, spawn, or otherwise change anything. Answer the human's questions about the work you did — your reasoning, decisions, and code — using the context already in this session. If asked to make a change, explain that this is a read-only discussion and the change would need a fresh work episode.";
+
+// The relocation clause, appended when the thread's workspace has moved since the
+// session originally ran (plan §5.1). Derived from durable state: a recorded
+// `finalCommitSha` proves the child was disposed by fan-in/cancel and its
+// original checkout removed, so the tree it now sees is the parent's current
+// state, and absolute paths it remembers are historical.
+const discussRelocationClause = (finalCommitSha: string | null): string =>
+  `Your work was merged and its original working directory no longer exists.${
+    finalCommitSha ? ` Your work was committed as \`${finalCommitSha}\`.` : ""
+  } The files you see now are the parent's CURRENT state, which has moved on since you finished — any absolute paths you remember are historical. Exact historical file contents live in git at that commit.`;
+
+// Post-completion engagement — the two durable-state decisions of Phase 1,
+// extracted as pure functions so the capability is unit-testable without the
+// provider harness (plan §5.1/§5.3/§8 item 4).
+
+/**
+ * Discuss-launch decision (plan §5.1/§5.3): a thread in a terminal lane
+ * (`done`/`cancelled`) that has provably run — its pi session file exists —
+ * resumes READ-ONLY. Every other thread takes the normal full launch. Session
+ * existence is required so a terminal thread that never actually ran (no session)
+ * is not mistaken for a completed interlocutor.
+ */
+export const isDiscussLaunch = (input: {
+  readonly planLane: string;
+  readonly sessionFileExists: boolean;
+}): boolean =>
+  (input.planLane === "done" || input.planLane === "cancelled") && input.sessionFileExists;
+
+/**
+ * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
+ * an isolated child ONLY when it has NOT provably run (no session file) AND its
+ * branch still points at the parent (never provisioned). A thread whose session
+ * file exists has run — fan-in repoints its branch to the parent's, so the
+ * branch-name predicate alone can no longer distinguish "never provisioned" from
+ * "provisioned, fanned in, worktree reaped"; session-file existence resolves it.
+ * Re-provisioning a thread that has run is the bug that cut a fresh worktree and
+ * re-delivered the kickoff brief to a completed child.
+ */
+export const shouldReprovisionIsolatedChild = (input: {
+  readonly sessionFileExists: boolean;
+  readonly isolation: string;
+  readonly branch: string | null;
+  readonly threadId: ThreadId;
+}): boolean =>
+  !input.sessionFileExists &&
+  input.isolation === "isolated" &&
+  !isProvisionedChildBranch(input.branch, input.threadId);
+
 const activeGoalContextInstruction = (
   goal: OrchestrationGoal,
   opts?: { readonly asChildBackground?: boolean },
@@ -614,9 +675,26 @@ const make = Effect.gen(function* () {
       }
     }
     const project = yield* resolveProject(thread.projectId);
+    // Canonical workspace cwd: the thread's worktree if provisioned, else the
+    // project workspaceRoot. The existence-check fallback for a DANGLING worktree
+    // (relocated/reaped) lives at the launch boundary (PiDriver), NOT here — the
+    // reactor's cwd drives cwd-change restart detection, which must compare the
+    // recorded worktree path, not an existence-substituted one.
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: project ? [project] : [],
+    });
+
+    // Discuss launch (plan §5.1/§5.3): the engagement mode is a pure function of
+    // durable thread state at launch time. A thread in a terminal lane
+    // (done/cancelled) that has provably run (its session file exists) resumes
+    // READ-ONLY: read-only tools, no workstream extension, a relocation preamble
+    // — no lane change, no spawnGeneration bump, no parent notification (a
+    // sticky-terminal turn-start touches none of those). Every other thread
+    // takes the normal full launch. (Edit mode is a later phase.)
+    const discussMode = isDiscussLaunch({
+      planLane: thread.planLane,
+      sessionFileExists: resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined,
     });
 
     const startProviderSession = (input?: {
@@ -624,6 +702,35 @@ const make = Effect.gen(function* () {
       readonly provider?: ProviderDriverKind;
     }) =>
       Effect.gen(function* () {
+        // Discuss launch (plan §5.1): a read-only resume of the same session.
+        // Structurally incapable of mutating anything — `readOnly` skips the
+        // workstream MCP session (so no workstream extension / T3_WORKSTREAM env)
+        // and the tool surface is the read-only allowlist. The role overlay,
+        // goal context, ship policy and skills are all omitted: this is an
+        // interrogation of completed work, not a work episode. The relocation
+        // clause is appended only when the workspace moved (finalCommitSha set).
+        if (discussMode) {
+          const discussPrompt = [
+            DISCUSS_READONLY_PROMPT,
+            thread.finalCommitSha != null || thread.worktreePath === null
+              ? discussRelocationClause(thread.finalCommitSha ?? null)
+              : undefined,
+          ]
+            .filter((part): part is string => !!part && part.trim().length > 0)
+            .join("\n\n");
+          return yield* providerService.startSession(threadId, {
+            threadId,
+            ...(preferredProvider ? { provider: preferredProvider } : {}),
+            providerInstanceId: desiredInstanceId,
+            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+            modelSelection: desiredModelSelection,
+            ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+            appendSystemPrompt: discussPrompt,
+            tools: [...DISCUSS_READONLY_TOOLS],
+            readOnly: true,
+            runtimeMode: desiredRuntimeMode,
+          });
+        }
         const goalSystemPrompt = yield* buildGoalSystemPrompt(thread);
         // Compose the role overlay ahead of the goal context. The driver
         // prepends PI_WORK_MODEL_SYSTEM_PROMPT, so the effective reading order is
@@ -1110,8 +1217,25 @@ const make = Effect.gen(function* () {
     // turn. The predicate is restart-safe: it reads the child's own durable
     // branch meta, not the in-process failed-provision marker. Idempotent — an
     // already-provisioned child (its own `ws/…` branch) skips it.
+    // Post-completion engagement (plan §8 item 4 — the defect B fix): a thread
+    // whose pi session file EXISTS has provably run, so it must never be
+    // re-provisioned and never treated as a never-started child (no kickoff-brief
+    // re-delivery). Fan-in repoints the branch to the parent's, which makes the
+    // branch-name predicate below unable to tell "never provisioned" from
+    // "provisioned, fanned in, worktree reaped" — it guesses the former and cuts a
+    // fresh worktree + re-delivers the brief to a completed thread. Session-file
+    // existence is the durable, unambiguous "has provably run" proof. The
+    // re-provision path below stays for GENUINELY never-started children (no
+    // session file yet) — its legitimate purpose.
     let recoveredNeverStartedChild = false;
-    if (thread.isolation === "isolated" && !isProvisionedChildBranch(thread.branch, thread.id)) {
+    if (
+      shouldReprovisionIsolatedChild({
+        sessionFileExists: resolveSessionFilePath(piSessionIdForThread(thread.id)) !== undefined,
+        isolation: thread.isolation,
+        branch: thread.branch,
+        threadId: thread.id,
+      })
+    ) {
       const provisioned = yield* worktreeProvisioner.ensureIsolatedChildProvisioned({
         threadId: thread.id,
         role: thread.role ?? "child",

@@ -87,6 +87,13 @@ export const ProviderSessionStartInput = Schema.Struct({
   // whose system-level policy must differ. Deliberately forfeits the fork
   // cache-prefix optimisation. Pi-only; ignored without forkFromThreadId.
   forkIdentity: Schema.optional(Schema.Literals(["replay", "compose"])),
+  // Post-completion engagement — Discuss launch (plan §5.1). When true the
+  // session resumes READ-ONLY: no workstream MCP session is prepared, so the
+  // launch carries no workstream extension and no `T3_WORKSTREAM_*` env and thus
+  // structurally cannot mutate orchestration (submit/spawn/dispatch). The caller
+  // also passes a read-only `tools` allowlist. Derived from durable thread state
+  // (terminal plan lane) at launch time; never a client-set flag.
+  readOnly: Schema.optional(Schema.Boolean),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

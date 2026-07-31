@@ -300,7 +300,14 @@ describe("lane ordering does not change the resulting schema", () => {
     Effect.gen(function* () {
       const twoLane = yield* onFreshDb(
         Effect.gen(function* () {
-          yield* runAllMigrations();
+          // Cap the loom lane at the reconciliation point: the equivalence claim
+          // is split-reconstruction == historical interleave for the SHARED
+          // history. Fork migrations added after the split (1033+) legitimately
+          // EXTEND the schema beyond history (same principle the row-identity
+          // test above scopes to `<= LAST_RECONCILED_LOOM_ID`), so comparing the
+          // full current schema to the frozen historical one would spuriously
+          // fail the moment any post-split migration adds a column.
+          yield* runAllMigrations({ toLoomMigrationInclusive: LAST_RECONCILED_LOOM_ID });
           return yield* schemaFingerprint;
         }),
       );

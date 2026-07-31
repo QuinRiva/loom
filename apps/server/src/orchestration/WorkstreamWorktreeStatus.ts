@@ -25,6 +25,7 @@ import { WorktreeReaper } from "./Services/WorktreeReaper.ts";
 import { performWorktreeRemoval } from "./worktreeRemoval.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
+import { WorkspaceLease } from "../workspace/WorkspaceLease.ts";
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 
 /**
@@ -68,9 +69,11 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const gitWorkflow = yield* GitWorkflowService;
   const worktreeMutationLock = yield* WorktreeMutationLock;
+  const workspaceLease = yield* WorkspaceLease;
   const removalDeps = Layer.mergeAll(
     Layer.succeed(GitWorkflowService, gitWorkflow),
     Layer.succeed(WorktreeMutationLock, worktreeMutationLock),
+    Layer.succeed(WorkspaceLease, workspaceLease),
   );
 
   // `du -sk <path>` → resident KiB. Best-effort: a timeout or non-POSIX host
@@ -193,13 +196,22 @@ const make = Effect.gen(function* () {
         return refuse("Could not resolve the repository for this worktree.");
       }
 
-      const { deletedBranch } = yield* performWorktreeRemoval({
+      // `performWorktreeRemoval` gates on the same lease every automated remover
+      // passes through (plan §7). The dirty/unmerged acknowledgements above are
+      // about *commits*; no human can meaningfully acknowledge "a provider
+      // process is writing in here right now". The classification already labels
+      // a held tree `active`, but that is a snapshot — this is the atomic guard.
+      const removal = yield* performWorktreeRemoval({
         cwd,
         path: entry.path,
         branch: entry.branch,
         forceWorktree: dirty,
         deleteBranchWhenMerged: !unmerged,
       }).pipe(Effect.provide(removalDeps));
+      if (Option.isNone(removal)) {
+        return refuse("A provider process is running in this worktree. Stop the thread first.");
+      }
+      const { deletedBranch } = removal.value;
 
       if (entry.threadId !== null) {
         yield* orchestrationEngine

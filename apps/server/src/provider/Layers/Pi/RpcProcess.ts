@@ -177,7 +177,20 @@ export interface PiRpcProcessOptions {
   readonly platform: NodeJS.Platform;
   readonly cwd?: string | undefined;
   // Stable per-thread id; pi create-or-resumes the same session file for it.
+  // Used for FIRST launches (no session file yet) and forks. A resume of an
+  // existing thread uses `sessionFilePath` + `cwdOverride` instead (never
+  // `--session-id` from a possibly-relocated cwd, which silently creates an
+  // empty same-id session — the amnesia mode, plan fact 2).
   readonly sessionId?: string | undefined;
+  // Resume launch (plan §4.2): the absolute path to an EXISTING session file
+  // (`--session <path>`), resolved via `resolveSessionFilePath`. Combined with
+  // `cwdOverride` it resumes the same conversation from a possibly-relocated
+  // working directory. Mutually exclusive with `sessionId`/`forkFrom`.
+  readonly sessionFilePath?: string | undefined;
+  // Resume launch (plan §4.2): pins the session's runtime working directory
+  // (`--cwd <dir>`) so pi does not read the (possibly deleted) header cwd. Valid
+  // ONLY with `sessionFilePath` (the patched pi contract). Absolute path.
+  readonly cwdOverride?: string | undefined;
   // Fork the named source session (id or path) into a fresh session. Combined
   // with `sessionId`, pi creates a throwaway fork with that fresh id and never
   // mutates the source (the `consult_thread` frozen-oracle mechanism). pi errors if
@@ -267,10 +280,17 @@ function describePiExit(input: {
  */
 export function buildPiRpcArgs(options: PiRpcProcessOptions): ReadonlyArray<string> {
   const invocation = buildPiRpcInvocation(options.binaryPath);
+  // Resume of an existing session (`--session <path> --cwd <dir>`) takes
+  // precedence over a first-launch `--session-id`: the patched pi requires
+  // `--cwd` to accompany `--session <path>`, and `--session-id` from a
+  // relocated cwd would silently fork an empty same-id session (amnesia).
+  const isResume = options.sessionFilePath !== undefined;
   return [
     ...invocation.args,
     ...(options.forkFrom ? ["--fork", options.forkFrom] : []),
-    ...(options.sessionId ? ["--session-id", options.sessionId] : []),
+    ...(isResume ? ["--session", options.sessionFilePath!] : []),
+    ...(isResume && options.cwdOverride ? ["--cwd", options.cwdOverride] : []),
+    ...(!isResume && options.sessionId ? ["--session-id", options.sessionId] : []),
     ...(options.tools && options.tools.length > 0 ? ["--tools", options.tools.join(",")] : []),
     ...(options.skills ?? []).flatMap((skill) => ["--skill", skill]),
     ...(options.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),

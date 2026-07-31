@@ -20,6 +20,11 @@ import type {
 import { TurnId } from "@t3tools/contracts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { layer as WorktreeMutationLockLive } from "../../git/WorktreeMutationLock.ts";
+import {
+  makeWorkspaceLease,
+  WorkspaceLease,
+  type WorkspaceLeaseShape,
+} from "../../workspace/WorkspaceLease.ts";
 import type { GitMergeWorktreeBranchResult } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -65,14 +70,27 @@ const shell = (
     ...over,
   }) as unknown as OrchestrationThreadShell;
 
+// The reactor's occupancy authority. Real instance, not a stub: the point of
+// the lease is its atomicity, and a stub predicate would test nothing.
+const WorkspaceLeaseTestLive = Layer.effect(WorkspaceLease, makeWorkspaceLease);
+
 interface Scenario {
   readonly child: OrchestrationThreadShell;
   readonly others: ReadonlyArray<OrchestrationThreadShell>;
   readonly mergeResult?: GitMergeWorktreeBranchResult;
+  /** Workspace paths a live process holds for the whole pass. */
+  readonly heldPaths?: ReadonlyArray<string>;
+  /**
+   * Acquire a hold from inside a git op, i.e. after the reactor has decided to
+   * remove but before it executes — the TOCTOU shape a snapshot predicate
+   * cannot defend against.
+   */
+  readonly holdDuring?: { readonly onGitCall: string; readonly path: string };
 }
 
 const runReactor = (scenario: Scenario) =>
   Effect.gen(function* () {
+    const lease: WorkspaceLeaseShape = yield* makeWorkspaceLease;
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
     const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
     const record = (ref: Ref.Ref<ReadonlyArray<string>>, tag: string) =>
@@ -109,10 +127,20 @@ const runReactor = (scenario: Scenario) =>
     const gitLayer = Layer.succeed(GitWorkflowService, {
       commitAll: (_cwd: string, subject: string) =>
         record(gitCalls, `commit:${subject}`).pipe(
+          Effect.tap(() =>
+            scenario.holdDuring?.onGitCall === `commit:${subject}`
+              ? lease.hold(scenario.holdDuring.path, "test-late-process")
+              : Effect.void,
+          ),
           Effect.as({ committed: true, commitSha: "sha" }),
         ),
       mergeWorktreeBranch: () =>
         record(gitCalls, "merge").pipe(
+          Effect.tap(() =>
+            scenario.holdDuring?.onGitCall === "merge"
+              ? lease.hold(scenario.holdDuring.path, "test-late-process")
+              : Effect.void,
+          ),
           Effect.as(scenario.mergeResult ?? { status: "merged", conflictPaths: [] }),
         ),
       removeWorktree: () => record(gitCalls, "removeWorktree"),
@@ -124,8 +152,13 @@ const runReactor = (scenario: Scenario) =>
       Layer.provide(projectionLayer),
       Layer.provide(gitLayer),
       Layer.provide(WorktreeMutationLockLive),
+      Layer.provide(Layer.succeed(WorkspaceLease, lease)),
       Layer.provideMerge(NodeServices.layer),
     );
+
+    for (const path of scenario.heldPaths ?? []) {
+      yield* lease.hold(path, "test-process");
+    }
 
     yield* Effect.gen(function* () {
       const reactor = yield* WorkstreamFanInReactor;
@@ -134,6 +167,7 @@ const runReactor = (scenario: Scenario) =>
     }).pipe(Effect.scoped, Effect.provide(layer));
 
     return {
+      lease,
       dispatched: yield* Ref.get(dispatched),
       gitCalls: yield* Ref.get(gitCalls),
     };
@@ -314,6 +348,7 @@ describe("WorkstreamFanInReactor", () => {
           Layer.provide(projectionLayer),
           Layer.provide(gitLayer),
           Layer.provide(WorktreeMutationLockLive),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provideMerge(NodeServices.layer),
         );
 
@@ -520,6 +555,7 @@ describe("WorkstreamFanInReactor", () => {
             Layer.provide(projectionLayer),
             Layer.provide(gitLayer),
             Layer.provide(WorktreeMutationLockLive),
+            Layer.provide(WorkspaceLeaseTestLive),
             Layer.provideMerge(NodeServices.layer),
           );
 
@@ -611,6 +647,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(projectionLayer),
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -691,6 +728,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(projectionLayer),
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -824,6 +862,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(projectionLayer),
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -921,6 +960,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(projectionLayer),
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -994,4 +1034,112 @@ describe("WorkstreamFanInReactor", () => {
         }),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Capability: a worktree is never removed under a live process (plan §7, test 5)
+  //
+  // The regression these guard is the reported production failure: a human
+  // resumed a `done`, fanned-in child; turn-start re-provisioned its worktree;
+  // three seconds later this reactor's sweep deleted that worktree and pi died
+  // with "Stored session working directory does not exist". The old occupancy
+  // predicate read a terminal plan lane as "nobody is using this directory",
+  // which is precisely false for the thread a human is talking to.
+  // ---------------------------------------------------------------------------
+
+  it.effect("a worktree is never removed under a live process (§1.1 sequence)", () =>
+    Effect.gen(function* () {
+      // The exact production shape: lane `done`, fan-in already `completed`, and
+      // a hold taken by the resume's turn-start. This is the deferred-removal
+      // sweep, re-armed — as it was live — by the resume's own session-set.
+      const { gitCalls } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        heldPaths: ["/wt/child"],
+      });
+      expect(gitCalls).not.toContain("removeWorktree");
+      expect(gitCalls).not.toContain("deleteBranch");
+    }),
+  );
+
+  it.effect("a merge still lands while the child's workspace is held; only removal defers", () =>
+    Effect.gen(function* () {
+      // The lease guards the checkout, not the merge: the child's commits must
+      // still reach the parent (and its dependents must still release) while a
+      // human is mid-conversation with it.
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        heldPaths: ["/wt/child"],
+      });
+      expect(gitCalls).toContain("merge");
+      expect(fanInStates(dispatched)).toContain("completed");
+      expect(gitCalls).not.toContain("removeWorktree");
+    }),
+  );
+
+  it.effect("TOCTOU: a hold taken after the removal decision defeats the removal", () =>
+    Effect.gen(function* () {
+      // A snapshot predicate passes this test's setup and then deletes the
+      // worktree anyway — the process starts between check and `git worktree
+      // remove`. Here the hold is acquired during the merge, i.e. after the
+      // reactor has already decided to remove, and the removal must still be
+      // refused because the lease is taken at removal time, not decision time.
+      const { gitCalls } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        holdDuring: { onGitCall: "merge", path: "/wt/child" },
+      });
+      expect(gitCalls).toContain("merge");
+      expect(gitCalls).not.toContain("removeWorktree");
+    }),
+  );
+
+  it.effect("a skipped removal is retried and succeeds once the last hold releases", () =>
+    Effect.gen(function* () {
+      // Skipping is safe precisely because the pass is idempotent and periodic:
+      // the same child, same state, one released hold later, is now removable.
+      const first = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        heldPaths: ["/wt/child"],
+      });
+      expect(first.gitCalls).not.toContain("removeWorktree");
+
+      const second = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+      });
+      expect(second.gitCalls).toContain("removeWorktree");
+      expect(second.gitCalls).toContain("deleteBranch");
+    }),
+  );
+
+  it.effect("a cancelled child's worktree survives while a process holds it", () =>
+    Effect.gen(function* () {
+      // Cancelled children take the other removal path (`doCancelled`), which
+      // must be gated too — otherwise Defect A simply moves. The `wip: cancelled`
+      // snapshot commit still runs (it is idempotent and preserves work).
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild({ planLane: "cancelled", fanInState: "none" }),
+        others: [parent],
+        heldPaths: ["/wt/child"],
+      });
+      expect(gitCalls).toContain("commit:wip: cancelled");
+      expect(gitCalls).not.toContain("removeWorktree");
+      // Meta is NOT repointed either: repointing without removing would hide the
+      // worktree from this disposition on every later pass.
+      expect(dispatched.filter((c) => c.type === "thread.meta.update")).toEqual([]);
+    }),
+  );
+
+  it.effect("holding an unrelated workspace does not defer the child's removal", () =>
+    Effect.gen(function* () {
+      const { gitCalls } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        heldPaths: ["/wt/some-other-child"],
+      });
+      expect(gitCalls).toContain("removeWorktree");
+    }),
+  );
 });

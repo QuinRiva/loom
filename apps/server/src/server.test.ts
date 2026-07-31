@@ -78,6 +78,7 @@ import * as ServerConfig from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
 import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
+import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceLease.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";
@@ -710,6 +711,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(WorktreeMutationLockLive),
+      Layer.provide(WorkspaceLeaseLive),
       Layer.provide(NodeServices.layer),
     );
 
@@ -720,6 +722,10 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mergeAll(
           worktreeProvisionerLayer,
+          // The ws RPC layer consumes WorkspaceLease too (vcsRemoveWorktree is
+          // lease-gated), so it must be a sibling here, not only nested inside
+          // the provisioner layer.
+          WorkspaceLeaseLive,
           Layer.mock(Keybindings.Keybindings)({
             loadConfigState: Effect.succeed({
               keybindings: [],

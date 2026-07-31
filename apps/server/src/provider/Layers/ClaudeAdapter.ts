@@ -4056,6 +4056,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      // `stopSession` calls `stopSessionInternal({ emitExitEvent: true })`
+      // (:4013-4017 → :3171-3185). Only the layer finalizer and the
+      // replace-existing-session path suppress the event.
+      emitsExitOnStop: true,
     },
     startSession,
     sendTurn,

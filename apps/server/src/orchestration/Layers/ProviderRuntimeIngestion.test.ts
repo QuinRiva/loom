@@ -123,7 +123,8 @@ function createProviderServiceHarness() {
       }),
     getSession: (threadId) =>
       Effect.succeed(runtimeSessions.find((session) => session.threadId === threadId)),
-    getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
+    getCapabilities: () =>
+      Effect.succeed({ sessionModelSwitch: "in-session", emitsExitOnStop: true }),
     getInstanceInfo: (instanceId) => {
       const driverKind = ProviderDriverKind.make(String(instanceId));
       return Effect.succeed({

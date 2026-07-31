@@ -1788,6 +1788,29 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      // USUALLY emits, so declared true. `stopSession` → `stopSessionInternal`
+      // (:1734-1745) → `CodexSessionRuntime.close`, which offers a `session/closed`
+      // notification onto this adapter's own event queue BEFORE tearing the runtime
+      // scope down and shutting the queues (`CodexSessionRuntime.ts:1318-1337`);
+      // `mapToRuntimeEvents` translates it to `session.exited` (:671-679).
+      //
+      // Delivery needs one yield between that offer and `Queue.shutdown`, and the
+      // intervening `Scope.close(runtimeScope)` supplies several: the scope owns the
+      // spawned app-server child (killed with a force-kill timer), the CodexClient
+      // layer, and three fibres forked with `forkIn(runtimeScope)`
+      // (`CodexSessionRuntime.ts:1214`, `:1247`, `:1274`). Measured directly: 0
+      // yields between offer and shutdown drops the event, >=1 delivers it, and a
+      // `Scope.close` owning forked fibres delivers. `close` is only reachable on a
+      // runtime that finished constructing, so that teardown always has real work —
+      // hence "usually" rather than "always": a future zero-yield teardown would
+      // drop it, which the straggler window backstops.
+      //
+      // `true` is also the safe direction: a declared emitter that fails to emit
+      // leaves a token that lapses, whereas `false` on an emitter lets the stopped
+      // launch's straggler release a LIVE launch's hold (the MF1 defect this flag
+      // exists to prevent). An earlier revision declared `false` on the false
+      // premise that a local stop never produces the notification.
+      emitsExitOnStop: true,
     },
     startSession,
     sendTurn,

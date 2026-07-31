@@ -675,6 +675,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   expectedBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // finalCommitSha is spread in from LoomThreadMetaUpdateFields.
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -1083,6 +1084,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // finalCommitSha is spread in from LoomThreadMetaUpdatedPayloadFields.
   updatedAt: IsoDateTime,
 });
 

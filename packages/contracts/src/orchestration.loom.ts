@@ -439,6 +439,13 @@ export const LoomThreadFields = {
   // context and then diverges independently. Null for non-forked threads.
   // Additive, decode-defaulted so pre-fork snapshots load.
   forkFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  // Post-completion engagement (plan §8 item 3): the child's tip commit,
+  // recorded on the shell when fan-in merges its branch (or at cancel, the kept
+  // branch tip). A historical source-identity marker — nothing reads it for
+  // control flow; the Discuss relocation preamble surfaces it so a re-engaged
+  // thread knows where its merged work landed. Absent/null until disposed.
+  // Optional (not decode-defaulted) so it need not appear in thread literals.
+  finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // D-notify: pointer to this thread's completion report markdown file (content
   // lives on disk, never in the event store). Null until the child reports.
   reportPath: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -733,6 +740,9 @@ export const LoomThreadMetaUpdateFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Post-completion engagement (plan §8 item 3): stamp the child's tip commit at
+  // fan-in / cancel. Partial-update semantics — an absent value never clobbers.
+  finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // loom: §4 provenance the writer is stamping onto a title change. The decider
   // applies the title only when this rank may replace the current provenance;
   // absent-with-title is treated as `curated` (a conservative human-ish write).
@@ -816,6 +826,9 @@ export const LoomThreadMetaUpdatedPayloadFields = {
   goalId: Schema.optional(Schema.NullOr(GoalId)),
   role: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   purpose: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Post-completion engagement (plan §8 item 3): the child's tip commit stamped
+  // at fan-in / cancel. Folded onto the shell by the projector; absent otherwise.
+  finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleProvenance: Schema.optional(TitleProvenance), // loom: §4 title provenance
 } as const;
 

@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
-import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 
 export const DEFAULT_PI_BINARY_PATH = "pi";
 
@@ -13,15 +13,30 @@ export interface PiInvocation {
 const WINDOWS_COMMAND_SCRIPT_PATTERN = /\.(?:bat|cmd)$/i;
 
 export function resolveBundledPiCliPath(): string | undefined {
-  const req = NodeModule.createRequire(import.meta.url);
   for (const packageName of ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]) {
     try {
-      const cliPath = NodePath.join(
-        NodePath.dirname(req.resolve(`${packageName}/package.json`)),
-        "dist",
-        "cli.js",
-      );
-      if (NodeFS.existsSync(cliPath)) return cliPath;
+      // pi ships as ESM with an `exports` map that only defines the `import`
+      // condition and never exposes `./package.json`, so neither a CJS
+      // `require.resolve` nor a `/package.json` subpath resolve works. Resolve
+      // the package's main entry via the `import` condition, walk up to the
+      // package root, and take the CLI declared in `bin.pi` (dist/cli.js).
+      let dir = NodePath.dirname(NodeURL.fileURLToPath(import.meta.resolve(packageName)));
+      while (dir !== NodePath.dirname(dir)) {
+        const manifestPath = NodePath.join(dir, "package.json");
+        if (NodeFS.existsSync(manifestPath)) {
+          const manifest = JSON.parse(NodeFS.readFileSync(manifestPath, "utf8")) as {
+            readonly name?: string;
+            readonly bin?: string | Record<string, string>;
+          };
+          if (manifest.name === packageName) {
+            const binRel =
+              typeof manifest.bin === "string" ? manifest.bin : (manifest.bin?.pi ?? "dist/cli.js");
+            const cliPath = NodePath.join(dir, binRel);
+            return NodeFS.existsSync(cliPath) ? cliPath : undefined;
+          }
+        }
+        dir = NodePath.dirname(dir);
+      }
     } catch {
       // Try the next known package name.
     }

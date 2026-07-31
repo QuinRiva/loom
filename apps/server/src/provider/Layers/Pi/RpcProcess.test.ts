@@ -61,4 +61,48 @@ describe("buildPiRpcArgs", () => {
     });
     expect(args).not.toContain("--fork");
   });
+
+  // Post-completion engagement (plan §4.2) — CAPABILITY: resume never spawns a
+  // same-id sibling session. A resume names the EXISTING session file by path
+  // (`--session <file>`) with the canonical cwd pinned (`--cwd <dir>`), and must
+  // NOT re-declare `--session-id` — launching `--session-id` from a relocated cwd
+  // silently creates an empty same-id session (the amnesia mode, plan fact 2).
+  it("resumes by --session <file> --cwd <dir> and never emits --session-id", () => {
+    const args = buildPiRpcArgs({
+      binaryPath: "pi-test-binary",
+      platform: "linux",
+      // A resume carries BOTH the deterministic id (for reference) and the
+      // resolved file path; the file path wins.
+      sessionId: "thread-session",
+      sessionFilePath: "/abs/sessions/proj/2026_thread-session.jsonl",
+      cwdOverride: "/abs/parent-worktree",
+    });
+    const sessionIdx = args.indexOf("--session");
+    expect(sessionIdx).toBeGreaterThanOrEqual(0);
+    expect(args[sessionIdx + 1]).toBe("/abs/sessions/proj/2026_thread-session.jsonl");
+    const cwdIdx = args.indexOf("--cwd");
+    expect(cwdIdx).toBeGreaterThanOrEqual(0);
+    expect(args[cwdIdx + 1]).toBe("/abs/parent-worktree");
+    // The silent-amnesia guard: no `--session-id` on a resume.
+    expect(args).not.toContain("--session-id");
+  });
+
+  // Post-completion engagement (plan §5.1) — CAPABILITY: a Discuss launch cannot
+  // write. The resumed session carries the read-only tool allowlist and NO
+  // workstream extension (the reactor omits `extensions` for a read-only launch,
+  // and pi's allowlist blocks any extension tool regardless).
+  it("a read-only Discuss resume carries read-only tools and no --extension", () => {
+    const args = buildPiRpcArgs({
+      binaryPath: "pi-test-binary",
+      platform: "linux",
+      sessionId: "thread-session",
+      sessionFilePath: "/abs/sessions/proj/2026_thread-session.jsonl",
+      cwdOverride: "/abs/parent-worktree",
+      tools: ["read", "grep", "find", "ls"],
+      // extensions intentionally omitted — a Discuss launch has no MCP session.
+    });
+    const toolsIdx = args.indexOf("--tools");
+    expect(args[toolsIdx + 1]).toBe("read,grep,find,ls");
+    expect(args).not.toContain("--extension");
+  });
 });

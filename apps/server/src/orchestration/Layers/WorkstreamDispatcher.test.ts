@@ -1426,6 +1426,17 @@ describe("terminalEpisodeKey (delta reported-marker episode)", () => {
   it("falls back to a constant only when neither is present", () => {
     expect(terminalEpisodeKey({ lastOutcome: null, spawnGeneration: null })).toBe("terminal");
   });
+
+  // CAPABILITY (post-completion engagement, plan §6.1): conversing with a
+  // fanned-in child does NOT notify the orchestrator. The delta-rail wake is
+  // keyed by `childReportedCommandId(childId, terminalEpisodeKey(child))`, and a
+  // read-only Discuss turn changes NEITHER the child's `lastOutcome` (it has no
+  // workstream extension, so it cannot submit) NOR its `spawnGeneration` (no
+  // lane reopen). The derivation from exactly those two fields is pinned by the
+  // `terminalEpisodeKey` unit tests above; a self-comparing before/after test
+  // added here originally was tautological (f(x)===f(x)) and was removed on
+  // review — the structural read-only guarantees live in
+  // ProviderCommandReactor.engagement.test.ts and RpcProcess.test.ts.
 });
 
 describe("startup stale session reconciliation", () => {

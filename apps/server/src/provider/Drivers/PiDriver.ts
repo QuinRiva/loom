@@ -35,6 +35,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { createModelCapabilities, getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
+import { directoryExists } from "../../git/Utils.ts"; // post-completion engagement: dangling-worktree resume fallback
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -191,9 +192,11 @@ type EffectiveResolution =
 interface ActivePiSession {
   session: ProviderSession;
   process: PiRpcProcess;
-  // Recreate the pi process with this session's exact launch options (same
-  // sessionId, so pi re-reads the same on-disk file). Used to relaunch from a
-  // freshly sanitised history when a live session crosses into an
+  // Recreate the pi process with this session's exact launch options. The
+  // closure recomputes `resolveSessionFilePath`, so a relaunch of a thread
+  // that has run resumes by explicit `--session <file> --cwd <dir>` (never
+  // session-id + cwd-slug derivation — the silent-amnesia guard). Used to
+  // relaunch from a freshly sanitised history when a live session crosses into an
   // Anthropic-family model carrying codex-poisoned tool ids in its in-memory
   // history (which we cannot rewrite — pi owns it), so the replay is clean.
   launch: () => Promise<PiRpcProcess>;
@@ -1926,7 +1929,10 @@ export function makePiAdapter(input: {
 
   return {
     provider: DRIVER_KIND,
-    capabilities: { sessionModelSwitch: "in-session" },
+    // `stopSession` awaits `process.stop()`, whose child `exit` handler is NOT
+    // short-circuited by `replacedProcesses` and therefore emits `session.exited`
+    // from a floating async block (:1850-1876) — i.e. after the stop returns.
+    capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
     startSession: (startInput) =>
       Effect.gen(function* () {
         const platform = yield* HostProcessPlatform;
@@ -2039,14 +2045,32 @@ export function makePiAdapter(input: {
             // (identity capture is a cache optimisation, never a launch gate).
             deleteLaunchIdentity(launchIdentityDir, startInput.threadId);
           }
+          // Resume launch (plan §4.2): a thread whose deterministic session file
+          // already exists resumes it EXPLICITLY by path (`--session <file>`)
+          // with the canonical cwd pinned (`--cwd <dir>`), never by `--session-id`
+          // from a possibly-relocated cwd — which silently forks an empty same-id
+          // session (amnesia, plan fact 2). First launches of NEW threads and the
+          // `--fork` first launch keep `--session-id` (no file yet / forking).
+          const threadSessionId = piSessionIdForThread(startInput.threadId);
+          const existingSessionFile =
+            forkSource === undefined ? resolveSessionFilePath(threadSessionId) : undefined;
+          const isResume = existingSessionFile !== undefined;
+          // Existence-check fallback (plan §4.2): on a resume, a recorded worktree
+          // path that dangles (relocated at fan-in / reaped) would make pi's
+          // `--cwd` (and the OS spawn) fail against a dead directory. Fall back to
+          // the server's project workspace root, which always exists. Scoped to
+          // resumes: a first launch provisions its own live worktree.
+          const resumeCwd = isResume && !directoryExists(piCwd) ? input.serverConfig.cwd : piCwd;
           return (input.createProcess ?? createPiRpcProcess)({
             binaryPath: input.settings.binaryPath,
             platform,
-            cwd: piCwd,
-            // Deterministic per-thread session id so pi create-or-resumes the
-            // SAME session file across server restarts / reconnects, instead
-            // of silently spawning a fresh, amnesiac session each time.
-            sessionId: piSessionIdForThread(startInput.threadId),
+            cwd: isResume ? resumeCwd : piCwd,
+            // Resume: name the file + pin the cwd. First launch/fork: the
+            // deterministic per-thread session id so pi create-or-resumes the
+            // SAME file across restarts instead of spawning an amnesiac session.
+            ...(isResume
+              ? { sessionFilePath: existingSessionFile, cwdOverride: resumeCwd }
+              : { sessionId: threadSessionId }),
             ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
             ...(skills && skills.length > 0 ? { skills } : {}),

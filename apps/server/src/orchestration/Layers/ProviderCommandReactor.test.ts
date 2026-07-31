@@ -359,6 +359,7 @@ describe("ProviderCommandReactor", () => {
       getCapabilities: (_provider) =>
         Effect.succeed({
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
+          emitsExitOnStop: true,
         }),
       getInstanceInfo: (instanceId) => {
         const raw = String(instanceId);

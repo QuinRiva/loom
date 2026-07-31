@@ -77,7 +77,12 @@ it.layer(TestLayer)("GitVcsDriver fan-in primitives", (it) => {
 
       const clean = yield* driver.commitAll(cwd, "wip: nothing", "");
       assert.strictEqual(clean.committed, false);
-      assert.strictEqual(clean.commitSha, null);
+      // Post-completion engagement (plan §8 item 3): a clean tree creates no
+      // commit (`committed:false`) but still reports the resulting HEAD, so
+      // callers (the fan-in `finalCommitSha` marker) get the branch tip even when
+      // nothing new was committed. Null only for a repo with no HEAD (unborn).
+      const headBefore = yield* git(cwd, ["rev-parse", "HEAD"]);
+      assert.strictEqual(clean.commitSha, headBefore);
 
       yield* write(cwd, "a.txt", "hello\n");
       const dirty = yield* driver.commitAll(cwd, "wip: snapshot", "");

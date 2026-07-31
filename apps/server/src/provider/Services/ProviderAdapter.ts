@@ -48,6 +48,29 @@ export interface ProviderAdapterCapabilities {
    * Declares whether changing the model on an existing session is supported.
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
+  /**
+   * Does `stopSession` cause a `session.exited` runtime event to be emitted for
+   * the stopped session?
+   *
+   * Required (not optional) so adding an adapter forces an explicit answer: a
+   * wrong value silently breaks workspace-hold accounting in one of two ways, and
+   * neither is visible without a targeted test.
+   *
+   * `ProviderService` releases a launch's workspace hold when the launch ends, and
+   * uses this to know whether an exit event is still owed for it:
+   * - `true` — the exit arrives asynchronously after `stopSession` returns, so the
+   *   stopped launch is recorded as still owing one. Without that, a stop followed
+   *   by a restart lets the straggler release the NEW launch's hold and expose a
+   *   running process to worktree removal.
+   * - `false` — no exit is coming, so nothing is recorded. Recording one anyway
+   *   leaves a debt that is later spent absorbing a genuine exit, leaking the hold
+   *   permanently and making the worktree unreapable.
+   *
+   * These two cases are provably indistinguishable at exit time (the runtime event
+   * carries no launch identity), which is why the answer has to be declared here
+   * rather than inferred at runtime.
+   */
+  readonly emitsExitOnStop: boolean;
 }
 
 export interface ProviderThreadTurnSnapshot {
