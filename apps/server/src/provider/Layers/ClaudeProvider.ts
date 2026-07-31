@@ -1,3 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off
+// node:child_process directly: the capability probe must hand the Agent SDK a
+// raw `SpawnedProcess`, and it needs the underlying handle to force-kill an
+// unresponsive child from a synchronous `process.on("exit")` hook. Effect's
+// ChildProcessSpawner exposes neither.
 import {
   type ClaudeSettings,
   type ModelCapabilities,
@@ -26,7 +31,10 @@ import {
   type SlashCommand as ClaudeSlashCommand,
   type SDKUserMessage,
   type SettingSource,
+  type SpawnedProcess as ClaudeSpawnedProcess,
+  type SpawnOptions as ClaudeSpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import * as NodeChildProcess from "node:child_process";
 
 import {
   buildBooleanOptionDescriptor,
@@ -572,6 +580,76 @@ export const CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES = [
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 
+/**
+ * Probe subprocesses that have not been reaped yet, so we can force-kill them
+ * if this process exits before the SDK's termination timers fire.
+ */
+const liveProbeProcesses = new Set<NodeChildProcess.ChildProcess>();
+let probeExitHookInstalled = false;
+
+/**
+ * Spawn the probe subprocess ourselves so we keep a handle on it.
+ *
+ * The SDK terminates an aborted child on unref'd timers — stdin EOF, SIGTERM
+ * ~2s later, SIGKILL ~5s after that — so a child that ignores stdin EOF only
+ * dies if this process happens to outlive the abort by ~7s. The SDK's own
+ * `process.on("exit")` backstop does not cover this: it skips any child whose
+ * `killed` flag is set, which SIGTERM sets even when the child survives it.
+ * Under `Restart=always` a shutdown mid-probe therefore reparents the child to
+ * systemd, where it keeps counting against this service's memory.
+ *
+ * Killing synchronously from our own exit hook closes that window without
+ * making shutdown wait on anything.
+ */
+function spawnClaudeCapabilitiesProbeProcess(options: ClaudeSpawnOptions): ClaudeSpawnedProcess {
+  const child = NodeChildProcess.spawn(options.command, options.args, {
+    // Discard probe stderr at the OS level. The SDK only pipes stderr from its
+    // own spawn path, so once we own the spawn a pipe would have no reader and
+    // could wedge the very child we are trying to terminate.
+    stdio: ["pipe", "pipe", "ignore"],
+    signal: options.signal,
+    env: options.env,
+    windowsHide: true,
+    ...(options.cwd ? { cwd: options.cwd } : {}),
+  });
+
+  if (!probeExitHookInstalled) {
+    probeExitHookInstalled = true;
+    process.on("exit", () => {
+      for (const live of liveProbeProcesses) {
+        try {
+          live.kill("SIGKILL");
+        } catch {
+          // Already gone, or reaped between the check and the signal.
+        }
+      }
+    });
+  }
+
+  liveProbeProcesses.add(child);
+  child.once("exit", () => liveProbeProcesses.delete(child));
+  child.once("error", () => {
+    // Abort via the `signal` option surfaces as an `error` while the child is
+    // still running, so only a child that never started can be forgotten here.
+    if (child.pid === undefined) liveProbeProcesses.delete(child);
+  });
+
+  return {
+    stdin: child.stdin,
+    stdout: child.stdout,
+    get killed() {
+      return child.killed;
+    },
+    get exitCode() {
+      return child.exitCode;
+    },
+    kill: child.kill.bind(child),
+    on: child.on.bind(child),
+    once: child.once.bind(child),
+    off: child.off.bind(child),
+  };
+}
+
 /** Build the exact SDK options used by the periodic Claude capability probe. */
 export function buildClaudeCapabilitiesProbeQueryOptions(input: {
   readonly executablePath: string;
@@ -596,7 +674,7 @@ export function buildClaudeCapabilitiesProbeQueryOptions(input: {
       ENABLE_CLAUDEAI_MCP_SERVERS: "false",
     },
     ...(input.cwd ? { cwd: input.cwd } : {}),
-    stderr: () => {},
+    spawnClaudeCodeProcess: spawnClaudeCapabilitiesProbeProcess,
   };
 }
 

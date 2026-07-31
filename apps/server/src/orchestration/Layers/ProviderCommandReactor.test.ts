@@ -3579,6 +3579,10 @@ describe("ProviderCommandReactor", () => {
           Layer.succeed(ServerSettingsService, {
             getSettings: Effect.succeed({ providerInstances: [] }),
           } as unknown as ServerSettingsService["Service"]),
+          // The sweep's brief-needed backstop dedups its attention-raise on command
+          // receipts; this pass exercises stuck-launch recovery, so the real (empty)
+          // in-memory repository is enough to satisfy the dependency.
+          OrchestrationCommandReceiptRepositoryLive.pipe(Layer.provide(SqlitePersistenceMemory)),
           ServerConfig.layerTest(process.cwd(), { prefix: "t3code-reactor-sweep-" }),
         ).pipe(Layer.provideMerge(NodeServices.layer));
 

@@ -1,8 +1,18 @@
 /**
- * ThreadDeletionReactor - Thread deletion cleanup reactor service interface.
+ * ThreadDeletionReactor - Thread terminal-state cleanup reactor service interface.
  *
- * Owns background workers that react to thread deletion domain events and
+ * Owns background workers that react to a thread reaching a terminal state and
  * perform best-effort runtime cleanup for provider sessions and terminals.
+ *
+ * loom: the trigger set is broader than the upstream name suggests. Upstream
+ * reacted to `thread.deleted` only; the fork also reclaims on
+ * `thread.plan-lane-set` (`done`/`cancelled`) and `thread.archived`, because in
+ * a workstream those are the *normal* ends of a thread's life and deletion is
+ * the rare one — leaving a finished thread's PTYs running leaked ~21 GB of dev
+ * servers on the cockpit host and OOM-killed the unit. The module keeps its
+ * upstream filename and service tag deliberately: both files are byte-identical
+ * to upstream apart from this, and renaming them would trade a real merge
+ * conflict surface on every upstream pull for a cosmetic gain.
  *
  * @module ThreadDeletionReactor
  */
@@ -11,11 +21,13 @@ import type * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
 
 /**
- * ThreadDeletionReactorShape - Service API for thread deletion cleanup.
+ * ThreadDeletionReactorShape - Service API for thread terminal-state cleanup.
  */
 export interface ThreadDeletionReactorShape {
   /**
-   * Start reacting to thread.deleted orchestration domain events.
+   * Start reacting to the orchestration domain events that put a thread into a
+   * terminal state (`thread.deleted`, `thread.archived`, and
+   * `thread.plan-lane-set` for the `done`/`cancelled` lanes).
    *
    * The returned effect must be run in a scope so all worker fibers can be
    * finalized on shutdown.
@@ -30,7 +42,7 @@ export interface ThreadDeletionReactorShape {
 }
 
 /**
- * ThreadDeletionReactor - Service tag for thread deletion cleanup workers.
+ * ThreadDeletionReactor - Service tag for thread terminal-state cleanup workers.
  */
 export class ThreadDeletionReactor extends Context.Service<
   ThreadDeletionReactor,
