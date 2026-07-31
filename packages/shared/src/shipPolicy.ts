@@ -42,6 +42,6 @@ export function resolveMergeAuthority(cwd: string): MergeAuthority {
  * in-band guidance that counters a "done = merged" norm inherited from a brief. */
 export function shipPolicyPromptBlock(authority: MergeAuthority): string {
   return authority === "agent"
-    ? "SHIPPING POLICY: merge authority is AGENT-OK — an agent may merge to the main branch once the work is approved and required checks pass, then clean up the branch."
+    ? "SHIPPING POLICY: merge authority is AGENT-OK — once the work is approved and required checks pass, an agent may land it on the main branch, but only by merging a PR from a feature branch via the repo's guarded ship procedure (the ship skill / `pnpm ship` where present). Never push directly to the main branch and never merge by hand; then clean up the branch."
     : "SHIPPING POLICY: merge authority is HUMAN-ONLY. Agents must NOT merge to the main branch. The agent ceiling is an open, review-ready PR (and moving any tracker card to In Review); then stop and hand back the PR URL for a human to review and merge — even if a brief's definition of done says the work is 'done when merged'. Never run `gh pr merge` (or any merge) yourself.";
 }

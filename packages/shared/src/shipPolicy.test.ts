@@ -48,4 +48,13 @@ describe("shipPolicyPromptBlock", () => {
     expect(shipPolicyPromptBlock("human")).toContain("gh pr merge");
     expect(shipPolicyPromptBlock("agent")).toContain("AGENT-OK");
   });
+
+  it("agent authority names the mechanism, not just the permission", () => {
+    // PE-2111 follow-up: the permissive branch once omitted the PR/ship
+    // mechanism entirely, so an agent satisfied it with `git push origin main`.
+    const block = shipPolicyPromptBlock("agent");
+    expect(block).toContain("PR");
+    expect(block).toContain("feature branch");
+    expect(block).toContain("Never push directly");
+  });
 });
