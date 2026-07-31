@@ -155,6 +155,47 @@ it.effect("discovers editors through the service API", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
+it.effect("advertises the client-launched remote editor only when a host is configured", () =>
+  Effect.gen(function* () {
+    const withoutHost = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(Effect.provide(testLayer({ platform: "linux", env: { PATH: "" } })));
+    assert.equal(withoutHost.includes("zed-remote"), false);
+
+    const withHost = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(
+      Effect.provide(
+        testLayer({
+          platform: "linux",
+          env: { PATH: "", LOOM_ZED_SSH_HOST: "unseen_training" },
+        }),
+      ),
+    );
+    assert.equal(withHost.includes("zed-remote"), true);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("refuses to spawn a client-launched editor on the server", () =>
+  Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
+    const error = yield* launcher
+      .launchEditor({ editor: "zed-remote", cwd: "/home/Carl/repo" })
+      .pipe(Effect.flip);
+    assert.instanceOf(error, ExternalLauncher.ExternalLauncherUnsupportedEditorError);
+  }).pipe(
+    Effect.provide(
+      testLayer({
+        platform: "linux",
+        env: { LOOM_ZED_SSH_HOST: "unseen_training" },
+        onSpawn: () => assert.fail("must not spawn a client-launched editor"),
+      }),
+    ),
+  ),
+);
+
 it.effect("rejects unknown editors through the service API", () =>
   Effect.gen(function* () {
     const launcher = yield* ExternalLauncher.ExternalLauncher;

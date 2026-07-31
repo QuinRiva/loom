@@ -900,6 +900,7 @@ const makeWsRpcLayer = (
           issues: keybindingsConfig.issues,
           providers,
           availableEditors: yield* externalLauncher.resolveAvailableEditors(),
+          remoteEditorSshHost: Option.getOrNull(yield* ExternalLauncher.readRemoteEditorSshHost),
           observability: {
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,

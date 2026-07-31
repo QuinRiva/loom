@@ -11,6 +11,9 @@ import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hoo
 import { useCallback, useMemo } from "react";
 import { shellEnvironment } from "./state/shell";
 import { useAtomCommand } from "./state/use-atom-command";
+import { useAtomValue } from "@effect/atom-react";
+import { primaryServerConfigAtom } from "./state/server";
+import { tryClientEditorLaunch } from "./lib/clientEditorLaunch";
 
 const LAST_EDITOR_KEY = "t3code:last-editor";
 
@@ -67,6 +70,7 @@ export function useOpenInPreferredEditor(
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, {
     reportFailure: false,
   });
+  const remoteEditorSshHost = useAtomValue(primaryServerConfigAtom)?.remoteEditorSshHost ?? null;
   type OpenInEditorError = AtomCommandFailure<Awaited<ReturnType<typeof openInEditor>>>;
 
   return useCallback(
@@ -101,6 +105,9 @@ export function useOpenInPreferredEditor(
           ),
         );
       }
+      if (tryClientEditorLaunch(editor, targetPath, remoteEditorSshHost)) {
+        return AsyncResult.success(editor);
+      }
       const result = await openInEditor({
         environmentId,
         input: {
@@ -110,6 +117,6 @@ export function useOpenInPreferredEditor(
       });
       return mapAtomCommandResult(result, () => editor);
     },
-    [availableEditors, environmentId, openInEditor],
+    [availableEditors, environmentId, openInEditor, remoteEditorSshHost],
   );
 }

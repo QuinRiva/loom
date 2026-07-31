@@ -109,6 +109,16 @@ const CommandLookupEnvConfig = Config.all({
 const readBrowserLaunchEnv = BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
+/**
+ * SSH host the CLIENT uses to reach this server, enabling the client-launched
+ * "Zed (remote)" editor. Unset on a local install, where the ordinary
+ * server-spawned editors already work.
+ */
+export const readRemoteEditorSshHost = Config.string("LOOM_ZED_SSH_HOST").pipe(
+  Config.option,
+  Effect.orElseSucceed(() => Option.none<string>()),
+);
+
 function parseTargetPathAndPosition(target: string): Option.Option<TargetPathAndPosition> {
   const match = TARGET_WITH_POSITION_PATTERN.exec(target);
   if (!match?.[1] || !match[2]) {
@@ -265,8 +275,18 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<ReadonlyArray<EditorId>, never, FileSystem.FileSystem | Path.Path> {
   const available: EditorId[] = [];
+  const remoteEditorHost = yield* readRemoteEditorSshHost;
 
   for (const editor of EDITORS) {
+    if ("clientLaunch" in editor) {
+      // Launched by the client's URL handler, so server-side PATH probing says
+      // nothing about it; it is available exactly when a host is configured.
+      if (Option.isSome(remoteEditorHost)) {
+        available.push(editor.id);
+      }
+      continue;
+    }
+
     if (editor.commands === null) {
       const command = fileManagerCommandForPlatform(platform);
       if (yield* isCommandAvailable(command, { env })) {
@@ -333,6 +353,13 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
   const editorDef = EDITORS.find((editor) => editor.id === input.editor);
   if (!editorDef) {
     return yield* new ExternalLauncherUnknownEditorError({ editor: input.editor });
+  }
+
+  if ("clientLaunch" in editorDef) {
+    // The client owns this launch; reaching the server means the client-side
+    // interception is broken, and spawning anything here would target the
+    // wrong machine.
+    return yield* new ExternalLauncherUnsupportedEditorError({ editor: input.editor });
   }
 
   if (editorDef.commands) {

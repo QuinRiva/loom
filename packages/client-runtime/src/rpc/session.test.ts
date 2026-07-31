@@ -124,6 +124,7 @@ const SERVER_CONFIG: ServerConfigType = {
   issues: [],
   providers: [],
   availableEditors: [],
+  remoteEditorSshHost: null,
   observability: {
     logsDirectoryPath: "/tmp/logs",
     localTracingEnabled: false,
