@@ -66,8 +66,10 @@ export const resolveSessionFilePath = (
  * pi's project session directory for a cwd: `<root>/--<cwd with the leading
  * separator stripped and `/`, `\`, `:` replaced by `-`>--`.
  *
- * Mirrors pi's own `getDefaultSessionDirPath`. pi scopes a `--session-id` resume
- * to THIS directory alone, so the encoding has to match pi's byte-for-byte.
+ * Mirrors pi's own `getDefaultSessionDirPath`. pi scopes a `--session-id` launch
+ * (first launch of a new thread, and the `--fork` target id) to THIS directory
+ * alone, so the encoding has to match pi's byte-for-byte. A RESUME does not go
+ * through this directory at all — see `resolveResumableSessionFile`.
  */
 export const piProjectSessionDir = (cwd: string, root: string = defaultSessionsRoot()): string =>
   NodePath.join(
@@ -121,51 +123,30 @@ const readSessionHeaderId = (path: string): string | undefined => {
 };
 
 /**
- * Resolve the session file pi will ACTUALLY open for `--session-id <sessionId>`
- * launched in `cwd`, or undefined when pi would instead warn and create a fresh
- * session with that id.
+ * Resolve the session file a RESUME will actually open for this thread, or
+ * undefined when there is nothing safe to continue.
  *
- * This is deliberately narrower than `resolveSessionFilePath`, because pi's
- * resume rule is narrower than "a file with that id-suffixed name exists
- * somewhere". pi's `findLocalSessionByExactId` lists sessions in the PROJECT
- * directory for `cwd` only, and a file appears in that listing only when it
- * parses as a pi session whose HEADER id matches — the filename is not
- * consulted. So all three of these must hold, and a probe that checks fewer
- * would report "resumable" for a file pi silently replaces with an empty
- * session, losing the conversation while looking alive:
+ * A pi resume is `--session <path> --cwd <dir>` (the bundled patch), NOT
+ * `--session-id`: the driver names the file outright and pins the working
+ * directory, so pi opens exactly that path — its project-dir listing is never
+ * consulted, and the file may well live under ANOTHER worktree's project dir
+ * (the relocated-worktree case the `--cwd` flag exists for). The candidate is
+ * therefore the same global by-name lookup the launch itself performs
+ * (`resolveSessionFilePath`), so the probe and the launch cannot disagree about
+ * WHICH file is at stake.
  *
- *  1. the file sits in pi's project dir for the launch cwd (not another
- *     worktree's dir, which a global by-name scan would happily return),
- *  2. it is readable and its first parseable line is a `session` header,
- *  3. that header's id equals `sessionId`.
- *
- * Returns the newest qualifying file, matching pi's newest-first ordering.
+ * What the probe adds on top is validation of that one file: it must be
+ * readable, its first parseable line must be a `session` header, and that
+ * header's id must equal `sessionId`. pi with `--cwd` skips its own header read
+ * entirely, so a corrupt or non-session file would be opened as an empty
+ * conversation — alive-looking with its orchestration context silently gone. A
+ * loud refusal is better, hence the validation.
  */
 export const resolveResumableSessionFile = (
   sessionId: string,
-  cwd: string,
   root: string = defaultSessionsRoot(),
 ): string | undefined => {
-  const dir = piProjectSessionDir(cwd, root);
-  let entries: ReadonlyArray<string>;
-  try {
-    entries = NodeFS.readdirSync(dir);
-  } catch {
-    return undefined; // No project dir => nothing local to resume.
-  }
-  let best: { path: string; mtimeMs: number } | undefined;
-  for (const name of entries) {
-    if (!name.endsWith(".jsonl")) continue;
-    const path = NodePath.join(dir, name);
-    let mtimeMs: number;
-    try {
-      mtimeMs = NodeFS.statSync(path).mtimeMs;
-    } catch {
-      continue;
-    }
-    if (best !== undefined && mtimeMs <= best.mtimeMs) continue;
-    if (readSessionHeaderId(path) !== sessionId) continue;
-    best = { path, mtimeMs };
-  }
-  return best?.path;
+  const path = resolveSessionFilePath(sessionId, root);
+  if (path === undefined) return undefined;
+  return readSessionHeaderId(path) === sessionId ? path : undefined;
 };

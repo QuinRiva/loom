@@ -210,8 +210,11 @@ export interface ProviderAdapterShape<TError> {
    * silently starts a fresh session when it rejects the state must answer false,
    * so the refusal stays loud instead of resuming into an empty conversation.
    *
-   * `cwd` is the cwd recovery will launch with, since resume state can be scoped
-   * to it (pi lists candidate sessions per project directory).
+   * `cwd` is the cwd recovery will launch with, offered because resume state MAY
+   * be scoped to it. Whether it narrows anything is the driver's business: pi
+   * ignores it, because its resume names the session file by absolute path and
+   * pins the working directory, so no cwd can make a resumable thread
+   * unresumable.
    */
   readonly canResumeThread?: (input: {
     readonly threadId: ThreadId;

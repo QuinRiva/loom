@@ -91,6 +91,42 @@ const seedSessionFile = (input: {
   return path;
 };
 
+/** A `createProcess` stub that records the options it was launched with. */
+const capturingProcess = (): {
+  readonly captured: { options?: PiRpcProcessOptions };
+  readonly createProcess: (options: PiRpcProcessOptions) => Promise<PiRpcProcess>;
+} => {
+  const captured: { options?: PiRpcProcessOptions } = {};
+  const fake = {
+    child: new NodeEvents.EventEmitter(),
+    command: "pi",
+    args: [],
+    cwd: undefined,
+    stderrTail: () => "",
+    request: () => Promise.resolve({ type: "response", requestId: "r", ok: true, data: {} }),
+    write: () => Promise.resolve(),
+    subscribe: () => () => undefined,
+    stop: () => Promise.resolve(),
+  } as unknown as PiRpcProcess;
+  return {
+    captured,
+    createProcess: (options) => {
+      captured.options = options;
+      return Promise.resolve(fake);
+    },
+  };
+};
+
+/** A valid pi session, but one belonging to a DIFFERENT conversation. */
+const foreignConversation = (): ReadonlyArray<string> => [
+  JSON.stringify({
+    type: "session",
+    id: "someone-elses-session",
+    timestamp: "2026-07-30T00:00:00.000Z",
+    cwd: "/tmp/project",
+  }),
+];
+
 /** A valid prior conversation: session header plus one user message. */
 const priorConversation = (threadId: ThreadId): ReadonlyArray<string> => [
   JSON.stringify({
@@ -139,12 +175,12 @@ describe("PiDriver resume state (driver boundary)", () => {
     ),
   );
 
-  // The failure this guards: pi's `--session-id` lookup is scoped to the project
-  // dir for its cwd and only accepts a file that parses as a session with a
-  // matching header id. For anything else it WARNS AND CREATES A NEW SESSION, so
-  // a probe that said "resumable" would resume the thread into an empty
-  // conversation — looking alive with its context silently gone.
-  effectIt.effect("is NOT resumable from a file pi would reject and replace", () =>
+  // The failure this guards: a resume passes `--session <path> --cwd <dir>`, and
+  // pi with `--cwd` opens that path WITHOUT reading its header. A file that is
+  // not a pi session (or belongs to another conversation) would therefore open as
+  // an EMPTY session — looking alive with its context silently gone — so the
+  // probe validates the header the launch no longer checks.
+  effectIt.effect("is NOT resumable from a file that is not this thread's session", () =>
     withAdapter((adapter, serverCwd) =>
       Effect.gen(function* () {
         const threadId = ThreadId.make("66666666-0000-4000-8000-000000000006");
@@ -153,12 +189,12 @@ describe("PiDriver resume state (driver boundary)", () => {
         yield* Effect.sync(() => seedSessionFile({ threadId, cwd: serverCwd, lines: ["{}"] }));
         expect(yield* adapter.canResumeThread!({ threadId, cwd: serverCwd })).toBe(false);
 
-        // Valid session, but under a DIFFERENT project dir than the launch cwd.
+        // Right filename, but the header names a DIFFERENT conversation.
         yield* Effect.sync(() =>
           seedSessionFile({
             threadId,
-            cwd: "/tmp/some/other/worktree",
-            lines: priorConversation(threadId),
+            cwd: serverCwd,
+            lines: foreignConversation(),
           }),
         );
         expect(yield* adapter.canResumeThread!({ threadId, cwd: serverCwd })).toBe(false);
@@ -166,25 +202,14 @@ describe("PiDriver resume state (driver boundary)", () => {
     ),
   );
 
-  // Continuity, at the level this boundary can prove: the launch pi is given the
-  // deterministic session id whose file already holds the prior conversation, in
-  // the cwd whose project dir contains it — exactly the triple pi requires to
-  // open that file rather than create a new one.
+  // Continuity, at the level this boundary can prove: the launch is handed the
+  // absolute path of the file that already holds the prior conversation, and that
+  // file is still on disk unrewritten afterwards — pi is being asked to CONTINUE
+  // it, not to create or fork anything.
   effectIt.effect(
     "launches against the same session file that holds the prior conversation",
     () => {
-      const captured: { options?: PiRpcProcessOptions } = {};
-      const fake = {
-        child: new NodeEvents.EventEmitter(),
-        command: "pi",
-        args: [],
-        cwd: undefined,
-        stderrTail: () => "",
-        request: () => Promise.resolve({ type: "response", requestId: "r", ok: true, data: {} }),
-        write: () => Promise.resolve(),
-        subscribe: () => () => undefined,
-        stop: () => Promise.resolve(),
-      } as unknown as PiRpcProcess;
+      const { captured, createProcess } = capturingProcess();
 
       return withAdapter(
         (adapter, serverCwd) =>
@@ -202,19 +227,14 @@ describe("PiDriver resume state (driver boundary)", () => {
               runtimeMode: "full-access",
             });
 
-            // pi resolves `--session-id` within `cwd`'s project dir, so this pair
-            // names the seeded file: same id, same project dir.
-            expect(captured.options?.sessionId).toBe(piSessionIdForThread(threadId));
+            // The exact file holding the prior conversation, named outright
+            // (`--session <path>`) with the cwd pinned (`--cwd <dir>`).
+            expect(captured.options?.sessionFilePath).toBe(seeded);
+            expect(captured.options?.cwdOverride).toBe(serverCwd);
             expect(captured.options?.cwd).toBe(serverCwd);
-            expect(
-              NodePath.join(
-                piProjectSessionDir(
-                  captured.options?.cwd ?? "",
-                  NodePath.join(process.env.HOME ?? "", ".pi", "agent", "sessions"),
-                ),
-                `2026-07-30T00-00-00-000Z_${captured.options?.sessionId ?? ""}.jsonl`,
-              ),
-            ).toBe(seeded);
+            // NOT `--session-id`: that is create-or-resume, which from a
+            // relocated cwd silently starts an empty same-id session.
+            expect(captured.options?.sessionId).toBeUndefined();
             // The prior conversation is still on disk, unrewritten by the launch.
             expect(NodeFS.readFileSync(seeded, "utf8")).toContain(
               "the orchestration context that must survive",
@@ -222,11 +242,61 @@ describe("PiDriver resume state (driver boundary)", () => {
             // No fork: a fork would copy the source into a NEW session id.
             expect(captured.options?.forkFrom).toBeUndefined();
           }),
-        (options) => {
-          captured.options = options;
-          return Promise.resolve(fake);
-        },
+        createProcess,
       );
     },
   );
+
+  // Probe ↔ launch consistency for the case the `--cwd` patch exists for: loom
+  // deletes a completed sub-thread's worktree at fan-in, so the session file stays
+  // under the DEAD worktree's project dir while the resume launches from the
+  // server's workspace root. A cwd-scoped probe answers false here while the
+  // launch would resume happily — a genuinely recoverable thread refused.
+  effectIt.effect("resumes a session left under a relocated worktree's project dir", () => {
+    const { captured, createProcess } = capturingProcess();
+
+    return withAdapter(
+      (adapter, serverCwd) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.make("88888888-0000-4000-8000-000000000008");
+          const reapedWorktree = NodePath.join(
+            NodeOS.tmpdir(),
+            "t3-reaped-worktree-does-not-exist",
+          );
+          const seeded = yield* Effect.sync(() =>
+            seedSessionFile({
+              threadId,
+              cwd: reapedWorktree,
+              lines: priorConversation(threadId),
+            }),
+          );
+          // The file is NOT under the launch cwd's project dir.
+          expect(NodePath.dirname(seeded)).not.toBe(
+            piProjectSessionDir(
+              serverCwd,
+              NodePath.join(process.env.HOME ?? "", ".pi", "agent", "sessions"),
+            ),
+          );
+
+          expect(yield* adapter.canResumeThread!({ threadId, cwd: reapedWorktree })).toBe(true);
+
+          yield* adapter.startSession({
+            threadId,
+            providerInstanceId: INSTANCE,
+            cwd: reapedWorktree,
+            runtimeMode: "full-access",
+          });
+
+          // Same file, resumed by path; the dangling recorded worktree is
+          // replaced by the server's workspace root so `--cwd` names a live dir.
+          expect(captured.options?.sessionFilePath).toBe(seeded);
+          expect(captured.options?.cwdOverride).toBe(serverCwd);
+          expect(captured.options?.sessionId).toBeUndefined();
+          expect(NodeFS.readFileSync(seeded, "utf8")).toContain(
+            "the orchestration context that must survive",
+          );
+        }),
+      createProcess,
+    );
+  });
 });

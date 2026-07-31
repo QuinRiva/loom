@@ -197,7 +197,7 @@ interface ActivePiSession {
   session: ProviderSession;
   process: PiRpcProcess;
   // Recreate the pi process with this session's exact launch options. The
-  // closure recomputes `resolveSessionFilePath`, so a relaunch of a thread
+  // closure recomputes `resolveResumableSessionFile`, so a relaunch of a thread
   // that has run resumes by explicit `--session <file> --cwd <dir>` (never
   // session-id + cwd-slug derivation — the silent-amnesia guard). Used to
   // relaunch from a freshly sanitised history when a live session crosses into an
@@ -2083,9 +2083,15 @@ export function makePiAdapter(input: {
           // from a possibly-relocated cwd — which silently forks an empty same-id
           // session (amnesia, plan fact 2). First launches of NEW threads and the
           // `--fork` first launch keep `--session-id` (no file yet / forking).
+          // The candidate is resolved by the SAME predicate `canResumeThread`
+          // answers with, so the recovery gate and this launch can never
+          // disagree: a file that fails the header check is not resumed by path
+          // (pi with `--cwd` skips its own header read and would open it as an
+          // empty conversation) but left to `--session-id`, whose accept-or-
+          // create-new rule handles it without pretending to continue anything.
           const threadSessionId = piSessionIdForThread(startInput.threadId);
           const existingSessionFile =
-            forkSource === undefined ? resolveSessionFilePath(threadSessionId) : undefined;
+            forkSource === undefined ? resolveResumableSessionFile(threadSessionId) : undefined;
           const isResume = existingSessionFile !== undefined;
           // Existence-check fallback (plan §4.2): on a resume, a recorded worktree
           // path that dangles (relocated at fan-in / reaped) would make pi's
@@ -2495,24 +2501,21 @@ export function makePiAdapter(input: {
     listSessions: () => Effect.sync(() => [...sessions.values()].map((session) => session.session)),
     hasSession: (threadId) => Effect.sync(() => sessions.has(threadId)),
     getSession: (threadId) => Effect.sync(() => sessions.get(threadId)?.session),
-    // Resumable exactly when pi would REALLY open this thread's session file for
-    // `--session-id` in the cwd the resume will launch with. Deliberately not "a
-    // file with that name exists somewhere": pi scopes the lookup to the project
-    // dir for its cwd and only accepts a file that parses as a session whose
-    // HEADER id matches, otherwise it warns and creates a NEW session with that
-    // id. Answering true for state pi rejects would resume the thread into an
-    // empty conversation — alive-looking but with its orchestration context
-    // silently gone — which is worse than the loud refusal we give instead. The
-    // cwd fallback must match `startSession`'s (`input.serverConfig.cwd`) or the
-    // probe would inspect a different project dir than the launch.
-    canResumeThread: ({ threadId, cwd }) =>
-      Effect.sync(
-        () =>
-          resolveResumableSessionFile(
-            piSessionIdForThread(threadId),
-            cwd ?? input.serverConfig.cwd,
-          ) !== undefined,
-      ),
+    // Resumable exactly when `startSession` would take its resume branch AND the
+    // file it would name is really a pi session for this thread. Both halves
+    // matter, and both mirror the launch rather than modelling pi's old
+    // `--session-id` rule: the candidate comes from the same global by-name
+    // lookup `startSession` uses, so the probe can never refuse a file the
+    // launch would happily open (notably one under a RELOCATED worktree's
+    // project dir — the case `--cwd` exists for); and the header check refuses a
+    // corrupt/non-session file, which `--session <path> --cwd <dir>` would open
+    // as an empty conversation — alive-looking with its orchestration context
+    // silently gone. Deliberately cwd-independent, because the resume launch is:
+    // it names the file outright and pins the cwd (falling back to the server's
+    // workspace root when the recorded one is gone), so no cwd can turn a
+    // resumable thread unresumable.
+    canResumeThread: ({ threadId }) =>
+      Effect.sync(() => resolveResumableSessionFile(piSessionIdForThread(threadId)) !== undefined),
     readThread: (threadId) =>
       requireSession(threadId).pipe(
         Effect.map((session) => ({

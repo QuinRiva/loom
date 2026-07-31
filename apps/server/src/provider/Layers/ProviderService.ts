@@ -655,9 +655,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // demanding one made every stopped pi thread permanently unrecoverable.
       // Ask the DRIVER whether resumable state exists rather than special-casing
       // a kind here; a cursor-only driver has no such answer and still fails.
-      // The probe is handed the SAME cwd the resume below launches with, because
-      // resume state can be scoped to it — asking about a different cwd could
-      // green-light a launch that then finds nothing and starts empty.
+      // The probe is handed the SAME cwd the resume below launches with, so a
+      // driver whose resume state IS cwd-scoped answers about the launch that
+      // actually follows rather than a hypothetical one.
       const canResumeFromDriverState =
         !hasResumeCursor &&
         adapter.capabilities.resumeState === "session-file" &&

@@ -1831,9 +1831,8 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(resumedStartInput.resumeCursor, undefined);
 
       // The resumability probe must be asked about the SAME cwd the resume then
-      // launches with: pi scopes its session lookup to that cwd's project dir, so
-      // probing a different one could green-light a launch that finds nothing and
-      // silently starts an empty session.
+      // launches with, so a driver whose resume state IS cwd-scoped answers about
+      // the launch that actually follows rather than a hypothetical one.
       const probeInput = routing.pi.canResumeThread.mock.calls.at(-1)?.[0];
       assert.equal(probeInput?.threadId, initial.threadId);
       assert.equal(probeInput?.cwd, "/tmp/project-pi-resume");
