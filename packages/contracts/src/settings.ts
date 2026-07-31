@@ -342,7 +342,10 @@ export const PiSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("pi").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the Pi CLI binary.",
+        description:
+          'Path to the Pi CLI binary. Leave as "pi" to use the bundled, patched copy ' +
+          "shipped with Loom — a custom path forfeits Loom's pi patches (notably `--cwd`, " +
+          "which lets a completed sub-thread be reopened after its worktree is reclaimed).",
         providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
       }),
     ),
