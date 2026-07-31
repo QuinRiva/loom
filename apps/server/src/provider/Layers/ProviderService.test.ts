@@ -658,6 +658,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -723,6 +724,7 @@ it.effect(
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -789,6 +791,7 @@ it.effect(
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -831,6 +834,7 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -920,6 +924,7 @@ it.effect(
         Layer.provideMerge(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(WorkspaceLeaseTestLive),
         Layer.provide(
           Layer.succeed(
             ProviderEventLoggers.ProviderEventLoggers,
@@ -1019,6 +1024,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
+      Layer.provide(WorkspaceLeaseTestLive),
       Layer.provide(
         Layer.succeed(
           ProviderEventLoggers.ProviderEventLoggers,
@@ -1165,6 +1171,7 @@ it.effect("ProviderServiceLive does not rewrite already-stopped bindings on shut
           Layer.provide(directoryLayer),
           Layer.provide(defaultServerSettingsLayer),
           Layer.provide(AnalyticsService.layerTest),
+          Layer.provide(WorkspaceLeaseTestLive),
           Layer.provide(
             Layer.succeed(
               ProviderEventLoggers.ProviderEventLoggers,
