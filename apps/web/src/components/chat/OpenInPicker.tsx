@@ -34,6 +34,9 @@ import {
 import { cn, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useAtomValue } from "@effect/atom-react";
+import { primaryServerConfigAtom } from "~/state/server";
+import { tryClientEditorLaunch } from "~/lib/clientEditorLaunch";
 
 type OpenInOption = {
   label: string;
@@ -84,6 +87,12 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
       label: "Zed",
       Icon: Zed,
       value: "zed",
+      kind: "brand",
+    },
+    {
+      label: "Zed (remote)",
+      Icon: Zed,
+      value: "zed-remote",
       kind: "brand",
     },
     {
@@ -199,6 +208,7 @@ export const OpenInPicker = memo(function OpenInPicker({
   enableShortcut?: boolean;
 }) {
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
+  const remoteEditorSshHost = useAtomValue(primaryServerConfigAtom)?.remoteEditorSshHost ?? null;
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const options = useMemo(
     () => resolveOptions(navigator.platform, availableEditors),
@@ -211,6 +221,10 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!openInCwd) return;
       const editor = editorId ?? preferredEditor;
       if (!editor) return;
+      if (tryClientEditorLaunch(editor, openInCwd, remoteEditorSshHost)) {
+        setPreferredEditor(editor);
+        return;
+      }
       const result = openInEditorMutation({
         environmentId,
         input: {
@@ -221,7 +235,14 @@ export const OpenInPicker = memo(function OpenInPicker({
       setPreferredEditor(editor);
       return result;
     },
-    [environmentId, openInCwd, openInEditorMutation, preferredEditor, setPreferredEditor],
+    [
+      environmentId,
+      openInCwd,
+      openInEditorMutation,
+      preferredEditor,
+      remoteEditorSshHost,
+      setPreferredEditor,
+    ],
   );
 
   const openFavoriteEditorShortcutLabel = useMemo(
@@ -237,6 +258,9 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!preferredEditor) return;
 
       e.preventDefault();
+      if (tryClientEditorLaunch(preferredEditor, openInCwd, remoteEditorSshHost)) {
+        return;
+      }
       void openInEditorMutation({
         environmentId,
         input: {
@@ -254,6 +278,7 @@ export const OpenInPicker = memo(function OpenInPicker({
     openInCwd,
     openInEditorMutation,
     preferredEditor,
+    remoteEditorSshHost,
   ]);
 
   return (

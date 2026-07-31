@@ -30,6 +30,7 @@ import {
 
 const CONFIG = {
   availableEditors: [],
+  remoteEditorSshHost: null,
   issues: [],
   keybindings: {},
   keybindingsConfigPath: null,

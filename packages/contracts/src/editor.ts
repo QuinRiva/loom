@@ -10,6 +10,12 @@ type EditorDefinition = {
   readonly commands: readonly [string, ...string[]] | null;
   readonly baseArgs?: readonly string[];
   readonly launchStyle: EditorLaunchStyle;
+  /**
+   * Editors the CLIENT launches via a URL handler rather than the server
+   * spawning a binary. Used when the server is remote (e.g. loom on a VM) and
+   * the editor runs on the operator's machine, reaching back over SSH.
+   */
+  readonly clientLaunch?: "zed-ssh";
 };
 
 export const EDITORS = [
@@ -39,7 +45,34 @@ export const EDITORS = [
   { id: "rustrover", label: "RustRover", commands: ["rustrover"], launchStyle: "line-column" },
   { id: "webstorm", label: "WebStorm", commands: ["webstorm"], launchStyle: "line-column" },
   { id: "file-manager", label: "File Manager", commands: null, launchStyle: "direct-path" },
+  {
+    id: "zed-remote",
+    label: "Zed (remote)",
+    commands: null,
+    launchStyle: "direct-path",
+    clientLaunch: "zed-ssh",
+  },
 ] as const satisfies ReadonlyArray<EditorDefinition>;
+
+/** Editor ids the client launches itself; the server must never spawn these. */
+export const CLIENT_LAUNCH_EDITORS: ReadonlyArray<EditorId> = EDITORS.filter(
+  (editor) => "clientLaunch" in editor,
+).map((editor) => editor.id);
+
+export function isClientLaunchEditor(editor: EditorId): boolean {
+  return CLIENT_LAUNCH_EDITORS.includes(editor);
+}
+
+/**
+ * Build a Zed remote hotlink for `host`, which must name an SSH host the
+ * CLIENT machine can resolve. Zed's hotlink form carries no line/column, so any
+ * trailing `:line[:col]` suffix is dropped rather than silently mangling the path.
+ */
+export function zedRemoteEditorUrl(host: string, targetPath: string): string {
+  const withoutPosition = targetPath.replace(/:\d+(?::\d+)?$/, "");
+  const absolute = withoutPosition.startsWith("/") ? withoutPosition : `/${withoutPosition}`;
+  return `zed://ssh/${host}${absolute}`;
+}
 
 export const EditorId = Schema.Literals(EDITORS.map((e) => e.id));
 export type EditorId = typeof EditorId.Type;

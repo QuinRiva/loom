@@ -649,6 +649,11 @@ export const ServerConfig = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviders,
   availableEditors: Schema.Array(EditorId),
+  /**
+   * SSH host the client uses to reach this server, for client-launched editors
+   * (see CLIENT_LAUNCH_EDITORS). Null on a local install.
+   */
+  remoteEditorSshHost: Schema.NullOr(TrimmedNonEmptyString),
   observability: ServerObservability,
   settings: ServerSettings,
   /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */
