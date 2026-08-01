@@ -204,7 +204,7 @@ const make = Effect.gen(function* () {
   // Post-completion engagement (plan §8 item 3): the child's tip commit is
   // recorded on the SAME meta.update that repoints the child off its removed
   // worktree — stamped exactly when the workspace is relocated, which is exactly
-  // when the Discuss relocation preamble should surface it. Folded into repoint
+  // when the relocation preamble should surface it. Folded into repoint
   // (rather than a separate dispatch) so a held/undisposed worktree generates no
   // spurious meta mutation. `finalCommitSha` is a historical marker only —
   // nothing reads it for control flow. It rides ONLY the child's own repoint
@@ -371,7 +371,7 @@ const make = Effect.gen(function* () {
 
   // The lease boundary for this reactor: every worktree removal it performs
   // passes through here. `withExclusive` yields `Option.none` while any process
-  // holds the workspace (a resumed Discuss session, a turn that is mid-launch
+  // holds the workspace (a resumed session, a turn that is mid-launch
   // and has not spawned yet), and blocks new holds for the removal's duration —
   // so a start cannot slip in between the decision and `git worktree remove`.
   // A skip is not an error: this pass is idempotent and re-armed by events plus

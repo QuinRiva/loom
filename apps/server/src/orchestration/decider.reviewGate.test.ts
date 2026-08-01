@@ -20,6 +20,8 @@ import * as Exit from "effect/Exit";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 
+import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
@@ -465,6 +467,42 @@ it.layer(NodeServices.layer)("decider review-gate routing (Phase 3)", (it) => {
         expect(laneEvents.some((event) => event.type === "thread.activity-appended")).toBe(false);
         const exit = yield* Effect.exit(decide(submit(CODER, "done"), model));
         expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
+  // Terminal threads now resume with their FULL launch (the read-only Discuss
+  // mode is gone), so a re-engaged `done` REVIEWER can reach `workstream_submit`
+  // again. Its `needs_rework` still routes to `loop`, which the terminal-lane
+  // guard's exception would have waved through — silently reopening an
+  // already-done coder and re-driving a gate whose verdict already released
+  // dependants. The exception is scoped by `pendingRework`, which only the
+  // rework TARGET carries, so the reviewer is rejected.
+  it.effect(
+    "a re-engaged done REVIEWER cannot re-drive a resolved gate with a loop-routed verdict",
+    () =>
+      Effect.gen(function* () {
+        let model = yield* seedGateModel;
+        // The gate resolves cleanly: both parties reach `done`.
+        model = yield* applyDecided(model, yield* decide(submit(REVIEWER, "clean"), model));
+        expect(model.threads.find((t) => t.id === REVIEWER)?.planLane).toBe("done");
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("done");
+        // The reviewer never carries `pendingRework` — that is the target's flag.
+        expect(model.threads.find((t) => t.id === REVIEWER)?.pendingRework).toBe(false);
+
+        // A human re-engages the reviewer; it tries to loop the settled coder.
+        const routing = routeWorkSubmit(
+          model.threads.find((t) => t.id === REVIEWER)!,
+          model.threads,
+          "needs_rework",
+        );
+        // The routing itself still says "loop" — the guard, not the router, is
+        // what must refuse it (otherwise this test would pass vacuously).
+        expect(routing.decision).toBe("loop");
+        const exit = yield* Effect.exit(decide(submit(REVIEWER, "needs_rework"), model));
+        expect(Exit.isFailure(exit)).toBe(true);
+        // The coder stays settled: no reopen, no fresh rework round.
+        expect(model.threads.find((t) => t.id === CODER)?.planLane).toBe("done");
+        expect(model.threads.find((t) => t.id === CODER)?.pendingRework).toBe(false);
       }),
   );
 

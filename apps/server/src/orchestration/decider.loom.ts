@@ -868,9 +868,19 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
       // the routed submit must go through or the pair wedges (the coder's
       // report unroutable, the reviewer waiting forever). The loop decision
       // touches no lanes, so sticky-terminal is preserved.
+      //
+      // The exception is scoped by `pendingRework`, which only the rework TARGET
+      // carries: without it, a re-engaged `done` REVIEWER (terminal threads now
+      // resume with their full workstream extension) could re-submit a
+      // loop-routed verdict and reopen an already-done coder, re-driving a gate
+      // whose verdict has already released dependants.
       if (
         (submitThread.planLane === "cancelled" || submitThread.planLane === "done") &&
-        !(submitThread.planLane === "done" && routing.decision === "loop")
+        !(
+          submitThread.planLane === "done" &&
+          routing.decision === "loop" &&
+          submitThread.pendingRework === true
+        )
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,

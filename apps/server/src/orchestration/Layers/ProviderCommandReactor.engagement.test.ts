@@ -1,44 +1,42 @@
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { isDiscussLaunch, shouldReprovisionIsolatedChild } from "./ProviderCommandReactor.ts";
+import { relocationClause, shouldReprovisionIsolatedChild } from "./ProviderCommandReactor.ts";
 
 /**
- * Post-completion sub-thread engagement — Phase 1 capability tests for the two
- * durable-state decisions that make "a human opens a completed, fanned-in
- * sub-thread and talks to it" work, extracted as pure functions so the
- * capability is provable without spinning the whole provider harness.
+ * Post-completion sub-thread engagement — capability tests for the durable-state
+ * decisions that make "a human opens a completed, fanned-in sub-thread and talks
+ * to it" work, extracted as pure functions so the capability is provable without
+ * spinning the whole provider harness.
  *
- * The remaining Phase 1 capabilities are covered where their mechanism actually
- * lives:
- *  - "resume never spawns a same-id sibling session" and "Discuss cannot write"
- *    → `Pi/RpcProcess.test.ts` (the launched argv: `--session <file> --cwd`, no
- *    `--session-id`; read-only `--tools`, no `--extension`), plus the installed-
- *    binary contract test `Pi/PiCwdOverride.contract.test.ts`;
- *  - "conversing does not notify the orchestrator" → `WorkstreamDispatcher.test.ts`
- *    (`terminalEpisodeKey`/`childReportedCommandId` are unchanged by a Discuss
- *    turn, so the delta-rail wake never re-arms).
+ * There is no read-only engagement mode: EVERY thread, terminal or not, resumes
+ * with its full launch (role overlay, goal context, ship policy, skills, full
+ * tools, workstream extension). The remaining capabilities are covered where
+ * their mechanism lives:
+ *  - "resume never spawns a same-id sibling session" and "a terminal resume is a
+ *    full launch" → `Pi/RpcProcess.test.ts` (the launched argv: `--session
+ *    <file> --cwd`, no `--session-id`, no restrictive `--tools`, the workstream
+ *    `--extension` present), plus the installed-binary contract test
+ *    `Pi/PiCwdOverride.contract.test.ts`;
+ *  - "a re-submit after done reports as news" → `WorkstreamDispatcher.test.ts`
+ *    (`terminalEpisodeKey` prefers the newest outcome id).
  */
-describe("post-completion engagement — Discuss-launch decision (isDiscussLaunch)", () => {
-  // CAPABILITY: a human can converse with a fanned-in child — read-only.
-  it("routes a terminal thread that has run (session file present) to a read-only Discuss launch", () => {
-    expect(isDiscussLaunch({ planLane: "done", sessionFileExists: true })).toBe(true);
-    expect(isDiscussLaunch({ planLane: "cancelled", sessionFileExists: true })).toBe(true);
-  });
-
-  it("does NOT Discuss a terminal thread that never ran (no session file)", () => {
-    // A terminal-but-never-run thread is not a completed interlocutor; it takes
-    // the normal path (and, if genuinely never provisioned, is provisioned).
-    expect(isDiscussLaunch({ planLane: "done", sessionFileExists: false })).toBe(false);
-    expect(isDiscussLaunch({ planLane: "cancelled", sessionFileExists: false })).toBe(false);
-  });
-
-  it("gives a non-terminal thread the normal full launch even when it has a session file", () => {
-    // Guards the mode split: session-file existence alone must NOT force Discuss —
-    // only a terminal lane does. A running/paused child resumes writable.
-    expect(isDiscussLaunch({ planLane: "in_progress", sessionFileExists: true })).toBe(false);
-    expect(isDiscussLaunch({ planLane: "ready", sessionFileExists: true })).toBe(false);
-    expect(isDiscussLaunch({ planLane: "planned", sessionFileExists: true })).toBe(false);
+describe("post-completion engagement — relocation clause (relocationClause)", () => {
+  // CAPABILITY: a relocated thread is told its remembered paths are historical
+  // and instructed to re-verify — care, NOT incapacity (it can still edit).
+  it("names the destination cwd and the merge commit, and instructs re-verification", () => {
+    const clause = relocationClause({
+      finalCommitSha: "abc1234",
+      cwd: "/tmp/parent-worktree",
+    });
+    // The concrete replacement location, not just "the tree you are in" — the
+    // thread must not have to rediscover where it now is.
+    expect(clause).toContain("/tmp/parent-worktree");
+    expect(clause).toContain("abc1234");
+    expect(clause).toContain("no longer exists");
+    expect(clause).toMatch(/re-verify/i);
+    // Care, not incapacity: the thread resumes with its full tool surface.
+    expect(clause).not.toMatch(/read-only|cannot edit/i);
   });
 });
 

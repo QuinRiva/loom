@@ -86,23 +86,4 @@ describe("buildPiRpcArgs", () => {
     // The silent-amnesia guard: no `--session-id` on a resume.
     expect(args).not.toContain("--session-id");
   });
-
-  // Post-completion engagement (plan §5.1) — CAPABILITY: a Discuss launch cannot
-  // write. The resumed session carries the read-only tool allowlist and NO
-  // workstream extension (the reactor omits `extensions` for a read-only launch,
-  // and pi's allowlist blocks any extension tool regardless).
-  it("a read-only Discuss resume carries read-only tools and no --extension", () => {
-    const args = buildPiRpcArgs({
-      binaryPath: "pi-test-binary",
-      platform: "linux",
-      sessionId: "thread-session",
-      sessionFilePath: "/abs/sessions/proj/2026_thread-session.jsonl",
-      cwdOverride: "/abs/parent-worktree",
-      tools: ["read", "grep", "find", "ls"],
-      // extensions intentionally omitted — a Discuss launch has no MCP session.
-    });
-    const toolsIdx = args.indexOf("--tools");
-    expect(args[toolsIdx + 1]).toBe("read,grep,find,ls");
-    expect(args).not.toContain("--extension");
-  });
 });

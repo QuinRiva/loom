@@ -27,6 +27,25 @@ even when a brief's definition of done says "merged". See
 [`docs/operations/shipping.md`](docs/operations/shipping.md) for the policy shape
 and rationale.
 
+### Deploying to production (the loom VM)
+
+Once a loom change is merged to `main`, it reaches the running cockpit on Carl's
+VM through the self-update pipeline — **never** a raw in-place `pnpm
+cockpit:build` (that destroys the known-good artefact and restarts the cockpit
+under itself). Ship it with one command:
+
+```bash
+~/loom-slack-bridge/deploy/deployctl deploy main   # or a specific ref/sha
+```
+
+This only *enqueues* a deploy job and returns immediately (safe to run from any
+in-cockpit agent), so you do not saw off the branch you sit on. The independent
+`loom-deployd` daemon then builds out of place, smoke-boots, and promotes behind
+a two-stage health gate with a soak window and automatic rollback, posting
+progress to Slack. Roll back with `deployctl rollback`; check state with
+`deployctl status` / `deployctl jobs`. Full mechanism: `~/loom-releases/RUNBOOK.md`
+(Phases 2–3) in the loom-slack-bridge repo.
+
 ## Project Snapshot
 
 T3 Code is a minimal web GUI for using coding agents like Codex and Claude.
