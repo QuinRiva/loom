@@ -87,22 +87,25 @@ describe("buildPiRpcArgs", () => {
     expect(args).not.toContain("--session-id");
   });
 
-  // Post-completion engagement (plan §5.1) — CAPABILITY: a Discuss launch cannot
-  // write. The resumed session carries the read-only tool allowlist and NO
-  // workstream extension (the reactor omits `extensions` for a read-only launch,
-  // and pi's allowlist blocks any extension tool regardless).
-  it("a read-only Discuss resume carries read-only tools and no --extension", () => {
+  // Post-completion engagement — CAPABILITY: a terminal-lane resume is a FULL
+  // launch. There is no read-only engagement mode, so the resumed session keeps
+  // its workstream extension (an MCP session is always prepared) and imposes no
+  // restrictive `--tools` allowlist. This is the argv shape of the regression
+  // that made re-engaged threads unable to make any tool call.
+  it("a terminal-lane resume carries the workstream --extension and no restrictive --tools", () => {
     const args = buildPiRpcArgs({
       binaryPath: "pi-test-binary",
       platform: "linux",
       sessionId: "thread-session",
       sessionFilePath: "/abs/sessions/proj/2026_thread-session.jsonl",
       cwdOverride: "/abs/parent-worktree",
-      tools: ["read", "grep", "find", "ls"],
-      // extensions intentionally omitted — a Discuss launch has no MCP session.
+      appendSystemPrompt: "role overlay…",
+      extensions: ["/abs/extensions/workstream.json"],
+      // `tools` intentionally omitted — no engagement mode narrows the surface.
     });
-    const toolsIdx = args.indexOf("--tools");
-    expect(args[toolsIdx + 1]).toBe("read,grep,find,ls");
-    expect(args).not.toContain("--extension");
+    const extIdx = args.indexOf("--extension");
+    expect(extIdx).toBeGreaterThanOrEqual(0);
+    expect(args[extIdx + 1]).toBe("/abs/extensions/workstream.json");
+    expect(args).not.toContain("--tools");
   });
 });

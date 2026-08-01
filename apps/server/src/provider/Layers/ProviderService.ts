@@ -871,14 +871,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.cwd.effective": effectiveCwd ?? "",
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        // Post-completion engagement — Discuss launch (plan §5.1): a read-only
-        // resume prepares NO workstream MCP session (and clears any stale one),
-        // so the pi launch carries no workstream extension and no
-        // `T3_WORKSTREAM_*` env — the engagement structurally cannot mutate
-        // orchestration. Every other launch prepares the session as before.
-        yield* input.readOnly === true
-          ? clearMcpSession(threadId)
-          : prepareMcpSession(threadId, resolvedInstanceId);
+        yield* prepareMcpSession(threadId, resolvedInstanceId);
         // The pre-spawn hold: from here until the process exits (or this start
         // fails), no remover may delete `effectiveCwd`.
         const session = yield* withWorkspaceHold(

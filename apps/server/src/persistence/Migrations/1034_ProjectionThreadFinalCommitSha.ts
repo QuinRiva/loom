@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 // kept branch tip).
 // - final_commit_sha: nullable text. Null for rows never disposed by fan-in /
 //   cancel (the default for every pre-engagement row). A historical marker only
-//   — nothing reads it for control flow; the Discuss relocation preamble surfaces
+//   — nothing reads it for control flow; the relocation preamble surfaces
 //   it so a re-engaged thread knows where its merged work landed.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

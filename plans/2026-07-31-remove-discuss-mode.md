@@ -7,7 +7,10 @@ manager_sessions:
 
 # Remove Discuss mode: terminal threads resume with full capability
 
-**Status:** design — **revision 3**, awaiting review. Revisions 1–2 proposed
+**Status:** design — **revision 3**, reviewed: **endorse-with-changes**
+(`workstream-reports/5504868c-127b-49d4-93ac-9fc084274bbe.md`; its two
+must-fixes M1/M2 are incorporated below and are part of the implementation
+spec). Revisions 1–2 proposed
 scoping Discuss mode to children (F1) and restarting on mode mismatch (F2);
 both were reviewed (`workstream-reports/d3fdfe96-…`, technical audit;
 `workstream-reports/1ff3b7c2-…`, design critique — endorse-with-changes).
@@ -69,7 +72,11 @@ control plane already handles post-terminal activity sanely:
 
 - **Sticky terminal** (`decider.ts:1313-1317`): a turn-start on a
   `done`/`cancelled` thread changes neither lane nor stored attention.
-- **Re-submit after done**: a terminal submit records a fresh outcome event;
+- **Plain terminal re-submits are rejected** by the decider's terminal-lane
+  guard (`decider.loom.ts:875`, review N1) — the guard, not the missing
+  extension, is what makes post-terminal submits safe. A re-submit lands only
+  after a deliberate lane reopen, which is the intended path:
+- **Re-submit after reopen**: a terminal submit records a fresh outcome event;
   `terminalEpisodeKey` prefers the newest outcome id
   (`WorkstreamDispatcher.ts:879-889`), so the parent's delta rail reports the
   re-run as news — at-least-once, possibly digest-batched (predecessor
@@ -123,9 +130,13 @@ Discuss launch: a fanned-in child's transcript remembers absolute paths in a
 deleted checkout, and it must not edit under stale assumptions. Keep it,
 detached from any mode:
 
-- On **every** launch of a thread whose recorded workspace moved — the same
-  trigger Phase 1 used: `finalCommitSha != null || worktreePath === null`
-  for a thread whose session file exists — append a relocation clause to the
+- On **every** launch of a thread whose recorded workspace moved — trigger:
+  **`finalCommitSha != null` alone** (review must-fix M1: the Phase 1
+  `worktreePath === null` disjunct is wrong on the universal launch path,
+  since every root and every shared child runs with a null worktreePath and
+  would receive a false "your work was merged" preamble after any server
+  restart; `finalCommitSha` is stamped only by fan-in/cancel on children, so
+  it is the clean relocation signal) — append a relocation clause to the
   composed `appendSystemPrompt` (after role overlay/goal context):
 
   > "Your work here previously happened in a working directory that no longer
@@ -137,6 +148,22 @@ detached from any mode:
   instruct *care*, not *incapacity*.
 - This composes with the full launch, so it reaches exactly the threads that
   need it (relocated ones) on every resume, root or child, terminal or not.
+
+### C3b — close the resolved-gate re-drive hole (review must-fix M2)
+
+Discuss's missing workstream extension structurally prevented a re-engaged
+terminal **reviewer** from re-submitting a loop-routed verdict. With the
+extension back, `routeWorkSubmit` → `loop` slips through the decider's
+terminal-lane guard exception (`decider.loom.ts:871-874`), letting a done
+reviewer reopen an already-done coder and re-drive a gate whose verdict
+already released dependants. Tighten the exception to require the submitting
+thread to be the pending-rework target:
+
+`planLane === "done" && routing.decision === "loop" && submitThread.pendingRework === true`
+
+`pendingRework` is carried only by the rework target/coder
+(`projector.loom.ts:350,578`), so the 2026-07-07 incident case (force-done
+coder handing back) still passes while the reviewer hole closes.
 
 ### C4 — tests
 
@@ -159,6 +186,14 @@ detached from any mode:
      no attention (existing invariant, re-pinned against the new path).
   5. *Post-terminal re-submit reports as news* — already pinned by
      `terminalEpisodeKey` unit tests; verify they survive unchanged.
+  6. *Done reviewer's loop-routed re-submit is rejected* (M2 pin); the
+     pending-rework coder hand-back still passes.
+  7. *(nice-to-have N6)* terminal resume carries the `T3_WORKSTREAM_*` env,
+     pinning the prepared-MCP-session path end-to-end.
+- **Reword, don't orphan** (review N4): stale Discuss references at
+  `orchestration.loom.ts:445,829`, `WorkstreamFanInReactor.ts:207,374`, the
+  `discussRelocationClause` name (rename to `relocationClause`), and the
+  `engagement.test.ts` header docstring.
 - **Keep untouched**: `PiCwdOverride.contract.test.ts` (the `--cwd` pin),
   `WorkspaceLease.test.ts`, all fan-in/reaper tests.
 

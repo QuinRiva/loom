@@ -117,46 +117,14 @@ const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
-// Post-completion engagement — Discuss launch (plan §5.1). The read-only tool
-// allowlist a terminal thread resumes with, identical to the `consult_thread`
-// fork's restriction (`workstreamAsk.READONLY_FORK_TOOLS`): no bash/edit/write.
-// pi applies the allowlist to extension tools too, so this also blocks any
-// workstream tool — but Discuss launches carry no workstream extension anyway
-// (`readOnly` skips the MCP session), which is the structural guarantee.
-const DISCUSS_READONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
-
-// The read-only framing prepended on a Discuss launch: the human is still
-// talking to the same thread, but it can no longer act. Mirrors the fork oracle
-// prompt (`workstreamAsk`) adapted for a resumed (not forked) session.
-const DISCUSS_READONLY_PROMPT =
-  "You are being re-opened READ-ONLY for a human to talk to after your work completed. This is the SAME conversation continuing, with your full history intact — not a fresh session. You have only read-only tools (read, grep, find, ls) and no workstream tools: you cannot edit, run commands, submit, spawn, or otherwise change anything. Answer the human's questions about the work you did — your reasoning, decisions, and code — using the context already in this session. If asked to make a change, explain that this is a read-only discussion and the change would need a fresh work episode.";
-
-// The relocation clause, appended when the thread's workspace has moved since the
-// session originally ran (plan §5.1). Derived from durable state: a recorded
-// `finalCommitSha` proves the child was disposed by fan-in/cancel and its
-// original checkout removed, so the tree it now sees is the parent's current
-// state, and absolute paths it remembers are historical.
-const discussRelocationClause = (finalCommitSha: string | null): string =>
-  `Your work was merged and its original working directory no longer exists.${
-    finalCommitSha ? ` Your work was committed as \`${finalCommitSha}\`.` : ""
-  } The files you see now are the parent's CURRENT state, which has moved on since you finished — any absolute paths you remember are historical. Exact historical file contents live in git at that commit.`;
-
-// Post-completion engagement — the two durable-state decisions of Phase 1,
-// extracted as pure functions so the capability is unit-testable without the
-// provider harness (plan §5.1/§5.3/§8 item 4).
-
-/**
- * Discuss-launch decision (plan §5.1/§5.3): a thread in a terminal lane
- * (`done`/`cancelled`) that has provably run — its pi session file exists —
- * resumes READ-ONLY. Every other thread takes the normal full launch. Session
- * existence is required so a terminal thread that never actually ran (no session)
- * is not mistaken for a completed interlocutor.
- */
-export const isDiscussLaunch = (input: {
-  readonly planLane: string;
-  readonly sessionFileExists: boolean;
-}): boolean =>
-  (input.planLane === "done" || input.planLane === "cancelled") && input.sessionFileExists;
+// The relocation clause, appended to the composed system prompt when the
+// thread's workspace has moved since the session originally ran. Derived from
+// durable state: a recorded `finalCommitSha` proves the child was disposed by
+// fan-in/cancel and its original checkout removed, so the tree it now sees is
+// the parent's current state, and absolute paths it remembers are historical.
+// It instructs CARE, not incapacity — the thread resumes with its full launch.
+export const relocationClause = (finalCommitSha: string): string =>
+  `Your work here previously happened in a working directory that no longer exists — your work was merged and committed as \`${finalCommitSha}\`. The files you see now are the CURRENT state of the tree you are in (the parent's tree, or the project workspace), which has moved on since you finished. Any absolute paths you remember are historical — re-verify before editing. Exact historical file contents live in git at that commit.`;
 
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
@@ -685,52 +653,11 @@ const make = Effect.gen(function* () {
       projects: project ? [project] : [],
     });
 
-    // Discuss launch (plan §5.1/§5.3): the engagement mode is a pure function of
-    // durable thread state at launch time. A thread in a terminal lane
-    // (done/cancelled) that has provably run (its session file exists) resumes
-    // READ-ONLY: read-only tools, no workstream extension, a relocation preamble
-    // — no lane change, no spawnGeneration bump, no parent notification (a
-    // sticky-terminal turn-start touches none of those). Every other thread
-    // takes the normal full launch. (Edit mode is a later phase.)
-    const discussMode = isDiscussLaunch({
-      planLane: thread.planLane,
-      sessionFileExists: resolveSessionFilePath(piSessionIdForThread(threadId)) !== undefined,
-    });
-
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderDriverKind;
     }) =>
       Effect.gen(function* () {
-        // Discuss launch (plan §5.1): a read-only resume of the same session.
-        // Structurally incapable of mutating anything — `readOnly` skips the
-        // workstream MCP session (so no workstream extension / T3_WORKSTREAM env)
-        // and the tool surface is the read-only allowlist. The role overlay,
-        // goal context, ship policy and skills are all omitted: this is an
-        // interrogation of completed work, not a work episode. The relocation
-        // clause is appended only when the workspace moved (finalCommitSha set).
-        if (discussMode) {
-          const discussPrompt = [
-            DISCUSS_READONLY_PROMPT,
-            thread.finalCommitSha != null || thread.worktreePath === null
-              ? discussRelocationClause(thread.finalCommitSha ?? null)
-              : undefined,
-          ]
-            .filter((part): part is string => !!part && part.trim().length > 0)
-            .join("\n\n");
-          return yield* providerService.startSession(threadId, {
-            threadId,
-            ...(preferredProvider ? { provider: preferredProvider } : {}),
-            providerInstanceId: desiredInstanceId,
-            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-            modelSelection: desiredModelSelection,
-            ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-            appendSystemPrompt: discussPrompt,
-            tools: [...DISCUSS_READONLY_TOOLS],
-            readOnly: true,
-            runtimeMode: desiredRuntimeMode,
-          });
-        }
         const goalSystemPrompt = yield* buildGoalSystemPrompt(thread);
         // Compose the role overlay ahead of the goal context. The driver
         // prepends PI_WORK_MODEL_SYSTEM_PROMPT, so the effective reading order is
@@ -765,11 +692,20 @@ const make = Effect.gen(function* () {
         // Injected into every thread so the merge boundary is explicit in-band
         // rather than inherited implicitly from a brief chain (see PE-2111).
         const shipPolicyBlock = shipPolicyPromptBlock(resolveMergeAuthority(roleProjectRoot));
+        // Situational awareness for a RELOCATED thread: a fanned-in (or
+        // cancelled-and-reaped) child's transcript remembers absolute paths in a
+        // checkout that no longer exists. `finalCommitSha` is stamped only by
+        // fan-in/cancel disposal (`WorkstreamFanInReactor`), and only on children
+        // — so it is the genuine relocation signal and never fires for a root or
+        // for a thread still sitting in its own worktree.
+        const relocationBlock =
+          thread.finalCommitSha != null ? relocationClause(thread.finalCommitSha) : undefined;
         const appendSystemPrompt = [
           roleOverlay?.prompt,
           shipPolicyBlock,
           rolesBlock,
           goalSystemPrompt,
+          relocationBlock,
         ]
           .filter((part): part is string => !!part && part.trim().length > 0)
           .join("\n\n");

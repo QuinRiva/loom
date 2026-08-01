@@ -30,8 +30,8 @@ describe("WorkspaceLease", () => {
 
   it.effect("many concurrent holders coexist; exclusivity waits for the LAST release", () =>
     Effect.gen(function* () {
-      // An occupant lease, not a mutex: a coder process, a resumed Discuss
-      // session, and provisioning can all legitimately be in one workspace.
+      // An occupant lease, not a mutex: a coder process, a resumed session,
+      // and provisioning can all legitimately be in one workspace.
       const lease = yield* makeWorkspaceLease;
       const holds = yield* Effect.forEach(["a", "b", "c"], (id) => lease.hold(PATH, id));
 

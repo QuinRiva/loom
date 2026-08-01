@@ -442,8 +442,8 @@ export const LoomThreadFields = {
   // Post-completion engagement (plan §8 item 3): the child's tip commit,
   // recorded on the shell when fan-in merges its branch (or at cancel, the kept
   // branch tip). A historical source-identity marker — nothing reads it for
-  // control flow; the Discuss relocation preamble surfaces it so a re-engaged
-  // thread knows where its merged work landed. Absent/null until disposed.
+  // control flow; the relocation preamble surfaces it so a re-engaged thread
+  // knows where its merged work landed. Absent/null until disposed.
   // Optional (not decode-defaulted) so it need not appear in thread literals.
   finalCommitSha: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   // D-notify: pointer to this thread's completion report markdown file (content

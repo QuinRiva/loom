@@ -67,6 +67,7 @@ import {
   providerErrorLabelFromInstanceHint,
   ProviderCommandReactorLive,
 } from "./ProviderCommandReactor.ts";
+import { piSessionIdForThread } from "../../provider/piSessionFiles.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -115,8 +116,10 @@ describe("ProviderCommandReactor", () => {
   let scope: Scope.Closeable | null = null;
   const createdStateDirs = new Set<string>();
   const createdBaseDirs = new Set<string>();
+  const realHome = process.env.HOME;
 
   afterEach(async () => {
+    process.env.HOME = realHome;
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -610,6 +613,152 @@ describe("ProviderCommandReactor", () => {
         expect(startInput.forkFromThreadId).toBe("thread-1");
         expect(startInput.forkIdentity).toBe("compose");
       }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Post-completion engagement: there is NO read-only mode. A terminal-lane
+  // (`done`/`cancelled`) thread resumes with its FULL launch — role overlay,
+  // ship policy, goal context, skills, full tools, workstream extension — plus a
+  // relocation clause iff its workspace actually moved.
+  // ---------------------------------------------------------------------------
+  const TERMINAL_THREAD = "thread-1";
+
+  // The removed Discuss mode keyed off "this thread has provably run" — its pi
+  // session file existing on disk. Seeding one is what makes these tests
+  // reproduce a real re-engagement rather than a first launch: without it the
+  // old code took the full path anyway and the regression stayed invisible.
+  const seedPiSessionFile = (threadId: string) =>
+    Effect.sync(() => {
+      const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-reactor-pi-home-"));
+      createdBaseDirs.add(home);
+      process.env.HOME = home;
+      const dir = NodePath.join(home, ".pi", "agent", "sessions", "project-slug");
+      NodeFS.mkdirSync(dir, { recursive: true });
+      NodeFS.writeFileSync(
+        NodePath.join(dir, `2026-07-30T00-00-00-000Z_${piSessionIdForThread(threadId)}.jsonl`),
+        "{}\n",
+      );
+    });
+
+  const markDone = (harness: Awaited<ReturnType<typeof createHarness>>, suffix: string) =>
+    harness.engine.dispatch({
+      type: "thread.plan-lane.set",
+      commandId: CommandId.make(`cmd-lane-done-${suffix}`),
+      threadId: ThreadId.make(TERMINAL_THREAD),
+      planLane: "done",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+
+  const stampFinalCommit = (harness: Awaited<ReturnType<typeof createHarness>>, suffix: string) =>
+    harness.engine.dispatch({
+      type: "thread.meta.update",
+      commandId: CommandId.make(`cmd-final-sha-${suffix}`),
+      threadId: ThreadId.make(TERMINAL_THREAD),
+      finalCommitSha: "deadbee",
+    } as never);
+
+  const startTurnOn = (harness: Awaited<ReturnType<typeof createHarness>>, suffix: string) =>
+    harness.engine.dispatch({
+      type: "thread.turn.start",
+      commandId: CommandId.make(`cmd-terminal-turn-${suffix}`),
+      threadId: ThreadId.make(TERMINAL_THREAD),
+      message: {
+        messageId: asMessageId(`terminal-msg-${suffix}`),
+        role: "user",
+        text: "one more thing about the work you did",
+        attachments: [],
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+  const lastStartInput = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+    harness.startSession.mock.calls.at(-1)?.[1] as {
+      readonly appendSystemPrompt?: string;
+      readonly tools?: ReadonlyArray<string>;
+    };
+
+  // CAPABILITY (the observed regression, thread `17063e98`): a re-engaged
+  // terminal ROOT orchestrator comes back able to act. Under the removed Discuss
+  // mode it resumed with a read-only tool allowlist and no workstream extension,
+  // leaving it unable to make any tool call — not even to reopen its own lane.
+  effectIt.effect(
+    "resumes a terminal ROOT with a full launch — no tool restriction, no relocation clause",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedPiSessionFile(TERMINAL_THREAD);
+        yield* markDone(harness, "root");
+
+        yield* startTurnOn(harness, "root");
+
+        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+        const startInput = lastStartInput(harness);
+        // No engagement mode narrows the surface: `tools` is left unset (only a
+        // role overlay may set it).
+        expect(startInput.tools).toBeUndefined();
+        // The full composition is present (ship policy rides every launch)…
+        expect(startInput.appendSystemPrompt ?? "").not.toBe("");
+        // …and a root never relocates: it must NOT be told its directory is gone.
+        expect(startInput.appendSystemPrompt ?? "").not.toContain("no longer exists");
+      }),
+  );
+
+  // CAPABILITY: a fanned-in child (its worktree reaped, `finalCommitSha` stamped)
+  // resumes fully capable AND situationally aware — told its remembered paths are
+  // historical, and where its merged work landed.
+  effectIt.effect(
+    "resumes a terminal RELOCATED child with a full launch plus the relocation clause",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedPiSessionFile(TERMINAL_THREAD);
+        yield* stampFinalCommit(harness, "child");
+        yield* markDone(harness, "child");
+
+        yield* startTurnOn(harness, "child");
+
+        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+        const startInput = lastStartInput(harness);
+        expect(startInput.tools).toBeUndefined();
+        expect(startInput.appendSystemPrompt ?? "").toContain("no longer exists");
+        expect(startInput.appendSystemPrompt ?? "").toContain("deadbee");
+        // Care, not incapacity — it may still edit, it just must re-verify first.
+        expect(startInput.appendSystemPrompt ?? "").toMatch(/re-verify/i);
+      }),
+  );
+
+  // The relocation clause is keyed on the genuine relocation signal
+  // (`finalCommitSha`, stamped only by fan-in/cancel disposal) — NOT on a null
+  // worktreePath, which every root and every shared child carries normally.
+  effectIt.effect("omits the relocation clause for a non-relocated thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+
+      yield* startTurnOn(harness, "live");
+
+      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+      expect(lastStartInput(harness).appendSystemPrompt ?? "").not.toContain("no longer exists");
+    }),
+  );
+
+  // Sticky terminal survives the removal: a turn-start on a `done` thread starts
+  // the session but changes neither the lane nor the stored attention.
+  effectIt.effect("leaves the plan lane terminal when a done thread is re-engaged", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      yield* seedPiSessionFile(TERMINAL_THREAD);
+      yield* markDone(harness, "sticky");
+
+      yield* startTurnOn(harness, "sticky");
+
+      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+      const readModel = yield* Effect.promise(() => harness.readModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make(TERMINAL_THREAD));
+      expect(thread?.planLane).toBe("done");
+      expect(thread?.attention).toEqual([]);
+    }),
   );
 
   // Item 4: the turn-start chokepoint must (re)provision an isolated child whose
