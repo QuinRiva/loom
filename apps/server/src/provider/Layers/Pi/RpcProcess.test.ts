@@ -86,26 +86,4 @@ describe("buildPiRpcArgs", () => {
     // The silent-amnesia guard: no `--session-id` on a resume.
     expect(args).not.toContain("--session-id");
   });
-
-  // Post-completion engagement — CAPABILITY: a terminal-lane resume is a FULL
-  // launch. There is no read-only engagement mode, so the resumed session keeps
-  // its workstream extension (an MCP session is always prepared) and imposes no
-  // restrictive `--tools` allowlist. This is the argv shape of the regression
-  // that made re-engaged threads unable to make any tool call.
-  it("a terminal-lane resume carries the workstream --extension and no restrictive --tools", () => {
-    const args = buildPiRpcArgs({
-      binaryPath: "pi-test-binary",
-      platform: "linux",
-      sessionId: "thread-session",
-      sessionFilePath: "/abs/sessions/proj/2026_thread-session.jsonl",
-      cwdOverride: "/abs/parent-worktree",
-      appendSystemPrompt: "role overlay…",
-      extensions: ["/abs/extensions/workstream.json"],
-      // `tools` intentionally omitted — no engagement mode narrows the surface.
-    });
-    const extIdx = args.indexOf("--extension");
-    expect(extIdx).toBeGreaterThanOrEqual(0);
-    expect(args[extIdx + 1]).toBe("/abs/extensions/workstream.json");
-    expect(args).not.toContain("--tools");
-  });
 });

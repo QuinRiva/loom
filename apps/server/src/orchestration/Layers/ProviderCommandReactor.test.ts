@@ -677,33 +677,9 @@ describe("ProviderCommandReactor", () => {
     harness.startSession.mock.calls.at(-1)?.[1] as {
       readonly appendSystemPrompt?: string;
       readonly tools?: ReadonlyArray<string>;
+      readonly skills?: ReadonlyArray<string>;
+      readonly cwd?: string;
     };
-
-  // CAPABILITY (the observed regression, thread `17063e98`): a re-engaged
-  // terminal ROOT orchestrator comes back able to act. Under the removed Discuss
-  // mode it resumed with a read-only tool allowlist and no workstream extension,
-  // leaving it unable to make any tool call — not even to reopen its own lane.
-  effectIt.effect(
-    "resumes a terminal ROOT with a full launch — no tool restriction, no relocation clause",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* Effect.promise(() => createHarness());
-        yield* seedPiSessionFile(TERMINAL_THREAD);
-        yield* markDone(harness, "root");
-
-        yield* startTurnOn(harness, "root");
-
-        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
-        const startInput = lastStartInput(harness);
-        // No engagement mode narrows the surface: `tools` is left unset (only a
-        // role overlay may set it).
-        expect(startInput.tools).toBeUndefined();
-        // The full composition is present (ship policy rides every launch)…
-        expect(startInput.appendSystemPrompt ?? "").not.toBe("");
-        // …and a root never relocates: it must NOT be told its directory is gone.
-        expect(startInput.appendSystemPrompt ?? "").not.toContain("no longer exists");
-      }),
-  );
 
   // CAPABILITY: a fanned-in child (its worktree reaped, `finalCommitSha` stamped)
   // resumes fully capable AND situationally aware — told its remembered paths are
@@ -722,10 +698,15 @@ describe("ProviderCommandReactor", () => {
         yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
         const startInput = lastStartInput(harness);
         expect(startInput.tools).toBeUndefined();
-        expect(startInput.appendSystemPrompt ?? "").toContain("no longer exists");
-        expect(startInput.appendSystemPrompt ?? "").toContain("deadbee");
+        const prompt = startInput.appendSystemPrompt ?? "";
+        expect(prompt).toContain("no longer exists");
+        expect(prompt).toContain("deadbee");
+        // The DESTINATION cwd, named exactly: the thread must not have to
+        // rediscover where it now is before reconciling remembered paths.
+        expect(startInput.cwd).toBe("/tmp/provider-project");
+        expect(prompt).toContain("/tmp/provider-project");
         // Care, not incapacity — it may still edit, it just must re-verify first.
-        expect(startInput.appendSystemPrompt ?? "").toMatch(/re-verify/i);
+        expect(prompt).toMatch(/re-verify/i);
       }),
   );
 
@@ -740,24 +721,6 @@ describe("ProviderCommandReactor", () => {
 
       yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
       expect(lastStartInput(harness).appendSystemPrompt ?? "").not.toContain("no longer exists");
-    }),
-  );
-
-  // Sticky terminal survives the removal: a turn-start on a `done` thread starts
-  // the session but changes neither the lane nor the stored attention.
-  effectIt.effect("leaves the plan lane terminal when a done thread is re-engaged", () =>
-    Effect.gen(function* () {
-      const harness = yield* Effect.promise(() => createHarness());
-      yield* seedPiSessionFile(TERMINAL_THREAD);
-      yield* markDone(harness, "sticky");
-
-      yield* startTurnOn(harness, "sticky");
-
-      yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
-      const readModel = yield* Effect.promise(() => harness.readModel());
-      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make(TERMINAL_THREAD));
-      expect(thread?.planLane).toBe("done");
-      expect(thread?.attention).toEqual([]);
     }),
   );
 

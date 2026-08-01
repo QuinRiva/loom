@@ -24,11 +24,18 @@ import { relocationClause, shouldReprovisionIsolatedChild } from "./ProviderComm
 describe("post-completion engagement — relocation clause (relocationClause)", () => {
   // CAPABILITY: a relocated thread is told its remembered paths are historical
   // and instructed to re-verify — care, NOT incapacity (it can still edit).
-  it("names the merge commit and instructs re-verification, without read-only framing", () => {
-    const clause = relocationClause("abc1234");
+  it("names the destination cwd and the merge commit, and instructs re-verification", () => {
+    const clause = relocationClause({
+      finalCommitSha: "abc1234",
+      cwd: "/tmp/parent-worktree",
+    });
+    // The concrete replacement location, not just "the tree you are in" — the
+    // thread must not have to rediscover where it now is.
+    expect(clause).toContain("/tmp/parent-worktree");
     expect(clause).toContain("abc1234");
     expect(clause).toContain("no longer exists");
     expect(clause).toMatch(/re-verify/i);
+    // Care, not incapacity: the thread resumes with its full tool surface.
     expect(clause).not.toMatch(/read-only|cannot edit/i);
   });
 });

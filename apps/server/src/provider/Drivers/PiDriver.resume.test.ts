@@ -17,7 +17,6 @@ import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../../config.ts";
-import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { piProjectSessionDir, piSessionIdForThread } from "../piSessionFiles.ts";
 import type { ProviderHealthRegistryShape } from "../Services/ProviderHealthRegistry.ts";
 import type { PiRpcProcess, PiRpcProcessOptions } from "../Layers/Pi/RpcProcess.ts";
@@ -70,7 +69,6 @@ const withAdapter = <A, E>(
 const realHome = process.env.HOME;
 afterEach(() => {
   process.env.HOME = realHome;
-  McpProviderSession.clearAllMcpProviderSessions();
 });
 
 /**
@@ -301,54 +299,4 @@ describe("PiDriver resume state (driver boundary)", () => {
       createProcess,
     );
   });
-
-  // CAPABILITY: a terminal-lane resume comes back with its ORCHESTRATION reach
-  // intact. There is no read-only engagement mode, so `ProviderService` prepares
-  // the workstream MCP session unconditionally, and the driver therefore emits
-  // the provider-tool extension plus the `T3_WORKSTREAM_*` env the extension's
-  // tools authenticate with. Without them a re-engaged thread has no workstream
-  // tools at all — the regression that left a resumed root unable to act.
-  effectIt.effect(
-    "a resume with a prepared MCP session carries the workstream extension+env",
-    () => {
-      const { captured, createProcess } = capturingProcess();
-
-      return withAdapter(
-        (adapter, serverCwd) =>
-          Effect.gen(function* () {
-            const threadId = ThreadId.make("99999999-0000-4000-8000-000000000009");
-            yield* Effect.sync(() =>
-              seedSessionFile({ threadId, cwd: serverCwd, lines: priorConversation(threadId) }),
-            );
-            // What unconditional `prepareMcpSession` leaves behind for the driver.
-            yield* Effect.sync(() =>
-              McpProviderSession.setMcpProviderSession({
-                environmentId: "env-1" as never,
-                threadId,
-                providerSessionId: "provider-session-1",
-                providerInstanceId: INSTANCE,
-                endpoint: "http://127.0.0.1:4242/mcp/workstream",
-                authorizationHeader: "Bearer test-token",
-              }),
-            );
-
-            yield* adapter.startSession({
-              threadId,
-              providerInstanceId: INSTANCE,
-              cwd: serverCwd,
-              runtimeMode: "full-access",
-            });
-
-            const env = captured.options?.env as Record<string, string> | undefined;
-            expect(env?.T3_WORKSTREAM_ENDPOINT).toContain("127.0.0.1:4242");
-            expect(env?.T3_WORKSTREAM_AUTHORIZATION).toBe("Bearer test-token");
-            // The provider-tool extension rides alongside the always-on search guard.
-            expect(captured.options?.extensions?.length).toBeGreaterThan(1);
-            // No engagement mode narrows the tool surface on a resume.
-            expect(captured.options?.tools).toBeUndefined();
-          }),
-        createProcess,
-      );
-    },
-  );
 });

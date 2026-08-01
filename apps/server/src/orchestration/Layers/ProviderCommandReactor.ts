@@ -123,8 +123,11 @@ const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 // fan-in/cancel and its original checkout removed, so the tree it now sees is
 // the parent's current state, and absolute paths it remembers are historical.
 // It instructs CARE, not incapacity — the thread resumes with its full launch.
-export const relocationClause = (finalCommitSha: string): string =>
-  `Your work here previously happened in a working directory that no longer exists — your work was merged and committed as \`${finalCommitSha}\`. The files you see now are the CURRENT state of the tree you are in (the parent's tree, or the project workspace), which has moved on since you finished. Any absolute paths you remember are historical — re-verify before editing. Exact historical file contents live in git at that commit.`;
+export const relocationClause = (input: {
+  readonly finalCommitSha: string;
+  readonly cwd: string;
+}): string =>
+  `Your work here previously happened in a working directory that no longer exists; you are now in \`${input.cwd}\` (the parent's current tree, or the project workspace). Your merged work is commit \`${input.finalCommitSha}\`. The files you see now are that tree's CURRENT state, which has moved on since you finished. Any absolute paths you remember are historical — re-verify before editing. Exact historical file contents live in git at that commit.`;
 
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
@@ -699,7 +702,9 @@ const make = Effect.gen(function* () {
         // — so it is the genuine relocation signal and never fires for a root or
         // for a thread still sitting in its own worktree.
         const relocationBlock =
-          thread.finalCommitSha != null ? relocationClause(thread.finalCommitSha) : undefined;
+          thread.finalCommitSha != null
+            ? relocationClause({ finalCommitSha: thread.finalCommitSha, cwd: roleProjectRoot })
+            : undefined;
         const appendSystemPrompt = [
           roleOverlay?.prompt,
           shipPolicyBlock,
