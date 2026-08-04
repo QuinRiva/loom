@@ -47,6 +47,34 @@ const READONLY_FORK_TOOLS = ["read", "grep", "find", "ls"] as const;
 const READONLY_FORK_SYSTEM_PROMPT =
   "You are a READ-ONLY frozen snapshot of a prior agent session, consulted as an oracle by a peer in the same workstream. Answer the single question that follows using ONLY the knowledge already in this session's context. You cannot modify anything: you have no write/edit/command tools and no workstream tools, and nothing you do affects the original session. If the session's context does not actually resolve the question, say so plainly (e.g. \"This session does not resolve that\") rather than guessing or fabricating an answer.";
 
+/**
+ * Frame the consult in the QUESTION TURN, not the system prompt.
+ *
+ * The fork replays 100+ turns of a session that DID have bash/edit/write and
+ * every workstream tool, so a read-only instruction sitting in the system
+ * prompt, ahead of all that, loses to recency: consulted forks narrate tool
+ * calls they cannot make and offer to go and do work. The same words in the
+ * last turn are the most recent thing the model has read when it answers.
+ *
+ * Positioning is also the cache-friendly choice: the fork's prefix (system
+ * prompt + replayed transcript) is byte-identical across every consult of the
+ * same target, so keeping the framing in the trailing turn preserves whatever
+ * cross-consult prefix reuse the provider path offers, whereas growing
+ * `READONLY_FORK_SYSTEM_PROMPT` would invalidate every warmed consult prefix.
+ */
+export const composeConsultTurn = (input: {
+  /** Short descriptor of who is asking, e.g. `thread «Title» (role, id; relationship)`. */
+  readonly asker?: string;
+  readonly question: string;
+}): string =>
+  `Consult from ${input.asker ?? "a peer thread"}, via consult_thread. What follows is a read-only fork of the session above: a copy of it, frozen at its last turn. The original thread is untouched by anything that happens here, and this fork is discarded once you have answered.
+
+Question:
+
+${input.question}
+
+Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. Your tools here are read-only (read, grep, find, ls); the bash, edit, write and workstream tools this transcript shows you using are gone, so do not narrate work, promise follow-up, or offer to go and do something. You may still read a file to check a detail, but the tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
+
 /** Clean, single error type for every ask failure (mapped to a tool error). */
 export class WorkstreamAskError extends Schema.TaggedErrorClass<WorkstreamAskError>()(
   "WorkstreamAskError",
@@ -67,6 +95,12 @@ export interface AskWorkstreamThreadInput {
   /** The target's worktree path so pi resolves the target session id locally. */
   readonly cwd: string;
   readonly question: string;
+  /**
+   * Short descriptor of who is asking (the call site owns identity; this module
+   * owns the read-only contract), e.g. `thread «Title» (role, id; relationship)`.
+   * Omit for a generic "a peer thread".
+   */
+  readonly asker?: string;
   readonly timeoutMs: number;
   /**
    * Durable directory to move the read-only fork's session jsonl into when the
@@ -234,7 +268,13 @@ export const askWorkstreamThread = Effect.fn("askWorkstreamThread")(function* (
         try: async () => {
           const state = await proc.request<PiRpcSessionState>({ type: "get_state" });
           forkSessionFile = state.data?.sessionFile;
-          await proc.request({ type: "prompt", message: input.question });
+          await proc.request({
+            type: "prompt",
+            message: composeConsultTurn({
+              question: input.question,
+              ...(input.asker !== undefined ? { asker: input.asker } : {}),
+            }),
+          });
           return (await collectAnswer(proc, input.timeoutMs)).trim();
         },
         catch: toCleanError,

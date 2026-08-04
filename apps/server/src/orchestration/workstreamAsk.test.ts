@@ -4,7 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { PiRpcProcess, PiRpcStdoutMessage } from "../provider/Layers/Pi/RpcProcess.ts";
 import { buildPiRpcArgs } from "../provider/Layers/Pi/RpcProcess.ts";
-import { collectAnswer, envWithoutWorkstream, readonlyForkTools } from "./workstreamAsk.ts";
+import {
+  collectAnswer,
+  composeConsultTurn,
+  envWithoutWorkstream,
+  readonlyForkTools,
+} from "./workstreamAsk.ts";
 
 /**
  * A scriptable stand-in for a `PiRpcProcess` that replays a sequence of stdout
@@ -137,5 +142,54 @@ describe("consult_thread read-only invariants", () => {
 
   it("read-only tools are exactly read,grep,find,ls (no bash/edit/write)", () => {
     expect(readonlyForkTools()).toEqual(["read", "grep", "find", "ls"]);
+  });
+});
+
+// CAPABILITY: at the moment it answers, the fork knows it is a frozen read-only
+// snapshot being asked a question by a peer. The framing rides the QUESTION TURN
+// (recency beats 100+ replayed turns that DID have bash/edit/write; and the
+// prefix stays byte-identical across consults of the same target).
+describe("consult framing (composeConsultTurn)", () => {
+  const turn = composeConsultTurn({
+    asker: "thread «Receipt dedup» (reviewer, thread-asker; one of your sub-threads)",
+    question: "Why did you drop the merge-by-hash approach?",
+  });
+
+  it("names the asker and the consult_thread mechanism", () => {
+    expect(turn).toContain(
+      "thread «Receipt dedup» (reviewer, thread-asker; one of your sub-threads)",
+    );
+    expect(turn).toContain("consult_thread");
+  });
+
+  it("states the frozen, non-mutating, discarded-fork facts", () => {
+    expect(turn).toMatch(/read-only fork/);
+    expect(turn).toMatch(/frozen at its last turn/);
+    expect(turn).toMatch(/original thread is untouched/);
+    expect(turn).toMatch(/discarded once you have answered/);
+  });
+
+  it("names the read-only tools it still has and the tools it has lost", () => {
+    expect(turn).toContain("read, grep, find, ls");
+    expect(turn).toMatch(/bash, edit, write and workstream tools .* are gone/);
+    expect(turn).toMatch(/do not narrate work/);
+    // Not helpless: it may still read, but remembered paths are historical.
+    expect(turn).toMatch(/may still read a file/);
+    expect(turn).toMatch(/historical/);
+  });
+
+  it('licenses "this session does not resolve that" as a useful answer', () => {
+    expect(turn).toContain("this session does not resolve that");
+    expect(turn).toMatch(/useful answer, not a failure/);
+  });
+
+  it("carries the question verbatim, last-word position aside", () => {
+    expect(turn).toContain("Why did you drop the merge-by-hash approach?");
+  });
+
+  it("falls back to a neutral asker when the call site supplies none", () => {
+    const anonymous = composeConsultTurn({ question: "What is the schema?" });
+    expect(anonymous).toContain("Consult from a peer thread");
+    expect(anonymous).toContain("What is the schema?");
   });
 });
