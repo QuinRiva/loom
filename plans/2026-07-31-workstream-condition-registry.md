@@ -71,3 +71,72 @@ Constraint from the operator: a human will never write a brief for a sub-thread.
 - §7 semantics unchanged (derived attention makes it moot for these rails).
 - No new UI surface; no registry/table; `failureCounts` and the other sweep maps stay in-memory (restart bias is conservative and correct — review Q2).
 - Other rails (stall ladder, stuck-launch, progress-loop) keep their episode keys — they advance with their subjects (safe); they receive only the Phase-1 honest-reporting change.
+
+---
+
+## 6. Rebase notes (v2.1)
+
+Recorded when this branch was rebased onto `origin/main` (base `f06c4bf47`). The
+design above is unchanged; this section records what the rebase had to reconcile.
+
+### 6.1 `a81963cfa` is superseded, not merged
+
+While this branch was in review, main landed `a81963cfa` ("Re-arm the
+brief-needed backstop; count only real deliveries") — an independent fix for
+defects 1 and 2 of §1, built *inside* the liveness sweep it patches. It kept the
+sweep's brief-needed backstop and made it re-armable with durable-ish process
+state: `decideBriefNeededBackstop`, `BriefNeededBackstopState`, a per-child
+rounds map in the sweep loop, round-keyed attention ids, and a
+`briefNeededReRaiseGraceMs` (30 min) re-raise clock gated on the *observable
+attention-cleared transition*.
+
+§3.2 deletes that backstop outright, so its re-arm machinery goes with it. The
+two designs are not composable: `a81963cfa` re-arms on "a human cleared the
+flag", which presumes the flag survives long enough to be cleared deliberately —
+and §1 defect 4 is precisely that it does not (all 8 escalations ever raised were
+erased as turn-start collateral, none dismissed). Re-arming on an erasure the
+system inflicts on itself would have made the sweep nag on §7's schedule rather
+than the operator's. The adopted design removes the dependency instead: the agent
+surface re-arms on the wall clock (§3.2) and the human surface is derived and
+therefore un-erasable (§3.3).
+
+Post-rebase invariant, checked: `decideBriefNeededBackstop`,
+`BriefNeededBackstopState`, `briefNeededEpisodeKey`,
+`briefNeededBackstopAttentionId`, `briefNeededBackstopDue`, `briefNeededGraceMs`
+and `briefNeededReRaiseGraceMs` have no remaining references anywhere in the
+tree — no zombie halves.
+
+### 6.2 Two details of `a81963cfa` absorbed
+
+Both are things it got right that the design above had not made explicit.
+
+1. **Rung-0 id byte-compatibility.** `a81963cfa` kept its round-0 command id
+   byte-identical to the legacy un-runged id, so the receipts already spent on
+   live episodes keep deduping and a deploy cannot re-notify every
+   currently-brief-needed node at once. §3.2's marker
+   (`…:<sinceMs>:<rung>`) would have done exactly that. `briefNeededCommandId`
+   now emits the bare `server:workstream-brief-needed:<childId>:<sinceMs>` for
+   rung 0 and appends `:<rung>` only from rung 1 up. Pinned as a unit assertion
+   on both id shapes and in the batched-wake dispatcher test.
+
+2. **No added noise on an already-flagged orchestrator.** `a81963cfa` suppressed
+   a raise when the parent already carried a stored `needs_guidance` — "if a
+   human already has a reason to look, adding another is noise". Under §3.3 this
+   needs no guard: the outward flag is a set union, and `withDerived` returns an
+   already-flagged parent untouched, so a stored raise and a derived one cannot
+   stack. Verified and documented at the union site
+   (`orchestration/briefNeededOutwardAttention.ts`), pinned against real SQL.
+
+### 6.3 Other seams
+
+- `ProjectionSnapshotQuery.ts` — conflicts were with main's unrelated Phase-1
+  post-completion-engagement work. Main's `finalCommitSha` is preserved on the
+  shell row; our stored-only control-plane discipline and the separate
+  `getBriefNeededAttentionParentIds()` read are re-applied alongside it.
+- Dispatcher pass coalescing (`79c4c3904`) turned out to predate this branch's
+  base, so the rung ladder was already integrated with it — no reconciliation
+  needed.
+- Sweep/reactor test harnesses now take main's real in-memory
+  `OrchestrationCommandReceiptRepositoryLive` rather than this branch's stub;
+  every rail dispatches through `deliverOnce`, so a faithful repository is the
+  better fixture.
