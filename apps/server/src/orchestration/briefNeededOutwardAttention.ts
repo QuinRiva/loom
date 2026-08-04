@@ -59,6 +59,18 @@ export interface BriefNeededOutwardAttention {
  */
 const MEMO_TTL_MS = 60_000;
 
+/**
+ * The union site. Two properties are load-bearing here.
+ *
+ * IDEMPOTENT AGAINST A STORED FLAG, by construction: a parent that already
+ * carries `needs_guidance` is returned untouched. This is the same principle the
+ * superseded `a81963cfa` had to enforce with an explicit `parentFlagged` guard
+ * on its raise path — "if a human already has a reason to look at this
+ * orchestrator, adding another is noise". A stored raise plus a derived one
+ * cannot stack into a doubled flag, so no suppression logic is needed: set union
+ * IS the suppression. Pinned by the outward-attention suite in
+ * `ProjectionSnapshotQuery.test.ts`.
+ */
 const withDerived = (
   thread: OrchestrationThreadShell,
   derived: boolean,

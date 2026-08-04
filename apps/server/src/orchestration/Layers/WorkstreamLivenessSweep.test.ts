@@ -35,9 +35,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { WorkstreamLivenessSweep } from "../Services/WorkstreamLivenessSweep.ts";
-import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import {
   buildStallNudgeMessage,
   classifyLiveness,

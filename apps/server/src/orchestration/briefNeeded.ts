@@ -162,9 +162,15 @@ export const rungFor = (ageMs: number): number =>
  * `(childId, briefNeededSince)` — so a node that leaves and re-enters the state
  * on a fresh episode re-arms as news — AND by the rung, so a node that simply
  * keeps sitting there re-arms on the wall clock.
+ *
+ * DEPLOY COMPATIBILITY: rung 0 is the BARE legacy id, with no `:0` suffix.
+ * Every node currently sitting brief-needed already has a spent receipt under
+ * that exact id, so keeping rung 0 byte-identical is what stops this change
+ * re-notifying every one of them at once the moment it deploys. Rungs ≥ 1 are
+ * new ids by construction and re-arm as intended.
  */
 export const briefNeededCommandId = (childId: ThreadId, sinceMs: number, rung: number): string =>
-  `server:workstream-brief-needed:${childId}:${sinceMs}:${rung}`;
+  `server:workstream-brief-needed:${childId}:${sinceMs}${rung === 0 ? "" : `:${rung}`}`;
 
 /**
  * How long a node may sit brief-needed before its PARENT carries a derived

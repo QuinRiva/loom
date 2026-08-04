@@ -3036,6 +3036,30 @@ projectionSnapshotLayer("derived brief-needed parent attention (liveness plan §
     }),
   );
 
+  it.effect("adds no noise to a parent that ALREADY carries a stored needs_guidance", () =>
+    Effect.gen(function* () {
+      // The superseded a81963cfa needed an explicit `parentFlagged` guard for
+      // this ("if a human already has a reason to look, adding another is
+      // noise"). A derived union needs none: union with a stored flag is the
+      // identity, so the property holds by construction.
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      yield* TestClock.setTime(NOW_MS);
+      yield* seed(sql, aged(), null);
+      yield* sql`UPDATE projection_threads SET attention = '["needs_guidance"]' WHERE thread_id = 'parent-1'`;
+
+      const parents = yield* snapshotQuery.getBriefNeededAttentionParentIds();
+      const outward = applyBriefNeededParentAttention(
+        yield* snapshotQuery.getShellSnapshot(),
+        parents,
+      );
+      assert.deepStrictEqual(
+        outward.threads.find((thread) => thread.id === "parent-1")?.attention,
+        ["needs_guidance"],
+      );
+    }),
+  );
+
   it.effect("self-clears the moment the brief lands", () =>
     Effect.gen(function* () {
       const attention = yield* parentAttention(aged(), "/briefs/child-1.md");

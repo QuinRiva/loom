@@ -645,6 +645,19 @@ describe("briefNeededCommandId (episode + rung keyed marker id)", () => {
       briefNeededCommandId("child-1" as ThreadId, 1000, 1),
     );
   });
+
+  it("keeps rung 0 byte-identical to the legacy un-runged id, so a deploy re-notifies nobody", () => {
+    // Absorbed from the superseded a81963cfa: every node currently sitting
+    // brief-needed already has a spent receipt under the bare id. A `:0` suffix
+    // would make all of them fresh ids at once and fire a notice storm on the
+    // first pass after deploy.
+    expect(briefNeededCommandId("child-1" as ThreadId, 1000, 0)).toBe(
+      "server:workstream-brief-needed:child-1:1000",
+    );
+    expect(briefNeededCommandId("child-1" as ThreadId, 1000, 1)).toBe(
+      "server:workstream-brief-needed:child-1:1000:1",
+    );
+  });
 });
 
 describe("rungFor (brief-needed re-arming ladder, liveness plan §3.2)", () => {
@@ -6760,14 +6773,16 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
             ),
           ).toHaveLength(0);
           // One durable per-child receipt marker written after delivery, keyed by
-          // (episode, rung) — rung 0 for a freshly-eligible node.
+          // (episode, rung) — rung 0 for a freshly-eligible node, and rung 0 wears
+          // the BARE legacy id (no `:0`) so already-notified live episodes keep
+          // deduping across the deploy.
           const markers = dispatched.filter(
             (c) =>
               c.type === "thread.activity.append" && c.activity.kind === "workstream.brief-needed",
           );
           expect(markers).toHaveLength(2);
           for (const marker of markers) {
-            expect(marker.commandId.endsWith(":0")).toBe(true);
+            expect(marker.commandId).toMatch(/^server:workstream-brief-needed:child-[ab]:\d+$/);
             expect(
               marker.type === "thread.activity.append" && marker.activity.payload,
             ).toMatchObject({ rung: 0 });

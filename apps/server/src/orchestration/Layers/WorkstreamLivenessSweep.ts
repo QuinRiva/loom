@@ -23,8 +23,6 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
-import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
@@ -439,7 +437,6 @@ const makeWorkstreamLivenessSweep = (
     const launchClaims = yield* ProviderLaunchClaims;
     const serverSettings = yield* ServerSettingsService;
     const crypto = yield* Crypto.Crypto;
-    const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
     const launchIdentityDir = (yield* ServerConfig).workstreamLaunchIdentityDir;
     // Captured so the stuck-launch recovery's brief re-read carries no FileSystem
     // requirement into `start`, whose shape is Scope-only (same posture as
