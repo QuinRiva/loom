@@ -2635,6 +2635,11 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             publishSnapshot,
             modelContextWindows,
           }),
+        // `makePiProvider` knows none of these: its models are a curated
+        // placeholder shortlist and it carries no commands at all. Only
+        // `enrichPiSnapshot`'s RPC probe observes the real values, so the base
+        // check must never overwrite them.
+        enrichmentOwnedFields: ["models", "slashCommands", "skills"],
         refreshInterval: SNAPSHOT_REFRESH_INTERVAL,
       }).pipe(
         Effect.mapError(
