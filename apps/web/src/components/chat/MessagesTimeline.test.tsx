@@ -29,6 +29,7 @@ vi.mock("@legendapp/list/react", async () => {
     };
     contentInsetEndAdjustment?: number;
     className?: string;
+    maintainScrollAtEndThreshold?: number;
     maintainScrollAtEnd?:
       | boolean
       | {
@@ -62,6 +63,7 @@ vi.mock("@legendapp/list/react", async () => {
         data-content-inset-end={props.contentInsetEndAdjustment}
         data-class-name={props.className}
         data-maintain-scroll-at-end={props.maintainScrollAtEnd ? "enabled" : undefined}
+        data-maintain-scroll-at-end-threshold={props.maintainScrollAtEndThreshold}
         data-maintain-scroll-at-end-animated={
           typeof props.maintainScrollAtEnd === "object"
             ? props.maintainScrollAtEnd.animated
@@ -201,7 +203,7 @@ function buildProps() {
     onAnchorReady: () => {},
     onAnchorSizeChanged: () => {},
     contentInsetEndAdjustment: 0,
-    onIsAtEndChange: () => {},
+    onTimelineEndStateChange: () => {},
     onManualNavigation: () => {},
   };
 }
@@ -303,7 +305,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("1 changed file");
   });
 
-  it("uses LegendList isNearEnd when deciding whether the live edge is visible", async () => {
+  it("uses LegendList's strict end signal for live-follow", async () => {
     const {
       resolveTimelineIsAtEnd,
       resolveTimelineMinimapHasPersistentGutter,
@@ -314,8 +316,8 @@ describe("MessagesTimeline", () => {
       resolveTimelineMinimapTopPercent,
     } = await import("./MessagesTimeline.logic");
 
-    expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(true);
-    expect(resolveTimelineIsAtEnd({ isNearEnd: false, isAtEnd: true })).toBe(false);
+    expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(false);
+    expect(resolveTimelineIsAtEnd({ isNearEnd: false, isAtEnd: true })).toBe(true);
     expect(resolveTimelineIsAtEnd({ isAtEnd: true })).toBe(true);
     expect(resolveTimelineIsAtEnd(undefined)).toBeUndefined();
 
@@ -556,6 +558,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Show full message");
     expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
+    expect(markup).toContain('data-maintain-scroll-at-end-threshold="0"');
     expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
     expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
     expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');

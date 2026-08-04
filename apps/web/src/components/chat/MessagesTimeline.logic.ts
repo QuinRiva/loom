@@ -24,7 +24,7 @@ export interface TimelineEndState {
 }
 
 export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
-  return state?.isNearEnd ?? state?.isAtEnd;
+  return state?.isAtEnd;
 }
 
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {

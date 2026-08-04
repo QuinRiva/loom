@@ -3527,6 +3527,7 @@ function ChatViewContent(props: ChatViewProps) {
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const anchorUserScrollGenerationRef = useRef(0);
   const liveFollowUserScrollGenerationRef = useRef<number | null>(0);
+  const lastTimelineScrollRef = useRef<number | null>(null);
   const pendingAnchorScrollRestoreRef = useRef<{
     readonly messageId: MessageId;
     readonly offset: number;
@@ -3602,8 +3603,8 @@ function ChatViewContent(props: ChatViewProps) {
     [composerOverlayHeight],
   );
 
-  // Live-follow stays active after send/thread-open until an actual list scroll
-  // gesture opts out.
+  // Sending, opening a thread, clicking the pill, or reaching the true end arms
+  // live-follow. Any scroll away from the end opts out, regardless of input source.
   const scrollToEnd = useCallback((animated = false) => {
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "following-end";
@@ -3738,28 +3739,34 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
 
-  const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
-    if (
-      !isAtEnd &&
-      liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
-    ) {
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-      return;
-    }
-    if (isAtEndRef.current === isAtEnd) return;
-    isAtEndRef.current = isAtEnd;
-    if (isAtEnd) {
-      timelineScrollModeRef.current = "following-end";
-      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-    } else {
-      timelineScrollModeRef.current = "free-scrolling";
-      liveFollowUserScrollGenerationRef.current = null;
-      showScrollDebouncer.current.maybeExecute();
-    }
-  }, []);
+  const onTimelineEndStateChange = useCallback(
+    (isAtEnd: boolean, isNearEnd: boolean, scroll: number) => {
+      const previousScroll = lastTimelineScrollRef.current;
+      lastTimelineScrollRef.current = scroll;
+      isAtEndRef.current = isAtEnd;
+
+      // Content growth temporarily makes a bottom-park report false without moving
+      // the scroll offset. Only an actual upward offset change detaches live-follow.
+      if (isAtEnd) {
+        timelineScrollModeRef.current = "following-end";
+        liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      } else if (
+        timelineScrollModeRef.current !== "following-end" ||
+        (previousScroll !== null && scroll < previousScroll - 1)
+      ) {
+        timelineScrollModeRef.current = "free-scrolling";
+        liveFollowUserScrollGenerationRef.current = null;
+      }
+
+      if (isNearEnd || timelineScrollModeRef.current === "following-end") {
+        showScrollDebouncer.current.cancel();
+        setShowScrollToBottom(false);
+      } else {
+        showScrollDebouncer.current.maybeExecute();
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!activeThread?.id) {
@@ -3836,6 +3843,7 @@ function ChatViewContent(props: ChatViewProps) {
     positionedTimelineAnchorRef.current = null;
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
+    lastTimelineScrollRef.current = null;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     if (planSidebarOpenOnNextThreadRef.current) {
@@ -6062,7 +6070,7 @@ function ChatViewContent(props: ChatViewProps) {
                 onAnchorReady={onTimelineAnchorReady}
                 onAnchorSizeChanged={onTimelineAnchorSizeChanged}
                 contentInsetEndAdjustment={composerOverlayHeight}
-                onIsAtEndChange={onIsAtEndChange}
+                onTimelineEndStateChange={onTimelineEndStateChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hasMoreOlder={hasMoreOlderActivities}
                 loadingOlder={loadingOlderActivities}
