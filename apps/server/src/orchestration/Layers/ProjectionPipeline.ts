@@ -1069,8 +1069,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             planLane: event.payload.planLane,
             // Scaffold plan §3: stamp the transition-derived episode clock. Only
             // real lane transitions bump it (activity/receipt appends do not),
-            // so it is the stable source the brief-needed wake + backstop read
-            // instead of the re-arm-prone `updatedAt`.
+            // so it is the stable source the brief-needed rung ladder and the
+            // derived parent attention read instead of the re-arm-prone
+            // `updatedAt`.
             planLaneSince: event.payload.updatedAt,
             // Re-engagement epoch: a terminal→ready/planned reopen carries a
             // fresh spawnGeneration so the re-run's completion joins a new
@@ -1169,7 +1170,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             // Scaffold plan §3: stamp the dependency-change episode clock. A
             // set_dependencies that removes/replaces a dep can RE-ENTER the
             // brief-needed state; this stable, transition-derived timestamp
-            // advances the episode so a fresh wake + fresh backstop grace fire.
+            // advances the episode so a fresh rung ladder starts from rung 0.
             // Only real dependency-set events bump it (activity/receipt appends
             // do not), so it is immune to the `updatedAt` re-arm loop.
             dependenciesSince: event.payload.updatedAt,

@@ -9,17 +9,19 @@ import {
   type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
-import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vite-plus/test";
 
 import { ServerConfig } from "../../config.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ProviderHealthRegistry } from "../../provider/Services/ProviderHealthRegistry.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
@@ -33,26 +35,19 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "../Services/ProjectionSnapshotQuery.ts";
-import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { WorkstreamLivenessSweep } from "../Services/WorkstreamLivenessSweep.ts";
-import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
 import {
   buildStallNudgeMessage,
-  briefNeededBackstopAttentionId,
   classifyLiveness,
   computeProgressFingerprint,
-  decideBriefNeededBackstop,
   decideProgressLoop,
   decideStallAction,
   decideStuckLaunchAction,
   DEFAULT_LIVENESS_THRESHOLDS,
-  briefNeededBackstopDue,
   makeWorkstreamLivenessSweepLive,
   submitSupersedesFailure,
-  type BriefNeededBackstopState,
   type ProgressLoopState,
 } from "./WorkstreamLivenessSweep.ts";
-import { briefNeededSinceMs } from "./WorkstreamDispatcher.ts";
 import { buildStuckLaunchResumeMessage, isStuckLaunch } from "../stuckLaunchRecovery.ts";
 
 const now = Date.parse("2026-06-24T00:00:00.000Z");
@@ -460,293 +455,6 @@ describe("buildStallNudgeMessage", () => {
   });
 });
 
-describe("briefNeededBackstopDue (scaffold-brief backstop grace clock, plan §3)", () => {
-  const graceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs;
-
-  it("is NOT due while within the grace window (measured from the episode, not age)", () => {
-    // Scaffolded long ago but only unblocked 1 min ago → not due, because the
-    // clock is the briefNeededSince episode, never createdAt.
-    expect(briefNeededBackstopDue({ sinceMs: now - 60_000, now, graceMs })).toBe(false);
-  });
-
-  it("is due once the eligibility episode has aged past the grace window", () => {
-    expect(briefNeededBackstopDue({ sinceMs: now - graceMs - 1, now, graceMs })).toBe(true);
-  });
-
-  it("is due exactly at the grace boundary", () => {
-    expect(briefNeededBackstopDue({ sinceMs: now - graceMs, now, graceMs })).toBe(true);
-  });
-
-  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
-    new Map(threads.map((t) => [t.id, t] as const));
-
-  it("a staged node released just now is NOT due, even if scaffolded long ago (gap a)", () => {
-    // The backstop grace runs from the release (`planLaneSince`), so a node
-    // created an hour ago but released 1 min ago has plenty of grace left.
-    const child = thread({
-      id: "child-1" as ThreadId,
-      planLane: "ready",
-      session: null,
-      latestTurn: null,
-      latestUserMessageAt: null,
-      kickoffBriefPath: null,
-      createdAt: iso(-60 * 60_000),
-      planLaneSince: iso(-60_000),
-    });
-    const sinceMs = briefNeededSinceMs(child, map([child]));
-    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
-  });
-
-  it("is due once a released node's OWN release has aged past grace (gap a)", () => {
-    const child = thread({
-      id: "child-1" as ThreadId,
-      planLane: "ready",
-      session: null,
-      latestTurn: null,
-      latestUserMessageAt: null,
-      kickoffBriefPath: null,
-      createdAt: iso(-2 * 60 * 60_000),
-      planLaneSince: iso(-graceMs - 1),
-    });
-    const sinceMs = briefNeededSinceMs(child, map([child]));
-    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(true);
-  });
-
-  it("runs grace from a lane-only dep completion, not the child's stale createdAt (gap b)", () => {
-    // Dep reached `done` via set_lane (no outcome), 1 min ago. The child was
-    // scaffolded long ago but its episode dates from the dep's lane transition,
-    // so it is not yet due.
-    const dep = thread({
-      id: "dep" as ThreadId,
-      planLane: "done",
-      session: null,
-      latestTurn: null,
-      lastOutcome: null,
-      planLaneSince: iso(-60_000),
-    });
-    const child = thread({
-      id: "child-1" as ThreadId,
-      planLane: "ready",
-      session: null,
-      latestTurn: null,
-      latestUserMessageAt: null,
-      kickoffBriefPath: null,
-      createdAt: iso(-2 * 60 * 60_000),
-      planLaneSince: null,
-      blockedBy: ["dep" as ThreadId],
-    });
-    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
-    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
-    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
-  });
-
-  it("grants a fresh grace window on a set_dependencies re-entry with an already-done dep (gap c)", () => {
-    // Re-entry: an unfinished dep was swapped for an already-`done` one 1 min
-    // ago. The done dep's outcome is ancient (predates the prior episode), so
-    // only the dependency-set stamp carries the true re-entry — the backstop
-    // must run a fresh grace from it, not fire immediately off the stale clock.
-    const dep = thread({
-      id: "dep" as ThreadId,
-      planLane: "done",
-      session: null,
-      latestTurn: null,
-      lastOutcome: null,
-      planLaneSince: iso(-3 * 60 * 60_000),
-    });
-    const child = thread({
-      id: "child-1" as ThreadId,
-      planLane: "ready",
-      session: null,
-      latestTurn: null,
-      latestUserMessageAt: null,
-      kickoffBriefPath: null,
-      createdAt: iso(-3 * 60 * 60_000),
-      planLaneSince: null,
-      dependenciesSince: iso(-60_000),
-      blockedBy: ["dep" as ThreadId],
-    });
-    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
-    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
-    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
-  });
-
-  it("grants a fresh grace window when an isolated dep's fan-in lands late (gap d)", () => {
-    // Isolated dep went `done` 3h ago (well past grace) but its branch fanned in
-    // only 1 min ago. The dependent becomes truly eligible only at fan-in, so
-    // the backstop must run a fresh grace from the fanin-set — not fire
-    // immediately off the ancient `done`.
-    const dep = thread({
-      id: "dep" as ThreadId,
-      planLane: "done",
-      session: null,
-      latestTurn: null,
-      lastOutcome: null,
-      isolation: "isolated",
-      fanInState: "completed",
-      planLaneSince: iso(-3 * 60 * 60_000),
-      faninSince: iso(-60_000),
-    });
-    const child = thread({
-      id: "child-1" as ThreadId,
-      planLane: "ready",
-      session: null,
-      latestTurn: null,
-      latestUserMessageAt: null,
-      kickoffBriefPath: null,
-      createdAt: iso(-3 * 60 * 60_000),
-      planLaneSince: null,
-      blockedBy: ["dep" as ThreadId],
-    });
-    const sinceMs = briefNeededSinceMs(child, map([dep, child]));
-    expect(sinceMs).toBe(Date.parse(iso(-60_000)));
-    expect(briefNeededBackstopDue({ sinceMs, now, graceMs })).toBe(false);
-  });
-});
-
-describe("decideBriefNeededBackstop (re-armable brief-needed backstop)", () => {
-  const graceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs;
-  const reRaiseGraceMs = DEFAULT_LIVENESS_THRESHOLDS.briefNeededReRaiseGraceMs;
-  const episodeMs = now - graceMs - 60_000; // due, comfortably past the initial grace
-  const decide = (
-    overrides: Partial<Parameters<typeof decideBriefNeededBackstop>[0]> = {},
-  ): ReturnType<typeof decideBriefNeededBackstop> =>
-    decideBriefNeededBackstop({
-      prior: null,
-      episodeMs,
-      now,
-      graceMs,
-      reRaiseGraceMs,
-      parentFlagged: false,
-      ...overrides,
-    });
-  const raised = (overrides: Partial<BriefNeededBackstopState> = {}): BriefNeededBackstopState => ({
-    episodeMs,
-    round: 0,
-    raisedAtMs: now,
-    ...overrides,
-  });
-
-  it("does not raise (and carries no state) while within the initial grace", () => {
-    const decision = decide({ episodeMs: now - 60_000 });
-    expect(decision.raise).toBe(false);
-    expect(decision.next).toBeNull();
-  });
-
-  it("raises round 0 on the first due observation of an episode", () => {
-    const decision = decide();
-    expect(decision.raise).toBe(true);
-    expect(decision.next).toEqual({ episodeMs, round: 0, raisedAtMs: now });
-  });
-
-  it("stays silent while the parent is still flagged — no re-raise loop", () => {
-    // The load-bearing anti-loop property: an already-flagged parent is never
-    // re-raised, however long the episode has been due.
-    const prior = raised({ raisedAtMs: now - 10 * reRaiseGraceMs });
-    const decision = decide({ prior, parentFlagged: true });
-    expect(decision.raise).toBe(false);
-    expect(decision.next).toBe(prior);
-  });
-
-  it("does not raise every tick even once the flag is cleared (rate-limited)", () => {
-    // Flag cleared, but the backstop's own grace has not elapsed → wait. This is
-    // what keeps a cleared flag from turning into a 60s re-raise loop.
-    const prior = raised({ raisedAtMs: now - reRaiseGraceMs + 1 });
-    const decision = decide({ prior });
-    expect(decision.raise).toBe(false);
-    expect(decision.next).toBe(prior);
-  });
-
-  it("RE-ARMS: raises the next round once the cleared flag has aged past the re-raise grace", () => {
-    // The 10-day-silent-stall bug: episode key is stable, the receipt is spent,
-    // the flag was cleared by hand, and the node is STILL brief-needed.
-    const prior = raised({ raisedAtMs: now - reRaiseGraceMs });
-    const decision = decide({ prior });
-    expect(decision.raise).toBe(true);
-    expect(decision.next).toEqual({ episodeMs, round: 1, raisedAtMs: now });
-  });
-
-  it("keeps escalating rounds so each re-raise gets a fresh command id", () => {
-    const prior = raised({ round: 3, raisedAtMs: now - reRaiseGraceMs });
-    const decision = decide({ prior });
-    expect(decision).toEqual({
-      raise: true,
-      next: { episodeMs, round: 4, raisedAtMs: now },
-    });
-    // Distinct ids per round is what lets the engine's receipt dedup pass a
-    // genuine re-raise through instead of short-circuiting it.
-    expect(
-      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 4),
-    ).not.toBe(
-      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 3),
-    );
-  });
-
-  it("round 0's command id is byte-identical to the pre-re-raise id (no deploy re-notify)", () => {
-    expect(
-      briefNeededBackstopAttentionId("parent-1" as ThreadId, "child-1" as ThreadId, episodeMs, 0),
-    ).toBe(`server:workstream-liveness:brief-needed-attn:parent-1:child-1:${episodeMs}`);
-  });
-
-  it("a genuinely new episode raises round 0 again, resetting the round counter", () => {
-    const prior = raised({ episodeMs: episodeMs - 5 * 60_000, round: 7 });
-    const decision = decide({ prior });
-    expect(decision.raise).toBe(true);
-    expect(decision.next).toEqual({ episodeMs, round: 0, raisedAtMs: now });
-  });
-});
-
-describe("brief-needed backstop delivery accounting (no double-count)", () => {
-  const attnId = briefNeededBackstopAttentionId(
-    "parent-1" as ThreadId,
-    "child-1" as ThreadId,
-    now - DEFAULT_LIVENESS_THRESHOLDS.briefNeededGraceMs - 1,
-    0,
-  );
-
-  effectIt.effect(
-    "a repeat sweep of a spent episode reports already-handled, so it is never logged or counted",
-    () =>
-      Effect.gen(function* () {
-        // The observed bug: the raise dispatch is idempotent downstream, but the
-        // sweep's log + actionedCount sat OUTSIDE that dedup and so claimed a
-        // delivery on every 60s tick for 10 days. Routing the raise through
-        // `deliverOnce` is what restores the distinction.
-        const dedup = yield* makeReceiptDedupedDelivery({
-          hasAcceptedReceipt: () => Effect.succeed(false),
-        });
-        const raises = yield* Ref.make(0);
-        const raise = Ref.update(raises, (n) => n + 1);
-
-        let actionedCount = 0;
-        for (let tick = 0; tick < 5; tick += 1) {
-          const outcome = yield* dedup.deliverOnce(attnId, raise);
-          if (outcome === "delivered") actionedCount += 1;
-        }
-
-        // One real raise across five sweep ticks, and the count reflects it.
-        expect(yield* Ref.get(raises)).toBe(1);
-        expect(actionedCount).toBe(1);
-      }),
-  );
-
-  effectIt.effect("an episode already receipted before this process is silent, not counted", () =>
-    Effect.gen(function* () {
-      // Post-restart: the in-memory episode map is empty so the sweep re-decides a
-      // round-0 raise, but the durable receipt proves the parent was already told.
-      const dedup = yield* makeReceiptDedupedDelivery({
-        hasAcceptedReceipt: (commandId: string) => Effect.succeed(commandId === attnId),
-      });
-      const raises = yield* Ref.make(0);
-      const outcome = yield* dedup.deliverOnce(
-        attnId,
-        Ref.update(raises, (n) => n + 1),
-      );
-      expect(outcome).toBe("already-handled");
-      expect(yield* Ref.get(raises)).toBe(0);
-    }),
-  );
-});
-
 describe("decideStuckLaunchAction", () => {
   const cap = 2;
 
@@ -835,7 +543,7 @@ describe("classifyLiveness does not own the stuck-launch state", () => {
 // The pure-predicate tests above prove the DECISIONS; these prove the sweep
 // actually reaches them and writes the right commands — and, critically, writes
 // NOTHING whenever provider liveness is asserted or merely unknown.
-describe("liveness sweep stuck-launch backstop", () => {
+describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting)", () => {
   const CHILD_ID = "child-stuck-launch" as ThreadId;
 
   const wedgedChild = (overrides: Partial<OrchestrationThreadShell> = {}) =>
@@ -871,6 +579,22 @@ describe("liveness sweep stuck-launch backstop", () => {
     readonly claimedThreadIds?: ReadonlySet<ThreadId>;
     /** Extra sweep passes beyond the first (used for the one-action-per-episode proof). */
     readonly extraPasses?: number;
+    /** Clock advance between passes (default: one sweep interval). */
+    readonly passAdvanceMs?: number;
+    /**
+     * Injected dispatch failure: reject a command the FIRST time it is seen (its
+     * id is recorded as attempted, so a later pass succeeds). Reproduces the
+     * partial-failure interleaving inside a multi-command action helper.
+     */
+    readonly failFirstDispatch?: (command: OrchestrationCommand) => boolean;
+    /**
+     * Keep the runtime heartbeat pinned to "now" on every pass — a thread that is
+     * busy AND alive, which is State D's territory (a frozen heartbeat is State
+     * C's stall).
+     */
+    readonly heartbeatFresh?: boolean;
+    /** Work-product fingerprint source (State D); constant ⇒ flat. */
+    readonly progressSignal?: { readonly recentInputsSource: string | null };
     /**
      * Re-wedge the thread with a FRESH episode before each extra pass, simulating
      * a thread that keeps returning to `starting` after every recovery.
@@ -891,6 +615,7 @@ describe("liveness sweep stuck-launch backstop", () => {
       // Live mutable thread state, so the stub can enforce the real decider's
       // compare-and-swap against state that a racing turn-start may have changed.
       let live: ReadonlyArray<OrchestrationThreadShell> = input.threads;
+      const failedOnce = new Set<string>();
       const engine = {
         readEvents: () => Stream.empty,
         readStreamEvents: () => Stream.empty,
@@ -917,6 +642,10 @@ describe("liveness sweep stuck-launch backstop", () => {
               live = live.map((t) =>
                 t.id === command.threadId ? { ...t, session: command.session } : t,
               );
+            }
+            if (input.failFirstDispatch?.(command) === true && !failedOnce.has(command.commandId)) {
+              failedOnce.add(command.commandId);
+              return Effect.die(new Error(`injected dispatch failure: ${command.commandId}`));
             }
             dispatched.push(command);
             return Effect.succeed({ sequence: dispatched.length });
@@ -967,10 +696,20 @@ describe("liveness sweep stuck-launch backstop", () => {
             return input.pendingTurnStarts ?? new Set<ThreadId>();
           }),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+          input.heartbeatFresh === true
+            ? Clock.currentTimeMillis.pipe(
+                Effect.map((nowMs) => ({
+                  maxCreatedAt: null,
+                  heartbeatAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs)),
+                })),
+              )
+            : Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
         getThreadProgressSignal: () =>
-          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+          Effect.succeed({
+            recentInputsSource: input.progressSignal?.recentInputsSource ?? null,
+            checkpointSource: null,
+          }),
       } as unknown as ProjectionSnapshotQueryShape;
       const deps = Layer.mergeAll(
         Layer.succeed(OrchestrationEngineService, engine),
@@ -998,11 +737,11 @@ describe("liveness sweep stuck-launch backstop", () => {
         Layer.succeed(ServerSettingsService, {
           getSettings: Effect.succeed({ providerInstances: [] }),
         } as unknown as ServerSettingsService["Service"]),
-        // The brief-needed backstop's delivery dedup reads receipts. Stuck-launch
-        // recovery never consults them, so an always-empty repository keeps this
-        // harness focused on the launch ladder.
+        // No durable receipts in the fixture: cross-restart dedup is the engine's
+        // job, and within a run the sweep's own delivered-set is what proves the
+        // honest-reporting change (a second pass over unchanged state must write,
+        // log, and count nothing).
         Layer.succeed(OrchestrationCommandReceiptRepository, {
-          upsert: () => Effect.void,
           getByCommandId: () => Effect.succeed(Option.none()),
         } as unknown as OrchestrationCommandReceiptRepository["Service"]),
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-liveness-stuck-launch-" }),
@@ -1020,7 +759,9 @@ describe("liveness sweep stuck-launch backstop", () => {
           yield* sweep.start();
           yield* TestClock.adjust(Duration.millis(1));
           for (let pass = 0; pass < (input.extraPasses ?? 0); pass += 1) {
-            yield* TestClock.adjust(Duration.millis(DEFAULT_LIVENESS_THRESHOLDS.sweepIntervalMs));
+            yield* TestClock.adjust(
+              Duration.millis(input.passAdvanceMs ?? DEFAULT_LIVENESS_THRESHOLDS.sweepIntervalMs),
+            );
           }
         }).pipe(Effect.provide(makeWorkstreamLivenessSweepLive().pipe(Layer.provide(deps)))),
       );
@@ -1310,6 +1051,140 @@ describe("liveness sweep stuck-launch backstop", () => {
         escalation?.commandId.startsWith("server:workstream-liveness:stuck-launch-escalate:"),
       ).toBe(true);
     }),
+  );
+
+  // ─── Honest delivery reporting + the dead rail's daily buckets (§3.1/§3.4) ──
+  // The defect: the engine receipt-dedups every deterministic command and returns
+  // SUCCESS for the resulting no-op, so the sweep logged an action and bumped
+  // `actionedCount` for writes that never happened — one wedged node pinned
+  // `actionedCount > 0` forever, suppressing the only "all quiet" signal, and
+  // emitted two lying log lines a minute for 26 hours in production.
+  const deadChild = () =>
+    thread({
+      id: "child-dead" as ThreadId,
+      planLane: "in_progress" as ThreadPlanLane,
+      latestTurn: null,
+      lastOutcome: null,
+      session: session({ threadId: "child-dead" as ThreadId, status: "error", activeTurnId: null }),
+    });
+  // `failureCap` consecutive failed observations before the circuit breaker trips.
+  const passesToDead = DEFAULT_LIVENESS_THRESHOLDS.failureCap;
+
+  effectIt.effect(
+    "re-running the sweep over an already-actioned, unchanged thread writes, logs, and counts NOTHING",
+    () => {
+      const logs: Array<string> = [];
+      return Effect.gen(function* () {
+        // Two full circuit-breaker cycles' worth of passes: the first trips and
+        // writes; the second reaches the same verdict and must be silent, because
+        // its command ids are already delivered.
+        const dispatched = yield* runSweep({
+          threads: [deadChild()],
+          extraPasses: passesToDead * 2,
+        });
+        expect(
+          dispatched.filter((c) => c.type === "thread.attention.raise" && c.reason === "error"),
+        ).toHaveLength(1);
+        expect(
+          dispatched.filter(
+            (c) =>
+              c.type === "thread.activity.append" && c.activity.kind === "workstream.liveness.dead",
+          ),
+        ).toHaveLength(1);
+        // And the observable half of `actionedCount`: exactly one action log and
+        // one sweep-complete line, not one per pass.
+        expect(logs.filter((m) => m === "workstream.liveness.dead")).toHaveLength(1);
+        expect(logs.filter((m) => m === "workstream.liveness.sweep-complete")).toHaveLength(1);
+      }).pipe(
+        Effect.provide(
+          Logger.layer(
+            [
+              Logger.make<unknown, void>(({ message }) => {
+                logs.push(String(Array.isArray(message) ? message[0] : message));
+              }),
+            ],
+            { mergeWithExisting: false },
+          ),
+        ),
+      );
+    },
+  );
+
+  effectIt.effect("a still-dead, still-unflagged thread re-raises once the day bucket rolls", () =>
+    Effect.gen(function* () {
+      // §3.4: the un-bucketed id was at-most-once FOREVER, so a thread whose flag
+      // §7 erased at the next turn-start was never re-flagged. The bucket re-arms
+      // it at most daily.
+      const dispatched = yield* runSweep({
+        threads: [deadChild()],
+        extraPasses: 2,
+        passAdvanceMs: 86_400_000,
+      });
+      const raises = dispatched.filter(
+        (c) => c.type === "thread.attention.raise" && c.reason === "error",
+      );
+      // One raise per day bucket the run spans, and never twice within a bucket:
+      // re-arming without regressing to the per-sweep spam the dedup prevents.
+      const ids = raises.map((c) => c.commandId);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toHaveLength(2);
+    }),
+  );
+
+  // ─── Multi-command partial failure must stay RETRYABLE (plan §3.1) ─────────
+  // Per-command `deliverOnce` stops an accepted write from being re-sent, but it
+  // cannot make anything ask again: a caller that records "already advised"
+  // regardless of outcome silences the rail for good. State D is the case that
+  // owes two commands (evidence row + the actionable attention raise) AND
+  // remembers having acted.
+  const SPINNING_ID = "child-spinning" as ThreadId;
+  const spinningChild = () =>
+    thread({
+      id: SPINNING_ID,
+      planLane: "in_progress" as ThreadPlanLane,
+      lastOutcome: null,
+      session: session({ threadId: SPINNING_ID, activeTurnId: "t-1" as TurnId }),
+    });
+
+  effectIt.effect(
+    "retries ONLY the unwritten command when a progress-loop advisory half-fails",
+    () =>
+      Effect.gen(function* () {
+        const dispatched = yield* runSweep({
+          threads: [spinningChild()],
+          // A live runtime binding, so the circuit breaker sees a healthy thread
+          // and State D is the branch under test.
+          bindings: [{ threadId: SPINNING_ID, status: "running" }],
+          // Heartbeat fresh ⇒ busy-and-alive (State D territory, not State C);
+          // a constant fingerprint ⇒ flat work product across the window.
+          heartbeatFresh: true,
+          progressSignal: { recentInputsSource: "flat" },
+          // Two passes past the no-progress window, so the advisory becomes due
+          // and — after the injected failure — is retried.
+          extraPasses: 2,
+          passAdvanceMs: DEFAULT_LIVENESS_THRESHOLDS.noProgressWindowMs,
+          // The SECOND command the helper owes fails, once, AFTER the first was
+          // accepted — the exact interleaving that used to be unrecoverable.
+          failFirstDispatch: (command) =>
+            command.type === "thread.attention.raise" &&
+            command.commandId.includes("progress-loop-attn"),
+        });
+
+        const activities = dispatched.filter(
+          (c) =>
+            c.type === "thread.activity.append" &&
+            c.activity.kind === "workstream.liveness.progress-loop",
+        );
+        const raises = dispatched.filter(
+          (c) => c.type === "thread.attention.raise" && c.commandId.includes("progress-loop-attn"),
+        );
+        // The actionable half eventually lands — the hole left it at 0 forever,
+        // because the caller had already recorded the episode as advised.
+        expect(raises).toHaveLength(1);
+        // And ONLY that half is retried: the accepted evidence row short-circuits
+        // as `already-handled`, so no duplicate is written.
+        expect(activities).toHaveLength(1);
+      }),
   );
 });
 

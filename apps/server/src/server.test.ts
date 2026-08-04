@@ -902,6 +902,7 @@ const buildAppUnderTest = (options?: {
               goals: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
+          getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
           getArchivedShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
@@ -6285,7 +6286,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const delivered = items[1];
         assert.equal(delivered?.kind, "thread-upserted");
         if (delivered?.kind === "thread-upserted") {
-          assert.equal(delivered.thread.id, threadId);
+          assert.equal(delivered.threads[0]?.id, threadId);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -6351,7 +6352,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const delivered = items[1];
         assert.equal(delivered?.kind, "thread-upserted");
         if (delivered?.kind === "thread-upserted") {
-          assert.equal(delivered.thread.id, threadId);
+          assert.equal(delivered.threads[0]?.id, threadId);
         }
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

@@ -262,6 +262,7 @@ describe("ProviderSessionReaper", () => {
           getCommandReadModel: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
+          getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
           getArchivedShellSnapshot: () => Effect.die("unused"),
           getSnapshotSequence: () =>
             Effect.succeed({ snapshotSequence: input.readModel.snapshotSequence }),

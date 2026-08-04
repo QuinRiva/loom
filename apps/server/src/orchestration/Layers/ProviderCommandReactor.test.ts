@@ -3691,7 +3691,7 @@ describe("ProviderCommandReactor", () => {
           Layer.succeed(ServerSettingsService, {
             getSettings: Effect.succeed({ providerInstances: [] }),
           } as unknown as ServerSettingsService["Service"]),
-          // The sweep's brief-needed backstop dedups its attention-raise on command
+          // Every sweep rail dispatches through `deliverOnce`, which reads command
           // receipts; this pass exercises stuck-launch recovery, so the real (empty)
           // in-memory repository is enough to satisfy the dependency.
           OrchestrationCommandReceiptRepositoryLive.pipe(Layer.provide(SqlitePersistenceMemory)),

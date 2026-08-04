@@ -47,6 +47,7 @@ import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 import { deriveToolActivityPresentation } from "@t3tools/shared/toolActivity";
 import { NOTIFY_PAIR_WINDOW_MS } from "@t3tools/shared/notify";
 import * as Arr from "effect/Array";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -65,6 +66,7 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ServerConfig } from "../../config.ts";
+import { briefNeededAttentionParentIds } from "../briefNeeded.ts";
 import {
   promptDebugSidecarExists,
   promptDebugSidecarFileName,
@@ -205,6 +207,32 @@ const GoalIdLookupInput = Schema.Struct({
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
 });
+/**
+ * The narrow sub-thread row backing the derived brief-needed parent attention
+ * (liveness plan §3.3): only the columns the predicate and its episode clock
+ * touch, so the whole question costs one narrow scan rather than a shell
+ * hydration. `hasSession` is the one derived column — the predicate only asks
+ * whether the node ever started.
+ */
+const ProjectionBriefNeededChildRowSchema = Schema.Struct({
+  id: ThreadId,
+  parentThreadId: Schema.NullOr(ThreadId),
+  role: Schema.NullOr(Schema.String),
+  purpose: Schema.NullOr(Schema.String),
+  planLane: ProjectionThread.fields.planLane,
+  blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
+  isolation: ProjectionThread.fields.isolation,
+  fanInState: ProjectionThread.fields.fanInState,
+  kickoffBriefPath: Schema.NullOr(Schema.String),
+  latestUserMessageAt: Schema.NullOr(IsoDateTime),
+  createdAt: IsoDateTime,
+  planLaneSince: Schema.NullOr(IsoDateTime),
+  dependenciesSince: Schema.NullOr(IsoDateTime),
+  faninSince: Schema.NullOr(IsoDateTime),
+  lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
+  hasSession: Schema.Number,
+});
+
 const ProjectionGoalSlugRowSchema = Schema.Struct({
   slug: Schema.String,
 });
@@ -1576,6 +1604,67 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         LIMIT 1
       `,
   });
+
+  const listBriefNeededCandidateRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionBriefNeededChildRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          t.thread_id AS "id",
+          t.parent_thread_id AS "parentThreadId",
+          t.role,
+          t.purpose,
+          t.plan_lane AS "planLane",
+          t.blocked_by AS "blockedBy",
+          t.isolation,
+          t.fan_in_state AS "fanInState",
+          t.kickoff_brief_path AS "kickoffBriefPath",
+          t.latest_user_message_at AS "latestUserMessageAt",
+          t.created_at AS "createdAt",
+          t.plan_lane_since AS "planLaneSince",
+          t.dependencies_since AS "dependenciesSince",
+          t.fanin_since AS "faninSince",
+          t.last_outcome AS "lastOutcome",
+          EXISTS(
+            SELECT 1 FROM projection_thread_sessions s WHERE s.thread_id = t.thread_id
+          ) AS "hasSession"
+        FROM projection_threads t
+        WHERE t.parent_thread_id IS NOT NULL
+          AND t.deleted_at IS NULL
+          AND t.archived_at IS NULL
+      `,
+  });
+
+  /**
+   * Which parents are owed a derived `needs_guidance` right now (plan §3.3).
+   * Graph-aware — the dependency gate and the episode clock both need a node's
+   * siblings — so it reads every active sub-thread's narrow row and answers with
+   * ids only. Never folded into the shell queries: those are the dispatcher's
+   * and sweep's control-plane reads (see the Service doc).
+   */
+  const getBriefNeededAttentionParentIds: ProjectionSnapshotQueryShape["getBriefNeededAttentionParentIds"] =
+    () =>
+      Effect.gen(function* () {
+        const rows = yield* listBriefNeededCandidateRows(undefined).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getBriefNeededAttentionParentIds:query",
+              "ProjectionSnapshotQuery.getBriefNeededAttentionParentIds:decodeRows",
+            ),
+          ),
+        );
+        const threads = rows.map((row) => ({
+          ...row,
+          // `isBriefNeeded` only asks `session === null` ("never started").
+          session: row.hasSession > 0 ? row : null,
+        }));
+        return briefNeededAttentionParentIds(
+          threads,
+          new Map(threads.map((thread) => [thread.id, thread] as const)),
+          yield* Clock.currentTimeMillis,
+        );
+      });
 
   const listThreadMessageRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
@@ -4125,6 +4214,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,
+    getBriefNeededAttentionParentIds,
     getArchivedShellSnapshot,
     getSnapshotSequence,
     getCounts,

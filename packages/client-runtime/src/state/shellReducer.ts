@@ -29,10 +29,17 @@ export function applyShellStreamEvent(
         snapshotSequence: event.sequence,
       };
     case "thread-upserted": {
-      const threads = snapshot.threads.some((t) => t.id === event.thread.id)
-        ? Arr.map(snapshot.threads, (t) => (t.id === event.thread.id ? event.thread : t))
-        : Arr.append(snapshot.threads, event.thread);
-      return { ...snapshot, threads, snapshotSequence: event.sequence };
+      // One domain event can carry several shells (see the contract): the thread
+      // it happened to, plus any whose graph-DERIVED fields its transition
+      // changed. Merge them all under the single sequence.
+      const byId = new Map(event.threads.map((t) => [t.id, t] as const));
+      const merged = Arr.map(snapshot.threads, (t) => byId.get(t.id) ?? t);
+      const added = event.threads.filter((t) => !snapshot.threads.some((s) => s.id === t.id));
+      return {
+        ...snapshot,
+        threads: added.length === 0 ? merged : Arr.appendAll(merged, added),
+        snapshotSequence: event.sequence,
+      };
     }
     case "thread-removed":
       return {

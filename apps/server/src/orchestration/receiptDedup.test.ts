@@ -5,6 +5,7 @@ import { it as effectIt } from "@effect/vitest";
 
 import { OrchestrationCommandDeferredError, OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  dayBucket,
   DEFAULT_WAKE_RATE_GUARD,
   makeReceiptDedupedDelivery,
   makeWakeRateBudget,
@@ -182,5 +183,25 @@ describe("WakeRateBudget", () => {
     // Repeated checks never mutate; the answer is stable.
     expect(budget.wouldTrip("parent", now)).toBe(false);
     expect(budget.wouldTrip("parent", now)).toBe(false);
+  });
+});
+
+describe("dayBucket (wall-clock re-arming of a deterministic command id)", () => {
+  const DAY = 86_400_000;
+
+  it("is stable within a UTC day and advances at the boundary", () => {
+    const midnight = Date.parse("2026-06-24T00:00:00.000Z");
+    expect(dayBucket(midnight)).toBe(dayBucket(midnight + DAY - 1));
+    expect(dayBucket(midnight + DAY)).toBe(dayBucket(midnight) + 1);
+  });
+
+  it("is monotonic, so a bucketed id is never reused for a later day", () => {
+    const start = Date.parse("2026-06-24T00:00:00.000Z");
+    let previous = -Infinity;
+    for (let day = 0; day < 400; day += 1) {
+      const bucket = dayBucket(start + day * DAY);
+      expect(bucket).toBeGreaterThan(previous);
+      previous = bucket;
+    }
   });
 });

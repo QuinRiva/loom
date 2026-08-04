@@ -17,6 +17,7 @@ import {
 } from "../auth/http.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import { applyBriefNeededParentAttention } from "./briefNeededOutwardAttention.ts";
 
 export const orchestrationHttpApiLayer = HttpApiBuilder.group(
   EnvironmentHttpApi,
@@ -50,13 +51,18 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationReadScope);
-          return yield* projectionSnapshotQuery
-            .getShellSnapshot()
-            .pipe(
-              Effect.catch((cause) =>
-                failEnvironmentInternal("orchestration_snapshot_failed", cause),
-              ),
-            );
+          // Outward read → union the derived brief-needed parent attention
+          // (liveness plan §3.3). The query itself stays stored-only because the
+          // dispatcher and sweep read it as control-plane state.
+          return yield* Effect.all([
+            projectionSnapshotQuery.getShellSnapshot(),
+            projectionSnapshotQuery.getBriefNeededAttentionParentIds(),
+          ]).pipe(
+            Effect.map(([snapshot, parents]) => applyBriefNeededParentAttention(snapshot, parents)),
+            Effect.catch((cause) =>
+              failEnvironmentInternal("orchestration_snapshot_failed", cause),
+            ),
+          );
         }),
       )
       .handle(
