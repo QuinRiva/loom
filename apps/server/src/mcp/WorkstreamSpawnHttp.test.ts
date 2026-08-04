@@ -22,6 +22,7 @@ import { runNotifyThread, type NotifyThreadDeps } from "./WorkstreamSpawnHttp.ts
 import { NOTIFY_MESSAGE_MAX_CHARS } from "@t3tools/shared/notify";
 
 import {
+  composeConsultAsker,
   composeNotifyFramedText,
   notifyRelationshipLabel,
   forkIdentityFieldsRejection,
@@ -143,6 +144,26 @@ describe("notify_thread D5 framing", () => {
     expect(framed).toContain("No reply is owed");
     expect(framed).toContain("notify_thread (threadId: thread-sender)");
     expect(framed).not.toContain("\u2014");
+  });
+});
+
+// consult_thread: the HTTP layer owns WHO is asking, and hands it to
+// `askWorkstreamThread` as a one-line descriptor for the question turn.
+describe("consult_thread asker descriptor (composeConsultAsker)", () => {
+  it("names the asker's title, role, id and relationship to the target", () => {
+    expect(
+      composeConsultAsker({
+        askerTitle: "Receipt dedup",
+        askerRole: "reviewer",
+        askerThreadId: "thread-asker",
+        relationship: notifyRelationshipLabel({
+          senderThreadId: "thread-asker",
+          senderParentThreadId: "thread-target",
+          targetThreadId: "thread-target",
+          targetParentThreadId: null,
+        }),
+      }),
+    ).toBe("thread «Receipt dedup» (reviewer, thread-asker; one of your sub-threads)");
   });
 });
 

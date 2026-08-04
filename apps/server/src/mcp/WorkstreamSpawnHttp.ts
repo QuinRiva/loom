@@ -241,6 +241,19 @@ export const composeNotifyFramedText = (input: {
   `${input.message}\n\n` +
   `No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with notify_thread (threadId: ${input.senderThreadId}).`;
 
+// consult_thread: the asker descriptor stitched into the fork's question turn.
+// The HTTP layer owns WHO is asking (the credential's thread + the graph);
+// `workstreamAsk` owns the read-only contract and does the composing. Consult is
+// global like notify, so the relationship is stated rather than assumed, and the
+// same label vocabulary is reused.
+export const composeConsultAsker = (input: {
+  readonly askerTitle: string;
+  readonly askerRole: string;
+  readonly askerThreadId: string;
+  readonly relationship: NotifyRelationship;
+}): string =>
+  `thread «${input.askerTitle}» (${input.askerRole}, ${input.askerThreadId}; ${input.relationship})`;
+
 const trimString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 
@@ -3155,6 +3168,7 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
   // retain the fork jsonl under userdata for deep inspection; and record the
   // resolved consult as a durable `thread.consult-recorded` event on the ASKER
   // (best-effort — a recording failure must never fail the consult response).
+  const asker = threads.find((thread) => thread.id === scope.threadId);
   const consult = (shell: (typeof threads)[number]) =>
     Effect.gen(function* () {
       const freshSessionId = yield* crypto.randomUUIDv4;
@@ -3166,6 +3180,17 @@ const handleWorkstreamConsultThread = Effect.gen(function* () {
         freshSessionId,
         cwd: shell.worktreePath ?? config.cwd,
         question,
+        asker: composeConsultAsker({
+          askerTitle: asker?.title ?? "a thread",
+          askerRole: asker?.role ?? "thread",
+          askerThreadId: scope.threadId,
+          relationship: notifyRelationshipLabel({
+            senderThreadId: scope.threadId,
+            senderParentThreadId: asker?.parentThreadId ?? null,
+            targetThreadId: shell.id,
+            targetParentThreadId: shell.parentThreadId,
+          }),
+        }),
         timeoutMs: ASK_TIMEOUT_MS,
         forkRetentionDir: config.workstreamConsultsDir,
       });

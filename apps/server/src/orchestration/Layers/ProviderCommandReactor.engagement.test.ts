@@ -1,7 +1,11 @@
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { relocationClause, shouldReprovisionIsolatedChild } from "./ProviderCommandReactor.ts";
+import {
+  relocationClause,
+  shouldReprovisionIsolatedChild,
+  threadIdentityClause,
+} from "./ProviderCommandReactor.ts";
 
 /**
  * Post-completion sub-thread engagement — capability tests for the durable-state
@@ -37,6 +41,63 @@ describe("post-completion engagement — relocation clause (relocationClause)", 
     expect(clause).toMatch(/re-verify/i);
     // Care, not incapacity: the thread resumes with its full tool surface.
     expect(clause).not.toMatch(/read-only|cannot edit/i);
+  });
+});
+
+describe("thread identity clause (threadIdentityClause)", () => {
+  const threadId = ThreadId.make("a1b2c3d4-0000-4000-8000-000000000001");
+
+  // CAPABILITY: a thread knows who it is without running commands — its id, and
+  // how to find its own transcript on disk.
+  it("names the thread id and how to reach the session jsonl", () => {
+    const clause = threadIdentityClause({ threadId });
+    expect(clause).toContain(threadId);
+    expect(clause).toContain("PI_SESSION_FILE");
+    expect(clause).toContain(`*_${threadId}.jsonl`);
+  });
+
+  // REGRESSION: the clause must name no cwd. It is replayed verbatim into a
+  // `forkFrom` child's first launch (`resolveForkLaunchArgs`), so a cwd here
+  // would be the SOURCE's — and a fork of a writer role is ISOLATED by default,
+  // i.e. sitting in its own worktree while being told its edits land in another.
+  // pi appends the real `Current working directory:` line itself, from the
+  // process cwd at launch, so the true fact is already present and unreplayed.
+  it("names no workspace path, so a replayed fork is never told the wrong tree", () => {
+    const clause = threadIdentityClause({ threadId });
+    expect(clause).not.toMatch(/workspace is/i);
+    expect(clause).not.toMatch(/\/tmp\/|\/home\/|worktree/i);
+    expect(clause).not.toMatch(/edit you make lands/i);
+  });
+
+  // pi's sessions root is CONFIGURABLE (`--session-dir`,
+  // `PI_CODING_AGENT_SESSION_DIR`, the `sessionDir` setting, `PI_CODING_AGENT_DIR`)
+  // and PiDriver pins none of them, so asserting pi's default root would inject a
+  // false path wherever the store is configured. Only the truthful facts are
+  // stated: the `$PI_SESSION_FILE` env and the filename convention.
+  it("claims no sessions root, only $PI_SESSION_FILE and the filename convention", () => {
+    const clause = threadIdentityClause({ threadId });
+    expect(clause).not.toContain(".pi/agent/sessions");
+    expect(clause).not.toContain("~/.pi");
+    expect(clause).toContain("$PI_SESSION_FILE");
+  });
+
+  // pi scopes session files by project slug (`--<cwd>--`, per
+  // `piProjectSessionDir`), so an ISOLATED sibling in its own worktree sits in a
+  // different directory (as does this thread's own history after a relocation).
+  // The clause must not send an agent hunting a sibling's suffix in its own dir;
+  // cross-thread history goes via the report or `consult_thread`.
+  it("does not claim another thread's jsonl shares this thread's directory", () => {
+    const clause = threadIdentityClause({ threadId });
+    expect(clause).not.toMatch(/alongside/i);
+    expect(clause).toContain("consult_thread");
+    expect(clause).toMatch(/not necessarily in the same directory/);
+  });
+
+  // The jsonl name is the sanitised thread id (piSessionIdForThread), so a
+  // thread id carrying non-id characters still gets a truthful filename glob.
+  it("uses the sanitised session id in the file convention", () => {
+    const clause = threadIdentityClause({ threadId: ThreadId.make("server:child/one") });
+    expect(clause).toContain("*_server-child-one.jsonl");
   });
 });
 
