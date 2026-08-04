@@ -86,6 +86,10 @@ interface Overlay {
   comment: MdxAnchorReviewCommentContext;
   boxes: Box[];
   badge: { top: number; left: number };
+  /** `fill` = per-line prose highlight (text anchor); `ring` = a single outline
+   * around a whole annotated block (visual/wireframe anchor) — a fill over an
+   * entire card reads as "everything selected", the bug B fixes. */
+  variant: "fill" | "ring";
   /** `resolved` = visible highlight; `collapsed` = hidden inside a closed
    * `<details>` / tab panel (badge on the enclosing surface, open-on-navigate);
    * `detached` = anchor no longer resolves at all. */
@@ -128,6 +132,22 @@ function placeBeside(rect: DOMRect, wrapper: DOMRect): { top: number; left: numb
   if (leftLeft >= 8) return { top: clampTop(relTop), left: leftLeft };
   const below = Math.max(8, Math.min(rect.left - wrapper.left, wrapper.width - CARD_WIDTH - 8));
   return { top: clampTop(rect.bottom - wrapper.top + GAP), left: below };
+}
+
+/** The element an anchor's range targets, used for the visibility test and the
+ * single-box paint of a block anchor. A block anchor's range `selectNode`s an
+ * element (its parent is the range's `startContainer`, the element itself the
+ * child at `startOffset`); a text anchor's range starts inside a text node whose
+ * enclosing element is what we test. */
+function anchorElement(range: Range): Element | null {
+  const container = range.startContainer;
+  if (container.nodeType === Node.ELEMENT_NODE) {
+    const selected = container.childNodes[range.startOffset];
+    return selected?.nodeType === Node.ELEMENT_NODE
+      ? (selected as Element)
+      : (container as Element);
+  }
+  return container.parentElement;
 }
 
 function fileNameOf(filePath: string): string {
@@ -335,6 +355,17 @@ export function MdxPlanAnnotationLayer({
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
+    // Badges live in the gutter at the right edge of the capped content column
+    // (`[data-plan-root]`), never on the last highlighted rect — for a block
+    // anchor that rect lands mid-block (the floating "9"/"10" the reviewer saw).
+    const rootRect = root.getBoundingClientRect();
+    const gutterLeft = Math.min(rootRect.right - wrapperRect.left + 6, wrapperRect.width - 24);
+    const toBox = (rect: DOMRect): Box => ({
+      top: rect.top - wrapperRect.top,
+      left: rect.left - wrapperRect.left,
+      width: rect.width,
+      height: rect.height,
+    });
     // Flatten the document ONCE per pass and share it across every text-quote
     // resolve, turning an O(comments × document) pass into O(document + comments)
     // — this removes the per-toggle recompute cliff on evidence-heavy docs.
@@ -344,6 +375,7 @@ export function MdxPlanAnnotationLayer({
       comment,
       boxes: [],
       badge: { top: 0, left: 0 },
+      variant: "fill",
       state: "detached",
     });
     setOverlays(
@@ -357,39 +389,69 @@ export function MdxPlanAnnotationLayer({
           return detachedOverlay(comment);
         }
         if (!range) return detachedOverlay(comment);
-        const boxes = Array.from(range.getClientRects(), (rect) => ({
-          top: rect.top - wrapperRect.top,
-          left: rect.left - wrapperRect.left,
-          width: rect.width,
-          height: rect.height,
-        })).filter((box) => box.width > 0 && box.height > 0);
-        if (boxes.length === 0) {
-          // Zero rects: an anchor inside a closed <details> / hidden tab panel is
-          // COLLAPSED (badge on the enclosing surface, revealed on navigate), not
-          // detached. Anything else with no rects is genuinely detached.
-          const surface = collapsedSurfaceFor(range.startContainer, root);
+        const isText = comment.anchor?.anchorKind === "text";
+        const element = anchorElement(range);
+        // Content inside a closed <details> / hidden tab panel is laid out but
+        // NOT painted (current Chromium uses `content-visibility:hidden`, not
+        // `display:none`, so it still reports live, wrongly-placed rects). An
+        // explicit visibility test — not `getClientRects().length === 0`, which
+        // never fires on this browser — both drops those phantom rects and
+        // classifies the anchor as COLLAPSED (badge on the enclosing surface,
+        // revealed on navigate).
+        //
+        // A TEXT anchor spans text nodes, so test BOTH endpoints: flattenDocument
+        // concatenates adjacent text nodes with no separator, so the re-found
+        // start offset can land on the boundary of a preceding VISIBLE node (a
+        // <summary>) while the quote body lives in the following hidden
+        // paragraph — testing the start alone would read it as visible. A BLOCK
+        // anchor is a single element (its range's END offset points at the next
+        // sibling), so only the start element is meaningful.
+        const visible = (el: Element | null): boolean =>
+          !el ||
+          el.checkVisibility({
+            contentVisibilityAuto: true,
+            opacityProperty: true,
+            visibilityProperty: true,
+          });
+        const endEl = isText ? range.endContainer.parentElement : element;
+        if (!visible(element) || !visible(endEl)) {
+          const hiddenNode = visible(element) ? range.endContainer : range.startContainer;
+          const surface = collapsedSurfaceFor(hiddenNode, root);
           if (surface) {
             const rect = surface.badgeElement.getBoundingClientRect();
             return {
               id: comment.id,
               comment,
               boxes: [],
-              badge: {
-                top: rect.top - wrapperRect.top,
-                left: rect.right - wrapperRect.left - 8,
-              },
+              badge: { top: rect.top - wrapperRect.top, left: rect.right - wrapperRect.left - 8 },
+              variant: "ring",
               state: "collapsed",
               collapsed: surface,
             };
           }
           return detachedOverlay(comment);
         }
-        const last = boxes[boxes.length - 1];
+        // Split the paint by anchor kind. A TEXT anchor is a genuine multi-line
+        // prose selection → one rect per line box (`getClientRects()`). A BLOCK
+        // anchor (`visual`/`wireframe`) selects a whole element; painting its
+        // range's rects draws the element's border box PLUS a line box per
+        // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
+        // wants ONE box from the element, drawn as a ring so it reads as "this
+        // block is annotated", not "everything here is selected".
+        const boxes = (
+          isText
+            ? Array.from(range.getClientRects(), toBox)
+            : element
+              ? [toBox(element.getBoundingClientRect())]
+              : []
+        ).filter((box) => box.width > 0 && box.height > 0);
+        if (boxes.length === 0) return detachedOverlay(comment);
         return {
           id: comment.id,
           comment,
           boxes,
-          badge: last ? { top: last.top, left: last.left + last.width } : { top: 0, left: 0 },
+          badge: { top: boxes[0]!.top, left: gutterLeft },
+          variant: isText ? "fill" : "ring",
           state: "resolved",
         };
       }),
@@ -398,17 +460,24 @@ export function MdxPlanAnnotationLayer({
 
   // Recompute overlays on any layout-affecting change to the plan DOM.
   useLayoutEffect(() => {
-    if (!root) {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !root) {
       setOverlays([]);
       return;
     }
     let frame = 0;
+    let disposed = false;
     const schedule = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(recompute);
     };
     const resizeObserver = new ResizeObserver(schedule);
+    // Boxes are measured relative to the WRAPPER, so the wrapper is the
+    // measurement reference that must be observed — `root` is `max-w-4xl`, so
+    // toggling a side panel re-centres it without changing its border box and
+    // an observer on `root` alone stays silent (defect A). Observe both.
     resizeObserver.observe(root);
+    resizeObserver.observe(wrapper);
     const mutationObserver = new MutationObserver(schedule);
     mutationObserver.observe(root, {
       childList: true,
@@ -417,8 +486,15 @@ export function MdxPlanAnnotationLayer({
       characterData: true,
     });
     window.addEventListener("resize", schedule);
+    // A web-font swap changes text metrics with neither a mutation nor a resize
+    // (line wrapping is width-capped, so `root` never changes size), so no
+    // observer fires — re-measure once fonts settle.
+    document.fonts?.ready.then(() => {
+      if (!disposed) schedule();
+    });
     schedule();
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
@@ -678,8 +754,12 @@ export function MdxPlanAnnotationLayer({
         {overlays.flatMap((overlay) =>
           overlay.boxes.map((box) => (
             <div
-              key={`${overlay.id}:${box.top}:${box.left}`}
-              className="absolute rounded-sm bg-amber-300/25 ring-1 ring-amber-400/50"
+              key={`${overlay.id}:${box.top}:${box.left}:${box.width}:${box.height}`}
+              className={
+                overlay.variant === "ring"
+                  ? "absolute rounded-md ring-2 ring-amber-400/70"
+                  : "absolute rounded-sm bg-amber-300/25 ring-1 ring-amber-400/50"
+              }
               style={{ top: box.top, left: box.left, width: box.width, height: box.height }}
             />
           )),
@@ -739,7 +819,7 @@ export function MdxPlanAnnotationLayer({
       {selectionAffordance && !composer ? (
         <button
           type="button"
-          className="absolute z-30 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:bg-accent"
+          className="absolute z-30 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:text-foreground hover:ring-2 hover:ring-amber-400/60"
           style={{ top: selectionAffordance.top, left: selectionAffordance.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={openComposerFromSelection}
@@ -758,7 +838,7 @@ export function MdxPlanAnnotationLayer({
           type="button"
           data-plan-comment-affordance=""
           aria-label="Comment on this block"
-          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground hover:ring-2 hover:ring-amber-400/60"
           style={{ top: hoverBlock.top, left: hoverBlock.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openComposerForBlock(hoverBlock.id)}
