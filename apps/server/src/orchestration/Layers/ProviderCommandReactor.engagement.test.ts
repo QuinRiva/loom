@@ -69,6 +69,18 @@ describe("thread identity clause (threadIdentityClause)", () => {
     expect(clause).toContain("$PI_SESSION_FILE");
   });
 
+  // pi scopes session files by project slug (`--<cwd>--`, per
+  // `piProjectSessionDir`), so an ISOLATED sibling in its own worktree sits in a
+  // different directory (as does this thread's own history after a relocation).
+  // The clause must not send an agent hunting a sibling's suffix in its own dir;
+  // cross-thread history goes via the report or `consult_thread`.
+  it("does not claim another thread's jsonl shares this thread's directory", () => {
+    const clause = threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" });
+    expect(clause).not.toMatch(/alongside/i);
+    expect(clause).toContain("consult_thread");
+    expect(clause).toMatch(/not necessarily in the same directory/);
+  });
+
   // The jsonl name is the sanitised thread id (piSessionIdForThread), so a
   // thread id carrying non-id characters still gets a truthful filename glob.
   it("uses the sanitised session id in the file convention", () => {

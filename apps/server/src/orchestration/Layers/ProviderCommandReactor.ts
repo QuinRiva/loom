@@ -146,14 +146,20 @@ export const relocationClause = (input: {
 // them (it passes the server env through). Asserting the default would inject a
 // false path on any deployment that configures the store, and an agent trusting
 // it would read an unrelated session or none. `$PI_SESSION_FILE` is set by pi's
-// own bash tool for every command it runs, so the truthful fact is enough: the
-// directory containing that file is the thread's project session dir, and a
-// sibling's jsonl is found there by its own id.
+// own bash tool for every command it runs, so that one truthful fact locates
+// this thread's own history without naming a root.
+//
+// It says nothing about where ANOTHER thread's jsonl lives, because there is no
+// short true answer: pi scopes session files by project slug (`--<cwd>--`, see
+// `piProjectSessionDir`), so an isolated sibling in its own worktree sits in a
+// DIFFERENT directory, as does this thread's own history after a relocation.
+// Cross-thread history is reached by the paths that always work — the sibling's
+// report and `consult_thread` — not by a directory guess.
 export const threadIdentityClause = (input: {
   readonly threadId: ThreadId;
   readonly cwd: string;
 }): string =>
-  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run), a file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\`; another thread's jsonl is named by that same convention from its own id, alongside yours — a last resort, after its report and \`consult_thread\`.`;
+  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run), a file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\`. To reach ANOTHER thread's history, use its report or \`consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
 
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
