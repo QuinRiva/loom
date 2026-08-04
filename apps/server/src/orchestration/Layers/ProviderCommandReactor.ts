@@ -129,16 +129,29 @@ export const relocationClause = (input: {
 }): string =>
   `Your work here previously happened in a working directory that no longer exists; you are now in \`${input.cwd}\` (the parent's current tree, or the project workspace). Your merged work is commit \`${input.finalCommitSha}\`. The files you see now are that tree's CURRENT state, which has moved on since you finished. Any absolute paths you remember are historical — re-verify before editing. Exact historical file contents live in git at that commit.`;
 
-// The identity clause: who and where this thread is, in-band. A launched pi
-// session otherwise knows neither its thread id (the id every workstream tool
-// takes, the id the human sees) nor where its own transcript lives — while the
+// The identity clause: WHO this thread is, in-band. A launched pi session
+// otherwise knows neither its thread id (the id every workstream tool takes,
+// the id the human sees) nor where its own transcript lives — while the
 // work-model prompt tells it the history "can be accessed via the Pi session
-// jsonl file". Deliberately derived only from a thread's STABLE facts (its id
-// and its workspace cwd) so the composed prompt is byte-identical across the
-// thread's own relaunches: the session file is named by CONVENTION
-// (`*_<threadId>.jsonl`, per `piSessionIdForThread`) plus the runtime
-// `PI_SESSION_FILE` env, never by a resolved absolute path — which does not
-// exist yet at a first launch and would churn the cacheable prefix.
+// jsonl file". Deliberately derived only from a thread's one STABLE fact (its
+// id) so the composed prompt is byte-identical across the thread's own
+// relaunches: the session file is named by CONVENTION (`*_<threadId>.jsonl`,
+// per `piSessionIdForThread`) plus the runtime `PI_SESSION_FILE` env, never by
+// a resolved absolute path — which does not exist yet at a first launch and
+// would churn the cacheable prefix.
+//
+// It deliberately does NOT name the workspace cwd, for two compounding reasons.
+// pi already appends the REAL `Current working directory: <cwd>` as the final
+// line of its base prompt, built from the process cwd at launch — always true,
+// never replayed. And this clause IS replayed: a `forkFrom` child's first launch
+// replays the source's captured argv verbatim (`resolveForkLaunchArgs`), so any
+// cwd named here would be the SOURCE's. Isolation defaults by role (writers
+// isolated, readers shared) and a fork inherits its source's role, so a fork of
+// a writer sits in its OWN worktree by default — and would have been told, with
+// an imperative, that its edits land in someone else's tree. Naming the cwd here
+// contradicts pi's own true line in exactly the case that writes code. The id is
+// replayed too, but a stale id is inert (every workstream tool resolves the
+// calling thread from its credential, never from the model's belief).
 //
 // It also never names a sessions ROOT. `~/.pi/agent/sessions` is only pi's
 // default: the store moves with `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
@@ -155,11 +168,8 @@ export const relocationClause = (input: {
 // DIFFERENT directory, as does this thread's own history after a relocation.
 // Cross-thread history is reached by the paths that always work — the sibling's
 // report and `consult_thread` — not by a directory guess.
-export const threadIdentityClause = (input: {
-  readonly threadId: ThreadId;
-  readonly cwd: string;
-}): string =>
-  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run), a file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\`. To reach ANOTHER thread's history, use its report or \`consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
+export const threadIdentityClause = (input: { readonly threadId: ThreadId }): string =>
+  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run), a file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\`. To reach ANOTHER thread's history, use its report or \`consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
 
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
@@ -738,7 +748,7 @@ const make = Effect.gen(function* () {
             ? relocationClause({ finalCommitSha: thread.finalCommitSha, cwd: roleProjectRoot })
             : undefined;
         const appendSystemPrompt = [
-          threadIdentityClause({ threadId, cwd: roleProjectRoot }),
+          threadIdentityClause({ threadId }),
           roleOverlay?.prompt,
           shipPolicyBlock,
           rolesBlock,
