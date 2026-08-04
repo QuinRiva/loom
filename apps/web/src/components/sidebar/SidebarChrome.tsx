@@ -17,6 +17,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "../ui/sidebar";
+import { SidebarAccountUsagePill } from "./SidebarAccountUsagePill"; // loom:
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
@@ -109,6 +110,9 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
 
   return (
     <SidebarFooter className="p-2">
+      {/* loom: subscription-usage bar — cost visibility for a product that runs
+          many agents in parallel. Same slot it occupies in the v1 footer. */}
+      <SidebarAccountUsagePill />
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>

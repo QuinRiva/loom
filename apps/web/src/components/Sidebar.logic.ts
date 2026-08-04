@@ -487,14 +487,23 @@ export function resolveThreadRowClassName(input: {
 // whether it finished, asked a question, or proposed a plan.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
-export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "ready";
+// loom: `attention` is a sixth state — the fork's primary wake signal, which the
+// upstream five cannot express (a `needs_guidance` thread has no session, no
+// approval and no input, so it would rest as "ready").
+export type SidebarV2Status = "attention" | "approval" | "input" | "working" | "failed" | "ready";
 
 type SidebarV2StatusInput = Pick<
   SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session"
+  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "attention" // loom: attention
 >;
 
 export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
+  // loom: precedence mirrors resolveThreadStatusPill — a human-gated thread
+  // outranks everything, since nothing else on the row is actionable until the
+  // human answers.
+  if (thread.attention.includes("needs_guidance")) {
+    return "attention";
+  }
   if (thread.hasPendingApprovals) {
     return "approval";
   }
@@ -504,8 +513,14 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  if (thread.session?.status === "error") {
+  // loom: a server-raised `error` flag (liveness sweep) is the same class of
+  // failure as a broken session and reads as one.
+  if (thread.session?.status === "error" || thread.attention.includes("error")) {
     return "failed";
+  }
+  // loom: work finished but a human still owes it a decision — never idle.
+  if (thread.attention.includes("awaiting_acceptance")) {
+    return "attention";
   }
   return "ready";
 }

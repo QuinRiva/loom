@@ -120,7 +120,14 @@ import {
   prStatusIndicator,
   resolveThreadPr,
   settledPrHoverColorClass,
+  WorkstreamGraphIndicator, // loom:
 } from "./ThreadStatusIndicators";
+// loom: root-thread + drafter visibility filters and the workstream rollup the
+// hidden sub-threads surface through. All three live in loom-owned modules.
+import { filterRootThreads } from "../loom/useLoomSidebarGoals";
+import { isStagedHandoffThread } from "./Sidebar.logic.loom";
+import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
+import { buildGraphRollupByThreadKey, type GraphRollup } from "../lib/workstreamRollup";
 import {
   resolveSnoozePresets,
   snoozeWakeDescription,
@@ -389,6 +396,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   onSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
   onChangeRequestState: (threadKey: string, state: "open" | "closed" | "merged" | null) => void;
+  // loom: rolled-up state of this root's hidden sub-thread graph; null when it
+  // has none. Computed once per list from the UNFILTERED shells.
+  graphRollup: GraphRollup | null;
 }) {
   const {
     isRenaming,
@@ -439,12 +449,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // working threads aren't your problem yet) — only the colored status label
   // stands out.
   const isInFlight = status === "working" || status === "approval" || status === "input";
+  // loom: `attention` is neither in-flight nor ready, so a flagged row never
+  // recedes — it is the one thing in the inbox that is definitely yours.
   const shouldRecede =
     (status === "ready" || isInFlight) && !isUnread && !isWoke && !props.isActive && !isSelected;
   // Status hues follow the system-wide convention set by sidebar v1 and the
   // mobile Live Activity/widgets (amber approval, indigo input, sky working)
   // so a thread reads the same color everywhere it surfaces.
-  const topStatus =
+  const upstreamTopStatus =
     status === "working"
       ? {
           label: "Working",
@@ -483,6 +495,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     className: "text-emerald-700 dark:text-emerald-300",
                   }
                 : null;
+
+  // loom: `attention` outranks every upstream state. Applied as an override
+  // AFTER upstream's chain rather than as another branch inside it, so the
+  // chain above stays byte-identical across pulls.
+  const topStatus =
+    status === "attention"
+      ? { label: "Attention", icon: null, className: "text-rose-600 dark:text-rose-300" }
+      : upstreamTopStatus;
 
   const gitCwd = thread.worktreePath ?? props.projectCwd;
   const gitStatus = useEnvironmentQuery(
@@ -943,7 +963,16 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 ) : null}
               </span>
             </div>
-            <div className="mt-1 flex min-w-0">{title}</div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+              {title}
+              {/* loom: a briefed-but-unlaunched handoff root is otherwise
+                  indistinguishable from an idle one. Same pill as v1. */}
+              {isStagedHandoffThread(thread) ? (
+                <span className="shrink-0 rounded-sm bg-muted px-1 py-0 font-medium text-[9px] text-muted-foreground uppercase tracking-wide">
+                  Staged
+                </span>
+              ) : null}
+            </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
               {thread.branch ? (
                 <span className="min-w-0 flex-1 truncate whitespace-nowrap">{thread.branch}</span>
@@ -957,6 +986,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
                 </span>
               ) : null}
+              {/* loom: the only signal that this root has a sub-thread graph —
+                  children are filtered out of the list. Sits outside the
+                  aria-hidden/pointer-events-none icon cluster below because its
+                  popover is interactive. */}
+              {props.graphRollup ? <WorkstreamGraphIndicator rollup={props.graphRollup} /> : null}
               <span
                 aria-hidden
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
@@ -991,8 +1025,10 @@ function latestTurnDiff(
 ): { insertions: number; deletions: number } | null {
   // Shells don't carry checkpoint summaries; diff stats render only when the
   // shell projection grows them. Kept as a seam so the row layout is ready.
-  void thread;
-  return null;
+  // loom: the fork's shell projection HAS grown them, so the seam is filled.
+  const insertions = thread.diffAdditions ?? 0;
+  const deletions = thread.diffDeletions ?? 0;
+  return insertions === 0 && deletions === 0 ? null : { insertions, deletions };
 }
 
 export default function SidebarV2() {
@@ -1359,6 +1395,9 @@ export default function SidebarV2() {
   // merging, no optimistic holds. Archived threads remain hidden here —
   // archive keeps its original "remove from sidebar" meaning.
   const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  // loom: built from the UNFILTERED shells (which still carry the sub-threads the
+  // partition below hides) so each root's badge summarises its whole graph.
+  const graphRollupByThreadKey = useMemo(() => buildGraphRollupByThreadKey(threads), [threads]);
   const { activeThreads, snoozedThreads, settledThreads, snoozeNow } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
     // Snooze classification uses a REAL clock, not the quantized minute:
@@ -1367,9 +1406,13 @@ export default function SidebarV2() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
+    // loom: only ROOT threads reach the inbox — workstream sub-threads stay
+    // hidden and surface through their root's WorkstreamGraphIndicator instead.
+    // Healthy handoff-drafter roots stay hidden too (only broken ones surface).
+    const visible = filterRootThreads(threads).filter(
       (thread) =>
         thread.archivedAt === null &&
+        isVisibleHandoffDrafter(thread) &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
     );
@@ -2446,6 +2489,7 @@ export default function SidebarV2() {
                       onSnooze={attemptSnooze}
                       onUnsnooze={attemptUnsnooze}
                       onChangeRequestState={handleChangeRequestState}
+                      graphRollup={graphRollupByThreadKey.get(threadKey) ?? null} // loom:
                     />
                   );
                 };
