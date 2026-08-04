@@ -100,7 +100,8 @@ export const classifyHandoffSettlement = (
   // longer running it. Deliberately ignores the initial ready session-set
   // before `turn.started` (the kickoff turn is still `running` then).
   if (latestTurn !== null && isTerminalTurnState(latestTurn.state) && !isSessionRunning(drafter)) {
-    if (drafter.handoffCount >= 1) return { kind: "success", turnId: latestTurn.turnId };
+    if (drafter.handoffDestinations.length >= 1)
+      return { kind: "success", turnId: latestTurn.turnId };
     if (hasNeedsGuidance(drafter)) return { kind: "none" };
     return { kind: "guidance", reasonKey: `zero:${latestTurn.turnId}` };
   }

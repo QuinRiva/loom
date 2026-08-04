@@ -1269,6 +1269,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: null,
+    continuesThreadId: null,
     reportPath: null,
     graphKey: null,
     kickoffBriefPath: null,
@@ -1283,7 +1284,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
-    handoffCount: 0,
+    handoffDestinations: [],
     notifySendLog: [],
     title: "Thread",
     modelSelection: {

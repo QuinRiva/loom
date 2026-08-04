@@ -26,6 +26,7 @@ const summary = (over: Partial<SidebarThreadSummary>): SidebarThreadSummary =>
     fanInState: "none",
     isolation: "isolated",
     forkFromThreadId: null,
+    continuesThreadId: null,
     attention: [],
     planLane: "in_progress",
     blockedBy: [],

@@ -226,6 +226,9 @@ export function buildLocalDraftThread(
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: draftThread.forkFromThreadId,
+    // loom: handoff chain — a local draft is never a goal_continue successor
+    // (those are server-created staged threads).
+    continuesThreadId: null,
     reportPath: null,
     graphKey: null,
     kickoffBriefPath: null,
@@ -240,7 +243,7 @@ export function buildLocalDraftThread(
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
-    handoffCount: 0,
+    handoffDestinations: [],
     notifySendLog: [],
     title: "New thread",
     modelSelection: fallbackModelSelection,

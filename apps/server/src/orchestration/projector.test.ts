@@ -91,6 +91,7 @@ describe("orchestration projector", () => {
       blockedBy: [],
       spawnGeneration: null,
       forkFromThreadId: null,
+      continuesThreadId: null,
       reportPath: null,
       graphKey: null,
       kickoffBriefPath: null,
@@ -116,7 +117,7 @@ describe("orchestration projector", () => {
       maxTokens: null,
       diffAdditions: null,
       diffDeletions: null,
-      handoffCount: 0,
+      handoffDestinations: [],
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -133,9 +134,10 @@ describe("orchestration projector", () => {
     });
   });
 
-  // loom: `/handoff` fork-drafter (plan D5) — each thread.handoff-recorded bumps
-  // the drafter's durable handoffCount (the settlement reactor's turn-end input).
-  effectIt.effect("increments handoffCount on thread.handoff-recorded", () =>
+  // loom: `/handoff` fork-drafter (plan D5) — each thread.handoff-recorded appends
+  // to the drafter's durable handoffDestinations (the settlement reactor reads its
+  // length at turn end; the sidebar handoff chain reads the ids).
+  effectIt.effect("appends handoffDestinations on thread.handoff-recorded", () =>
     Effect.gen(function* () {
       const now = "2026-01-01T00:00:00.000Z";
       const created = yield* projectEvent(
@@ -161,7 +163,7 @@ describe("orchestration projector", () => {
           },
         }),
       );
-      expect(created.threads[0]?.handoffCount).toBe(0);
+      expect(created.threads[0]?.handoffDestinations).toEqual([]);
 
       const recordOnce = yield* projectEvent(
         created,
@@ -180,7 +182,9 @@ describe("orchestration projector", () => {
           },
         }),
       );
-      expect(recordOnce.threads[0]?.handoffCount).toBe(1);
+      expect(recordOnce.threads[0]?.handoffDestinations).toEqual([
+        { goalId: "goal-1", threadId: "dest-1" },
+      ]);
 
       const recordTwice = yield* projectEvent(
         recordOnce,
@@ -199,7 +203,10 @@ describe("orchestration projector", () => {
           },
         }),
       );
-      expect(recordTwice.threads[0]?.handoffCount).toBe(2);
+      expect(recordTwice.threads[0]?.handoffDestinations).toEqual([
+        { goalId: "goal-1", threadId: "dest-1" },
+        { goalId: "goal-2", threadId: "dest-2" },
+      ]);
     }),
   );
 

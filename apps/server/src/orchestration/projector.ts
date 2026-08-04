@@ -320,6 +320,7 @@ export function projectEvent(
             fanInState: "none",
             spawnGeneration: payload.spawnGeneration ?? null,
             forkFromThreadId: payload.forkFromThreadId ?? null,
+            continuesThreadId: payload.continuesThreadId ?? null,
             reportPath: null,
             // loom: scaffold-first graph authoring. graphKey is seeded from the
             // created payload (scaffold nodes carry it); a scaffold node is born

@@ -97,6 +97,7 @@ const THREAD_SHELL = {
   blockedBy: [],
   spawnGeneration: null,
   forkFromThreadId: null,
+  continuesThreadId: null,
   reportPath: null,
   graphKey: null,
   kickoffBriefPath: null,
@@ -121,7 +122,7 @@ const THREAD_SHELL = {
   maxTokens: null,
   diffAdditions: null,
   diffDeletions: null,
-  handoffCount: 0,
+  handoffDestinations: [],
   createdAt: "2026-06-01T00:00:00.000Z",
   updatedAt: "2026-06-01T00:00:00.000Z",
   archivedAt: null,
@@ -323,6 +324,7 @@ describe("environment entity projections", () => {
       environmentId: ENVIRONMENT_ID,
       parentThreadId: null,
       forkFromThreadId: null,
+      continuesThreadId: null,
       brief: null,
     };
 

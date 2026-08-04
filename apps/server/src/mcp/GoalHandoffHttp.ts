@@ -209,6 +209,11 @@ const handleGoalHandoff = Effect.gen(function* () {
  * goal_handoff), with a predecessor pointer appended so the successor can
  * consult_thread the spent session for anything the brief omits. The shared
  * task tree carries over automatically because it is goal-scoped.
+ *
+ * The predecessor edge is recorded TWICE, for two different readers: as prose
+ * in the brief (for the agent reading it) and as `continuesThreadId` on the
+ * created thread (for queries — the goal's serial handoff order must not rest
+ * on regex over agent-editable text).
  */
 const handleGoalContinue = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -269,6 +274,7 @@ const handleGoalContinue = Effect.gen(function* () {
     interactionMode: callerThread.interactionMode,
     branch: callerThread.branch,
     worktreePath: callerThread.worktreePath,
+    continuesThreadId: callerThread.id,
     createdAt: now,
   } satisfies OrchestrationCommand);
 

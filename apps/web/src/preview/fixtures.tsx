@@ -225,6 +225,7 @@ const wsThread = (over: Record<string, unknown>): SidebarThreadSummary =>
     isolation: "shared",
     fanInState: "none",
     forkFromThreadId: null,
+    continuesThreadId: null,
     kickoffBriefPath: "/brief.md",
     toolUses: null,
     role: "coder",

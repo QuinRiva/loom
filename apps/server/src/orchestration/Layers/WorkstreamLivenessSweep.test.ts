@@ -80,6 +80,7 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: null,
+    continuesThreadId: null,
     reportPath: null,
     graphKey: null,
     kickoffBriefPath: null,

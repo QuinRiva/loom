@@ -841,6 +841,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             blockedBy: event.payload.blockedBy ?? [],
             spawnGeneration: event.payload.spawnGeneration ?? null,
             forkFromThreadId: event.payload.forkFromThreadId ?? null,
+            continuesThreadId: event.payload.continuesThreadId ?? null,
             // Post-completion engagement (plan §8 item 3): stamped at fan-in/cancel.
             finalCommitSha: null,
             reportPath: null,
@@ -894,10 +895,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             maxTokens: null,
             diffAdditions: null,
             diffDeletions: null,
-            // `/handoff` fork-drafter (plan D5): every thread starts with zero
+            // `/handoff` fork-drafter (plan D5): every thread starts with no
             // recorded handoffs; the drafter's `thread.handoff-recorded` events
-            // increment it.
-            handoffCount: 0,
+            // append to it.
+            handoffDestinations: [],
             deletedAt: null,
           });
           return;
@@ -1274,8 +1275,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        // `/handoff` fork-drafter (plan D5): each recorded handoff durably bumps
-        // the drafter's count. Read-modify-write off the current row; a missing
+        // `/handoff` fork-drafter (plan D5): each recorded handoff durably appends
+        // its destination. Read-modify-write off the current row; a missing
         // thread is a no-op (mirrors the in-memory projector).
         case "thread.handoff-recorded": {
           const existingRow = yield* projectionThreadRepository.getById({
@@ -1286,7 +1287,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            handoffCount: existingRow.value.handoffCount + 1,
+            handoffDestinations: [
+              ...existingRow.value.handoffDestinations,
+              {
+                goalId: event.payload.destinationGoalId,
+                threadId: event.payload.destinationThreadId,
+              },
+            ],
             updatedAt: event.payload.createdAt,
           });
           return;

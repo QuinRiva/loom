@@ -1136,7 +1136,7 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
 
     // `/handoff` fork-drafter (plan D5): stamp one durable handoff marker on the
     // drafter thread after its `goal_handoff` created the staged destination.
-    // Pure passthrough — the projector increments `handoffCount`; the settlement
+    // Pure passthrough — the projector appends to `handoffDestinations`; the settlement
     // reactor reads it at the drafter's turn end. Idempotency is by commandId
     // (the engine receipt store), so a retried stamp is a no-op.
     case "thread.handoff.record": {

@@ -89,6 +89,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         blockedBy: [],
         spawnGeneration: null,
         forkFromThreadId: null,
+        continuesThreadId: null,
         reportPath: null,
         graphKey: null,
         kickoffBriefPath: null,
@@ -129,7 +130,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
-        handoffCount: 0,
+        handoffDestinations: [],
         deletedAt: null,
       });
 
@@ -187,6 +188,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         blockedBy: [],
         spawnGeneration: null,
         forkFromThreadId: null,
+        continuesThreadId: null,
         reportPath: null,
         graphKey: "api",
         kickoffBriefPath: "/tmp/briefs/api.md",
@@ -227,7 +229,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
-        handoffCount: 0,
+        handoffDestinations: [],
         deletedAt: null,
       });
 
@@ -265,6 +267,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         blockedBy: [],
         spawnGeneration: null,
         forkFromThreadId: null,
+        continuesThreadId: null,
         reportPath: null,
         graphKey: null,
         kickoffBriefPath: null,
@@ -305,7 +308,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         maxTokens: null,
         diffAdditions: null,
         diffDeletions: null,
-        handoffCount: 0,
+        handoffDestinations: [],
         deletedAt: null,
       });
 

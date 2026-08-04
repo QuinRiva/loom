@@ -15,6 +15,7 @@ import {
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
 import {
+  HandoffDestination,
   ModelSelection,
   ThreadAttention,
   ThreadId,
@@ -29,6 +30,7 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
     blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
     routes: Schema.fromJsonString(Schema.Array(WorkstreamRoute)),
     lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
+    handoffDestinations: Schema.fromJsonString(Schema.Array(HandoffDestination)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -53,6 +55,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by,
           spawn_generation,
           fork_from_thread_id,
+          continues_thread_id,
           final_commit_sha,
           report_path,
           graph_key,
@@ -91,7 +94,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens,
           diff_additions,
           diff_deletions,
-          handoff_count,
+          handoff_destinations,
           deleted_at
         )
         VALUES (
@@ -107,6 +110,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${JSON.stringify(row.blockedBy)},
           ${row.spawnGeneration},
           ${row.forkFromThreadId ?? null},
+          ${row.continuesThreadId ?? null},
           ${row.finalCommitSha ?? null},
           ${row.reportPath},
           ${row.graphKey},
@@ -145,7 +149,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.maxTokens},
           ${row.diffAdditions},
           ${row.diffDeletions},
-          ${row.handoffCount},
+          ${JSON.stringify(row.handoffDestinations)},
           ${row.deletedAt}
         )
         ON CONFLICT (thread_id)
@@ -161,6 +165,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by = excluded.blocked_by,
           spawn_generation = excluded.spawn_generation,
           fork_from_thread_id = excluded.fork_from_thread_id,
+          continues_thread_id = excluded.continues_thread_id,
           final_commit_sha = excluded.final_commit_sha,
           report_path = excluded.report_path,
           graph_key = excluded.graph_key,
@@ -199,7 +204,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens = excluded.max_tokens,
           diff_additions = excluded.diff_additions,
           diff_deletions = excluded.diff_deletions,
-          handoff_count = excluded.handoff_count,
+          handoff_destinations = excluded.handoff_destinations,
           deleted_at = excluded.deleted_at
       `,
   });
@@ -222,6 +227,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -260,7 +266,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -285,6 +291,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -323,7 +330,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}
