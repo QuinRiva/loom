@@ -1,7 +1,11 @@
 import { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { relocationClause, shouldReprovisionIsolatedChild } from "./ProviderCommandReactor.ts";
+import {
+  relocationClause,
+  shouldReprovisionIsolatedChild,
+  threadIdentityClause,
+} from "./ProviderCommandReactor.ts";
 
 /**
  * Post-completion sub-thread engagement — capability tests for the durable-state
@@ -37,6 +41,41 @@ describe("post-completion engagement — relocation clause (relocationClause)", 
     expect(clause).toMatch(/re-verify/i);
     // Care, not incapacity: the thread resumes with its full tool surface.
     expect(clause).not.toMatch(/read-only|cannot edit/i);
+  });
+});
+
+describe("thread identity clause (threadIdentityClause)", () => {
+  const threadId = ThreadId.make("a1b2c3d4-0000-4000-8000-000000000001");
+
+  // CAPABILITY: a thread knows who and where it is without running commands —
+  // its id, its workspace, and how to find its own transcript on disk.
+  it("names the thread id, the workspace cwd, and how to reach the session jsonl", () => {
+    const clause = threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" });
+    expect(clause).toContain(threadId);
+    expect(clause).toContain("/tmp/child-worktree");
+    expect(clause).toContain("PI_SESSION_FILE");
+    expect(clause).toContain(`*_${threadId}.jsonl`);
+    expect(clause).toContain("~/.pi/agent/sessions");
+  });
+
+  // The composed prompt is a cacheable prefix captured verbatim for fork replay:
+  // the clause must depend only on stable facts, never on anything that moves
+  // between turns (e.g. a resolved session path that does not exist yet at the
+  // first launch).
+  it("is byte-identical across relaunches of the same thread", () => {
+    expect(threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" })).toBe(
+      threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" }),
+    );
+  });
+
+  // The jsonl name is the sanitised thread id (piSessionIdForThread), so a
+  // thread id carrying non-id characters still gets a truthful filename glob.
+  it("uses the sanitised session id in the file convention", () => {
+    const clause = threadIdentityClause({
+      threadId: ThreadId.make("server:child/one"),
+      cwd: "/tmp/w",
+    });
+    expect(clause).toContain("*_server-child-one.jsonl");
   });
 });
 

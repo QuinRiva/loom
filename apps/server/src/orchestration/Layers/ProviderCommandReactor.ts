@@ -129,6 +129,22 @@ export const relocationClause = (input: {
 }): string =>
   `Your work here previously happened in a working directory that no longer exists; you are now in \`${input.cwd}\` (the parent's current tree, or the project workspace). Your merged work is commit \`${input.finalCommitSha}\`. The files you see now are that tree's CURRENT state, which has moved on since you finished. Any absolute paths you remember are historical — re-verify before editing. Exact historical file contents live in git at that commit.`;
 
+// The identity clause: who and where this thread is, in-band. A launched pi
+// session otherwise knows neither its thread id (the id every workstream tool
+// takes, the id the human sees) nor where its own transcript lives — while the
+// work-model prompt tells it the history "can be accessed via the Pi session
+// jsonl file". Deliberately derived only from a thread's STABLE facts (its id
+// and its workspace cwd) so the composed prompt is byte-identical across the
+// thread's own relaunches: the session file is named by CONVENTION
+// (`*_<threadId>.jsonl`, per `piSessionIdForThread`) plus the runtime
+// `PI_SESSION_FILE` env, never by a resolved absolute path — which does not
+// exist yet at a first launch and would churn the cacheable prefix.
+export const threadIdentityClause = (input: {
+  readonly threadId: ThreadId;
+  readonly cwd: string;
+}): string =>
+  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\`, the file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\` under \`~/.pi/agent/sessions\`; another thread's history resolves by that same convention from its own id (a last resort, after its report and \`consult_thread\`).`;
+
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
  * an isolated child ONLY when it has NOT provably run (no session file) AND its
@@ -706,6 +722,7 @@ const make = Effect.gen(function* () {
             ? relocationClause({ finalCommitSha: thread.finalCommitSha, cwd: roleProjectRoot })
             : undefined;
         const appendSystemPrompt = [
+          threadIdentityClause({ threadId, cwd: roleProjectRoot }),
           roleOverlay?.prompt,
           shipPolicyBlock,
           rolesBlock,
