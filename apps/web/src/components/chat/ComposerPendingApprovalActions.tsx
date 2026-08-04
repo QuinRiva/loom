@@ -9,28 +9,32 @@ interface ComposerPendingApprovalActionsProps {
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
   ) => Promise<unknown>;
+  scheduleComposerFocus: () => void;
 }
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
   isResponding,
   onRespondToApproval,
+  scheduleComposerFocus,
 }: ComposerPendingApprovalActionsProps) {
+  // Resolving an approval via these buttons is a deliberate composer
+  // interaction, so restore focus to the composer once the response resolves
+  // ("approve, then keep typing"). This fires only for locally-clicked
+  // responses — remotely/other-device-resolved approvals never run this path.
+  const respond = (decision: ProviderApprovalDecision) => {
+    void onRespondToApproval(requestId, decision).then(() => scheduleComposerFocus());
+  };
   return (
     <>
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "cancel")}
-      >
+      <Button size="sm" variant="ghost" disabled={isResponding} onClick={() => respond("cancel")}>
         Cancel turn
       </Button>
       <Button
         size="sm"
         variant="destructive-outline"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "decline")}
+        onClick={() => respond("decline")}
       >
         Decline
       </Button>
@@ -38,16 +42,11 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         size="sm"
         variant="outline"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
+        onClick={() => respond("acceptForSession")}
       >
         Always allow this session
       </Button>
-      <Button
-        size="sm"
-        variant="default"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "accept")}
-      >
+      <Button size="sm" variant="default" disabled={isResponding} onClick={() => respond("accept")}>
         Approve once
       </Button>
     </>

@@ -2222,6 +2222,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   requestId={activePendingApproval.requestId}
                   isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
                   onRespondToApproval={onRespondToApproval}
+                  scheduleComposerFocus={scheduleComposerFocus}
                 />
               </div>
             </div>
@@ -2447,6 +2448,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 requestId={activePendingApproval.requestId}
                 isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
                 onRespondToApproval={onRespondToApproval}
+                scheduleComposerFocus={scheduleComposerFocus}
               />
             </div>
           ) : (
