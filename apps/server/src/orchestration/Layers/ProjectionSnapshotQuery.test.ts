@@ -27,6 +27,10 @@ import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import {
+  applyBriefNeededParentAttention,
+  makeBriefNeededOutwardAttention,
+} from "../briefNeededOutwardAttention.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
@@ -2935,8 +2939,12 @@ projectionSnapshotLayer("derived brief-needed parent attention (liveness plan §
   // itself. Past 24h its parent carries `needs_guidance` for a human — DERIVED at
   // the outward read boundary, because every turn-start clears stored attention
   // (which is exactly how the old backstop's flag was erased minutes after it was
-  // raised). Exercised against real SQL on BOTH outward read paths: the snapshot
-  // and the per-thread lookup that backs every `thread-upserted` shell event.
+  // raised).
+  //
+  // The answer is a SEPARATE read, never a decoration on the shell queries: the
+  // dispatcher and liveness sweep consume those same queries and judge
+  // `attention.length` as stored control-plane state. Both facts are pinned
+  // below against real SQL.
   const seed = (
     sql: SqlClient.SqlClient,
     childCreatedAt: string,
@@ -2981,40 +2989,124 @@ projectionSnapshotLayer("derived brief-needed parent attention (liveness plan §
     // with the fixture timestamps (the suite defaults to epoch 0).
     yield* TestClock.setTime(NOW_MS);
     yield* seed(yield* SqlClient.SqlClient, childCreatedAt, kickoffBriefPath);
+    const parents = yield* snapshotQuery.getBriefNeededAttentionParentIds();
     const snapshot = yield* snapshotQuery.getShellSnapshot();
     const byId = yield* snapshotQuery.getThreadShellById(ThreadId.make("parent-1"));
+    const outward = applyBriefNeededParentAttention(snapshot, parents);
     return {
-      fromSnapshot: snapshot.threads.find((thread) => thread.id === "parent-1")?.attention ?? [],
-      fromLookup: byId._tag === "Some" ? byId.value.attention : [],
+      derivedParents: [...parents],
+      // What an outward reader (UI shell stream / shell HTTP route) sees.
+      outward: outward.threads.find((thread) => thread.id === "parent-1")?.attention ?? [],
+      // What the dispatcher and liveness sweep see — these MUST stay stored-only.
+      controlPlaneSnapshot:
+        snapshot.threads.find((thread) => thread.id === "parent-1")?.attention ?? [],
+      controlPlaneLookup: byId._tag === "Some" ? byId.value.attention : [],
     };
   });
 
   const aged = () => DateTime.formatIso(DateTime.makeUnsafe(NOW_MS - 25 * 3_600_000));
   const fresh = () => DateTime.formatIso(DateTime.makeUnsafe(NOW_MS - 60_000));
 
-  it.effect("flags the parent on BOTH outward read paths once a child sits 24h unbriefed", () =>
+  it.effect("flags the parent OUTWARD once a child sits 24h unbriefed", () =>
     Effect.gen(function* () {
       const attention = yield* parentAttention(aged(), null);
-      assert.deepStrictEqual(attention.fromSnapshot, ["needs_guidance"]);
-      // Equal on both paths or the flag would vanish from the UI on the parent's
-      // next unrelated event (the client replaces the row wholesale).
-      assert.deepStrictEqual(attention.fromLookup, attention.fromSnapshot);
+      assert.deepStrictEqual(attention.derivedParents, ["parent-1"]);
+      assert.deepStrictEqual(attention.outward, ["needs_guidance"]);
+    }),
+  );
+
+  it.effect("leaves the CONTROL-PLANE reads stored-only while the outward flag is set", () =>
+    Effect.gen(function* () {
+      // The dispatcher classifies a child with any attention as paused and wakes
+      // ITS parent; the sweep stops nudging a flagged thread's stalls. Neither
+      // may see a flag that only means "a grandchild is unbriefed", or an
+      // overdue node fabricates an internal pause on a healthy orchestrator.
+      const attention = yield* parentAttention(aged(), null);
+      assert.deepStrictEqual(attention.outward, ["needs_guidance"]);
+      assert.deepStrictEqual(attention.controlPlaneSnapshot, []);
+      assert.deepStrictEqual(attention.controlPlaneLookup, []);
     }),
   );
 
   it.effect("does not flag inside the window", () =>
     Effect.gen(function* () {
       const attention = yield* parentAttention(fresh(), null);
-      assert.deepStrictEqual(attention.fromSnapshot, []);
-      assert.deepStrictEqual(attention.fromLookup, []);
+      assert.deepStrictEqual(attention.derivedParents, []);
+      assert.deepStrictEqual(attention.outward, []);
     }),
   );
 
   it.effect("self-clears the moment the brief lands", () =>
     Effect.gen(function* () {
       const attention = yield* parentAttention(aged(), "/briefs/child-1.md");
-      assert.deepStrictEqual(attention.fromSnapshot, []);
-      assert.deepStrictEqual(attention.fromLookup, []);
+      assert.deepStrictEqual(attention.derivedParents, []);
+      assert.deepStrictEqual(attention.outward, []);
+    }),
+  );
+
+  // The flag is derived, so NOTHING publishes a change event when the predicate
+  // flips — and the three sanctioned exits (brief / hold / cancel) all emit a
+  // CHILD event. Without republishing the parent alongside it, the client keeps
+  // a stale alarm on exactly the thread the operator just fixed, until an
+  // unrelated parent event or a reload. These drive the real transitions through
+  // the outward tracker against real SQL.
+  const trackerAfterTransition = Effect.fn("trackerAfterTransition")(function* (
+    transition: string,
+  ) {
+    const snapshotQuery = yield* ProjectionSnapshotQuery;
+    const sql = yield* SqlClient.SqlClient;
+    yield* TestClock.setTime(NOW_MS);
+    yield* seed(sql, aged(), null);
+
+    const tracker = yield* makeBriefNeededOutwardAttention(snapshotQuery);
+    // The client's initial state: parent flagged.
+    const initial = yield* tracker.decorateSnapshot(yield* snapshotQuery.getShellSnapshot());
+    const before = initial.threads.find((thread) => thread.id === "parent-1")?.attention ?? [];
+
+    // The operator (or the parent agent) takes a sanctioned exit on the CHILD.
+    yield* sql.unsafe(transition);
+    const child = yield* snapshotQuery.getThreadShellById(ThreadId.make("child-1"));
+    if (child._tag !== "Some") throw new Error("expected the child shell");
+    const published = yield* tracker.decorateUpsert(child.value);
+    return {
+      before,
+      publishedIds: published.map((thread) => thread.id),
+      parentAfter: published.find((thread) => thread.id === "parent-1")?.attention,
+    };
+  });
+
+  it.effect("republishes the parent when the child is HELD (`set_lane planned`)", () =>
+    Effect.gen(function* () {
+      const result = yield* trackerAfterTransition(
+        "UPDATE projection_threads SET plan_lane = 'planned' WHERE thread_id = 'child-1'",
+      );
+      assert.deepStrictEqual(result.before, ["needs_guidance"]);
+      // One event carries BOTH shells — the client's reducer drops a second event
+      // sharing the same domain sequence.
+      assert.deepStrictEqual(result.publishedIds.toSorted(), ["child-1", "parent-1"]);
+      assert.deepStrictEqual(result.parentAfter, []);
+    }),
+  );
+
+  it.effect("republishes the parent when the brief is attached", () =>
+    Effect.gen(function* () {
+      const result = yield* trackerAfterTransition(
+        "UPDATE projection_threads SET kickoff_brief_path = '/briefs/c.md' WHERE thread_id = 'child-1'",
+      );
+      assert.deepStrictEqual(result.before, ["needs_guidance"]);
+      assert.deepStrictEqual(result.publishedIds.toSorted(), ["child-1", "parent-1"]);
+      assert.deepStrictEqual(result.parentAfter, []);
+    }),
+  );
+
+  it.effect("publishes only the child when nothing about the parent's answer changed", () =>
+    Effect.gen(function* () {
+      // An unrelated child event must not drag a redundant parent shell along.
+      const result = yield* trackerAfterTransition(
+        "UPDATE projection_threads SET title = 'Renamed' WHERE thread_id = 'child-1'",
+      );
+      assert.deepStrictEqual(result.before, ["needs_guidance"]);
+      assert.deepStrictEqual(result.publishedIds, ["child-1"]);
     }),
   );
 });

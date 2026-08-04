@@ -503,18 +503,25 @@ const makeWorkstreamLivenessSweep = (
     // receipt-deduped no-op (`already-handled`) or a deferral is silent — that is
     // what stops a single wedged node pinning `actionedCount > 0` forever and
     // emitting a lying log line every sweep.
+    //
+    // `settled` is the separate question a caller that REMEMBERS having acted
+    // must ask. A helper owing several commands can be interrupted midway (the
+    // first accepted, the second failed); a caller that records "already advised"
+    // regardless would never retry the unwritten half, and per-command
+    // `deliverOnce` cannot save it — nothing would ask again.
     const reportAction = <E>(
       label: string,
       fields: Record<string, unknown>,
       action: Effect.Effect<boolean, E>,
-    ): Effect.Effect<boolean> =>
+    ): Effect.Effect<{ readonly delivered: boolean; readonly settled: boolean }> =>
       action.pipe(
         Effect.tap((delivered) => (delivered ? Effect.logInfo(label, fields) : Effect.void)),
+        Effect.map((delivered) => ({ delivered, settled: true })),
         Effect.catchCause((cause) =>
           Effect.logWarning(`${label}-failed`, {
             ...fields,
             cause: Cause.pretty(cause),
-          }).pipe(Effect.as(false)),
+          }).pipe(Effect.as({ delivered: false, settled: false })),
         ),
       );
 
@@ -912,14 +919,12 @@ const makeWorkstreamLivenessSweep = (
           stallNudges.delete(thread.id);
           progressLoop.delete(thread.id);
           if (action === "escalate") {
-            if (
-              yield* reportAction(
-                "workstream.liveness.stuck-launch-escalate",
-                { threadId: thread.id, attempts: next.attempts - 1 },
-                escalateStuckLaunch(thread, next.attempts - 1, episodeMs),
-              )
-            )
-              actionedCount += 1;
+            const report = yield* reportAction(
+              "workstream.liveness.stuck-launch-escalate",
+              { threadId: thread.id, attempts: next.attempts - 1 },
+              escalateStuckLaunch(thread, next.attempts - 1, episodeMs),
+            );
+            if (report.delivered) actionedCount += 1;
             continue;
           }
           const { repaired, resumed } = yield* recoverStuckLaunch({
@@ -1009,13 +1014,13 @@ const makeWorkstreamLivenessSweep = (
               kind: "dead",
               reason: `Session repeatedly failed (${failureCount} consecutive sweeps in a failed/absent state); circuit breaker tripped.`,
             };
-            const acted = yield* reportAction(
+            const report = yield* reportAction(
               "workstream.liveness.dead",
               { threadId: thread.id, kind: verdict.kind, reason: verdict.reason },
               markDead(thread, verdict),
             );
             failureCounts.delete(thread.id);
-            if (acted) actionedCount += 1;
+            if (report.delivered) actionedCount += 1;
           }
           continue;
         }
@@ -1078,18 +1083,28 @@ const makeWorkstreamLivenessSweep = (
             now,
             noProgressWindowMs: thresholds.noProgressWindowMs,
           });
-          progressLoop.set(thread.id, decision.next);
-          if (decision.advise) {
-            const busyMinutes = Math.round((now - decision.next.flatSinceMs) / 60_000);
-            if (
-              yield* reportAction(
-                "workstream.liveness.progress-loop",
-                { threadId: thread.id, busyMinutes },
-                adviseProgressLoop(thread, busyMinutes, decision.next.flatSinceMs),
-              )
-            )
-              actionedCount += 1;
+          if (!decision.advise) {
+            progressLoop.set(thread.id, decision.next);
+            continue;
           }
+          const busyMinutes = Math.round((now - decision.next.flatSinceMs) / 60_000);
+          const report = yield* reportAction(
+            "workstream.liveness.progress-loop",
+            { threadId: thread.id, busyMinutes },
+            adviseProgressLoop(thread, busyMinutes, decision.next.flatSinceMs),
+          );
+          // Commit the `advised` bit ONLY once the helper completed. This rail
+          // owes TWO commands (evidence row + the actionable attention raise); if
+          // the second fails after the first is accepted, keeping `advised: true`
+          // would silence a genuinely spinning thread until a restart. Re-armed,
+          // the next pass redelivers just the missing one — the accepted id
+          // short-circuits as `already-handled`. The flat-since clock is kept, so
+          // the retry is immediate rather than waiting out a fresh window.
+          progressLoop.set(
+            thread.id,
+            report.settled ? decision.next : { ...decision.next, advised: false },
+          );
+          if (report.delivered) actionedCount += 1;
           continue;
         }
         // Stalled / dead below: not a busy-progressing thread → drop any State-D
@@ -1105,10 +1120,10 @@ const makeWorkstreamLivenessSweep = (
 
         // State A (dead): unrecoverable fault -> attention `error`.
         if (verdict.kind === "dead") {
-          const acted = yield* runAction("workstream.liveness.dead", markDead(thread, verdict));
+          const report = yield* runAction("workstream.liveness.dead", markDead(thread, verdict));
           failureCounts.delete(thread.id);
           stallNudges.delete(thread.id);
-          if (acted) actionedCount += 1;
+          if (report.delivered) actionedCount += 1;
           continue;
         }
 
@@ -1127,22 +1142,24 @@ const makeWorkstreamLivenessSweep = (
         if (action === "wait") continue;
         if (action === "escalate") {
           // Still frozen since the nudge (recoverable, needs a human).
-          const acted = yield* runAction(
+          const report = yield* runAction(
             "workstream.liveness.stall-escalate",
             escalateStall(thread, verdict, prior?.context ?? null, episodeMs),
           );
           stallNudges.delete(thread.id);
-          if (acted) actionedCount += 1;
+          if (report.delivered) actionedCount += 1;
           continue;
         }
         // First sweep of this episode -> ONE informed nudge into the open turn.
         const context = yield* readThreadStallContext(thread.id);
-        const acted = yield* runAction(
+        const report = yield* runAction(
           "workstream.liveness.stall-nudge",
           nudgeStall(thread, verdict, context, episodeMs),
         );
-        stallNudges.set(thread.id, { episodeMs, nudgedAtMs: now, context });
-        if (acted) actionedCount += 1;
+        // Only remember the nudge if it actually happened; a failed one must be
+        // retried next pass, not escalated past.
+        if (report.settled) stallNudges.set(thread.id, { episodeMs, nudgedAtMs: now, context });
+        if (report.delivered) actionedCount += 1;
       }
 
       if (actionedCount > 0) {

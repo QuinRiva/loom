@@ -35,6 +35,7 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
+  type OrchestrationThreadShell,
   type OrchestrationThreadStreamItem,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -80,6 +81,10 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import {
+  makeBriefNeededOutwardAttention,
+  type BriefNeededOutwardAttention,
+} from "./orchestration/briefNeededOutwardAttention.ts";
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
@@ -651,97 +656,111 @@ const makeWsRpcLayer = (
       // attempts) without tearing down every connected subscription.
       const shellLookupRetry = Schedule.exponential("25 millis").pipe(Schedule.take(2));
 
-      const toShellStreamEvent = (
-        event: OrchestrationEvent,
-      ): Effect.Effect<
-        Option.Option<OrchestrationShellStreamEvent>,
-        ProjectionRepositoryError,
-        never
-      > => {
-        switch (event.type) {
-          case "project.created":
-          case "project.meta-updated":
-            return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
-              Effect.map((project) =>
-                Option.map(project, (nextProject) => ({
-                  kind: "project-upserted" as const,
-                  sequence: event.sequence,
-                  project: nextProject,
-                })),
-              ),
-              Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
-            );
-          case "project.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "project-removed" as const,
-                sequence: event.sequence,
-                projectId: event.payload.projectId,
-              }),
-            );
-          case "thread.deleted":
-          case "thread.archived":
-            return Effect.succeed(
-              Option.some({
-                kind: "thread-removed" as const,
-                sequence: event.sequence,
-                threadId: event.payload.threadId,
-              }),
-            );
-          case "thread.unarchived":
-            return projectionSnapshotQuery.getThreadShellById(event.payload.threadId).pipe(
-              Effect.map((thread) =>
-                Option.map(thread, (nextThread) => ({
-                  kind: "thread-upserted" as const,
-                  sequence: event.sequence,
-                  thread: nextThread,
-                })),
-              ),
-              Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
-            );
-          default:
-            // loom: goal aggregate → goal-upserted/goal-removed shell-stream events.
-            if (event.aggregateKind === "goal") {
-              const goalId = GoalId.make(event.aggregateId);
-              return projectionSnapshotQuery.getGoalShellById(goalId).pipe(
-                Effect.map((goal) =>
-                  Option.match(goal, {
-                    onNone: () =>
-                      Option.some({
-                        kind: "goal-removed" as const,
-                        sequence: event.sequence,
-                        goalId,
-                      }),
-                    onSome: (nextGoal) =>
-                      Option.some({
-                        kind: "goal-upserted" as const,
-                        sequence: event.sequence,
-                        goal: nextGoal,
-                      }),
-                  }),
-                ),
-                // loom: fail loud, don't swallow. A *successful* Option.none here
-                // is load-bearing (emits goal-removed); folding a lookup failure
-                // into it would fabricate a goal-removed for a live goal.
-                Effect.retry(shellLookupRetry),
-              );
-            }
-            if (event.aggregateKind !== "thread") {
-              return Effect.succeed(Option.none());
-            }
-            return projectionSnapshotQuery
-              .getThreadShellById(ThreadId.make(event.aggregateId))
-              .pipe(
-                Effect.map((thread) =>
-                  Option.map(thread, (nextThread) => ({
-                    kind: "thread-upserted" as const,
+      // The shell-event mapper is built PER SUBSCRIPTION because its derived
+      // brief-needed tracker memoises what that client was last told (liveness
+      // plan §3.3); sharing one tracker would let whichever subscriber refreshed
+      // first absorb a transition and leave the others stale.
+      const makeShellStreamEventMapper = (briefNeededAttention: BriefNeededOutwardAttention) => {
+        // One `thread-upserted` carrying the looked-up thread PLUS any other shell
+        // whose graph-derived attention this event changed. Both must ride the
+        // SAME event: the client's reducer drops a second event sharing a
+        // sequence it has already applied.
+        const upsertedShellEvent =
+          (sequence: number) => (thread: Option.Option<OrchestrationThreadShell>) =>
+            Option.isNone(thread)
+              ? Effect.succeed(Option.none<OrchestrationShellStreamEvent>())
+              : briefNeededAttention
+                  .decorateUpsert(thread.value)
+                  .pipe(
+                    Effect.map((threads) =>
+                      Option.some({ kind: "thread-upserted" as const, sequence, threads }),
+                    ),
+                  );
+        return (
+          event: OrchestrationEvent,
+        ): Effect.Effect<
+          Option.Option<OrchestrationShellStreamEvent>,
+          ProjectionRepositoryError,
+          never
+        > => {
+          switch (event.type) {
+            case "project.created":
+            case "project.meta-updated":
+              return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
+                Effect.map((project) =>
+                  Option.map(project, (nextProject) => ({
+                    kind: "project-upserted" as const,
                     sequence: event.sequence,
-                    thread: nextThread,
+                    project: nextProject,
                   })),
                 ),
                 Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
               );
-        }
+            case "project.deleted":
+              return Effect.succeed(
+                Option.some({
+                  kind: "project-removed" as const,
+                  sequence: event.sequence,
+                  projectId: event.payload.projectId,
+                }),
+              );
+            case "thread.deleted":
+            case "thread.archived":
+              // A departing child can clear its parent's DERIVED brief-needed flag,
+              // but a removal carries no shell to decorate — mark the memo stale so
+              // the next upsert republishes whoever changed.
+              return briefNeededAttention.invalidate.pipe(
+                Effect.as(
+                  Option.some({
+                    kind: "thread-removed" as const,
+                    sequence: event.sequence,
+                    threadId: event.payload.threadId,
+                  }),
+                ),
+              );
+            case "thread.unarchived":
+              return projectionSnapshotQuery.getThreadShellById(event.payload.threadId).pipe(
+                Effect.flatMap(upsertedShellEvent(event.sequence)),
+                Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
+              );
+            default:
+              // loom: goal aggregate → goal-upserted/goal-removed shell-stream events.
+              if (event.aggregateKind === "goal") {
+                const goalId = GoalId.make(event.aggregateId);
+                return projectionSnapshotQuery.getGoalShellById(goalId).pipe(
+                  Effect.map((goal) =>
+                    Option.match(goal, {
+                      onNone: () =>
+                        Option.some({
+                          kind: "goal-removed" as const,
+                          sequence: event.sequence,
+                          goalId,
+                        }),
+                      onSome: (nextGoal) =>
+                        Option.some({
+                          kind: "goal-upserted" as const,
+                          sequence: event.sequence,
+                          goal: nextGoal,
+                        }),
+                    }),
+                  ),
+                  // loom: fail loud, don't swallow. A *successful* Option.none here
+                  // is load-bearing (emits goal-removed); folding a lookup failure
+                  // into it would fabricate a goal-removed for a live goal.
+                  Effect.retry(shellLookupRetry),
+                );
+              }
+              if (event.aggregateKind !== "thread") {
+                return Effect.succeed(Option.none());
+              }
+              return projectionSnapshotQuery
+                .getThreadShellById(ThreadId.make(event.aggregateId))
+                .pipe(
+                  Effect.flatMap(upsertedShellEvent(event.sequence)),
+                  Effect.retry(shellLookupRetry), // loom: fail loud, don't swallow
+                );
+          }
+        };
       };
 
       const dispatchBootstrapTurnStart = (
@@ -1282,6 +1301,13 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
             Effect.gen(function* () {
+              // Derived brief-needed parent attention (liveness plan §3.3) is
+              // applied HERE, at the outward boundary — never inside the shell
+              // queries, which the dispatcher and sweep read as control-plane
+              // state. One tracker per subscription; see the module doc.
+              const briefNeededAttention =
+                yield* makeBriefNeededOutwardAttention(projectionSnapshotQuery);
+              const toShellStreamEvent = makeShellStreamEventMapper(briefNeededAttention);
               // loom: eager PubSub attach BEFORE any cursor/snapshot read
               // (subscribeDomainEvents, a fork-added engine facility) so events
               // published during that window buffer in the subscription queue
@@ -1310,6 +1336,7 @@ const makeWsRpcLayer = (
               );
 
               const loadSnapshotItem = projectionSnapshotQuery.getShellSnapshot().pipe(
+                Effect.flatMap(briefNeededAttention.decorateSnapshot),
                 Effect.tapError((cause) =>
                   Effect.logError("orchestration shell snapshot load failed", { cause }),
                 ),

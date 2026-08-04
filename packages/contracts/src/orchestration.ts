@@ -496,10 +496,15 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     sequence: NonNegativeInt,
     projectId: ProjectId,
   }),
+  // PLURAL, deliberately: one domain event can change more than one outward
+  // shell. The client's reducer drops any event whose sequence it has already
+  // applied, so two events sharing a domain sequence would silently lose the
+  // second — a graph-derived field (the brief-needed parent attention, liveness
+  // plan §3.3) must therefore ride WITH the thread whose transition changed it.
   Schema.Struct({
     kind: Schema.Literal("thread-upserted"),
     sequence: NonNegativeInt,
-    thread: OrchestrationThreadShell,
+    threads: Schema.Array(OrchestrationThreadShell),
   }),
   Schema.Struct({
     kind: Schema.Literal("thread-removed"),

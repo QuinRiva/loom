@@ -262,6 +262,24 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * The parents currently owed a DERIVED `needs_guidance` because a child has
+   * sat brief-needed past {@link BRIEF_NEEDED_ATTENTION_MS} (liveness plan §3.3).
+   *
+   * Deliberately a SEPARATE read rather than a decoration on the shell queries:
+   * `getShellSnapshot`/`getThreadShellById` are also the dispatcher's and
+   * liveness sweep's control-plane reads, and those judge `attention.length` as
+   * stored state — a derived member there would make a parent look internally
+   * paused (suppressing its own stall recovery, waking ITS parent) merely
+   * because a grandchild is unbriefed. Only the outward-facing boundary
+   * (`briefNeededOutwardAttention`, applied in the ws shell stream and the shell
+   * HTTP route) unions this into `attention`.
+   */
+  readonly getBriefNeededAttentionParentIds: () => Effect.Effect<
+    ReadonlySet<ThreadId>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the live subtree rooted at a thread, with each member's session
    * liveness — the exact input the archive teardown sweep needs.
    *

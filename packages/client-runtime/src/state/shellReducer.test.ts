@@ -162,7 +162,7 @@ describe("applyShellStreamEvent", () => {
       const event: OrchestrationShellStreamEvent = {
         kind: "thread-upserted",
         sequence: 4,
-        thread: stubThread,
+        threads: [stubThread],
       };
 
       const next = applyShellStreamEvent(baseSnapshot, event);
@@ -182,13 +182,40 @@ describe("applyShellStreamEvent", () => {
       const event: OrchestrationShellStreamEvent = {
         kind: "thread-upserted",
         sequence: 5,
-        thread: updatedThread,
+        threads: [updatedThread],
       };
 
       const next = applyShellStreamEvent(snapshotWithThread, event);
 
       expect(next.threads).toHaveLength(1);
       expect(next.threads[0]?.title).toBe("Updated Thread");
+    });
+
+    it("merges several shells carried by ONE event (graph-derived fan-out)", () => {
+      // A domain event on a child can change a graph-derived field on its parent
+      // (the derived brief-needed attention). Both shells must ride one event,
+      // because the sequence guard above drops a second event at the same
+      // sequence.
+      const parent = { ...stubThread, id: "thread-parent" as typeof stubThread.id };
+      const snapshotWithBoth: OrchestrationShellSnapshot = {
+        ...baseSnapshot,
+        threads: [stubThread, parent],
+      };
+      const event: OrchestrationShellStreamEvent = {
+        kind: "thread-upserted",
+        sequence: 6,
+        threads: [
+          { ...stubThread, title: "Child moved" },
+          { ...parent, attention: [] },
+        ],
+      };
+
+      const next = applyShellStreamEvent(snapshotWithBoth, event);
+
+      expect(next.threads).toHaveLength(2);
+      expect(next.threads.find((t) => t.id === "thread-1")?.title).toBe("Child moved");
+      expect(next.threads.find((t) => t.id === "thread-parent")?.attention).toEqual([]);
+      expect(next.snapshotSequence).toBe(6);
     });
   });
 

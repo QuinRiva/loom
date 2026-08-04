@@ -66,7 +66,7 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ServerConfig } from "../../config.ts";
-import { briefNeededAttentionParentIds, type BriefNeededThread } from "../briefNeeded.ts";
+import { briefNeededAttentionParentIds } from "../briefNeeded.ts";
 import {
   promptDebugSidecarExists,
   promptDebugSidecarFileName,
@@ -208,11 +208,11 @@ const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
 });
 /**
- * The narrow child row backing the derived brief-needed parent attention on the
- * single-thread read path (liveness plan §3.3). Only the columns the predicate
- * and its episode clock touch, so the per-thread-event shell lookup pays one
- * small indexed query — which returns nothing at all for a thread with no
- * children, the common case.
+ * The narrow sub-thread row backing the derived brief-needed parent attention
+ * (liveness plan §3.3): only the columns the predicate and its episode clock
+ * touch, so the whole question costs one narrow scan rather than a shell
+ * hydration. `hasSession` is the one derived column — the predicate only asks
+ * whether the node ever started.
  */
 const ProjectionBriefNeededChildRowSchema = Schema.Struct({
   id: ThreadId,
@@ -230,7 +230,7 @@ const ProjectionBriefNeededChildRowSchema = Schema.Struct({
   dependenciesSince: Schema.NullOr(IsoDateTime),
   faninSince: Schema.NullOr(IsoDateTime),
   lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
-  sessionCount: Schema.Number,
+  hasSession: Schema.Number,
 });
 
 const ProjectionGoalSlugRowSchema = Schema.Struct({
@@ -625,49 +625,6 @@ function unionDerivedAttention(
   if (pendingUserInputCount <= 0 || stored.includes("awaiting_input")) return stored;
   return [...stored, "awaiting_input"];
 }
-
-/**
- * Derived parent attention for the brief-needed condition (liveness plan §3.3),
- * the second member of the same family as {@link unionDerivedAttention} and
- * subject to the same discipline: outward-facing shell reads only, never
- * `getCommandReadModel` (the decider hydrates from that and treats every
- * attention member as event-owned).
- *
- * A node that is released, unblocked, and unbriefed cannot run and cannot help
- * itself; past 24 h the agent-facing rung ladder has plainly failed, so the
- * PARENT carries `needs_guidance` for a human. Derived rather than stored is
- * load-bearing: every turn-start clears ALL stored attention, which is exactly
- * how the previous backstop's flag was erased by an unrelated wake six minutes
- * after it was raised. There is nothing to erase here, and the flag self-clears
- * the moment the node is briefed, held (`planned`), or cancelled.
- *
- * Graph-aware, so it cannot live in the per-row SQL — the predicate needs every
- * sibling to evaluate the dependency gate; this is only the union primitive, and
- * {@link withBriefNeededParentAttention} below is where the graph is applied.
- */
-const unionNeedsGuidance = (stored: ThreadAttention, derived: boolean): ThreadAttention =>
-  !derived || stored.includes("needs_guidance") ? stored : [...stored, "needs_guidance"];
-
-/** Snapshot-wide application of {@link unionNeedsGuidance}, where the whole graph
- * is in hand and the predicate can be evaluated for every parent at once. */
-const withBriefNeededParentAttention = <
-  T extends BriefNeededThread & { readonly id: ThreadId; readonly attention: ThreadAttention },
->(
-  threads: ReadonlyArray<T>,
-  nowMs: number,
-): ReadonlyArray<T> => {
-  const parents = briefNeededAttentionParentIds(
-    threads,
-    new Map(threads.map((thread) => [thread.id, thread] as const)),
-    nowMs,
-  );
-  return parents.size === 0
-    ? threads
-    : threads.map((thread) => ({
-        ...thread,
-        attention: unionNeedsGuidance(thread.attention, parents.has(thread.id)),
-      }));
-};
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
   return (cause: unknown): ProjectionRepositoryError =>
@@ -1648,10 +1605,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listBriefNeededChildRows = SqlSchema.findAll({
-    Request: ThreadIdLookupInput,
+  const listBriefNeededCandidateRows = SqlSchema.findAll({
+    Request: Schema.Void,
     Result: ProjectionBriefNeededChildRowSchema,
-    execute: ({ threadId }) =>
+    execute: () =>
       sql`
         SELECT
           t.thread_id AS "id",
@@ -1671,13 +1628,43 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           t.last_outcome AS "lastOutcome",
           EXISTS(
             SELECT 1 FROM projection_thread_sessions s WHERE s.thread_id = t.thread_id
-          ) AS "sessionCount"
+          ) AS "hasSession"
         FROM projection_threads t
-        WHERE t.parent_thread_id = ${threadId}
+        WHERE t.parent_thread_id IS NOT NULL
           AND t.deleted_at IS NULL
           AND t.archived_at IS NULL
       `,
   });
+
+  /**
+   * Which parents are owed a derived `needs_guidance` right now (plan §3.3).
+   * Graph-aware — the dependency gate and the episode clock both need a node's
+   * siblings — so it reads every active sub-thread's narrow row and answers with
+   * ids only. Never folded into the shell queries: those are the dispatcher's
+   * and sweep's control-plane reads (see the Service doc).
+   */
+  const getBriefNeededAttentionParentIds: ProjectionSnapshotQueryShape["getBriefNeededAttentionParentIds"] =
+    () =>
+      Effect.gen(function* () {
+        const rows = yield* listBriefNeededCandidateRows(undefined).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getBriefNeededAttentionParentIds:query",
+              "ProjectionSnapshotQuery.getBriefNeededAttentionParentIds:decodeRows",
+            ),
+          ),
+        );
+        const threads = rows.map((row) => ({
+          ...row,
+          // `isBriefNeeded` only asks `session === null` ("never started").
+          session: row.hasSession > 0 ? row : null,
+        }));
+        return briefNeededAttentionParentIds(
+          threads,
+          new Map(threads.map((thread) => [thread.id, thread] as const)),
+          yield* Clock.currentTimeMillis,
+        );
+      });
 
   const listThreadMessageRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
@@ -3194,7 +3181,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             latestAssistantMessageRows,
           ]) =>
             Effect.gen(function* () {
-              const nowMs = yield* Clock.currentTimeMillis;
               let updatedAt: string | null = null;
               for (const row of projectRows) {
                 updatedAt = maxIso(updatedAt, row.updatedAt);
@@ -3284,91 +3270,81 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     : Result.failVoid,
                 ),
                 goals: toGoalShells(assembleGoals(goalRows, goalTaskRows)),
-                threads: withBriefNeededParentAttention(
-                  Arr.filterMap(threadRows, (row) =>
-                    row.deletedAt === null
-                      ? Result.succeed({
-                          id: row.threadId,
-                          projectId: row.projectId,
-                          goalId: row.goalId,
-                          parentThreadId: row.parentThreadId,
-                          role: row.role,
-                          purpose: row.purpose,
-                          brief: row.brief,
-                          planLane: row.planLane,
-                          attention: unionDerivedAttention(
-                            row.attention,
-                            row.pendingUserInputCount,
-                          ),
-                          blockedBy: row.blockedBy,
-                          spawnGeneration: row.spawnGeneration,
-                          forkFromThreadId: row.forkFromThreadId,
-                          finalCommitSha: row.finalCommitSha,
-                          reportPath: row.reportPath,
-                          // Debugging-only effective-prompt sidecar path. Only pi
-                          // threads write it (the capture extension is pi-only), and
-                          // only surface it once the file exists on disk so the UI
-                          // never shows a dead link for a capture failure / a thread
-                          // that has not launched yet.
-                          ...(sessionByThread.get(row.threadId)?.providerName === "pi" &&
-                          promptDebugNames.has(promptDebugSidecarFileName(row.threadId))
-                            ? {
-                                promptDebugPath: promptDebugSidecarPath(
-                                  promptDebugDir,
-                                  row.threadId,
-                                ),
-                              }
-                            : {}),
-                          graphKey: row.graphKey,
-                          kickoffBriefPath: row.kickoffBriefPath,
-                          routes: row.routes,
-                          gateRounds: row.gateRounds,
-                          pendingRework: row.pendingRework > 0,
-                          lastOutcome: row.lastOutcome,
-                          isolation: row.isolation,
-                          fanInState: row.fanInState,
-                          title: row.title,
-                          titleProvenance: row.titleProvenance, // loom: §4 title provenance
-                          modelSelection: row.modelSelection,
-                          runtimeMode: row.runtimeMode,
-                          interactionMode: row.interactionMode,
-                          branch: row.branch,
-                          worktreePath: row.worktreePath,
-                          latestTurn: latestTurnByThread.get(row.threadId) ?? null,
-                          cumulativeCostUsd: row.cumulativeCostUsd,
-                          toolUses: row.toolUses,
-                          usedTokens: row.usedTokens,
-                          maxTokens: row.maxTokens,
-                          diffAdditions: row.diffAdditions,
-                          diffDeletions: row.diffDeletions,
-                          handoffCount: row.handoffCount,
-                          createdAt: row.createdAt,
-                          updatedAt: row.updatedAt,
-                          archivedAt: row.archivedAt,
-                          settledOverride: row.settledOverride,
-                          settledAt: row.settledAt,
-                          snoozedUntil: row.snoozedUntil,
-                          snoozedAt: row.snoozedAt,
-                          session: sessionByThread.get(row.threadId) ?? null,
-                          latestUserMessageAt: row.latestUserMessageAt,
-                          hasPendingApprovals: row.pendingApprovalCount > 0,
-                          hasPendingUserInput: row.pendingUserInputCount > 0,
-                          hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
-                          planLaneSince: row.planLaneSince,
-                          dependenciesSince: row.dependenciesSince,
-                          faninSince: row.faninSince,
-                          lastActivityPreview:
-                            lastActivityPreviewByThread.get(row.threadId) ?? null,
-                          consults: consultsByThread.get(row.threadId) ?? [],
-                          peerMessages: peerMessagesByThread.get(row.threadId) ?? [],
-                          // Shell-only view: the cap ledger is a command-read-model
-                          // concern (rebuilt in getCommandReadModel), never read off
-                          // a shell, so the shell carries an empty log.
-                          notifySendLog: [],
-                        } satisfies OrchestrationThreadShell)
-                      : Result.failVoid,
-                  ),
-                  nowMs,
+                threads: Arr.filterMap(threadRows, (row) =>
+                  row.deletedAt === null
+                    ? Result.succeed({
+                        id: row.threadId,
+                        projectId: row.projectId,
+                        goalId: row.goalId,
+                        parentThreadId: row.parentThreadId,
+                        role: row.role,
+                        purpose: row.purpose,
+                        brief: row.brief,
+                        planLane: row.planLane,
+                        attention: unionDerivedAttention(row.attention, row.pendingUserInputCount),
+                        blockedBy: row.blockedBy,
+                        spawnGeneration: row.spawnGeneration,
+                        forkFromThreadId: row.forkFromThreadId,
+                        finalCommitSha: row.finalCommitSha,
+                        reportPath: row.reportPath,
+                        // Debugging-only effective-prompt sidecar path. Only pi
+                        // threads write it (the capture extension is pi-only), and
+                        // only surface it once the file exists on disk so the UI
+                        // never shows a dead link for a capture failure / a thread
+                        // that has not launched yet.
+                        ...(sessionByThread.get(row.threadId)?.providerName === "pi" &&
+                        promptDebugNames.has(promptDebugSidecarFileName(row.threadId))
+                          ? {
+                              promptDebugPath: promptDebugSidecarPath(promptDebugDir, row.threadId),
+                            }
+                          : {}),
+                        graphKey: row.graphKey,
+                        kickoffBriefPath: row.kickoffBriefPath,
+                        routes: row.routes,
+                        gateRounds: row.gateRounds,
+                        pendingRework: row.pendingRework > 0,
+                        lastOutcome: row.lastOutcome,
+                        isolation: row.isolation,
+                        fanInState: row.fanInState,
+                        title: row.title,
+                        titleProvenance: row.titleProvenance, // loom: §4 title provenance
+                        modelSelection: row.modelSelection,
+                        runtimeMode: row.runtimeMode,
+                        interactionMode: row.interactionMode,
+                        branch: row.branch,
+                        worktreePath: row.worktreePath,
+                        latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+                        cumulativeCostUsd: row.cumulativeCostUsd,
+                        toolUses: row.toolUses,
+                        usedTokens: row.usedTokens,
+                        maxTokens: row.maxTokens,
+                        diffAdditions: row.diffAdditions,
+                        diffDeletions: row.diffDeletions,
+                        handoffCount: row.handoffCount,
+                        createdAt: row.createdAt,
+                        updatedAt: row.updatedAt,
+                        archivedAt: row.archivedAt,
+                        settledOverride: row.settledOverride,
+                        settledAt: row.settledAt,
+                        snoozedUntil: row.snoozedUntil,
+                        snoozedAt: row.snoozedAt,
+                        session: sessionByThread.get(row.threadId) ?? null,
+                        latestUserMessageAt: row.latestUserMessageAt,
+                        hasPendingApprovals: row.pendingApprovalCount > 0,
+                        hasPendingUserInput: row.pendingUserInputCount > 0,
+                        hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
+                        planLaneSince: row.planLaneSince,
+                        dependenciesSince: row.dependenciesSince,
+                        faninSince: row.faninSince,
+                        lastActivityPreview: lastActivityPreviewByThread.get(row.threadId) ?? null,
+                        consults: consultsByThread.get(row.threadId) ?? [],
+                        peerMessages: peerMessagesByThread.get(row.threadId) ?? [],
+                        // Shell-only view: the cap ledger is a command-read-model
+                        // concern (rebuilt in getCommandReadModel), never read off
+                        // a shell, so the shell carries an empty log.
+                        notifySendLog: [],
+                      } satisfies OrchestrationThreadShell)
+                    : Result.failVoid,
                 ),
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               };
@@ -3816,7 +3792,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         latestAssistantMessageRow,
         consultRows,
         peerMessageRows,
-        briefNeededChildRows,
       ] = yield* Effect.all([
         getActiveThreadRowById({ threadId }).pipe(
           Effect.mapError(
@@ -3866,34 +3841,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         ),
-        // Derived brief-needed parent attention (§3.3) must be computed here too,
-        // not only in `getShellSnapshot`: this lookup backs every `thread-upserted`
-        // shell-stream event and the client REPLACES the row wholesale, so
-        // omitting it would make the flag appear on a fresh snapshot and vanish on
-        // the parent's next unrelated event.
-        listBriefNeededChildRows({ threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadShellById:listBriefNeededChildren:query",
-              "ProjectionSnapshotQuery.getThreadShellById:listBriefNeededChildren:decodeRows",
-            ),
-          ),
-        ),
       ]);
 
       if (Option.isNone(threadRow)) {
         return Option.none<OrchestrationThreadShell>();
       }
-
-      const briefNeededChildren = briefNeededChildRows.map((row) => ({
-        ...row,
-        session: row.sessionCount > 0 ? row : null,
-      }));
-      const briefNeededAttention = briefNeededAttentionParentIds(
-        briefNeededChildren,
-        new Map(briefNeededChildren.map((child) => [child.id, child] as const)),
-        yield* Clock.currentTimeMillis,
-      ).has(threadId);
 
       return Option.some({
         id: threadRow.value.threadId,
@@ -3904,9 +3856,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         purpose: threadRow.value.purpose,
         brief: threadRow.value.brief,
         planLane: threadRow.value.planLane,
-        attention: unionNeedsGuidance(
-          unionDerivedAttention(threadRow.value.attention, threadRow.value.pendingUserInputCount),
-          briefNeededAttention,
+        attention: unionDerivedAttention(
+          threadRow.value.attention,
+          threadRow.value.pendingUserInputCount,
         ),
         blockedBy: threadRow.value.blockedBy,
         spawnGeneration: threadRow.value.spawnGeneration,
@@ -4262,6 +4214,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,
+    getBriefNeededAttentionParentIds,
     getArchivedShellSnapshot,
     getSnapshotSequence,
     getCounts,

@@ -9,6 +9,7 @@ import {
   type ThreadPlanLane,
   type TurnId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -583,6 +584,20 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
     /** Clock advance between passes (default: one sweep interval). */
     readonly passAdvanceMs?: number;
     /**
+     * Injected dispatch failure: reject a command the FIRST time it is seen (its
+     * id is recorded as attempted, so a later pass succeeds). Reproduces the
+     * partial-failure interleaving inside a multi-command action helper.
+     */
+    readonly failFirstDispatch?: (command: OrchestrationCommand) => boolean;
+    /**
+     * Keep the runtime heartbeat pinned to "now" on every pass — a thread that is
+     * busy AND alive, which is State D's territory (a frozen heartbeat is State
+     * C's stall).
+     */
+    readonly heartbeatFresh?: boolean;
+    /** Work-product fingerprint source (State D); constant ⇒ flat. */
+    readonly progressSignal?: { readonly recentInputsSource: string | null };
+    /**
      * Re-wedge the thread with a FRESH episode before each extra pass, simulating
      * a thread that keeps returning to `starting` after every recovery.
      */
@@ -602,6 +617,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
       // Live mutable thread state, so the stub can enforce the real decider's
       // compare-and-swap against state that a racing turn-start may have changed.
       let live: ReadonlyArray<OrchestrationThreadShell> = input.threads;
+      const failedOnce = new Set<string>();
       const engine = {
         readEvents: () => Stream.empty,
         readStreamEvents: () => Stream.empty,
@@ -628,6 +644,10 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
               live = live.map((t) =>
                 t.id === command.threadId ? { ...t, session: command.session } : t,
               );
+            }
+            if (input.failFirstDispatch?.(command) === true && !failedOnce.has(command.commandId)) {
+              failedOnce.add(command.commandId);
+              return Effect.die(new Error(`injected dispatch failure: ${command.commandId}`));
             }
             dispatched.push(command);
             return Effect.succeed({ sequence: dispatched.length });
@@ -678,10 +698,20 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
             return input.pendingTurnStarts ?? new Set<ThreadId>();
           }),
         getActivityFreshnessByThreadId: () =>
-          Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
+          input.heartbeatFresh === true
+            ? Clock.currentTimeMillis.pipe(
+                Effect.map((nowMs) => ({
+                  maxCreatedAt: null,
+                  heartbeatAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs)),
+                })),
+              )
+            : Effect.succeed({ maxCreatedAt: null, heartbeatAt: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
         getThreadProgressSignal: () =>
-          Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
+          Effect.succeed({
+            recentInputsSource: input.progressSignal?.recentInputsSource ?? null,
+            checkpointSource: null,
+          }),
       } as unknown as ProjectionSnapshotQueryShape;
       const deps = Layer.mergeAll(
         Layer.succeed(OrchestrationEngineService, engine),
@@ -1101,6 +1131,62 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids).toHaveLength(2);
     }),
+  );
+
+  // ─── Multi-command partial failure must stay RETRYABLE (plan §3.1) ─────────
+  // Per-command `deliverOnce` stops an accepted write from being re-sent, but it
+  // cannot make anything ask again: a caller that records "already advised"
+  // regardless of outcome silences the rail for good. State D is the case that
+  // owes two commands (evidence row + the actionable attention raise) AND
+  // remembers having acted.
+  const SPINNING_ID = "child-spinning" as ThreadId;
+  const spinningChild = () =>
+    thread({
+      id: SPINNING_ID,
+      planLane: "in_progress" as ThreadPlanLane,
+      lastOutcome: null,
+      session: session({ threadId: SPINNING_ID, activeTurnId: "t-1" as TurnId }),
+    });
+
+  effectIt.effect(
+    "retries ONLY the unwritten command when a progress-loop advisory half-fails",
+    () =>
+      Effect.gen(function* () {
+        const dispatched = yield* runSweep({
+          threads: [spinningChild()],
+          // A live runtime binding, so the circuit breaker sees a healthy thread
+          // and State D is the branch under test.
+          bindings: [{ threadId: SPINNING_ID, status: "running" }],
+          // Heartbeat fresh ⇒ busy-and-alive (State D territory, not State C);
+          // a constant fingerprint ⇒ flat work product across the window.
+          heartbeatFresh: true,
+          progressSignal: { recentInputsSource: "flat" },
+          // Two passes past the no-progress window, so the advisory becomes due
+          // and — after the injected failure — is retried.
+          extraPasses: 2,
+          passAdvanceMs: DEFAULT_LIVENESS_THRESHOLDS.noProgressWindowMs,
+          // The SECOND command the helper owes fails, once, AFTER the first was
+          // accepted — the exact interleaving that used to be unrecoverable.
+          failFirstDispatch: (command) =>
+            command.type === "thread.attention.raise" &&
+            command.commandId.includes("progress-loop-attn"),
+        });
+
+        const activities = dispatched.filter(
+          (c) =>
+            c.type === "thread.activity.append" &&
+            c.activity.kind === "workstream.liveness.progress-loop",
+        );
+        const raises = dispatched.filter(
+          (c) => c.type === "thread.attention.raise" && c.commandId.includes("progress-loop-attn"),
+        );
+        // The actionable half eventually lands — the hole left it at 0 forever,
+        // because the caller had already recorded the episode as advised.
+        expect(raises).toHaveLength(1);
+        // And ONLY that half is retried: the accepted evidence row short-circuits
+        // as `already-handled`, so no duplicate is written.
+        expect(activities).toHaveLength(1);
+      }),
   );
 });
 
