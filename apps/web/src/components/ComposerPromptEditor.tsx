@@ -34,6 +34,7 @@ import {
   FOCUS_COMMAND,
   $getRoot,
   HISTORY_MERGE_TAG,
+  SKIP_DOM_SELECTION_TAG,
   DecoratorNode,
   type ElementNode,
   type LexicalNode,
@@ -1710,16 +1711,23 @@ function ComposerPromptEditorInner({
     }
 
     isApplyingControlledUpdateRef.current = true;
-    editor.update(() => {
-      const shouldRewriteEditorState =
-        previousSnapshot.value !== value || contextsChanged || skillsChanged;
-      if (shouldRewriteEditorState) {
-        $setComposerEditorPrompt(value, terminalContexts, skillMetadataRef.current);
-      }
-      if (shouldRewriteEditorState || isFocused) {
-        $setSelectionAtComposerOffset(normalizedCursor);
-      }
-    });
+    editor.update(
+      () => {
+        const shouldRewriteEditorState =
+          previousSnapshot.value !== value || contextsChanged || skillsChanged;
+        if (shouldRewriteEditorState) {
+          $setComposerEditorPrompt(value, terminalContexts, skillMetadataRef.current);
+        }
+        if (shouldRewriteEditorState || isFocused) {
+          $setSelectionAtComposerOffset(normalizedCursor);
+        }
+      },
+      // While the composer is blurred, still update the editor state and its
+      // internal selection, but suppress Lexical's DOM-selection reconcile so a
+      // server-driven rewrite (skills/approval churn) cannot grab focus or
+      // destroy the user's selection elsewhere. Focused rewrites stay untagged.
+      isFocused ? undefined : { tag: SKIP_DOM_SELECTION_TAG },
+    );
     queueMicrotask(() => {
       isApplyingControlledUpdateRef.current = false;
     });

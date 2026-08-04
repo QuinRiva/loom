@@ -125,7 +125,7 @@ import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
+import { ComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -475,7 +475,6 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const { clearOpenIntent, openIntent, setOpen } = props;
-  const composerHandleRef = useComposerHandleContext();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const isActionsOnly = deferredQuery.startsWith(">");
@@ -1866,10 +1865,6 @@ function OpenCommandPaletteDialog(props: {
       className="overflow-hidden p-0"
       data-command-palette="true"
       data-testid="command-palette"
-      finalFocus={() => {
-        composerHandleRef?.current?.focusAtEnd();
-        return false;
-      }}
       onBackdropPointerDown={() => {
         setOpen(false);
       }}

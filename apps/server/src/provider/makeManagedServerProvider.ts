@@ -17,6 +17,59 @@ interface ProviderSnapshotState {
   readonly enrichmentGeneration: number;
 }
 
+/**
+ * Snapshot list fields whose content can regress across a refresh: the model
+ * catalogue and the two command palettes.
+ */
+export type EnrichableField = "models" | "slashCommands" | "skills";
+
+/**
+ * Keep a periodic base refresh from publishing a snapshot that has *lost*
+ * palette content the last one had.
+ *
+ * Two ways `checkProvider` regresses, and authority differs per field per
+ * provider:
+ *
+ *  - Fields the enrichment step **owns** (`enrichmentOwnedFields`) are ones
+ *    the base probe cannot see at all — pi's base snapshot reports a
+ *    placeholder model shortlist and no commands, and only
+ *    `enrichPiSnapshot`'s throwaway `pi --mode rpc` knows the real values. The
+ *    previous value always wins there, because the base's is a placeholder
+ *    rather than an observation.
+ *  - Every other field stays **base-authoritative**, so live changes surface
+ *    immediately (Claude re-reads `~/.claude/skills` from disk and Codex
+ *    re-runs `skills/list` on every check). Those only carry forward when the
+ *    base reports *empty*, which is the shape a failed or timed-out probe
+ *    takes.
+ *
+ * Without this the `$` palette and model picker blank for the seconds until
+ * enrichment lands — every refresh interval, forever.
+ *
+ * Genuine loss still propagates: `enrichSnapshot`'s own publish path is
+ * untouched and may publish an empty palette (pi does exactly that when
+ * `get_commands` returns nothing), a base-authoritative provider surfaces any
+ * non-empty change immediately, and a disabled provider reports its emptiness
+ * verbatim. The residual corner is a base-authoritative provider losing *all*
+ * of its skills at once, which is indistinguishable from a failed probe and so
+ * stays until the next restart or settings change.
+ */
+function carryForwardEnrichment(input: {
+  readonly base: ServerProvider;
+  readonly previous: ServerProvider;
+  readonly enrichmentOwnedFields: ReadonlyArray<EnrichableField>;
+}): ServerProvider {
+  const carry = (field: EnrichableField) =>
+    input.base.enabled &&
+    input.previous[field].length > 0 &&
+    (input.enrichmentOwnedFields.includes(field) || input.base[field].length === 0);
+  return {
+    ...input.base,
+    ...(carry("models") ? { models: input.previous.models } : {}),
+    ...(carry("slashCommands") ? { slashCommands: input.previous.slashCommands } : {}),
+    ...(carry("skills") ? { skills: input.previous.skills } : {}),
+  };
+}
+
 export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(function* <
   Settings,
 >(input: {
@@ -32,6 +85,13 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     readonly getSnapshot: Effect.Effect<ServerProvider>;
     readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   }) => Effect.Effect<void>;
+  /**
+   * Fields `enrichSnapshot` re-probes and republishes itself, so the base
+   * check's values for them are placeholders to be ignored rather than
+   * observations. Only pi qualifies; every other driver's enrichment merely
+   * attaches a version advisory and passes these fields through untouched.
+   */
+  readonly enrichmentOwnedFields?: ReadonlyArray<EnrichableField>;
   readonly refreshInterval?: Duration.Input;
 }): Effect.fn.Return<ServerProviderShape, ServerSettingsError, Scope.Scope> {
   const refreshSemaphore = yield* Semaphore.make(1);
@@ -108,15 +168,20 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       return yield* Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot));
     }
 
-    const nextSnapshot = yield* input.checkProvider;
-    const nextGeneration = yield* Ref.modify(snapshotStateRef, (state) => {
+    const baseSnapshot = yield* input.checkProvider;
+    const [nextSnapshot, nextGeneration] = yield* Ref.modify(snapshotStateRef, (state) => {
       const generation = input.enrichSnapshot
         ? state.enrichmentGeneration + 1
         : state.enrichmentGeneration;
+      const snapshot = carryForwardEnrichment({
+        base: baseSnapshot,
+        previous: state.snapshot,
+        enrichmentOwnedFields: input.enrichmentOwnedFields ?? [],
+      });
       return [
-        generation,
+        [snapshot, generation] as const,
         {
-          snapshot: nextSnapshot,
+          snapshot,
           enrichmentGeneration: generation,
         },
       ] as const;

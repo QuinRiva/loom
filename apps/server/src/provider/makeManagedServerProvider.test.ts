@@ -226,6 +226,101 @@ describe("makeManagedServerProvider", () => {
     ),
   );
 
+  it.effect("surfaces base-probe skill changes on providers whose enrichment owns nothing", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Claude/Codex shape: `checkProvider` re-reads skills live every
+        // refresh and `enrichSnapshot` only attaches a version advisory.
+        const skill = (name: string) => ({ name, path: `/skills/${name}`, enabled: true });
+        const checkCount = yield* Ref.make(0);
+        const releaseFirstCheck = yield* Deferred.make<void>();
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          maintenanceCapabilities,
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.updateAndGet(checkCount, (count) => count + 1).pipe(
+            Effect.flatMap((count) =>
+              count === 1
+                ? Deferred.await(releaseFirstCheck).pipe(
+                    Effect.as({ ...refreshedSnapshot, skills: [skill("a"), skill("b")] }),
+                  )
+                : Effect.succeed({
+                    ...refreshedSnapshotSecond,
+                    skills: [skill("a"), skill("b"), skill("c")],
+                  }),
+            ),
+          ),
+          enrichSnapshot: ({ snapshot, publishSnapshot }) =>
+            publishSnapshot({ ...snapshot, version: "advisory" }),
+          refreshInterval: "1 hour",
+        });
+
+        const updatesFiber = yield* Stream.take(provider.streamChanges, 1).pipe(
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        yield* Deferred.succeed(releaseFirstCheck, undefined);
+        yield* Fiber.join(updatesFiber);
+        yield* provider.refresh;
+
+        assert.deepStrictEqual(
+          (yield* provider.getSnapshot).skills.map((entry) => entry.name),
+          ["a", "b", "c"],
+        );
+      }),
+    ),
+  );
+
+  it.effect("carries enrichment-owned models and skills forward across a bare base refresh", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const enrichedWithSkills: ServerProvider = {
+          ...enrichedSnapshot,
+          skills: [{ name: "librarian", path: "/skills/librarian", enabled: true }],
+        };
+        const releaseInitialCheck = yield* Deferred.make<void>();
+        const enrichmentPublished = yield* Deferred.make<void>();
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          maintenanceCapabilities,
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          // Stands in for pi's `makePiProvider`: a cheap probe that knows
+          // nothing about the live catalogue or command palette.
+          checkProvider: Deferred.await(releaseInitialCheck).pipe(Effect.as(refreshedSnapshot)),
+          enrichSnapshot: ({ snapshot, publishSnapshot }) =>
+            snapshot.skills.length > 0
+              ? Effect.void
+              : publishSnapshot({ ...snapshot, ...enrichedWithSkills }).pipe(
+                  Effect.flatMap(() =>
+                    Deferred.succeed(enrichmentPublished, undefined).pipe(Effect.asVoid),
+                  ),
+                ),
+          enrichmentOwnedFields: ["models", "slashCommands", "skills"],
+          refreshInterval: "1 hour",
+        });
+
+        const updatesFiber = yield* Stream.take(provider.streamChanges, 3).pipe(
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        yield* Deferred.succeed(releaseInitialCheck, undefined);
+        yield* Deferred.await(enrichmentPublished);
+        yield* provider.refresh;
+
+        const updates = Array.from(yield* Fiber.join(updatesFiber));
+        assert.deepStrictEqual(updates.at(-1)?.models, enrichedWithSkills.models);
+        assert.deepStrictEqual(updates.at(-1)?.skills, enrichedWithSkills.skills);
+        assert.deepStrictEqual((yield* provider.getSnapshot).skills, enrichedWithSkills.skills);
+      }),
+    ),
+  );
+
   it.effect("ignores stale enrichment callbacks after a newer refresh advances generation", () =>
     Effect.scoped(
       Effect.gen(function* () {
