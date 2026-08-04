@@ -1,0 +1,273 @@
+# 23 — Sidebar v2 re-home: loom's navigation moves onto upstream's inbox
+
+The decision record for the next cadence pull. Loom's goal/workstream sidebar
+has moved off its own goal-nested project tree (v1 + fork) and onto **upstream's
+Sidebar v2** — the flat thread inbox with settled/snoozed shelves. V2 is now
+loom's **default** surface; v1 survives only as an escape-hatch setting and as
+the host of the settings nav. The thread-nesting machinery that made the fork
+expensive is **deleted**, deliberately, and must not be restored by a merge.
+
+Read this before resolving any sidebar, settings, or `orchestration.loom.ts`
+conflict. Australian English.
+
+## Headline
+
+- **Direction:** adopt upstream v2 wholesale; attach loom's affordances at v2's
+  frozen data seams; drop goal-nested thread lists from the sidebar entirely;
+  keep durable goals, re-homed on a thread-anchored **Goal panel**.
+- **Why it is safe to attach here:** across the 147 upstream commits between our
+  merge-base and the last pull, v2's data contracts (row props, list partition,
+  the `latestTurnDiff` stub) did not change by a byte while ~75% of its render
+  JSX was rewritten. Loom therefore attaches at the contracts, never inside the
+  render tree.
+- **Five change-sets landed** (all gates green at each): quick wins `89c2abef3`,
+  settle semantics `9ed6b9e4c`, chain schema `61ee97353`, goal chip + panel
+  `fef9b8443`, and this final package (default flip + deletions + this record).
+- **Net −770 lines** across the final package: the deletions are the point, not
+  a side-effect.
+- The full design, the option study, and the human's decisions live in
+  `plans/sidebar-v2-rehome/plan.mdx`. This document is the merge-facing digest.
+
+## A. The decision, and the alternatives that lost
+
+A goal is **never navigated to directly**. A goal is reached _through a thread
+that carries it_, and exists to track a larger piece of work — its tasks, and
+its handoff chain when the work outgrows one thread's context. Everything below
+follows from that.
+
+Three candidate surfaces were designed and mocked:
+
+- **A — thread-anchored chip + popover.** Goal affordances only in a popover off
+  a chat-header chip. Rejected as the end-state: cramming the task tree, the
+  chain, and CRUD into a popover duplicates what the existing `GoalTasksPanel`
+  right-panel already hosts. The chip survives, as the panel's entry point.
+- **B-with-switcher — goal panel with a browsable goals list.** A goal-switcher
+  dropdown doubling as a per-project goals list, plus ex-nihilo "New goal…".
+  **Rejected by the human**: you never select a goal by itself; a goal has no
+  standalone interactability, so a goals list is navigation to nowhere. It also
+  introduced a panel-goal-versus-open-thread divergence state for no benefit.
+- **C — goals in the sidebar chrome.** A browsable goals pane. Rejected for the
+  same reason plus the most new scope; loom already retired a thread-less goal
+  landing once as a dead end (`_chat.index.tsx` records why).
+
+**What was built:** A's anchoring with B's surface — a goal chip on the chat
+header (`◎ goal title · N threads`) that toggles a Goal panel _always anchored
+to the open thread's goal_. No goal switcher, no goal browsing, no standalone
+goal surface anywhere.
+
+**Rejected direction, recorded so nobody re-proposes it:** goal grouping or tree
+drill-ins _inside_ the v2 list. That rebuilds the nesting the human dropped, in
+the one region upstream rewrote 75% of in nine days.
+
+## B. What landed where
+
+| Change-set               | Commit       | Seam                                                                                | Convention                                                 |
+| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files     |
+| Settle semantics         | `9ed6b9e4c`  | `packages/client-runtime/src/state/threadSettled.ts`                                | `// loom:` marked additive blocks (blockers + one trigger) |
+| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)             |
+| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                 |
+| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                 |
+
+Conventions used throughout, unchanged from previous cycles:
+
+- Anything loom adds inside an upstream-owned file carries a `// loom:` marker
+  on the hunk, so a conflict resolver can see intent without archaeology.
+- Anything loom owns outright lives in `apps/web/src/loom/`, `*.loom.ts`, or the
+  loom migration lane (`1001+`, `LoomMigrations.ts`); upstream's `Migrations.ts`
+  stays byte-identical.
+- Loom never edits upstream _test_ files to accommodate a fork field — the
+  contract is fixed instead (see §E).
+
+## C. The default flip, and how it reconciles with upstream `c13a021e4`
+
+**Mechanism.** `useSidebarV2Enabled()` in `apps/web/src/hooks/useSettings.ts` is
+now the single resolver; `AppSidebarLayout.tsx`, `_chat.tsx` and
+`BetaSettingsPanel.tsx` all read through it and none reads
+`settings.sidebarV2Enabled` directly. It resolves:
+
+```ts
+settings.sidebarV2ConfiguredByUser ? settings.sidebarV2Enabled : true;
+```
+
+**The settings-blob trap, and why we pre-adopted upstream's bit.** Loom's client
+settings persist as a **whole blob** (`t3code:client-settings:v1`, verified live
+at 21 keys after touching a single unrelated setting). Every user who has ever
+changed any setting therefore already has `sidebarV2Enabled: false` stored
+without ever having touched that toggle — flipping the schema default alone
+would have reached nobody. Distinguishing "stored false" from "left alone"
+requires a companion bit, so loom added
+**`sidebarV2ConfiguredByUser`** — deliberately the _same field name, default,
+semantics and comment_ as upstream's unmerged `c13a021e4`, written only by the
+Settings → Beta toggle. Choosing an identical shape means the contracts hunks
+and the three call-site hunks are **byte-identical on both sides** and merge
+without conflict.
+
+**Reconciliation plan for the next cadence pull.** `c13a021e4` ("default sidebar
+v2 on for nightly and dev builds") will arrive with:
+
+1. `packages/contracts/src/settings.ts` — adds `sidebarV2ConfiguredByUser` to
+   `ClientSettingsSchema` and `ClientSettingsPatch`. **Identical to ours** →
+   merges clean; if git does report a conflict, take either side, they are the
+   same text.
+2. `apps/desktop/src/settings/DesktopClientSettings.test.ts` — adds
+   `sidebarV2ConfiguredByUser: false` to the literal. **Identical to ours.**
+3. `apps/web/src/components/AppSidebarLayout.tsx`, `routes/_chat.tsx`,
+   `settings/BetaSettingsPanel.tsx` — switch to `useSidebarV2Enabled()` and pin
+   the choice on toggle. **Identical to ours.**
+4. `apps/web/src/branding.logic.ts` + `branding.test.ts` — **new** upstream code:
+   `resolveSidebarV2Default(stageLabel)` (on for `nightly`/`dev`, off otherwise)
+   and `resolveSidebarV2Enabled({enabled, configuredByUser, settingsHydrated,
+stageLabel})`. Lands clean (new functions, no loom code there).
+5. `apps/web/src/hooks/useSettings.ts` — upstream's `useSidebarV2Enabled()` body
+   delegates to `resolveSidebarV2Enabled`. **This is the one real conflict.**
+
+   **Resolution: keep loom's universal default.** The correct merge is to adopt
+   upstream's `resolveSidebarV2Enabled` _call shape_ if desired, but make the
+   default loom-universal — i.e. a `// loom:` marked
+   `resolveSidebarV2Default()` that returns `true` for every stage, or simply
+   keep loom's two-line body. Loom's flip is **not** channel-derived: v2 is the
+   product decision for all loom builds, deployed cockpit included. Do **not**
+   let the stage-derived default through, or the deployed cockpit silently
+   reverts to v1 and takes the goal panel's only sane sidebar with it.
+
+   Note one further deliberate divergence: upstream holds **v1** while client
+   settings hydrate (its default is off, so that is where both paths start).
+   Loom does **not** — our pre-hydration snapshot resolves to v2, which is where
+   all but explicitly opted-out users end up, so the common path never remounts
+   the tree. If upstream's `settingsHydrated` guard is adopted verbatim, every
+   loom page load flashes v1 first. Keep it out.
+
+The human accepted the dev/deployed split posture as interim dogfooding while
+milestones 1–5 were in flight; that window is now closed — the flip is
+universal, so the split no longer applies.
+
+**Mobile is out of scope.** `apps/mobile`'s `threadListV2Enabled` is a separate
+device-local preference with no client-settings sync; loom has not re-homed the
+mobile thread list, so upstream's mobile half of `c13a021e4` (the new
+`use-thread-list-v2-enabled.ts` hook, `resolveThreadListV2Enabled`) merges as
+plain upstream code. Take it as-is.
+
+**Live evidence.** A fresh profile on a seeded dev instance landed on v2 with no
+setting written (children hidden, roll-up badge, goal chip + panel, settled
+shelf). Toggling Settings → Beta off wrote `{sidebarV2Enabled: false,
+sidebarV2ConfiguredByUser: true}` and yielded a functional flat v1 that survived
+a reload. Deleting only the companion bit from the persisted blob (the exact
+shape of a legacy user) put the browser back on v2 — the trap is handled.
+
+## D. What was deliberately deleted (do not let a merge restore it)
+
+The goal surface no longer depends on sidebar nesting, so the nesting machinery
+went. If a future merge reintroduces any of the following, it is a mistake:
+
+- **`apps/web/src/loom/SidebarGoalThreadList.tsx`** (172 lines) — the goal-header
+  - grouped-subtree renderer. Deleted.
+- **`apps/web/src/loom/sidebarUiStore.ts`** and its test — goal-collapse
+  persistence. Deleted. See §F for the orphaned key.
+- **`apps/web/src/components/Sidebar.logic.loom.ts`** — the goal-ordering and
+  jump-map alignment machinery (`buildSidebarGoalOrderedEntries`,
+  `buildSidebarProjectThreadOrdering`, `flattenSidebarOrderedThreads`,
+  `isCompactSingleThreadGoal`, the entry-walking preview budget) and its test
+  file. The module shrank 235 → 53 lines and now holds exactly three live
+  helpers: **`resolveGoalWorktreeSeed`** (the Goal panel's "new session under
+  this goal" keeps its top seed precedence — it is what makes a handoff
+  successor land in its predecessor's worktree), **`isStagedHandoffThread`** (v2
+  row badge + the panel's Threads section). `isVisibleHandoffDrafter` moved back
+  to its real home, `apps/web/src/lib/handoffDrafter.ts`.
+- **`apps/web/src/loom/useLoomSidebarGoals.ts`** → renamed
+  **`apps/web/src/loom/rootThreads.ts`**, holding only `filterRootThreads`.
+  `goalsForProject`, `SidebarLoomGoals` and the `useLoomSidebarGoals` hook died
+  with the nesting.
+- **`useLoomSidebarGoalActions`** in `apps/web/src/loom/sidebarGoalActions.ts` —
+  the v1 goal-header context menu. The panel's overflow menu owns goal CRUD now
+  (via `useGoalCrudActions`); the v2 row context menu owns create/assign (via
+  `buildGoalMenuItems` + `useLoomThreadGoalActions`).
+- **Loom's inline sidebar-chrome fork** (`Sidebar.tsx` ~2895–3010:
+  `SidebarChromeHeader`, `SidebarBrand`, `T3Wordmark`, `useSidebarStageLabel`,
+  `SidebarChromeFooter`). v1 now imports upstream's
+  `components/sidebar/SidebarChrome.tsx` — the same module v2 uses, already
+  carrying loom's usage pill since the quick wins. **This kills a perennial
+  merge-conflict site** (marker-less trap #1 of cycle 21). Do not re-fork it.
+- **v1's goal rendering and goal context-menu entries** in `Sidebar.tsx`. v1 is
+  now a clean flat per-project list, upstream-shaped: upstream's
+  `visibleProjectThreads` / `pinnedCollapsedThread` / `renderedThreads` blocks
+  and its jump-map block were **restored verbatim**, so those regions merge as
+  no-ops from here on. Only two marked lines remain inside them — the
+  `isVisibleHandoffDrafter` filter at each of the two sites — plus the roll-up
+  badge lookup on the row map. Measured effect: loom's `Sidebar.tsx` fork
+  against upstream `5719e8ac4` fell from **45 hunks to 28**.
+
+**Deliberately NOT adopted:**
+
+- Goal grouping, goal headers, or tree drill-ins inside the v2 list (§A).
+- A goals list, goal switcher, or any goal route. The panel is anchored to the
+  open thread's goal, full stop.
+- Upstream's stage-derived sidebar default (§C).
+- Upstream's pre-hydration v1 hold (§C).
+- Task editing in the panel — tasks stay agent-written.
+- `WorkstreamPanel` / `WorkstreamGraph` — ChatView-side, untouched by this
+  re-home.
+
+## E. Contract fix: `goalId` decodes with a default
+
+`packages/contracts/src/orchestration.test.ts > "defaults settled fields when
+decoding historical thread data"` was failing on the sidebar-v2 branch:
+upstream's test literal (cycle-21 commit `f795ab6a8`) omits `goalId`, which
+loom's `LoomThreadFields` required.
+
+**Fixed on the contract, not the test.** `goalId` is now
+`Schema.NullOr(GoalId).pipe(Schema.withDecodingDefault(Effect.succeed(null)))`
+— the idiom every _other_ field in `LoomThreadFields` already uses (and the one
+upstream uses for `settledOverride`/`settledAt` in the same schema). `goalId`
+predates that convention (Migration 1003) and was simply never brought into
+line. Thread payloads written before goals existed carry no `goalId`, and an
+absent key means exactly "no goal", so the permissive decode is also the
+_correct_ one.
+
+The alternative — loom-marking upstream's test literal — was rejected: it puts a
+fork marker in an upstream-owned test file, so every future upstream edit to
+that literal conflicts, and it leaves the underlying inconsistency in place.
+**Rule of thumb for future cycles: when an upstream test fails because a loom
+field is required, fix the field, not the test.**
+
+## F. Orphaned localStorage key
+
+Per the "Orphan keys: no automatic sweep (by design)" convention in
+[`docs/architecture/loom-ui-state-tiers.md`](../architecture/loom-ui-state-tiers.md):
+deleting `sidebarUiStore.ts` leaves **`t3code:loom-sidebar-ui-state:v1`**
+stranded in every existing user's `localStorage`. It is inert — nothing reads it
+— and it is a few hundred bytes at most, so there is **no sweep**. Recorded here
+so a future reader who finds the key knows it is dead, not broken. Do not
+resurrect the key name for anything else.
+
+## G. v1's residual role, and its expected end
+
+`Sidebar.tsx` (v1) is **not** deleted, for one reason: it owns the settings nav.
+`AppSidebarLayout.tsx` keeps v1 mounted on `/settings` and `/settings/*`
+regardless of the flag, and that wiring is unchanged. v1 also remains the target
+of the Settings → Beta escape hatch, and it is functional — verified live.
+
+Upstream has an unmerged branch that **deletes v1 outright**
+(`sidebar-v2-only`). When it arrives:
+
+1. Take the deletion. Loom's residual hunks in `Sidebar.tsx` are now only the
+   three marked lines in §D plus the thread-tabs `openTab` call — nothing worth
+   preserving that v2 does not already do.
+2. Re-home `SettingsSidebarNav` first, or the settings route loses its nav.
+   That is the _only_ blocker, and it is mechanical.
+3. Delete the `sidebarV2Enabled` / `sidebarV2ConfiguredByUser` settings pair and
+   `useSidebarV2Enabled()` with it.
+
+## H. Breaking change carried in this cycle: `handoff_count` → `handoff_destinations`
+
+Recorded here because a cadence resolver will meet it in the projections.
+Migration 1035 (`61ee97353`) **replaced** the `handoff_count` counter with
+`handoff_destinations` (JSON `[{goalId, threadId}]`) on `projection_threads`,
+and added `continues_thread_id` (nullable, mirroring the `fork_from_thread_id`
+precedent of Migration 1023).
+
+This is a **clean break with no compat shim** — prototype policy, and the
+counter was a lossy projection of a destination list the
+`thread.handoff-recorded` event already carried. Every read site moved to
+`handoffDestinations` (`.length` where a count was wanted). If a merge
+reintroduces `handoffCount` anywhere, delete it rather than reconciling the two.

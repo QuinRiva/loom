@@ -124,7 +124,7 @@ import {
 } from "./ThreadStatusIndicators";
 // loom: root-thread + drafter visibility filters and the workstream rollup the
 // hidden sub-threads surface through. All three live in loom-owned modules.
-import { filterRootThreads } from "../loom/useLoomSidebarGoals";
+import { filterRootThreads } from "../loom/rootThreads";
 import { buildGoalMenuItems, useLoomThreadGoalActions } from "../loom/sidebarGoalActions";
 import { useGoals } from "../goals/goalState";
 import { isStagedHandoffThread } from "./Sidebar.logic.loom";

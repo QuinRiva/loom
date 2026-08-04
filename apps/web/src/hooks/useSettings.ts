@@ -218,6 +218,28 @@ export function useClientSettings<T = ClientSettings>(
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
 }
 
+/**
+ * loom: sidebar v2 is loom's default surface on every build (the re-home landed
+ * the workstream roll-ups, settle semantics and goal panel that made v1's
+ * goal nesting redundant — docs/upstream-sync/23-sidebar-v2-rehome.md). Only an
+ * explicit Settings → Beta choice holds v1. Every consumer must read through
+ * this rather than `settings.sidebarV2Enabled`, which is only meaningful
+ * alongside `sidebarV2ConfiguredByUser`.
+ *
+ * Client settings persist as a whole blob, so a stored `sidebarV2Enabled: false`
+ * is almost always a default that rode along with an unrelated setting rather
+ * than a real opt-out — hence the companion bit, written only by the toggle.
+ *
+ * Unlike upstream's channel-derived default (`resolveSidebarV2Default`,
+ * c13a021e4), loom needs no hydration guard: the pre-hydration snapshot resolves
+ * to v2, which is where all but explicitly opted-out users end up, so the common
+ * path never remounts the tree.
+ */
+export function useSidebarV2Enabled(): boolean {
+  const settings = useClientSettingsValue();
+  return settings.sidebarV2ConfiguredByUser ? settings.sidebarV2Enabled : true;
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId,

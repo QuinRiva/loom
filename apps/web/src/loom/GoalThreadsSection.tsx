@@ -24,7 +24,7 @@ import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
-import { filterRootThreads } from "./useLoomSidebarGoals";
+import { filterRootThreads } from "./rootThreads";
 
 interface ChipStyle {
   readonly label: string;

@@ -8,7 +8,6 @@ import {
   Globe2Icon,
   LoaderIcon,
   SearchIcon,
-  SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
@@ -46,7 +45,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   DEFAULT_SERVER_SETTINGS,
-  GoalId,
   ProjectId,
   type ScopedThreadRef,
   type ResolvedKeybindingsConfig,
@@ -66,7 +64,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
   MIN_SIDEBAR_THREAD_PREVIEW_COUNT,
@@ -79,7 +77,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { isElectron } from "../env";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { cn, isMacPlatform } from "../lib/utils";
+import { isMacPlatform } from "../lib/utils";
 import {
   readThreadShell,
   useProject,
@@ -165,9 +163,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -175,7 +171,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarSeparator,
-  SidebarTrigger,
   useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -195,37 +190,21 @@ import {
   sortProjectsForSidebar,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
-  resolveSidebarStageBadgeLabel,
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
-// loom: fork-added sidebar goal/ordering logic split out of upstream Sidebar.logic.ts
-import {
-  buildSidebarProjectThreadOrdering,
-  flattenSidebarOrderedThreads,
-  isStagedHandoffThread,
-  resolveGoalWorktreeSeed,
-} from "./Sidebar.logic.loom";
+// loom: fork-added sidebar logic split out of upstream Sidebar.logic.ts
+import { isStagedHandoffThread } from "./Sidebar.logic.loom";
+import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
 import { buildGraphRollupByThreadKey, type GraphRollup } from "../lib/workstreamRollup";
-// loom: fork-added goal state/rendering/actions
-import { SidebarGoalThreadList, type SidebarGoalListBundle } from "../loom/SidebarGoalThreadList";
-import {
-  filterRootThreads,
-  goalsForProject,
-  useLoomSidebarGoals,
-  type SidebarLoomGoals,
-} from "../loom/useLoomSidebarGoals";
-import { buildGoalMenuItems, useLoomThreadGoalActions } from "../loom/sidebarGoalActions";
-import { SidebarAccountUsagePill } from "./sidebar/SidebarAccountUsagePill";
-import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
-import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
-import { SidebarStageBackdrop, resolveSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
-import { APP_STAGE_LABEL } from "../branding";
+import { filterRootThreads } from "../loom/rootThreads";
+import { sortThreads } from "../lib/threadSort";
+import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
-import { primaryServerConfigAtom, primaryServerKeybindingsAtom } from "../state/server";
+import { primaryServerKeybindingsAtom } from "../state/server";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -258,8 +237,7 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   repository_path: "Group by repository path",
   separate: "Keep separate",
 };
-// loom: exported for the fork's SidebarGoalThreadList (goal new-session button)
-export const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
+const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-muted-foreground/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
 
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
@@ -938,8 +916,9 @@ interface SidebarProjectThreadListProps {
   hasOverflowingThreads: boolean;
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
-  // loom: single fork bundle for goal-grouped rendering (see SidebarGoalThreadList)
-  loomGoalList: SidebarGoalListBundle;
+  renderedThreads: readonly SidebarThreadSummary[];
+  // loom: per-thread roll-up of the hidden sub-thread graph, keyed by thread key.
+  graphRollupByThreadKey: ReadonlyMap<string, GraphRollup>;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -990,7 +969,8 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     hasOverflowingThreads,
     hiddenThreadStatus,
     orderedProjectThreadKeys,
-    loomGoalList,
+    renderedThreads,
+    graphRollupByThreadKey,
     showEmptyThreadState,
     shouldShowThreadPanel,
     isThreadListExpanded,
@@ -1023,52 +1003,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
 
-  // loom: Render a single thread row, forwarding every shared prop from the
-  // closure so the loose-thread, compact-goal, and grouped-subtree cases stay
-  // identical. This ~25-prop closure stays upstream-side; SidebarGoalThreadList
-  // treats a row as an opaque node, so upstream row-prop changes never cross the
-  // fork boundary.
-  const renderThreadRow = (
-    thread: SidebarThreadSummary,
-    options?: { keyOverride?: string; goalNewSessionAction?: React.ReactNode },
-  ) => {
-    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-    const graphRollup = loomGoalList.graphRollupByThreadKey.get(threadKey);
-    return (
-      <SidebarThreadRow
-        key={options?.keyOverride ?? threadKey}
-        thread={thread}
-        projectCwd={projectCwd}
-        orderedProjectThreadKeys={orderedProjectThreadKeys}
-        isActive={activeRouteThreadKey === threadKey}
-        jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
-        appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-        renamingThreadKey={renamingThreadKey}
-        renamingTitle={renamingTitle}
-        setRenamingTitle={setRenamingTitle}
-        startThreadRename={startThreadRename}
-        renamingInputRef={renamingInputRef}
-        renamingCommittedRef={renamingCommittedRef}
-        confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-        setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-        handleThreadClick={handleThreadClick}
-        navigateToThread={navigateToThread}
-        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-        handleThreadContextMenu={handleThreadContextMenu}
-        clearSelection={clearSelection}
-        commitRename={commitRename}
-        cancelRename={cancelRename}
-        attemptArchiveThread={attemptArchiveThread}
-        openPrLink={openPrLink}
-        {...(graphRollup ? { graphRollup } : {})}
-        {...(options?.goalNewSessionAction
-          ? { goalNewSessionAction: options.goalNewSessionAction }
-          : {})}
-      />
-    );
-  };
-
   return (
     <SidebarMenuSub
       ref={attachThreadListAutoAnimateRef}
@@ -1084,18 +1018,42 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
           </div>
         </SidebarMenuSubItem>
       ) : null}
-      {shouldShowThreadPanel ? (
-        <SidebarGoalThreadList
-          orderedEntries={loomGoalList.orderedEntries}
-          projectGoals={loomGoalList.projectGoals}
-          memberProjects={loomGoalList.memberProjects}
-          allProjectThreads={loomGoalList.allProjectThreads}
-          collapsedGoalIds={loomGoalList.collapsedGoalIds}
-          onToggleGoalCollapse={loomGoalList.onToggleGoalCollapse}
-          onNewGoalSession={loomGoalList.onNewGoalSession}
-          renderThreadRow={renderThreadRow}
-        />
-      ) : null}
+      {shouldShowThreadPanel &&
+        renderedThreads.map((thread) => {
+          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          // loom: roll-up badge summarising this root's hidden sub-thread graph.
+          const graphRollup = graphRollupByThreadKey.get(threadKey);
+          return (
+            <SidebarThreadRow
+              key={threadKey}
+              thread={thread}
+              projectCwd={projectCwd}
+              orderedProjectThreadKeys={orderedProjectThreadKeys}
+              isActive={activeRouteThreadKey === threadKey}
+              jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
+              appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+              renamingThreadKey={renamingThreadKey}
+              renamingTitle={renamingTitle}
+              setRenamingTitle={setRenamingTitle}
+              startThreadRename={startThreadRename}
+              renamingInputRef={renamingInputRef}
+              renamingCommittedRef={renamingCommittedRef}
+              confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+              setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+              handleThreadClick={handleThreadClick}
+              navigateToThread={navigateToThread}
+              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+              handleThreadContextMenu={handleThreadContextMenu}
+              clearSelection={clearSelection}
+              commitRename={commitRename}
+              cancelRename={cancelRename}
+              attemptArchiveThread={attemptArchiveThread}
+              openPrLink={openPrLink}
+              {...(graphRollup ? { graphRollup } : {})}
+            />
+          );
+        })}
 
       {projectExpanded && hasOverflowingThreads && !isThreadListExpanded && (
         <SidebarMenuSubItem className="w-full">
@@ -1136,8 +1094,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
 
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
-  // loom: single fork bundle for goal state (goals + collapse set + toggle)
-  loomGoals: SidebarLoomGoals;
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -1158,7 +1114,6 @@ interface SidebarProjectItemProps {
 const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjectItemProps) {
   const {
     project,
-    loomGoals: { goals, collapsedGoalIds, onToggleGoalCollapse },
     isThreadListExpanded,
     activeRouteThreadKey,
     newThreadShortcutLabel,
@@ -1195,8 +1150,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  // loom: goal create/assign context-menu actions (owns its own goalEnvironment.create)
-  const { runThreadGoalMenuAction } = useLoomThreadGoalActions();
   const updateSettings = useUpdateClientSettings();
   const sidebarThreadPreviewCount = useClientSettings<SidebarThreadPreviewCount>(
     (settings) => settings.sidebarThreadPreviewCount,
@@ -1277,12 +1230,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     () => buildGraphRollupByThreadKey(sidebarThreads),
     [sidebarThreads],
   );
-  // loom: goals scoped to this (possibly grouped) logical project.
-  const projectGoals = useMemo(
-    () => goalsForProject(goals, project.memberProjects),
-    [goals, project.memberProjects],
-  );
-  const knownGoalIds = useMemo(() => new Set(projectGoals.map((goal) => goal.id)), [projectGoals]);
   const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
   const projectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
@@ -1338,48 +1285,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
-  // ONE per-project ordering, shared verbatim with the parent's Ctrl+N jump map
-  // (see buildSidebarProjectThreadOrdering): archived filter -> recency sort ->
-  // goal/loose interleave -> entry-level preview slice. `orderedEntries` is
-  // exactly what the list renders; the jump map flattens the same entries, so
-  // the two cannot drift.
-  const { sortedThreads, previewThreads, hasOverflowingThreads, orderedEntries } = useMemo(
-    () =>
-      buildSidebarProjectThreadOrdering({
-        threads: projectThreads,
-        goals: projectGoals,
-        sortOrder: threadSortOrder,
-        previewCount: sidebarThreadPreviewCount,
-        isThreadListExpanded,
-        collapsedGoalIds,
-        knownGoalIds,
-      }),
-    [
-      projectThreads,
-      projectGoals,
-      threadSortOrder,
-      sidebarThreadPreviewCount,
-      isThreadListExpanded,
-      collapsedGoalIds,
-      knownGoalIds,
-    ],
-  );
-
-  const orderedProjectThreadKeys = useMemo(
-    () =>
-      sortedThreads.map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-    [sortedThreads],
-  );
-
-  const showEmptyThreadState =
-    projectExpanded && sortedThreads.length === 0 && projectGoals.length === 0;
-  const shouldShowThreadPanel = projectExpanded;
-
-  // Status pills: the project-header dot summarises all threads; the "Show more"
-  // dot summarises only the threads hidden behind the preview slice.
-  const { projectStatus, hiddenThreadStatus } = useMemo(() => {
+  const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
       projectThreads.map((thread, index) => [
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1397,27 +1303,99 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const previewThreadKeys = new Set(
-      previewThreads.map((thread) =>
+    const visibleProjectThreads = sortThreads(
+      // loom: healthy handoff-drafter roots stay hidden until they archive; only
+      // broken ones (carrying attention) surface. See `isVisibleHandoffDrafter`.
+      projectThreads.filter(
+        (thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread),
+      ),
+      threadSortOrder,
+    );
+    const projectStatus = resolveProjectStatusIndicator(
+      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+    );
+    return {
+      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      ),
+      projectStatus,
+      visibleProjectThreads,
+    };
+  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  const pinnedCollapsedThread = useMemo(() => {
+    const activeThreadKey = activeRouteThreadKey ?? undefined;
+    if (!activeThreadKey || projectExpanded) {
+      return null;
+    }
+    return (
+      visibleProjectThreads.find(
+        (thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
+      ) ?? null
+    );
+  }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
+
+  const {
+    hasOverflowingThreads,
+    hiddenThreadStatus,
+    renderedThreads,
+    showEmptyThreadState,
+    shouldShowThreadPanel,
+  } = useMemo(() => {
+    const lastVisitedAtByThreadKey = new Map(
+      projectThreads.map((thread, index) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        threadLastVisitedAts[index] ?? null,
+      ]),
+    );
+    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
+      const lastVisitedAt = lastVisitedAtByThreadKey.get(
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      );
+      return resolveThreadStatusPill({
+        thread: {
+          ...thread,
+          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+        },
+      });
+    };
+    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
+    const previewThreads =
+      isThreadListExpanded || !hasOverflowingThreads
+        ? visibleProjectThreads
+        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
+    const visibleThreadKeys = new Set(
+      [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
     );
+    const renderedThreads = pinnedCollapsedThread
+      ? [pinnedCollapsedThread]
+      : visibleProjectThreads.filter((thread) =>
+          visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+        );
+    const hiddenThreads = visibleProjectThreads.filter(
+      (thread) =>
+        !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    );
     return {
-      projectStatus: resolveProjectStatusIndicator(
-        sortedThreads.map((thread) => resolveProjectThreadStatus(thread)),
-      ),
+      hasOverflowingThreads,
       hiddenThreadStatus: resolveProjectStatusIndicator(
-        sortedThreads
-          .filter(
-            (thread) =>
-              !previewThreadKeys.has(
-                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-              ),
-          )
-          .map((thread) => resolveProjectThreadStatus(thread)),
+        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
       ),
+      renderedThreads,
+      showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
+      shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
     };
-  }, [projectThreads, threadLastVisitedAts, sortedThreads, previewThreads]);
+  }, [
+    isThreadListExpanded,
+    pinnedCollapsedThread,
+    projectExpanded,
+    projectThreads,
+    sidebarThreadPreviewCount,
+    threadLastVisitedAts,
+    visibleProjectThreads,
+  ]);
 
   const handleProjectButtonClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1956,7 +1934,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   const createThreadForProjectMember = useCallback(
-    (member: SidebarProjectGroupMember, threadOptions?: { goalId?: GoalId }) => {
+    (member: SidebarProjectGroupMember) => {
       const currentRouteParams =
         router.state.matches[router.state.matches.length - 1]?.params ?? {};
       const currentRouteTarget = resolveThreadRouteTarget(currentRouteParams);
@@ -1979,9 +1957,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           defaultEnvMode: environmentSettings.defaultThreadEnvMode,
         }),
         newWorktreesStartFromOrigin: environmentSettings.newWorktreesStartFromOrigin,
-        goalWorktree: threadOptions?.goalId
-          ? resolveGoalWorktreeSeed({ goalId: threadOptions.goalId, threads: sidebarThreads })
-          : null,
+        goalWorktree: null,
         activeThread:
           currentActiveThread && currentActiveThread.projectId === member.id
             ? {
@@ -2013,11 +1989,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             worktreePath: seedContext.worktreePath,
             envMode: seedContext.envMode,
             startFromOrigin: seedContext.startFromOrigin,
-            goalId: threadOptions?.goalId ?? null,
-            // Entry-point clicks resume their own draft bucket (project-level
-            // vs goal-level drafts are stored separately), so these fields
-            // only seed a fresh draft — or re-seed the goal bucket when a
-            // different goal is clicked.
+            goalId: null,
+            // Entry-point clicks resume their own draft bucket, so these fields
+            // only seed a fresh draft.
             contextMode: "seed",
           }),
         );
@@ -2033,17 +2007,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         }
       })();
     },
-    [handleNewThread, isMobile, router, serverConfigs, setOpenMobile, sidebarThreads],
-  );
-
-  const createGoalSession = useCallback(
-    (goalId: GoalId, goalProjectId: ProjectId) => {
-      const member =
-        project.memberProjects.find((candidate) => candidate.id === goalProjectId) ??
-        project.memberProjects[0];
-      if (member) createThreadForProjectMember(member, { goalId });
-    },
-    [createThreadForProjectMember, project.memberProjects],
+    [handleNewThread, isMobile, router, serverConfigs, setOpenMobile],
   );
 
   const handleCreateThreadClick = useCallback(
@@ -2269,8 +2233,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             : []),
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
-          // loom: goal create/assign submenu items
-          ...buildGoalMenuItems(projectGoals, thread),
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true, icon: "trash" },
@@ -2311,8 +2273,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         markThreadUnread(threadKey, thread.latestTurn?.completedAt);
         return;
       }
-      // loom: goal create/assign actions (create goal from thread / assign to goal)
-      if (await runThreadGoalMenuAction(clicked, { thread, updateThreadMetadata })) return;
       if (clicked === "copy-path") {
         if (!threadWorkspacePath) {
           toastManager.add(
@@ -2364,10 +2324,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       markThreadUnread,
       memberProjectByScopedKey,
       project.workspaceRoot,
-      projectGoals,
-      runThreadGoalMenuAction,
       startThreadRename,
-      updateThreadMetadata,
     ],
   );
 
@@ -2485,16 +2442,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         hasOverflowingThreads={hasOverflowingThreads}
         hiddenThreadStatus={hiddenThreadStatus}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
-        loomGoalList={{
-          orderedEntries,
-          projectGoals,
-          memberProjects: project.memberProjects,
-          allProjectThreads: sidebarThreads,
-          collapsedGoalIds,
-          onToggleGoalCollapse,
-          onNewGoalSession: createGoalSession,
-          graphRollupByThreadKey,
-        }}
+        renderedThreads={renderedThreads}
+        graphRollupByThreadKey={graphRollupByThreadKey}
         showEmptyThreadState={showEmptyThreadState}
         shouldShowThreadPanel={shouldShowThreadPanel}
         isThreadListExpanded={isThreadListExpanded}
@@ -2892,123 +2841,6 @@ function SortableProjectItem({
   );
 }
 
-const SidebarChromeHeader = memo(function SidebarChromeHeader({
-  isElectron,
-}: {
-  isElectron: boolean;
-}) {
-  const stageLabel = useSidebarStageLabel();
-  const backdropVariant = resolveSidebarStageBackdropVariant(stageLabel);
-
-  return (
-    <SidebarHeader
-      className={cn(
-        "@container/sidebar-header relative h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center px-3 py-0 md:px-0",
-        isElectron && "drag-region",
-      )}
-    >
-      {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
-      <SidebarTrigger
-        className={cn(
-          "relative z-10 md:hidden",
-          backdropVariant && "hover:bg-white/15 [&_svg]:text-white/85! [&_svg]:hover:text-white!",
-        )}
-      />
-      <SidebarBrand onBackdrop={backdropVariant !== null} stageLabel={stageLabel} />
-    </SidebarHeader>
-  );
-});
-
-function SidebarBrand({ stageLabel, onBackdrop }: { stageLabel: string; onBackdrop: boolean }) {
-  return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "sidebar-brand relative z-10 ml-[var(--workspace-titlebar-content-left)] h-7 w-fit min-w-0 shrink-0 items-center gap-1 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      <T3Wordmark />
-      <span
-        className={cn(
-          "truncate text-sm font-medium tracking-tight",
-          onBackdrop ? "text-white/70" : "text-muted-foreground",
-        )}
-      >
-        Code
-      </span>
-      <span
-        className={cn(
-          "sidebar-brand-stage shrink-0 items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em]",
-          onBackdrop
-            ? "bg-white/15 text-white/80 backdrop-blur-sm"
-            : "bg-muted/50 text-muted-foreground/60",
-        )}
-      >
-        {stageLabel}
-      </span>
-    </Link>
-  );
-}
-
-function useSidebarStageLabel() {
-  const primaryServerVersion =
-    useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-
-  return resolveSidebarStageBadgeLabel({
-    primaryServerVersion,
-    fallbackStageLabel: APP_STAGE_LABEL,
-  });
-}
-
-function T3Wordmark() {
-  return (
-    <svg
-      aria-label="T3"
-      className="h-2.5 w-auto shrink-0"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-const SidebarChromeFooter = memo(function SidebarChromeFooter() {
-  const navigate = useNavigate();
-  const { isMobile, setOpenMobile } = useSidebar();
-  const handleSettingsClick = useCallback(() => {
-    if (isMobile) {
-      setOpenMobile(false);
-    }
-    void navigate({ to: "/settings" });
-  }, [isMobile, navigate, setOpenMobile]);
-
-  return (
-    <SidebarFooter className="p-2">
-      <SidebarAccountUsagePill />
-      <SidebarProviderUpdatePill />
-      <SidebarUpdatePill />
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            size="sm"
-            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={handleSettingsClick}
-          >
-            <SettingsIcon className="size-3.5" />
-            <span className="text-xs">Settings</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarFooter>
-  );
-});
-
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
@@ -3027,8 +2859,6 @@ interface SidebarProjectsContentProps {
   handleProjectDragEnd: (event: DragEndEvent) => void;
   handleProjectDragCancel: (event: DragCancelEvent) => void;
   handleNewThread: ReturnType<typeof useNewThreadHandler>;
-  // loom: single fork bundle for goal state, threaded down to each project item
-  loomGoals: SidebarLoomGoals;
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   sortedProjects: readonly SidebarProjectSnapshot[];
@@ -3069,7 +2899,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleProjectDragEnd,
     handleProjectDragCancel,
     handleNewThread,
-    loomGoals,
     archiveThread,
     deleteThread,
     sortedProjects,
@@ -3207,7 +3036,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                     {(dragHandleProps) => (
                       <SidebarProjectItem
                         project={project}
-                        loomGoals={loomGoals}
                         isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -3240,7 +3068,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               <SidebarProjectListRow
                 key={project.projectKey}
                 project={project}
-                loomGoals={loomGoals}
                 isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -3279,8 +3106,6 @@ export default function Sidebar() {
   // loom: root threads only — workstream sub-threads stay hidden in the list and
   // the jump map, surfacing through the orchestrator row's badge.
   const sidebarThreads = useMemo(() => filterRootThreads(allSidebarThreads), [allSidebarThreads]);
-  // loom: fork-added goal state (goals + collapse set), one source for render + jump map.
-  const { goals, collapsedGoalIds, toggleGoalCollapse } = useLoomSidebarGoals();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -3590,35 +3415,47 @@ export default function Sidebar() {
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {
-        if (!resolveProjectExpanded(projectExpandedById, projectExpansionPreferenceKeys(project))) {
+        const projectThreads = sortThreads(
+          (threadsByProjectKey.get(project.projectKey) ?? []).filter(
+            // loom: hidden handoff drafters are not rows, so they take no jump number.
+            (thread) => thread.archivedAt === null && isVisibleHandoffDrafter(thread),
+          ),
+          sidebarThreadSortOrder,
+        );
+        const projectExpanded = resolveProjectExpanded(
+          projectExpandedById,
+          projectExpansionPreferenceKeys(project),
+        );
+        const activeThreadKey = routeThreadKey ?? undefined;
+        const pinnedCollapsedThread =
+          !projectExpanded && activeThreadKey
+            ? (projectThreads.find(
+                (thread) =>
+                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+                  activeThreadKey,
+              ) ?? null)
+            : null;
+        const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
+        if (!shouldShowThreadPanel) {
           return [];
         }
-        // Number jumps off the SAME per-project ordering the list renders
-        // (buildSidebarProjectThreadOrdering), then flatten away collapsed-goal
-        // rows, so Ctrl+N runs strictly top-to-bottom down the visible rows.
-        const projectGoals = goalsForProject(goals, project.memberProjects);
-        const knownGoalIds = new Set(projectGoals.map((goal) => goal.id));
-        const { orderedEntries } = buildSidebarProjectThreadOrdering({
-          threads: threadsByProjectKey.get(project.projectKey) ?? [],
-          goals: projectGoals,
-          sortOrder: sidebarThreadSortOrder,
-          previewCount: sidebarThreadPreviewCount,
-          isThreadListExpanded: expandedThreadListsByProject.has(project.projectKey),
-          collapsedGoalIds,
-          knownGoalIds,
-        });
-        return flattenSidebarOrderedThreads(orderedEntries, {
-          collapsedGoalIds,
-          knownGoalIds,
-        }).map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
+        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
+        const previewThreads =
+          isThreadListExpanded || !hasOverflowingThreads
+            ? projectThreads
+            : projectThreads.slice(0, sidebarThreadPreviewCount);
+        const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
+        return renderedThreads.map((thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        );
       }),
     [
-      goals,
-      collapsedGoalIds,
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,
       projectExpandedById,
+      routeThreadKey,
       sortedProjects,
       threadsByProjectKey,
     ],
@@ -3897,7 +3734,6 @@ export default function Sidebar() {
             handleProjectDragEnd={handleProjectDragEnd}
             handleProjectDragCancel={handleProjectDragCancel}
             handleNewThread={handleNewThread}
-            loomGoals={{ goals, collapsedGoalIds, onToggleGoalCollapse: toggleGoalCollapse }}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
             sortedProjects={sortedProjects}

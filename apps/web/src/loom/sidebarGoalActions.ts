@@ -1,13 +1,12 @@
 // loom: fork-added goal actions, hoisted out of the upstream-owned Sidebar.tsx.
-// Three consumers share this module and none of them duplicates the commands:
-// the thread context menu (create goal from thread / assign to goal) on both
-// sidebars, the v1 goal-header context menu, and the Goal panel's overflow menu.
+// Two consumers share this module and neither duplicates the commands: the v2
+// thread context menu (create goal from thread / assign to goal) and the Goal
+// panel's overflow menu.
 import { useCallback } from "react";
 import {
   type ContextMenuItem,
   type EnvironmentId,
   GoalId,
-  type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -20,7 +19,6 @@ import { readLocalApi } from "../localApi";
 import { newGoalId } from "../lib/utils";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import type { GoalShell, SidebarThreadSummary } from "../types";
-import type { SidebarProjectGroupMember } from "../sidebarProjectGrouping";
 import { promptGoalForm, slugifyGoalTitle } from "./goalFormDialogStore";
 
 type UpdateThreadMetadata = (value: {
@@ -201,50 +199,4 @@ export function useGoalCrudActions(): GoalCrudActions {
   );
 
   return { renameGoal, archiveGoal, deleteGoal };
-}
-
-export function useLoomSidebarGoalActions(deps: {
-  memberProjects: readonly SidebarProjectGroupMember[];
-  allProjectThreads: readonly SidebarThreadSummary[];
-}): {
-  handleGoalContextMenu: (
-    goal: { id: GoalId; projectId: ProjectId; title: string; description: string },
-    position: { x: number; y: number },
-  ) => Promise<void>;
-} {
-  const { memberProjects, allProjectThreads } = deps;
-  const { renameGoal, archiveGoal, deleteGoal } = useGoalCrudActions();
-
-  const handleGoalContextMenu = useCallback(
-    async (
-      goal: { id: GoalId; projectId: ProjectId; title: string; description: string },
-      position: { x: number; y: number },
-    ) => {
-      const api = readLocalApi();
-      if (!api) return;
-      const member =
-        memberProjects.find((candidate) => candidate.id === goal.projectId) ?? memberProjects[0];
-      if (!member) return;
-      const environmentId = member.environmentId;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "rename", label: "Rename goal" },
-          { id: "archive", label: "Archive goal" },
-          { id: "delete", label: "Delete goal", destructive: true, icon: "trash" },
-        ],
-        position,
-      );
-      if (clicked === "rename") return renameGoal(environmentId, goal);
-      if (clicked === "archive") return archiveGoal(environmentId, goal.id);
-      if (clicked !== "delete") return;
-      return deleteGoal(
-        environmentId,
-        goal,
-        allProjectThreads.filter((thread) => thread.goalId === goal.id).length,
-      );
-    },
-    [archiveGoal, deleteGoal, memberProjects, allProjectThreads, renameGoal],
-  );
-
-  return { handleGoalContextMenu };
 }

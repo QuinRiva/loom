@@ -14,7 +14,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import { useGoalById } from "../goals/goalState";
 import { cn } from "../lib/utils";
 import { useThreadShells } from "../state/entities";
-import { filterRootThreads } from "./useLoomSidebarGoals";
+import { filterRootThreads } from "./rootThreads";
 
 export function GoalChip({
   goalId,

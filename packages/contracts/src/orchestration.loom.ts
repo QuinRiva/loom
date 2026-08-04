@@ -398,7 +398,12 @@ export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
 // plus the two shell-only projection fields, so the common subset lives here
 // once (the fork fields are byte-identical between thread and shell).
 export const LoomThreadFields = {
-  goalId: Schema.NullOr(GoalId),
+  // Decode-defaulted like every other field here: thread payloads written before
+  // goals existed (Migration 1003) carry no `goalId`, and an absent key means
+  // exactly "no goal". Keeping the key required would make loom's fork reject
+  // historical rows — and upstream's own decode tests, which construct thread
+  // literals with no knowledge of fork fields.
+  goalId: Schema.NullOr(GoalId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   // loom: §4 title provenance. Optional so dev seeds/tests may omit it; every
   // live write path stamps it and the decider treats an absent value as
   // `curated` (the conservative default that automation may not overwrite).
