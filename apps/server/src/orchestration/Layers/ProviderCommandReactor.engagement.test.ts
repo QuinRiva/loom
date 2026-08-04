@@ -55,17 +55,18 @@ describe("thread identity clause (threadIdentityClause)", () => {
     expect(clause).toContain("/tmp/child-worktree");
     expect(clause).toContain("PI_SESSION_FILE");
     expect(clause).toContain(`*_${threadId}.jsonl`);
-    expect(clause).toContain("~/.pi/agent/sessions");
   });
 
-  // The composed prompt is a cacheable prefix captured verbatim for fork replay:
-  // the clause must depend only on stable facts, never on anything that moves
-  // between turns (e.g. a resolved session path that does not exist yet at the
-  // first launch).
-  it("is byte-identical across relaunches of the same thread", () => {
-    expect(threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" })).toBe(
-      threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" }),
-    );
+  // pi's sessions root is CONFIGURABLE (`--session-dir`,
+  // `PI_CODING_AGENT_SESSION_DIR`, the `sessionDir` setting, `PI_CODING_AGENT_DIR`)
+  // and PiDriver pins none of them, so asserting pi's default root would inject a
+  // false path wherever the store is configured. Only the truthful facts are
+  // stated: the `$PI_SESSION_FILE` env and the filename convention.
+  it("claims no sessions root, only $PI_SESSION_FILE and the filename convention", () => {
+    const clause = threadIdentityClause({ threadId, cwd: "/tmp/child-worktree" });
+    expect(clause).not.toContain(".pi/agent/sessions");
+    expect(clause).not.toContain("~/.pi");
+    expect(clause).toContain("$PI_SESSION_FILE");
   });
 
   // The jsonl name is the sanitised thread id (piSessionIdForThread), so a

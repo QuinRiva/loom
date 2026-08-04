@@ -139,11 +139,21 @@ export const relocationClause = (input: {
 // (`*_<threadId>.jsonl`, per `piSessionIdForThread`) plus the runtime
 // `PI_SESSION_FILE` env, never by a resolved absolute path — which does not
 // exist yet at a first launch and would churn the cacheable prefix.
+//
+// It also never names a sessions ROOT. `~/.pi/agent/sessions` is only pi's
+// default: the store moves with `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`,
+// the `sessionDir` setting, or `PI_CODING_AGENT_DIR`, and PiDriver pins none of
+// them (it passes the server env through). Asserting the default would inject a
+// false path on any deployment that configures the store, and an agent trusting
+// it would read an unrelated session or none. `$PI_SESSION_FILE` is set by pi's
+// own bash tool for every command it runs, so the truthful fact is enough: the
+// directory containing that file is the thread's project session dir, and a
+// sibling's jsonl is found there by its own id.
 export const threadIdentityClause = (input: {
   readonly threadId: ThreadId;
   readonly cwd: string;
 }): string =>
-  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\`, the file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\` under \`~/.pi/agent/sessions\`; another thread's history resolves by that same convention from its own id (a last resort, after its report and \`consult_thread\`).`;
+  `You are thread \`${input.threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting. Your workspace is \`${input.cwd}\` — every edit you make lands there. Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run), a file named \`*_${piSessionIdForThread(input.threadId)}.jsonl\`; another thread's jsonl is named by that same convention from its own id, alongside yours — a last resort, after its report and \`consult_thread\`.`;
 
 /**
  * Turn-start re-provision guard (plan §8 item 4 — the defect B fix): re-provision
