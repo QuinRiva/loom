@@ -1,0 +1,154 @@
+---
+manager_sessions:
+  - id: 066af3a5-e6b0-446b-b078-e96b1b391b55
+    role: plan
+    authored_at: 2026-08-04T05:07:34.501Z
+---
+
+# Sidebar v2 re-home: Pi navigation on upstream's inbox
+
+**Objective.** Move loom's Pi navigation onto upstream's Sidebar v2 (the flat thread inbox with settled/snoozed shelves) so future upstream sidebar work merges as cheap unions, while Pi's orchestration affordances stay first-class. **Done** means: the design below is agreed, loom users on v2 see workstream roll-ups and attention state, goal management has a home that does not depend on the retired thread-nesting, upstream's settled lifecycle behaves coherently for workstream threads, and everything deliberately un-adopted is recorded for the next cadence pull.
+
+**Decision context.** Three investigations and an option-space study ground this plan. The headline evidence: across the 147 upstream commits since our merge-base, v2's data contracts (row props, list partition, the `latestTurnDiff` stub) did not change by a byte while ~75% of its render JSX was rewritten — so loom attaches at the frozen seams and never builds inside the render tree. Upstream has already defaulted v2 on for its nightly/dev builds and has an unmerged branch deleting v1 outright. Loom's 35 orchestration fields (`goalId`, `planLane`, `attention`, …) are already on the shell type v2 renders, so no new data plumbing is needed for any option.
+
+<Callout tone="decision">
+  The direction already set by the human and confirmed by the evidence: adopt upstream v2 wholesale; drop goal-nested thread lists from the sidebar; keep durable goals; re-integrate the few loom features that matter. This plan settles where the goal lives afterwards, and the reviewable choice is Option A / B / C below — everything else is common base. A clickable mock of Option B (with a static Option C preview) is at `.artifacts/sidebar-v2-goal-panel-mock/index.html` — open it before answering the bottom form.
+</Callout>
+
+## What the user sees (Option B, recommended)
+
+The sidebar becomes upstream's flat inbox — active cards, snoozed and settled shelves — with two loom touches on rows: a workstream roll-up badge on roots that have agent children, and attention-aware status. The goal lives in the right panel:
+
+<Screen
+  surface="panel"
+  caption="The Goal panel — GoalTasksPanel promoted into the single goal surface"
+  html={'<div class="wf-card"><div style="display:flex;align-items:center;gap:8px"><strong>Sidebar v2 re-home</strong><span class="wf-pill">goal ▾</span><span style="margin-left:auto" class="wf-muted">⋯</span></div><small class="wf-muted">Decide and build how loom&#39;s sidebar lives on upstream&#39;s Sidebar v2.</small><hr/><small><strong>Tasks</strong> · 4/6</small><p>☑ Wave 1 — investigation<br/>☑ Wave 2 — option space<br/>☐ Wave 4 — design decision</p><hr/><small><strong>Threads</strong> · handoff order</small><div class="wf-box"><span class="wf-chip">staged</span> Implementation phase</div><div class="wf-box" style="border-color:var(--wf-accent)"><span class="wf-chip accent">current</span> Sidebar v2 re-home for Pi</div><div class="wf-box wf-muted"><span class="wf-chip">settled</span> Design exploration (predecessor)</div><button>+ New session under this goal</button></div>'}
+/>
+
+- The **goal switcher** in the panel header doubles as the goals list: every project goal (with task/thread counts), including goals that currently have no threads, plus a "New goal…" entry — closing the long-standing gap where goals could not be created or reached without an existing thread.
+- The **Threads section** lists the goal's threads in serial handoff order; settled predecessors are dimmed but navigable (settled is not archived — visiting one does not unsettle it).
+- The **entry point** is a goal chip on the thread's chat header (`◎ goal title · N threads`), beside the existing `ThreadLineageBreadcrumb`; goal-less threads show no chip. Clicking toggles the panel.
+
+## Common base (in every option — not part of the choice)
+
+1. **Quick wins, already in flight behind the existing `sidebarV2Enabled` flag** (coder + review gate running): root-thread filter in v2's partition (children stop appearing as top-level inbox rows), workstream roll-up badge on v2 rows, `attention` honoured in `resolveSidebarV2Status` (a `needs_guidance` thread must not read as "ready"), `latestTurnDiff` filled from `diffAdditions`/`diffDeletions`, and `SidebarAccountUsagePill` composed into upstream's `SidebarChrome.tsx`. Defaults unchanged.
+2. **Settle semantics — blockers and triggers, one direction only.** Workstream state feeds the settle classifier in `packages/client-runtime/src/state/threadSettled.ts` but never becomes a derived column and never writes `settledOverride`:
+   - Three never-settle blockers: any `attention` flag; `planLane` is `yielded`; any non-terminal descendant (the idle parent orchestrating running children must not settle).
+   - One trigger (no-override case): lane `done`/`cancelled` with fan-in settled and no `pendingRework` settles immediately instead of waiting out the inactivity window.
+   - `planned` threads: neither trigger nor blocker. Group/goal quiescence reuses `rollupGraphState` precedence rather than inventing a second rule.
+3. **Handoff chain becomes data.** Today the `goal_continue` predecessor pointer is English prose inside the brief text — sibling order is not defensibly queryable. One nullable column fixes it, mirroring the existing `fork_from_thread_id` precedent; the same change persists the currently-discarded `handoff-recorded` destination ids (today reduced to a counter):
+
+<DataModel
+  entities={[
+    {
+      id: "pt",
+      name: "projection_threads",
+      fields: [
+        { name: "goal_id", type: "TEXT", nullable: true, note: "exists — Migration 1003" },
+        { name: "fork_from_thread_id", type: "TEXT", nullable: true, note: "exists — Migration 1023 (the precedent)" },
+        { name: "continues_thread_id", type: "TEXT", nullable: true, fk: "projection_threads.id", change: "added", note: "written by goal_continue; surfaced on the shell" },
+      ],
+    },
+  ]}
+/>
+
+4. **Deletions once v2 is loom's default:** the nesting renderer (`SidebarGoalThreadList.tsx`), the goal-collapse store (`sidebarUiStore.ts` and its localStorage key), the jump-map alignment machinery (~120 lines of `Sidebar.logic.loom.ts` — keeping `resolveGoalWorktreeSeed` and `isStagedHandoffThread`), and loom's inline chrome fork in `Sidebar.tsx`. The goal-worktree seed keeps its top precedence untouched — it is what makes a handoff successor land in its predecessor's worktree.
+5. **Rejected direction, recorded so nobody re-proposes it:** goal grouping or tree drill-ins *inside* the v2 list. It rebuilds the nesting the human dropped, in the one region upstream rewrote 75% of in nine days.
+
+## The choice: where the goal lives
+
+<Table
+  columns={["", "A — thread-anchored chip", "B — goal panel (recommended)", "C — B + goals in nav"]}
+  rows={[
+    ["Related threads of a goal", "chip popover", "panel Threads section", "same as B"],
+    ["Goal CRUD home", "chip popover + row menu", "panel + switcher + create dialog", "B + nav pane"],
+    ["Reach a goal with no threads", "no", "yes (switcher)", "yes (nav)"],
+    ["Browse all goals", "no", "partially (switcher)", "yes"],
+    ["Volatile-region exposure", "none", "none", "SidebarChrome (moderate)"],
+    ["New scope beyond base", "~zero", "small", "medium"],
+  ]}
+/>
+
+**A** is the minimal re-home: goal affordances exist only as a chip + popover on the thread you already have open. Cheapest, but goals keep no presence at all — you cannot create one ex nihilo or reach one whose threads you've lost track of; the discoverability gap survives, relocated. **B** promotes the existing `GoalTasksPanel` (already the right-panel `tasks` surface with title/description editing and the task tree) into the single goal home, adding the Threads section, the goal switcher, and a structured create dialog replacing the current three `window.prompt`s. A is a strict subset of B, so building B lands A as its first milestone. **C** adds a "Goals" button in the sidebar chrome opening a browsable goals pane — the only option where goals are visible without opening a thread, but the most new scope, the only one touching a moderately-churning upstream module, and it risks rebuilding the thread-less goal landing loom already retired once as a dead end (`_chat.index.tsx` records why). With 2–5 active goals per project, B's switcher does the same job for a fraction of the surface. **Recommendation: B**, deferring C unless goal counts grow.
+
+## Implementation shape (Option B)
+
+<FileTree
+  title="Change map — B"
+  entries={[
+    { path: "apps/server/src/persistence/Migrations/1035_ThreadContinuesFrom.ts", change: "added", note: "continues_thread_id (+ handoff destination ids); next free loom number at build time" },
+    { path: "apps/server/src/mcp/GoalHandoffHttp.ts", change: "modified", note: "goal_continue stamps continues_thread_id" },
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "continuesThreadId on thread + shell" },
+    { path: "packages/client-runtime/src/state/threadSettled.ts", change: "modified", note: "loom-marked additive: 3 blockers + 1 trigger" },
+    { path: "apps/web/src/loom/GoalChip.tsx", change: "added", note: "chat-header entry point, beside ThreadLineageBreadcrumb" },
+    { path: "apps/web/src/components/GoalTasksPanel.tsx", change: "modified", note: "promote: Threads section, goal switcher, overflow CRUD, create dialog" },
+    { path: "apps/web/src/loom/goalThreadChain.ts", change: "added", note: "pure: topological handoff-order walk over shells; unit-tested" },
+    { path: "apps/web/src/loom/sidebarGoalActions.ts", change: "modified", note: "reuse CRUD actions; rehost create/assign on v2 row context menu" },
+    { path: "apps/web/src/loom/SidebarGoalThreadList.tsx", change: "removed", note: "nesting renderer — deleted at default flip" },
+    { path: "apps/web/src/loom/sidebarUiStore.ts", change: "removed", note: "goal-collapse store — deleted at default flip" },
+    { path: "docs/upstream-sync/23-sidebar-v2-rehome.md", change: "added", note: "decision record + deliberately-un-adopted list for cadence pulls" },
+  ]}
+/>
+
+Ordered milestones, each independently landable behind the flag:
+
+1. **Quick wins** (in flight) — v2 dogfoodable in loom.
+2. **Chain data** — migration + `goal_continue` write + shell field. Nothing user-visible.
+3. **Chip + panel Threads section** — Option A capability, hosted in the panel rather than a popover.
+4. **Panel promotion** — switcher, create dialog, overflow CRUD; rehost row context-menu items; delete the three `window.prompt`s.
+5. **Settle semantics** — blockers + triggers in `threadSettled.ts`, with cases added to its existing test file.
+6. **Default flip + deletions** — v2 becomes loom's default surface (v1 stays mounted on `/settings` until upstream's deletion arrives); nesting machinery deleted; decision record written.
+
+**Non-goals:** `WorkstreamPanel`/`WorkstreamGraph` (untouched — ChatView-side); restoring known intentional fork drops; task editing in the panel (tasks stay agent-written); any goal grouping inside the v2 list; deploying.
+
+## Verification
+
+Per milestone: `vp run typecheck`, `vp check`, targeted suites (`Sidebar.logic.test.ts`, `workstreamRollup.test.ts`, `threadSettled.test.ts`, new `goalThreadChain` tests). Milestone 2 additionally gets the DB-copy migration smoke against a copy of the cockpit `state.sqlite` on a spare port. End-to-end: the dev-verify recipe with a seeded workstream — enable v2, confirm children hidden, roll-up badge + popover navigation, attention states, chip → panel → navigate a settled predecessor without unsettling it, create a goal ex nihilo via the switcher, new-session-under-goal lands in the goal's worktree. Upstream v2 has no component tests, so live verification is the bar, not an optional extra.
+
+## Risks
+
+- **Cadence-pull collisions** are the designed-against risk: every attachment lands at seams that were byte-identical across 147 commits, in loom-owned files, or as loom-marked additive hunks. The one accepted exposure is `threadSettled.ts` (three upstream commits in the window) — additive, marked blocks minimise re-apply cost.
+- **Upstream's dev default flip** (`c13a021e4`) arrives at the next pull and would flip loom dev builds to v2 while the deployed cockpit stays v1 — question 3 below decides the posture *before* it surprises us.
+- **Panel-goal vs open-thread divergence**: the switcher means the panel can show a goal unrelated to the open thread. The mock takes a position (panel follows thread selection when the thread has a goal; amber note when diverged) — react to it in the mock rather than in prose.
+
+<QuestionForm
+  questions={[
+    {
+      id: "option",
+      title: "Which goal-home option do we build?",
+      mode: "single",
+      options: [
+        { id: "a", label: "A — thread-anchored chip only", detail: "Minimal; discoverability gap survives." },
+        { id: "b", label: "B — goal panel as the goal home", recommended: true, detail: "Closes CRUD + discoverability without a route; A lands as its first milestone." },
+        { id: "c", label: "C — B plus goals in sidebar nav", detail: "Browsable goals; most scope; moderate chrome merge exposure." },
+      ],
+    },
+    {
+      id: "quickwins",
+      title: "Quick wins started pre-approval (behind the off-by-default flag) — confirm?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Confirmed — land them once the review gate passes", recommended: true },
+        { id: "hold", label: "Hold the branch until the whole design is approved" },
+      ],
+    },
+    {
+      id: "stage",
+      title: "When upstream's channel-derived default arrives, loom dev builds flip to v2 while deployed cockpit stays v1. Posture?",
+      mode: "single",
+      options: [
+        { id: "accept", label: "Accept the split as dogfooding", recommended: true, detail: "Dev on v2 early; deployed flips only at milestone 6." },
+        { id: "pin", label: "Pin loom to v1 everywhere until milestone 6", detail: "One loom-marked hunk in branding.logic.ts; uniform but no early dogfood." },
+      ],
+    },
+    {
+      id: "chain",
+      title: "Land the handoff-chain schema (continues_thread_id + persist handoff destination ids)?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes — milestone 2 as planned", recommended: true, detail: "Every option's ordering claim depends on it; precedented; also fixes the staged-successor ambiguity." },
+        { id: "no", label: "No — show goal siblings by createdAt only", detail: "Order is wrong whenever a goal has parallel roots or forks." },
+      ],
+    },
+  ]}
+/>
