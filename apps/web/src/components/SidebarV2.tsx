@@ -1430,6 +1430,7 @@ export default function SidebarV2() {
         serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
       const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
+      const rollup = graphRollupByThreadKey.get(threadKey);
       // Snooze outranks settled classification: an explicitly snoozed thread
       // belongs to the shelf even if it would also auto-settle (the shelf's
       // wake time is a stronger statement about when it matters again).
@@ -1437,7 +1438,19 @@ export default function SidebarV2() {
         snoozed.push(thread);
       } else if (
         supportsSettlement &&
-        effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
+        effectiveSettled(thread, {
+          now,
+          autoSettleAfterDays,
+          changeRequestState,
+          // loom: workstream lifecycle as blockers/triggers. The rollup was
+          // already built above from the unfiltered shells, and its
+          // `total` (non-archived descendants) minus `breakdown.done`
+          // (plan-terminal ones) IS the non-terminal-descendant fact — no
+          // second traversal. A root with no descendants has no rollup.
+          workstream: {
+            hasNonTerminalDescendant: rollup !== undefined && rollup.total > rollup.breakdown.done,
+          },
+        })
       ) {
         settled.push(thread);
       } else {
@@ -1458,6 +1471,7 @@ export default function SidebarV2() {
   }, [
     autoSettleAfterDays,
     changeRequestStateByKey,
+    graphRollupByThreadKey,
     nowMinute,
     scopedProjectKeys,
     serverConfigs,

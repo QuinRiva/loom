@@ -1,4 +1,7 @@
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
+// loom: the canonical "a done isolated child still owes its branch merge"
+// predicate, shared with the dispatcher's generation-join gate.
+import { isFanInPending } from "@t3tools/shared/workstreamIsolation";
 
 export type ChangeRequestStateLike = "open" | "closed" | "merged";
 
@@ -228,6 +231,62 @@ export function threadWokeAt(
  */
 export const CHANGE_REQUEST_SETTLE_IDLE_MS = 60 * 60 * 1_000;
 
+// ---------------------------------------------------------------------------
+// loom: workstream lifecycle → settle classification, ONE DIRECTION ONLY.
+// The plan lane never writes `settledOverride` and settle state never writes
+// the plan lane; workstream state only enters here, at read time, as blockers
+// and triggers. Everything below is additive and opt-in: `effectiveSettled`
+// applies it only when the caller passes a `workstream` context, so callers
+// that do not (mobile, ChatView) keep upstream behaviour exactly.
+// ---------------------------------------------------------------------------
+
+/**
+ * The one workstream input that is not on the shell. Descendant liveness is a
+ * subtree fact, so the caller supplies it — the sidebar derives it from the
+ * rollup it already builds rather than walking the graph again.
+ */
+export interface WorkstreamSettleContext {
+  /** Any descendant in a lane other than done/cancelled, anywhere in the subtree. */
+  readonly hasNonTerminalDescendant: boolean;
+}
+
+/**
+ * Never-settle blockers, ranked with (and applied alongside) the activity
+ * blockers so they outrank an explicit settle:
+ *  1. any attention flag — something needs a human, and only a human clears it;
+ *  2. `yielded` — parked awaiting a decision: quiescent by every runtime
+ *     signal, yet owed. The single sharpest divergence between the two axes;
+ *  3. a non-terminal descendant — the idle orchestrator whose subtree is still
+ *     burning tokens is quiescent but load-bearing.
+ * `planned` is deliberately neither blocker nor trigger.
+ */
+export function workstreamSettleBlocked(
+  shell: Pick<OrchestrationThreadShell, "attention" | "planLane">,
+  workstream: WorkstreamSettleContext,
+): boolean {
+  return (
+    shell.attention.length > 0 ||
+    shell.planLane === "yielded" ||
+    workstream.hasNonTerminalDescendant
+  );
+}
+
+/**
+ * The finished-work trigger: a plan-terminal thread that owes nothing settles
+ * immediately instead of loitering for the whole inactivity window. Two
+ * exceptions keep it honest — `pendingRework` marks a `done` thread a gate can
+ * reopen at any moment (settling then un-settling on the reopen is churn that
+ * hides a coder the reviewer is actively bouncing), and a `done` isolated child
+ * whose fan-in has not landed still owes a branch merge that must stay visible.
+ * `cancelled` never fans in, so it always qualifies.
+ */
+export function workstreamSettleTriggered(
+  shell: Pick<OrchestrationThreadShell, "planLane" | "pendingRework" | "isolation" | "fanInState">,
+): boolean {
+  if (shell.planLane !== "done" && shell.planLane !== "cancelled") return false;
+  return !shell.pendingRework && !isFanInPending(shell);
+}
+
 /**
  * Settled resolution over the server-backed settled lifecycle. Activity
  * blockers (pending approval/user-input, a live session, an unadjudicated
@@ -245,6 +304,9 @@ export function effectiveSettled(
     readonly now: string;
     readonly autoSettleAfterDays: number | null;
     readonly changeRequestState?: ChangeRequestStateLike | null;
+    // loom: opt-in workstream lifecycle inputs (see WorkstreamSettleContext).
+    // Absent/null ⇒ upstream classification, unchanged.
+    readonly workstream?: WorkstreamSettleContext | null;
   },
 ): boolean {
   // Blocked work must remain visible even when a user explicitly settled it.
@@ -266,10 +328,20 @@ export function effectiveSettled(
       Date.parse(shell.settledAt) >= Date.parse(shell.latestUserMessageAt);
     if (!serverAdjudicated) return false;
   }
+  // loom: workstream blockers rank with the activity blockers above — they
+  // outrank an explicit settle, because a thread owed a human decision or
+  // orchestrating live children is not quiescent whatever the user pinned.
+  if (options.workstream != null && workstreamSettleBlocked(shell, options.workstream))
+    return false;
   if (shell.settledOverride === "settled") return true;
   // "active" is the explicit keep-active pin: it suppresses auto-settle
   // until real activity clears it server-side.
   if (shell.settledOverride === "active") return false;
+  // loom: the finished-work trigger, no-override case only. A settled row
+  // has no `settledAt`, so it sorts by last activity like every other
+  // derived settle (`resolveSettledTimestamp`) — a just-finished thread
+  // lands at the head of the shelf, which is the wanted order.
+  if (options.workstream != null && workstreamSettleTriggered(shell)) return true;
   if (options.changeRequestState === "merged" || options.changeRequestState === "closed") {
     // Only an idle thread settles on the merge signal: the signal itself
     // never clears, so without this guard fresh activity (a message sent in
