@@ -70,9 +70,6 @@ import {
   idleLastProgressMs,
   idleWakeWithinGrace,
   selectThreadsToDispatch,
-  isBriefNeeded,
-  briefNeededSinceMs,
-  briefNeededCommandId,
   buildBriefNeededMessage,
   WORKSTREAM_CONTROL_PLANE_MARKER,
   slowToolNoticeIndex,
@@ -83,6 +80,15 @@ import {
   WorkstreamDispatcherLive,
   wakeRateGuardTrips,
 } from "./WorkstreamDispatcher.ts";
+import { dayBucket } from "../receiptDedup.ts";
+import {
+  briefNeededAttentionParentIds,
+  briefNeededCommandId,
+  briefNeededSinceMs,
+  BRIEF_NEEDED_ATTENTION_MS,
+  isBriefNeeded,
+  rungFor,
+} from "../briefNeeded.ts";
 import { WorktreeProvisioner } from "../../project/WorktreeProvisioner.ts";
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -502,8 +508,10 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
     // The receipt/episode key advances with it, so a fresh batched wake fires
     // instead of the prior episode's stale marker suppressing it.
     expect(
-      briefNeededCommandId("child-1" as ThreadId, briefNeededSinceMs(child, map([dep, child]))),
-    ).not.toBe(briefNeededCommandId("child-1" as ThreadId, Date.parse("2026-06-24T00:00:00.000Z")));
+      briefNeededCommandId("child-1" as ThreadId, briefNeededSinceMs(child, map([dep, child])), 0),
+    ).not.toBe(
+      briefNeededCommandId("child-1" as ThreadId, Date.parse("2026-06-24T00:00:00.000Z"), 0),
+    );
   });
 
   it("excludes dependenciesSince while the current dep set is UNSATISFIED (added-unfinished-dep state)", () => {
@@ -620,21 +628,74 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
   });
 });
 
-describe("briefNeededCommandId (episode-keyed marker id)", () => {
+describe("briefNeededCommandId (episode + rung keyed marker id)", () => {
   it("keys by (childId, briefNeededSince) so a fresh episode re-arms", () => {
-    const a = briefNeededCommandId("child-1" as ThreadId, 1000);
-    const b = briefNeededCommandId("child-1" as ThreadId, 2000);
+    const a = briefNeededCommandId("child-1" as ThreadId, 1000, 0);
+    const b = briefNeededCommandId("child-1" as ThreadId, 2000, 0);
     expect(a).not.toBe(b);
-    expect(a).toBe(briefNeededCommandId("child-1" as ThreadId, 1000));
+    expect(a).toBe(briefNeededCommandId("child-1" as ThreadId, 1000, 0));
     expect(a.startsWith("server:workstream-brief-needed:")).toBe(true);
+  });
+
+  it("keys by rung so a node that merely SITS there re-arms on the wall clock", () => {
+    // The defect this whole change exists for: the episode clock is derived from
+    // stable transitions, so without the rung the id is spent forever after the
+    // first notice and nobody is ever told again.
+    expect(briefNeededCommandId("child-1" as ThreadId, 1000, 0)).not.toBe(
+      briefNeededCommandId("child-1" as ThreadId, 1000, 1),
+    );
   });
 });
 
-describe("buildBriefNeededMessage (scaffold plan §2 batched notice)", () => {
-  it("names every eligible child by graph key + role + title and instructs workstream_brief", () => {
+describe("rungFor (brief-needed re-arming ladder, liveness plan §3.2)", () => {
+  const HOUR = 3_600_000;
+  const DAY = 86_400_000;
+
+  it("fires rung 0 immediately — the existing immediate wake is never delayed", () => {
+    expect(rungFor(0)).toBe(0);
+    expect(rungFor(HOUR - 1)).toBe(0);
+  });
+
+  it("advances at exactly 1h and 6h", () => {
+    expect(rungFor(HOUR)).toBe(1);
+    expect(rungFor(6 * HOUR - 1)).toBe(1);
+    expect(rungFor(6 * HOUR)).toBe(2);
+  });
+
+  it("then re-arms once per day, indefinitely", () => {
+    expect(rungFor(DAY)).toBe(3);
+    expect(rungFor(2 * DAY - 1)).toBe(3);
+    expect(rungFor(2 * DAY)).toBe(4);
+    expect(rungFor(30 * DAY)).toBe(32);
+  });
+
+  it("is monotonic, so a rung id is never reused for a LATER age", () => {
+    let previous = -1;
+    for (let ageMs = 0; ageMs <= 5 * DAY; ageMs += HOUR / 4) {
+      const rung = rungFor(ageMs);
+      expect(rung).toBeGreaterThanOrEqual(previous);
+      previous = rung;
+    }
+  });
+});
+
+describe("buildBriefNeededMessage (batched notice + the three sanctioned moves)", () => {
+  const child = (
+    overrides: Partial<Parameters<typeof buildBriefNeededMessage>[0][number]> = {},
+  ) => ({
+    id: "child-a" as ThreadId,
+    graphKey: "api" as string | null,
+    role: "coder" as string | null,
+    title: "Dedup endpoint",
+    ageMs: 0,
+    rung: 0,
+    ...overrides,
+  });
+
+  it("names every eligible child by graph key + role + title", () => {
     const text = buildBriefNeededMessage([
-      { id: "child-a" as ThreadId, graphKey: "api", role: "coder", title: "Dedup endpoint" },
-      { id: "child-b" as ThreadId, graphKey: null, role: "reviewer", title: "Review it" },
+      child(),
+      child({ id: "child-b" as ThreadId, graphKey: null, role: "reviewer", title: "Review it" }),
     ]);
     expect(text).toContain(WORKSTREAM_CONTROL_PLANE_MARKER);
     expect(text).toContain("2 of your Workstream sub-threads");
@@ -642,14 +703,86 @@ describe("buildBriefNeededMessage (scaffold plan §2 batched notice)", () => {
     expect(text).toContain("Dedup endpoint");
     // Keyless child falls back to its thread id.
     expect(text).toContain("`child-b`");
-    expect(text).toContain("workstream_brief");
   });
 
   it("uses the singular lead for exactly one child", () => {
-    const text = buildBriefNeededMessage([
-      { id: "child-a" as ThreadId, graphKey: "api", role: "coder", title: "Dedup endpoint" },
-    ]);
-    expect(text).toContain("One of your Workstream sub-threads");
+    expect(buildBriefNeededMessage([child()])).toContain("One of your Workstream sub-threads");
+  });
+
+  it("names ALL THREE sanctioned exits, including deliberate deferral", () => {
+    // The contradiction this fixes: the old text sanctioned leaving a node
+    // unbriefed while the rails alarmed on exactly that state and named no way
+    // out of it. A re-arming ladder is only legitimate if deferral has a move.
+    const text = buildBriefNeededMessage([child()]);
+    expect(text).toContain("workstream_brief");
+    expect(text).toContain("workstream_set_lane");
+    expect(text).toContain("planned");
+    expect(text).toContain("cancelled");
+    expect(text).not.toContain("Leave a node unbriefed only if you intend it not to run yet");
+  });
+
+  it("says how long a node has been stalled once past the first rung", () => {
+    expect(buildBriefNeededMessage([child({ ageMs: 6 * 3_600_000, rung: 2 })])).toContain(
+      "stalled 6h",
+    );
+    expect(buildBriefNeededMessage([child({ ageMs: 3 * 86_400_000, rung: 5 })])).toContain(
+      "stalled 3d",
+    );
+    // Rung 0 is the immediate notice — no age to report yet.
+    expect(buildBriefNeededMessage([child()])).not.toContain("— stalled");
+  });
+});
+
+describe("briefNeededAttentionParentIds (derived 24h parent attention, plan §3.3)", () => {
+  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+    new Map(threads.map((t) => [t.id, t] as const));
+  const nowMs = Date.parse(now);
+  const iso = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(nowMs + offsetMs));
+  const unbriefed = (overrides: Partial<OrchestrationThreadShell> = {}) =>
+    shell({
+      id: "child-1",
+      parentThreadId: "parent-1" as ThreadId,
+      planLane: "ready",
+      session: null,
+      latestUserMessageAt: null,
+      kickoffBriefPath: null,
+      ...overrides,
+    });
+
+  it("flags the PARENT once a child has sat brief-needed for 24h", () => {
+    const child = unbriefed({ createdAt: iso(-BRIEF_NEEDED_ATTENTION_MS - 1) });
+    expect([...briefNeededAttentionParentIds([child], map([child]), nowMs)]).toEqual(["parent-1"]);
+  });
+
+  it("flags exactly at the 24h boundary", () => {
+    const child = unbriefed({ createdAt: iso(-BRIEF_NEEDED_ATTENTION_MS) });
+    expect(briefNeededAttentionParentIds([child], map([child]), nowMs).size).toBe(1);
+  });
+
+  it("does NOT flag inside the window", () => {
+    const child = unbriefed({ createdAt: iso(-BRIEF_NEEDED_ATTENTION_MS + 1) });
+    expect(briefNeededAttentionParentIds([child], map([child]), nowMs).size).toBe(0);
+  });
+
+  it("self-clears the moment the node is briefed, held, or cancelled", () => {
+    const aged = { createdAt: iso(-BRIEF_NEEDED_ATTENTION_MS - 1) };
+    for (const exit of [
+      { kickoffBriefPath: "/briefs/child-1.md" },
+      { planLane: "planned" as const },
+      { planLane: "cancelled" as const },
+    ]) {
+      const child = unbriefed({ ...aged, ...exit });
+      expect(briefNeededAttentionParentIds([child], map([child]), nowMs).size).toBe(0);
+    }
+  });
+
+  it("does not flag a node still gated on an unfinished dependency", () => {
+    const dep = shell({ id: "dep", parentThreadId: "parent-1" as ThreadId, planLane: "ready" });
+    const child = unbriefed({
+      createdAt: iso(-BRIEF_NEEDED_ATTENTION_MS - 1),
+      blockedBy: ["dep" as ThreadId],
+    });
+    expect(briefNeededAttentionParentIds([child], map([dep, child]), nowMs).size).toBe(0);
   });
 });
 
@@ -2820,12 +2953,18 @@ describe("childWakeEvidenceNeeds (phase 1 — lazy evidence planning)", () => {
 });
 
 describe("classifyChildWakeFull (phase 2 — episode keys + skip reasons)", () => {
-  it("error → an `error` wake keyed on nothing but the child", () => {
+  it("error → an `error` wake keyed by the child's DAY BUCKET, so it re-arms daily", () => {
+    // Liveness plan §3.4: keyed on the child alone this fired exactly once ever,
+    // so a child that stays dead was never mentioned again — and §7 erases the
+    // stored flag at the next unrelated turn-start, leaving nothing anywhere.
     const child = shell({ id: "child-1", attention: ["error"], session: null });
     expect(classifyChildWakeFull(child, wakeEvidence(), t0, new Set())).toEqual({
       kind: "error",
-      episode: "error",
+      episode: `error:${dayBucket(t0)}`,
     });
+    expect(classifyChildWakeFull(child, wakeEvidence(), t0 + 86_400_000, new Set())).not.toEqual(
+      classifyChildWakeFull(child, wakeEvidence(), t0, new Set()),
+    );
   });
 
   it("awaiting-input → a wake episode-keyed by the OPEN requestId set", () => {
@@ -6620,12 +6759,67 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
                 (c.threadId === ("child-a" as ThreadId) || c.threadId === ("child-b" as ThreadId)),
             ),
           ).toHaveLength(0);
-          // One durable per-child receipt marker written after delivery.
+          // One durable per-child receipt marker written after delivery, keyed by
+          // (episode, rung) — rung 0 for a freshly-eligible node.
           const markers = dispatched.filter(
             (c) =>
               c.type === "thread.activity.append" && c.activity.kind === "workstream.brief-needed",
           );
           expect(markers).toHaveLength(2);
+          for (const marker of markers) {
+            expect(marker.commandId.endsWith(":0")).toBe(true);
+            expect(
+              marker.type === "thread.activity.append" && marker.activity.payload,
+            ).toMatchObject({ rung: 0 });
+          }
+        }),
+      ),
+  );
+
+  effectIt.effect(
+    "a node that has merely SAT there owes a later rung, so the notice re-arms on the wall clock",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // The whole point of the ladder: `briefNeededSince` is derived from
+          // stable transitions and cannot advance while a node just sits, so the
+          // un-runged marker silenced the rail forever after the first notice.
+          const aged = shell({
+            id: "child-aged",
+            parentThreadId: PARENT_ID,
+            graphKey: "api",
+            title: "Dedup endpoint",
+            kickoffBriefPath: null,
+            createdAt: DateTime.formatIso(DateTime.makeUnsafe(Date.parse(now) - 3 * 86_400_000)),
+          });
+          const dispatched: Array<OrchestrationCommand> = [];
+          // The rung is wall-clock arithmetic, so the fixture clock must agree
+          // with the fixture timestamps (the suite defaults to epoch 0).
+          yield* TestClock.setTime(Date.parse(now));
+          yield* Effect.gen(function* () {
+            const dispatcher = yield* WorkstreamDispatcher;
+            yield* dispatcher.start();
+            yield* dispatcher.drain;
+          }).pipe(Effect.provide(buildLayer(dispatched, [rootParent, aged])));
+
+          const marker = dispatched.find(
+            (c) =>
+              c.type === "thread.activity.append" && c.activity.kind === "workstream.brief-needed",
+          );
+          expect(marker?.commandId).toBe(
+            briefNeededCommandId(
+              "child-aged" as ThreadId,
+              Date.parse(now) - 3 * 86_400_000,
+              rungFor(3 * 86_400_000),
+            ),
+          );
+          // And the notice tells the parent how long it has been stalled.
+          const notice = dispatched.find(
+            (c) => c.type === "thread.turn.start" && c.threadId === PARENT_ID,
+          );
+          expect(notice?.type === "thread.turn.start" && notice.message.text).toContain(
+            "stalled 3d",
+          );
         }),
       ),
   );

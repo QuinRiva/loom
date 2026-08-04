@@ -145,6 +145,21 @@ export const makeReceiptDedupedDelivery = <RE>(deps: {
     };
   });
 
+/**
+ * Wall-clock day bucket for a deterministic command id (liveness plan §3.4).
+ *
+ * A deterministic id is at-most-once *forever*, which is right for an episode
+ * that advances with its subject and wrong for a condition that just persists —
+ * a still-dead thread's `error` id is spent on the first sighting and the only
+ * realistic actor is never told again. Appending this bucket re-arms such an id
+ * at most once per day: enough to keep a live condition visible, cheap enough to
+ * never become noise.
+ *
+ * Accepted asymmetry: a flag cleared within the same bucket re-raises only at the
+ * next bucket boundary (≤24 h). Acceptable for a rail with no live victim.
+ */
+export const dayBucket = (nowMs: number): number => Math.floor(nowMs / 86_400_000);
+
 // ---------------------------------------------------------------------------
 // Wake rate budget (per-parent runaway guard).
 // ---------------------------------------------------------------------------

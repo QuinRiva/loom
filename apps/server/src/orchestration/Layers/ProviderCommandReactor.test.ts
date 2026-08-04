@@ -26,6 +26,7 @@ import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
@@ -38,6 +39,7 @@ import { TextGenerationError } from "@t3tools/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
+import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
   ProviderService,
@@ -3691,7 +3693,7 @@ describe("ProviderCommandReactor", () => {
           Layer.succeed(ServerSettingsService, {
             getSettings: Effect.succeed({ providerInstances: [] }),
           } as unknown as ServerSettingsService["Service"]),
-          // The sweep's brief-needed backstop dedups its attention-raise on command
+          // Every sweep rail dispatches through `deliverOnce`, which reads command
           // receipts; this pass exercises stuck-launch recovery, so the real (empty)
           // in-memory repository is enough to satisfy the dependency.
           OrchestrationCommandReceiptRepositoryLive.pipe(Layer.provide(SqlitePersistenceMemory)),

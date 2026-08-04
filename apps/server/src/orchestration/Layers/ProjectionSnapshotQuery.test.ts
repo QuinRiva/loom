@@ -20,6 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { TestClock } from "effect/testing";
 
 import { ServerConfig, layerTest as serverConfigLayerTest } from "../../config.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -2923,6 +2924,97 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         refs.map((project) => project.id),
         [asProjectId("project-1"), asProjectId("project-2")],
       );
+    }),
+  );
+});
+
+const NOW_MS = Date.parse("2026-06-24T00:00:00.000Z");
+
+projectionSnapshotLayer("derived brief-needed parent attention (liveness plan §3.3)", (it) => {
+  // A node that is released, unblocked, and unbriefed cannot run and cannot help
+  // itself. Past 24h its parent carries `needs_guidance` for a human — DERIVED at
+  // the outward read boundary, because every turn-start clears stored attention
+  // (which is exactly how the old backstop's flag was erased minutes after it was
+  // raised). Exercised against real SQL on BOTH outward read paths: the snapshot
+  // and the per-thread lookup that backs every `thread-upserted` shell event.
+  const seed = (
+    sql: SqlClient.SqlClient,
+    childCreatedAt: string,
+    kickoffBriefPath: string | null,
+  ) =>
+    Effect.gen(function* () {
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-1', 'Project 1', '/tmp/project-1', NULL, '[]',
+          '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:01.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, parent_thread_id, role, purpose, plan_lane,
+          kickoff_brief_path, title, model_selection_json, runtime_mode,
+          interaction_mode, created_at, updated_at, deleted_at
+        ) VALUES
+          ('parent-1', 'project-1', NULL, NULL, NULL, 'in_progress', NULL,
+           'Orchestrator', '{"provider":"codex","model":"gpt-5-codex"}',
+           'full-access', 'default',
+           '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL),
+          ('child-1', 'project-1', 'parent-1', 'coder', 'do the thing', 'ready',
+           ${kickoffBriefPath}, 'Unbriefed node',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           ${childCreatedAt}, ${childCreatedAt}, NULL)
+      `;
+    });
+
+  const parentAttention = Effect.fn("parentAttention")(function* (
+    childCreatedAt: string,
+    kickoffBriefPath: string | null,
+  ) {
+    const snapshotQuery = yield* ProjectionSnapshotQuery;
+    // The 24h predicate is wall-clock arithmetic, so the fixture clock must agree
+    // with the fixture timestamps (the suite defaults to epoch 0).
+    yield* TestClock.setTime(NOW_MS);
+    yield* seed(yield* SqlClient.SqlClient, childCreatedAt, kickoffBriefPath);
+    const snapshot = yield* snapshotQuery.getShellSnapshot();
+    const byId = yield* snapshotQuery.getThreadShellById(ThreadId.make("parent-1"));
+    return {
+      fromSnapshot: snapshot.threads.find((thread) => thread.id === "parent-1")?.attention ?? [],
+      fromLookup: byId._tag === "Some" ? byId.value.attention : [],
+    };
+  });
+
+  const aged = () => DateTime.formatIso(DateTime.makeUnsafe(NOW_MS - 25 * 3_600_000));
+  const fresh = () => DateTime.formatIso(DateTime.makeUnsafe(NOW_MS - 60_000));
+
+  it.effect("flags the parent on BOTH outward read paths once a child sits 24h unbriefed", () =>
+    Effect.gen(function* () {
+      const attention = yield* parentAttention(aged(), null);
+      assert.deepStrictEqual(attention.fromSnapshot, ["needs_guidance"]);
+      // Equal on both paths or the flag would vanish from the UI on the parent's
+      // next unrelated event (the client replaces the row wholesale).
+      assert.deepStrictEqual(attention.fromLookup, attention.fromSnapshot);
+    }),
+  );
+
+  it.effect("does not flag inside the window", () =>
+    Effect.gen(function* () {
+      const attention = yield* parentAttention(fresh(), null);
+      assert.deepStrictEqual(attention.fromSnapshot, []);
+      assert.deepStrictEqual(attention.fromLookup, []);
+    }),
+  );
+
+  it.effect("self-clears the moment the brief lands", () =>
+    Effect.gen(function* () {
+      const attention = yield* parentAttention(aged(), "/briefs/child-1.md");
+      assert.deepStrictEqual(attention.fromSnapshot, []);
+      assert.deepStrictEqual(attention.fromLookup, []);
     }),
   );
 });
