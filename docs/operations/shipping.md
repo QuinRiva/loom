@@ -81,8 +81,16 @@ run `pnpm ship -m "<summary>" --merge-only`. In order, the script:
 
 ## Repo gotchas (each has bitten before)
 
-- **Never push directly to `main`.** The script refuses to run on `main`; keep
-  it that way when doing anything by hand.
+- **Never push directly to `main`.** This is now mechanical, not advisory: the
+  tracked pre-push hook [`.vite-hooks/pre-push`](../../.vite-hooks/pre-push)
+  (run by the Vite+ hook dispatcher, so every worktree of this clone inherits
+  it) fails any push whose destination ref is `refs/heads/main`, however it is
+  spelled and whichever remote it targets. Feature-branch pushes, tags and the
+  `--delete` cleanup are untouched, and `gh pr merge` is server-side so the
+  merge is unaffected. The script also refuses to run on `main`; keep both that
+  way when doing anything by hand. A genuine emergency can set
+  `ALLOW_PUSH_TO_MAIN=1` for one push — if you reach for it, say so in your
+  report.
 - **Never `gh pr merge --delete-branch`.** These are shared-clone worktrees with
   `main` checked out elsewhere, so `--delete-branch` fails mid-way and leaves the
   remote branch undeleted. Delete the remote branch explicitly _after_ a
