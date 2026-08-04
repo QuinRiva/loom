@@ -277,26 +277,34 @@ one `ChatView`, as today; tabs are a lightweight strip plus the open-set store. 
 
 ---
 
-## 5. Keyboard (decision; behaviour change flagged in §10.2)
+## 5. Keyboard (decision; revised after implementation — see §10.2)
 
-Repurpose the existing thread-traversal bindings to operate on the tab strip, rather than
-inventing a parallel scheme:
+The tab strip has its **own** command family. The sidebar's `thread.*` bindings are left
+entirely alone:
 
-| Binding                       | Command                           | New behaviour                                                                                           |
-| ----------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `mod+shift+[` / `mod+shift+]` | `thread.previous` / `thread.next` | prev/next **tab** (strip order, no wrap), when ≥1 tab is open; otherwise today's sidebar-list traversal |
-| `mod+1` … `mod+9`             | `thread.jump.N`                   | activate **tab N** (strip position), when ≥1 tab is open; otherwise today's sidebar jump                |
-| `mod+w`                       | **new** `tab.close`               | close the active tab (free: `terminal.close` is gated `when terminalFocus`)                             |
-| `mod+shift+t`                 | **new** `tab.reopenClosed`        | reopen the most recently closed tab (persistent), backed by `recentlyClosed`                            |
+| Binding                                | Command                             | Behaviour                                                                    |
+| -------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
+| `mod+alt+[` / `mod+alt+]`              | **new** `tab.previous` / `tab.next` | prev/next **tab** (strip order, no wrap)                                     |
+| `mod+alt+1` … `mod+alt+9`              | **new** `tab.jump.N`                | activate **tab N** (strip position)                                          |
+| `mod+w`                                | **new** `tab.close`                 | close the active tab (free: `terminal.close` is gated `when terminalFocus`)  |
+| `mod+shift+t`                          | **new** `tab.reopenClosed`          | reopen the most recently closed tab (persistent), backed by `recentlyClosed` |
+| `mod+shift+[` / `]`, `mod+1` … `mod+9` | `thread.*` (unchanged)              | sidebar thread traversal / jump, exactly as before tabs existed              |
 
-- Fallback rule: when the tab set is empty, all four traversal bindings behave exactly as
-  today, so no muscle memory breaks and no default bindings change.
-- Contract changes: add `tab.close` and `tab.reopenClosed` to
-  `packages/contracts/src/keybindings.ts` and defaults in `apps/server/src/keybindings.ts`.
+- `mod+alt+…` is deliberate: it is nearly-unclaimed real estate (only `mod+alt+b`, the right
+  panel), and `apps/web/src/keybindings.ts` already aliases `BracketLeft`/`BracketRight`/
+  `Digit0-9` by `event.code`, so alt-modified brackets and digits still match on mac.
+- No fallback rule: a tab command that cannot act (no tabs, index past the end) does nothing —
+  including no `preventDefault()` — so the key falls through untouched.
+- Contract changes: `tab.close`, `tab.reopenClosed`, `tab.previous`, `tab.next` and the
+  `tab.jump.1..9` family in `packages/contracts/src/keybindings.ts`; defaults in the canonical
+  table `packages/shared/src/keybindings.ts` (`apps/server/src/keybindings.ts` re-exports it).
+  The server's startup sync appends the new commands into existing users' `keybindings.json`.
 - Handler placement: a loom hook `useThreadTabKeyboard` mounted in `ChatRouteGlobalShortcuts`
-  (`apps/web/src/routes/_chat.tsx`). It `preventDefault()`s when it handles a command;
-  `Sidebar.tsx`'s existing traversal handler must check `event.defaultPrevented` first (add
-  the guard if missing) so the two window listeners cannot double-fire.
+  (`apps/web/src/routes/_chat.tsx`). It resolves **only** `tab.*` commands, so it can never
+  pre-empt another listener's command even though it listens in the capture phase (capture is
+  kept so composer/terminal bubble handlers cannot swallow tab keys). Its shortcut context
+  mirrors the sidebars' (`terminalFocus` + `modelPickerOpen`) so resolution is identical
+  everywhere and no `when`-gated command loses to a stale context here.
 
 ---
 
@@ -411,8 +419,8 @@ Touched files (each a small `// loom:` splice):
 | `apps/web/src/routes/_chat.tsx`                                   | Mount `useThreadTabKeyboard` in `ChatRouteGlobalShortcuts`                                                                                          |
 | `apps/web/src/components/Sidebar.tsx`                             | Row single-click: `openTab(ref, "preview")` before navigate; traversal handler: respect `event.defaultPrevented`                                    |
 | `apps/web/src/components/ChatView.tsx` (or composer submit path)  | On message send: `pinTab(threadRef)` (one line)                                                                                                     |
-| `packages/contracts/src/keybindings.ts`                           | Add `tab.close`, `tab.reopenClosed` commands                                                                                                        |
-| `apps/server/src/keybindings.ts`                                  | Default bindings `mod+w`, `mod+shift+t`                                                                                                             |
+| `packages/contracts/src/keybindings.ts`                           | Add `tab.close`, `tab.reopenClosed`, `tab.previous`, `tab.next`, `tab.jump.1..9` commands                                                           |
+| `packages/shared/src/keybindings.ts`                              | Default bindings `mod+w`, `mod+shift+t`, `mod+alt+[`/`]`, `mod+alt+1..9`                                                                            |
 
 Explicitly **not** in scope for v1: bulk "Open in tabs (N)" from multi-select; keep-last-N
 mounted; rightPanelStore refactor onto `tabListOps`; draft-thread tabs; auto-restoring the
@@ -427,22 +435,35 @@ tab), close-active fallback, keyboard traversal, cap eviction.
 
 ## 9. Risks
 
-- **Sidebar traversal double-handling:** two window keydown listeners (Sidebar, tab hook)
-  now share four commands. The `defaultPrevented` contract must be verified in both — this is
-  the most likely subtle bug.
+- ~~**Sidebar traversal double-handling:** two window keydown listeners (Sidebar, tab hook)
+  now share four commands.~~ **This risk materialised** and is now designed out: the tab hook
+  won the shared commands unconditionally (capture beats the sidebars' bubble-phase
+  `defaultPrevented` guard) and the empty-set fallback that was supposed to protect the
+  sidebar proved unreachable, so sidebar traversal/jump was simply dead. Resolved by giving
+  tabs their own commands (§5) — the two listeners now share no command at all.
 - **Seed vs redirect ordering:** the seed gate replicates `routeThreadExists` logic; if the
   route's redirect conditions change later, the gate must move with them (they live in the
   same file, which is the mitigation).
 - **`ChatView` pin splice:** `ChatView.tsx` is huge; the pin-on-send hook should attach to the
   narrowest stable submit path, not deep in the send pipeline.
-- **Behaviour change** for existing `mod+1..9` users (§10.2) — mitigated by the empty-set
-  fallback but still a real change once tabs exist.
+- ~~**Behaviour change** for existing `mod+1..9` users (§10.2) — mitigated by the empty-set
+  fallback but still a real change once tabs exist.~~ No longer applies: `mod+1..9` and
+  `mod+shift+[`/`]` keep their pre-tabs meaning (§10.2).
 
 ## 10. Decisions needing explicit human sign-off
 
 1. **Global open-set** (vs per-environment): recommended global-with-scoped-refs (§1.2).
-2. **Keybinding repurpose:** `mod+shift+[`/`]` and `mod+1..9` traverse the **tab strip** when
-   tabs are open (sidebar fallback when empty); new `mod+w` close / `mod+shift+t` reopen (§5).
+2. **Keybindings.** _Original decision (signed off):_ repurpose `mod+shift+[`/`]` and
+   `mod+1..9` to traverse the **tab strip** when tabs are open, with a sidebar fallback when
+   the tab set is empty; new `mod+w` close / `mod+shift+t` reopen.
+   **Reversed after implementation (user-approved):** the fallback is unreachable in practice —
+   `useThreadTabsSync` seeds a tab for the route thread on every navigation and the store
+   (including `activeKey`) is persisted, so the tab set is never empty, not even on the index
+   route. The repurpose therefore removed sidebar thread traversal/jump outright instead of
+   overlaying it, and (with one tab open) swallowed `mod+2..9` to no effect at all. Tabs now
+   own `tab.previous` / `tab.next` / `tab.jump.1..9` on `mod+alt+…` and the `thread.*`
+   bindings are untouched (§5). `mod+w` / `mod+shift+t` are unchanged from the original
+   decision.
 3. **Tab cap = 12** (mechanism fixed; the number is a product choice) (§7.1).
 4. **Pin-on-double-click lives on the tab**, not the sidebar row (row keeps inline-rename);
    preview promotes on composer send (§2).

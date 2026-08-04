@@ -203,6 +203,28 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("terminal.splitVertical"), "mod+shift+d");
       assert.equal(defaultsByCommand.get("modelPicker.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("modelPicker.jump.9"), "mod+9");
+      // loom: tabs own mod+alt+… so the thread bindings above stay the sidebar's.
+      assert.equal(defaultsByCommand.get("tab.previous"), "mod+alt+[");
+      assert.equal(defaultsByCommand.get("tab.next"), "mod+alt+]");
+      assert.equal(defaultsByCommand.get("tab.jump.1"), "mod+alt+1");
+      assert.equal(defaultsByCommand.get("tab.jump.9"), "mod+alt+9");
+    }),
+  );
+
+  it.effect("ships no two defaults claiming the same key in the same context", () =>
+    Effect.sync(() => {
+      const seen = new Map<string, string>();
+      for (const binding of Keybindings.DEFAULT_KEYBINDINGS) {
+        // modelPicker.jump.N intentionally shadows thread.jump.N under a `when`
+        // clause; the collision that matters is same key + same when.
+        const contextKey = `${binding.key}\u0000${binding.when ?? ""}`;
+        const existing = seen.get(contextKey);
+        assert.isUndefined(
+          existing,
+          `default ${binding.command} collides with ${String(existing)} on ${contextKey}`,
+        );
+        seen.set(contextKey, binding.command);
+      }
     }),
   );
 
