@@ -1,0 +1,27 @@
+# Mechanical refusal of a direct push to main (docs/operations/shipping.md's
+# first gotcha). Keyed on the *destination* ref git reports on stdin
+# ("<local ref> <local sha> <remote ref> <remote sha>" per ref), not on the
+# current branch — so feature-branch pushes, tags and `--delete` are untouched,
+# and a `main` push is caught however it is spelled or whichever remote it
+# targets. Fires on `--dry-run` too, which makes it testable without a remote.
+[ "${ALLOW_PUSH_TO_MAIN-}" = "1" ] && exit 0
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main | refs/heads/master)
+      cat >&2 <<EOF
+
+Refusing to push directly to $remote_ref.
+
+Land work on main via a feature branch and a PR:
+  git switch -c <branch> && pnpm ship -m "<summary>"
+See docs/operations/shipping.md.
+
+Genuine emergency only: ALLOW_PUSH_TO_MAIN=1 git push ...
+EOF
+      exit 1
+      ;;
+  esac
+done
+
+exit 0
