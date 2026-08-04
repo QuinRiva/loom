@@ -3905,8 +3905,15 @@ function ChatViewContent(props: ChatViewProps) {
     setIsRevertingCheckpoint(false);
   }, [activeThread?.id]);
 
+  const autoFocusedThreadIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    // Focus once per arrival at a thread. A transient undefined round-trip of
+    // the same thread id during a store refresh/reconnect must not re-steal
+    // focus; A->B->A still refocuses because the id genuinely changes. Do not
+    // reset the ref on undefined — that is exactly the flap being guarded.
+    if (autoFocusedThreadIdRef.current === activeThread.id) return;
+    autoFocusedThreadIdRef.current = activeThread.id;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
