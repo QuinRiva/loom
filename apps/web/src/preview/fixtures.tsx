@@ -10,6 +10,8 @@ import {
 
 import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
+import { DraftId } from "../composerDraftStore";
+import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { PendingQuestionCard } from "../components/chat/PendingQuestionCard";
 import type { SidebarThreadSummary } from "../types";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
@@ -552,7 +554,89 @@ function pendingUserInputFixture(
   };
 }
 
+/**
+ * The annotation-layer defect case: a `<Card>` wrapping a **closed** `<Details>`
+ * wrapping a 12-cell `<Table>`, with wrapping prose before and after. It
+ * exercises all four MDX-annotation rendering defects at once:
+ *  - **A** — toggle the panel button (container width changes while the viewport
+ *    stays wide, so the capped `max-w-4xl` root only re-centres); highlights must
+ *    track, not drift into the gutter.
+ *  - **B** — hover the card / table and "Comment on this block": a block anchor
+ *    must draw ONE outline ring, not a card-sized fill plus a pill per cell.
+ *  - **C** — comment on content inside the closed `<Details>`: it must collapse
+ *    to a badge on the summary, never paint phantom pills over the prose below.
+ *  - **D** — add `dark` to `<html>` and hover the floating "Comment" button: it
+ *    must stay opaque, not go transparent.
+ */
+const MDX_ANNOTATION_FIXTURE_SOURCE = [
+  "# Annotation layer defect fixture",
+  "",
+  "This paragraph before the card is deliberately long prose so a reviewer can select a multi-line span and comment on it, exercising the text-anchor per-line highlight path. It needs enough words to wrap across several lines at the capped measure — no PR trains, merge order, benchmark tables, scale considerations, just filler that wraps and wraps.",
+  "",
+  '<Card heading="S4 — the face-rent finding" tone="warning" badge="STAGE">',
+  "",
+  "The body of the card is prose too, so commenting on the whole card must draw a single outline ring rather than a giant translucent fill plus a loose grid of pills.",
+  "",
+  '<Details summary="Full production records (closed by default)">',
+  "",
+  "Hidden evidence prose inside a closed disclosure. Commenting on content in here must collapse to a badge on the summary, not paint phantom pills over the paragraphs that follow the card.",
+  "",
+  '<Table columns={["Field", "Before", "After"]} rows={[["rent", "100", "120"], ["term", "5y", "7y"], ["area", "200", "260"], ["parking", "no", "yes"]]} />',
+  "",
+  "</Details>",
+  "",
+  "</Card>",
+  "",
+  "This paragraph after the card is exactly where the closed-details phantom rects used to land — a rect covering “— no PR trains, merge order, benchmark tables, scale co” at non-word-aligned offsets. With defect C fixed it stays clean.",
+].join("\n");
+
+/**
+ * Renders the annotation layer inside a container whose width toggles between two
+ * wide states (both > the 896px `max-w-4xl` cap), reproducing the file-explorer
+ * panel toggle that triggers defect A without ever narrowing the viewport.
+ */
+function MdxAnnotationPreview() {
+  const [panelOpen, setPanelOpen] = useState(false);
+  return (
+    <div className="flex min-h-[600px] gap-3">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((open) => !open)}
+        className="h-8 shrink-0 self-start rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
+      >
+        {panelOpen ? "Close panel" : "Open panel"} (defect A)
+      </button>
+      {panelOpen ? (
+        <div className="w-72 shrink-0 rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+          Simulated file-explorer panel. Opening/closing it changes the document container width
+          while the viewport stays wide — highlights must track.
+        </div>
+      ) : null}
+      <div className="min-w-0 flex-1 rounded-lg border border-border">
+        <MdxPlanAnnotationLayer
+          source={MDX_ANNOTATION_FIXTURE_SOURCE}
+          filePath="plans/preview/plan.mdx"
+          composerDraftTarget={DraftId.make("preview-scratch")}
+        />
+      </div>
+    </div>
+  );
+}
+
+const mdxAnnotationFixture: PreviewFixture = {
+  id: "mdx-annotation-defects",
+  title: "Card › closed Details › Table",
+  description:
+    "All four annotation-rendering defects in one document. A: toggle the panel and watch highlights track (not drift). B: hover the card/table → 'Comment on this block' → one ring, not a fill + per-cell pills. C: comment inside the closed Details → a collapsed badge on the summary, no phantom pills below. D: set the app to dark and hover the floating 'Comment' button → stays opaque.",
+  render: () => <MdxAnnotationPreview key="mdx-annotation-defects" />,
+};
+
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
+  {
+    id: "mdx-annotation",
+    title: "MDX annotation layer",
+    fixtures: [mdxAnnotationFixture],
+  },
   {
     id: "pending-user-input",
     title: "Pending user input",
