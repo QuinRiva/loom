@@ -192,7 +192,7 @@ interface MessagesTimelineProps {
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
   contentInsetEndAdjustment: number;
-  onIsAtEndChange: (isAtEnd: boolean) => void;
+  onTimelineEndStateChange: (isAtEnd: boolean, isNearEnd: boolean, scroll: number) => void;
   onManualNavigation: () => void;
   /** Older history beyond the live activity window can be lazy-loaded. */
   hasMoreOlder?: boolean;
@@ -233,7 +233,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onAnchorReady,
   onAnchorSizeChanged,
   contentInsetEndAdjustment,
-  onIsAtEndChange,
+  onTimelineEndStateChange,
   onManualNavigation,
   hasMoreOlder = false,
   loadingOlder = false,
@@ -385,7 +385,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const state = listRef.current?.getState?.();
     const isAtEnd = resolveTimelineIsAtEnd(state);
     if (isAtEnd !== undefined) {
-      onIsAtEndChange(isAtEnd);
+      onTimelineEndStateChange(isAtEnd, state?.isNearEnd ?? isAtEnd, state?.scroll ?? 0);
     }
     // Reaching the top lazy-loads older history; maintainVisibleContentPosition
     // (set on the list) keeps the viewport anchored when rows prepend.
@@ -418,7 +418,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     listRef,
     minimapItems,
     minimapStripMap,
-    onIsAtEndChange,
+    onTimelineEndStateChange,
     hasMoreOlder,
     loadingOlder,
     onLoadOlder,
@@ -561,6 +561,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     },
                   }
             }
+            maintainScrollAtEndThreshold={0}
             maintainVisibleContentPosition={{
               data: true,
               size: false,
