@@ -100,6 +100,7 @@ export const SidebarGoalThreadList = React.memo(function SidebarGoalThreadList(
           id: entry.goalId as GoalId,
           projectId: goalMeta?.projectId ?? projectGoals[0]?.projectId ?? ("" as ProjectId),
           title: goalMeta ? goalMeta.title || goalMeta.slug : `Missing goal: ${entry.goalId}`,
+          description: goalMeta?.description ?? "",
           progress: goalMeta ? countGoalTasks(goalMeta.tasks) : { done: 0, total: 0 },
           known: goalMeta !== undefined,
         };
@@ -128,7 +129,12 @@ export const SidebarGoalThreadList = React.memo(function SidebarGoalThreadList(
                     ? (event) => {
                         event.preventDefault();
                         void handleGoalContextMenu(
-                          { id: goal.id, projectId: goal.projectId, title: goal.title },
+                          {
+                            id: goal.id,
+                            projectId: goal.projectId,
+                            title: goal.title,
+                            description: goal.description,
+                          },
                           { x: event.clientX, y: event.clientY },
                         );
                       }

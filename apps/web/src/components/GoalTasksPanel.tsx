@@ -1,13 +1,24 @@
 /**
- * Right-panel surface rendering a goal's task tree from the DB-authoritative
- * orchestration store (kept current by the agent via the `t3 goal task ...` CLI
- * or by the user). The goal's title and description live here — edit-in-place
- * and readable alongside the tasks.
+ * The Goal surface: the single place a goal is managed, always anchored to the
+ * open thread's goal (there is no goal switcher, no goals list, and no way to
+ * open a goal other than through a thread that carries it — see
+ * plans/sidebar-v2-rehome/plan.mdx).
+ *
+ * It renders the goal's task tree from the DB-authoritative orchestration store
+ * (kept current by the agent via the `t3 goal task ...` CLI or by the user), the
+ * goal's edit-in-place title/description, the goal's threads in handoff order,
+ * and goal CRUD behind the overflow menu.
  */
 import { type EnvironmentId } from "@t3tools/contracts";
+import { MoreHorizontalIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { TaskTree, countGoalTasks, useGoalById } from "../goals/goalState";
-import type { GoalShell } from "../types";
+import { GoalThreadsSection } from "../loom/GoalThreadsSection";
+import { useGoalPanelActions } from "../loom/useGoalPanelActions";
+import type { GoalShell, SidebarThreadSummary } from "../types";
+
+/** Everything the goal surface needs from the thread it is anchored to. */
+type GoalPanelThread = Pick<SidebarThreadSummary, "id" | "projectId" | "branch" | "worktreePath">;
 import { goalEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 
@@ -53,7 +64,15 @@ export function resolveEditBlur(params: {
 // while the field is blurred), and blur reconciles via `resolveEditBlur`.
 // Drafts stay component-local by design: persisting them would resurrect stale
 // edits across reloads.
-function GoalHeader({ goal, environmentId }: { goal: GoalShell; environmentId: EnvironmentId }) {
+function GoalHeader({
+  goal,
+  environmentId,
+  onOpenOverflow,
+}: {
+  goal: GoalShell;
+  environmentId: EnvironmentId;
+  onOpenOverflow: (position: { x: number; y: number }) => void;
+}) {
   const updateMeta = useAtomCommand(goalEnvironment.updateMeta);
   const [titleDraft, setTitleDraft] = useState(goal.title);
   const [descriptionDraft, setDescriptionDraft] = useState(goal.description);
@@ -129,6 +148,18 @@ function GoalHeader({ goal, environmentId }: { goal: GoalShell; environmentId: E
         <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
           {progress.done}/{progress.total}
         </span>
+        <button
+          type="button"
+          aria-label="Goal actions"
+          title="Goal actions"
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            onOpenOverflow({ x: box.left, y: box.bottom });
+          }}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <MoreHorizontalIcon className="size-4" />
+        </button>
       </div>
       <textarea
         value={descriptionDraft}
@@ -150,30 +181,70 @@ function GoalHeader({ goal, environmentId }: { goal: GoalShell; environmentId: E
   );
 }
 
+function GoalPanelBody({
+  goal,
+  environmentId,
+  activeThread,
+}: {
+  goal: GoalShell;
+  environmentId: EnvironmentId;
+  activeThread: GoalPanelThread | null;
+}) {
+  const { createGoalSession, openOverflowMenu } = useGoalPanelActions({
+    goal,
+    environmentId,
+    activeThread,
+  });
+  return (
+    <>
+      <GoalHeader
+        goal={goal}
+        environmentId={environmentId}
+        onOpenOverflow={(position) => void openOverflowMenu(position)}
+      />
+      {goal.tasks.length > 0 ? (
+        <TaskTree tasks={goal.tasks} />
+      ) : (
+        <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
+      )}
+      <GoalThreadsSection
+        goalId={goal.id}
+        environmentId={environmentId}
+        activeThreadId={activeThread?.id ?? null}
+        onCreateSession={() => void createGoalSession()}
+      />
+    </>
+  );
+}
+
 export function GoalTasksPanel({
   goalId,
   environmentId,
+  activeThread,
 }: {
   goalId: string | null;
   environmentId: EnvironmentId | null;
+  activeThread?: GoalPanelThread | null;
 }) {
   const goal = useGoalById(goalId);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
       {!goalId ? (
-        <p className="text-sm text-muted-foreground/70">This session is not bound to a goal.</p>
+        // The panel is always the open thread's goal, so a goal-less thread gets
+        // the one hint that can change that — no goal picker, by design.
+        <p className="text-sm text-muted-foreground/70">
+          This thread has no goal. Right-click it in the sidebar to create a goal from it, or assign
+          it to an existing one.
+        </p>
       ) : !goal || !environmentId ? (
         <p className="text-sm text-muted-foreground/70">Missing goal: {goalId}</p>
       ) : (
-        <>
-          <GoalHeader goal={goal} environmentId={environmentId} />
-          {goal.tasks.length > 0 ? (
-            <TaskTree tasks={goal.tasks} />
-          ) : (
-            <p className="text-sm text-muted-foreground/70">No tasks yet.</p>
-          )}
-        </>
+        <GoalPanelBody
+          goal={goal}
+          environmentId={environmentId}
+          activeThread={activeThread ?? null}
+        />
       )}
     </div>
   );

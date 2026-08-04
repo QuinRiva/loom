@@ -22,6 +22,7 @@ import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToas
 import { TurnFailureToastCoordinator } from "../components/TurnFailureToastCoordinator";
 // loom: `/handoff` away-from-source surfacing.
 import { HandoffReceiptToastCoordinator } from "../loom/HandoffReceiptToastCoordinator";
+import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
@@ -151,6 +152,7 @@ function RootRouteView() {
         <TurnFailureToastCoordinator />
         <HandoffReceiptToastCoordinator />
         {/* loom: */}
+        <GoalFormDialogHost />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}

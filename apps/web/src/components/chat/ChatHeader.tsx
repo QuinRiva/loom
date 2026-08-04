@@ -11,6 +11,7 @@ import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { type LineageSegment } from "../../threadRouteLineage";
 import { ThreadLineageBreadcrumb } from "~/loom/ThreadLineageBreadcrumb";
+import { GoalChip } from "~/loom/GoalChip"; // loom:
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -40,6 +41,10 @@ interface ChatHeaderProps {
   threadLineage: ReadonlyArray<LineageSegment>;
   threadRole: string | null;
   onNavigateToThread: (threadId: ThreadId) => void;
+  // loom: the goal panel's entry point; null goalId renders no chip.
+  threadGoalId: string | null;
+  goalPanelOpen: boolean;
+  onToggleGoalPanel: () => void;
   gitCwd: string | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -78,6 +83,9 @@ export const ChatHeader = memo(function ChatHeader({
   threadLineage,
   threadRole,
   onNavigateToThread,
+  threadGoalId,
+  goalPanelOpen,
+  onToggleGoalPanel,
   gitCwd,
   onRunProjectScript,
   onAddProjectScript,
@@ -134,6 +142,13 @@ export const ChatHeader = memo(function ChatHeader({
           lineage={threadLineage}
           role={threadRole}
           onNavigateToThread={onNavigateToThread}
+        />
+        {/* loom: */}
+        <GoalChip
+          goalId={threadGoalId}
+          environmentId={activeThreadEnvironmentId}
+          panelOpen={goalPanelOpen}
+          onToggle={onToggleGoalPanel}
         />
         {!draftId && (
           <ForkedFromBadge

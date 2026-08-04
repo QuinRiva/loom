@@ -28,6 +28,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   GoalId,
+  GoalTaskId,
   MessageId,
   type OrchestrationCheckpointFile,
   ProjectId,
@@ -59,6 +60,13 @@ import { buildSeedConfig } from "./seedConfig.ts";
 const PROJECT_ID = ProjectId.make("seed-project-0000");
 const GOAL_ID = GoalId.make("seed-goal-0000");
 const ORCHESTRATOR_ID = ThreadId.make("seed-thread-orchestrator");
+// Goal-panel fixture: three extra ROOT threads on the same goal. The chain
+// (predecessor -> successor via continuesThreadId) plus a parallel root created
+// BETWEEN them is what makes the Threads section's handoff order distinguishable
+// from plain createdAt order.
+const GOAL_PREDECESSOR_ID = ThreadId.make("seed-thread-goal-predecessor");
+const GOAL_PARALLEL_ID = ThreadId.make("seed-thread-goal-parallel");
+const GOAL_SUCCESSOR_ID = ThreadId.make("seed-thread-goal-successor");
 const CODER_ALPHA_ID = ThreadId.make("seed-thread-coder-alpha");
 const CODER_BETA_ID = ThreadId.make("seed-thread-coder-beta");
 const CODER_REWORK_ID = ThreadId.make("seed-thread-coder-rework");
@@ -171,6 +179,35 @@ const seedProgram = Effect.gen(function* () {
       "A realistic workstream: an orchestrator with coder descendants carrying turn checkpoints.",
     createdAt: iso(0),
   });
+
+  // Goal tasks: the panel's task tree needs a live fixture, and the progress
+  // pill is meaningless without a mix of done/outstanding.
+  for (const [index, task] of [
+    { text: "Seed a realistic workstream fixture", done: true },
+    { text: "Capture real turn checkpoints for the diff scope", done: true },
+    { text: "Verify the goal panel's handoff ordering", done: false },
+  ].entries()) {
+    const taskId = GoalTaskId.make(`seed-goal-task-${index}`);
+    yield* dispatch({
+      type: "goal.task.create",
+      commandId: nextCommandId(`goal-task-${index}`),
+      goalId: GOAL_ID,
+      taskId,
+      parentTaskId: null,
+      text: task.text,
+      position: index,
+      createdAt: iso(0),
+    });
+    if (task.done) {
+      yield* dispatch({
+        type: "goal.task.update",
+        commandId: nextCommandId(`goal-task-done-${index}`),
+        goalId: GOAL_ID,
+        taskId,
+        done: true,
+      });
+    }
+  }
 
   yield* dispatch({
     type: "thread.create",
@@ -587,6 +624,69 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(215),
   });
 
+  // ---- goal-panel roots: a handoff chain plus a parallel root -------------
+  // Creation order is predecessor(261) -> parallel(262) -> successor(263), so a
+  // createdAt-only list would read [predecessor, parallel, successor]. The
+  // handoff walk must instead read [predecessor, successor, parallel]: the
+  // successor follows the thread it continues, and the unchained root sorts by
+  // creation among the chain HEADS.
+  yield* dispatch({
+    type: "thread.create",
+    commandId: nextCommandId("goal-predecessor"),
+    threadId: GOAL_PREDECESSOR_ID,
+    projectId: PROJECT_ID,
+    goalId: GOAL_ID,
+    parentThreadId: null,
+    role: "orchestrator",
+    purpose: "Scope the diff-panel fixture before implementation.",
+    title: "Scope the diff-panel fixture",
+    modelSelection: MODEL_SELECTION,
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    planLane: "done",
+    branch: null,
+    worktreePath: workspaceRoot,
+    createdAt: iso(261),
+  });
+  yield* dispatch({
+    type: "thread.create",
+    commandId: nextCommandId("goal-parallel"),
+    threadId: GOAL_PARALLEL_ID,
+    projectId: PROJECT_ID,
+    goalId: GOAL_ID,
+    parentThreadId: null,
+    role: "researcher",
+    purpose: "Independent investigation on the same goal \u2014 not on the chain.",
+    title: "Checkpoint-ref survey (parallel root)",
+    modelSelection: MODEL_SELECTION,
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    planLane: "done",
+    branch: null,
+    worktreePath: workspaceRoot,
+    createdAt: iso(262),
+  });
+  yield* dispatch({
+    type: "thread.create",
+    commandId: nextCommandId("goal-successor"),
+    threadId: GOAL_SUCCESSOR_ID,
+    projectId: PROJECT_ID,
+    goalId: GOAL_ID,
+    parentThreadId: null,
+    role: "orchestrator",
+    purpose: "Continue the scoping work with a fresh context window.",
+    title: "Fixture follow-through (continuation)",
+    brief: "Continue from the scoping thread; the checkpoint refs are captured.",
+    modelSelection: MODEL_SELECTION,
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    planLane: "planned",
+    continuesThreadId: GOAL_PREDECESSOR_ID,
+    branch: null,
+    worktreePath: workspaceRoot,
+    createdAt: iso(263),
+  });
+
   yield* Console.log(
     JSON.stringify(
       {
@@ -596,6 +696,7 @@ const seedProgram = Effect.gen(function* () {
         projectId: PROJECT_ID,
         goalId: GOAL_ID,
         orchestratorThreadId: ORCHESTRATOR_ID,
+        goalChain: [GOAL_PREDECESSOR_ID, GOAL_SUCCESSOR_ID, GOAL_PARALLEL_ID],
         coders: coderSpecs.map((spec) => ({
           threadId: spec.id,
           title: spec.title,

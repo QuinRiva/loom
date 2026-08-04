@@ -125,6 +125,8 @@ import {
 // loom: root-thread + drafter visibility filters and the workstream rollup the
 // hidden sub-threads surface through. All three live in loom-owned modules.
 import { filterRootThreads } from "../loom/useLoomSidebarGoals";
+import { buildGoalMenuItems, useLoomThreadGoalActions } from "../loom/sidebarGoalActions";
+import { useGoals } from "../goals/goalState";
 import { isStagedHandoffThread } from "./Sidebar.logic.loom";
 import { isVisibleHandoffDrafter } from "../lib/handoffDrafter";
 import { buildGraphRollupByThreadKey, type GraphRollup } from "../lib/workstreamRollup";
@@ -1047,6 +1049,12 @@ export default function SidebarV2() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  // loom: thread-first goal creation/assignment on the row context menu. Goals
+  // are only ever reached through a thread, so this is where they are born.
+  const goals = useGoals();
+  const goalsRef = useRef(goals);
+  goalsRef.current = goals;
+  const { runThreadGoalMenuAction } = useLoomThreadGoalActions();
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -2074,12 +2082,20 @@ export default function SidebarV2() {
                 : []),
               { id: "rename", label: "Rename thread" },
               { id: "mark-unread", label: "Mark unread" },
+              // loom: create goal from thread / assign to goal.
+              ...buildGoalMenuItems(
+                goalsRef.current.filter((goal) => goal.archivedAt === null),
+                thread,
+              ),
               { id: "delete", label: "Delete", destructive: true, icon: "trash" },
             ],
             position,
           ),
         );
         if (clicked._tag === "Failure") return;
+        // loom: goal entries are handled by the shared loom action (structured
+        // create dialog + metadata write); it returns false for anything else.
+        if (await runThreadGoalMenuAction(clicked.value, { thread, updateThreadMetadata })) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset = snoozePresets.find(
             (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -2166,8 +2182,10 @@ export default function SidebarV2() {
       deleteThread,
       handleMultiSelectContextMenu,
       markThreadUnread,
+      runThreadGoalMenuAction, // loom:
       serverConfigs,
       startThreadRename,
+      updateThreadMetadata, // loom:
     ],
   );
 

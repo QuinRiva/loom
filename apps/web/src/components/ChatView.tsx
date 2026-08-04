@@ -3862,14 +3862,19 @@ function ChatViewContent(props: ChatViewProps) {
   // one-shot flag, so it no longer races the plan-sidebar auto-open below and
   // declaration order is not load-bearing. The returned values are consumed
   // only in JSX further down, so this mid-component call is safe.
-  const { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface } =
-    useLoomThreadExtensions({
-      activeThread,
-      activeThreadRef,
-      activeThreadKey,
-      autoOpenGoalTasksPanel: settings.autoOpenGoalTasksPanel,
-      autoOpenWorkstreamPanel: settings.autoOpenWorkstreamPanel,
-    });
+  const {
+    threadLineage,
+    navigateToThread,
+    addTasksSurface,
+    toggleTasksSurface,
+    addWorkstreamSurface,
+  } = useLoomThreadExtensions({
+    activeThread,
+    activeThreadRef,
+    activeThreadKey,
+    autoOpenGoalTasksPanel: settings.autoOpenGoalTasksPanel,
+    autoOpenWorkstreamPanel: settings.autoOpenWorkstreamPanel,
+  });
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
@@ -5915,6 +5920,7 @@ function ChatViewContent(props: ChatViewProps) {
       <GoalTasksPanel
         goalId={activeThread?.goalId ?? null}
         environmentId={activeThread?.environmentId ?? null}
+        activeThread={activeThread ?? null}
       />
     ) : activeRightPanelSurface?.kind === "workstream" ? (
       <WorkstreamPanel
@@ -6014,6 +6020,10 @@ function ChatViewContent(props: ChatViewProps) {
             threadLineage={threadLineage}
             threadRole={activeThread.role}
             onNavigateToThread={navigateToThread}
+            // loom: goal chip
+            threadGoalId={activeThread.goalId}
+            goalPanelOpen={activeRightPanelSurface?.kind === "tasks"}
+            onToggleGoalPanel={toggleTasksSurface}
             gitCwd={gitCwd}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}

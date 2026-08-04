@@ -1,8 +1,7 @@
-// loom: fork-added goal context-menu + create/assign-goal handlers, hoisted out
-// of the upstream-owned Sidebar.tsx. The thread-context-menu goal actions
-// (create goal from thread / assign to goal) are consumed by SidebarProjectItem;
-// the goal-header context menu (rename/archive/delete) is consumed by
-// SidebarGoalThreadList.
+// loom: fork-added goal actions, hoisted out of the upstream-owned Sidebar.tsx.
+// Three consumers share this module and none of them duplicates the commands:
+// the thread context menu (create goal from thread / assign to goal) on both
+// sidebars, the v1 goal-header context menu, and the Goal panel's overflow menu.
 import { useCallback } from "react";
 import {
   type ContextMenuItem,
@@ -22,11 +21,22 @@ import { newGoalId } from "../lib/utils";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import type { GoalShell, SidebarThreadSummary } from "../types";
 import type { SidebarProjectGroupMember } from "../sidebarProjectGrouping";
+import { promptGoalForm, slugifyGoalTitle } from "./goalFormDialogStore";
 
 type UpdateThreadMetadata = (value: {
   environmentId: EnvironmentId;
   input: { threadId: ThreadId; goalId: GoalId | null };
 }) => Promise<unknown>;
+
+function reportFailure(title: string, error: unknown): void {
+  toastManager.add(
+    stackedThreadToast({
+      type: "error",
+      title,
+      description: error instanceof Error ? error.message : "An error occurred.",
+    }),
+  );
+}
 
 /**
  * Goal-related entries for a thread's context menu: "Create goal from thread"
@@ -74,33 +84,28 @@ export function useLoomThreadGoalActions(): {
     ): Promise<boolean> => {
       const { thread, updateThreadMetadata } = deps;
       if (clicked === "create-goal") {
-        const title = window.prompt("Goal title", thread.title)?.trim();
-        if (!title) return true;
-        const slug = window
-          .prompt(
-            "Goal slug",
-            title
-              .toLowerCase()
-              .replace(/[^a-z0-9._-]+/g, "-")
-              .replace(/^-+|-+$/g, ""),
-          )
-          ?.trim();
-        if (!slug) return true;
-        const description = window.prompt("Goal paragraph", title)?.trim() || title;
+        const form = await promptGoalForm({
+          mode: "create",
+          initial: {
+            title: thread.title,
+            slug: slugifyGoalTitle(thread.title),
+            description: thread.title,
+          },
+        });
+        if (!form) return true;
         const goalId = newGoalId();
         const createResult = await createGoal({
           environmentId: thread.environmentId,
-          input: { goalId, projectId: thread.projectId, slug, title, description },
+          input: {
+            goalId,
+            projectId: thread.projectId,
+            slug: form.slug,
+            title: form.title,
+            description: form.description,
+          },
         });
         if (createResult._tag === "Failure" && !isAtomCommandInterrupted(createResult)) {
-          const error = squashAtomCommandFailure(createResult);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to create goal",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
+          reportFailure("Failed to create goal", squashAtomCommandFailure(createResult));
           return true;
         }
         await updateThreadMetadata({
@@ -125,23 +130,94 @@ export function useLoomThreadGoalActions(): {
   return { runThreadGoalMenuAction };
 }
 
+export interface GoalCrudActions {
+  /** Structured rename dialog + `goal.meta.update`. No-op when cancelled. */
+  renameGoal: (
+    environmentId: EnvironmentId,
+    goal: { id: GoalId; title: string; description: string },
+  ) => Promise<void>;
+  archiveGoal: (environmentId: EnvironmentId, goalId: GoalId) => Promise<void>;
+  /**
+   * Blast-radius confirm then `goal.delete`. `attachedThreadCount` must come
+   * from the UNFILTERED shells: the decider cascade-deletes every thread on the
+   * goal including workstream children that roots-only lists omit, and
+   * understating that in a destructive confirm is the failure mode.
+   */
+  deleteGoal: (
+    environmentId: EnvironmentId,
+    goal: { id: GoalId; title: string },
+    attachedThreadCount: number,
+  ) => Promise<void>;
+}
+
+export function useGoalCrudActions(): GoalCrudActions {
+  const updateGoalMeta = useAtomCommand(goalEnvironment.updateMeta, { reportFailure: false });
+  const archive = useAtomCommand(goalEnvironment.archive, { reportFailure: false });
+  const remove = useAtomCommand(goalEnvironment.delete, { reportFailure: false });
+
+  const renameGoal = useCallback<GoalCrudActions["renameGoal"]>(
+    async (environmentId, goal) => {
+      const form = await promptGoalForm({
+        mode: "rename",
+        initial: { title: goal.title, slug: "", description: goal.description },
+      });
+      if (!form || (form.title === goal.title && form.description === goal.description)) return;
+      await updateGoalMeta({
+        environmentId,
+        input: { goalId: goal.id, title: form.title, description: form.description },
+      });
+    },
+    [updateGoalMeta],
+  );
+
+  const archiveGoal = useCallback<GoalCrudActions["archiveGoal"]>(
+    async (environmentId, goalId) => {
+      await archive({ environmentId, input: { goalId } });
+    },
+    [archive],
+  );
+
+  const deleteGoal = useCallback<GoalCrudActions["deleteGoal"]>(
+    async (environmentId, goal, attachedThreadCount) => {
+      const api = readLocalApi();
+      if (!api) return;
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Delete goal "${goal.title}"?`,
+          attachedThreadCount > 0
+            ? `This permanently deletes the goal and its ${attachedThreadCount} thread${
+                attachedThreadCount === 1 ? "" : "s"
+              }, clearing their conversation history.`
+            : "This permanently deletes the goal.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      const result = await remove({ environmentId, input: { goalId: goal.id } });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        reportFailure("Failed to delete goal", squashAtomCommandFailure(result));
+      }
+    },
+    [remove],
+  );
+
+  return { renameGoal, archiveGoal, deleteGoal };
+}
+
 export function useLoomSidebarGoalActions(deps: {
   memberProjects: readonly SidebarProjectGroupMember[];
   allProjectThreads: readonly SidebarThreadSummary[];
 }): {
   handleGoalContextMenu: (
-    goal: { id: GoalId; projectId: ProjectId; title: string },
+    goal: { id: GoalId; projectId: ProjectId; title: string; description: string },
     position: { x: number; y: number },
   ) => Promise<void>;
 } {
   const { memberProjects, allProjectThreads } = deps;
-  const updateGoalMeta = useAtomCommand(goalEnvironment.updateMeta, { reportFailure: false });
-  const archiveGoal = useAtomCommand(goalEnvironment.archive, { reportFailure: false });
-  const deleteGoal = useAtomCommand(goalEnvironment.delete, { reportFailure: false });
+  const { renameGoal, archiveGoal, deleteGoal } = useGoalCrudActions();
 
   const handleGoalContextMenu = useCallback(
     async (
-      goal: { id: GoalId; projectId: ProjectId; title: string },
+      goal: { id: GoalId; projectId: ProjectId; title: string; description: string },
       position: { x: number; y: number },
     ) => {
       const api = readLocalApi();
@@ -158,48 +234,16 @@ export function useLoomSidebarGoalActions(deps: {
         ],
         position,
       );
-      if (clicked === "rename") {
-        const title = window.prompt("Goal title", goal.title)?.trim();
-        if (!title || title === goal.title) return;
-        await updateGoalMeta({ environmentId, input: { goalId: goal.id, title } });
-        return;
-      }
-      if (clicked === "archive") {
-        await archiveGoal({ environmentId, input: { goalId: goal.id } });
-        return;
-      }
+      if (clicked === "rename") return renameGoal(environmentId, goal);
+      if (clicked === "archive") return archiveGoal(environmentId, goal.id);
       if (clicked !== "delete") return;
-      // The decider cascade-deletes every thread attached to the goal, including
-      // workstream child threads (non-null parent) that the roots-only sidebar
-      // list omits — so count from the full unfiltered shells to avoid
-      // understating the blast radius in this destructive confirm.
-      const goalThreadCount = allProjectThreads.filter(
-        (thread) => thread.goalId === goal.id,
-      ).length;
-      const confirmed = await api.dialogs.confirm(
-        [
-          `Delete goal "${goal.title}"?`,
-          goalThreadCount > 0
-            ? `This permanently deletes the goal and its ${goalThreadCount} thread${
-                goalThreadCount === 1 ? "" : "s"
-              }, clearing their conversation history.`
-            : "This permanently deletes the goal.",
-        ].join("\n"),
+      return deleteGoal(
+        environmentId,
+        goal,
+        allProjectThreads.filter((thread) => thread.goalId === goal.id).length,
       );
-      if (!confirmed) return;
-      const result = await deleteGoal({ environmentId, input: { goalId: goal.id } });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to delete goal",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      }
     },
-    [archiveGoal, deleteGoal, memberProjects, allProjectThreads, updateGoalMeta],
+    [archiveGoal, deleteGoal, memberProjects, allProjectThreads, renameGoal],
   );
 
   return { handleGoalContextMenu };
