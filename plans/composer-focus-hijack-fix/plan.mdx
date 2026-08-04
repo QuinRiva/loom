@@ -1,0 +1,562 @@
+---
+manager_sessions:
+  - id: d642dcf8-9321-4493-928f-f25e284aaa7e
+    name: composer-focus-hijack-fix-plan
+    role: plan
+    authored_at: 2026-08-04T05:43:55.403Z
+---
+
+# Composer focus hijack — fix plan with blast-radius analysis
+
+**Objective.** Stop the chat composer from stealing keyboard focus and destroying the user's
+text selection while they are typing or selecting elsewhere in the app, without breaking any
+behaviour that currently (deliberately or accidentally) depends on the steal. **Done** means:
+the four diagnosed hijack paths no longer move focus or the document selection when the user
+is outside the composer, and every intentional focus path in the verification checklist below
+still works live in a browser.
+
+The root-cause diagnosis (researcher report `586abf5a`) is confirmed against the installed
+Lexical 0.41.0 source and taken as the starting point. This plan's job is the part the
+diagnosis could not do: work out what *depends* on the current behaviour, and shape the fix so
+it removes the steal without removing anything load-bearing. The analysis produced one
+material correction to the recommended fix shape (Decision 1 below).
+
+<Callout tone="decision">
+  Recommendation in one paragraph: fix the primary bug with a **one-line-plus-import change** —
+  run the composer's controlled Lexical update with `SKIP_DOM_SELECTION_TAG` when the editor is
+  blurred — and explicitly do **not** make the internal selection-set conditional on focus (the
+  diagnosis suggested both; the second half would regress blurred snapshot reads, see Decision 1).
+  Land the dead dialog-selector repair with it. Land the command-palette focus-restore and the
+  thread-activation one-shot guard in the same change set as small, independently revertable
+  commits. Defer the approval-overlay refactor: the tag fix makes it unnecessary for this bug.
+</Callout>
+
+## The mechanism, briefly
+
+The composer (`apps/web/src/components/ComposerPromptEditor.tsx`) drives Lexical as a fully
+controlled component. A layout effect at `ComposerPromptEditor.tsx:1683-1726` rewrites the
+whole editor state (`root.clear()` + rebuild, `$setComposerEditorPrompt`,
+`ComposerPromptEditor.tsx:923-966`) whenever the `value`/`terminalContexts`/`skills` props
+change, and then sets the editor's selection. The update carries no tag, so on commit Lexical
+runs `updateDOMSelection` (`lexical/Lexical.dev.mjs:8548-8565`), which either calls
+`rootElement.focus({ preventScroll: true })` when the editor isn't the active element
+(`Lexical.dev.mjs:7863-7872`) or rewrites the single document selection via
+`setDOMSelectionBaseAndExtent` (`Lexical.dev.mjs:7878-7881`). Lexical retains a live
+`RangeSelection` after blur (loom documents this itself at `ComposerPromptEditor.tsx:1291-1294`),
+so a rewrite while blurred always has a selection to re-apply — that pair is exactly the
+reported symptom: focus jumps to the composer *and* the user's selection elsewhere is destroyed.
+
+The dangerous prop changes are server-driven, which is why the bug has "no reliable trigger":
+
+- **Approval arrival/resolution** — `ChatComposer.tsx:2417-2419` swaps `value` to `""` and back
+  (`isComposerApprovalState`, `ChatComposer.tsx:1140`): two rewrites per approval.
+- **Skills churn** — `skills={selectedProviderStatus?.skills ?? []}` (`ChatComposer.tsx:2420`)
+  flips to `[]` and back if the provider status snapshot transiently disappears (reconnect).
+- **External draft writes** — failed-send restore (`ChatView.tsx:5091-5126`), handoff-intercept
+  restore (`ChatView.tsx:4629-4636`), thread switch changing the draft target.
+
+Three secondary hijacks are independent of Lexical: a type-to-focus guard whose dialog selector
+matches nothing (`ChatView.tsx:437-444`), an unconditional focus-restore when the command
+palette closes (`CommandPalette.tsx:1869-1872`), and a thread-activation autofocus that can
+re-fire on reconnect (`ChatView.tsx:3900-3908`).
+
+## Blast radius: what could depend on the steal
+
+The question the fix hangs on: **what breaks if the composer stops writing its selection to the
+DOM while blurred?** Every path below was traced in code; verdicts state whether the proposed
+fix affects it.
+
+### Every intentional focus path already focuses explicitly
+
+The single most important structural fact: **no intentional "insert and focus" path relies on
+the controlled sync to deliver focus.** They all go through the imperative handle's
+`focusAt`/`focusAtEnd` (`ComposerPromptEditor.tsx:1728-1753`), which calls
+`rootElement.focus({ preventScroll: true })` itself and then sets the selection in its own
+update. The controlled sync's DOM-selection write is load-bearing for *nobody's* focus.
+
+<Table
+  columns={["Path", "Where", "How it focuses", "Verdict under the fix"]}
+  rows={[
+    [
+      "Mention / slash-command / skill / thread insertion",
+      "ChatComposer.tsx:1493-1524 (applyPromptReplacement)",
+      "rAF → composerEditorRef.focusAt(nextCursor) at :1516-1519",
+      "Unaffected — explicit focus; /model deliberately opts out via focusEditorAfterReplace:false (:1624-1631)",
+    ],
+    [
+      "Type-to-focus first keystroke",
+      "ChatView.tsx:4406-4416 → insertTextAtEnd (ChatComposer.tsx:1910-1926)",
+      "Same applyPromptReplacement rAF focus",
+      "Unaffected — focus arrives one frame later than the accidental steal did; a keystroke in the gap re-enters type-to-focus and is appended, not lost",
+    ],
+    [
+      "Terminal 'add to chat' chip insertion",
+      "ChatComposer.tsx:2055-2090 (addTerminalContext)",
+      "rAF → focusAt(nextCollapsedCursor) at :2085-2088",
+      "Focus unaffected; insertion position depends on readSnapshot — see Decision 1",
+    ],
+    [
+      "Provider-traits prompt rewrite",
+      "ChatComposer.tsx:1181-1194 (setPromptFromTraits)",
+      "scheduleComposerFocus → focusAtEnd (ChatView.tsx:2626-2634)",
+      "Unaffected",
+    ],
+    [
+      "Thread switch draft restore",
+      "draft target change; autofocus at ChatView.tsx:3900-3908",
+      "rAF → focusComposer → focusAtEnd",
+      "Unaffected — caret still lands at end of restored draft",
+    ],
+    [
+      "Terminal drawer close",
+      "ChatView.tsx:4369-4390",
+      "rAF → focusComposer",
+      "Unaffected",
+    ],
+    [
+      "Image drop / mode change / model pick / kickoff",
+      "ChatComposer.tsx:1184, 1771, 1907; ChatView.tsx:3070, 3089, 4192, 5690-5781",
+      "All user-initiated, all explicit focusComposer/scheduleComposerFocus",
+      "Unaffected",
+    ],
+  ]}
+/>
+
+### The `cursor` prop and blurred snapshot reads — the one real dependency
+
+Who sets `cursor`? It is `composerCursor` state in `ChatComposer` (`ChatComposer.tsx:2418`),
+written by `onPromptChange` (mirroring the editor), `applyPromptReplacement`,
+`resetCursorState` (`ChatComposer.tsx:2037-2054`), `addTerminalContext`, and chip removal
+(`ChatComposer.tsx:1264-1285`). Every caller that sets a value *and* a cursor expecting the
+caret to visibly move follows up with an explicit `focusAt` — so honouring the DOM write only
+when focused breaks none of them.
+
+But there is a subtler consumer: **the editor's *internal* selection is read back while
+blurred.** `readSnapshot` (`ComposerPromptEditor.tsx:1754-1786`) derives the current cursor
+from the editor state's selection (`$readSelectionOffsetFromEditorState`,
+`ComposerPromptEditor.tsx:888-897`), and `addTerminalContext` calls it **while the terminal
+holds focus** (`ChatComposer.tsx:2056-2063`) to decide where in the draft the terminal-context
+chip is inserted. Today, a blurred rewrite (approval churn, skills churn) re-sets the internal
+selection to the clamped cursor, so a later blurred `readSnapshot` still reports the user's
+draft position. If the fix made the selection-set conditional on focus (as the diagnosis
+suggested), a blurred rewrite would leave the internal selection wherever `root.clear()`
+dropped it — the root element at offset 0 — and a subsequent terminal add-to-chat would insert
+the chip at **position 0** instead of the draft cursor. That is the regression Decision 1
+avoids.
+
+### Approval flow
+
+Today, across an approval: the draft itself is safe (only the rendered `value` is swapped to
+`""`; the draft store keeps the prompt, and the echo-suppression ref
+`isApplyingControlledUpdateRef` at `ComposerPromptEditor.tsx:1836-1838` stops the blank from
+being written back). The editor is disabled during the approval
+(`disabled={... || isComposerApprovalState}`, `ChatComposer.tsx:2439`), and
+`editor.setEditable(false)` (`ComposerPromptEditor.tsx:1679-1681`) drops focus to the body if
+the user was typing — that interruption is by design and unchanged by this plan.
+
+What changes: **after** the user clicks Allow/Deny (focus is on the button, so the editor is
+blurred), the restore rewrite currently steals focus back into the composer. That accidental
+steal is the only reason focus "returns" to the composer after an approval today. With the fix,
+focus instead falls to the body when the approval buttons unmount. Because resolving an
+approval via the composer's own buttons is a deliberate composer interaction, the plan restores
+this affordance **explicitly and locally**: after a locally-initiated respond resolves, call the
+composer focus (one line in the `ComposerPendingApprovalActions` activation path — *not* on the
+state transition, so approvals resolved remotely or from another device never move focus).
+This is the "distinguish user-initiated focus from state-sync focus" line the whole fix draws.
+
+The diagnosis floated a larger alternative: stop blanking `value` during approvals and render
+an overlay instead. **Evaluated and deferred.** With the tag fix, the two rewrites per approval
+become inert while blurred, and while focused the blanking is part of the deliberate
+approval-takeover UX (placeholder shows the approval detail, editor disabled). The overlay
+refactor would touch the approval header/placeholder/chips rendering for no additional focus
+benefit — larger surface, no longer needed for this bug.
+
+### Undo / history
+
+`@lexical/history` consults only `HISTORIC_TAG` / `HISTORY_PUSH_TAG` / `HISTORY_MERGE_TAG` /
+composition tags (`@lexical/history/LexicalHistory.dev.mjs:136-151`). `SKIP_DOM_SELECTION_TAG`
+is invisible to it, so undo behaviour is byte-identical. The one existing `HISTORY_MERGE_TAG`
+usage (`ComposerPromptEditor.tsx:1591`, dead-key surround) runs only during focused typing and
+does not interact. (Noted, out of scope: controlled rewrites already create undo entries, so
+Ctrl+Z can in principle step through approval blank/restore states — pre-existing, unchanged by
+this fix.)
+
+### Tag semantics, verified against Lexical 0.41.0
+
+- `SKIP_DOM_SELECTION_TAG` (`"skip-dom-selection"`, exported at `lexical/index.d.ts:40`) causes
+  `$commitPendingUpdates` to skip the *entire* DOM-selection block — both the `focus()` grab and
+  `setDOMSelectionBaseAndExtent` (`Lexical.dev.mjs:8548-8565`). `SKIP_SELECTION_FOCUS_TAG`
+  would be insufficient: it suppresses only the focus call (`:7865-7871`), not the selection
+  overwrite (`:7878-7881`). The Firefox-specific refocus (`:7883-7893`) is inside the same
+  skipped block, so no per-browser residue.
+- `editor.update(fn, { tag })` is the supported options path (`Lexical.dev.mjs:8714-8746`,
+  `addTags`). Tags apply to the single synchronous commit of that update, and selections are
+  cloned dirty-false into the next state (`RangeSelection.clone`, `Lexical.dev.mjs:6090-6095`),
+  so a skipped selection cannot leak a DOM write into a later untagged update. The only source
+  of node-dirtying updates while blurred is this same controlled sync (every other plugin in
+  the file reacts to focused typing), so there is no later untagged commit to re-trigger the
+  steal.
+- Focus events are pass-through commands in Lexical core (`Lexical.dev.mjs:2087, 3034-3035`);
+  neither core nor `@lexical/plain-text` restores a selection on focus. Click-into-composer
+  places the caret at the click point via the browser + Lexical's `selectionchange` sync; all
+  app-initiated focus goes through `focusAt`, which sets the selection itself. Nothing needs
+  the skipped DOM write "replayed" later.
+
+### IME / composition / mobile
+
+The tag is applied only when the editor is blurred; composition and IME input require focus, so
+composition is never tagged and never affected. The native mobile app (`apps/mobile`) does not
+use `ComposerPromptEditor` at all (no references). The mobile *web* flow improves: after a
+mobile send, `blurMobileComposerAfterSend` (`ChatComposer.tsx:1710-1721`) deliberately blurs to
+dismiss the keyboard, and today the send-clear rewrite can immediately re-focus the editor via
+the reconciler and re-summon the keyboard; with the fix the deliberate blur sticks.
+
+### Tests
+
+No unit test asserts the current focus behaviour: nothing in the test tree references
+`ComposerPromptEditor`, `shouldTypeToFocusComposer`, or composer focus.
+`shouldShowBranchMismatchBanner` (`ChatView.logic.ts:481-498`) *deliberately ignores* composer
+focus because of the autofocus, and its tests (`ChatView.logic.test.ts:357`) encode that —
+unaffected. `pendingQuestionKeyboardSafety.test.tsx` guards a different surface
+(`PendingQuestionCard`), which is already written not to take focus. **No test changes are
+needed, and none would mask a regression** — the flip side is that verification must be live in
+a browser (checklist below).
+
+## The fixes
+
+<FileTree
+  title="Change map (4 files, all small)"
+  entries={[
+    {
+      path: "apps/web/src/components/ComposerPromptEditor.tsx",
+      change: "modified",
+      note: "Issue 1: tag blurred controlled updates with SKIP_DOM_SELECTION_TAG (1 import + 1 options arg)",
+    },
+    {
+      path: "apps/web/src/components/ChatView.tsx",
+      change: "modified",
+      note: "Issue 2: repair dead dialog selector (:437-444). Issue 4: one-shot thread-activation autofocus (:3900-3908)",
+    },
+    {
+      path: "apps/web/src/components/CommandPalette.tsx",
+      change: "modified",
+      note: "Issue 3: drop custom finalFocus; let base-ui restore prior focus (:1869-1872)",
+    },
+    {
+      path: "apps/web/src/components/chat/ComposerPendingApprovalActions.tsx",
+      change: "modified",
+      note: "Issue 1 companion: explicit composer focus after a locally-clicked approval response (pending Q1)",
+    },
+  ]}
+/>
+
+### Issue 1 (primary) — tag the blurred controlled sync
+
+`apps/web/src/components/ComposerPromptEditor.tsx:1712-1722`. Import
+`SKIP_DOM_SELECTION_TAG` from `lexical` and pass it as the update tag **only when the editor is
+blurred**:
+
+<Diff
+  filename="apps/web/src/components/ComposerPromptEditor.tsx"
+  language="tsx"
+  mode="unified"
+  before={"    isApplyingControlledUpdateRef.current = true;\n    editor.update(() => {\n      const shouldRewriteEditorState =\n        previousSnapshot.value !== value || contextsChanged || skillsChanged;\n      if (shouldRewriteEditorState) {\n        $setComposerEditorPrompt(value, terminalContexts, skillMetadataRef.current);\n      }\n      if (shouldRewriteEditorState || isFocused) {\n        $setSelectionAtComposerOffset(normalizedCursor);\n      }\n    });\n"}
+  after={"    isApplyingControlledUpdateRef.current = true;\n    editor.update(\n      () => {\n        const shouldRewriteEditorState =\n          previousSnapshot.value !== value || contextsChanged || skillsChanged;\n        if (shouldRewriteEditorState) {\n          $setComposerEditorPrompt(value, terminalContexts, skillMetadataRef.current);\n        }\n        if (shouldRewriteEditorState || isFocused) {\n          $setSelectionAtComposerOffset(normalizedCursor);\n        }\n      },\n      isFocused ? undefined : { tag: SKIP_DOM_SELECTION_TAG },\n    );\n"}
+  annotations={[
+    {
+      side: "after",
+      lines: "13",
+      label: "the fix",
+      note: "Blurred controlled rewrites still update the editor state AND its internal selection, but Lexical never reconciles the selection to the DOM — no focus() grab, no setBaseAndExtent, no destroyed user selection.",
+    },
+    {
+      side: "after",
+      lines: "9-11",
+      label: "deliberately unchanged",
+      note: "Keep setting the internal selection while blurred — see Decision 1. Under the tag it has zero DOM effect.",
+    },
+  ]}
+/>
+
+<Callout tone="decision">
+  **Decision 1 — diverge from the diagnosis: tag only, do not gate the selection-set.** The
+  diagnosis recommended additionally changing line 1719 to `if (isFocused)`. That second change
+  is harmful: the internal selection is what `readSnapshot` reads while blurred, and terminal
+  add-to-chat (`ChatComposer.tsx:2055-2090`) uses that snapshot to position the inserted chip.
+  Gate it on focus and a blurred rewrite (any approval or reconnect while the user works in the
+  terminal) resets the internal selection to offset 0 — the next add-to-chat inserts the chip at
+  the start of the draft instead of the cursor. Setting the internal selection under
+  `SKIP_DOM_SELECTION_TAG` costs nothing (Lexical never writes it to the DOM), preserves the
+  snapshot contract, and makes the diff one expression instead of two behaviour changes.
+</Callout>
+
+Two deliberate scope notes: (a) `isFocused` keeps its exact-match semantics
+(`document.activeElement === rootElement`, `ComposerPromptEditor.tsx:1707`) — when focus is on
+an element *inside* a decorator chip, suppressing the DOM write is correct (it would otherwise
+yank focus out of the chip); (b) the approval-blanking at `ChatComposer.tsx:2417-2419` stays —
+with the tag it is harmless while blurred, and while focused it is the intended approval
+takeover.
+
+Companion (pending Q1): after a **locally clicked** approval response resolves, focus the
+composer explicitly from the button activation path in `ComposerPendingApprovalActions`
+(via the existing `scheduleComposerFocus`/`focusAtEnd` plumbing), preserving the
+"approve, then keep typing" affordance the accidental steal used to provide — without moving
+focus for remotely-resolved approvals.
+
+### Issue 2 — repair the type-to-focus floating-layer guard
+
+`apps/web/src/components/ChatView.tsx:437-444`. Confirmed: no element anywhere in
+`apps/web/src` renders `data-slot="dialog"` (the only occurrence of that string is the selector
+itself), so dialogs, alert dialogs, and sheets never suppress type-to-focus — a printable
+keystroke with focus on a dialog's popup container (base-ui focuses the `tabindex="-1"` popup
+when there is no autofocus target; it matches neither the editable nor the interactive guard)
+is inserted into the composer behind the dialog and focus-fights the dialog's trap.
+
+<Diff
+  filename="apps/web/src/components/ChatView.tsx"
+  language="tsx"
+  mode="unified"
+  before={"const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [\n  '[data-slot=\"dialog\"]',\n  '[data-slot=\"menu-popup\"]',\n"}
+  after={"const TYPE_TO_FOCUS_FLOATING_LAYER_SELECTOR = [\n  '[data-slot=\"dialog-popup\"]',\n  '[data-slot=\"alert-dialog-popup\"]',\n  '[data-slot=\"command-dialog-popup\"]',\n  '[data-slot=\"sheet-popup\"]',\n  '[data-slot=\"menu-popup\"]',\n"}
+  annotations={[
+    {
+      side: "after",
+      lines: "2-5",
+      note: "The real popup slots (from enumerating data-slot values across apps/web/src/components/ui). Closed popups unmount, so the querySelector presence check is sound.",
+    },
+  ]}
+/>
+
+Do **not** use the tempting suffix selector `[data-slot$="-popup"]`: it also matches
+`toast-popup` and `tooltip-popup`, which would silently disable type-to-focus whenever a toast
+is showing or a tooltip is hovered.
+
+### Issue 3 — command palette: restore the previously focused element
+
+`apps/web/src/components/CommandPalette.tsx:1869-1872` unconditionally focuses the composer on
+close (`finalFocus={() => { composerHandleRef?.current?.focusAtEnd(); return false; }}` — in
+place since the palette's original commit `934037cb6`, i.e. a convenience default, not a
+workaround for anything). **Fix: delete the `finalFocus` prop.** base-ui's focus manager
+already records the previously focused element on open and restores it on close when it is
+still connected (`@base-ui/react` `FloatingFocusManager` `getReturnElement`); when it has been
+unmounted (e.g. a palette action navigated), base-ui makes no forced move and the
+thread-activation autofocus covers the navigation case. Net behaviour: palette opened from the
+composer still returns to the composer; opened from the sidebar search or a settings field, it
+returns there — Escape no longer teleports the user into the composer.
+
+### Issue 4 — one-shot thread-activation autofocus
+
+`apps/web/src/components/ChatView.tsx:3900-3908` re-runs on any `activeThread?.id` identity
+transition, including a transient `undefined` round-trip during a store refresh/reconnect
+(unconfirmed in practice — flagged as an open observation, but the guard is four lines and
+cannot break the intended behaviour). Guard with a "last auto-focused thread id" ref so each
+*arrival at a thread* focuses once, while A→B→A still refocuses:
+
+<Code
+  filename="apps/web/src/components/ChatView.tsx"
+  language="tsx"
+  code={"const autoFocusedThreadIdRef = useRef<string | null>(null);\n\nuseEffect(() => {\n  if (!activeThread?.id || terminalUiState.terminalOpen) return;\n  if (autoFocusedThreadIdRef.current === activeThread.id) return;\n  autoFocusedThreadIdRef.current = activeThread.id;\n  const frame = window.requestAnimationFrame(() => {\n    focusComposer();\n  });\n  return () => {\n    window.cancelAnimationFrame(frame);\n  };\n}, [activeThread?.id, focusComposer, terminalUiState.terminalOpen]);\n"}
+  caption="A transient undefined round-trip of the same thread id no longer re-steals focus. Note: do not reset the ref on undefined — that is exactly the flap being guarded."
+/>
+
+One interaction checked: today this effect *also* refocuses the composer when the terminal
+drawer closes (`terminalUiState.terminalOpen` flips false and the effect re-runs). The
+dedicated terminal-close handler at `ChatView.tsx:4369-4390` already does that on purpose, so
+deduplicating via the one-shot ref loses nothing.
+
+## Ranking and landing order
+
+<Table
+  columns={["Rank", "Issue", "User-visible impact", "Fix risk", "Recommendation"]}
+  rows={[
+    [
+      "1",
+      "Controlled-sync steal (Issue 1)",
+      "High — the reported bug; fires on agent/server timing with no user action",
+      "Low with the tag-only shape; the one known dependency (blurred snapshot reads) is explicitly preserved",
+      "Land",
+    ],
+    [
+      "2",
+      "Dead dialog selector (Issue 2)",
+      "Medium — keystrokes leak into the composer behind dialogs/sheets",
+      "Trivial — selector-only; guard semantics unchanged",
+      "Land together with issue 1",
+    ],
+    [
+      "3",
+      "Palette finalFocus (Issue 3)",
+      "Medium-low — real hijack but user-initiated and attributable",
+      "Low, but a deliberate UX change (muscle memory: Esc used to land in composer)",
+      "Land as its own commit; easy to revert independently",
+    ],
+    [
+      "4",
+      "Thread-activation refire (Issue 4)",
+      "Low — trigger unconfirmed (needs a reconnect flap)",
+      "Trivial — pure hardening, preserves intended focus-on-open",
+      "Land as its own commit (cheap insurance); dropping it is also defensible",
+    ],
+  ]}
+/>
+
+**Rejected alternatives** (assessed per the brief): making the composer uncontrolled — the
+controlled `value` is load-bearing for the draft store, thread switching, draft→thread
+promotion, failed-send restore, and approval takeover; a re-architecture, not a fix, and wrong
+for a prototype needing the smallest correct change. Skipping the rewrite entirely while
+blurred — the composer must still *render* external draft changes while blurred (thread
+switch, restore), so the state rewrite has to happen; only the DOM-selection side effect is
+wrong. `SKIP_SELECTION_FOCUS_TAG` — verified insufficient (stops the focus grab, still
+destroys the user's selection).
+
+## Risks, and what each looks like if it materialises
+
+- **R1 — an unfound blurred consumer of the DOM selection.** The audit covered every
+  `focusAt`/`focusAtEnd`/`readSnapshot`/`resetCursorState`/`insertTextAtEnd` caller and every
+  value/cursor writer, but if something else reads the *DOM* selection inside the composer
+  while blurred, it would now see a stale DOM selection. It would look like: a caret or
+  insertion landing at a stale position after an approval/reconnect while unfocused. The
+  verification checklist targets exactly this shape (steps 6-7).
+- **R2 — approval-resolution focus change.** If Q1 is answered "no companion", users who
+  habitually approve-then-type will notice focus no longer lands in the composer. Looks like: a
+  complaint that "typing after Allow does nothing". Mitigation is the one-line companion
+  (recommended).
+- **R3 — palette focus-restore muscle memory.** Users who exploited Esc-to-composer will need
+  one extra click. Attributable, reversible by restoring the old prop.
+- **R4 — Lexical upgrade drift.** The fix leans on a stable, exported public tag; behaviour is
+  documented in Lexical's own JSDoc. Low.
+
+## Verification plan (live, dev-verify recipe)
+
+Static gates: `vp check` and `vp run typecheck`. Everything else is live browser verification
+using the dev-verify recipe (`docs/dev-site-testing.md`) with a seeded workstream; mobile steps
+use a narrow viewport. **The bug-gone checks and the still-works checks matter equally.**
+
+<Checklist
+  items={[
+    {
+      id: "steal-approval",
+      label:
+        "Bug gone — approval churn: with draft text in the composer, focus the terminal and select text; drive a turn that raises an approval, then resolve it. Selection and focus must not move at arrival or resolution.",
+    },
+    {
+      id: "steal-reconnect",
+      label:
+        "Bug gone — reconnect/skills churn: with a draft present, select text in a chat message, restart the dev server (or drop the WebSocket). On reconnect the selection must survive.",
+    },
+    {
+      id: "steal-typing",
+      label:
+        "Bug gone — typing elsewhere: type in the sidebar search while an approval arrives; no characters are diverted to the composer and focus stays in the search field.",
+    },
+    {
+      id: "ttf-works",
+      label:
+        "Still works — type-to-focus: click empty page chrome (body focus), press a letter; composer focuses with the letter appended and caret after it.",
+    },
+    {
+      id: "ttf-dialog",
+      label:
+        "Now works — dialog suppression: open a settings Dialog and a Sheet, focus the popup container (click its padding), press letters; nothing lands in the composer. Repeat with a menu open (regression check on the untouched entries).",
+    },
+    {
+      id: "insertion",
+      label:
+        "Still works — insertion paths: @-mention a file, / slash command, $ skill, # thread; each inserts its chip/text, focuses the composer, caret lands after the insertion.",
+    },
+    {
+      id: "terminal-chip",
+      label:
+        "Still works (Decision 1 guard) — terminal add-to-chat: type a draft, park the caret mid-draft, focus the terminal, cause an approval to arrive AND resolve (a blurred rewrite), then add a terminal selection to chat. The chip must insert at the draft cursor — NOT at position 0 — and the caret must land after the chip.",
+    },
+    {
+      id: "thread-switch",
+      label:
+        "Still works — thread switch: switch threads; composer autofocuses with caret at end of the restored draft. A→B→A refocuses each time.",
+    },
+    {
+      id: "send-paths",
+      label:
+        "Still works — send: successful desktop send clears the composer and keeps focus in it. Failed send (kill the server first) restores the draft; if focus was elsewhere it must NOT be stolen back.",
+    },
+    {
+      id: "mobile-send",
+      label:
+        "Improved — mobile viewport: send a message; the keyboard/focus must stay dismissed after send (the deliberate blur is no longer undone).",
+    },
+    {
+      id: "approval-focused",
+      label:
+        "Unchanged — approval while typing in the composer: editor blanks to the approval placeholder and disables; draft text and terminal-context chips reappear intact after resolution. If Q1 lands: after clicking Allow, focus returns to the composer.",
+    },
+    {
+      id: "palette",
+      label:
+        "Changed (Issue 3) — command palette: open it from the composer → Esc → focus back in the composer; open it from the sidebar search field → Esc → focus back in the search field.",
+    },
+    {
+      id: "undo",
+      label:
+        "Still works — undo: type, insert a mention, undo/redo; behaviour identical to before the change (history is tag-blind to the fix).",
+    },
+    {
+      id: "ime",
+      label:
+        "Still works — IME/dead keys: compose accented text (dead-key backtick surround) in a focused composer while a background rewrite arrives; composition is not interrupted.",
+    },
+  ]}
+/>
+
+## Open questions
+
+Things checked but not fully determinable statically, stated plainly: (a) whether
+`activeThread` really flips `undefined` during reconnect (Issue 4's trigger) was not confirmed
+— the guard is worth its four lines regardless, but if reconnect testing shows no flap, Issue 4
+can be dropped without loss; (b) no Playwright/e2e suite was found asserting focus behaviour,
+so the checklist above is the only regression net — a follow-up e2e for "selection survives an
+approval" would be the first genuinely valuable focus test if this area churns again.
+
+<QuestionForm
+  questions={[
+    {
+      id: "q1-approval-refocus",
+      title:
+        "Q1 — After the user clicks Allow/Deny on an approval, should the composer be explicitly refocused?",
+      mode: "single",
+      options: [
+        {
+          id: "yes",
+          label: "Yes — one-line companion in ComposerPendingApprovalActions",
+          recommended: true,
+          detail:
+            "Preserves the approve-then-keep-typing affordance users currently get (via the bug). Local button clicks only; remote resolutions never move focus.",
+        },
+        {
+          id: "no",
+          label: "No — ship the minimal fix, add it later if anyone misses it",
+          detail: "Smallest surface; focus falls to body after the approval buttons unmount.",
+        },
+      ],
+    },
+    {
+      id: "q2-scope",
+      title: "Q2 — Which issues land now?",
+      mode: "single",
+      options: [
+        {
+          id: "all",
+          label: "Issues 1+2 together, 3 and 4 as separate commits in the same PR",
+          recommended: true,
+          detail:
+            "One review pass, independently revertable commits for the two judgement-call UX changes.",
+        },
+        {
+          id: "core",
+          label: "Issues 1+2 only; defer 3 and 4",
+          detail:
+            "Smallest possible change set for the reported bug; palette and reconnect hardening wait for explicit demand.",
+        },
+      ],
+    },
+  ]}
+/>
