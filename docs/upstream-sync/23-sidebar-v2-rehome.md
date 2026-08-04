@@ -107,9 +107,14 @@ without conflict.
 v2 on for nightly and dev builds") will arrive with:
 
 1. `packages/contracts/src/settings.ts` — adds `sidebarV2ConfiguredByUser` to
-   `ClientSettingsSchema` and `ClientSettingsPatch`. **Identical to ours** →
-   merges clean; if git does report a conflict, take either side, they are the
-   same text.
+   `ClientSettingsSchema` and `ClientSettingsPatch`. **The added text is
+   byte-identical to ours, five-line explanatory comment included** — that
+   comment is upstream's own, copied deliberately from `c13a021e4` so the hunk
+   coincides rather than conflicts (verified by diffing the field's context
+   window against `c13a021e4:packages/contracts/src/settings.ts`). Git should
+   merge it silently; if a wider context window still reports a conflict (loom
+   has its own fields elsewhere in the same struct), take either side — the
+   added lines are the same text.
 2. `apps/desktop/src/settings/DesktopClientSettings.test.ts` — adds
    `sidebarV2ConfiguredByUser: false` to the literal. **Identical to ours.**
 3. `apps/web/src/components/AppSidebarLayout.tsx`, `routes/_chat.tsx`,
@@ -196,6 +201,35 @@ went. If a future merge reintroduces any of the following, it is a mistake:
   `isVisibleHandoffDrafter` filter at each of the two sites — plus the roll-up
   badge lookup on the row map. Measured effect: loom's `Sidebar.tsx` fork
   against upstream `5719e8ac4` fell from **45 hunks to 28**.
+
+> **⚠️ This supersedes a standing entry on the carried-forward Pi-only drop
+> list.** `pinnedCollapsedThread` — the upstream convenience that keeps the
+> active thread visible while its project is collapsed — is named as a
+> deliberate fork drop in the "Intentional prior drops — NOT 'fixed' here"
+> section carried through
+> [docs 18](18-cadence-pull-v0.0.29-nightly-20260709.md),
+> [19](19-cadence-pull-v0.0.29-nightly-20260713.md),
+> [20](20-cadence-pull-v0.0.29-nightly-20260719.md) and
+> [21](21-cadence-pull-v0.0.29-nightly-20260725.md), and as
+> an "intentional drop / known minor" in
+> [docs 14](14-final-review.md) and [15](15-final-quality-review.md).
+> **That entry is now void: `pinnedCollapsedThread` is restored and v1 is
+> upstream-shaped here. Drop it from the Pi-only list at the next cadence
+> pull.**
+>
+> The original justification is what expired, not just the outcome.
+> [Doc 11](11-review-2.5b.md) upheld the drop because restoring it "onto the Pi
+> goal-grouping model (where the active thread can sit inside a collapsed goal
+> _within_ a collapsed project) has ambiguous semantics". **Goal grouping no
+> longer exists** — v1 is a flat per-project list — so the ambiguity that
+> justified the drop is gone with it, and the upstream behaviour is now simply
+> correct. Verified benign against loom's paths: `pinnedCollapsedThread`
+> operates only over the flat `filterRootThreads` root list and touches no goal
+> path.
+>
+> A cadence agent that inherits the stale list and "preserves fork behaviour" by
+> re-dropping it would re-fork the exact block this section promises will merge
+> as a no-op. Do not.
 
 **Deliberately NOT adopted:**
 
