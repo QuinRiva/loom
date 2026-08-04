@@ -147,6 +147,7 @@ const shell = (
     faninSince: null,
     spawnGeneration: null,
     forkFromThreadId: null,
+    continuesThreadId: null,
     reportPath: null,
     routes: [],
     gateRounds: 0,

@@ -611,6 +611,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.forkFromThreadId !== undefined
             ? { forkFromThreadId: command.forkFromThreadId }
             : {}),
+          // loom: handoff chain — propagate the goal_continue predecessor.
+          ...(command.continuesThreadId !== undefined
+            ? { continuesThreadId: command.continuesThreadId }
+            : {}),
           title: command.title,
           // loom: §4 seed the created thread's title provenance.
           titleProvenance: resolveTitleProvenance(command.title, command.titleProvenance),

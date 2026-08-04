@@ -8,6 +8,7 @@
  */
 import {
   GoalId,
+  HandoffDestination,
   IsoDateTime,
   ModelSelection,
   NonNegativeInt,
@@ -47,6 +48,9 @@ export const ProjectionThread = Schema.Struct({
   // Thread fork (MVP): the source thread this thread was forked from (null when
   // not a fork). Read by the driver at first launch to fork the pi session.
   forkFromThreadId: Schema.NullOr(ThreadId),
+  // Handoff chain: the predecessor thread on the same goal when this thread was
+  // created by `goal_continue` (null otherwise).
+  continuesThreadId: Schema.NullOr(ThreadId),
   // Post-completion engagement (plan §8 item 3): the child's tip commit recorded
   // at fan-in / cancel (null until disposed). Historical marker only. Optional
   // so it need not appear in row literals; the SELECT always aliases the column.
@@ -116,9 +120,9 @@ export const ProjectionThread = Schema.Struct({
   // Null when unknown (no checkpoint yet) so the UI suppresses the chip.
   diffAdditions: Schema.NullOr(NonNegativeInt),
   diffDeletions: Schema.NullOr(NonNegativeInt),
-  // `/handoff` fork-drafter (plan D5): count of `goal_handoff` calls this thread
-  // has placed as a handoff-drafter (0 for every non-drafter thread).
-  handoffCount: NonNegativeInt,
+  // `/handoff` fork-drafter (plan D5): the destinations this thread has placed
+  // as a handoff-drafter (empty for every non-drafter thread).
+  handoffDestinations: Schema.Array(HandoffDestination),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;

@@ -463,7 +463,13 @@ export function projectLoomEvent(
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
-              handoffCount: thread.handoffCount + 1,
+              handoffDestinations: [
+                ...thread.handoffDestinations,
+                {
+                  goalId: payload.destinationGoalId,
+                  threadId: payload.destinationThreadId,
+                },
+              ],
               updatedAt: payload.createdAt,
             }),
           };

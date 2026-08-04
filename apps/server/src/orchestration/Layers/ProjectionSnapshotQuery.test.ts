@@ -372,6 +372,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           blockedBy: [],
           spawnGeneration: null,
           forkFromThreadId: null,
+          continuesThreadId: null,
           finalCommitSha: null,
           reportPath: null,
           graphKey: null,
@@ -412,7 +413,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
-          handoffCount: 0,
+          handoffDestinations: [],
           notifySendLog: [],
           settledOverride: null,
           settledAt: null,
@@ -518,6 +519,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           blockedBy: [],
           spawnGeneration: null,
           forkFromThreadId: null,
+          continuesThreadId: null,
           finalCommitSha: null,
           reportPath: null,
           graphKey: null,
@@ -583,7 +585,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
-          handoffCount: 0,
+          handoffDestinations: [],
         },
       ]);
 
@@ -595,10 +597,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  // `/handoff` fork-drafter (finding 3): a non-zero handoff_count must round-trip
-  // through BOTH the shell snapshot and the thread-detail assembler (the detail
-  // path previously omitted the field, silently reporting 0 via decode-default).
-  it.effect("round-trips a non-zero handoffCount through shell and thread detail", () =>
+  // `/handoff` fork-drafter (finding 3): recorded handoff destinations must
+  // round-trip through BOTH the shell snapshot and the thread-detail assembler
+  // (the detail path previously omitted the field, silently reporting the
+  // decode-default). `continues_thread_id` rides the same row.
+  it.effect("round-trips handoff destinations + continuesThreadId through shell and detail", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -620,23 +623,36 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_threads (
           thread_id, project_id, role, title, model_selection_json, runtime_mode,
-          interaction_mode, handoff_count, created_at, updated_at, deleted_at
+          interaction_mode, handoff_destinations, continues_thread_id,
+          created_at, updated_at, deleted_at
         ) VALUES (
           'drafter-1', 'project-1', 'handoff-drafter', 'Handoff: fix retry',
           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
-          2, '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL
+          '[{"goalId":"goal-1","threadId":"dest-1"},{"goalId":"goal-2","threadId":"dest-2"}]',
+          'predecessor-1', '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL
         )
       `;
 
       const detail = yield* snapshotQuery.getThreadDetailById(ThreadId.make("drafter-1"));
       assert.equal(detail._tag, "Some");
       if (detail._tag === "Some") {
-        assert.equal(detail.value.handoffCount, 2);
+        assert.deepEqual(
+          detail.value.handoffDestinations.map((destination) => [
+            String(destination.goalId),
+            String(destination.threadId),
+          ]),
+          [
+            ["goal-1", "dest-1"],
+            ["goal-2", "dest-2"],
+          ],
+        );
+        assert.equal(detail.value.continuesThreadId, "predecessor-1");
       }
 
       const shell = yield* snapshotQuery.getShellSnapshot();
       const drafterShell = shell.threads.find((thread) => thread.id === "drafter-1");
-      assert.equal(drafterShell?.handoffCount, 2);
+      assert.equal(drafterShell?.handoffDestinations.length, 2);
+      assert.equal(drafterShell?.continuesThreadId, "predecessor-1");
     }),
   );
 

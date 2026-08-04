@@ -1,9 +1,11 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  GoalId,
   ProjectId,
   ProviderInstanceId,
   type OrchestrationCommand,
+  type HandoffDestination,
   type OrchestrationEvent,
   type OrchestrationLatestTurn,
   type OrchestrationSession,
@@ -75,6 +77,13 @@ const turn = (state: OrchestrationLatestTurn["state"]): OrchestrationLatestTurn 
   assistantMessageId: null,
 });
 
+/** N placed handoff destinations — the drafter settlement gate reads the length. */
+const placed = (count: number): ReadonlyArray<HandoffDestination> =>
+  Array.from({ length: count }, (_, index) => ({
+    goalId: GoalId.make(`goal-${index}`),
+    threadId: `dest-${index}` as ThreadId,
+  }));
+
 const makeDrafter = (
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell => ({
@@ -95,6 +104,7 @@ const makeDrafter = (
   blockedBy: [],
   spawnGeneration: null,
   forkFromThreadId: "source" as ThreadId,
+  continuesThreadId: null,
   reportPath: null,
   routes: [],
   gateRounds: 0,
@@ -107,7 +117,7 @@ const makeDrafter = (
   maxTokens: null,
   diffAdditions: null,
   diffDeletions: null,
-  handoffCount: 0,
+  handoffDestinations: [],
   title: "Handoff: something",
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   runtimeMode: "full-access",
@@ -137,7 +147,7 @@ describe("classifyHandoffSettlement", () => {
     const drafter = makeDrafter({
       latestTurn: turn("running"),
       session: readySession(),
-      handoffCount: 0,
+      handoffDestinations: [],
     });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({ kind: "none" });
   });
@@ -148,7 +158,7 @@ describe("classifyHandoffSettlement", () => {
   });
 
   it("settles a COMPLETED turn with a recorded handoff into the success sequence", () => {
-    const drafter = makeDrafter({ latestTurn: turn("completed"), handoffCount: 1 });
+    const drafter = makeDrafter({ latestTurn: turn("completed"), handoffDestinations: placed(1) });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({
       kind: "success",
       turnId: "turn-1",
@@ -159,7 +169,7 @@ describe("classifyHandoffSettlement", () => {
     const drafter = makeDrafter({
       latestTurn: turn("error"),
       session: readySession("boom"),
-      handoffCount: 2,
+      handoffDestinations: placed(2),
     });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({
       kind: "success",
@@ -168,7 +178,7 @@ describe("classifyHandoffSettlement", () => {
   });
 
   it("raises needs_guidance when a terminal turn recorded ZERO handoffs", () => {
-    const drafter = makeDrafter({ latestTurn: turn("completed"), handoffCount: 0 });
+    const drafter = makeDrafter({ latestTurn: turn("completed"), handoffDestinations: [] });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({
       kind: "guidance",
       reasonKey: "zero:turn-1",
@@ -214,7 +224,7 @@ describe("classifyHandoffSettlement", () => {
   it("does not re-settle an archived drafter", () => {
     const drafter = makeDrafter({
       archivedAt: NOW,
-      handoffCount: 0,
+      handoffDestinations: [],
       latestTurn: turn("completed"),
     });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({ kind: "none" });
@@ -223,7 +233,7 @@ describe("classifyHandoffSettlement", () => {
   it("does not re-raise guidance once already surfaced", () => {
     const drafter = makeDrafter({
       latestTurn: turn("completed"),
-      handoffCount: 0,
+      handoffDestinations: [],
       attention: ["needs_guidance"],
     });
     expect(classifyHandoffSettlement(drafter, NOW_MS)).toEqual({ kind: "none" });
@@ -281,7 +291,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
       Effect.gen(function* () {
         const drafter = makeDrafter({
           latestTurn: turn("completed"),
-          handoffCount: 1,
+          handoffDestinations: placed(1),
           session: readySession(),
         });
         const dispatched = yield* runReactorOnce(drafter);
@@ -296,7 +306,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
     Effect.gen(function* () {
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
-        handoffCount: 1,
+        handoffDestinations: placed(1),
         session: { ...readySession(), status: "stopped" },
       });
       const dispatched = yield* runReactorOnce(drafter);
@@ -308,7 +318,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
 
   effectIt.effect("zero-handoff terminal turn raises needs_guidance (no archive, no stop)", () =>
     Effect.gen(function* () {
-      const drafter = makeDrafter({ latestTurn: turn("completed"), handoffCount: 0 });
+      const drafter = makeDrafter({ latestTurn: turn("completed"), handoffDestinations: [] });
       const dispatched = yield* runReactorOnce(drafter);
       const raise = dispatched.find((c) => c.type === "thread.attention.raise");
       expect(raise).toBeDefined();
@@ -329,7 +339,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
     Effect.gen(function* () {
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
-        handoffCount: 1,
+        handoffDestinations: placed(1),
         session: readySession(),
       });
       const first = yield* runReactorOnce(drafter);
@@ -355,7 +365,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
       yield* TestClock.setTime(STUCK_NOW_MS);
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
-        handoffCount: 1,
+        handoffDestinations: placed(1),
         session: readySession(),
         planLane: "done",
         planLaneSince: "2026-07-19T12:00:00.000Z",
@@ -376,7 +386,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
       yield* TestClock.setTime(STUCK_NOW_MS);
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
-        handoffCount: 1,
+        handoffDestinations: placed(1),
         session: readySession(),
         planLane: "done",
         planLaneSince: "2026-07-19T12:59:00.000Z",
@@ -397,7 +407,7 @@ describe("HandoffDrafterReactor settlement sequence (reactor-backed)", () => {
       yield* TestClock.setTime(STUCK_NOW_MS);
       const drafter = makeDrafter({
         latestTurn: turn("completed"),
-        handoffCount: 1,
+        handoffDestinations: placed(1),
         session: readySession(),
         // Kickoff lane transition an hour ago, but the lane is still in_progress
         // (this is the first settlement pass) — aging against it would be wrong.

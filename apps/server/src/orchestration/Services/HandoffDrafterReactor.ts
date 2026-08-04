@@ -8,7 +8,7 @@ import type * as Scope from "effect/Scope";
  *
  * A drafter is a parentless `handoff-drafter` fork of a source pi thread; it
  * drafts brief(s), calls `goal_handoff` (each recorded as a durable
- * `thread.handoff-recorded` marker → `handoffCount`), and ends its turn. There
+ * `thread.handoff-recorded` marker → `handoffDestinations`), and ends its turn. There
  * is no `turn.completed` domain event, so this reactor treats a drafter's
  * `thread.session-set` leaving `running` (its latest kickoff turn terminal) as
  * the authoritative turn-end and settles:

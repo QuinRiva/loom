@@ -39,6 +39,7 @@ function makeShell(input: {
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: null,
+    continuesThreadId: null,
     reportPath: null,
     graphKey: null,
     kickoffBriefPath: null,
@@ -92,7 +93,7 @@ function makeShell(input: {
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
-    handoffCount: 0,
+    handoffDestinations: [],
     latestUserMessageAt: null,
     hasPendingApprovals: input.pending === "approval",
     hasPendingUserInput: input.pending === "user-input",
@@ -300,6 +301,118 @@ describe("effectiveSettled", () => {
         }),
       ).toBe(false);
     }
+  });
+
+  describe("loom: workstream blockers and triggers", () => {
+    const NO_SUBTREE = { hasNonTerminalDescendant: false };
+    // A thread that would otherwise settle: idle past the window, no override.
+    const settling = () => makeShell({ activityAt: STALE });
+    const settle = (
+      shell: OrchestrationThreadShell,
+      workstream?: { readonly hasNonTerminalDescendant: boolean },
+    ) =>
+      effectiveSettled(shell, {
+        now: NOW,
+        autoSettleAfterDays: 3,
+        ...(workstream === undefined ? {} : { workstream }),
+      });
+
+    it("leaves classification identical to upstream when no workstream context is passed", () => {
+      // Every loom input at its most extreme, with no context: unchanged.
+      const loud: OrchestrationThreadShell = {
+        ...settling(),
+        attention: ["needs_guidance"],
+        planLane: "yielded",
+      };
+      expect(settle(loud)).toBe(true);
+
+      const finished: OrchestrationThreadShell = {
+        ...makeShell({ activityAt: FRESH }),
+        planLane: "done",
+      };
+      expect(settle(finished)).toBe(false);
+    });
+
+    it("never settles a thread carrying an attention flag, even when explicitly settled", () => {
+      for (const reason of ["needs_guidance", "awaiting_acceptance", "error"] as const) {
+        expect(settle({ ...settling(), attention: [reason] }, NO_SUBTREE)).toBe(false);
+      }
+      const pinned: OrchestrationThreadShell = {
+        ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
+        attention: ["awaiting_acceptance"],
+      };
+      expect(settle(pinned, NO_SUBTREE)).toBe(false);
+    });
+
+    it("never settles a yielded thread, even when explicitly settled", () => {
+      expect(settle({ ...settling(), planLane: "yielded" }, NO_SUBTREE)).toBe(false);
+      const pinned: OrchestrationThreadShell = {
+        ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
+        planLane: "yielded",
+      };
+      expect(settle(pinned, NO_SUBTREE)).toBe(false);
+    });
+
+    it("never settles a thread with a non-terminal descendant, even when explicitly settled", () => {
+      const live = { hasNonTerminalDescendant: true };
+      // The idle orchestrator: quiescent by every runtime signal, but its
+      // subtree is still working.
+      expect(settle(settling(), live)).toBe(false);
+      expect(settle(makeShell({ settledOverride: "settled", activityAt: FRESH }), live)).toBe(
+        false,
+      );
+      // ...and a plan-terminal thread does not settle through the trigger
+      // while its subtree is live either.
+      expect(settle({ ...settling(), planLane: "done" }, live)).toBe(false);
+    });
+
+    it("settles a finished thread immediately, without waiting out the inactivity window", () => {
+      const fresh = makeShell({ activityAt: FRESH });
+      for (const planLane of ["done", "cancelled"] as const) {
+        expect(settle({ ...fresh, planLane }, NO_SUBTREE)).toBe(true);
+      }
+      // The keep-active pin still outranks the trigger.
+      expect(
+        settle(
+          { ...makeShell({ settledOverride: "active", activityAt: FRESH }), planLane: "done" },
+          NO_SUBTREE,
+        ),
+      ).toBe(false);
+    });
+
+    it("suppresses the trigger while a gate can still reopen the thread", () => {
+      const fresh = makeShell({ activityAt: FRESH });
+      // pendingRework: done, but the reviewer may bounce it back.
+      expect(settle({ ...fresh, planLane: "done", pendingRework: true }, NO_SUBTREE)).toBe(false);
+      // An isolated child that reached done still owes its branch merge.
+      expect(
+        settle(
+          { ...fresh, planLane: "done", isolation: "isolated", fanInState: "none" },
+          NO_SUBTREE,
+        ),
+      ).toBe(false);
+      for (const fanInState of ["completed", "conflicted"] as const) {
+        expect(
+          settle({ ...fresh, planLane: "done", isolation: "isolated", fanInState }, NO_SUBTREE),
+        ).toBe(true);
+      }
+      // cancelled never fans in, so an unsettled fan-in cannot wedge it.
+      expect(
+        settle(
+          { ...fresh, planLane: "cancelled", isolation: "isolated", fanInState: "none" },
+          NO_SUBTREE,
+        ),
+      ).toBe(true);
+    });
+
+    it("leaves planned threads exactly as they are today: neither trigger nor blocker", () => {
+      // makeShell's default lane is `planned`.
+      expect(settle(makeShell({ activityAt: FRESH }), NO_SUBTREE)).toBe(false);
+      expect(settle(settling(), NO_SUBTREE)).toBe(true);
+      expect(settle(makeShell({ settledOverride: "settled", activityAt: FRESH }), NO_SUBTREE)).toBe(
+        true,
+      );
+    });
   });
 
   it("uses a strict inactivity boundary and honors a null threshold", () => {

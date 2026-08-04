@@ -39,6 +39,7 @@ import {
   WorkOutcomeRecord,
   WorkstreamRoute,
   GoalId,
+  HandoffDestination,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -165,6 +166,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     blockedBy: Schema.fromJsonString(Schema.Array(ThreadId)),
     routes: Schema.fromJsonString(Schema.Array(WorkstreamRoute)),
     lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
+    handoffDestinations: Schema.fromJsonString(Schema.Array(HandoffDestination)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -826,6 +828,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -864,7 +867,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
@@ -889,6 +892,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -927,7 +931,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -954,6 +958,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -992,7 +997,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE deleted_at IS NULL
@@ -1557,6 +1562,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           blocked_by AS "blockedBy",
           spawn_generation AS "spawnGeneration",
           fork_from_thread_id AS "forkFromThreadId",
+          continues_thread_id AS "continuesThreadId",
           final_commit_sha AS "finalCommitSha",
           report_path AS "reportPath",
           graph_key AS "graphKey",
@@ -1595,7 +1601,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           max_tokens AS "maxTokens",
           diff_additions AS "diffAdditions",
           diff_deletions AS "diffDeletions",
-          handoff_count AS "handoffCount",
+          handoff_destinations AS "handoffDestinations",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
@@ -2766,6 +2772,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 blockedBy: row.blockedBy,
                 spawnGeneration: row.spawnGeneration,
                 forkFromThreadId: row.forkFromThreadId,
+                continuesThreadId: row.continuesThreadId,
                 finalCommitSha: row.finalCommitSha,
                 reportPath: row.reportPath,
                 graphKey: row.graphKey,
@@ -2790,7 +2797,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 maxTokens: row.maxTokens,
                 diffAdditions: row.diffAdditions,
                 diffDeletions: row.diffDeletions,
-                handoffCount: row.handoffCount,
+                handoffDestinations: row.handoffDestinations,
                 // notify_thread cap ledger is a command-read-model concern (see
                 // getCommandReadModel); the API snapshot does not carry it.
                 notifySendLog: [],
@@ -3057,6 +3064,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   blockedBy: row.blockedBy,
                   spawnGeneration: row.spawnGeneration,
                   forkFromThreadId: row.forkFromThreadId,
+                  continuesThreadId: row.continuesThreadId,
                   finalCommitSha: row.finalCommitSha,
                   reportPath: row.reportPath,
                   graphKey: row.graphKey,
@@ -3081,7 +3089,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   maxTokens: row.maxTokens,
                   diffAdditions: row.diffAdditions,
                   diffDeletions: row.diffDeletions,
-                  handoffCount: row.handoffCount,
+                  handoffDestinations: row.handoffDestinations,
                   notifySendLog: notifySendLogByThread.get(row.threadId) ?? [],
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
@@ -3285,6 +3293,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         blockedBy: row.blockedBy,
                         spawnGeneration: row.spawnGeneration,
                         forkFromThreadId: row.forkFromThreadId,
+                        continuesThreadId: row.continuesThreadId,
                         finalCommitSha: row.finalCommitSha,
                         reportPath: row.reportPath,
                         // Debugging-only effective-prompt sidecar path. Only pi
@@ -3320,7 +3329,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                         maxTokens: row.maxTokens,
                         diffAdditions: row.diffAdditions,
                         diffDeletions: row.diffDeletions,
-                        handoffCount: row.handoffCount,
+                        handoffDestinations: row.handoffDestinations,
                         createdAt: row.createdAt,
                         updatedAt: row.updatedAt,
                         archivedAt: row.archivedAt,
@@ -3473,6 +3482,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   blockedBy: row.blockedBy,
                   spawnGeneration: row.spawnGeneration,
                   forkFromThreadId: row.forkFromThreadId,
+                  continuesThreadId: row.continuesThreadId,
                   finalCommitSha: row.finalCommitSha,
                   reportPath: row.reportPath,
                   graphKey: row.graphKey,
@@ -3497,7 +3507,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   maxTokens: row.maxTokens,
                   diffAdditions: row.diffAdditions,
                   diffDeletions: row.diffDeletions,
-                  handoffCount: row.handoffCount,
+                  handoffDestinations: row.handoffDestinations,
                   createdAt: row.createdAt,
                   updatedAt: row.updatedAt,
                   archivedAt: row.archivedAt,
@@ -3863,6 +3873,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         blockedBy: threadRow.value.blockedBy,
         spawnGeneration: threadRow.value.spawnGeneration,
         forkFromThreadId: threadRow.value.forkFromThreadId,
+        continuesThreadId: threadRow.value.continuesThreadId,
         finalCommitSha: threadRow.value.finalCommitSha,
         reportPath: threadRow.value.reportPath,
         // Debugging-only effective-prompt sidecar path. Must apply the SAME pi-
@@ -3897,7 +3908,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         maxTokens: threadRow.value.maxTokens,
         diffAdditions: threadRow.value.diffAdditions,
         diffDeletions: threadRow.value.diffDeletions,
-        handoffCount: threadRow.value.handoffCount,
+        handoffDestinations: threadRow.value.handoffDestinations,
         createdAt: threadRow.value.createdAt,
         updatedAt: threadRow.value.updatedAt,
         archivedAt: threadRow.value.archivedAt,
@@ -4022,6 +4033,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             blockedBy: threadRow.value.blockedBy,
             spawnGeneration: threadRow.value.spawnGeneration,
             forkFromThreadId: threadRow.value.forkFromThreadId,
+            continuesThreadId: threadRow.value.continuesThreadId,
             finalCommitSha: threadRow.value.finalCommitSha,
             reportPath: threadRow.value.reportPath,
             graphKey: threadRow.value.graphKey,
@@ -4046,7 +4058,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             maxTokens: threadRow.value.maxTokens,
             diffAdditions: threadRow.value.diffAdditions,
             diffDeletions: threadRow.value.diffDeletions,
-            handoffCount: threadRow.value.handoffCount,
+            handoffDestinations: threadRow.value.handoffDestinations,
             createdAt: threadRow.value.createdAt,
             updatedAt: threadRow.value.updatedAt,
             archivedAt: threadRow.value.archivedAt,

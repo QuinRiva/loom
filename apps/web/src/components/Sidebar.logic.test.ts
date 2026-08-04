@@ -740,7 +740,7 @@ describe("resolveSidebarV2Status", () => {
     updatedAt: "2026-03-09T10:00:00.000Z",
   };
 
-  const idle = { hasPendingApprovals: false, hasPendingUserInput: false };
+  const idle = { hasPendingApprovals: false, hasPendingUserInput: false, attention: [] };
 
   it("prioritizes approval over a running session", () => {
     expect(resolveSidebarV2Status({ ...idle, hasPendingApprovals: true, session })).toBe(
@@ -793,6 +793,41 @@ describe("resolveSidebarV2Status", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarV2Status({ ...idle, session: null })).toBe("ready");
+  });
+
+  // loom: the attention array is the fork's primary wake signal.
+  it("ranks needs_guidance above every other signal", () => {
+    expect(
+      resolveSidebarV2Status({
+        ...idle,
+        attention: ["needs_guidance"],
+        hasPendingApprovals: true,
+        hasPendingUserInput: true,
+        session,
+      }),
+    ).toBe("attention");
+  });
+
+  it("reports awaiting_acceptance as attention rather than ready", () => {
+    expect(
+      resolveSidebarV2Status({ ...idle, attention: ["awaiting_acceptance"], session: null }),
+    ).toBe("attention");
+  });
+
+  it("reports a server-raised error flag as failed, below live work", () => {
+    expect(resolveSidebarV2Status({ ...idle, attention: ["error"], session: null })).toBe("failed");
+    expect(resolveSidebarV2Status({ ...idle, attention: ["error"], session })).toBe("working");
+  });
+
+  it("leaves derived attention reasons to their own states", () => {
+    expect(
+      resolveSidebarV2Status({
+        ...idle,
+        attention: ["awaiting_input"],
+        hasPendingUserInput: true,
+        session: null,
+      }),
+    ).toBe("input");
   });
 });
 
@@ -1234,6 +1269,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     blockedBy: [],
     spawnGeneration: null,
     forkFromThreadId: null,
+    continuesThreadId: null,
     reportPath: null,
     graphKey: null,
     kickoffBriefPath: null,
@@ -1248,7 +1284,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     maxTokens: null,
     diffAdditions: null,
     diffDeletions: null,
-    handoffCount: 0,
+    handoffDestinations: [],
     notifySendLog: [],
     title: "Thread",
     modelSelection: {

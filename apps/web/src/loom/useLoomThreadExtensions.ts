@@ -14,6 +14,7 @@ export interface LoomThreadExtensions {
   readonly threadLineage: ReadonlyArray<LineageSegment>;
   readonly navigateToThread: (targetThreadId: ThreadId) => void;
   readonly addTasksSurface: () => void;
+  readonly toggleTasksSurface: () => void;
   readonly addWorkstreamSurface: () => void;
 }
 
@@ -72,6 +73,12 @@ export function useLoomThreadExtensions(inputs: {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "tasks");
   }, [activeThreadRef]);
+  // The goal chip's one dispatch: open the Goal panel, or collapse the panel
+  // when it is already the active surface.
+  const toggleTasksSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().toggle(activeThreadRef, "tasks");
+  }, [activeThreadRef]);
   const addWorkstreamSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "workstream");
@@ -121,5 +128,11 @@ export function useLoomThreadExtensions(inputs: {
     autoOpenWorkstreamPanel,
   ]);
 
-  return { threadLineage, navigateToThread, addTasksSurface, addWorkstreamSurface };
+  return {
+    threadLineage,
+    navigateToThread,
+    addTasksSurface,
+    toggleTasksSurface,
+    addWorkstreamSurface,
+  };
 }

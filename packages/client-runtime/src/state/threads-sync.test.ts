@@ -66,6 +66,7 @@ const BASE_THREAD: OrchestrationThread = {
   blockedBy: [],
   spawnGeneration: null,
   forkFromThreadId: null,
+  continuesThreadId: null,
   reportPath: null,
   graphKey: null,
   kickoffBriefPath: null,
@@ -80,7 +81,7 @@ const BASE_THREAD: OrchestrationThread = {
   maxTokens: null,
   diffAdditions: null,
   diffDeletions: null,
-  handoffCount: 0,
+  handoffDestinations: [],
   notifySendLog: [],
   title: "Cached thread",
   modelSelection: {

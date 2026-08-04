@@ -358,6 +358,14 @@ export const NotifySendLogEntry = Schema.Struct({
 });
 export type NotifySendLogEntry = typeof NotifySendLogEntry.Type;
 
+// One placed `goal_handoff` destination: the goal + staged root thread the
+// handoff created. Recorded per `thread.handoff-recorded` event.
+export const HandoffDestination = Schema.Struct({
+  goalId: GoalId,
+  threadId: ThreadId,
+});
+export type HandoffDestination = typeof HandoffDestination.Type;
+
 // Transient reasoning stream item (the ephemeral channel). These never hit the
 // event store; they drive live "Thinking… ⟷ Thought for Xs" display only. The
 // durable `thread.message-reasoning` event (REPLACE full text) is the source of
@@ -390,7 +398,12 @@ export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
 // plus the two shell-only projection fields, so the common subset lives here
 // once (the fork fields are byte-identical between thread and shell).
 export const LoomThreadFields = {
-  goalId: Schema.NullOr(GoalId),
+  // Decode-defaulted like every other field here: thread payloads written before
+  // goals existed (Migration 1003) carry no `goalId`, and an absent key means
+  // exactly "no goal". Keeping the key required would make loom's fork reject
+  // historical rows — and upstream's own decode tests, which construct thread
+  // literals with no knowledge of fork fields.
+  goalId: Schema.NullOr(GoalId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   // loom: §4 title provenance. Optional so dev seeds/tests may omit it; every
   // live write path stamps it and the decider treats an absent value as
   // `curated` (the conservative default that automation may not overwrite).
@@ -433,6 +446,13 @@ export const LoomThreadFields = {
   spawnGeneration: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  // Handoff chain (sidebar-v2 re-home, "Common base" item 3): the PREDECESSOR
+  // thread on the same goal when this thread was created by `goal_continue`.
+  // Structured so a goal's serial handoff order is queryable — the brief also
+  // carries a prose pointer, but that serves the agent reading it, not queries.
+  // Null for every thread not born of a continuation. Additive, decode-defaulted
+  // so pre-chain snapshots load.
+  continuesThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   // Thread fork (MVP): the source thread this thread was forked from. When set,
   // the child's FIRST provider launch forks the source's pi session (native
   // `pi --fork`) so it starts with a full copy of the source's conversation
@@ -491,14 +511,16 @@ export const LoomThreadFields = {
   diffDeletions: Schema.NullOr(NonNegativeInt).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  // `/handoff` fork-drafter (plan §4 Phase 1): count of `goal_handoff` calls a
-  // handoff-drafter root has durably recorded (a `thread.handoff-recorded`
-  // event per placed destination). The settlement reactor reads it at the
-  // drafter's turn end: ≥1 ⇒ converge done→stop→archive, 0 ⇒ raise
-  // needs_guidance. Durable (survives restart) precisely because it is
-  // event-projected rather than an in-memory tally. Additive, decode-defaulted
-  // to 0 so every pre-handoff snapshot loads.
-  handoffCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  // `/handoff` fork-drafter (plan §4 Phase 1): the destinations a
+  // handoff-drafter root has durably placed — one entry per
+  // `thread.handoff-recorded` event, carrying the goal + staged thread it
+  // created. The settlement reactor reads its LENGTH at the drafter's turn end:
+  // ≥1 ⇒ converge done→stop→archive, 0 ⇒ raise needs_guidance. Durable (survives
+  // restart) precisely because it is event-projected rather than an in-memory
+  // tally. Additive, decode-defaulted [] so every pre-handoff snapshot loads.
+  handoffDestinations: Schema.Array(HandoffDestination).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   // notify_thread loop safety (D7): the pruned per-sender send log backing the
   // decider-enforced ordered-pair rate cap. Maintained by the projector from
   // `thread.peer-message-recorded` events (append + prune-to-window). Additive,
@@ -733,6 +755,9 @@ export const LoomThreadCreateCommandFields = {
   // Thread fork (MVP): source thread to fork the pi session from at first turn.
   // Set by the fork path; omitted on every other create.
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  // Handoff chain: predecessor thread on the same goal. Set by `goal_continue`;
+  // omitted on every other create.
+  continuesThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 } as const;
 
 // Spread into `ThreadMetaUpdateCommand`.
@@ -819,6 +844,9 @@ export const LoomThreadCreatedPayloadFields = {
   // Thread fork (MVP): propagate the fork source so the projector seeds it on
   // the thread record (the driver reads it at first launch).
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  // Handoff chain: propagate the predecessor so the projector seeds it on the
+  // thread record.
+  continuesThreadId: Schema.optional(Schema.NullOr(ThreadId)),
 } as const;
 
 // Spread into `ThreadMetaUpdatedPayload`.
@@ -1042,7 +1070,7 @@ const ThreadPeerMessageExpireCommand = Schema.Struct({
 // drafter thread after `GoalHandoffHttp` has created the staged destination.
 // Internal (server composes it from the goal_handoff chokepoint); a client
 // cannot forge a handoff record. The decider derives `thread.handoff-recorded`;
-// the projector increments `handoffCount`.
+// the projector appends the destination to `handoffDestinations`.
 const ThreadHandoffRecordCommand = Schema.Struct({
   type: Schema.Literal("thread.handoff.record"),
   commandId: CommandId,

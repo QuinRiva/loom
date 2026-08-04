@@ -187,6 +187,7 @@ export function applyThreadDetailEvent(
           blockedBy: event.payload.blockedBy ?? [],
           spawnGeneration: event.payload.spawnGeneration ?? null,
           forkFromThreadId: event.payload.forkFromThreadId ?? null,
+          continuesThreadId: event.payload.continuesThreadId ?? null,
           reportPath: null,
           // loom: scaffold-first graph authoring (graphKey seeded from the
           // created payload; a scaffold node is born unbriefed).
@@ -212,7 +213,7 @@ export function applyThreadDetailEvent(
           diffAdditions: null,
           diffDeletions: null,
           // loom: `/handoff` fork-drafter (plan D5) — handoff count starts at 0.
-          handoffCount: 0,
+          handoffDestinations: [],
           // loom: notify_thread (D7) — the send-log ledger starts empty.
           notifySendLog: [],
           createdAt: event.payload.createdAt,

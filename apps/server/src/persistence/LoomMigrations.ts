@@ -65,6 +65,7 @@ import Migration1031 from "./Migrations/1031_ProjectionProjectsDefaultStartFromO
 import Migration1032 from "./Migrations/1032_ProjectionThreadPeerMessages.ts";
 import Migration1033 from "./Migrations/1033_RefoldPendingUserInputCount.ts";
 import Migration1034 from "./Migrations/1034_ProjectionThreadFinalCommitSha.ts";
+import Migration1035 from "./Migrations/1035_ThreadHandoffChain.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -104,6 +105,7 @@ export const loomMigrationEntries = [
   [1032, "ProjectionThreadPeerMessages", Migration1032],
   [1033, "RefoldPendingUserInputCount", Migration1033],
   [1034, "ProjectionThreadFinalCommitSha", Migration1034],
+  [1035, "ThreadHandoffChain", Migration1035],
 ] as const;
 
 export const makeLoomMigrationLoader = (throughId?: number) =>
