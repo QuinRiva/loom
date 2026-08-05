@@ -446,7 +446,7 @@ export function piCommandsToSnapshot(commands: ReadonlyArray<PiRpcCommandInfo>):
  * `pi --mode rpc` process and asking `get_available_models` + `get_commands`
  * within the same acquire/use/release. Failures (pi not installed, not authed,
  * RPC error) are logged and ignored so the picker falls back to the curated
- * shortlist and the palette degrades to empty lists.
+ * shortlist and the previously published palette stands.
  */
 function enrichPiSnapshot(input: {
   readonly settings: PiSettings;
@@ -479,21 +479,25 @@ function enrichPiSnapshot(input: {
             readonly models: ReadonlyArray<PiAvailableModel>;
           }>({ type: "get_available_models" }, PI_ENRICHMENT_REQUEST_TIMEOUT_MS);
           // `get_commands` is best-effort: an older pi that doesn't support it
-          // must not blank the freshly fetched model catalogue.
-          const commandsResponse = await proc
+          // must not blank the freshly fetched model catalogue. Keep the
+          // rejection reason so the warning below can name it.
+          const commandsResult: {
+            readonly commands: ReadonlyArray<PiRpcCommandInfo>;
+            readonly rejection?: string;
+          } = await proc
             .request<{ readonly commands: ReadonlyArray<PiRpcCommandInfo> }>(
               { type: "get_commands" },
               PI_ENRICHMENT_REQUEST_TIMEOUT_MS,
             )
-            .catch(() => undefined);
-          return { modelsResponse, commandsResponse };
+            .then(
+              (response) => ({ commands: response.data?.commands ?? [] }),
+              (error: unknown) => ({ commands: [], rejection: String(error) }),
+            );
+          return { modelsResponse, ...commandsResult };
         }),
       (proc) => Effect.promise(() => proc.stop()),
     );
     const models = enrichment.modelsResponse.data?.models ?? [];
-    const { slashCommands, skills } = piCommandsToSnapshot(
-      enrichment.commandsResponse?.data?.commands ?? [],
-    );
     // Only replace the window map on a non-empty catalogue: a successful-but-empty
     // refresh must not wipe known windows (which would blank the meter % until the
     // next good refresh, up to one refresh interval later).
@@ -503,11 +507,23 @@ function enrichPiSnapshot(input: {
         input.modelContextWindows.set(`${model.provider}/${model.id}`, model.contextWindow);
       }
     }
+    // A failed *or* empty commands result is non-authoritative: pi's skill
+    // discovery swallows filesystem errors at boot and reports whatever
+    // survived, so an empty list is indistinguishable from a broken discovery
+    // walk. Omit the palette fields (and, same rationale, an empty model
+    // catalogue) rather than publishing them, so the previous values stand —
+    // `input.snapshot` is the post-carry-forward base, which already holds the
+    // last good palette.
+    if (enrichment.commands.length === 0) {
+      yield* Effect.logWarning(
+        "Pi command enrichment returned no commands; keeping previous palette",
+        { cause: enrichment.rejection ?? "empty result" },
+      );
+    }
     yield* input.publishSnapshot({
       ...input.snapshot,
-      models: piCatalogModels(models, input.settings),
-      slashCommands,
-      skills,
+      ...(models.length > 0 ? { models: piCatalogModels(models, input.settings) } : {}),
+      ...(enrichment.commands.length > 0 ? piCommandsToSnapshot(enrichment.commands) : {}),
     });
   }).pipe(
     Effect.catchCause((cause) =>
