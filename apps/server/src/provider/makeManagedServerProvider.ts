@@ -45,9 +45,10 @@ export type EnrichableField = "models" | "slashCommands" | "skills";
  * Without this the `$` palette and model picker blank for the seconds until
  * enrichment lands — every refresh interval, forever.
  *
- * Genuine loss still propagates: `enrichSnapshot`'s own publish path is
- * untouched and may publish an empty palette (pi does exactly that when
- * `get_commands` returns nothing), a base-authoritative provider surfaces any
+ * Genuine loss still propagates: `enrichSnapshot` publishes its own
+ * observations directly (pi now omits the palette fields when `get_commands`
+ * fails or comes back empty, so its last good palette stands rather than being
+ * overwritten with an empty one), a base-authoritative provider surfaces any
  * non-empty change immediately, and a disabled provider reports its emptiness
  * verbatim. The residual corner is a base-authoritative provider losing *all*
  * of its skills at once, which is indistinguishable from a failed probe and so
