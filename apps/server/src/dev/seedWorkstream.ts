@@ -76,6 +76,11 @@ const CODER_CANCELLED_ID = ThreadId.make("seed-thread-coder-cancelled");
 // `blocked` column (steel, v2 palette) with a steel within-wave waits-on edge.
 const CODER_DEP_ID = ThreadId.make("seed-thread-coder-dep");
 const CODER_BLOCKED_ID = ThreadId.make("seed-thread-coder-blocked");
+// An abandoned orchestration: a root carrying a STORED `needs_guidance` and no
+// descendants. It can never auto-settle (correct — a human is owed), so it is
+// the fixture for the settle-precedence rule (docs/upstream-sync/23 §I): an
+// explicit Settle must clear it out of the inbox even though the flag stands.
+const ABANDONED_ROOT_ID = ThreadId.make("seed-thread-abandoned-root");
 
 const MODEL_SELECTION = {
   instanceId: ProviderInstanceId.make("pi"),
@@ -687,6 +692,47 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(263),
   });
 
+  // ---- abandoned orchestration root (settle-precedence fixture) -----------
+  yield* dispatch({
+    type: "thread.create",
+    commandId: nextCommandId("abandoned-root"),
+    threadId: ABANDONED_ROOT_ID,
+    projectId: PROJECT_ID,
+    goalId: null,
+    parentThreadId: null,
+    role: "orchestrator",
+    purpose: "Abandoned weeks ago while owed a human decision.",
+    title: "Abandoned orchestration (needs guidance)",
+    modelSelection: MODEL_SELECTION,
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    planLane: "in_progress",
+    branch: null,
+    worktreePath: workspaceRoot,
+    createdAt: iso(264),
+  });
+  yield* dispatch({
+    type: "thread.turn.start",
+    commandId: nextCommandId("abandoned-root-turn"),
+    threadId: ABANDONED_ROOT_ID,
+    message: {
+      messageId: MessageId.make("seed-msg-abandoned-root-user"),
+      role: "user",
+      text: "Plan the migration.",
+      attachments: [],
+    },
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    createdAt: iso(264),
+  });
+  yield* dispatch({
+    type: "thread.attention.raise",
+    commandId: nextCommandId("abandoned-root-attn"),
+    threadId: ABANDONED_ROOT_ID,
+    reason: "needs_guidance",
+    createdAt: iso(265),
+  });
+
   yield* Console.log(
     JSON.stringify(
       {
@@ -697,6 +743,7 @@ const seedProgram = Effect.gen(function* () {
         goalId: GOAL_ID,
         orchestratorThreadId: ORCHESTRATOR_ID,
         goalChain: [GOAL_PREDECESSOR_ID, GOAL_SUCCESSOR_ID, GOAL_PARALLEL_ID],
+        abandonedRootThreadId: ABANDONED_ROOT_ID,
         coders: coderSpecs.map((spec) => ({
           threadId: spec.id,
           title: spec.title,

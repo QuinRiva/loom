@@ -333,37 +333,85 @@ describe("effectiveSettled", () => {
       expect(settle(finished)).toBe(false);
     });
 
-    it("never settles a thread carrying an attention flag, even when explicitly settled", () => {
+    it("never AUTO-settles a thread carrying a stored attention flag", () => {
       for (const reason of ["needs_guidance", "awaiting_acceptance", "error"] as const) {
         expect(settle({ ...settling(), attention: [reason] }, NO_SUBTREE)).toBe(false);
       }
-      const pinned: OrchestrationThreadShell = {
-        ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
-        attention: ["awaiting_acceptance"],
-      };
-      expect(settle(pinned, NO_SUBTREE)).toBe(false);
     });
 
-    it("never settles a yielded thread, even when explicitly settled", () => {
+    it("lets an explicit settle clear a stored attention flag out of the inbox", () => {
+      // The abandoned-orchestration case: the flag is stale plan state that
+      // only a human clears, and the human just said "this is done with".
+      for (const reason of ["needs_guidance", "awaiting_acceptance", "error"] as const) {
+        expect(
+          settle(
+            {
+              ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
+              attention: [reason],
+            },
+            NO_SUBTREE,
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("keeps derived attention outranking an explicit settle", () => {
+      // `awaiting_approval` / `awaiting_input` mirror live pending requests,
+      // so they rank with upstream's activity blockers, not with plan state.
+      for (const reason of ["awaiting_approval", "awaiting_input"] as const) {
+        expect(
+          settle(
+            {
+              ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
+              attention: [reason],
+            },
+            NO_SUBTREE,
+          ),
+        ).toBe(false);
+        expect(settle({ ...settling(), attention: [reason] }, NO_SUBTREE)).toBe(false);
+      }
+    });
+
+    it("never AUTO-settles a yielded thread, but an explicit settle wins", () => {
       expect(settle({ ...settling(), planLane: "yielded" }, NO_SUBTREE)).toBe(false);
       const pinned: OrchestrationThreadShell = {
         ...makeShell({ settledOverride: "settled", activityAt: FRESH }),
         planLane: "yielded",
       };
-      expect(settle(pinned, NO_SUBTREE)).toBe(false);
+      expect(settle(pinned, NO_SUBTREE)).toBe(true);
     });
 
-    it("never settles a thread with a non-terminal descendant, even when explicitly settled", () => {
+    it("never AUTO-settles a thread with a non-terminal descendant, but an explicit settle wins", () => {
       const live = { hasNonTerminalDescendant: true };
       // The idle orchestrator: quiescent by every runtime signal, but its
       // subtree is still working.
       expect(settle(settling(), live)).toBe(false);
-      expect(settle(makeShell({ settledOverride: "settled", activityAt: FRESH }), live)).toBe(
-        false,
-      );
       // ...and a plan-terminal thread does not settle through the trigger
       // while its subtree is live either.
       expect(settle({ ...settling(), planLane: "done" }, live)).toBe(false);
+      // An explicit settle clears the whole abandoned graph: the dispatcher's
+      // parent wake issues a turn on the root if the subtree ever has news,
+      // and that un-settles it server-side.
+      expect(settle(makeShell({ settledOverride: "settled", activityAt: FRESH }), live)).toBe(true);
+      // The keep-active pin still holds such a thread in the inbox.
+      expect(settle(makeShell({ settledOverride: "active", activityAt: STALE }), live)).toBe(false);
+    });
+
+    it("keeps upstream's activity blockers outranking an explicit settle under workstream context", () => {
+      // The blockers that describe LIVE runtime, with every loom blocker also
+      // set: still active, exactly as upstream.
+      for (const input of [
+        { sessionStatus: "running" as const },
+        { pending: "approval" as const },
+        { pending: "user-input" as const },
+      ]) {
+        const shell: OrchestrationThreadShell = {
+          ...makeShell({ settledOverride: "settled", activityAt: FRESH, ...input }),
+          attention: ["needs_guidance"],
+          planLane: "yielded",
+        };
+        expect(settle(shell, { hasNonTerminalDescendant: true })).toBe(false);
+      }
     });
 
     it("settles a finished thread immediately, without waiting out the inactivity window", () => {

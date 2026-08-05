@@ -61,13 +61,13 @@ the one region upstream rewrote 75% of in nine days.
 
 ## B. What landed where
 
-| Change-set               | Commit       | Seam                                                                                | Convention                                                 |
-| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files     |
-| Settle semantics         | `9ed6b9e4c`  | `packages/client-runtime/src/state/threadSettled.ts`                                | `// loom:` marked additive blocks (blockers + one trigger) |
-| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)             |
-| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                 |
-| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                 |
+| Change-set               | Commit       | Seam                                                                                | Convention                                                                                       |
+| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files                                           |
+| Settle semantics         | `9ed6b9e4c`  | `packages/client-runtime/src/state/threadSettled.ts`                                | `// loom:` marked additive blocks (blockers + one trigger); precedence amended post-ship, see §I |
+| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)                                                   |
+| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                                                       |
+| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                                                       |
 
 Conventions used throughout, unchanged from previous cycles:
 
@@ -385,3 +385,63 @@ workstream-participant auto-open use) followed by navigation to the thread, so
 it works from any row, not just the active one. `WorkstreamGraphIndicator` takes
 a `threadRef` prop for this; the action-node case keeps its "Click a sub-thread
 to open it" hint.
+
+## J. Settle precedence, amended: an explicit settle outranks loom's plan blockers
+
+**The regression.** As shipped in `9ed6b9e4c`, loom's three never-settle
+blockers (any `attention` entry, `planLane === "yielded"`, any non-terminal
+descendant) were applied _alongside_ upstream's activity blockers, i.e. **above**
+the `settledOverride === "settled"` check. Server-side `thread.settle` rejects on
+none of those conditions, so the command succeeded, stamped the override, and the
+client classifier ignored it: **the user clicked Settle and the row did not
+move.** Abandoned orchestrations — children left `ready`/`planned`, or a stale
+stored `needs_guidance` — became permanently unclearable, where before the
+re-home they simply auto-settled on inactivity.
+
+**The split.** Upstream's blockers outrank an explicit settle because they
+describe **live runtime**: a running session genuinely is active, and the block
+clears itself when the runtime does. Loom's describe **plan state**, which can
+stay stale indefinitely with only a human to clear it. Same mechanism, different
+character — so the two are now ranked separately in `effectiveSettled`:
+
+| Signal                                                       | Kind         | Blocks auto-settle | Outranks explicit settle |
+| ------------------------------------------------------------ | ------------ | ------------------ | ------------------------ |
+| pending approval / user input, live session, queued turn     | live runtime | yes                | **yes** (upstream)       |
+| attention `awaiting_approval` / `awaiting_input`             | derived      | yes                | **yes**                  |
+| attention `error` / `awaiting_acceptance` / `needs_guidance` | stored plan  | yes                | no                       |
+| `planLane === "yielded"`                                     | plan         | yes                | no                       |
+| non-terminal descendant                                      | plan         | yes                | no                       |
+
+The derived attention reasons are never stored — they are unioned in from the
+open approval/input request set — so they mirror the upstream flags checked one
+line above them; keeping them ranked as live is deliberate redundancy against a
+drift between the two derivations, not a second policy.
+
+**Auto-settle protection is unchanged**, which was the whole point of
+`9ed6b9e4c`: an attention-flagged, `yielded`, or still-orchestrating thread never
+auto-settles into the shelf on inactivity or a merged PR. Only the user's own
+Settle now clears it. `canSettle` deliberately does **not** consult the
+workstream context (an abandoned graph must stay a legal settle target), and the
+finished-work trigger is untouched: it fires only in the no-override case, so it
+never competes with an override in either direction.
+
+**Nothing is hidden by the override.** The server un-settles on real activity —
+`thread.turn.start`, a session going `starting`/`running`, an approval or
+user-input request — regardless of the override. A settled root whose subtree
+later has news is therefore re-opened by the dispatcher's parent wake, which
+arrives as a turn start on the root itself (`decider.ts`, `thread.turn.start`
+lifecycle reset). A _stale_ flag, by contrast, generates no activity and stays
+settled: exactly the wanted asymmetry.
+
+Code: `workstreamAutoSettleBlocked` (renamed from `workstreamSettleBlocked` —
+the old name asserted the precedence that was the bug) plus
+`workstreamLiveAttentionBlocked`, both in
+[`packages/client-runtime/src/state/threadSettled.ts`](../../packages/client-runtime/src/state/threadSettled.ts);
+both directions are pinned by tests in `threadSettled.test.ts`.
+
+One consequence beyond the abandoned case, accepted deliberately: a root whose
+children are **genuinely still running** can now be settled by hand, which
+removes the only inbox row representing that subtree until the dispatcher's next
+parent wake re-opens it. That is the requested semantics ("I am done with this"),
+the window is bounded by the child's turn, and the row carries its rollup badge
+while active — but it is the price of making abandoned graphs clearable.
