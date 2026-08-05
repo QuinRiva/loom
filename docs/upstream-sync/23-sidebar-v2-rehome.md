@@ -312,7 +312,12 @@ Three defects surfaced within a day of dogfooding v2 as the default. All three
 are behaviour changes **against upstream's v2**, so they are listed here with
 their revert paths, not just as bug fixes.
 
-### I1. Active rows sort by last activity, not `createdAt`
+### I1. Active rows sort by last activity, not `createdAt` — PROVISIONAL
+
+> **Status: provisional, revisit deliberately.** Upstream's creation order is
+> not a mistake, and it may be the better long-term default here too. This
+> deviation is a response to present conditions, not a verdict — see "Why now,
+> and what would prompt revisiting" below.
 
 Upstream's `sortThreadsForSidebarV2` orders the active block by `createdAt`
 descending, deliberately: a row holds its position from open until settled, so
@@ -331,9 +336,23 @@ label now reads the same resolver (`resolveActivityTimestamp` — extracted from
 `resolveSettledTimestamp`, so settled rows are unchanged), which makes
 label/order disagreement structurally impossible.
 
+**Why now, and what would prompt revisiting.** Upstream's no-jump property — a
+row holding its position from open until settled, so the screen never moves
+under the pointer — is a genuine virtue, and it is worth more the shorter the
+list is. It is worth less right now: loom's active block is clogged with stale
+unsettled threads carried over from before the workstream-settle migration, and
+with a backlog that noisy "what moved" is the only question the list can
+usefully answer — creation order buries the one thread that just came back
+eleven rows down. **Revisit once the migration has fully landed and the backlog
+is cleaned up.** If the active block is small enough to read at a glance by
+then, prefer upstream's stability and drop this deviation; the two functions
+sitting side by side keep that a one-line choice rather than a rewrite.
+
 - **Revert** = call `sortThreadsForSidebarV2` again at the one call site in
-  `SidebarV2.tsx` (`activeThreads:`) and point `threadTimeLabel` back at
-  `latestUserMessageAt ?? updatedAt`.
+  `SidebarV2.tsx` (`activeThreads:`). Point `threadTimeLabel` at whatever the
+  sort keys on so the two still agree — for creation order that means labelling
+  `createdAt`, **not** restoring the old `latestUserMessageAt ?? updatedAt`
+  label, which is the sort/label mismatch that caused this defect.
 - **Known divergence:** `apps/mobile/src/features/threads/threadListV2.ts`
   still mirrors upstream's creation order (`sortThreadsForListV2`). Web and
   mobile now disagree; unify when mobile's v2 list is next touched.

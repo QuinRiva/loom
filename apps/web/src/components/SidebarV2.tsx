@@ -1473,8 +1473,9 @@ export default function SidebarV2() {
       }
     }
     return {
-      // loom: activity order, not upstream's creation order (see the sort's
-      // comment in Sidebar.logic.ts).
+      // loom: activity order, not upstream's creation order — PROVISIONAL, and
+      // this is the one line to swap back (see the sort's comment in
+      // Sidebar.logic.ts and docs/upstream-sync/23-sidebar-v2-rehome.md §I1).
       activeThreads: sortActiveThreadsByActivityForSidebarV2(active),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
