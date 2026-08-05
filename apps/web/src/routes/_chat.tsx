@@ -29,8 +29,8 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
-  // loom: tab-strip keyboard bindings (traversal/jump repurposed when tabs open;
-  // mod+w close, mod+shift+t reopen).
+  // loom: tab-strip keyboard bindings (tab.previous/next + tab.jump.N on
+  // mod+alt+…, mod+w close, mod+shift+t reopen). The sidebar keeps thread.*.
   useThreadTabKeyboard(routeThreadRef);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const sidebarV2Enabled = useSidebarV2Enabled();
