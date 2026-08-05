@@ -7,6 +7,7 @@ import {
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
+  TAB_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 
@@ -29,6 +30,14 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   // loom: centre-panel thread tabs (mod+w is free outside terminal focus).
   { key: "mod+w", command: "tab.close", when: "!terminalFocus" },
   { key: "mod+shift+t", command: "tab.reopenClosed" },
+  // loom: tab traversal/jump on the near-unclaimed mod+alt+… prefix, so the
+  // sidebar keeps mod+shift+[/] and mod+1..9.
+  { key: "mod+alt+[", command: "tab.previous" },
+  { key: "mod+alt+]", command: "tab.next" },
+  ...TAB_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+alt+${index + 1}`,
+    command,
+  })),
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+shift+j", command: "preview.toggle" },
   { key: "mod+r", command: "preview.refresh", when: "previewFocus" },

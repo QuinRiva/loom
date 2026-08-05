@@ -4,8 +4,10 @@ import {
   type KeybindingWhenNode,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
+  TAB_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
+  type TabJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
 } from "@t3tools/contracts";
 import { isMacPlatform } from "./lib/utils";
@@ -279,6 +281,21 @@ export function threadTraversalDirectionFromCommand(
 ): "previous" | "next" | null {
   if (command === "thread.previous") return "previous";
   if (command === "thread.next") return "next";
+  return null;
+}
+
+// loom: centre-panel thread tabs — same shape as the thread helpers above, on
+// the tab-owned command family.
+export function tabJumpIndexFromCommand(command: string): number | null {
+  const index = TAB_JUMP_KEYBINDING_COMMANDS.indexOf(command as TabJumpKeybindingCommand);
+  return index === -1 ? null : index;
+}
+
+export function tabTraversalDirectionFromCommand(
+  command: string | null,
+): "previous" | "next" | null {
+  if (command === "tab.previous") return "previous";
+  if (command === "tab.next") return "next";
   return null;
 }
 

@@ -1,18 +1,30 @@
 /**
  * loom: keyboard bindings for centre-panel thread tabs.
  *
- * Repurposes the existing thread-traversal bindings to operate on the tab strip
- * when ≥1 tab is open, and adds tab close / reopen:
- *   - `thread.previous` / `thread.next` → prev/next tab (strip order, no wrap)
- *   - `thread.jump.N` → activate tab N
+ * The tab strip owns its own command family, so the sidebar keeps
+ * `thread.previous` / `thread.next` / `thread.jump.N` unchanged:
+ *   - `tab.previous` / `tab.next` (`mod+alt+[` / `mod+alt+]`) → prev/next tab
+ *     (strip order, no wrap)
+ *   - `tab.jump.N` (`mod+alt+1..9`) → activate tab N
  *   - `tab.close` (`mod+w`) → close the active tab
  *   - `tab.reopenClosed` (`mod+shift+t`) → reopen the most recently closed tab
  *
- * When the tab set is empty the traversal/jump bindings are left unhandled so
- * `Sidebar`'s existing list traversal keeps working unchanged. The listener runs
- * in the capture phase and `preventDefault()`s what it handles, so `Sidebar`'s
- * bubble-phase handler (which bails on `event.defaultPrevented`) never double-
- * fires the same command.
+ * This hook must never resolve or `preventDefault()` a non-`tab.*` command —
+ * it runs in the capture phase (so composer/terminal bubble handlers cannot
+ * swallow tab keys) and would otherwise pre-empt every other listener.
+ * Traversal and jump consume the key only when they resolve to a `tab.*`
+ * command; a traversal at the strip edge or an out-of-range jump index simply
+ * does nothing. `tab.close` / `tab.reopenClosed` consume unconditionally, so a
+ * no-op close/reopen still shields the key from the browser's own `mod+w` /
+ * `mod+shift+t`.
+ *
+ * The shortcut context carries the two flags any shipped default `when` clause
+ * can reference (`terminalFocus` + `modelPickerOpen`); it deliberately omits
+ * the sidebars' `terminalOpen`, which no default references.
+ * `terminalFocus` distinguishes `tab.close` from
+ * `terminal.close` on `mod+w`, and `modelPickerOpen` keeps this hook's
+ * resolution identical to every other listener's, so a `when`-gated command
+ * elsewhere can never lose to a stale resolution here.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -21,11 +33,11 @@ import { useEffect } from "react";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   resolveShortcutCommand,
-  threadJumpIndexFromCommand,
-  threadTraversalDirectionFromCommand,
+  tabJumpIndexFromCommand,
+  tabTraversalDirectionFromCommand,
 } from "../keybindings";
+import { isModelPickerOpen } from "../modelPickerVisibility";
 import { primaryServerKeybindingsAtom } from "~/state/server";
-import { selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 import { useThreadTabActions } from "./useThreadTabsSync";
 
 export function useThreadTabKeyboard(activeRouteRef: ScopedThreadRef | null): void {
@@ -37,44 +49,40 @@ export function useThreadTabKeyboard(activeRouteRef: ScopedThreadRef | null): vo
       if (event.defaultPrevented || event.repeat) return;
 
       const command = resolveShortcutCommand(event, keybindings, {
+        platform: navigator.platform,
         context: {
           terminalFocus: isTerminalFocused(),
+          modelPickerOpen: isModelPickerOpen(),
         },
       });
       if (!command) return;
 
-      if (command === "tab.close") {
-        if (!activeRouteRef) return;
+      const consume = () => {
         event.preventDefault();
         event.stopPropagation();
+      };
+
+      if (command === "tab.close") {
+        if (!activeRouteRef) return;
+        consume();
         actions.closeTab(activeRouteRef);
         return;
       }
 
       if (command === "tab.reopenClosed") {
-        event.preventDefault();
-        event.stopPropagation();
+        consume();
         actions.reopenClosed();
         return;
       }
 
-      const hasTabs = (selectActiveGroup(useThreadTabsStore.getState())?.tabs.length ?? 0) > 0;
-      if (!hasTabs) return;
-
-      const direction = threadTraversalDirectionFromCommand(command);
+      const direction = tabTraversalDirectionFromCommand(command);
       if (direction !== null) {
-        event.preventDefault();
-        event.stopPropagation();
-        actions.goAdjacentTab(direction);
+        if (actions.goAdjacentTab(direction)) consume();
         return;
       }
 
-      const jumpIndex = threadJumpIndexFromCommand(command);
-      if (jumpIndex !== null) {
-        event.preventDefault();
-        event.stopPropagation();
-        actions.jumpToTab(jumpIndex);
-      }
+      const jumpIndex = tabJumpIndexFromCommand(command);
+      if (jumpIndex !== null && actions.jumpToTab(jumpIndex)) consume();
     };
 
     window.addEventListener("keydown", onWindowKeyDown, { capture: true });

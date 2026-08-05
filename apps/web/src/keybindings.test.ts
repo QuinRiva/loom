@@ -24,6 +24,8 @@ import {
   shouldShowModelPickerJumpHints,
   shouldShowThreadJumpHints,
   shortcutLabelForCommand,
+  tabJumpIndexFromCommand,
+  tabTraversalDirectionFromCommand,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
   threadJumpCommandForIndex,
@@ -410,6 +412,18 @@ describe("thread navigation helpers", () => {
     assert.strictEqual(threadTraversalDirectionFromCommand("thread.next"), "next");
     assert.isNull(threadTraversalDirectionFromCommand("thread.jump.1"));
     assert.isNull(threadTraversalDirectionFromCommand(null));
+  });
+
+  // loom: tab commands are a separate family; thread helpers must not claim them
+  // (that overlap is what killed sidebar traversal).
+  it("keeps tab commands out of the thread helpers", () => {
+    assert.isNull(threadJumpIndexFromCommand("tab.jump.1"));
+    assert.isNull(threadTraversalDirectionFromCommand("tab.next"));
+    assert.strictEqual(tabJumpIndexFromCommand("tab.jump.3"), 2);
+    assert.isNull(tabJumpIndexFromCommand("thread.jump.3"));
+    assert.strictEqual(tabTraversalDirectionFromCommand("tab.previous"), "previous");
+    assert.strictEqual(tabTraversalDirectionFromCommand("tab.next"), "next");
+    assert.isNull(tabTraversalDirectionFromCommand("thread.next"));
   });
 
   it("shows jump hints only when configured modifiers match", () => {

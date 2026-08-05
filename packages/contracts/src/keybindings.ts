@@ -20,6 +20,30 @@ export const THREAD_JUMP_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadJumpKeybindingCommand = (typeof THREAD_JUMP_KEYBINDING_COMMANDS)[number];
 
+// loom: centre-panel thread tabs own their own traversal/jump commands so the
+// sidebar's `thread.*` bindings stay untouched.
+export const TAB_JUMP_KEYBINDING_COMMANDS = [
+  "tab.jump.1",
+  "tab.jump.2",
+  "tab.jump.3",
+  "tab.jump.4",
+  "tab.jump.5",
+  "tab.jump.6",
+  "tab.jump.7",
+  "tab.jump.8",
+  "tab.jump.9",
+] as const;
+export type TabJumpKeybindingCommand = (typeof TAB_JUMP_KEYBINDING_COMMANDS)[number];
+
+export const TAB_KEYBINDING_COMMANDS = [
+  "tab.close",
+  "tab.reopenClosed",
+  "tab.previous",
+  "tab.next",
+  ...TAB_JUMP_KEYBINDING_COMMANDS,
+] as const;
+export type TabKeybindingCommand = (typeof TAB_KEYBINDING_COMMANDS)[number];
+
 export const MODEL_PICKER_JUMP_KEYBINDING_COMMANDS = [
   "modelPicker.jump.1",
   "modelPicker.jump.2",
@@ -55,9 +79,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "terminal.new",
   "terminal.close",
   "rightPanel.toggle",
-  // loom: centre-panel thread tabs
-  "tab.close",
-  "tab.reopenClosed",
+  ...TAB_KEYBINDING_COMMANDS,
   "diff.toggle",
   "preview.toggle",
   "preview.refresh",
