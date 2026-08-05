@@ -11,12 +11,17 @@
  *
  * This hook must never resolve or `preventDefault()` a non-`tab.*` command —
  * it runs in the capture phase (so composer/terminal bubble handlers cannot
- * swallow tab keys) and would otherwise pre-empt every other listener. A tab
- * action that cannot act (no tabs, index out of range) does nothing at all,
- * including no `preventDefault()`, so the key falls through untouched.
+ * swallow tab keys) and would otherwise pre-empt every other listener.
+ * Traversal and jump consume the key only when they resolve to a `tab.*`
+ * command; a traversal at the strip edge or an out-of-range jump index simply
+ * does nothing. `tab.close` / `tab.reopenClosed` consume unconditionally, so a
+ * no-op close/reopen still shields the key from the browser's own `mod+w` /
+ * `mod+shift+t`.
  *
- * The shortcut context mirrors the sidebars' (`terminalFocus` +
- * `modelPickerOpen`): `terminalFocus` distinguishes `tab.close` from
+ * The shortcut context carries the two flags any shipped default `when` clause
+ * can reference (`terminalFocus` + `modelPickerOpen`); it deliberately omits
+ * the sidebars' `terminalOpen`, which no default references.
+ * `terminalFocus` distinguishes `tab.close` from
  * `terminal.close` on `mod+w`, and `modelPickerOpen` keeps this hook's
  * resolution identical to every other listener's, so a `when`-gated command
  * elsewhere can never lose to a stale resolution here.
