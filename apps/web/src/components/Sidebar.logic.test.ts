@@ -25,6 +25,7 @@ import {
   shouldNavigateAfterProjectRemoval,
   shouldClearThreadSelectionOnMouseDown,
   sortLogicalProjectsForSidebar,
+  sortActiveThreadsByActivityForSidebarV2,
   sortSettledThreadsForSidebarV2,
   sortThreadsForSidebarV2,
   sortProjectsForSidebar,
@@ -851,6 +852,63 @@ describe("sortThreadsForSidebarV2", () => {
     const sorted = sortThreadsForSidebarV2([
       sortable({ id: "b", createdAt: "2026-03-09T10:00:00.000Z" }),
       sortable({ id: "a", createdAt: "2026-03-09T10:00:00.000Z" }),
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);
+  });
+});
+
+// loom: the ACTIVE list's order — activity, not creation (upstream's function
+// above is kept but unused by loom's sidebar).
+describe("sortActiveThreadsByActivityForSidebarV2", () => {
+  const active = (input: {
+    id: string;
+    latestUserMessageAt?: string | null;
+    latestTurn?: OrchestrationLatestTurn | null;
+    updatedAt?: string;
+  }) => ({
+    id: input.id,
+    latestUserMessageAt: input.latestUserMessageAt ?? null,
+    latestTurn: input.latestTurn ?? null,
+    updatedAt: input.updatedAt ?? "2026-03-09T09:00:00.000Z",
+  });
+
+  it("orders by last activity, most recent first", () => {
+    const sorted = sortActiveThreadsByActivityForSidebarV2([
+      active({ id: "stale", latestUserMessageAt: "2026-03-03T08:00:00.000Z" }),
+      active({ id: "just-answered", latestUserMessageAt: "2026-03-09T12:00:00.000Z" }),
+      active({ id: "yesterday", latestUserMessageAt: "2026-03-08T10:00:00.000Z" }),
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["just-answered", "yesterday", "stale"]);
+  });
+
+  it("counts an agent-only turn as activity, so a worked thread rises", () => {
+    const sorted = sortActiveThreadsByActivityForSidebarV2([
+      active({ id: "message-only", latestUserMessageAt: "2026-03-09T10:04:00.000Z" }),
+      active({
+        id: "worked-later",
+        latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+        latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:30:00.000Z" }),
+      }),
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["worked-later", "message-only"]);
+  });
+
+  it("falls back to updatedAt for a thread with no message and no turn", () => {
+    const sorted = sortActiveThreadsByActivityForSidebarV2([
+      active({ id: "never-messaged", updatedAt: "2026-03-09T13:00:00.000Z" }),
+      active({ id: "messaged", latestUserMessageAt: "2026-03-09T12:00:00.000Z" }),
+    ]);
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["never-messaged", "messaged"]);
+  });
+
+  it("breaks activity ties by id so the order is stable", () => {
+    const sorted = sortActiveThreadsByActivityForSidebarV2([
+      active({ id: "b", latestUserMessageAt: "2026-03-09T10:00:00.000Z" }),
+      active({ id: "a", latestUserMessageAt: "2026-03-09T10:00:00.000Z" }),
     ]);
 
     expect(sorted.map((thread) => thread.id)).toEqual(["a", "b"]);

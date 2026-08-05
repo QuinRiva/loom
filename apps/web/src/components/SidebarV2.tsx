@@ -106,14 +106,15 @@ import {
   hasUnseenCompletion,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
+  resolveActivityTimestamp, // loom:
   resolveAdjacentThreadId,
   resolveSettledTimestamp,
   resolveSidebarV2Status,
   resolveWorkingStartedAt,
   shouldNavigateAfterProjectRemoval,
+  sortActiveThreadsByActivityForSidebarV2, // loom:
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebarV2,
-  sortThreadsForSidebarV2,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -178,8 +179,12 @@ function compactSidebarTimeLabel(label: string): string {
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
+// loom: reads the same resolveActivityTimestamp the active sort keys on, so a
+// row can never be ordered by a value it doesn't display (it used to label
+// latestUserMessageAt while the list sorted by createdAt). Turn stamps count
+// as activity too: an agent-only turn moves the row and its label together.
 function threadTimeLabel(thread: SidebarThreadSummary): string {
-  const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
+  const timestamp = resolveActivityTimestamp(thread) ?? thread.updatedAt;
   return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
 }
 
@@ -992,7 +997,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   children are filtered out of the list. Sits outside the
                   aria-hidden/pointer-events-none icon cluster below because its
                   popover is interactive. */}
-              {props.graphRollup ? <WorkstreamGraphIndicator rollup={props.graphRollup} /> : null}
+              {props.graphRollup ? (
+                <WorkstreamGraphIndicator rollup={props.graphRollup} threadRef={threadRef} />
+              ) : null}
               <span
                 aria-hidden
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
@@ -1466,7 +1473,9 @@ export default function SidebarV2() {
       }
     }
     return {
-      activeThreads: sortThreadsForSidebarV2(active),
+      // loom: activity order, not upstream's creation order (see the sort's
+      // comment in Sidebar.logic.ts).
+      activeThreads: sortActiveThreadsByActivityForSidebarV2(active),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>

@@ -686,7 +686,13 @@ function SidebarSeparator({ className, ...props }: React.ComponentProps<typeof S
 
 function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <ScrollArea hideScrollbars scrollFade className="h-auto min-h-0 flex-1">
+    // loom: scrollbars VISIBLE (upstream passed hideScrollbars). This viewport is
+    // the element the thread list actually scrolls, so hiding them left a long
+    // sidebar with nothing to see or grab — and `scrollbar-width: none` inherits,
+    // so no descendant could reinstate one either. Renders the same base-ui
+    // overlay thumb every other long panel in the app uses (combobox, command
+    // palette): idle-transparent, fading in while hovering or scrolling.
+    <ScrollArea scrollFade className="h-auto min-h-0 flex-1">
       <div
         className={cn(
           "flex w-full min-w-0 flex-col gap-2 group-data-[collapsible=icon]:overflow-hidden",

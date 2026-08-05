@@ -305,3 +305,64 @@ counter was a lossy projection of a destination list the
 `thread.handoff-recorded` event already carried. Every read site moved to
 `handoffDestinations` (`.length` where a count was wanted). If a merge
 reintroduces `handoffCount` anywhere, delete it rather than reconciling the two.
+
+## I. Post-ship live-use deviations (three fixes after PR #171)
+
+Three defects surfaced within a day of dogfooding v2 as the default. All three
+are behaviour changes **against upstream's v2**, so they are listed here with
+their revert paths, not just as bug fixes.
+
+### I1. Active rows sort by last activity, not `createdAt`
+
+Upstream's `sortThreadsForSidebarV2` orders the active block by `createdAt`
+descending, deliberately: a row holds its position from open until settled, so
+the screen never jumps. But the row _labels_ activity age
+(`threadTimeLabel`), so **the list is sorted by a value it never displays** —
+and the timestamp column reads as random. Confirmed against the live cockpit DB:
+root threads at creation-age 4.94d / 5.03d / 5.93d carried last-activity ages of
+1.01d / 0.5d / 0.04d, so a thread answered an hour ago sat eleven rows below one
+answered four days ago.
+
+**Loom sorts the active block by last activity, most recent first**
+(`sortActiveThreadsByActivityForSidebarV2` in `apps/web/src/components/Sidebar.logic.ts`),
+because loom's sidebar is an orchestration inbox where "what moved" is the
+question. Upstream's function is left **intact and unused** beside it, and the
+label now reads the same resolver (`resolveActivityTimestamp` — extracted from
+`resolveSettledTimestamp`, so settled rows are unchanged), which makes
+label/order disagreement structurally impossible.
+
+- **Revert** = call `sortThreadsForSidebarV2` again at the one call site in
+  `SidebarV2.tsx` (`activeThreads:`) and point `threadTimeLabel` back at
+  `latestUserMessageAt ?? updatedAt`.
+- **Known divergence:** `apps/mobile/src/features/threads/threadListV2.ts`
+  still mirrors upstream's creation order (`sortThreadsForListV2`). Web and
+  mobile now disagree; unify when mobile's v2 list is next touched.
+
+### I2. `SidebarContent` renders visible scrollbars
+
+The thread list had no visible thumb. Cause: `SidebarContent`
+(`apps/web/src/components/ui/sidebar.tsx`) wrapped its content in
+`<ScrollArea hideScrollbars>`, which both suppresses the base-ui overlay
+scrollbar _and_ sets `scrollbar-width: none` on the viewport — **and that
+viewport is the element the thread list actually scrolls** (v2's own
+`overflow-y-auto` `SidebarGroup` never becomes the scroller). Because
+`scrollbar-width` is an inherited property, no descendant could reinstate a
+scrollbar either.
+
+Fix: drop `hideScrollbars`, so the sidebar gets the same base-ui overlay thumb
+every other long panel in the app uses (idle-transparent, fading in while
+hovering or scrolling). Verified in both themes at 760px with a 22-row list.
+**Revert** = restore the `hideScrollbars` prop. Note this also affects v1 and
+the settings nav, which share `SidebarContent`.
+
+### I3. The rollup popover footer is a real button
+
+The footer of the workstream rollup badge popover read
+`"N sub-threads · open row → Workstream panel"` — instructional prose styled
+like an action, which did nothing. It is now a button that opens the
+`WorkstreamPanel` for that root: `useRightPanelStore.open(threadRef, "workstream")`
+(the same thread-scoped surface store `ChatView`'s own openers and the
+workstream-participant auto-open use) followed by navigation to the thread, so
+it works from any row, not just the active one. `WorkstreamGraphIndicator` takes
+a `threadRef` prop for this; the action-node case keeps its "Click a sub-thread
+to open it" hint.

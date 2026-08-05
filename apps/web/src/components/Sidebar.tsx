@@ -795,7 +795,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
             </Tooltip>
           )}
-          {graphRollup ? <WorkstreamGraphIndicator rollup={graphRollup} /> : null}
+          {graphRollup ? (
+            <WorkstreamGraphIndicator rollup={graphRollup} threadRef={threadRef} />
+          ) : null}
           <div
             className={`flex min-w-12 justify-end ${
               isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"

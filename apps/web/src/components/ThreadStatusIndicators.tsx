@@ -3,7 +3,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { ScopedThreadRef, VcsStatusResult } from "@t3tools/contracts";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -24,6 +24,9 @@ import { useEnvironmentQuery } from "../state/query";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { vcsEnvironment } from "../state/vcs";
 import { useUiStateStore } from "../uiStateStore";
+// loom: the Workstream panel is a thread-scoped right-panel surface; the badge
+// popover's footer opens it through the same store ChatView's openers use.
+import { useRightPanelStore } from "../rightPanelStore";
 import { resolveChangeRequestPresentation } from "../sourceControlPresentation";
 import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
 import {
@@ -97,7 +100,14 @@ const ACTION_REASON_DOT: Record<AttentionReason, string> = {
  * so opening it never also fires the orchestrator row's click (which would
  * navigate to the parent).
  */
-export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
+export function WorkstreamGraphIndicator({
+  rollup,
+  threadRef,
+}: {
+  rollup: GraphRollup;
+  /** The row's own thread — the graph root the footer action opens the panel for. */
+  threadRef: ScopedThreadRef;
+}) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const badge = resolveWorkstreamGraphBadge(rollup);
@@ -109,6 +119,18 @@ export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(node.environmentId, node.id)),
+    });
+    setOpen(false);
+  };
+  // The footer's action: the Workstream panel for THIS root, opened the same
+  // way ChatView's own openers do (thread-scoped right-panel store), then
+  // navigate so the panel is on screen. Navigating to the already-active
+  // thread is a no-op, so no branch is needed.
+  const openWorkstreamPanel = () => {
+    useRightPanelStore.getState().open(threadRef, "workstream");
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
     });
     setOpen(false);
   };
@@ -180,10 +202,26 @@ export function WorkstreamGraphIndicator({ rollup }: { rollup: GraphRollup }) {
             ))}
           </div>
         )}
-        <div className="border-t border-border/60 px-3 py-1.5 text-[10.5px] text-muted-foreground">
-          {actionNodes.length > 0
-            ? "Click a sub-thread to open it"
-            : `${rollup.total} sub-thread${rollup.total === 1 ? "" : "s"} · open row → Workstream panel`}
+        <div className="border-t border-border/60 text-[10.5px] text-muted-foreground">
+          {actionNodes.length > 0 ? (
+            <div className="px-3 py-1.5">Click a sub-thread to open it</div>
+          ) : (
+            <button
+              type="button"
+              data-thread-selection-safe
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left hover:bg-accent hover:text-foreground"
+              onClick={(event) => {
+                event.stopPropagation();
+                openWorkstreamPanel();
+              }}
+            >
+              {/* Count on the right, matching the breakdown rows above — the
+                  label has to stay on one line inside the w-60 popover. */}
+              <span className="flex-1">Open Workstream panel</span>
+              <span className="tabular-nums">{rollup.total}</span>
+              <ChevronRightIcon className="size-3 shrink-0" />
+            </button>
+          )}
         </div>
       </PopoverPopup>
     </Popover>
