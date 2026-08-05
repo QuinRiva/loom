@@ -577,14 +577,18 @@ type SettledTimestampInput = Pick<
   "settledAt" | "latestUserMessageAt" | "latestTurn" | "updatedAt"
 >;
 
-/** The timestamp a settled row sorts and labels by: settledAt when stamped
-    (explicit settles), otherwise last activity — the same candidates
-    threadLastActivityAt feeds the auto-settle window (user message plus all
-    latestTurn stamps), so a thread whose last activity was a turn completion
-    doesn't sort by an older message time. updatedAt is the final net. */
-export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
-  const settledAt = firstValidTimestamp(thread.settledAt);
-  if (settledAt !== null) return settledAt;
+export type ActivityTimestampInput = Pick<
+  SidebarThreadSummary,
+  "latestUserMessageAt" | "latestTurn" | "updatedAt"
+>;
+
+/** loom: when a thread last MOVED — the same candidates threadLastActivityAt
+    feeds the auto-settle window (user message plus all latestTurn stamps), so
+    a thread whose last activity was a turn completion doesn't read as older
+    than its message time. updatedAt is the final net. Extracted from
+    resolveSettledTimestamp so the active list's label and sort key can be the
+    one value (see sortActiveThreadsByActivityForSidebarV2). */
+export function resolveActivityTimestamp(thread: ActivityTimestampInput): string | null {
   let latest: string | null = null;
   let latestMs = Number.NEGATIVE_INFINITY;
   for (const candidate of [
@@ -601,6 +605,40 @@ export function resolveSettledTimestamp(thread: SettledTimestampInput): string |
     }
   }
   return latest ?? firstValidTimestamp(thread.updatedAt);
+}
+
+/** The timestamp a settled row sorts and labels by: settledAt when stamped
+    (explicit settles), otherwise last activity. */
+export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
+  return firstValidTimestamp(thread.settledAt) ?? resolveActivityTimestamp(thread);
+}
+
+// loom: the ACTIVE list's order — last activity, most recent first. Upstream's
+// sortThreadsForSidebarV2 above is left intact but unused by loom's sidebar.
+//
+// The defect this fixes: rows LABEL activity age while that sort keys on
+// creation age, so the timestamp column reads as random (a six-day-old thread
+// answered an hour ago sat eleven rows below one labelled 4d). Ordering and the
+// row's own label now come from the one resolver and cannot disagree.
+//
+// PROVISIONAL — deliberately revisitable, not a claim that upstream is wrong.
+// Upstream's no-jump property (a row holds its position from open until
+// settled) is a real virtue and is worth more the shorter the list is. Activity
+// order wins *today* because loom's active block is clogged with stale
+// unsettled threads from before the workstream-settle migration, and with a
+// backlog that noisy "what moved" is the only question the list can answer.
+// Revisit once that migration has landed and the backlog is cleaned up: if the
+// active block is then readable at a glance, prefer upstream's stability.
+// Revert = call sortThreadsForSidebarV2 at the one call site in SidebarV2.tsx
+// and point threadTimeLabel at whatever the sort keys on (createdAt), so label
+// and order still agree. Full note: docs/upstream-sync/23-sidebar-v2-rehome.md §I1.
+export function sortActiveThreadsByActivityForSidebarV2<
+  T extends ActivityTimestampInput & { readonly id: string },
+>(threads: readonly T[]): T[] {
+  const activityMs = (thread: T) => firstValidTimestampMs(resolveActivityTimestamp(thread));
+  return [...threads].toSorted(
+    (left, right) => activityMs(right) - activityMs(left) || left.id.localeCompare(right.id),
+  );
 }
 
 // Settled rows are history, so they order by when the work ENDED, not when

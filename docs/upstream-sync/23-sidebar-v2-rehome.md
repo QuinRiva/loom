@@ -61,13 +61,13 @@ the one region upstream rewrote 75% of in nine days.
 
 ## B. What landed where
 
-| Change-set               | Commit       | Seam                                                                                | Convention                                                 |
-| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files     |
-| Settle semantics         | `9ed6b9e4c`  | `packages/client-runtime/src/state/threadSettled.ts`                                | `// loom:` marked additive blocks (blockers + one trigger) |
-| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)             |
-| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                 |
-| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                 |
+| Change-set               | Commit       | Seam                                                                                | Convention                                                                                       |
+| ------------------------ | ------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Quick wins               | `89c2abef3`  | v2 list partition, row props, `resolveSidebarV2Status`, `sidebar/SidebarChrome.tsx` | `// loom:` marked additive hunks inside upstream files                                           |
+| Settle semantics         | `9ed6b9e4c`  | `packages/client-runtime/src/state/threadSettled.ts`                                | `// loom:` marked additive blocks (blockers + one trigger); precedence amended post-ship, see §I |
+| Chain schema             | `61ee97353`  | Migration 1035, `orchestration.loom.ts`, `GoalHandoffHttp.ts`                       | loom-owned files + loom migration lane (1001+)                                                   |
+| Goal chip + panel        | `fef9b8443`  | `apps/web/src/loom/*`, `GoalTasksPanel.tsx`                                         | loom-owned modules, one marked mount point                                                       |
+| Default flip + deletions | this package | `useSettings.ts`, `Sidebar.tsx`, contracts settings                                 | see §C, §D                                                                                       |
 
 Conventions used throughout, unchanged from previous cycles:
 
@@ -305,3 +305,143 @@ counter was a lossy projection of a destination list the
 `thread.handoff-recorded` event already carried. Every read site moved to
 `handoffDestinations` (`.length` where a count was wanted). If a merge
 reintroduces `handoffCount` anywhere, delete it rather than reconciling the two.
+
+## I. Post-ship live-use deviations (three fixes after PR #171)
+
+Three defects surfaced within a day of dogfooding v2 as the default. All three
+are behaviour changes **against upstream's v2**, so they are listed here with
+their revert paths, not just as bug fixes.
+
+### I1. Active rows sort by last activity, not `createdAt` — PROVISIONAL
+
+> **Status: provisional, revisit deliberately.** Upstream's creation order is
+> not a mistake, and it may be the better long-term default here too. This
+> deviation is a response to present conditions, not a verdict — see "Why now,
+> and what would prompt revisiting" below.
+
+Upstream's `sortThreadsForSidebarV2` orders the active block by `createdAt`
+descending, deliberately: a row holds its position from open until settled, so
+the screen never jumps. But the row _labels_ activity age
+(`threadTimeLabel`), so **the list is sorted by a value it never displays** —
+and the timestamp column reads as random. Confirmed against the live cockpit DB:
+root threads at creation-age 4.94d / 5.03d / 5.93d carried last-activity ages of
+1.01d / 0.5d / 0.04d, so a thread answered an hour ago sat eleven rows below one
+answered four days ago.
+
+**Loom sorts the active block by last activity, most recent first**
+(`sortActiveThreadsByActivityForSidebarV2` in `apps/web/src/components/Sidebar.logic.ts`),
+because loom's sidebar is an orchestration inbox where "what moved" is the
+question. Upstream's function is left **intact and unused** beside it, and the
+label now reads the same resolver (`resolveActivityTimestamp` — extracted from
+`resolveSettledTimestamp`, so settled rows are unchanged), which makes
+label/order disagreement structurally impossible.
+
+**Why now, and what would prompt revisiting.** Upstream's no-jump property — a
+row holding its position from open until settled, so the screen never moves
+under the pointer — is a genuine virtue, and it is worth more the shorter the
+list is. It is worth less right now: loom's active block is clogged with stale
+unsettled threads carried over from before the workstream-settle migration, and
+with a backlog that noisy "what moved" is the only question the list can
+usefully answer — creation order buries the one thread that just came back
+eleven rows down. **Revisit once the migration has fully landed and the backlog
+is cleaned up.** If the active block is small enough to read at a glance by
+then, prefer upstream's stability and drop this deviation; the two functions
+sitting side by side keep that a one-line choice rather than a rewrite.
+
+- **Revert** = call `sortThreadsForSidebarV2` again at the one call site in
+  `SidebarV2.tsx` (`activeThreads:`). Point `threadTimeLabel` at whatever the
+  sort keys on so the two still agree — for creation order that means labelling
+  `createdAt`, **not** restoring the old `latestUserMessageAt ?? updatedAt`
+  label, which is the sort/label mismatch that caused this defect.
+- **Known divergence:** `apps/mobile/src/features/threads/threadListV2.ts`
+  still mirrors upstream's creation order (`sortThreadsForListV2`). Web and
+  mobile now disagree; unify when mobile's v2 list is next touched.
+
+### I2. `SidebarContent` renders visible scrollbars
+
+The thread list had no visible thumb. Cause: `SidebarContent`
+(`apps/web/src/components/ui/sidebar.tsx`) wrapped its content in
+`<ScrollArea hideScrollbars>`, which both suppresses the base-ui overlay
+scrollbar _and_ sets `scrollbar-width: none` on the viewport — **and that
+viewport is the element the thread list actually scrolls** (v2's own
+`overflow-y-auto` `SidebarGroup` never becomes the scroller). Because
+`scrollbar-width` is an inherited property, no descendant could reinstate a
+scrollbar either.
+
+Fix: drop `hideScrollbars`, so the sidebar gets the same base-ui overlay thumb
+every other long panel in the app uses (idle-transparent, fading in while
+hovering or scrolling). Verified in both themes at 760px with a 22-row list.
+**Revert** = restore the `hideScrollbars` prop. Note this also affects v1 and
+the settings nav, which share `SidebarContent`.
+
+### I3. The rollup popover footer is a real button
+
+The footer of the workstream rollup badge popover read
+`"N sub-threads · open row → Workstream panel"` — instructional prose styled
+like an action, which did nothing. It is now a button that opens the
+`WorkstreamPanel` for that root: `useRightPanelStore.open(threadRef, "workstream")`
+(the same thread-scoped surface store `ChatView`'s own openers and the
+workstream-participant auto-open use) followed by navigation to the thread, so
+it works from any row, not just the active one. `WorkstreamGraphIndicator` takes
+a `threadRef` prop for this; the action-node case keeps its "Click a sub-thread
+to open it" hint.
+
+## J. Settle precedence, amended: an explicit settle outranks loom's plan blockers
+
+**The regression.** As shipped in `9ed6b9e4c`, loom's three never-settle
+blockers (any `attention` entry, `planLane === "yielded"`, any non-terminal
+descendant) were applied _alongside_ upstream's activity blockers, i.e. **above**
+the `settledOverride === "settled"` check. Server-side `thread.settle` rejects on
+none of those conditions, so the command succeeded, stamped the override, and the
+client classifier ignored it: **the user clicked Settle and the row did not
+move.** Abandoned orchestrations — children left `ready`/`planned`, or a stale
+stored `needs_guidance` — became permanently unclearable, where before the
+re-home they simply auto-settled on inactivity.
+
+**The split.** Upstream's blockers outrank an explicit settle because they
+describe **live runtime**: a running session genuinely is active, and the block
+clears itself when the runtime does. Loom's describe **plan state**, which can
+stay stale indefinitely with only a human to clear it. Same mechanism, different
+character — so the two are now ranked separately in `effectiveSettled`:
+
+| Signal                                                       | Kind         | Blocks auto-settle | Outranks explicit settle |
+| ------------------------------------------------------------ | ------------ | ------------------ | ------------------------ |
+| pending approval / user input, live session, queued turn     | live runtime | yes                | **yes** (upstream)       |
+| attention `awaiting_approval` / `awaiting_input`             | derived      | yes                | **yes**                  |
+| attention `error` / `awaiting_acceptance` / `needs_guidance` | stored plan  | yes                | no                       |
+| `planLane === "yielded"`                                     | plan         | yes                | no                       |
+| non-terminal descendant                                      | plan         | yes                | no                       |
+
+The derived attention reasons are never stored — they are unioned in from the
+open approval/input request set — so they mirror the upstream flags checked one
+line above them; keeping them ranked as live is deliberate redundancy against a
+drift between the two derivations, not a second policy.
+
+**Auto-settle protection is unchanged**, which was the whole point of
+`9ed6b9e4c`: an attention-flagged, `yielded`, or still-orchestrating thread never
+auto-settles into the shelf on inactivity or a merged PR. Only the user's own
+Settle now clears it. `canSettle` deliberately does **not** consult the
+workstream context (an abandoned graph must stay a legal settle target), and the
+finished-work trigger is untouched: it fires only in the no-override case, so it
+never competes with an override in either direction.
+
+**Nothing is hidden by the override.** The server un-settles on real activity —
+`thread.turn.start`, a session going `starting`/`running`, an approval or
+user-input request — regardless of the override. A settled root whose subtree
+later has news is therefore re-opened by the dispatcher's parent wake, which
+arrives as a turn start on the root itself (`decider.ts`, `thread.turn.start`
+lifecycle reset). A _stale_ flag, by contrast, generates no activity and stays
+settled: exactly the wanted asymmetry.
+
+Code: `workstreamAutoSettleBlocked` (renamed from `workstreamSettleBlocked` —
+the old name asserted the precedence that was the bug) plus
+`workstreamLiveAttentionBlocked`, both in
+[`packages/client-runtime/src/state/threadSettled.ts`](../../packages/client-runtime/src/state/threadSettled.ts);
+both directions are pinned by tests in `threadSettled.test.ts`.
+
+One consequence beyond the abandoned case, accepted deliberately: a root whose
+children are **genuinely still running** can now be settled by hand, which
+removes the only inbox row representing that subtree until the dispatcher's next
+parent wake re-opens it. That is the requested semantics ("I am done with this"),
+the window is bounded by the child's turn, and the row carries its rollup badge
+while active — but it is the price of making abandoned graphs clearable.

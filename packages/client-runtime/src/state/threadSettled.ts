@@ -77,6 +77,9 @@ export function hasQueuedTurnStart(
  * refuses to CLASSIFY as settled must also be refused as a settle TARGET.
  * The server enforces its own invariants; this client-side twin exists so
  * the UI can disable/reject before a round trip.
+ *
+ * loom: the workstream blockers are deliberately NOT here — they suppress
+ * auto-settle only, so an abandoned graph stays a legal settle target.
  */
 export function canSettle(
   shell: Pick<
@@ -251,16 +254,19 @@ export interface WorkstreamSettleContext {
 }
 
 /**
- * Never-settle blockers, ranked with (and applied alongside) the activity
- * blockers so they outrank an explicit settle:
- *  1. any attention flag — something needs a human, and only a human clears it;
+ * AUTO-settle blockers — plan state, so they suppress the inactivity/PR
+ * auto-settle but an explicit settle outranks them (see `effectiveSettled`):
+ *  1. a stored attention flag (`error`, `awaiting_acceptance`,
+ *     `needs_guidance`) — something needs a human, and only a human clears it;
  *  2. `yielded` — parked awaiting a decision: quiescent by every runtime
  *     signal, yet owed. The single sharpest divergence between the two axes;
  *  3. a non-terminal descendant — the idle orchestrator whose subtree is still
  *     burning tokens is quiescent but load-bearing.
- * `planned` is deliberately neither blocker nor trigger.
+ * `planned` is deliberately neither blocker nor trigger. The derived attention
+ * reasons are covered by `workstreamLiveAttentionBlocked` instead, and are
+ * included here too only because they trivially also block auto-settle.
  */
-export function workstreamSettleBlocked(
+export function workstreamAutoSettleBlocked(
   shell: Pick<OrchestrationThreadShell, "attention" | "planLane">,
   workstream: WorkstreamSettleContext,
 ): boolean {
@@ -268,6 +274,23 @@ export function workstreamSettleBlocked(
     shell.attention.length > 0 ||
     shell.planLane === "yielded" ||
     workstream.hasNonTerminalDescendant
+  );
+}
+
+/**
+ * The attention reasons that describe LIVE runtime rather than plan state:
+ * `awaiting_approval` / `awaiting_input` are derived from open approval and
+ * user-input requests (never stored), so they mirror upstream's
+ * `hasPendingApprovals` / `hasPendingUserInput` blockers and rank with them —
+ * outranking an explicit settle, and clearing themselves when the request
+ * resolves. Deliberately redundant with those two shell flags: it is the
+ * derivation, not this predicate, that could drift.
+ */
+export function workstreamLiveAttentionBlocked(
+  shell: Pick<OrchestrationThreadShell, "attention">,
+): boolean {
+  return shell.attention.some(
+    (reason) => reason === "awaiting_approval" || reason === "awaiting_input",
   );
 }
 
@@ -328,15 +351,25 @@ export function effectiveSettled(
       Date.parse(shell.settledAt) >= Date.parse(shell.latestUserMessageAt);
     if (!serverAdjudicated) return false;
   }
-  // loom: workstream blockers rank with the activity blockers above — they
-  // outrank an explicit settle, because a thread owed a human decision or
-  // orchestrating live children is not quiescent whatever the user pinned.
-  if (options.workstream != null && workstreamSettleBlocked(shell, options.workstream))
-    return false;
+  // loom: derived attention (`awaiting_approval` / `awaiting_input`) ranks with
+  // the activity blockers above — it mirrors the very pending requests they
+  // check, so it outranks an explicit settle for the same reason.
+  if (options.workstream != null && workstreamLiveAttentionBlocked(shell)) return false;
   if (shell.settledOverride === "settled") return true;
   // "active" is the explicit keep-active pin: it suppresses auto-settle
   // until real activity clears it server-side.
   if (shell.settledOverride === "active") return false;
+  // loom: workstream blockers suppress AUTO-settle only, and are therefore
+  // checked BELOW the override. Upstream's blockers outrank an explicit settle
+  // because they describe live runtime that clears itself; loom's describe PLAN
+  // state, which can stay stale indefinitely with only a human to clear it — so
+  // an abandoned graph (children left `ready`, a lingering `needs_guidance`)
+  // must still be manually settleable, or the Settle action silently does
+  // nothing. Nothing is hidden by that: any real news re-opens the row, because
+  // the server un-settles on activity and the dispatcher's parent wake arrives
+  // as a turn start on the root itself.
+  if (options.workstream != null && workstreamAutoSettleBlocked(shell, options.workstream))
+    return false;
   // loom: the finished-work trigger, no-override case only. A settled row
   // has no `settledAt`, so it sorts by last activity like every other
   // derived settle (`resolveSettledTimestamp`) — a just-finished thread
