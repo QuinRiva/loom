@@ -41,6 +41,12 @@ const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
  */
 const PROJECT_READ_FILE_PLAN_MAX_BYTES = 8 * 1024 * 1024;
 
+/** Resolve a request's read cap: the default 1 MiB, or an opted-in budget clamped
+ * to the plan ceiling. Shared by the workspace-relative and absolute reads so an
+ * `.mdx` plan gets the same budget whichever path opened it. */
+const resolveReadMaxBytes = (requested: number | undefined): number =>
+  requested ? Math.min(requested, PROJECT_READ_FILE_PLAN_MAX_BYTES) : PROJECT_READ_FILE_MAX_BYTES;
+
 export class WorkspaceFileSystemOperationError extends Schema.TaggedErrorClass<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
   {
@@ -324,9 +330,7 @@ export const make = Effect.gen(function* () {
 
     // A caller may request a larger budget (only the `.mdx` plan preview does),
     // clamped to the plan ceiling; absent it, the default 1 MiB cap applies.
-    const maxBytes = input.maxBytes
-      ? Math.min(input.maxBytes, PROJECT_READ_FILE_PLAN_MAX_BYTES)
-      : PROJECT_READ_FILE_MAX_BYTES;
+    const maxBytes = resolveReadMaxBytes(input.maxBytes);
 
     return yield* readTextFromRealPath<
       WorkspaceFileSystemOperationError | WorkspacePathNotFileError | WorkspaceBinaryFileError
@@ -382,7 +386,7 @@ export const make = Effect.gen(function* () {
     return yield* readTextFromRealPath<WorkspaceAbsoluteReadError>(
       realTargetPath,
       input.absolutePath,
-      PROJECT_READ_FILE_MAX_BYTES,
+      resolveReadMaxBytes(input.maxBytes),
       {
         operation: (operation, cause) =>
           new WorkspaceAbsoluteReadError({

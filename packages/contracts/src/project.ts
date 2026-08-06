@@ -210,6 +210,10 @@ export const ProjectReadAbsoluteFileInput = Schema.Struct({
   absolutePath: TrimmedNonEmptyString.check(
     Schema.isMaxLength(PROJECT_READ_ABSOLUTE_FILE_PATH_MAX_LENGTH),
   ),
+  /** Per-request read budget, clamped server-side exactly as on
+   * {@link ProjectReadFileInput} — an out-of-workspace `.mdx` plan needs the
+   * same larger budget as an in-workspace one. */
+  maxBytes: Schema.optional(PositiveInt),
 });
 export type ProjectReadAbsoluteFileInput = typeof ProjectReadAbsoluteFileInput.Type;
 
