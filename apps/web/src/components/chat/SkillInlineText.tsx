@@ -12,6 +12,11 @@ import { cn } from "~/lib/utils";
 
 const SKILL_TOKEN_REGEX = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
 
+// Subtrees whose text is literal and must never be rewritten into chips: code
+// (inline spans and the `code`/`pre` of a fenced block, whose text is the code
+// itself) and links (whose label is read back from the hast node).
+const SKILL_INLINE_SKIP_TAGS = new Set(["code", "pre", "a"]);
+
 type InlineSkill = Pick<ServerProviderSkill, "name" | "displayName">;
 
 export function SkillInlineText(props: { text: string; skills: ReadonlyArray<InlineSkill> }) {
@@ -52,10 +57,17 @@ export function renderSkillInlineMarkdownChildren(
     if (typeof child === "string") {
       return <SkillInlineText text={child} skills={skills} />;
     }
-    if (!isValidElement<{ children?: ReactNode }>(child)) {
+    if (!isValidElement<{ children?: ReactNode; node?: { tagName?: string } }>(child)) {
       return child;
     }
-    if (child.type === "code" || child.type === "a") {
+    // Identify by the hast node react-markdown attaches, not by `child.type`:
+    // once `components` overrides a tag its element type is a function
+    // component, so comparing against intrinsic tag names never matches. The
+    // string comparison stays for trees rendered without those overrides.
+    if (
+      (typeof child.type === "string" && SKILL_INLINE_SKIP_TAGS.has(child.type)) ||
+      SKILL_INLINE_SKIP_TAGS.has(child.props.node?.tagName ?? "")
+    ) {
       return child;
     }
     if (!("children" in child.props)) {

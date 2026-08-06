@@ -324,6 +324,29 @@ E: inside a blockquote, not a list item (renders correctly today):
 > \`\`\`
 `;
 
+/**
+ * Skill-token substitution vs literal text. Chips belong in prose (paragraph
+ * and list item); the SAME `$probe` token inside an inline code span, a fenced
+ * block or a link label must stay literal, because that text is code/label
+ * content and is also what the copy affordances read back.
+ */
+const SKILL_TOKEN_MARKDOWN = `Chips belong here: run $probe before $librarian in the same turn.
+
+- List-item prose also gets a chip: use $probe first.
+
+Inline code must stay literal: \`use $probe now\` — no chip, and it copies verbatim.
+
+- List-item inline code, same rule: \`$probe --dry-run\`.
+
+- Bullet item with a fence (literal text, and the body must render):
+
+  \`\`\`bash
+  probe run --skill $probe
+  \`\`\`
+
+- A [link label mentioning $probe](https://example.com/probe) stays literal too.
+`;
+
 function markdownFixture(
   id: string,
   title: string,
@@ -901,16 +924,34 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
       markdownFixture(
         "list-nested-code-block-empty",
-        "Empty code block (list-nested)",
+        "List-nested code block bodies",
         LIST_NESTED_CODE_BLOCK_MARKDOWN,
-        "Minimal repro: A + E (not in a list item) keep their bodies; B, C and D (inside list items) render chrome only with an empty body. A correct fix shows text in all five.",
+        "Regression guard: list-nested fences (B, C, D) used to render chrome with an empty body while A (top level) and E (blockquote) were fine. All five must show their body text.",
       ),
       markdownFixture(
         "list-nested-code-blocks",
-        "Empty code blocks (real corpus)",
+        "List-nested code blocks (real corpus)",
         CONSULT_REPORT_CODE_BLOCKS_MARKDOWN,
-        "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine bodies are empty today.",
+        "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine must show their body text.",
       ),
+      {
+        id: "skill-token-chips",
+        title: "Skill token chips vs literal code",
+        description:
+          "Chips must appear in paragraph and list-item prose, and must NOT appear inside inline code, fenced blocks or link labels (where $probe is literal text that is also copied).",
+        render: () => (
+          <TimelineLayoutFrame>
+            <ChatMarkdown
+              text={SKILL_TOKEN_MARKDOWN}
+              cwd={undefined}
+              skills={[
+                { name: "probe", displayName: "Probe" },
+                { name: "librarian", displayName: "Librarian" },
+              ]}
+            />
+          </TimelineLayoutFrame>
+        ),
+      },
     ],
   },
   {
