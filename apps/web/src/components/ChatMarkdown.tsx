@@ -225,20 +225,23 @@ function extractFenceTitle(meta: string | undefined): string | null {
   return meta.split(/\s+/).find((candidate) => FENCE_FILENAME_TOKEN_REGEX.test(candidate)) ?? null;
 }
 
+type HastPreCodeNode = {
+  type?: string;
+  tagName?: string;
+  data?: { meta?: unknown };
+  properties?: { dataCodeMeta?: unknown };
+  children?: unknown[];
+};
+
+/** The `code` element inside a fenced `pre`'s hast node — the authoritative source of its text and meta. */
+function findPreCodeNode(node: unknown): HastPreCodeNode | undefined {
+  return (node as { children?: HastPreCodeNode[] } | undefined)?.children?.find(
+    (child) => child?.type === "element" && child.tagName === "code",
+  );
+}
+
 function extractPreCodeMeta(node: unknown): string | undefined {
-  const children = (
-    node as
-      | {
-          children?: Array<{
-            type?: string;
-            tagName?: string;
-            data?: { meta?: unknown };
-            properties?: { dataCodeMeta?: unknown };
-          }>;
-        }
-      | undefined
-  )?.children;
-  const codeNode = children?.find((child) => child?.type === "element" && child.tagName === "code");
+  const codeNode = findPreCodeNode(node);
   const meta = codeNode?.properties?.dataCodeMeta ?? codeNode?.data?.meta;
   return typeof meta === "string" && meta.trim().length > 0 ? meta.trim() : undefined;
 }
@@ -360,6 +363,7 @@ function nodeToPlainText(node: ReactNode): string {
 }
 
 function extractCodeBlock(
+  node: unknown,
   children: ReactNode,
 ): { className: string | undefined; code: string } | null {
   const childNodes = Children.toArray(children);
@@ -378,9 +382,13 @@ function extractCodeBlock(
     return null;
   }
 
+  const codeNode = findPreCodeNode(node);
   return {
     className: onlyChild.props.className,
-    code: nodeToPlainText(onlyChild.props.children),
+    // Read the code from the hast node, as every other extractor here does:
+    // the rendered children are transformed on their way through `li`/`p`, so
+    // trusting them makes the code text hostage to unrelated child rewrites.
+    code: (codeNode ? plainHastText(codeNode) : null) ?? nodeToPlainText(onlyChild.props.children),
   };
 }
 
@@ -1915,8 +1923,8 @@ function ChatMarkdown({
         // (which reads these props to drive Shiki); render them plainly here so
         // the fallback/suspense paths stay unchanged. Only bare inline spans
         // are candidates for file-link treatment. The raw span text is read
-        // from the hast node (the rendered `children` are already wrapped into
-        // skill-inline React elements, so text extraction from them is lossy).
+        // from the hast node, which is authoritative regardless of how the
+        // rendered `children` were transformed on the way down.
         const rawText = plainHastText(node) ?? nodeToPlainText(children);
         const isBlockCode = (className?.includes("language-") ?? false) || rawText.includes("\n");
         const inlineCandidates = isBlockCode ? [] : resolveInlineCodeCandidates(rawText.trim());
@@ -1990,7 +1998,7 @@ function ChatMarkdown({
         return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
       },
       pre({ node, children, ...props }) {
-        const codeBlock = extractCodeBlock(children);
+        const codeBlock = extractCodeBlock(node, children);
         if (!codeBlock) {
           return <pre {...props}>{children}</pre>;
         }
