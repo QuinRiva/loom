@@ -48,10 +48,11 @@ export function getProjectFileQueryAtom(
 export function getProjectAbsoluteFileQueryAtom(
   environmentId: EnvironmentId,
   absolutePath: string | null,
+  maxBytes?: number,
 ) {
   return projectEnvironment.readAbsoluteFile({
     environmentId,
-    input: { absolutePath: absolutePath ?? EMPTY_PROJECT_FILE_PATH },
+    input: { absolutePath: absolutePath ?? EMPTY_PROJECT_FILE_PATH, maxBytes },
   });
 }
 
@@ -193,8 +194,9 @@ export function useProjectFileQuery(
 export function useProjectAbsoluteFileQuery(
   environmentId: EnvironmentId,
   absolutePath: string | null,
+  maxBytes?: number,
 ): ProjectQueryState<ProjectReadFileResult> {
-  const atom = getProjectAbsoluteFileQueryAtom(environmentId, absolutePath);
+  const atom = getProjectAbsoluteFileQueryAtom(environmentId, absolutePath, maxBytes);
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
   const refresh = useCallback(() => refreshAtom(), [refreshAtom]);

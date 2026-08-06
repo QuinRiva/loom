@@ -67,6 +67,7 @@ import { projectFileCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, isMdxPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { MdxPlanRenderer } from "./mdx-plan/MdxPlanRenderer";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -660,8 +661,30 @@ function RenderedMarkdownSurface({
     onPendingChange,
   });
 
-  // Out-of-workspace previews are read-only: render the markdown without the
-  // task-toggle / annotation write paths.
+  // `.mdx` always goes through the MDX renderer — the plain-markdown surface
+  // escapes every JSX block as raw text, so falling back to it silently presents
+  // a healthy document as broken. Read-only (out-of-workspace) previews render
+  // the renderer BARE: without the annotation layer's providers the question /
+  // review blocks render as static state and no comment, answer or verdict write
+  // path exists (see `mdx-plan/questionAnswers.ts`).
+  if (isMdxPreviewFile(relativePath)) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        {readOnly ? (
+          <MdxPlanRenderer source={contents} />
+        ) : (
+          <MdxPlanAnnotationLayer
+            source={contents}
+            filePath={relativePath}
+            composerDraftTarget={composerDraftTarget}
+          />
+        )}
+      </ScrollArea>
+    );
+  }
+
+  // Out-of-workspace `.md` previews are read-only: render the markdown without
+  // the task-toggle write path.
   if (readOnly) {
     return (
       <ScrollArea className="min-h-0 flex-1">
@@ -673,18 +696,6 @@ function RenderedMarkdownSurface({
             className="mx-auto max-w-4xl px-6 py-5"
           />
         </MarkdownBleedFrame>
-      </ScrollArea>
-    );
-  }
-
-  if (isMdxPreviewFile(relativePath)) {
-    return (
-      <ScrollArea className="min-h-0 flex-1">
-        <MdxPlanAnnotationLayer
-          source={contents}
-          filePath={relativePath}
-          composerDraftTarget={composerDraftTarget}
-        />
       </ScrollArea>
     );
   }
@@ -756,17 +767,18 @@ export default function FilePreviewPanel({
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
   // Request the larger read budget for `.mdx` plans only, so an evidence-heavy
   // decision document reaches the renderer intact instead of being chopped at
-  // the 1 MiB default cap.
-  const workspaceReadMaxBytes =
+  // the 1 MiB default cap. Both read paths honour it — an out-of-workspace plan
+  // is the same document.
+  const readMaxBytes =
     relativePath && isMdxPreviewFile(relativePath) ? MDX_PREVIEW_MAX_BYTES : undefined;
   const workspaceFile = useProjectFileQuery(
     environmentId,
     cwd,
     isAbsolute ? null : relativePath,
-    workspaceReadMaxBytes,
+    readMaxBytes,
     !isImage,
   );
-  const absoluteFile = useProjectAbsoluteFileQuery(environmentId, absolutePath);
+  const absoluteFile = useProjectAbsoluteFileQuery(environmentId, absolutePath, readMaxBytes);
   const file = isAbsolute ? absoluteFile : workspaceFile;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
   const [markdownView, setMarkdownView] = useState<{
@@ -993,7 +1005,7 @@ export default function FilePreviewPanel({
       ) : null}
       {relativePath && file.data?.truncated ? (
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-          Preview limited to the first {!isAbsolute && workspaceReadMaxBytes ? "8 MB" : "1 MB"} of a{" "}
+          Preview limited to the first {readMaxBytes ? "8 MB" : "1 MB"} of a{" "}
           {file.data.byteLength.toLocaleString()} byte file.
         </div>
       ) : null}
