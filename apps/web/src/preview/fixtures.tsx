@@ -151,6 +151,179 @@ The bleed budget is derived from \`--timeline-available-width\`, published by a 
 </details>
 `;
 
+const CONSULT_REPORT_CODE_BLOCKS_MARKDOWN = `To the reviewer:
+
+1. **Sample selection is not fully reproducible from the submitted artefacts.**
+
+   The source population is clear: \`measure.py::population()\` reads the full deterministic pipeline outputs from:
+
+   \`\`\`text
+   /home/Carl/data/tenant_name_role_strategy/population_runs/*/*building_audit.json
+   \`\`\`
+
+   It selects every case where both the new strategy and party history fired but their \`fold_name\` values differed, then writes all 196 rows to:
+
+   \`\`\`text
+   /home/Carl/data/tenant_name_role_strategy/party_history_disagreements.jsonl
+   \`\`\`
+
+   The report records: seed \`2271\`, 15 unique buildings, stratified as 11 multi-name and 4 single-name disagreements.
+
+   However, the exact sampling command/code was not preserved. \`workbench/tenant-name-role-strategy/measure.py\` contains no \`random\`, seed, or \`sample15\` logic; it stops after writing the full disagreement population. Therefore this session does **not** establish the exact algorithm or command that transformed those 196 rows into \`disagreement_sample15.jsonl\`. The seed claim is not independently reproducible from the committed workbench.
+
+2. **There is no artefact containing verbatim packet-document quotations for the 15 judgements.**
+
+   \`/home/Carl/data/tenant_name_role_strategy/disagreement_sample15.jsonl\` contains extracted values:
+
+   - register and party-history strategy outputs;
+   - target values;
+   - complete extracted \`parties\` blocks, including role, legal name, ACN/ABN, etc.
+
+   Examples include verbatim extracted role strings such as:
+
+   - \`"Other Tenant"\`
+   - \`"Tenant's Representative"\`
+   - \`"Insured party (Parent of Tenant)"\`
+   - \`"Original Lessee/Tenant and Customer"\` / \`"Current Lessee/Tenant and Customer"\`
+   - \`"Tenant's Consultant"\`
+   - \`"Tenant's Solicitors"\`
+   - \`"Tenant Consultant"\`
+
+   Those support many conclusions, but they are extraction fields—not quotations from packet pages with provenance/citations. \`measurement_report.md\` only provides summary conclusions. No separate quote/citation file was committed, so the assertion that packet evidence was read is not auditable at the requested verbatim-document level.
+
+3. **Why generic entity-absence semantics changed**
+
+   The strategy follows the existing declarative pattern:
+
+   \`\`\`python
+   iterate_over_entity="party"
+   \`\`\`
+
+   \`party_name\` and \`party_role\` inherit \`_source_input(..., null_handling="skip_strategy")\`; ACN uses \`use_default\`.
+
+   Before the change, the outer entity-list checks happened before per-input null handling:
+
+   - missing \`party\` raised an ordinary \`InputResolutionError\`;
+   - empty \`party: []\` raised \`EmptyEntityListError\`;
+   - because tenant-name’s \`_NAME_COMPARISON\` does not declare one-sided absence acceptable, both paths became failed strategies with execution risks.
+
+   Thus \`skip_strategy\` could handle a missing field within an existing party item, but could not express that the optional top-level party register itself was absent. Leaving the existing pattern unchanged violated the requirement that missing optional \`party[]\` skip cleanly.
+
+   The generic changes close that semantic gap:
+
+   - \`input_resolver.py\` prefixes missing-entity errors with \`SKIP_STRATEGY:\` when a descriptor declares \`skip_strategy\`;
+   - \`source/executor.py\` maps that condition to \`status="skipped"\` with no risks;
+   - it likewise maps an empty entity list to skipped when any descriptor uses \`skip_strategy\`.
+
+   The required test exercises both exact shapes:
+
+   \`\`\`python
+   for extraction_data in ({}, {"party": []}):
+       ...
+       assert result.status == "skipped"
+       assert result.risk_factors == []
+   \`\`\`
+
+   A strategy-specific special case would duplicate semantics in the tenant strategy, while changing comparison absence policy would only address empty lists—not missing entities—and would conflate input optionality with comparison meaning.
+
+4. **Fast-forward/no-force evidence**
+
+   Immediately before pushing:
+
+   \`\`\`bash
+   git fetch origin PE-2271-retarget-tenant-name-derivation-strategies-at-the-registered
+   git merge-base --is-ancestor FETCH_HEAD HEAD
+   echo fast_forward=$?
+   \`\`\`
+
+   Output:
+
+   \`\`\`text
+   7e2a191f9 PE-2271: strip registration tails from tenant identifiers
+   ...
+   fast_forward=0
+   \`\`\`
+
+   Exit code \`0\` established that remote head \`7e2a191f9\` was an ancestor of local \`HEAD\`.
+
+   The push command contained no force option:
+
+   \`\`\`bash
+   git push origin HEAD:PE-2271-retarget-tenant-name-derivation-strategies-at-the-registered
+   \`\`\`
+
+   Git reported:
+
+   \`\`\`text
+   7e2a191f9..26aab4f8b  HEAD -> PE-2271-retarget-tenant-name-derivation-strategies-at-the-registered
+   \`\`\`
+
+   Afterwards, \`gh pr view 3972\` reported:
+
+   \`\`\`json
+   {
+     "headRefOid": "26aab4f8b73b99db7723337edf7138d565216b1c",
+     "state": "OPEN"
+   }
+   \`\`\`
+
+   Together, the ancestor check, absence of \`--force\`, normal \`old..new\` push output, and matching PR head establish a fast-forward push.`;
+
+/**
+ * Minimal repro for the empty-code-block defect (#: fenced blocks nested inside
+ * a list item render chrome only — language badge, wrap/copy buttons, rounded
+ * container — with a completely empty body, and the copy button yields "").
+ *
+ * The five cases below are a discriminator, not decoration: the two OUTSIDE a
+ * list item (top level, blockquote) render their body correctly, and the three
+ * INSIDE a list item render empty. That isolates the trigger to the `p`/`li`
+ * component overrides' `renderSkillInlineMarkdownChildren` pass rewriting the
+ * nested `code` element's string child into a `<SkillInlineText>` element, which
+ * `extractCodeBlock`/`nodeToPlainText` cannot read (the text lives in a `text`
+ * prop, not `children`), so Shiki is handed "".
+ *
+ * A correct fix shows the body text in ALL FIVE blocks.
+ */
+const LIST_NESTED_CODE_BLOCK_MARKDOWN = `A: top level (renders correctly today):
+
+\`\`\`text
+A top-level fence keeps its body
+\`\`\`
+
+B: inside a bullet list item (EMPTY today):
+
+- Bullet item:
+
+  \`\`\`text
+  B bullet-nested fence loses its body
+  \`\`\`
+
+C: inside an ordered list item (EMPTY today):
+
+1. Ordered item:
+
+   \`\`\`python
+   print("C ordered-nested fence loses its body")
+   \`\`\`
+
+D: inside a nested list item (EMPTY today):
+
+- Outer item
+  - Inner item:
+
+    \`\`\`json
+    { "d": "nested-nested fence loses its body" }
+    \`\`\`
+
+E: inside a blockquote, not a list item (renders correctly today):
+
+> Quoted:
+>
+> \`\`\`text
+> E blockquote-nested fence keeps its body
+> \`\`\`
+`;
+
 function markdownFixture(
   id: string,
   title: string,
@@ -726,6 +899,18 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       ),
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
       markdownFixture("mixed-document", "Mixed document", MIXED_DOCUMENT_MARKDOWN),
+      markdownFixture(
+        "list-nested-code-block-empty",
+        "Empty code block (list-nested)",
+        LIST_NESTED_CODE_BLOCK_MARKDOWN,
+        "Minimal repro: A + E (not in a list item) keep their bodies; B, C and D (inside list items) render chrome only with an empty body. A correct fix shows text in all five.",
+      ),
+      markdownFixture(
+        "list-nested-code-blocks",
+        "Empty code blocks (real corpus)",
+        CONSULT_REPORT_CODE_BLOCKS_MARKDOWN,
+        "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine bodies are empty today.",
+      ),
     ],
   },
   {
