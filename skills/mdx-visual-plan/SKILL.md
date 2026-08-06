@@ -69,17 +69,29 @@ separate "does this look good?" question on top of that.
 A stray `<`/`{` in prose kills the ENTIRE rendered document (MDX compile
 error); an unknown tag or invalid props show error cards in place; and several
 mistakes (dangling canvas ids, ragged tables, sanitiser-stripped HTML) degrade
-silently. **Always run the plan validator on your `.mdx` file and fix every
+silently. **Always run the render-health check on your `.mdx` file and fix every
 finding BEFORE telling the user the plan is ready:**
 
 ```
 node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx
 ```
 
-It exercises the real renderer pipeline (compile gate, block registry, zod
-schemas, mermaid parser, wireframe sanitiser) and reports `file:line` findings.
+It runs two stages against the real renderer modules: **lint** (compile gate,
+block registry, zod schemas, mermaid parser, wireframe sanitiser) reporting
+`file:line` findings, then a headless **render** of the document through the
+real block registry (`renderToStaticMarkup` under eager mount) — which catches
+what no static pass can see, a block that throws or degrades to an error card on
+a payload its schema accepts. It prints the block types that actually mounted,
+so you can confirm the blocks you authored are there.
+
 Fix all `error` findings; read each `warning` and fix it unless the degradation
-is genuinely intended. Exit code 0 with no findings means the plan will render.
+is genuinely intended. Exit code 0 is the gate: it means the document compiles
+AND renders, so it will display in-app. Lint findings alone are not sufficient
+evidence — do not hand a plan to the user on an unrun or non-zero check.
+
+If a document passes this check but a human reports it looking broken (JSX shown
+as literal escaped text), the document is healthy — that signature is the plain
+markdown fallback, i.e. a view/routing problem, not a document defect.
 
 ## Research before you draft
 

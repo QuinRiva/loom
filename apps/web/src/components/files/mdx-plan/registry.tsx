@@ -103,7 +103,13 @@ export function UnknownPlanBlock({ tag }: { tag?: unknown }) {
 
 function PlanBlockError({ tag, message }: { tag: string; message: string }) {
   return (
-    <div className="my-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+    // `data-plan-block-error` is the machine-readable marker the headless render
+    // check (`scripts/lint-plan.mjs`) scans for — a degraded block is invisible
+    // to lint's AST/compile passes but always emits this attribute.
+    <div
+      data-plan-block-error={tag}
+      className="my-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive"
+    >
       <div className="font-medium">Invalid &lt;{tag}&gt; block</div>
       <div className="mt-1 whitespace-pre-wrap font-mono opacity-80">{message}</div>
     </div>

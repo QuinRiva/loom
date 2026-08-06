@@ -436,6 +436,9 @@ describe("mdx-plan security model", () => {
     // The unknown tag degrades to the error card (attrs/children dropped)…
     expect(html).toContain("Malicious");
     expect(html).toContain("Unknown block");
+    // Machine-readable marker the headless render check (`scripts/lint-plan.mjs`)
+    // scans for — renaming it silently turns that check into a no-op.
+    expect(html).toContain('data-plan-block-error="Malicious"');
     expect(html).not.toContain("secret");
     expect(html).not.toContain("onClick");
     // …while the surrounding document still renders.

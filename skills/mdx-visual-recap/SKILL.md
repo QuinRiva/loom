@@ -59,11 +59,23 @@ them to open, triage, and decide in-app.
 node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx
 ```
 
-The validator exercises the real renderer pipeline (compile gate, block
-registry, zod schemas) and reports `file:line` findings — including the
-**duplicate `<ReviewChoice itemId>`** check (duplicate ids silently collapse two
-widgets onto one decision, so this is an `error`). Fix all `error` findings and
-read each `warning` before handing the document back.
+This is the render-health gate, in two stages against the real renderer
+modules: **lint** (compile gate, block registry, zod schemas) reporting
+`file:line` findings — including the **duplicate `<ReviewChoice itemId>`** check
+(duplicate ids silently collapse two widgets onto one decision, so this is an
+`error`) — then a headless **render** of the document through the real block
+registry, which catches what no static pass can see (a block that throws or
+degrades to an error card on a payload its schema accepts) and prints the block
+types that actually mounted, so you can confirm every `<ReviewChoice>` is there.
+
+Fix all `error` findings and read each `warning` before handing the document
+back. Exit code 0 is the gate — it means the recap compiles AND renders, so it
+will display in-app; lint findings alone are not sufficient evidence, so never
+hand a recap back on an unrun or non-zero check.
+
+If a reviewer reports the recap looking broken (JSX shown as literal escaped
+text) after a passing check, the document is healthy — that signature is the
+plain markdown fallback, i.e. a view/routing problem, not a document defect.
 
 ## Scope-gathering (recap genre)
 
