@@ -105,6 +105,62 @@ describe("kickoff-artefact contract alignment", () => {
   });
 });
 
+// loom: child-prompt dedup P1. spawn.brief is the canonical statement of what a
+// child ALREADY inherits, so an orchestrator can brief the task-specific delta
+// instead of re-transmitting standing context. Two failure tails must stay
+// guarded, and the conditional surfaces must not be re-flattened into universal
+// claims: a free-text role has no overlay (roleOverlay.loadRoleOverlay returns
+// undefined) and a goal-less thread gets no goal/task-tree block
+// (ProviderCommandReactor.buildGoalSystemPrompt returns undefined), so a
+// universal phrasing would tell the orchestrator to omit context the child never
+// receives.
+describe("inherited-surfaces brief contract (P1)", () => {
+  const spawnBrief = (spawnParams.properties.brief as { readonly description: string }).description;
+
+  it("frames the brief as the task-specific delta over named inherited surfaces", () => {
+    expect(spawnBrief).toMatch(/task-specific delta/i);
+    expect(spawnBrief).toMatch(/AGENTS\.md/);
+  });
+
+  it("marks the conditional surfaces as conditional, not universal", () => {
+    expect(spawnBrief).toMatch(/conditional/i);
+    expect(spawnBrief).toMatch(/free-text role/i);
+    expect(spawnBrief).toMatch(/goal-less/i);
+  });
+
+  it("guards the under-specification tail as well as over-transmission", () => {
+    expect(spawnBrief).toMatch(/still belongs in the brief/i);
+    expect(spawnBrief).toMatch(/absent from, stale in, or inapplicable/i);
+  });
+});
+
+// loom: child-prompt dedup P2a. workstream_submit's DESCRIPTION is the single
+// contract of record for the completion protocol: it is guaranteed present in
+// every request of every thread that can submit, whereas the kickoff wrapper's
+// salience decays and ambient guideline bullets are paid by every turn that
+// never submits. The three tools below therefore ship NO guidelines; a returning
+// paraphrase is drift by construction (rubric principle 7 + the ambient-cost
+// rule), so it fails here.
+describe("completion protocol has one contract of record (P2a)", () => {
+  const submitDef = defByName("workstream_submit");
+
+  it("keeps outcome routing AND the result-echo duty on the submit description", () => {
+    expect(submitDef.description).toMatch(/never set your own lane at completion/i);
+    expect(submitDef.description).toMatch(/echoes the routing decision/i);
+    expect(submitDef.description).toMatch(/needs_human/);
+  });
+
+  it("ships no ambient paraphrase of the protocol on any of the three tools", () => {
+    for (const name of [
+      "workstream_submit",
+      "workstream_set_lane",
+      "workstream_request_attention",
+    ]) {
+      expect(defByName(name).promptGuidelines).toEqual([]);
+    }
+  });
+});
+
 describe("notify_thread tool-def contract", () => {
   const notifyDef = defByName("notify_thread");
   const notifyParams = notifyDef.parameters as {

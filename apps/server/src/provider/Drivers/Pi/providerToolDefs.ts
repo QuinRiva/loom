@@ -142,7 +142,7 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         brief: {
           type: "string",
           description:
-            "Full, self-contained first-turn prompt that becomes the child's assignment (optional; defaults to purpose, which suffices only when the purpose already says everything). Write it to stand on its own: the child acts on what the brief says, not on context you can see but it cannot. State the outcome it owes and the contract it works under (the goal and why it matters, the constraints, the definition of done, where the relevant code and artefacts live), and leave how to deliver that outcome to the child's role rather than scripting the steps; an over-prescribed brief that dictates every step turns a capable delegate into a transcriber, and for a delegating role like an orchestrator it can re-scope the recipient into doing the work inline.",
+            "Full, self-contained first-turn prompt that becomes the child's assignment (optional; defaults to purpose, which suffices only when the purpose already says everything). Write it to stand on its own — the child acts on what the brief says, not on context you can see but it cannot — but self-contained means the task-specific delta, not a re-transmission of standing context. Every child's system prompt already carries the project's AGENTS.md files (global and repo), the work-model doctrine and the shipping policy; three further surfaces are conditional, so check they apply to THIS child — the role overlay (only a role with a `roles/` file has one; a free-text role has none), the goal plus a task-tree snapshot taken at launch (a goal-less thread gets neither), and the skill catalogue with each skill's description (only roles whose tool profile includes `read`, i.e. all defined roles except assessor). Do not restate what those surfaces own — a brief that quotes a command or URL a skill owns silently drifts when the skill changes; naming a skill or doc as load-bearing for THIS task is good emphasis. The delta cuts both ways: anything task-critical that is absent from, stale in, or inapplicable to the inherited surfaces (an assessor sees no skill catalogue; the task tree does not refresh; a fork replays its source's older launch identity) still belongs in the brief. State the outcome it owes and the contract it works under (why it matters, the constraints, the definition of done, where the relevant code and artefacts live), and leave how to deliver that outcome to the child's role rather than scripting the steps; an over-prescribed brief that dictates every step turns a capable delegate into a transcriber, and for a delegating role like an orchestrator it can re-scope the recipient into doing the work inline.",
         },
         title: {
           type: "string",
@@ -426,10 +426,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "Advance the PLAN of a T3 Code Workstream thread you own (this thread or one you directly spawned) along its lifecycle: planned (held) → ready (released) → done, or cancelled. 'done' is the only lane that releases dependents and lets the next thread start; 'cancelled' abandons the work and does NOT release dependents — and it CASCADES: cancelling a thread also cancels every non-terminal descendant (children, grandchildren, …) and interrupts any in-flight turn among them, so cancelling a runaway branch kills the whole chain beneath it (already-done descendants are left untouched). 'in_progress' is set automatically when a turn starts and is never settable here. This is the PLAN axis only — to flag that a human is needed, use workstream_request_attention instead.",
     promptSnippet:
       "advance a Workstream thread's plan lane (planned/ready/done/cancelled). 'done' releases dependents; 'cancelled' cascades to the whole subtree and stops in-flight turns; 'in_progress' is automatic.",
-    promptGuidelines: [
-      "Do NOT set 'done' to finish your own work; use workstream_submit, which records your report and advances your lane. Setting 'done' directly is for a parent accepting a child's output, and 'cancelled' for abandoning work (it cascades to the whole subtree and stops in-flight turns).",
-      "This is the plan axis. If you cannot proceed without a human, or your output needs sign-off, do not park the lane; raise attention with workstream_request_attention instead.",
-    ],
+    // No guidelines by design: the description already states the lane
+    // semantics, the cancel cascade, and the plan-vs-attention split, and
+    // workstream_submit's description owns "never set your own lane at
+    // completion" as the contract of record.
+    promptGuidelines: [],
     parameters: {
       type: "object",
       properties: {
@@ -457,9 +458,11 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. Two reasons: 'awaiting_acceptance' means a human (or the parent acting for the human) must accept this thread's output before its plan may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just goes 'done', which releases that reviewer). 'needs_guidance' means you cannot proceed without a human. The flag clears automatically when the thread resumes or reaches done/cancelled.",
     promptSnippet:
       "flag that a human is needed — 'awaiting_acceptance' (your output needs sign-off before done) or 'needs_guidance' (you're stuck).",
-    promptGuidelines: [
-      "Raise attention only when a HUMAN is needed: 'awaiting_acceptance' when your output needs sign-off before completion (not merely because a reviewer thread exists; that case is just 'done', which releases the reviewer), or 'needs_guidance' when you genuinely cannot proceed. Do not sit silently halted: advance the plan, or raise attention.",
-    ],
+    // No guidelines by design: the description states both reasons and the
+    // not-a-reviewer-flag nuance. "Do not sit silently halted" reaches every
+    // spawned child through the kickoff wrapper, and a root converses with the
+    // human directly, so no ambient copy is needed.
+    promptGuidelines: [],
     parameters: {
       type: "object",
       properties: {
@@ -559,14 +562,13 @@ export const WORKSTREAM_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "workstream_submit",
     label: "Submit Workstream Work",
     description:
-      "THE single terminal call for a T3 Code Workstream sub-thread: submit your markdown report plus a structured outcome, and the control plane derives what happens next — you never set your own lane at completion. Omit outcome (or pass 'done') for plain completion: the report is recorded and your plan advances to done in one step, releasing dependents. Pass outcome 'needs_human' to record the report and raise the needs_guidance flag instead (a human is pulled in; your lane is unchanged). Any other outcome token (e.g. 'rework_approach', or review verdicts like 'needs_rework'/'clean'/'fixed_inline' when you are in a review gate) is routed by the control plane; during an active rework round it routes back to the reviewer for re-verification, otherwise an outcome with no matching route YIELDS you to your live parent orchestrator with your report — escalation is the safe default, and you are NOT done in that case.",
+      "THE single terminal call for a T3 Code Workstream sub-thread: submit your markdown report plus a structured outcome, and the control plane derives what happens next — you never set your own lane at completion. Omit outcome (or pass 'done') for plain completion: the report is recorded and your plan advances to done in one step, releasing dependents. Pass outcome 'needs_human' to record the report and raise the needs_guidance flag instead (a human is pulled in; your lane is unchanged). Any other outcome token (e.g. 'rework_approach', or review verdicts like 'needs_rework'/'clean'/'fixed_inline' when you are in a review gate) is routed by the control plane; during an active rework round it routes back to the reviewer for re-verification, otherwise an outcome with no matching route YIELDS you to your live parent orchestrator with your report — escalation is the safe default, and you are NOT done in that case. The tool result echoes the routing decision: read it — 'yielded' or a rework route means you are NOT done.",
     promptSnippet:
       "submit your report + outcome in one terminal call: plain completion → done; 'needs_human' → human flag; any other outcome → routed, with unmatched non-rework outcomes yielding to your orchestrator.",
-    promptGuidelines: [
-      "End your work with ONE call to workstream_submit: your report plus an outcome. Do not call workstream_set_lane to finish.",
-      "Plain success → omit outcome. Cannot proceed without a human → outcome 'needs_human'. Concluded with something other than plain success (approach wrong, blocked on a decision) → a short outcome token explaining it; the control plane hands you to your orchestrator.",
-      "Read the tool result: it echoes the routing decision. 'yielded' or a rework route means you are NOT done yet.",
-    ],
+    // No guidelines by design: this description is the contract of record for
+    // the completion protocol (including the routing-echo clause), and the
+    // kickoff wrapper references it rather than paraphrasing it.
+    promptGuidelines: [],
     parameters: {
       type: "object",
       properties: {
