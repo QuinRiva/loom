@@ -1,0 +1,390 @@
+---
+manager_sessions:
+  - id: 1998ff50-55d2-4f9a-890b-10aae07008aa
+    role: plan
+    authored_at: 2026-08-10T06:15:16.163Z
+---
+
+# Child prompt-stack dedup — P1 delta-briefing, P2 single-home protocol + progressive disclosure, P3 per-role tool profiles
+
+**Objective.** A leaf child thread today launches with the orchestrator's full control-plane manual, ~100 tools it will never call, and a completion protocol stated three times — and orchestrators habitually re-transmit standing context in briefs because nothing tells them what a child already receives. This plan designs the loom-side fix: amend the brief contract to enumerate the child's guaranteed inherited surfaces (P1), make the kickoff wrapper the single home of the submit/attention protocol (P2a), make the graph-authoring surface on-demand rather than resident in every leaf (P2b), and give each role a default tool profile with a one-call escalation path (P3). **Done means:** every prose surface below lands as drafted (after human review), a leaf researcher's assembled system prompt drops from ~59 KB to ~47–49 KB, its selected tool count from 101 to ~28, and a child that genuinely needs a dormant tool family can activate it mid-turn without a restart or any human intervention.
+
+**No pi-core patch changes are required.** Every capability this design needs — a launch-time tool allowlist that covers extension tools, per-tool conditional guidelines, and mid-session tool activation — already exists in pi 0.83.0 as shipped. Evidence in §4.
+
+<Callout tone="decision">
+This plan revises the governing doctrine (`.plans/role-scoped-prompting-and-workstream-doctrine.md`, `.plans/role-scoped-prompting-implementation.md`) in one respect: doctrine decision #4 kept `workstreamChildPrompt` as a pure brief-carrier while role doctrine lived in overlays. The human's retro triage (2026-08-10) explicitly re-decided this — the kickoff wrapper becomes the single home of the completion protocol because it is per-child, role-agnostic, and lands last. That fresher human decision supersedes the doctrine on this point; everything else here (permissive spawning, inject-once, overlays carry role doctrine) stays inside the doctrine's frame.
+</Callout>
+
+## 1. How a child's prompt composes today (verified from code)
+
+The retro's file attributions were sketches; this is the verified assembly path.
+
+<Mermaid
+  caption="First-turn prompt assembly for a spawned child"
+  source={"flowchart TB\n  subgraph reactor[ProviderCommandReactor.startProviderSession]\n    RO[roles/role.md loader\\nprompt + skills + tools frontmatter] --> APP\n    ID[thread identity clause] --> APP\n    SP[ship policy block] --> APP\n    RB[roles catalogue block\\nevery thread today] --> APP\n    GC[goal + task tree\\nchild-background framing] --> APP\n    APP[appendSystemPrompt]\n  end\n  subgraph driver[PiDriver.startSession]\n    WM[PI_WORK_MODEL_SYSTEM_PROMPT] --> ARGV\n    APP --> ARGV\n    TL[tools allowlist from role frontmatter\\nabsent = ALL registered tools] --> ARGV\n    SK[skill paths from role frontmatter] --> ARGV\n    EXT[generated provider-tool extension\\n23 tools: defs + guidelines] --> ARGV\n    ARGV[pi argv: --tools --skill extensions]\n  end\n  subgraph pi[pi core buildSystemPrompt]\n    ARGV --> BASE[base prompt + Available-tools snippets\\n+ Guidelines from SELECTED tools only\\n+ pi-docs block]\n    BASE --> CTX[project_context: global + repo AGENTS.md]\n    CTX --> SKB[available_skills catalogue]\n  end\n  subgraph turn[first user turn]\n    KW[workstreamChildPrompt kickoff wrapper\\nrole line + brief + completion protocol]\n    MEM[pi-total-recall memory block]\n  end\n"}
+/>
+
+The load-bearing facts, each verified in source:
+
+- **Tool selection is already role-conditionable.** `apps/server/src/orchestration/roleOverlay.ts` parses `tools:` frontmatter from `roles/<role>.md` and the reactor passes it to the driver, which hands pi a `--tools` allowlist. pi applies the allowlist to built-in, extension, and custom tools alike (`dist/cli/args.js`: "Applies to built-in, extension, and custom tools"). The `assessor` role already uses this. Every other role has no `tools:` frontmatter, so it gets **every registered tool** — that is where the audited researcher's 101 tools came from.
+- **Guidelines are conditional on tool selection.** pi's `agent-session.js` `_rebuildSystemPrompt(toolNames)` collects `promptSnippet` and `promptGuidelines` **only for selected tools**; `system-prompt.js` renders exactly those. Excluding a tool removes its snippet line, its guideline bullets, and its JSON schema from every request. Tool selection is therefore the single lever that delivers both P2b and P3.
+- **The lifeline union currently defeats it for workstream tools.** `roleOverlay.ts` auto-unions `LIFELINE_TOOLS` — **all 23** provider tool names from `PROVIDER_TOOL_PATHS` — into any role's allowlist, so today no role can shed the graph-authoring tools (scaffold, gates, release, forking…) even with a `tools:` list.
+- **Mid-session activation exists and takes effect on the next model round.** Extensions get `pi.getActiveTools()` / `pi.getAllTools()` / `pi.setActiveTools(names)` (`dist/core/extensions/types.d.ts:933–937`). The coding-agent session installs `_installAgentNextTurnRefresh` (`agent-session.js:261`), which refreshes both `tools` and the rebuilt `systemPrompt` from agent state **after every model round within a turn** — so a tool call that activates a family makes the family callable (with its guidelines present) on the very next round, no restart, no new turn.
+- **The completion protocol is stated three times**: the guideline bullets of `workstream_submit` / `workstream_set_lane` / `workstream_request_attention` in `providerToolDefs.ts`; the closing bullet(s) of every role overlay; and the last two paragraphs of `workstreamChildPrompt.ts`. The kickoff wrapper's copy is the most complete and the only per-child one.
+
+### Measured baseline (audited researcher sidecar)
+
+All figures measured directly from `/home/Carl/.t3/cockpit/userdata/prompt-debug/e3e5c367-b5b2-46e3-9c9c-57907f70b51e.first.md` and from `providerToolDefs.ts`.
+
+<Table
+  columns={["Surface", "Measured", "Notes"]}
+  rows={[
+    ["Assembled system prompt", "59,140 bytes", "before per-request tool schemas"],
+    ["Guidelines block", "98 bullets / 15.6 KB", "51 bullets (9.8 KB) from the 23 provider tools"],
+    ["Available-tools snippet list", "43 lines / 5.5 KB", "13 lines from delegation-family provider tools"],
+    ["Selected tools", "101", "50 browser_*, 23 provider, 4 studio, rest misc"],
+    ["Provider tools request overhead", "15.8 KB descriptions + 23.3 KB schemas", "shipped in every model request"],
+    ["Roles-catalogue block", "~0.7 KB", "injected into every thread's system prompt"],
+    ["available_skills block", "13.3 KB (27 skills)", "out of scope (P1 references it as inherited)"],
+    ["project_context (AGENTS.md files)", "12.9 KB", "out of scope (P1 references it as inherited)"],
+  ]}
+/>
+
+<Callout tone="warning">
+**Corrections to the retro's figures** (substance stands, numbers were inflated): the assembled guidelines block holds **98** bullets, not 191, and provider-tool bullets number **51** (of which 30 are delegation-family), not 66. The 50 browser tools contribute only **2** guideline bullets and **zero** snippet lines — their real cost is ~15–25 KB of description+schema bytes in **every model request**, which the system-prompt sidecar does not show. P3's browser exclusion is therefore mostly a request-payload saving, not a system-prompt saving.
+</Callout>
+
+## 2. What changes where
+
+<FileTree
+  title="Change map"
+  entries={[
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "P1 brief contract; P2a guideline trims (submit / set_lane / request_attention)" },
+    { path: "apps/server/src/orchestration/workstreamChildPrompt.ts", change: "modified", note: "P2a: single home — absorbs the routing-echo line" },
+    { path: "apps/server/src/mcp/toolPaths.ts", change: "modified", note: "P2b/P3: name the leaf-core vs delegation tool families (constants leaf)" },
+    { path: "apps/server/src/orchestration/roleOverlay.ts", change: "modified", note: "P2b/P3: lifeline shrinks to leaf-core; new `toolsets:` frontmatter key" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "P2b: roles-catalogue block only for delegation-capable threads" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolExtension.ts", change: "modified", note: "P3: new local `enable_toolset` tool in the generated extension" },
+    { path: "roles/orchestrator.md", change: "modified", note: "P1 delta-briefing bullet; frontmatter tools + toolsets: [delegation]" },
+    { path: "roles/researcher.md", change: "modified", note: "P2a trim; frontmatter tool profile" },
+    { path: "roles/planner.md", change: "modified", note: "P2a trim; frontmatter tool profile" },
+    { path: "roles/coder.md", change: "modified", note: "P2a trim; frontmatter tool profile" },
+    { path: "roles/reviewer.md", change: "modified", note: "P2a trim; frontmatter tool profile" },
+    { path: "roles/shipper.md", change: "modified", note: "P2a trim; frontmatter tool profile" },
+    { path: "roles/assessor.md", change: "modified", note: "P2a trim only (profile already exists)" },
+    { path: "patches/@earendil-works__pi-coding-agent@0.83.0.patch", note: "UNCHANGED — no pi-core capability needed" },
+  ]}
+/>
+
+Out of scope, per the brief: P4 (pi-studio near-duplicate lines), memory hygiene and relevance-filtered memory injection, and the retro-reviewer overlay in `retroDraft.ts` (server-owned, no completion-protocol duplication worth touching in this pass).
+
+## 3. P1 — the brief contract enumerates what a child inherits
+
+Root cause: the `workstream_spawn` brief contract demands self-containment but never says what the child reliably receives, so a careful orchestrator over-transmits. One prose surface owns this contract — `workstream_brief`'s `markdown` parameter already defers to it ("It follows the same contract as workstream_spawn's brief"), and `providerToolDefs.test.ts` pins that deference, so the fix lands in exactly one tool-def string plus one orchestrator-overlay bullet.
+
+<Diff
+  filename="apps/server/src/provider/Drivers/Pi/providerToolDefs.ts — workstream_spawn.parameters.brief.description"
+  language="markdown"
+  mode="unified"
+  before={"Full, self-contained first-turn prompt that becomes the child's assignment\n(optional; defaults to purpose, which suffices only when the purpose already\nsays everything). Write it to stand on its own: the child acts on what the\nbrief says, not on context you can see but it cannot. State the outcome it\nowes and the contract it works under (the goal and why it matters, the\nconstraints, the definition of done, where the relevant code and artefacts\nlive), and leave how to deliver that outcome to the child's role rather than\nscripting the steps; an over-prescribed brief that dictates every step turns\na capable delegate into a transcriber, and for a delegating role like an\norchestrator it can re-scope the recipient into doing the work inline.\n"}
+  after={"Full, self-contained first-turn prompt that becomes the child's assignment\n(optional; defaults to purpose, which suffices only when the purpose already\nsays everything). Write it to stand on its own — the child acts on what the\nbrief says, not on context you can see but it cannot — but self-contained\nmeans the task-specific delta, not a re-transmission of standing context.\nThe child already receives, without your help: the project's AGENTS.md files\n(global and repo), the skill catalogue with every skill's description, its\nrole overlay, the work-model prompt, the shipping policy, and the goal plus\ncurrent task tree. Do not restate their content — a brief that hard-codes a\ncommand or URL a skill owns silently drifts when the skill changes; naming a\nskill or doc as load-bearing for THIS task is good emphasis, quoting its body\nis not. The brief carries what only you know: the outcome it owes and the\ncontract it works under (why it matters, the constraints, the definition of\ndone, where the relevant code and artefacts live), plus anything genuinely\nabsent from the inherited surfaces. Leave how to deliver that outcome to the\nchild's role rather than scripting the steps; an over-prescribed brief that\ndictates every step turns a capable delegate into a transcriber, and for a\ndelegating role like an orchestrator it can re-scope the recipient into doing\nthe work inline.\n"}
+  annotations={[
+    { side: "after", lines: "4-12", note: "the new inherited-surfaces enumeration + the drift argument, in the voice the rest of the contract already uses" },
+  ]}
+/>
+
+(Source strings are single-line; the diff is re-wrapped at ~80 columns for review.)
+
+One reinforcing bullet in the orchestrator overlay, inserted after the "Identify the repo by name…" bullet:
+
+<Diff
+  filename="roles/orchestrator.md — new bullet (insertion, no removal)"
+  language="markdown"
+  mode="unified"
+  before={"- Identify the repo by name, never by your own worktree path. …\n- Don't babysit children. …\n"}
+  after={"- Identify the repo by name, never by your own worktree path. …\n- Brief the delta, not the standing context. A child's system prompt already\n  carries the project AGENTS.md files, the skill catalogue, its role overlay,\n  and the goal + task tree — restating any of it bloats every brief and\n  hard-codes facts owned elsewhere, which drift when their owner changes.\n  Point at what matters (\"the langfuse-trace skill is load-bearing here\")\n  instead of quoting it, and spend brief bytes on what only you know: the\n  task, its constraints, its definition of done, and the paths/ids/evidence\n  specific to it.\n- Don't babysit children. …\n"}
+/>
+
+## 4. P2a — the kickoff wrapper becomes the single home of the completion protocol
+
+The wrapper (`workstreamChildPrompt.ts`) already carries the fullest statement, per-child and last-positioned. It gains the one clause that currently lives only in a guideline bullet (the routing echo); the other two homes trim to role-specific register or to nothing.
+
+<Diff
+  filename="apps/server/src/orchestration/workstreamChildPrompt.ts — completion paragraph (final sentence appended)"
+  language="markdown"
+  mode="unified"
+  before={"… If your work concluded with anything other than plain success (the approach\nis wrong, you are blocked on a decision), pass a short outcome token saying so\n(e.g. `rework_approach`) — the control plane yields you to your parent\norchestrator with your report instead of marking you done. Pass `needs_human`\nwhen only a human can unblock you.\n"}
+  after={"… If your work concluded with anything other than plain success (the approach\nis wrong, you are blocked on a decision), pass a short outcome token saying so\n(e.g. `rework_approach`) — the control plane yields you to your parent\norchestrator with your report instead of marking you done. Pass `needs_human`\nwhen only a human can unblock you. Read the submit result: it echoes the\nrouting decision, and 'yielded' or a rework route means you are NOT done.\n"}
+/>
+
+### Tool-def guideline trims
+
+Every dropped bullet is fully covered by the tool's own `description` (always shipped with the schema) or by the kickoff wrapper. These bullets also render in the orchestrator's prompt, where the child-completion protocol is noise.
+
+<Diff
+  filename="providerToolDefs.ts — workstream_submit.promptGuidelines"
+  language="markdown"
+  mode="unified"
+  before={"- End your work with ONE call to workstream_submit: your report plus an\n  outcome. Do not call workstream_set_lane to finish.\n- Plain success → omit outcome. Cannot proceed without a human → outcome\n  'needs_human'. Concluded with something other than plain success (approach\n  wrong, blocked on a decision) → a short outcome token explaining it; the\n  control plane hands you to your orchestrator.\n- Read the tool result: it echoes the routing decision. 'yielded' or a rework\n  route means you are NOT done yet.\n"}
+  after={"(no guidelines — the description carries the full outcome/routing contract;\nthe per-child kickoff wrapper is the behavioural home, including the\nrouting-echo clause moved there in this change)\n"}
+/>
+
+<Diff
+  filename="providerToolDefs.ts — workstream_set_lane.promptGuidelines"
+  language="markdown"
+  mode="unified"
+  before={"- Do NOT set 'done' to finish your own work; use workstream_submit, which\n  records your report and advances your lane. Setting 'done' directly is for\n  a parent accepting a child's output, and 'cancelled' for abandoning work\n  (it cascades to the whole subtree and stops in-flight turns).\n- This is the plan axis. If you cannot proceed without a human, or your\n  output needs sign-off, do not park the lane; raise attention with\n  workstream_request_attention instead.\n"}
+  after={"- Parent-side tool: 'done' accepts a child's output, 'cancelled' abandons a\n  subtree. Finishing your own work is workstream_submit, never a lane set.\n"}
+/>
+
+<Diff
+  filename="providerToolDefs.ts — workstream_request_attention.promptGuidelines"
+  language="markdown"
+  mode="unified"
+  before={"- Raise attention only when a HUMAN is needed: 'awaiting_acceptance' when\n  your output needs sign-off before completion (not merely because a reviewer\n  thread exists; that case is just 'done', which releases the reviewer), or\n  'needs_guidance' when you genuinely cannot proceed. Do not sit silently\n  halted: advance the plan, or raise attention.\n"}
+  after={"(no guidelines — the description states both reasons and the\nnot-a-reviewer-flag nuance; \"do not sit silently halted\" lives in the\nkickoff wrapper)\n"}
+/>
+
+### Role-overlay trims
+
+Each overlay keeps only what is role-specific — the report **register** (what to lead with) and any role-specific routing nuance — and stops restating the generic protocol the wrapper owns. One diff per file; ellipses mark untouched surrounding bullets.
+
+<Diff
+  filename="roles/researcher.md — final bullet"
+  language="markdown"
+  mode="unified"
+  before={"- Finish with one `workstream_submit` call (lead with the answer, then the\n  evidence); plain completion needs no outcome. If you genuinely cannot\n  proceed without a human, raise `needs_guidance` via\n  `workstream_request_attention` instead of stalling.\n"}
+  after={"- Your `workstream_submit` report leads with the answer, then the evidence.\n"}
+/>
+
+<Diff
+  filename="roles/planner.md — final bullet"
+  language="markdown"
+  mode="unified"
+  before={"- Finish with one `workstream_submit` call (lead with the plan's location and\n  its key decisions); plain completion needs no outcome. If the plan itself\n  needs human sign-off before work proceeds, raise `awaiting_acceptance` via\n  `workstream_request_attention` instead.\n"}
+  after={"- Your `workstream_submit` report leads with the plan's location and its key\n  decisions. Plans are usually approval-gated: when implementation must wait\n  on human sign-off, raise `awaiting_acceptance` rather than plain-completing.\n"}
+/>
+
+<Diff
+  filename="roles/coder.md — submit bullet"
+  language="markdown"
+  mode="unified"
+  before={"- Finish with one `workstream_submit` call carrying a concise handoff (what\n  changed, how you verified, residual risks); plain completion needs no\n  outcome — the control plane advances your plan for you. When you are inside\n  a review gate the resume message tells you who receives your report next —\n  in a rework round it goes to the reviewer, not to done, so write it as a\n  round report: per finding, what you did or why you rejected it. If you\n  cannot proceed without a human, raise `needs_guidance` via\n  `workstream_request_attention` rather than stalling silently.\n"}
+  after={"- Your `workstream_submit` handoff: what changed, how you verified, residual\n  risks. In a review gate's rework round your report goes to the reviewer,\n  not to done — write it as a round report: per finding, what you did or why\n  you rejected it.\n"}
+/>
+
+<Diff
+  filename="roles/reviewer.md — final bullet"
+  language="markdown"
+  mode="unified"
+  before={"- Finish every round with one `workstream_submit` call; the tool's\n  description is the contract for outcomes and routing. Outside a gate, plain\n  completion needs no outcome — your findings simply go to your orchestrator;\n  the gate verdict tokens (`clean`, `fixed_inline`, `needs_rework`) have no\n  route there and will yield you back instead of completing.\n"}
+  after={"- Outside a gate, the verdict tokens (`clean`, `fixed_inline`,\n  `needs_rework`) have no route — plain-complete your findings to your\n  orchestrator instead.\n"}
+/>
+
+<Diff
+  filename="roles/shipper.md — final bullet"
+  language="markdown"
+  mode="unified"
+  before={"- Finish with one `workstream_submit` call carrying a concise handoff\n  (branch, PR URL, merge state, branch cleanup, which checks you ran); plain\n  completion needs no outcome.\n"}
+  after={"- Your `workstream_submit` handoff: branch, PR URL, merge state, branch\n  cleanup, which checks you ran.\n"}
+/>
+
+<Diff
+  filename="roles/assessor.md — closing paragraph, final sentence"
+  language="markdown"
+  mode="unified"
+  before={"You may mark your own assigned task done with `goal_task_update`, add\ndiscovered follow-up work with `goal_task_add`, and rename yourself with\n`set_thread_title` if your scope sharpens. **End with one `workstream_submit`\ncall** carrying your report; use outcome `needs_human` if your verdict\nrequires human sign-off.\n"}
+  after={"You may mark your own assigned task done with `goal_task_update`, add\ndiscovered follow-up work with `goal_task_add`, and rename yourself with\n`set_thread_title` if your scope sharpens. Your `workstream_submit` report\nleads with the verdicts, then the evidence manifest.\n"}
+/>
+
+## 5. P2b + P3 — one mechanism: role-profiled tool selection with mid-session escalation
+
+P2b (leaf children carry the orchestrator's manual) and P3 (101 tools shipped to a read-only researcher) share a single root cause and a single lever: **which tools are selected**. pi already conditions the snippet list, the guideline bullets, and the per-request schemas on the selection. The design therefore has three parts: (a) name the tool families, (b) give every role a default profile, (c) provide the escalation path.
+
+### 5.1 Name the families (constants leaf)
+
+`toolPaths.ts` is the dependency-free leaf both the loader and the extension generator already import. It gains the family split:
+
+<Code
+  filename="apps/server/src/mcp/toolPaths.ts (addition)"
+  language="ts"
+  code={"/** Provider tools every child needs resident: completion, attention, orientation,\n * consultation, and task-tree upkeep. Auto-unioned into every role allowlist. */\nexport const LEAF_CORE_PROVIDER_TOOLS = [\n  \"ask_user_question\",\n  \"workstream_submit\",\n  \"workstream_request_attention\",\n  \"workstream_list\",\n  \"consult_thread\",\n  \"set_thread_title\",\n  \"goal_task_list\",\n  \"goal_task_add\",\n  \"goal_task_update\",\n  \"goal_task_delete\",\n] as const;\n\n/** The delegation family: graph authoring and child management. Resident only\n * for roles that declare `toolsets: [delegation]`; every other role activates\n * it on demand via enable_toolset. Derived so a new provider tool must be\n * placed in exactly one family (compile-time exhaustiveness check). */\nexport const DELEGATION_PROVIDER_TOOLS = [\n  \"workstream_spawn\",\n  \"workstream_scaffold\",\n  \"workstream_brief\",\n  \"workstream_set_lane\",\n  \"workstream_release\",\n  \"workstream_stop\",\n  \"workstream_prompt\",\n  \"workstream_set_dependencies\",\n  \"notify_thread\",\n  \"thread_fork\",\n  \"goal_handoff\",\n  \"goal_continue\",\n  \"goal_update\",\n] as const;\n"}
+/>
+
+Judgment calls inside the split: `ask_user_question` stays leaf-core (it is the only structured human-input surface and gates genuinely destructive forks); `notify_thread`, `thread_fork`, `goal_handoff`, `goal_continue`, `goal_update` join the delegation family because each is a parent- or root-shaped act (cross-thread tasking, divergence, goal ownership) that a leaf reaches for about as rarely as spawning.
+
+### 5.2 Loader: lifeline shrinks, `toolsets:` frontmatter added
+
+<Diff
+  filename="apps/server/src/orchestration/roleOverlay.ts — behavioural delta (schematic)"
+  language="ts"
+  mode="unified"
+  before={"const LIFELINE_TOOLS: ReadonlyArray<string> = Object.keys(PROVIDER_TOOL_PATHS);\n// tools: frontmatter → union with ALL 23 provider tools\n"}
+  after={"const LIFELINE_TOOLS: ReadonlyArray<string> = [\n  ...LEAF_CORE_PROVIDER_TOOLS,\n  \"enable_toolset\",\n];\n// tools: frontmatter → union with leaf-core + enable_toolset only.\n// New frontmatter key `toolsets:` (same inline/block list syntax); the one\n// recognised value \"delegation\" additionally unions DELEGATION_PROVIDER_TOOLS.\n// RoleOverlay gains `delegation: boolean` — true when the role has no tools\n// restriction at all, or declares toolsets: [delegation] — so the reactor can\n// condition the roles-catalogue block on it.\n"}
+/>
+
+Unknown/free-text roles keep today's behaviour exactly: no role file → no allowlist → full surface (permissive spawning, per the doctrine). The retro-reviewer role is also untouched (server-owned overlay, no `tools:` restriction).
+
+### 5.3 Per-role default profiles
+
+The working-tool sets below are drafted wording for each role file's frontmatter (the leaf-core union is automatic and never listed, mirroring the existing assessor comment). Rationale per row is the role's actual observed work, with the escape hatch making any omission a one-call fix rather than a hard ceiling.
+
+<Table
+  density="compact"
+  columns={["Role", "Working tools (frontmatter `tools:`)", "Toolsets", "Notably excluded (one call away)"]}
+  rows={[
+    ["orchestrator", "read, bash, edit, write, fd, rg, read_full, web_search, fetch_content, get_search_content, session_search, session_list, session_read, knowledge_search, kb_read, memory_search, memory_remember, visual_explainer, sign_document, consult_manager", "delegation", "browser, studio, intercom, memory admin"],
+    ["researcher", "read, bash, edit, write, fd, rg, read_full, web_search, fetch_content, get_search_content, session_search, session_list, session_read, knowledge_search, kb_read, memory_search, memory_remember", "—", "delegation, browser, studio, visual_explainer, intercom"],
+    ["planner", "researcher set + sign_document, consult_manager", "—", "delegation, browser, studio"],
+    ["coder", "read, bash, edit, write, fd, rg, read_full, web_search, fetch_content, get_search_content, consult_manager, memory_search, memory_remember", "—", "delegation, browser (enable for live UI verification), studio, sessions"],
+    ["reviewer", "read, bash, edit, write, fd, rg, read_full, web_search, fetch_content, get_search_content, session_search, session_list, session_read, consult_manager, memory_search", "—", "delegation, browser (enable for live UI verification)"],
+    ["shipper", "read, bash, edit, write, fd, rg", "—", "everything else"],
+    ["assessor", "read_full, ls, find, write (unchanged)", "—", "unchanged"],
+  ]}
+/>
+
+Two deliberate positions worth reviewing: **coder and reviewer get browser on request, not resident.** This repo's own AGENTS.md demands live browser verification for UI work, but most coder briefs are not UI work, and enabling is a single self-service call the moment a dev-verify run starts (a brief can even instruct it: "enable the browser toolset and verify live"). And **the orchestrator is profiled too** — it keeps the delegation family resident (it is its job) but sheds browser/studio, which it should be delegating anyway.
+
+Example frontmatter diff (researcher; the others follow the table):
+
+<Diff
+  filename="roles/researcher.md — frontmatter added"
+  language="markdown"
+  mode="unified"
+  before={"You are a researcher sub-thread. Investigate the question and return the\nanswer, not the path you took.\n"}
+  after={"---\n# Working tools only — the server auto-unions the leaf lifeline (submit,\n# attention, list, consult, goal tasks, title, ask_user_question,\n# enable_toolset), so those are never listed here.\ntools: [read, bash, edit, write, fd, rg, read_full, web_search,\n  fetch_content, get_search_content, session_search, session_list,\n  session_read, knowledge_search, kb_read, memory_search, memory_remember]\n---\n\nYou are a researcher sub-thread. Investigate the question and return the\nanswer, not the path you took.\n"}
+/>
+
+<Diff
+  filename="roles/orchestrator.md — frontmatter extended"
+  language="markdown"
+  mode="unified"
+  before={"---\nskills:\n  - skills/mdx-visual-plan\n  - skills/mdx-visual-recap\n---\n"}
+  after={"---\nskills:\n  - skills/mdx-visual-plan\n  - skills/mdx-visual-recap\ntools: [read, bash, edit, write, fd, rg, read_full, web_search,\n  fetch_content, get_search_content, session_search, session_list,\n  session_read, knowledge_search, kb_read, memory_search, memory_remember,\n  visual_explainer, sign_document, consult_manager]\ntoolsets: [delegation]\n---\n"}
+/>
+
+### 5.4 The escalation path: `enable_toolset`
+
+A new tool in the generated provider extension (`providerToolExtension.ts`), **local** — it never POSTs to the server; it calls pi's own extension API. It is auto-unioned into every restricted allowlist, so its snippet line in "Available tools" is the resident, role-agnostic pointer that dormant families exist.
+
+<Code
+  filename="providerToolDefs.ts — new def (executed locally by the generated shim)"
+  language="ts"
+  code={"{\n  name: \"enable_toolset\",\n  label: \"Enable Dormant Toolset\",\n  description:\n    \"Activate a dormant tool family in THIS session. Your role runs with a \" +\n    \"deliberately lean default tool surface; the full catalogue stays \" +\n    \"registered but inactive until enabled. Families: 'delegation' — the \" +\n    \"workstream graph-authoring and child-management tools (spawn, scaffold, \" +\n    \"brief, gates, release, stop, prompt, lanes, dependencies, plus \" +\n    \"notify_thread, thread_fork and the goal handoff/continue/update tools) \" +\n    \"for when your work genuinely splits into delegated sub-work; 'browser' — \" +\n    \"all browser_* tools, for live web/UI driving and verification; 'studio' — \" +\n    \"the studio_* REPL and export tools; 'all' — every registered tool (escape \" +\n    \"hatch). Activation applies from your next step and adds the enabled \" +\n    \"tools' own usage guidelines to your system prompt, so enable first, then \" +\n    \"act. Enable a family only when the task in front of you actually needs \" +\n    \"it — the lean default is deliberate. Enablement lasts until the session \" +\n    \"restarts; simply re-enable if the tools go dormant again.\",\n  promptSnippet:\n    \"activate a dormant tool family (delegation / browser / studio / all) when \" +\n    \"the task genuinely needs it; takes effect from your next step.\",\n  promptGuidelines: [],\n  parameters: {\n    type: \"object\",\n    properties: {\n      family: { type: \"string\", enum: [\"delegation\", \"browser\", \"studio\", \"all\"] },\n    },\n    required: [\"family\"],\n    additionalProperties: false,\n  },\n  errorMode: \"throw\",\n}\n"}
+/>
+
+Runtime behaviour in the generated shim (the one special-cased tool, alongside the existing `user-input` mode):
+
+- `delegation` → `pi.setActiveTools([...pi.getActiveTools(), ...DELEGATION_PROVIDER_TOOLS])` (the family list is serialised into the extension source from the constants leaf, like the tool defs themselves).
+- `browser` / `studio` → prefix match over `pi.getAllTools()` (`browser_` / `studio_`) — robust to the extension forks adding or renaming tools.
+- `all` → every name from `pi.getAllTools()`.
+- The result text confirms activation and, for `delegation`, carries the doctrine digest below — progressive disclosure with **zero resident cost**, paid only on use. pi's per-round refresh makes the tools callable and their guidelines present from the next model round of the same turn.
+
+<Code
+  filename="Delegation digest (returned as the enable_toolset result for family=delegation)"
+  language="markdown"
+  code={"Delegation tools are now active. The essentials before you spawn:\n\n- You are now a parent. A child inherits NONE of your conversation — only the\n  brief you write. Brief the task-specific delta: children automatically\n  receive the project AGENTS.md files, the skill catalogue, their role\n  overlay, and the goal + task tree.\n- One self-contained sub-task → workstream_spawn (role + title + purpose +\n  brief). More than a couple of dependent pieces → workstream_scaffold lays\n  out the shape (keys + blockedBy/gate edges), then workstream_brief each\n  node in topological order. Pass staged: true to hold a graph for review;\n  workstream_release runs it.\n- Review gates: spawn the reviewer with gate: { rework: coderId }; wire\n  anything downstream on the reviewer, never the coder alone.\n- Defined roles live in roles/*.md at your project root — list that directory\n  for the catalogue. A free-text role is allowed when none fits.\n- Children report back via their own workstream_submit and you are woken when\n  one finishes or needs you. Steer with workstream_prompt, pause with\n  workstream_stop, accept/abandon with workstream_set_lane.\n- These tools stay active for the rest of this session; re-enable after a\n  restart if they go dormant.\n"}
+/>
+
+### 5.5 Roles-catalogue block follows the delegation surface
+
+The reactor currently injects the "Available roles for spawning children" block into **every** thread. Under this design it is only meaningful where `workstream_spawn` is resident:
+
+<Diff
+  filename="ProviderCommandReactor.ts — rolesBlock conditioning (schematic)"
+  language="ts"
+  mode="unified"
+  before={"// The defined-roles catalogue: every thread sees it, since any thread may\n// sub-delegate via workstream_spawn (whose `role` is free text).\nconst roleCatalogue = listRoleOverlays({ projectRoot: roleProjectRoot });\n"}
+  after={"// The defined-roles catalogue: only threads with the delegation family\n// resident (orchestrator, unrestricted/free-text roles). A leaf that enables\n// delegation mid-session gets the catalogue pointer from the enable_toolset\n// digest instead (roles/*.md is listable on demand).\nconst roleCatalogue = roleOverlay === undefined || roleOverlay.delegation\n  ? listRoleOverlays({ projectRoot: roleProjectRoot })\n  : [];\n"}
+/>
+
+### 5.6 Verdict on the pi-core patch, and the risks
+
+<Callout tone="decision">
+**The pi-core patch does not grow.** Launch allowlist (`--tools`, covering extension tools), selection-conditioned snippets/guidelines/schemas (`_rebuildSystemPrompt` + `buildSystemPrompt`), the extension API for mid-session activation (`setActiveTools`), and the per-round tools/system-prompt refresh (`_installAgentNextTurnRefresh`) all exist in pi 0.83.0 unpatched. The design is loom-side only.
+</Callout>
+
+<Callout tone="risk">
+Known edges, all judged acceptable: **(1) Restart amnesia** — mid-session enablement is not persisted; a resumed session relaunches with the frontmatter profile and the child must re-enable (the digest says so). **(2) Cache invalidation** — enabling a family rebuilds the system prompt, invalidating the provider prompt-cache prefix once per enablement; small against the per-round savings. **(3) `setActiveToolsByName` ignores the launch allowlist** — it checks registry membership only, which is exactly what lets `enable_toolset` escalate; it also means the allowlist is a default, not a sandbox (fine: this is a token-hygiene mechanism, not a security boundary). **(4) Fork identity** — a fork replays the source's captured argv including `--tools`, so forks inherit the source's profile coherently. **(5) Static tool names in frontmatter** — an unknown name in `tools:` is silently ignored by pi, so a renamed extension tool degrades soft (the role loses it until the frontmatter is fixed); acceptable for a prototype, and the dev-verify smoke below catches the common cases.
+</Callout>
+
+## 6. Expected effect (audited researcher as baseline)
+
+<Table
+  columns={["Metric", "Before (measured)", "After (estimated)", "Delta"]}
+  rows={[
+    ["Selected tools", "101", "~28 (17 working + 10 leaf-core + enable_toolset)", "−73"],
+    ["Guidelines block", "98 bullets / 15.6 KB", "~47–51 bullets / ~8.2–8.8 KB", "−~47 bullets / −~7 KB"],
+    ["Available-tools snippets", "43 lines / 5.5 KB", "~24 lines / ~3.1 KB", "−~2.4 KB"],
+    ["Roles-catalogue block", "0.7 KB", "0 (leaf)", "−0.7 KB"],
+    ["Assembled system prompt", "59.1 KB", "~47–49 KB", "−17–20%"],
+    ["Per-request tool schemas+descriptions", "~55–65 KB (est. total)", "~10–15 KB", "−~45–55 KB per model round"],
+  ]}
+/>
+
+Combined, a leaf researcher's per-model-round context drops by roughly **55–65 KB (~14–16 k tokens)**, paid on **every round of every leaf child**. P1 and P2a contribute little to these mechanical numbers (~1–2 KB); their value is drift-risk removal — one authoritative home for the completion protocol, and briefs that stop hard-coding facts owned by skills and AGENTS.md. The orchestrator's own prompt also shrinks (browser/studio schemas and bullets gone), though less dramatically.
+
+## 7. Implementation decomposition (next phase)
+
+<Mermaid
+  caption="Work graph for the implementation phase"
+  source={"flowchart LR\n  W1[W1 coder: wording-only\\nproviderToolDefs P1+P2a,\\nkickoff wrapper, roles body trims] --> R1[reviewer gate]\n  W2[W2 coder: mechanism\\ntoolPaths families, roleOverlay lifeline+toolsets,\\nreactor rolesBlock, enable_toolset,\\nroles frontmatter profiles] --> R2[reviewer gate]\n  R1 --> V[W3: live dev-verify\\nspawn researcher child, read prompt sidecar,\\nassert tool count + enable_toolset round-trip]\n  R2 --> V\n  V --> S[shipper]\n  S -.-> D[downstream: re-sync\\n~/pi-fathom/loom/roles]\n"}
+/>
+
+- **W1 (wording-only, no behaviour change):** all §3–§4 diffs. Touches `providerToolDefs.ts`, `workstreamChildPrompt.ts`, and role file **bodies**. Existing tests to keep green: `providerToolDefs.test.ts` (kickoff-artefact contract alignment), `workstreamChildPrompt.test.ts`.
+- **W2 (mechanism):** all §5 changes. Touches `toolPaths.ts`, `roleOverlay.ts` (+ its test: lifeline set, `toolsets:` parsing, delegation flag), `ProviderCommandReactor.ts`, `providerToolExtension.ts` (+ its test: the 23-tool assertion becomes 24 with the local-execute special case), and role file **frontmatter**.
+- W1 and W2 can run in parallel with one seam: both touch `roles/*.md` (bodies vs frontmatter). Either sequence them, or give W2 the role files wholesale and W1 only the TS prose surfaces — the reviewer at the fan-in checks the seam.
+- **W3 (verification, after both gates):** `vp check` + `vp run typecheck`, then the dev-verify recipe (`docs/dev-site-testing.md`): spawn a researcher child, open its prompt-debug sidecar, and assert selected-tool count ≈ 28 with no `browser_*` names; then instruct the child to `enable_toolset("browser")` and confirm a `browser_*` call succeeds in the same turn. This exercises the real workflow end to end.
+- **Downstream (flagged, not this repo):** `~/pi-fathom/loom/roles/*.md` are byte-identical copies of `roles/*.md` and must be re-synced after merge. Cheap fix worth taking while there: replace the manual copy with a one-line sync script (or a checksum check in pi-fathom's `ensure-worktree-ready`) so drift is at least detected; a full mechanism redesign is not warranted.
+
+<Checklist
+  items={[
+    { id: "p1", label: "P1 brief-contract diff approved (§3)" },
+    { id: "p2a", label: "P2a single-home diffs approved (§4)" },
+    { id: "split", label: "Leaf-core vs delegation family split approved (§5.1)" },
+    { id: "profiles", label: "Per-role tool profiles approved (§5.3)" },
+    { id: "escalation", label: "enable_toolset design + delegation digest approved (§5.4)" },
+    { id: "no-patch", label: "Accepted: no pi-core patch change (§5.6)" },
+  ]}
+/>
+
+<QuestionForm
+  questions={[
+    {
+      id: "ask-user-resident",
+      title: "Keep ask_user_question resident for leaf roles?",
+      mode: "single",
+      options: [
+        { id: "keep", label: "Resident (leaf-core)", recommended: true, detail: "It is the only structured human-input surface and gates destructive forks; costs ~3 KB (description + schema + 4 guideline bullets) per leaf." },
+        { id: "dormant", label: "Move to a dormant family", detail: "Saves ~3 KB; a stuck leaf falls back to workstream_request_attention needs_guidance, losing structured options." },
+      ],
+    },
+    {
+      id: "coder-browser",
+      title: "Coder/reviewer browser access: on-request or resident subset?",
+      mode: "single",
+      options: [
+        { id: "request", label: "On request via enable_toolset", recommended: true, detail: "Saves ~15–25 KB/round on every non-UI coder; UI briefs add one call (or one brief line). Risk: a coder skips live verification because the tools feel far away — the brief and AGENTS.md still demand it." },
+        { id: "subset", label: "Resident core subset (navigate/snapshot/click/type/console)", detail: "Live verification always at hand at ~5–8 KB/round; the advanced 35+ tools stay dormant." },
+      ],
+    },
+    {
+      id: "orchestrator-profile",
+      title: "Profile the orchestrator too (drop browser/studio from the root thread)?",
+      mode: "single",
+      options: [
+        { id: "profile", label: "Yes — orchestrator gets a tools: profile + toolsets: [delegation]", recommended: true, detail: "Consistent one mechanism; the orchestrator should delegate browser work anyway, and enable_toolset is its escape hatch too." },
+        { id: "full", label: "No — leave the orchestrator unrestricted", detail: "Zero risk of hobbling the root thread; keeps ~25 KB/round of clutter on the busiest thread in the workstream." },
+      ],
+    },
+    {
+      id: "digest-home",
+      title: "Where does the delegation doctrine digest live?",
+      mode: "single",
+      options: [
+        { id: "inline", label: "Inline in the enable_toolset result", recommended: true, detail: "Zero resident cost, zero sync surface, arrives exactly when needed; capped at ~1.5 KB so it stays a digest, not a manual." },
+        { id: "skill", label: "A repo skill (skills/delegating-work) referenced by the result", detail: "Richer doctrine possible and human-editable without a rebuild, but adds 2–3 resident lines to every thread's skill catalogue and a pi-fathom sync surface." },
+      ],
+    },
+  ]}
+/>
