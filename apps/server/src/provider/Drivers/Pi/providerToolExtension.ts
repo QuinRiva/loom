@@ -8,6 +8,17 @@
 // providerToolDefs.ts — no logic is embedded in the string. The one LOCAL tool
 // (enable_toolset) is defined here and served by the shim itself against pi's
 // extension API, with no HTTP route.
+//
+// The shim also owns ROLE TOOL PROFILING. pi's launch `--tools` allowlist is
+// registry-destructive: it filters built-in and extension definitions before
+// either the definition or the callable registry is built, so a name outside it
+// is not dormant, it is GONE — `setActiveTools` can never bring it back. Loom
+// therefore launches pi with the full registry and passes the role profile as
+// `T3_ACTIVE_TOOLS`, which this shim applies as the ACTIVE set on `session_start`
+// (emitted with the extension bindings live and before the first prompt is
+// handled). Selection — not registration — is what pi conditions schemas,
+// snippets and guidelines on, so the prompt shrink is identical while every
+// dormant family stays registered and genuinely activatable by enable_toolset.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
@@ -238,6 +249,17 @@ const renderPromptDebug = (event, startIndex) => {
 };
 
 export default function(pi) {
+  // Role tool profile (T3_ACTIVE_TOOLS): select, never restrict. pi emits
+  // \`session_start\` from bindExtensions() — bindings live, stdin not yet read —
+  // so setting the active set here lands BEFORE the first assembled system
+  // prompt while leaving every other tool registered-but-dormant for
+  // enable_toolset. Absent/empty env => pi's own default active set (the
+  // unprofiled full surface).
+  pi.on("session_start", () => {
+    const profile = (process.env.T3_ACTIVE_TOOLS ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+    if (profile.length > 0) pi.setActiveTools(profile);
+  });
+
   let agentStartIndex = 0;
   pi.on("before_agent_start", (event) => {
     try {
@@ -322,25 +344,42 @@ export default function(pi) {
     details: { ok: true, ...result }
   });
 
-  // Local (unrouted) escalation out of a lean role profile: pi's launch
-  // allowlist is a default, not a sandbox, so activating by registry name is
-  // enough. pi refreshes tools + system prompt after every model round, so the
-  // family is callable WITH its guidelines from the next round of this turn.
+  // Local (unrouted) escalation out of a lean role profile. The dormant families
+  // are REGISTERED (loom launches pi with the full registry and profiles by
+  // active set), so setActiveTools genuinely activates them; pi refreshes tools
+  // + system prompt after every model round, so the family is callable WITH its
+  // guidelines from the next round of this turn. The result is verified against
+  // pi's own post-set active list rather than against what we asked for: a name
+  // pi did not activate is reported as a failure, and a family with nothing
+  // activatable THROWS — a success-shaped answer to a failed activation would
+  // send the model into calls that cannot work.
   const enableToolset = (family) => {
-    const all = pi.getAllTools().map((tool) => tool.name);
-    const names = family === "all"
-      ? all
-      : TOOLSET_FAMILIES[family] ?? all.filter((name) => name.startsWith(family + "_"));
+    const registered = pi.getAllTools().map((tool) => tool.name);
+    const requested = family === "all"
+      ? registered
+      : TOOLSET_FAMILIES[family] ?? registered.filter((name) => name.startsWith(family + "_"));
     const active = pi.getActiveTools();
-    const added = names.filter((name) => !active.includes(name));
+    const added = requested.filter((name) => registered.includes(name) && !active.includes(name));
     if (added.length > 0) pi.setActiveTools([...active, ...added]);
-    const summary = added.length > 0
-      ? "Enabled the " + family + " toolset (" + added.length + "): " + added.join(", ") + ". Callable from your next step, with their own guidelines."
-      : names.length > 0
-        ? "The " + family + " toolset was already active."
-        : "No registered tools matched the " + family + " toolset in this session.";
-    const digest = added.length > 0 ? TOOLSET_DIGESTS[family] : undefined;
-    return { content: [{ type: "text", text: digest ? summary + "\\n\\n" + digest : summary }] };
+    const nowActive = new Set(pi.getActiveTools());
+    const verified = requested.filter((name) => nowActive.has(name));
+    const failed = requested.filter((name) => !nowActive.has(name));
+    if (verified.length === 0) {
+      throw new Error(
+        "Could not enable the " + family + " toolset: " + (requested.length === 0
+          ? "no tool of that family is registered in this pi session"
+          : "pi did not activate " + failed.join(", ")) +
+        ". The family is unavailable in this session — do not retry it; work without it or report the blocker (workstream_request_attention, or your submit)."
+      );
+    }
+    const enabled = added.filter((name) => nowActive.has(name));
+    const summary = enabled.length > 0
+      ? "Enabled the " + family + " toolset (" + enabled.length + "): " + enabled.join(", ") + ". Verified active; callable from your next step, with their own guidelines."
+      : "The " + family + " toolset (" + verified.length + ") was already active.";
+    const parts = [summary];
+    if (failed.length > 0) parts.push("NOT enabled (not registered in this session): " + failed.join(", ") + ".");
+    if (enabled.length > 0 && TOOLSET_DIGESTS[family]) parts.push(TOOLSET_DIGESTS[family]);
+    return { content: [{ type: "text", text: parts.join("\\n\\n") }] };
   };
 
   for (const def of TOOL_DEFS) {

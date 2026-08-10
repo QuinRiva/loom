@@ -198,14 +198,14 @@ export interface PiRpcProcessOptions {
   readonly forkFrom?: string | undefined;
   readonly appendSystemPrompt?: string | undefined;
   readonly extensions?: ReadonlyArray<string> | undefined;
-  // Allowlist of tool names (`--tools`). Used to launch a fork read-only
-  // (`read,grep,find,ls`) so it physically cannot edit/run commands. NOTE: pi
-  // applies the allowlist to extension-registered tools too — an allowlist that
-  // omits the workstream tool names blocks them even when `extensions` load.
-  // Role `tools:` allowlists are therefore auto-unioned with the workstream +
-  // goal extension tool names in roleOverlay.ts before they reach this option;
-  // the read-only fork intentionally bypasses that union (forks are frozen
-  // consults and must not carry workstream tools).
+  // Allowlist of tool names (`--tools`) — a SANDBOX, not a default. pi applies
+  // it to built-in and extension definitions BEFORE building its definition and
+  // callable registries, so an unlisted tool is deleted from the session and no
+  // extension can activate it later. Sole use: launching a consult fork
+  // read-only (`read,grep,find,ls`) so it physically cannot edit, run commands,
+  // or reach workstream tools. Role tool profiles must NOT come through here —
+  // they are an active-set selection (T3_ACTIVE_TOOLS, applied by the
+  // provider-tool extension) precisely so dormant families stay activatable.
   readonly tools?: ReadonlyArray<string> | undefined;
   // Skill files/directories to load (repeated `--skill`), additive to pi's
   // normal skill discovery. Absolute paths.

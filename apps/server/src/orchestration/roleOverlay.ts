@@ -11,10 +11,11 @@ import {
 const ROLE_OVERLAY_DIR = "roles";
 const DEFAULT_ROLE = "orchestrator";
 
-/** The lifeline every workstream thread must keep: the leaf-core provider tools
- * (completion, attention, orientation, consultation, task-tree upkeep) plus the
- * escalation path out of a lean profile. The dormant families (delegation,
- * human-input) are unioned only for roles that name them in `toolsets:`. */
+/** The lifeline every workstream thread must keep ACTIVE: the leaf-core provider
+ * tools (completion, attention, orientation, consultation, task-tree upkeep)
+ * plus the escalation path out of a lean profile. The dormant families
+ * (delegation, human-input) are unioned only for roles that name them in
+ * `toolsets:`; unnamed families stay registered and one enable_toolset away. */
 const LIFELINE_TOOLS: ReadonlyArray<string> = [...LEAF_CORE_PROVIDER_TOOLS, ENABLE_TOOLSET_TOOL];
 
 export interface RoleOverlay {
@@ -23,12 +24,16 @@ export interface RoleOverlay {
   /** Skill paths from frontmatter, resolved to absolute paths against projectRoot
    * and passed to pi as repeated `--skill` args (additive to normal discovery). */
   readonly skills?: ReadonlyArray<string>;
-  /** Tool-name allowlist from frontmatter, passed to pi as `--tools`. pi applies
-   * the allowlist to extension-registered tools too, so the loader auto-unions
-   * the LIFELINE_TOOLS into any role `tools:` list — a role restricts its
-   * working tools without losing its lifeline to the workstream — plus the
-   * families named in `toolsets:`. Role files therefore list only the tools the
-   * role actually works with. Absent → no allowlist → every registered tool. */
+  /** ACTIVE-tool profile from frontmatter. Not an allowlist: pi launches with
+   * its full tool registry and the provider-tool extension selects this set as
+   * the active tools at session start, so unlisted tools stay registered but
+   * dormant (activatable mid-session via enable_toolset) while pi's
+   * selection-conditioned schemas, snippets and guidelines shrink to the
+   * profile. The loader auto-unions the LIFELINE_TOOLS into any role `tools:`
+   * list — a role narrows its working tools without losing its lifeline to the
+   * workstream — plus the families named in `toolsets:`. Role files therefore
+   * list only the tools the role actually works with. Absent → no profile →
+   * pi's default active surface (every registered tool). */
   readonly tools?: ReadonlyArray<string>;
   /** EFFECTIVE delegation capability: whether this role's launch surface can
    * spawn/manage children. True when the role declares no tool restriction at
@@ -99,10 +104,10 @@ const parseRoleFile = (
  * Resolve a thread role to its overlay, read fresh from
  * `<projectRoot>/roles/<role>.md` at session start (no cache — editable without a
  * rebuild). The file may open with YAML frontmatter carrying `skills` (paths,
- * resolved against projectRoot) and `tools` (pi tool-name allowlist); the rest is
+ * resolved against projectRoot) and `tools` (the active-tool profile); the rest is
  * the system-prompt overlay, plus `toolsets` naming dormant families to keep
  * resident. null/empty role → the root orchestrator. A free-string/unknown role
- * whose file is absent yields `undefined` (permissive spawning: no allowlist,
+ * whose file is absent yields `undefined` (permissive spawning: no profile,
  * and the reactor treats it as delegation-capable). Role is slugified to
  * `[a-z0-9-]`, which also blocks path traversal.
  */

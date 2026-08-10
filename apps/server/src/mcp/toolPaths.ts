@@ -52,10 +52,11 @@ export const PROVIDER_TOOL_PATHS = {
 export type ProviderToolName = keyof typeof PROVIDER_TOOL_PATHS;
 
 // Three families partitioning the routed provider tools above by WHO needs them
-// resident. Tool selection is the single lever pi conditions on: excluding a
-// tool drops its schema from every request and its snippet + guideline bullets
-// from the system prompt. `roleOverlay.ts` auto-unions the leaf-core family into
-// every role allowlist and unions the others only when the role's `toolsets:`
+// resident. Tool selection (pi's ACTIVE set — never its registry) is the single
+// lever pi conditions on: deselecting a tool drops its schema from every request
+// and its snippet + guideline bullets from the system prompt, while leaving it
+// registered and activatable. `roleOverlay.ts` auto-unions the leaf-core family
+// into every role profile and unions the others only when the role's `toolsets:`
 // frontmatter names them; `enable_toolset` (local, unrouted — hence outside this
 // partition) activates a dormant family mid-session. The union of the three MUST
 // equal PROVIDER_TOOL_PATHS' keys with no overlap — `toolPaths.test.ts` fails
@@ -101,7 +102,7 @@ export const HUMAN_INPUT_PROVIDER_TOOLS = [
 ] as const satisfies ReadonlyArray<ProviderToolName>;
 
 /** The local (unrouted) tool the generated extension adds: the escalation path
- * out of a lean role profile. Auto-unioned into every role allowlist so its
+ * out of a lean role profile. Auto-unioned into every role profile so its
  * snippet line is the resident, role-agnostic pointer that families exist. */
 export const ENABLE_TOOLSET_TOOL = "enable_toolset";
 

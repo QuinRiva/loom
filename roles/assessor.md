@@ -1,7 +1,7 @@
 ---
 # Analysis tools only — the server auto-unions the leaf lifeline (submit,
 # attention, list, consult, goal tasks, title, enable_toolset) into every role
-# allowlist (roleOverlay.ts), so those are never listed here. Dormant families
+# profile (roleOverlay.ts), so those are never listed here. Dormant families
 # (delegation, human-input, browser, studio) are one enable_toolset call away;
 # the body tells this role why reaching for them is the wrong instinct.
 tools: [read_full, ls, find, write]
