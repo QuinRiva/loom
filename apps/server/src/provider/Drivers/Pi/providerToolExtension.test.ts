@@ -7,9 +7,11 @@ import * as NodeURL from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { PROVIDER_TOOL_PATHS } from "../../../mcp/toolPaths.ts";
+import { DELEGATION_PROVIDER_TOOLS } from "../../../mcp/toolPaths.ts";
 import {
   buildProviderToolExtensionSource,
   ensurePiProviderToolExtension,
+  LOCAL_PROVIDER_TOOL_DEFS,
 } from "./providerToolExtension.ts";
 import { GOAL_TOOL_DEFS, WORKSTREAM_TOOL_DEFS } from "./providerToolDefs.ts";
 
@@ -138,15 +140,67 @@ describe("generated provider-tool extension", () => {
     NodeFS.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("registers all 23 tools with the expected names and schemas", async () => {
+  it("registers all 23 routed tools plus the one local tool, with the expected schemas", async () => {
     const tools = await loadExtension();
-    expect(tools).toHaveLength(23);
-    for (const def of ALL_DEFS) {
+    expect(tools).toHaveLength(24);
+    for (const def of [...ALL_DEFS, ...LOCAL_PROVIDER_TOOL_DEFS]) {
       const tool = tools.find((t) => t.name === def.name);
       expect(tool).toBeDefined();
       expect(tool!.label).toBe(def.label);
       expect(tool!.parameters).toEqual(def.parameters);
     }
+  });
+
+  it("enable_toolset activates a family locally (no HTTP) and returns the delegation digest", async () => {
+    calls.length = 0;
+    const leafCore = ["read", "workstream_submit", "enable_toolset"];
+    const all = [
+      ...leafCore,
+      ...DELEGATION_PROVIDER_TOOLS,
+      "browser_navigate",
+      "browser_click",
+      "studio_repl_send",
+    ];
+    let active = [...leafCore];
+    const setCalls: Array<Array<string>> = [];
+    const pi = {
+      registerTool: (tool: RegisteredTool) => tools.push(tool),
+      on: () => {},
+      getActiveTools: () => [...active],
+      getAllTools: () => all.map((name) => ({ name })),
+      setActiveTools: (names: Array<string>) => {
+        setCalls.push(names);
+        active = names;
+      },
+    };
+    const tools: RegisteredTool[] = [];
+    const file = NodePath.join(tmpDir, `ext-local-${extensionCounter++}.mjs`);
+    NodeFS.writeFileSync(file, buildProviderToolExtensionSource(ALL_DEFS), "utf8");
+    (await import(NodeURL.pathToFileURL(file).href)).default(pi);
+    const enable = tools.find((tool) => tool.name === "enable_toolset")!;
+
+    const delegation = await enable.execute("id", { family: "delegation" }, undefined);
+    // Local: never POSTs, and activates exactly the family on top of what's active.
+    expect(calls).toHaveLength(0);
+    expect(setCalls[0]).toEqual([...leafCore, ...DELEGATION_PROVIDER_TOOLS]);
+    expect(delegation.content[0]!.text).toContain("workstream_spawn");
+    expect(delegation.content[0]!.text).toContain("A child inherits NONE of your conversation");
+
+    // Prefix families resolve against the live registry; no digest for them.
+    const browser = await enable.execute("id", { family: "browser" }, undefined);
+    expect(setCalls[1]).toEqual([
+      ...leafCore,
+      ...DELEGATION_PROVIDER_TOOLS,
+      "browser_navigate",
+      "browser_click",
+    ]);
+    expect(browser.content[0]!.text).not.toContain("A child inherits NONE");
+
+    // Re-enabling an active family is a no-op: no redundant setActiveTools call
+    // and no digest replay.
+    const again = await enable.execute("id", { family: "delegation" }, undefined);
+    expect(setCalls).toHaveLength(2);
+    expect(again.content[0]!.text).toContain("already active");
   });
 
   it("POSTs to the endpoint + table path with the authorization header and prints rendered", async () => {

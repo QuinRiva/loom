@@ -4,11 +4,14 @@
 // T3_WORKSTREAM_ENDPOINT + T3_WORKSTREAM_AUTHORIZATION once, and for each
 // serialised def registers a tool whose execute() POSTs to endpoint + def.path,
 // prints `result.rendered` (server-rendered text; the single source of truth),
-// and honours the per-tool errorMode. All 18 tools' metadata lives as data in
-// providerToolDefs.ts — no logic is embedded in the string.
+// and honours the per-tool errorMode. The routed tools' metadata lives as data in
+// providerToolDefs.ts — no logic is embedded in the string. The one LOCAL tool
+// (enable_toolset) is defined here and served by the shim itself against pi's
+// extension API, with no HTTP route.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { DORMANT_PROVIDER_TOOLSETS, ENABLE_TOOLSET_TOOL } from "../../../mcp/toolPaths.ts";
 import {
   GOAL_TOOL_DEFS,
   WORKSTREAM_TOOL_DEFS,
@@ -21,16 +24,89 @@ const EXTENSION_FILE = "t3-provider-tools-extension.mjs";
 const LEGACY_EXTENSION_FILES = ["t3-workstream-spawn-extension.mjs", "t3-goal-task-extension.mjs"];
 
 /**
- * Emit the full extension source for the given tool defs. The defs (with their
- * route paths attached) are serialised as JSON; the runtime is a fixed generic
- * shim that closes over that data. Exported so a test can build → import → drive
- * it with a stub `pi`/`fetch`.
+ * A tool the extension serves ITSELF: no route and no errorMode (both are HTTP
+ * semantics), and a `local: true` discriminant the generated shim branches on.
+ * Deliberately outside PROVIDER_TOOL_PATHS' three-family partition.
+ */
+export interface LocalProviderToolDef extends Pick<
+  ProviderToolDef,
+  "label" | "description" | "promptSnippet" | "promptGuidelines" | "parameters"
+> {
+  readonly name: typeof ENABLE_TOOLSET_TOOL;
+  readonly local: true;
+}
+
+/** Paid only on use (zero resident cost): the doctrine a leaf needs the moment it
+ * becomes a parent, referencing the canonical brief contract rather than
+ * restating it. */
+const DELEGATION_TOOLSET_DIGEST = `Delegation tools are now active. The essentials before you spawn:
+
+- You are now a parent. A child inherits NONE of your conversation — only the brief you write. The contract on workstream_spawn's \`brief\` parameter says what a child already inherits and what still belongs in the brief — read it before writing your first brief.
+- One self-contained sub-task → workstream_spawn (role + title + purpose + brief). More than a couple of dependent pieces → workstream_scaffold lays out the shape (keys + blockedBy/gate edges), then workstream_brief each node in topological order. Pass staged: true to hold a graph for review; workstream_release runs it.
+- Review gates: spawn the reviewer with gate: { rework: coderId }; wire anything downstream on the reviewer, never the coder alone.
+- Defined roles live in roles/*.md at your project root — list that directory for the catalogue. A free-text role is allowed when none fits.
+- Children report back via their own workstream_submit and you are woken when one finishes or needs you. Steer with workstream_prompt, pause with workstream_stop, accept/abandon with workstream_set_lane.
+- These tools stay active for the rest of this session; re-enable after a restart if they go dormant.`;
+
+export const LOCAL_PROVIDER_TOOL_DEFS: ReadonlyArray<LocalProviderToolDef> = [
+  {
+    name: ENABLE_TOOLSET_TOOL,
+    label: "Enable Dormant Toolset",
+    description:
+      "Activate a dormant tool family in THIS session. Your role runs with a " +
+      "deliberately lean default tool surface; the full catalogue stays " +
+      "registered but inactive until enabled. Families: 'delegation' — the " +
+      "workstream graph-authoring and child-management tools (spawn, scaffold, " +
+      "brief, gates, release, stop, prompt, lanes, dependencies, plus " +
+      "notify_thread, thread_fork and the goal handoff/continue/update tools) " +
+      "for when your work genuinely splits into delegated sub-work; " +
+      "'human-input' — ask_user_question, for a fork that is genuinely " +
+      "irreversible, destructive, or purely the user's preference, where a " +
+      "structured question beats a needs_guidance attention flag; 'browser' — " +
+      "all browser_* tools, for live web/UI driving and verification; 'studio' — " +
+      "the studio_* REPL and export tools; 'all' — every registered tool " +
+      "(escape hatch). Activation applies from your next step and adds the " +
+      "enabled tools' own usage guidelines to your system prompt, so enable " +
+      "first, then act. Enable a family only when the task in front of you " +
+      "actually needs it — the lean default is deliberate. Enablement lasts " +
+      "until the session restarts; simply re-enable if the tools go dormant.",
+    promptSnippet:
+      "activate a dormant tool family (delegation / human-input / browser / " +
+      "studio / all) when the task genuinely needs it; takes effect from your " +
+      "next step.",
+    promptGuidelines: [],
+    parameters: {
+      type: "object",
+      properties: {
+        family: {
+          type: "string",
+          enum: ["delegation", "human-input", "browser", "studio", "all"],
+        },
+      },
+      required: ["family"],
+      additionalProperties: false,
+    },
+    local: true,
+  },
+];
+
+/**
+ * Emit the full extension source for the given tool defs: the routed defs (with
+ * their route paths attached) plus the local defs, serialised as JSON; the
+ * runtime is a fixed generic shim that closes over that data. Exported so a test
+ * can build → import → drive it with a stub `pi`/`fetch`.
  */
 export const buildProviderToolExtensionSource = (defs: ReadonlyArray<ProviderToolDef>): string => {
-  const serialised = JSON.stringify(defs.map(withPath), null, 2);
+  const serialised = JSON.stringify([...defs.map(withPath), ...LOCAL_PROVIDER_TOOL_DEFS], null, 2);
   return `import * as NodeFS from "node:fs";
 
 export const TOOL_DEFS = ${serialised};
+
+// Provider-tool families addressable by enable_toolset; browser/studio/all are
+// resolved by prefix over the live registry instead, so they survive the
+// upstream extensions adding or renaming their tools.
+const TOOLSET_FAMILIES = ${JSON.stringify(DORMANT_PROVIDER_TOOLSETS, null, 2)};
+const TOOLSET_DIGESTS = ${JSON.stringify({ delegation: DELEGATION_TOOLSET_DIGEST }, null, 2)};
 
 // Debugging-only effective-prompt capture. On each agent start pi fires
 // \`before_agent_start\` carrying the assembled prompt string plus the
@@ -246,6 +322,27 @@ export default function(pi) {
     details: { ok: true, ...result }
   });
 
+  // Local (unrouted) escalation out of a lean role profile: pi's launch
+  // allowlist is a default, not a sandbox, so activating by registry name is
+  // enough. pi refreshes tools + system prompt after every model round, so the
+  // family is callable WITH its guidelines from the next round of this turn.
+  const enableToolset = (family) => {
+    const all = pi.getAllTools().map((tool) => tool.name);
+    const names = family === "all"
+      ? all
+      : TOOLSET_FAMILIES[family] ?? all.filter((name) => name.startsWith(family + "_"));
+    const active = pi.getActiveTools();
+    const added = names.filter((name) => !active.includes(name));
+    if (added.length > 0) pi.setActiveTools([...active, ...added]);
+    const summary = added.length > 0
+      ? "Enabled the " + family + " toolset (" + added.length + "): " + added.join(", ") + ". Callable from your next step, with their own guidelines."
+      : names.length > 0
+        ? "The " + family + " toolset was already active."
+        : "No registered tools matched the " + family + " toolset in this session.";
+    const digest = added.length > 0 ? TOOLSET_DIGESTS[family] : undefined;
+    return { content: [{ type: "text", text: digest ? summary + "\\n\\n" + digest : summary }] };
+  };
+
   for (const def of TOOL_DEFS) {
     pi.registerTool({
       name: def.name,
@@ -255,6 +352,7 @@ export default function(pi) {
       promptGuidelines: def.promptGuidelines,
       parameters: def.parameters,
       async execute(_id, params, signal) {
+        if (def.local) return enableToolset(params?.family);
         if (def.mode === "user-input") {
           let request = params;
           while (true) {

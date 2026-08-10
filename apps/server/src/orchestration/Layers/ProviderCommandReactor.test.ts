@@ -615,6 +615,120 @@ describe("ProviderCommandReactor", () => {
       }),
   );
 
+  // loom: §5.5 — the defined-roles catalogue follows the role's EFFECTIVE
+  // delegation capability instead of going to every thread. This is the reactor
+  // boundary the loader's `delegation` flag exists to drive: the loader tests can
+  // only see the flag, so inverting/deleting the branch here (or dropping
+  // `delegation: true` from the server-owned retro overlay) would otherwise stay
+  // green while either restoring the catalogue to every leaf or withholding it
+  // from a thread that can actually spawn.
+  describe("roles-catalogue conditioning", () => {
+    const ROLES_BLOCK = "Available roles for spawning children";
+
+    /** A worktree carrying real role files: one delegation-capable profile and
+     * one restricted leaf profile. */
+    const rolesWorktree = (): string => {
+      const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-reactor-roles-"));
+      createdBaseDirs.add(root);
+      NodeFS.mkdirSync(NodePath.join(root, "roles"));
+      NodeFS.writeFileSync(
+        NodePath.join(root, "roles", "orchestrator.md"),
+        "---\ntools: [read]\ntoolsets: [delegation]\n---\nYou are the orchestrator: plan, delegate, review.",
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(root, "roles", "researcher.md"),
+        "---\ntools: [read]\n---\nYou are a researcher sub-thread. Return the answer, not the path.",
+      );
+      return root;
+    };
+
+    const promptForRole = (input: { readonly role: string; readonly worktreePath: string }) =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+        const threadId = ThreadId.make(`catalogue-${input.role}`);
+        yield* harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`cmd-catalogue-create-${input.role}`),
+          threadId,
+          projectId: asProjectId("project-1"),
+          parentThreadId: ThreadId.make("thread-1"),
+          role: input.role,
+          title: "Catalogue probe",
+          titleProvenance: "curated",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: input.worktreePath,
+          createdAt: now,
+        } as never);
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-catalogue-turn-${input.role}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`catalogue-msg-${input.role}`),
+            role: "user",
+            text: "go",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        });
+        yield* Effect.promise(() => waitFor(() => harness.startSession.mock.calls.length === 1));
+        return lastStartInput(harness).appendSystemPrompt ?? "";
+      });
+
+    effectIt.effect("withholds it from a restricted leaf that cannot spawn", () =>
+      Effect.gen(function* () {
+        const prompt = yield* promptForRole({
+          role: "researcher",
+          worktreePath: rolesWorktree(),
+        });
+        // The overlay itself still lands — only the catalogue is gone.
+        expect(prompt).toContain("You are a researcher sub-thread");
+        expect(prompt).not.toContain(ROLES_BLOCK);
+      }),
+    );
+
+    effectIt.effect("keeps it for a role whose `toolsets:` names delegation", () =>
+      Effect.gen(function* () {
+        const prompt = yield* promptForRole({
+          role: "orchestrator",
+          worktreePath: rolesWorktree(),
+        });
+        expect(prompt).toContain(ROLES_BLOCK);
+        expect(prompt).toContain("- researcher: Return the answer, not the path.");
+      }),
+    );
+
+    effectIt.effect("keeps it for a free-text role with no role file (permissive spawning)", () =>
+      Effect.gen(function* () {
+        const prompt = yield* promptForRole({
+          role: "data-wrangler",
+          worktreePath: rolesWorktree(),
+        });
+        expect(prompt).toContain(ROLES_BLOCK);
+      }),
+    );
+
+    // The retro reviewer's overlay is server-owned and carries no tool
+    // restriction, so its effective surface keeps workstream_spawn — the
+    // catalogue must match what it can call.
+    effectIt.effect("keeps it for the retro reviewer", () =>
+      Effect.gen(function* () {
+        const prompt = yield* promptForRole({
+          role: "retro-reviewer",
+          worktreePath: rolesWorktree(),
+        });
+        expect(prompt).toContain("retrospective reviewer");
+        expect(prompt).toContain(ROLES_BLOCK);
+      }),
+    );
+  });
+
   // ---------------------------------------------------------------------------
   // Post-completion engagement: there is NO read-only mode. A terminal-lane
   // (`done`/`cancelled`) thread resumes with its FULL launch — role overlay,

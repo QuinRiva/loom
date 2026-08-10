@@ -720,11 +720,19 @@ const make = Effect.gen(function* () {
         // projects instead.
         const roleOverlay =
           thread.role === RETRO_REVIEWER_ROLE
-            ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT }
+            ? // No tools restriction, so its effective surface keeps
+              // workstream_spawn — the catalogue must match what it can call.
+              { prompt: RETRO_REVIEWER_OVERLAY_PROMPT, delegation: true }
             : loadRoleOverlay({ role: thread.role, projectRoot: roleProjectRoot });
-        // The defined-roles catalogue: every thread sees it, since any thread may
-        // sub-delegate via workstream_spawn (whose `role` is free text).
-        const roleCatalogue = listRoleOverlays({ projectRoot: roleProjectRoot });
+        // The defined-roles catalogue: only threads whose EFFECTIVE surface
+        // includes workstream_spawn (no overlay at all, no tool restriction, or
+        // `toolsets:` naming delegation). A leaf that enables delegation
+        // mid-session gets the catalogue pointer from the enable_toolset result
+        // instead — roles/ is listable on demand.
+        const roleCatalogue =
+          roleOverlay === undefined || roleOverlay.delegation
+            ? listRoleOverlays({ projectRoot: roleProjectRoot })
+            : [];
         const rolesBlock =
           roleCatalogue.length > 0
             ? [

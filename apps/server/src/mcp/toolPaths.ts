@@ -50,3 +50,65 @@ export const PROVIDER_TOOL_PATHS = {
 } as const satisfies Record<string, `/provider-tools/${string}`>;
 
 export type ProviderToolName = keyof typeof PROVIDER_TOOL_PATHS;
+
+// Three families partitioning the routed provider tools above by WHO needs them
+// resident. Tool selection is the single lever pi conditions on: excluding a
+// tool drops its schema from every request and its snippet + guideline bullets
+// from the system prompt. `roleOverlay.ts` auto-unions the leaf-core family into
+// every role allowlist and unions the others only when the role's `toolsets:`
+// frontmatter names them; `enable_toolset` (local, unrouted — hence outside this
+// partition) activates a dormant family mid-session. The union of the three MUST
+// equal PROVIDER_TOOL_PATHS' keys with no overlap — `toolPaths.test.ts` fails
+// with a named diff if a new provider tool lands in no family or in two.
+
+/** Provider tools every child needs resident: completion, attention,
+ * orientation, consultation, and task-tree upkeep. */
+export const LEAF_CORE_PROVIDER_TOOLS = [
+  "workstream_submit",
+  "workstream_request_attention",
+  "workstream_list",
+  "consult_thread",
+  "set_thread_title",
+  "goal_task_list",
+  "goal_task_add",
+  "goal_task_update",
+  "goal_task_delete",
+] as const satisfies ReadonlyArray<ProviderToolName>;
+
+/** The delegation family: graph authoring and child management, plus the other
+ * parent-/root-shaped acts (cross-thread tasking, divergence, goal ownership) a
+ * leaf reaches for about as rarely as spawning. */
+export const DELEGATION_PROVIDER_TOOLS = [
+  "workstream_spawn",
+  "workstream_scaffold",
+  "workstream_brief",
+  "workstream_set_lane",
+  "workstream_release",
+  "workstream_stop",
+  "workstream_prompt",
+  "workstream_set_dependencies",
+  "notify_thread",
+  "thread_fork",
+  "goal_handoff",
+  "goal_continue",
+  "goal_update",
+] as const satisfies ReadonlyArray<ProviderToolName>;
+
+/** The human-input family: the structured-question surface. Dormant for leaf
+ * roles, whose resident fallback is workstream_request_attention. */
+export const HUMAN_INPUT_PROVIDER_TOOLS = [
+  "ask_user_question",
+] as const satisfies ReadonlyArray<ProviderToolName>;
+
+/** The local (unrouted) tool the generated extension adds: the escalation path
+ * out of a lean role profile. Auto-unioned into every role allowlist so its
+ * snippet line is the resident, role-agnostic pointer that families exist. */
+export const ENABLE_TOOLSET_TOOL = "enable_toolset";
+
+/** Dormant families addressable by `enable_toolset`, for the ones whose members
+ * are provider tools; `browser`/`studio`/`all` are resolved by prefix over the
+ * live registry instead. */
+export const DORMANT_PROVIDER_TOOLSETS = {
+  delegation: DELEGATION_PROVIDER_TOOLS,
+  "human-input": HUMAN_INPUT_PROVIDER_TOOLS,
+} as const;
