@@ -215,13 +215,22 @@ describe("generated provider-tool extension", () => {
     expect(pi.getAllTools().map((tool) => tool.name)).toEqual(REGISTRY);
   });
 
-  it("leaves pi's default active set alone when no profile is set (unrestricted roles)", async () => {
-    const pi = makeFakePi(REGISTRY);
-    await loadInto(pi);
-    delete process.env.T3_ACTIVE_TOOLS;
-    pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
-    expect(pi.getActiveTools()).toEqual(REGISTRY);
-  });
+  // Unrestricted/free-text roles keep pi's full active surface. The driver sends
+  // an EMPTY T3_ACTIVE_TOOLS for them (it overrides any value inherited from a
+  // server started inside a profiled child), so empty and absent must behave
+  // identically — both mean "no profile", never "select nothing".
+  it.each(["", " , ", undefined])(
+    "leaves pi's default active set alone when the profile is %p",
+    async (value) => {
+      const pi = makeFakePi(REGISTRY);
+      await loadInto(pi);
+      if (value === undefined) delete process.env.T3_ACTIVE_TOOLS;
+      else process.env.T3_ACTIVE_TOOLS = value;
+      pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+      expect(pi.getActiveTools()).toEqual(REGISTRY);
+      expect(pi.setCalls).toEqual([]);
+    },
+  );
 
   it("enable_toolset activates a dormant family locally (no HTTP) and returns the delegation digest", async () => {
     calls.length = 0;

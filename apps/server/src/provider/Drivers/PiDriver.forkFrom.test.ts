@@ -162,6 +162,38 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
     },
   );
 
+  // Cross-process contamination guard: the server inherits its own env, and the
+  // documented dev-verify recipe starts a loom server from a PROFILED child's
+  // bash — so the server can be carrying that child's T3_ACTIVE_TOOLS. An
+  // unrestricted/free-text thread must still get pi's full active surface, so
+  // the driver overrides the variable in both directions rather than leaving an
+  // inherited value to be applied as a stale profile.
+  effectIt.effect("neutralises an inherited T3_ACTIVE_TOOLS when the role has no profile", () => {
+    const fake = makeFakeProcess();
+    const inherited = process.env.T3_ACTIVE_TOOLS;
+    process.env.T3_ACTIVE_TOOLS = "read,bash,stale_outer_profile";
+    return withAdapter(fake.factory, (adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.startSession({
+          threadId: ThreadId.make("44444444-0000-4000-8000-000000000004"),
+          providerInstanceId: INSTANCE,
+          modelSelection: { instanceId: INSTANCE, model: "test-model" },
+          runtimeMode: "full-access",
+        });
+        // Empty is the extension's "no profile" wire value: it must never be the
+        // outer process's profile.
+        expect(fake.captured.options?.env?.T3_ACTIVE_TOOLS).toBe("");
+      }),
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (inherited === undefined) delete process.env.T3_ACTIVE_TOOLS;
+          else process.env.T3_ACTIVE_TOOLS = inherited;
+        }),
+      ),
+    );
+  });
+
   effectIt.effect(
     "replays the SOURCE record verbatim (forkFrom + final argv, no double prepend) at a fork's first launch",
     () => {

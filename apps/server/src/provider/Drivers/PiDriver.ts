@@ -2152,9 +2152,14 @@ export function makePiAdapter(input: {
                 ...process.env,
                 // Role tool profile, applied as pi's ACTIVE tool set by the
                 // provider-tool extension (see the note on `--tools` above).
-                // Absent => pi's default full active surface (unrestricted and
-                // free-text roles).
-                ...(tools && tools.length > 0 ? { T3_ACTIVE_TOOLS: [...tools].join(",") } : {}),
+                // Set UNCONDITIONALLY (empty = no profile = pi's full active
+                // surface): the driver owns this variable in both directions,
+                // because the server inherits its own environment. A loom server
+                // started from a profiled child's bash — exactly what the
+                // dev-verify recipe does — carries that child's T3_ACTIVE_TOOLS,
+                // which would otherwise leak in as a stale profile for every
+                // unrestricted or free-text thread it launches.
+                T3_ACTIVE_TOOLS: tools && tools.length > 0 ? [...tools].join(",") : "",
                 ...(mcpSession
                   ? {
                       T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
