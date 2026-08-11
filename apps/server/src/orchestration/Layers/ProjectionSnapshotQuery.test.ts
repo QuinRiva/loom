@@ -1115,6 +1115,107 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  // The two narrow reads that fix the worktree-reclaim blind spots. Both are new
+  // SQL against the real schema, and both are consumed by code paths whose unit
+  // tests stub the query — so this is the only place the predicates themselves are
+  // exercised.
+  it.effect("reads archived fanned-in worktree children and every referenced worktree path", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, workspace_root, default_model_selection_json,
+          scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-orphan', 'Orphan', '/tmp/orphan',
+          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '2026-04-06T00:00:00.000Z', '2026-04-06T00:00:01.000Z', NULL
+        )
+      `;
+
+      // `orph-parent` is itself ARCHIVED, which is the normal case (archive
+      // cascades down a subtree) and the reason the parent's coordinates are
+      // joined on rather than looked up in the caller's active-thread index.
+      //
+      // The four negatives each stand for a way the old blind spot could be
+      // "fixed" wrongly: an ALREADY-REPOINTED archived child (worktree_path equals
+      // its parent's — nothing to remove), an UNSETTLED archived child (fan-in has
+      // not merged, so removing its checkout would destroy unmerged work), a
+      // DELETED archived child (the thread lifecycle owns that removal), and a
+      // live ACTIVE child (already visible to the ordinary sweep).
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, parent_thread_id, blocked_by, plan_lane,
+          pending_rework, isolation, fan_in_state, branch, worktree_path, title,
+          model_selection_json, runtime_mode, interaction_mode,
+          latest_user_message_at, pending_approval_count, pending_user_input_count,
+          has_actionable_proposed_plan, created_at, updated_at, archived_at, deleted_at
+        ) VALUES
+          ('orph-parent', 'project-orphan', NULL, '[]', 'done',
+           0, 'shared', 'none', 'main', '/wt/parent', 'Archived parent',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:02.000Z', '2026-04-06T00:00:02.000Z',
+           '2026-04-06T00:00:03.000Z', NULL),
+          ('orph-stranded', 'project-orphan', 'orph-parent', '[]', 'done',
+           0, 'isolated', 'completed', 'ws/main/coder-stranded', '/wt/stranded',
+           'Stranded archived child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:04.000Z', '2026-04-06T00:00:04.000Z',
+           '2026-04-06T00:00:05.000Z', NULL),
+          ('orph-repointed', 'project-orphan', 'orph-parent', '[]', 'done',
+           0, 'isolated', 'completed', 'ws/main/coder-repointed', '/wt/parent',
+           'Already repointed',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:06.000Z', '2026-04-06T00:00:06.000Z',
+           '2026-04-06T00:00:07.000Z', NULL),
+          ('orph-unsettled', 'project-orphan', 'orph-parent', '[]', 'done',
+           0, 'isolated', 'conflicted', 'ws/main/coder-unsettled', '/wt/unsettled',
+           'Archived but unmerged',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:08.000Z', '2026-04-06T00:00:08.000Z',
+           '2026-04-06T00:00:09.000Z', NULL),
+          ('orph-deleted', 'project-orphan', 'orph-parent', '[]', 'done',
+           0, 'isolated', 'completed', 'ws/main/coder-deleted', '/wt/deleted',
+           'Archived and deleted',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:10.000Z', '2026-04-06T00:00:10.000Z',
+           '2026-04-06T00:00:11.000Z', '2026-04-06T00:00:12.000Z'),
+          ('orph-active', 'project-orphan', 'orph-parent', '[]', 'done',
+           0, 'isolated', 'completed', 'ws/main/coder-active', '/wt/active',
+           'Active child',
+           '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+           NULL, 0, 0, 0, '2026-04-06T00:00:13.000Z', '2026-04-06T00:00:13.000Z', NULL, NULL)
+      `;
+
+      assert.deepEqual(yield* snapshotQuery.getArchivedFannedInWorktreeChildren(), [
+        {
+          threadId: ThreadId.make("orph-stranded"),
+          branch: "ws/main/coder-stranded",
+          worktreePath: "/wt/stranded",
+          parentProjectId: ProjectId.make("project-orphan"),
+          parentBranch: "main",
+          parentWorktreePath: "/wt/parent",
+        },
+      ]);
+
+      // Lifecycle-BLIND on purpose: a deleted thread's checkout is row-owned, not
+      // an unreachable orphan, so the path sweep must never claim it.
+      assert.deepEqual([...(yield* snapshotQuery.getReferencedWorktreePaths())].toSorted(), [
+        "/wt/active",
+        "/wt/deleted",
+        "/wt/parent",
+        "/wt/stranded",
+        "/wt/unsettled",
+      ]);
+    }),
+  );
+
   it.effect("reads a thread's outstanding obligations for the session reaper", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -1244,6 +1345,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       const NONE = {
+        // The lane rides along on the same read: it selects which idle threshold
+        // the provider-session reaper applies, not whether anything is owed.
+        planLane: "in_progress",
         activeTurnId: null,
         liveChildCount: 0,
         hasUnmetDependencies: false,
@@ -1263,6 +1367,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       // dangling id do not.
       assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-gated")), {
         ...NONE,
+        planLane: "ready",
         hasUnmetDependencies: true,
       });
 
@@ -1281,19 +1386,20 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-idle-isolated")),
         NONE,
       );
-      assert.deepEqual(
-        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-conflicted")),
-        NONE,
-      );
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-conflicted")), {
+        ...NONE,
+        planLane: "done",
+      });
 
       // The two gates a lane-only proxy misses. Both dependencies are `done`, so
       // only the shared predicate's fan-in refinement keeps these blocked.
       assert.deepEqual(
         yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-fanin-blocked")),
-        { ...NONE, hasUnmetDependencies: true },
+        { ...NONE, planLane: "ready", hasUnmetDependencies: true },
       );
       assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-two-hop")), {
         ...NONE,
+        planLane: "ready",
         hasUnmetDependencies: true,
       });
 
@@ -1302,15 +1408,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       // so assert on the leaf instead.)
       assert.deepEqual(
         yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-finished-child")),
-        NONE,
+        { ...NONE, planLane: "done" },
       );
 
       // An unknown / deleted thread owes nothing, so a stale binding stays
-      // reapable rather than becoming immortal.
-      assert.deepEqual(
-        yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-missing")),
-        NONE,
-      );
+      // reapable rather than becoming immortal — and reports as terminal, so it
+      // reaps on the shorter threshold.
+      assert.deepEqual(yield* snapshotQuery.getThreadObligations(ThreadId.make("ob-missing")), {
+        ...NONE,
+        planLane: "done",
+      });
     }),
   );
 

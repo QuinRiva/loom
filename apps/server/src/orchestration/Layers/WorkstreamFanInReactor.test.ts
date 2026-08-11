@@ -29,7 +29,10 @@ import {
 } from "../../workspace/WorkspaceLease.ts";
 import type { GitMergeWorktreeBranchResult } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionArchivedWorktreeChild,
+} from "../Services/ProjectionSnapshotQuery.ts";
 import { WorkstreamFanInReactor } from "../Services/WorkstreamFanInReactor.ts";
 import { WorkstreamFanInReactorLive } from "./WorkstreamFanInReactor.ts";
 
@@ -109,6 +112,13 @@ interface Scenario {
   readonly commitFails?: boolean;
   /** Dispatching this command type fails — e.g. the post-merge repoint. */
   readonly dispatchFailsFor?: OrchestrationCommand["type"];
+  /**
+   * Archived-but-not-deleted fanned-in children still pointing at their own
+   * worktree. Deliberately supplied SEPARATELY from `others`: the whole point is
+   * that these rows are absent from the shell snapshot, so the pass can only see
+   * them through this narrow read.
+   */
+  readonly archivedOrphans?: ReadonlyArray<ProjectionArchivedWorktreeChild>;
 }
 
 const runReactor = (scenario: Scenario) =>
@@ -139,6 +149,7 @@ const runReactor = (scenario: Scenario) =>
             : Option.none(),
         ),
       getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
+      getArchivedFannedInWorktreeChildren: () => Effect.succeed(scenario.archivedOrphans ?? []),
       getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 0,
@@ -403,6 +414,66 @@ describe("WorkstreamFanInReactor", () => {
       // …but removal is deferred while the resident is live.
       expect(gitCalls).not.toContain("removeWorktree");
       expect(gitCalls).not.toContain("deleteBranch");
+    }),
+  );
+
+  // The archived-thread orphan: a child ARCHIVED while its worktree was still
+  // occupied vanishes from the shell snapshot (`archived_at IS NULL`) and so was
+  // never selected by the deferred-removal branch again — stranded permanently
+  // AND silently, since never selected also means never logged. Its parent is
+  // deliberately absent from `others` too (archive cascades), which is why the
+  // parent's coordinates ride on the row rather than being looked up in the pass
+  // index.
+  it.effect("archived orphan: reclaims a worktree no shell-snapshot row points at", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        // An unrelated, fully-settled child so the main loop does nothing.
+        child: isolatedChild({ fanInState: "completed", worktreePath: null, branch: null }),
+        others: [parent],
+        archivedOrphans: [
+          {
+            threadId: "archived-child" as ThreadId,
+            branch: "ws/main/coder-arch",
+            worktreePath: "/wt/archived-child",
+            parentProjectId: "p1" as ProjectionArchivedWorktreeChild["parentProjectId"],
+            parentBranch: "main",
+            parentWorktreePath: "/wt/parent",
+          },
+        ],
+      });
+      expect(gitCalls).toContain("removeWorktree");
+      expect(gitCalls).toContain("deleteBranch");
+      // …and the orphan row is repointed off the deleted path, so a later
+      // unarchive+resume does not land in a directory that no longer exists.
+      expect(
+        dispatched.some(
+          (c) =>
+            c.type === "thread.meta.update" &&
+            c.threadId === ("archived-child" as ThreadId) &&
+            c.worktreePath === "/wt/parent",
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("archived orphan: a held workspace still defers the reclaim", () =>
+    Effect.gen(function* () {
+      const { gitCalls } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed", worktreePath: null, branch: null }),
+        others: [parent],
+        heldPaths: ["/wt/archived-child"],
+        archivedOrphans: [
+          {
+            threadId: "archived-child" as ThreadId,
+            branch: "ws/main/coder-arch",
+            worktreePath: "/wt/archived-child",
+            parentProjectId: "p1" as ProjectionArchivedWorktreeChild["parentProjectId"],
+            parentBranch: "main",
+            parentWorktreePath: "/wt/parent",
+          },
+        ],
+      });
+      expect(gitCalls).not.toContain("removeWorktree");
     }),
   );
 

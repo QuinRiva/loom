@@ -32,6 +32,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
 import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
+import { makeRemovalDeferralLog } from "../worktreeRemovalDeferral.ts";
 import {
   WorkstreamFanInReactor,
   type WorkstreamFanInReactorShape,
@@ -112,6 +113,10 @@ const make = Effect.gen(function* () {
   // `index.lock`, a held lease) may have cleared, so the retry count is bounded
   // by restarts rather than by pass rate.
   const cleanupFailedChildren = new Set<ThreadId>();
+
+  // Per-path deferral episodes, so an occupied workspace is announced once and
+  // its eventual removal once — not once per retry (see `makeRemovalDeferralLog`).
+  const deferralLog = makeRemovalDeferralLog("workstream fan-in");
 
   // Receipt-deduped delivery for the two parent notices. Both carry deterministic
   // ids and lean on the engine's receipt store for cross-restart at-most-once, so
@@ -470,15 +475,13 @@ const make = Effect.gen(function* () {
   // the 60s tick, so the removal simply happens on a later pass once the last
   // hold releases.
   const removeExclusively = <A, E, R>(childCwd: string, removal: Effect.Effect<A, E, R>) =>
-    workspaceLease.withExclusive(childCwd, removal).pipe(
-      Effect.tap((outcome) =>
-        Option.isNone(outcome)
-          ? Effect.logInfo("workstream fan-in: worktree removal skipped, workspace is occupied", {
-              childCwd,
-            })
-          : Effect.void,
-      ),
-    );
+    workspaceLease
+      .withExclusive(childCwd, removal)
+      .pipe(
+        Effect.tap((outcome) =>
+          Option.isNone(outcome) ? deferralLog.skipped(childCwd) : deferralLog.removed(childCwd),
+        ),
+      );
 
   // Defer the merge only while the child's runtime turn is genuinely in flight
   // (state "running") — then the worktree is mid-write and the pass is re-armed
@@ -655,6 +658,45 @@ const make = Effect.gen(function* () {
     );
   });
 
+  // Deferred-removal cleanup for ONE fanned-in child: drop the spent checkout and
+  // repoint the child (and any terminal resident) off it, once nothing
+  // structurally depends on the tree. Wholly post-merge — the child is already
+  // `completed`, so every failure here is a cleanup failure by construction.
+  //
+  // Takes the parent's coordinates as values rather than a thread shell, because
+  // its second caller (the archived-orphan sweep) resolves them from SQL: an
+  // archived child's parent may itself be archived, hence absent from the pass
+  // index.
+  const removeDeferredWorktree = Effect.fn("removeDeferredWorktree")(function* (input: {
+    readonly childId: ThreadId;
+    readonly childCwd: string;
+    readonly childBranch: string;
+    readonly parentCwd: string;
+    readonly parentBranch: string | null;
+    readonly parentWorktreePath: string | null;
+    readonly index: PassIndex;
+  }) {
+    if (NodePath.resolve(input.childCwd) === NodePath.resolve(input.parentCwd)) return;
+    if (hasDependentResident(input.childId, input.childCwd, input.index)) return;
+    yield* worktreeMutationLock
+      .withLock(
+        input.parentCwd,
+        removeExclusively(
+          input.childCwd,
+          finaliseRemoval({
+            childId: input.childId,
+            childCwd: input.childCwd,
+            childBranch: input.childBranch,
+            parentCwd: input.parentCwd,
+            parentBranch: input.parentBranch,
+            parentWorktreePath: input.parentWorktreePath,
+            index: input.index,
+          }),
+        ),
+      )
+      .pipe(surviveCleanupFailure(input.childId));
+  });
+
   // Is this isolated child provisioned into its own worktree/branch (distinct
   // from the parent's)? Guards the defensive "never provisioned" case.
   const isProvisioned = (
@@ -777,35 +819,16 @@ const make = Effect.gen(function* () {
           // Deferred-removal sweep (plan §3 step 4): a fanned-in child whose
           // removal was held by an occupant is cleaned up once the occupant goes
           // terminal (its terminal transition re-triggers this pass).
-          if (
-            parent === undefined ||
-            parentCwd === undefined ||
-            child.branch === null ||
-            NodePath.resolve(child.worktreePath) === NodePath.resolve(parentCwd) ||
-            hasDependentResident(child.id, child.worktreePath, index)
-          ) {
-            return;
-          }
-          const deferredCwd = child.worktreePath;
-          // Wholly post-merge: this child is already `completed`, so every
-          // failure here is a cleanup failure by construction.
-          yield* worktreeMutationLock
-            .withLock(
-              parentCwd,
-              removeExclusively(
-                deferredCwd,
-                finaliseRemoval({
-                  childId: child.id,
-                  childCwd: deferredCwd,
-                  childBranch: child.branch,
-                  parentCwd,
-                  parentBranch: parent.branch,
-                  parentWorktreePath: parent.worktreePath,
-                  index,
-                }),
-              ),
-            )
-            .pipe(surviveCleanupFailure(child.id));
+          if (parent === undefined || parentCwd === undefined || child.branch === null) return;
+          yield* removeDeferredWorktree({
+            childId: child.id,
+            childCwd: child.worktreePath,
+            childBranch: child.branch,
+            parentCwd,
+            parentBranch: parent.branch,
+            parentWorktreePath: parent.worktreePath,
+            index,
+          });
         }
       });
 
@@ -842,6 +865,36 @@ const make = Effect.gen(function* () {
           );
         }),
       );
+    }
+
+    // ARCHIVED-ORPHAN sweep. The loop above walks the shell snapshot, which
+    // filters `archived_at IS NULL` — so a child ARCHIVED while its worktree was
+    // still occupied leaves the selectable set permanently and its checkout is
+    // stranded forever, silently (never selected means never even logged). One
+    // live instance had sat that way for 29 hours with its worktree still on disk
+    // and still git-registered; the worktree reaper cannot collect it either,
+    // because with the owner invisible the tree classifies as `orphaned`, which is
+    // never auto-reaped.
+    //
+    // The read is the orphan shape itself (archived, fanned-in, still pointing at
+    // its own tree), so this costs one tiny query per pass and normally iterates
+    // nothing.
+    for (const orphan of yield* projectionSnapshotQuery.getArchivedFannedInWorktreeChildren()) {
+      if (cleanupFailedChildren.has(orphan.threadId)) continue;
+      const parentCwd = resolveCwd(
+        { projectId: orphan.parentProjectId, worktreePath: orphan.parentWorktreePath },
+        projects,
+      );
+      if (parentCwd === undefined) continue;
+      yield* removeDeferredWorktree({
+        childId: orphan.threadId,
+        childCwd: orphan.worktreePath,
+        childBranch: orphan.branch,
+        parentCwd,
+        parentBranch: orphan.parentBranch,
+        parentWorktreePath: orphan.parentWorktreePath,
+        index,
+      });
     }
   });
 

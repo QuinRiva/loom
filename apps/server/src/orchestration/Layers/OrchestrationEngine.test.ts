@@ -280,6 +280,7 @@ describe("OrchestrationEngine", () => {
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getThreadObligations: () =>
             Effect.succeed({
+              planLane: "in_progress",
               activeTurnId: null,
               liveChildCount: 0,
               hasUnmetDependencies: false,
@@ -287,6 +288,8 @@ describe("OrchestrationEngine", () => {
               pendingRework: false,
             }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+          getReferencedWorktreePaths: () => Effect.succeed(new Set()),
           getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
