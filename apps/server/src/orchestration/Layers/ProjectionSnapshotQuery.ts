@@ -272,6 +272,17 @@ const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
 });
+const ProjectionArchivedWorktreeChildRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  branch: Schema.String,
+  worktreePath: Schema.String,
+  parentProjectId: ProjectId,
+  parentBranch: Schema.NullOr(Schema.String),
+  parentWorktreePath: Schema.NullOr(Schema.String),
+});
+const ProjectionWorktreePathRowSchema = Schema.Struct({
+  worktreePath: Schema.String,
+});
 const ProjectionSubtreeSessionLivenessRowSchema = Schema.Struct({
   threadId: ThreadId,
   // SQLite has no boolean type: the CASE below yields 0/1, decoded as an int
@@ -2090,6 +2101,71 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  // loom: the fan-in reactor's deferred-removal blind spot. `getShellSnapshot()`
+  // filters `archived_at IS NULL`, so an archived child never gets its worktree
+  // reclaimed; this is the orphan shape as a predicate, so the result set is tiny.
+  const listArchivedFannedInWorktreeChildRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionArchivedWorktreeChildRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          child.thread_id AS "threadId",
+          child.branch AS "branch",
+          child.worktree_path AS "worktreePath",
+          parent.project_id AS "parentProjectId",
+          parent.branch AS "parentBranch",
+          parent.worktree_path AS "parentWorktreePath"
+        FROM projection_threads AS child
+        JOIN projection_threads AS parent
+          ON parent.thread_id = child.parent_thread_id
+          AND parent.deleted_at IS NULL
+        WHERE child.deleted_at IS NULL
+          AND child.archived_at IS NOT NULL
+          AND child.isolation = 'isolated'
+          AND child.fan_in_state = 'completed'
+          AND child.branch IS NOT NULL
+          AND child.worktree_path IS NOT NULL
+          AND child.worktree_path IS NOT parent.worktree_path
+      `,
+  });
+
+  const getArchivedFannedInWorktreeChildren: ProjectionSnapshotQueryShape["getArchivedFannedInWorktreeChildren"] =
+    () =>
+      listArchivedFannedInWorktreeChildRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getArchivedFannedInWorktreeChildren:query",
+            "ProjectionSnapshotQuery.getArchivedFannedInWorktreeChildren:decodeRows",
+          ),
+        ),
+      );
+
+  // loom: reference set for the path-based orphan sweep — lifecycle-blind, so a
+  // deleted thread's checkout is never mistaken for an unreachable orphan.
+  const listReferencedWorktreePathRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionWorktreePathRowSchema,
+    execute: () =>
+      sql`
+        SELECT DISTINCT worktree_path AS "worktreePath"
+        FROM projection_threads
+        WHERE worktree_path IS NOT NULL
+      `,
+  });
+
+  const getReferencedWorktreePaths: ProjectionSnapshotQueryShape["getReferencedWorktreePaths"] =
+    () =>
+      listReferencedWorktreePathRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getReferencedWorktreePaths:query",
+            "ProjectionSnapshotQuery.getReferencedWorktreePaths:decodeRows",
+          ),
+        ),
+        Effect.map((rows) => new Set(rows.map((row) => row.worktreePath))),
+      );
+
   const getDeletedThreadIds: ProjectionSnapshotQueryShape["getDeletedThreadIds"] = () =>
     listDeletedThreadRows(undefined).pipe(
       Effect.mapError(
@@ -2230,6 +2306,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   });
 
   const NO_THREAD_OBLIGATIONS = {
+    // An absent projection row is a deleted thread: terminal by construction, and
+    // reapable on the shorter threshold.
+    planLane: "done",
     activeTurnId: null,
     liveChildCount: 0,
     hasUnmetDependencies: false,
@@ -2281,6 +2360,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             );
 
       return {
+        planLane: thread.planLane,
         activeTurnId: thread.activeTurnId,
         liveChildCount: thread.liveChildCount,
         hasUnmetDependencies,
@@ -4230,6 +4310,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
 
   return {
+    getArchivedFannedInWorktreeChildren,
+    getReferencedWorktreePaths,
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,

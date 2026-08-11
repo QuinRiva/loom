@@ -38,6 +38,8 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getSnapshot: () => Effect.die("unused"),
     getShellSnapshot: () => Effect.die("unused"),
     getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
+    getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+    getReferencedWorktreePaths: () => Effect.succeed(new Set()),
     getArchivedShellSnapshot: () => Effect.die("unused"),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
     getCounts: () => Effect.die("unused"),

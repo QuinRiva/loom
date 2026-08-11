@@ -4,6 +4,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import { TestClock } from "effect/testing";
@@ -127,6 +128,7 @@ describe("WorktreeReaper", () => {
           }),
         ];
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+          getReferencedWorktreePaths: () => Effect.succeed(new Set<string>()),
           getShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
@@ -256,6 +258,7 @@ describe("WorktreeReaper", () => {
           }),
         ];
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+          getReferencedWorktreePaths: () => Effect.succeed(new Set<string>()),
           getShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
@@ -299,6 +302,90 @@ describe("WorktreeReaper", () => {
         Effect.provide(
           ServerConfigModule.layerTest(process.cwd(), {
             prefix: "worktree-reaper-lease-test-",
+          }).pipe(Layer.provideMerge(NodeServices.layer)),
+        ),
+        Effect.scoped,
+      );
+    }),
+  );
+
+  // The path-based orphan sweep is a DRY RUN unless explicitly opted into. Its
+  // input is the filesystem rather than a record of intent, and the measured
+  // inventory on the live cockpit was ~14 GB of a human's disk — so "reports but
+  // never deletes by default" is the property that has to hold, not the log text.
+  it.effect("reports unreachable ws-* directories without deleting them", () =>
+    Effect.gen(function* () {
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        // One healthy project with only its main worktree: the orphan directory is
+        // registered nowhere.
+        listWorktrees: () =>
+          Effect.succeed([
+            {
+              path: "/repo",
+              branch: "main",
+              head: "abc",
+              isMain: true,
+              locked: false,
+              prunable: false,
+            },
+          ] satisfies ReadonlyArray<GitWorktreeListEntry>),
+        hasWorkingTreeChanges: () => Effect.succeed(false),
+        isAncestor: () => Effect.succeed(true),
+        removeWorktree: () => Effect.void,
+        deleteBranch: () => Effect.void,
+      } as never);
+
+      yield* Effect.gen(function* () {
+        const config = yield* ServerConfigModule.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const orphan = NodePath.join(config.worktreesDir, "repo", "ws-main-coder-99999999");
+        yield* fs.makeDirectory(orphan, { recursive: true });
+
+        const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+          getReferencedWorktreePaths: () => Effect.succeed(new Set<string>()),
+          getShellSnapshot: () =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              projects: [
+                {
+                  id: "p1",
+                  title: "p",
+                  workspaceRoot: "/repo",
+                } as unknown as OrchestrationProjectShell,
+              ],
+              goals: [],
+              threads: [],
+              updatedAt: OLD,
+            }),
+        } as never);
+
+        yield* Effect.gen(function* () {
+          const reaper = yield* WorktreeReaper;
+          yield* reaper.start();
+          yield* reaper.drain;
+          expect(yield* fs.exists(orphan)).toBe(true);
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(
+            WorktreeReaperLive.pipe(
+              Layer.provide(
+                Layer.succeed(OrchestrationEngineService, {
+                  dispatch: () => Effect.succeed({ sequence: 0 }),
+                } as never),
+              ),
+              Layer.provide(projectionLayer),
+              Layer.provide(gitLayer),
+              Layer.provide(WorktreeMutationLockLive),
+              Layer.provide(Layer.effect(WorkspaceLease, makeWorkspaceLease)),
+              Layer.provide(Layer.succeed(ServerConfigModule.ServerConfig, config)),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        );
+      }).pipe(
+        Effect.provide(
+          ServerConfigModule.layerTest(process.cwd(), {
+            prefix: "worktree-reaper-orphan-test-",
           }).pipe(Layer.provideMerge(NodeServices.layer)),
         ),
         Effect.scoped,

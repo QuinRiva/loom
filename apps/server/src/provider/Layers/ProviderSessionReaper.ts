@@ -15,10 +15,40 @@ import {
 import { ProviderService } from "../Services/ProviderService.ts";
 
 const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
+
+/**
+ * Idle threshold for a TERMINAL (`done`/`cancelled`), obligation-free thread.
+ *
+ * Such a thread's work is finished: its own turn has ended, it owes no children,
+ * dependencies, user input or rework round (the guards below), and a human who
+ * resumes it simply re-spawns the process from its persisted provider binding.
+ * Keeping it warm for the full 30 minutes buys back only the launch latency of a
+ * resume that usually never comes, and costs two things that measurably hurt:
+ *
+ *  - ~30 minutes of idle agent RSS per completed child (measured: `pi` at
+ *    ~3.2 GB across 9 processes inside a ~9.6 GB unit footprint), and
+ *  - ~30 minutes of WORKSPACE OCCUPANCY on the child's worktree. A gated coder's
+ *    worktree is ATTACHED by its reviewer, so the last occupant is the reviewer,
+ *    whose idle clock starts after the coder's — which is why every fanned-in
+ *    child's worktree stayed undeletable for 25–30 minutes after fan-in, with the
+ *    fan-in reactor retrying (correctly, and cheaply) throughout.
+ *
+ * Five minutes is chosen to match the sweep interval: it is the shortest
+ * threshold that still expresses a real idle period rather than "reap at the next
+ * sweep whatever happens", and it puts the effective reap window at 5–10 minutes
+ * after last activity. The lease's guarantee — never delete a worktree with a
+ * live process in it — is untouched; only the point at which the process stops
+ * being live moves earlier.
+ */
+const DEFAULT_TERMINAL_INACTIVITY_THRESHOLD_MS = 5 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+const isTerminalLane = (planLane: string): boolean =>
+  planLane === "done" || planLane === "cancelled";
 
 export interface ProviderSessionReaperLiveOptions {
   readonly inactivityThresholdMs?: number;
+  readonly terminalInactivityThresholdMs?: number;
   readonly sweepIntervalMs?: number;
 }
 
@@ -31,6 +61,13 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const inactivityThresholdMs = Math.max(
       1,
       options?.inactivityThresholdMs ?? DEFAULT_INACTIVITY_THRESHOLD_MS,
+    );
+    const terminalInactivityThresholdMs = Math.min(
+      inactivityThresholdMs,
+      Math.max(
+        1,
+        options?.terminalInactivityThresholdMs ?? DEFAULT_TERMINAL_INACTIVITY_THRESHOLD_MS,
+      ),
     );
     const sweepIntervalMs = Math.max(1, options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS);
 
@@ -111,13 +148,22 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
         const idleDurationMs = now - lastSeenMs;
 
-        if (idleDurationMs < inactivityThresholdMs) {
+        // Gate on the SHORTER of the two thresholds, then let the obligations row
+        // (which carries the plan lane for free) decide whether the longer one
+        // applies. The extra cost is one narrow read per sweep for the handful of
+        // live sessions idle between the two thresholds; the alternative — a bulk
+        // terminal-lane set read — would pull ~1,000 ids every sweep to answer a
+        // question about ~10 bindings.
+        if (idleDurationMs < terminalInactivityThresholdMs) {
           continue;
         }
 
         // One narrow read carries the whole liveness verdict: the thread's active
         // turn plus its outstanding obligations.
         const obligations = yield* projectionSnapshotQuery.getThreadObligations(binding.threadId);
+        if (!isTerminalLane(obligations.planLane) && idleDurationMs < inactivityThresholdMs) {
+          continue;
+        }
         if (obligations.activeTurnId != null) {
           yield* Effect.logDebug("provider.session.reaper.skipped-active-turn", {
             threadId: binding.threadId,
@@ -169,7 +215,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
               threadId: binding.threadId,
               provider: binding.provider,
               idleDurationMs,
-              reason: "inactivity_threshold",
+              planLane: obligations.planLane,
+              reason: isTerminalLane(obligations.planLane)
+                ? "terminal_inactivity_threshold"
+                : "inactivity_threshold",
             }),
           ),
           Effect.as(true),
@@ -217,6 +266,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
         yield* Effect.logInfo("provider.session.reaper.started", {
           inactivityThresholdMs,
+          terminalInactivityThresholdMs,
           sweepIntervalMs,
         });
       });
