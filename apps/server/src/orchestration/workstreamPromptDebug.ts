@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import type { ThreadId } from "@t3tools/contracts";
 
@@ -23,6 +24,16 @@ import type { ThreadId } from "@t3tools/contracts";
 /** Filesystem-safe base name for a thread's sidecar (threadIds are uuids). */
 const safeName = (threadId: ThreadId): string => threadId.replace(/[^A-Za-z0-9._-]/g, "_");
 
+// The capture extension writes outside the server process, so expiry is the
+// invalidation signal. Five seconds keeps a newly-created sidecar prompt while
+// removing filesystem work from snapshot/event hot paths.
+const SIDECAR_NAMES_CACHE_TTL_MS = 5_000;
+const sidecarNamesCache = new Map<
+  string,
+  { readonly names: ReadonlySet<string>; readonly expiresAtMs: number }
+>();
+const sidecarNamesLoads = new Map<string, Promise<ReadonlySet<string>>>();
+
 /** Base filename of a thread's effective-prompt debug sidecar (latest capture). */
 export const promptDebugSidecarFileName = (threadId: ThreadId): string =>
   `${safeName(threadId)}.md`;
@@ -32,18 +43,36 @@ export const promptDebugSidecarPath = (dir: string, threadId: ThreadId): string 
   NodePath.join(dir, promptDebugSidecarFileName(threadId));
 
 /**
- * The set of sidecar filenames currently present in `dir` (a single directory
- * read, not one stat per thread). The projection query reads this ONCE per shell
- * snapshot and only surfaces a thread's `promptDebugPath` when its sidecar is
+ * The cached set of sidecar filenames currently present in `dir` (at most one
+ * asynchronous directory read per five-second window, never one stat per
+ * thread). The projection query only surfaces a thread's `promptDebugPath` when its sidecar is
  * actually present, so a capture failure or a not-yet-launched thread never
  * yields a dead UI link. Best-effort: a missing/unreadable dir yields an empty
  * set (no paths surfaced) rather than throwing.
  */
-export const readPromptDebugSidecarNames = (dir: string): ReadonlySet<string> => {
+export const readPromptDebugSidecarNames = async (dir: string): Promise<ReadonlySet<string>> => {
+  const cached = sidecarNamesCache.get(dir);
+  if (cached !== undefined && cached.expiresAtMs > NodePerfHooks.performance.now()) {
+    return cached.names;
+  }
+
+  const activeLoad = sidecarNamesLoads.get(dir);
+  if (activeLoad !== undefined) return activeLoad;
+
+  const load = NodeFS.promises.readdir(dir).then(
+    (names): ReadonlySet<string> => new Set(names),
+    (): ReadonlySet<string> => new Set(),
+  );
+  sidecarNamesLoads.set(dir, load);
   try {
-    return new Set(NodeFS.readdirSync(dir));
-  } catch {
-    return new Set();
+    const names = await load;
+    sidecarNamesCache.set(dir, {
+      names,
+      expiresAtMs: NodePerfHooks.performance.now() + SIDECAR_NAMES_CACHE_TTL_MS,
+    });
+    return names;
+  } finally {
+    sidecarNamesLoads.delete(dir);
   }
 };
 
@@ -55,10 +84,5 @@ export const readPromptDebugSidecarNames = (dir: string): ReadonlySet<string> =>
  * snapshot surfaced it, the UI surface would appear on a fresh snapshot and then
  * disappear on the thread's next event. Best-effort (an unreadable dir ⇒ false).
  */
-export const promptDebugSidecarExists = (dir: string, threadId: ThreadId): boolean => {
-  try {
-    return NodeFS.existsSync(promptDebugSidecarPath(dir, threadId));
-  } catch {
-    return false;
-  }
-};
+export const promptDebugSidecarExists = async (dir: string, threadId: ThreadId): Promise<boolean> =>
+  (await readPromptDebugSidecarNames(dir)).has(promptDebugSidecarFileName(threadId));

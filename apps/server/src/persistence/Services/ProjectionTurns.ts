@@ -143,6 +143,13 @@ export interface ProjectionTurnRepositoryShape {
   ) => Effect.Effect<ReadonlyArray<ProjectionTurn>, ProjectionRepositoryError>;
 
   /**
+   * Lists running projection rows for a thread without decoding its completed turn history.
+   */
+  readonly listRunningByThreadId: (
+    input: ListProjectionTurnsByThreadInput,
+  ) => Effect.Effect<ReadonlyArray<ProjectionTurn>, ProjectionRepositoryError>;
+
+  /**
    * Looks up a concrete turn row by `{threadId, turnId}` and never returns pending placeholder rows.
    */
   readonly getByTurnId: (
