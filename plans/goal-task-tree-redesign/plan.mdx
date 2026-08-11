@@ -207,6 +207,14 @@ Decomposed for independent coder threads; WP1 → WP2 is the only hard ordering.
 - **Agents drop `(id)` markers when re-emitting the tree**, turning retained tasks into new ones (fresh ids, lost `createdAt`; done-state still survives via the checkbox). Mitigated by guidance ("keep the (id) markers") and by the strict unknown-uuid 400 catching stale reads. Accepted residual: `createdAt` loss on id-dropped lines.
 - **Behavioural bet:** the thesis is that one-call rewriting plus visible tree echoes plus shape guidance actually changes agent behaviour mid-conversation. The evidence supports it (the observed agent *wanted* to restructure and was blocked by cost), but if trees still degrade, the next lever is a just-in-time nudge in mutation responses — cheap to add onto this design.
 
+## Resolved decisions (2026-08-11, Carl)
+
+The QuestionForm below is answered; these resolutions are binding on implementation:
+
+1. **No just-in-time nudge** — rendered-tree echo + injection guidance only (as recommended). Revisit only if trees still degrade after this lands.
+2. **Enforce orchestrator ownership of structure** (overrides the guidance-only proposal in the Design section above): `goal_tasks_rewrite` is **rejected with a clear error** for threads that have a `parentThreadId`, pointing the caller at `goal_task_add` / `goal_task_update`. The child-variant guidance reflects this (children append and done-mark; restructuring belongs to the tree's owner). The solo-root-leaf case keeps rewrite; the cost to gated child leaves is accepted.
+3. **Id-only matching** for rewrite lines missing an `(id)` (as recommended) — no exact-text fallback.
+
 <QuestionForm
   questions={[
     {
