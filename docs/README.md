@@ -5,6 +5,7 @@
   - [Overview](./architecture/overview.md)
   - [Loom UI state conventions](./architecture/loom-ui-state-tiers.md)
   - [Connection runtime](./architecture/connection-runtime.md)
+  - [Checkpointing and your git state](./architecture/checkpoint-git-isolation.md)
   - [Remote environments](./architecture/remote.md)
   - [Server updates](./architecture/server-updates.md)
 - User guides

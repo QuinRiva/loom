@@ -56,7 +56,9 @@ export class CheckpointStore extends Context.Service<
     /**
      * Capture a checkpoint commit and store it at the provided checkpoint ref.
      *
-     * Uses an isolated temporary Git index and writes a hidden ref.
+     * Uses an isolated temporary Git index and writes a hidden ref, so capture
+     * cannot touch the worktree's real index or its `index.lock` — see
+     * `docs/architecture/checkpoint-git-isolation.md`.
      */
     readonly captureCheckpoint: (
       input: CaptureCheckpointInput,
@@ -86,9 +88,12 @@ export class CheckpointStore extends Context.Service<
     ) => Effect.Effect<string, CheckpointStoreError>;
 
     /**
-     * Delete the provided checkpoint refs.
+     * Delete the provided checkpoint refs as one atomic transaction.
      *
-     * Best-effort delete: missing refs are tolerated.
+     * Missing refs are tolerated, but a genuine failure (lock contention that
+     * outlasts the bounded retry) is reported rather than swallowed: a
+     * partially-deleted ref set silently anchors the next turn diff to a
+     * pre-revert tree.
      */
     readonly deleteCheckpointRefs: (
       input: DeleteCheckpointRefsInput,
