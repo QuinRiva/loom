@@ -740,6 +740,76 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
+  it.effect("repository batches disambiguate same-named fork PRs", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const originDir = yield* createBareRemote();
+      const forkDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* runGit(repoDir, ["remote", "set-url", "origin", "https://github.com/base/repo.git"]);
+      yield* runGit(repoDir, ["remote", "add", "fork", forkDir]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/fork"]);
+      yield* runGit(repoDir, ["push", "-u", "fork", "feature/fork"]);
+      yield* runGit(repoDir, ["remote", "set-url", "fork", "https://github.com/fork/repo.git"]);
+      const rawCommonDir = (yield* runGit(repoDir, [
+        "rev-parse",
+        "--git-common-dir",
+      ])).stdout.trim();
+      const gitCommonDir = rawCommonDir.startsWith("/")
+        ? rawCommonDir
+        : `${repoDir}/${rawCommonDir}`;
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            JSON.stringify([
+              {
+                number: 1,
+                title: "Wrong fork",
+                url: "https://github.com/base/repo/pull/1",
+                baseRefName: "main",
+                headRefName: "feature/fork",
+                state: "OPEN",
+                isCrossRepository: true,
+                headRepository: { nameWithOwner: "other/repo" },
+                headRepositoryOwner: { login: "other" },
+              },
+              {
+                number: 2,
+                title: "Expected fork",
+                url: "https://github.com/base/repo/pull/2",
+                baseRefName: "main",
+                headRefName: "feature/fork",
+                state: "OPEN",
+                isCrossRepository: true,
+                headRepository: { nameWithOwner: "fork/repo" },
+                headRepositoryOwner: { login: "fork" },
+              },
+            ]),
+          ],
+        },
+      });
+
+      const [status] = yield* manager.remoteStatuses(
+        {
+          repositoryKey: gitCommonDir,
+          repositoryCwd: repoDir,
+          gitCommonDir,
+          entries: [{ cwd: repoDir, branch: "feature/fork" }],
+        },
+        { refreshUpstream: false },
+      );
+
+      expect(status?.pr?.number).toBe(2);
+      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toEqual([
+        "pr list --state all --limit 1000 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+      ]);
+    }),
+  );
+
   it.effect("status trims PR metadata returned by gh before publishing it", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

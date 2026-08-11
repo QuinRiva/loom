@@ -96,6 +96,53 @@ export const discovery = {
 
 export const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
+  const executeChangeRequestList = (input: {
+    readonly cwd: string;
+    readonly args: ReadonlyArray<string>;
+    readonly reference?: string;
+  }) =>
+    github.execute({ cwd: input.cwd, args: input.args }).pipe(
+      Effect.flatMap((result) => {
+        const raw = result.stdout.trim();
+        if (raw.length === 0) return Effect.succeed([]);
+        return Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
+          Effect.flatMap((decoded) =>
+            Result.isSuccess(decoded)
+              ? Effect.succeed(
+                  decoded.success.map((item) => ({
+                    ...toChangeRequest(item),
+                    updatedAt: item.updatedAt,
+                  })),
+                )
+              : Effect.fail(
+                  new GitHubCli.GitHubChangeRequestListDecodeError({
+                    command: "gh",
+                    cwd: input.cwd,
+                    cause: decoded.failure,
+                  }),
+                ),
+          ),
+        );
+      }),
+      Effect.mapError(
+        (error) =>
+          new SourceControlProviderError({
+            provider: "github",
+            operation: "listChangeRequests",
+            command: error.command,
+            cwd: input.cwd,
+            ...(input.reference
+              ? {
+                  reference: SourceControlProvider.transportSafeSourceControlErrorValue(
+                    input.reference,
+                  ),
+                }
+              : {}),
+            detail: error.detail,
+            cause: error,
+          }),
+      ),
+    );
 
   const listChangeRequests: SourceControlProvider.SourceControlProvider["Service"]["listChangeRequests"] =
     (input) => {
@@ -126,67 +173,41 @@ export const make = Effect.gen(function* () {
       }
 
       const stateArg: ChangeRequestState | "all" = input.state;
-      return github
-        .execute({
-          cwd: input.cwd,
-          args: [
-            "pr",
-            "list",
-            "--head",
-            input.headSelector,
-            "--state",
-            stateArg,
-            "--limit",
-            String(input.limit ?? 20),
-            "--json",
-            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-          ],
-        })
-        .pipe(
-          Effect.flatMap((result) => {
-            const raw = result.stdout.trim();
-            if (raw.length === 0) {
-              return Effect.succeed([]);
-            }
-            return Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-              Effect.flatMap((decoded) =>
-                Result.isSuccess(decoded)
-                  ? Effect.succeed(
-                      decoded.success.map((item) => ({
-                        ...toChangeRequest(item),
-                        updatedAt: item.updatedAt,
-                      })),
-                    )
-                  : Effect.fail(
-                      new GitHubCli.GitHubChangeRequestListDecodeError({
-                        command: "gh",
-                        cwd: input.cwd,
-                        cause: decoded.failure,
-                      }),
-                    ),
-              ),
-            );
-          }),
-          Effect.mapError(
-            (error) =>
-              new SourceControlProviderError({
-                provider: "github",
-                operation: "listChangeRequests",
-                command: error.command,
-                cwd: input.cwd,
-                reference: SourceControlProvider.transportSafeSourceControlErrorValue(
-                  input.headSelector,
-                ),
-                detail: error.detail,
-                cause: error,
-              }),
-          ),
-        );
+      return executeChangeRequestList({
+        cwd: input.cwd,
+        reference: input.headSelector,
+        args: [
+          "pr",
+          "list",
+          "--head",
+          input.headSelector,
+          "--state",
+          stateArg,
+          "--limit",
+          String(input.limit ?? 20),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
+      });
     };
 
   return SourceControlProvider.SourceControlProvider.of({
     kind: "github",
     listChangeRequests,
+    listRepositoryChangeRequests: (input) =>
+      executeChangeRequestList({
+        cwd: input.cwd,
+        args: [
+          "pr",
+          "list",
+          "--state",
+          input.state,
+          "--limit",
+          String(input.limit ?? 1_000),
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
+      }),
     getChangeRequest: (input) =>
       github.getPullRequest(input).pipe(
         Effect.map(toChangeRequest),

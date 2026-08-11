@@ -399,6 +399,119 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("batches tracked, untracked, and detached branch remote status", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "feature/tracked"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature/tracked"]);
+        yield* writeTextFile(cwd, "tracked.txt", "ahead\n");
+        yield* git(cwd, ["add", "tracked.txt"]);
+        yield* git(cwd, ["commit", "-m", "tracked ahead"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "feature/untracked"]);
+        yield* writeTextFile(cwd, "untracked.txt", "ahead\n");
+        yield* git(cwd, ["add", "untracked.txt"]);
+        yield* git(cwd, ["commit", "-m", "untracked ahead"]);
+
+        const rawCommonDir = yield* git(cwd, ["rev-parse", "--git-common-dir"]);
+        const statuses = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetailsRemoteBatch(
+          {
+            repositoryCwd: cwd,
+            gitCommonDir: rawCommonDir.startsWith("/") ? rawCommonDir : `${cwd}/${rawCommonDir}`,
+            branches: ["feature/tracked", "feature/untracked", null],
+          },
+          { refreshUpstream: false },
+        );
+
+        assert.deepInclude(statuses[0], {
+          branch: "feature/tracked",
+          hasUpstream: true,
+          aheadCount: 1,
+          behindCount: 0,
+          aheadOfDefaultCount: 1,
+        });
+        assert.deepInclude(statuses[1], {
+          branch: "feature/untracked",
+          hasUpstream: false,
+          aheadCount: 1,
+          behindCount: 0,
+          aheadOfDefaultCount: 1,
+        });
+        assert.deepInclude(statuses[2], {
+          branch: null,
+          hasUpstream: false,
+          aheadCount: 0,
+          behindCount: 0,
+          aheadOfDefaultCount: 0,
+        });
+      }),
+    );
+
+    it.effect("batch refresh fetches the tracked upstream and sees remote movement", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const updater = yield* makeTmpDir("git-vcs-driver-updater-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+
+        yield* git(updater, ["clone", remote, "."]);
+        yield* git(updater, ["config", "user.email", "test@test.com"]);
+        yield* git(updater, ["config", "user.name", "Test"]);
+        yield* writeTextFile(updater, "remote.txt", "remote\n");
+        yield* git(updater, ["add", "remote.txt"]);
+        yield* git(updater, ["commit", "-m", "remote commit"]);
+        yield* git(updater, ["push", "origin", initialBranch]);
+
+        const rawCommonDir = yield* git(cwd, ["rev-parse", "--git-common-dir"]);
+        const batchInput = {
+          repositoryCwd: cwd,
+          gitCommonDir: rawCommonDir.startsWith("/") ? rawCommonDir : `${cwd}/${rawCommonDir}`,
+          branches: [initialBranch],
+        };
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const cached = yield* driver.statusDetailsRemoteBatch(batchInput, {
+          refreshUpstream: false,
+        });
+        const refreshed = yield* driver.statusDetailsRemoteBatch(batchInput);
+
+        assert.equal(cached[0]?.behindCount, 0);
+        assert.equal(refreshed[0]?.behindCount, 1);
+      }),
+    );
+
+    it.effect("batches from the repository itself, not a removed subscriber worktree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const worktreeParent = yield* makeTmpDir("git-vcs-driver-worktree-");
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* initRepoWithCommit(cwd);
+        const worktreePath = pathService.join(worktreeParent, "linked");
+        yield* git(cwd, ["worktree", "add", "-b", "feature/linked", worktreePath]);
+        yield* fileSystem.remove(worktreePath, { recursive: true });
+
+        const rawCommonDir = yield* git(cwd, ["rev-parse", "--git-common-dir"]);
+        const statuses = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetailsRemoteBatch(
+          {
+            repositoryCwd: cwd,
+            gitCommonDir: rawCommonDir.startsWith("/") ? rawCommonDir : `${cwd}/${rawCommonDir}`,
+            branches: ["feature/linked"],
+          },
+          { refreshUpstream: false },
+        );
+
+        assert.deepInclude(statuses[0], { isRepo: true, branch: "feature/linked" });
+      }),
+    );
+
     it.effect("can read cached remote divergence without fetching upstream", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

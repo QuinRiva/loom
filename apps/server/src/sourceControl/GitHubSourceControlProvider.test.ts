@@ -161,6 +161,35 @@ it.effect("uses gh json listing for non-open change request state queries", () =
   }),
 );
 
+it.effect("lists repository PRs without a per-branch head filter", () =>
+  Effect.gen(function* () {
+    let executeArgs: ReadonlyArray<string> = [];
+    const provider = yield* makeProvider({
+      execute: (input) => {
+        executeArgs = input.args;
+        return Effect.succeed(processResult("[]"));
+      },
+    });
+
+    const changeRequests = yield* provider.listRepositoryChangeRequests!({
+      cwd: "/repo",
+      state: "all",
+    });
+
+    assert.deepStrictEqual(changeRequests, []);
+    assert.deepStrictEqual(executeArgs, [
+      "pr",
+      "list",
+      "--state",
+      "all",
+      "--limit",
+      "1000",
+      "--json",
+      "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+    ]);
+  }),
+);
+
 it.effect("treats empty non-open change request listing output as no results", () =>
   Effect.gen(function* () {
     const provider = yield* makeProvider({

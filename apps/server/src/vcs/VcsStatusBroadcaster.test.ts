@@ -75,6 +75,7 @@ function makeTestLayer(state: {
     Layer.provideMerge(NodeServices.layer),
     Layer.provide(
       Layer.mock(GitWorkflowService.GitWorkflowService)({
+        resolveRemoteStatusRepository: () => Effect.succeed(null),
         localStatus: () =>
           Effect.sync(() => {
             state.localStatusCalls += 1;
@@ -185,6 +186,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -292,6 +294,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: (input) =>
             Effect.sync(() => {
               seenCwds.push(input.cwd);
@@ -379,6 +382,127 @@ describe("VcsStatusBroadcaster", () => {
     }).pipe(Effect.provide(makeTestLayer(state)));
   });
 
+  it.effect("polls all subscribed worktrees from one repository batch", () => {
+    const batchEntries: Array<
+      ReadonlyArray<{ readonly cwd: string; readonly branch: string | null }>
+    > = [];
+    let singleRemoteCalls = 0;
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () =>
+            Effect.succeed({ gitCommonDir: "/repo/.git", repositoryCwd: "/repo" }),
+          localStatus: ({ cwd }) =>
+            Effect.succeed({ ...baseLocalStatus, refName: cwd.endsWith("one") ? "one" : "two" }),
+          remoteStatus: () =>
+            Effect.sync(() => {
+              singleRemoteCalls += 1;
+              return baseRemoteStatus;
+            }),
+          remoteStatuses: (input) =>
+            Effect.sync(() => {
+              batchEntries.push(input.entries);
+              return input.entries.map(() => baseRemoteStatus);
+            }),
+          invalidateLocalStatus: () => Effect.void,
+          invalidateRemoteStatus: () => Effect.void,
+          invalidateStatus: () => Effect.void,
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      yield* broadcaster.getStatus({ cwd: "/repo/one" });
+      yield* broadcaster.getStatus({ cwd: "/repo/two" });
+      const scope = yield* Scope.make();
+      const firstSnapshot = yield* Deferred.make<void>();
+      const secondSnapshot = yield* Deferred.make<void>();
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo/one" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(firstSnapshot, undefined).pipe(Effect.ignore)
+          : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo/two" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(secondSnapshot, undefined).pipe(Effect.ignore)
+          : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(firstSnapshot);
+      yield* Deferred.await(secondSnapshot);
+
+      yield* TestClock.adjust(Duration.seconds(30));
+      yield* Effect.yieldNow;
+
+      assert.equal(singleRemoteCalls, 2);
+      assert.equal(batchEntries.length, 1);
+      assert.deepStrictEqual(batchEntries[0], [
+        { cwd: "/repo/one", branch: "one" },
+        { cwd: "/repo/two", branch: "two" },
+      ]);
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
+  });
+
+  it.effect("keeps turn-completion local refreshes off the repo batch cadence", () => {
+    let batchCalls = 0;
+    let invalidateStatusCalls = 0;
+    const refNames = new Map<string, string>([["/repo/one", "one"]]);
+    const testLayer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provide(
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () =>
+            Effect.succeed({ gitCommonDir: "/repo/.git", repositoryCwd: "/repo" }),
+          localStatus: ({ cwd }) =>
+            Effect.succeed({ ...baseLocalStatus, refName: refNames.get(cwd) ?? null }),
+          remoteStatuses: (input) =>
+            Effect.sync(() => {
+              batchCalls += 1;
+              return input.entries.map(() => baseRemoteStatus);
+            }),
+          invalidateLocalStatus: () => Effect.void,
+          invalidateRemoteStatus: () => Effect.void,
+          invalidateStatus: () =>
+            Effect.sync(() => {
+              invalidateStatusCalls += 1;
+            }),
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const scope = yield* Scope.make();
+      const snapshot = yield* Deferred.make<void>();
+      yield* Stream.runForEach(broadcaster.streamStatus({ cwd: "/repo/one" }), (event) =>
+        event._tag === "snapshot"
+          ? Deferred.succeed(snapshot, undefined).pipe(Effect.ignore)
+          : Effect.void,
+      ).pipe(Effect.forkIn(scope));
+      yield* Deferred.await(snapshot);
+      yield* TestClock.adjust(Duration.seconds(30));
+      yield* Effect.yieldNow;
+      const batchesAfterFirstCycle = batchCalls;
+
+      // Turn completion with an unchanged branch: no repo batch, no PR-epoch bump.
+      yield* broadcaster.refreshLocalStatus("/repo/one");
+      yield* Effect.yieldNow;
+      assert.equal(batchCalls, batchesAfterFirstCycle);
+      assert.equal(invalidateStatusCalls, 0);
+
+      // A genuine branch change makes the cached remote row wrong, so it wakes.
+      refNames.set("/repo/one", "two");
+      yield* broadcaster.refreshLocalStatus("/repo/one");
+      yield* Effect.yieldNow;
+      assert.equal(batchCalls, batchesAfterFirstCycle + 1);
+      assert.equal(invalidateStatusCalls, 0);
+
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
+  });
+
   it.effect("loads remote status once when periodic refreshes are disabled", () => {
     const state = {
       currentLocalStatus: baseLocalStatus,
@@ -455,6 +579,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
@@ -518,7 +643,7 @@ describe("VcsStatusBroadcaster", () => {
         [
           "VCS remote status refresh failed",
           {
-            cwdLength: privateCwd.length,
+            repositoryKeyLength: privateCwd.length,
             reasonCount: 1,
             failureCount: 1,
             failureTags: ["GitManagerError"],
@@ -656,6 +781,7 @@ describe("VcsStatusBroadcaster", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          resolveRemoteStatusRepository: () => Effect.succeed(null),
           localStatus: () =>
             Effect.sync(() => {
               state.localStatusCalls += 1;
