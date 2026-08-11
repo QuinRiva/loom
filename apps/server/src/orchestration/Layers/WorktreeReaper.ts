@@ -6,7 +6,7 @@ import {
   EventId,
   type OrchestrationCommand,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -88,7 +88,7 @@ const make = Effect.gen(function* () {
   const classifyProject = Effect.fn("classifyProject")(function* (
     project: OrchestrationProjectShell,
     snapshot: {
-      readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+      readonly threads: ReadonlyArray<OrchestrationThreadLeanShell>;
       readonly projects: ReadonlyArray<OrchestrationProjectShell>;
     },
     nowMs: number,
@@ -150,7 +150,7 @@ const make = Effect.gen(function* () {
   });
 
   const classifyAll = Effect.fn("classifyAll")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const nowMs = yield* Effect.map(DateTime.now, DateTime.toEpochMillis);
     const out: ClassifiedWorktree[] = [];
     for (const project of snapshot.projects) {
@@ -202,7 +202,7 @@ const make = Effect.gen(function* () {
   });
 
   const runPass = Effect.fn("runPass")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const nowMs = yield* Effect.map(DateTime.now, DateTime.toEpochMillis);
     for (const project of snapshot.projects) {
       const classified = yield* classifyProject(project, snapshot, nowMs);

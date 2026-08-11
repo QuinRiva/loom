@@ -7,8 +7,8 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationReadModel,
   type OrchestrationSession,
-  type OrchestrationShellSnapshot,
-  type OrchestrationThreadShell,
+  type OrchestrationLeanShellSnapshot,
+  type OrchestrationThreadLeanShell,
   type ProviderSession,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -120,8 +120,8 @@ import { writeLaunchIdentity } from "../workstreamLaunchIdentity.ts";
 const now = "2026-06-24T00:00:00.000Z";
 
 const shell = (
-  overrides: Omit<Partial<OrchestrationThreadShell>, "id"> & { readonly id: string },
-): OrchestrationThreadShell =>
+  overrides: Omit<Partial<OrchestrationThreadLeanShell>, "id"> & { readonly id: string },
+): OrchestrationThreadLeanShell =>
   ({
     projectId: "project-1",
     goalId: null,
@@ -172,9 +172,10 @@ const shell = (
     hasActionableProposedPlan: false,
     ...overrides,
     id: overrides.id as ThreadId,
-  }) as OrchestrationThreadShell;
+  }) as OrchestrationThreadLeanShell;
 
-const ids = (threads: ReadonlyArray<OrchestrationThreadShell>) => threads.map((t) => t.id).sort();
+const ids = (threads: ReadonlyArray<OrchestrationThreadLeanShell>) =>
+  threads.map((t) => t.id).sort();
 
 // Worktree isolation: dispatcher-selection tests use only `shared` threads, so
 // the provisioner is never invoked — a no-op stub satisfies the layer.
@@ -308,7 +309,7 @@ describe("selectThreadsToDispatch", () => {
 });
 
 describe("isBriefNeeded (brief-needed eligibility, scaffold plan §2/§3)", () => {
-  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+  const map = (threads: ReadonlyArray<OrchestrationThreadLeanShell>) =>
     new Map(threads.map((t) => [t.id, t] as const));
 
   it("is true for a released, deps-satisfied, unbriefed sub-thread", () => {
@@ -347,7 +348,7 @@ describe("isBriefNeeded (brief-needed eligibility, scaffold plan §2/§3)", () =
 });
 
 describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", () => {
-  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+  const map = (threads: ReadonlyArray<OrchestrationThreadLeanShell>) =>
     new Map(threads.map((t) => [t.id, t] as const));
 
   it("dates a born-eligible node (no deps) from its scaffold/createdAt time", () => {
@@ -370,7 +371,7 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
         round: 0,
         at: depDone,
         recordedByEventId: EventId.make("11111111-1111-1111-1111-111111111111"),
-      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
     });
     const child = shell({
       id: "child-1",
@@ -392,7 +393,7 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
         round: 0,
         at: "2026-06-24T03:00:00.000Z",
         recordedByEventId: EventId.make("22222222-2222-2222-2222-222222222222"),
-      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
     });
     const late = shell({
       id: "dep-late",
@@ -404,7 +405,7 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
         round: 0,
         at: "2026-06-24T06:00:00.000Z",
         recordedByEventId: EventId.make("33333333-3333-3333-3333-333333333333"),
-      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
     });
     const child = shell({
       id: "child-1",
@@ -494,7 +495,7 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
         round: 0,
         at: "2026-06-24T01:00:00.000Z",
         recordedByEventId: EventId.make("44444444-4444-4444-4444-444444444444"),
-      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
       planLaneSince: "2026-06-24T01:00:00.000Z",
     });
     const child = shell({
@@ -552,7 +553,7 @@ describe("briefNeededSinceMs (eligibility-episode clock, scaffold plan §3)", ()
         round: 0,
         at: "2026-06-24T02:00:00.000Z",
         recordedByEventId: EventId.make("55555555-5555-5555-5555-555555555555"),
-      } as unknown as OrchestrationThreadShell["lastOutcome"],
+      } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
       planLaneSince: "2026-06-24T02:00:00.000Z",
       faninSince: faninAt,
     });
@@ -748,11 +749,11 @@ describe("buildBriefNeededMessage (batched notice + the three sanctioned moves)"
 });
 
 describe("briefNeededAttentionParentIds (derived 24h parent attention, plan §3.3)", () => {
-  const map = (threads: ReadonlyArray<OrchestrationThreadShell>) =>
+  const map = (threads: ReadonlyArray<OrchestrationThreadLeanShell>) =>
     new Map(threads.map((t) => [t.id, t] as const));
   const nowMs = Date.parse(now);
   const iso = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(nowMs + offsetMs));
-  const unbriefed = (overrides: Partial<OrchestrationThreadShell> = {}) =>
+  const unbriefed = (overrides: Partial<OrchestrationThreadLeanShell> = {}) =>
     shell({
       id: "child-1",
       parentThreadId: "parent-1" as ThreadId,
@@ -1586,7 +1587,7 @@ describe("terminalEpisodeKey (delta reported-marker episode)", () => {
 describe("startup stale session reconciliation", () => {
   const PARENT_ID = "parent-startup-reconcile" as ThreadId;
   const CHILD_ID = "child-startup-reconcile" as ThreadId;
-  const defaultThreads = (): ReadonlyArray<OrchestrationThreadShell> => [
+  const defaultThreads = (): ReadonlyArray<OrchestrationThreadLeanShell> => [
     shell({
       id: PARENT_ID,
       parentThreadId: null,
@@ -1609,7 +1610,7 @@ describe("startup stale session reconciliation", () => {
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
     providerSessions: ReadonlyArray<ProviderSession> = [],
-    threadsSeed: ReadonlyArray<OrchestrationThreadShell> = defaultThreads(),
+    threadsSeed: ReadonlyArray<OrchestrationThreadLeanShell> = defaultThreads(),
     failTurnStart = false,
     pendingTurnStartSeed: ReadonlySet<ThreadId> = new Set(),
     // Durable provider bindings: the restart-survivor evidence boot consults. A
@@ -1624,7 +1625,7 @@ describe("startup stale session reconciliation", () => {
       Effect.gen(function* () {
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
         const pendingTurnStarts = yield* Ref.make<ReadonlySet<ThreadId>>(pendingTurnStartSeed);
-        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>(threadsSeed);
+        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>(threadsSeed);
         const shellSnapshot = Effect.map(Ref.get(threads), (current) => ({
           snapshotSequence: 1,
           goals: [],
@@ -1723,7 +1724,7 @@ describe("startup stale session reconciliation", () => {
                   threads: snapshot.threads as never,
                 }) satisfies OrchestrationReadModel,
             ),
-          getShellSnapshot: () => shellSnapshot,
+          getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
@@ -1971,8 +1972,8 @@ describe("startup stale session reconciliation", () => {
   // explicitly abandoned work is wrong). `done` remains resumable (covered by
   // the leaf-worker/parent cases above via a non-terminal lane).
   const interruptedShellWith = (
-    overrides: Omit<Partial<OrchestrationThreadShell>, "id">,
-  ): OrchestrationThreadShell =>
+    overrides: Omit<Partial<OrchestrationThreadLeanShell>, "id">,
+  ): OrchestrationThreadLeanShell =>
     shell({
       id: WORKER_ID,
       parentThreadId: "some-parent" as ThreadId,
@@ -1991,7 +1992,7 @@ describe("startup stale session reconciliation", () => {
     ["cancelled", interruptedShellWith({ planLane: "cancelled" as ThreadPlanLane })],
     [
       "soft-deleted",
-      { ...interruptedShellWith({}), deletedAt: now } as unknown as OrchestrationThreadShell,
+      { ...interruptedShellWith({}), deletedAt: now } as unknown as OrchestrationThreadLeanShell,
     ],
   ] as const) {
     effectIt.effect(`resets but does NOT resume an interrupted ${label} thread`, () =>
@@ -2054,8 +2055,8 @@ describe("startup stale session reconciliation", () => {
   // the session stayed `starting` forever, the dispatcher would not re-dispatch
   // (it needs `session === null`) and the liveness sweep could not see it.
   const stuckLaunchShell = (
-    overrides: Omit<Partial<OrchestrationThreadShell>, "id"> = {},
-  ): OrchestrationThreadShell =>
+    overrides: Omit<Partial<OrchestrationThreadLeanShell>, "id"> = {},
+  ): OrchestrationThreadLeanShell =>
     shell({
       id: WORKER_ID,
       parentThreadId: "some-parent" as ThreadId,
@@ -3331,14 +3332,13 @@ describe("idle-wake scheduled re-pass (TestClock, full dispatcher layer)", () =>
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: epochIso,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -3459,14 +3459,13 @@ describe("recovery wake (error→done re-notifies the parent), full dispatcher l
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -3607,14 +3606,13 @@ describe("recovery suppression avoids repeat receipt reads (TestClock, full disp
             latestSequence: Effect.succeed(0),
           } as unknown as OrchestrationEngineShape;
           const snapshotQuery = {
-            getShellSnapshot: () =>
+            getLeanShellSnapshot: () =>
               Effect.succeed({
                 snapshotSequence: 1,
-                goals: [],
                 projects: [],
                 threads: [parent, child],
                 updatedAt: now,
-              } satisfies OrchestrationShellSnapshot),
+              } satisfies OrchestrationLeanShellSnapshot),
             getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
             listPendingPeerMessages: () => Effect.succeed([]),
             getActivityFreshnessByThreadId: () =>
@@ -3704,14 +3702,13 @@ describe("paused-child attention notice (full dispatcher layer)", () => {
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -3815,7 +3812,7 @@ describe("awaiting_input parent wake (full dispatcher layer)", () => {
     });
 
   const buildDeps = (
-    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>,
     openRef: Ref.Ref<ReadonlySet<string>>,
     dispatched: Array<OrchestrationCommand>,
     receipts: Set<string>,
@@ -3835,7 +3832,7 @@ describe("awaiting_input parent wake (full dispatcher layer)", () => {
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.map(Ref.get(threadsRef), (threads) => ({
           snapshotSequence: 1,
           goals: [],
@@ -3898,7 +3895,7 @@ describe("awaiting_input parent wake (full dispatcher layer)", () => {
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             blockedChild(["awaiting_input"]),
           ]);
@@ -4006,14 +4003,13 @@ describe("slow-tool informational notice (TestClock, full dispatcher layer)", ()
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: epochIso,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       // Heartbeat frozen at epoch: quiet time === TestClock time.
@@ -4215,14 +4211,13 @@ describe("frozen-attention notice (flagged mid-turn, TestClock, full dispatcher 
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: epochIso,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -4306,7 +4301,7 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
       round: 0,
       recordedByEventId: "evt-outcome-1",
       at: now,
-    } as unknown as OrchestrationThreadShell["lastOutcome"],
+    } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
   });
 
   const buildLayer = (dispatched: Array<OrchestrationCommand>) => {
@@ -4324,14 +4319,13 @@ describe("yield wake (yielded child hands its turn to the orchestrator), full di
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, child],
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -4500,11 +4494,11 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
   const gateRoutes = [
     { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
     { on: ["clean", "fixed_inline"], kind: "resolve" },
-  ] as unknown as OrchestrationThreadShell["routes"];
+  ] as unknown as OrchestrationThreadLeanShell["routes"];
 
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
     options: { readonly receiptIds?: ReadonlySet<string>; readonly prefix: string },
   ) => {
     const engine = {
@@ -4521,14 +4515,13 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads,
           updatedAt: epochIso,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -4558,7 +4551,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
   };
 
   const run = (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
     options: { readonly receiptIds?: ReadonlySet<string>; readonly prefix: string },
     body: (args: {
       readonly dispatched: Array<OrchestrationCommand>;
@@ -4587,7 +4580,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
     round: 1,
     recordedByEventId: "evt-loop-1",
     at: epochIso,
-  } as unknown as NonNullable<OrchestrationThreadShell["lastOutcome"]>;
+  } as unknown as NonNullable<OrchestrationThreadLeanShell["lastOutcome"]>;
 
   effectIt.effect(
     "rework leg: an open round resumes the done coder with reopen, exactly once (round-trip start)",
@@ -4778,7 +4771,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           round: 1,
           recordedByEventId: "evt-coder-loop",
           at: now,
-        } as unknown as OrchestrationThreadShell["lastOutcome"],
+        } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
       });
       return run(
         [parent, reviewer, coder],
@@ -5004,7 +4997,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           round: 1,
           recordedByEventId: "evt-reviewer-loop",
           at: now,
-        } as unknown as OrchestrationThreadShell["lastOutcome"],
+        } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
       });
       // This is the previously-bad gap: the target no longer has pendingRework,
       // but the source's loop round remains unresolved and should stay parked
@@ -5062,7 +5055,7 @@ describe("routeGateTraversals (full dispatcher layer)", () => {
           round: 1,
           recordedByEventId: "evt-reviewer-loop-dead",
           at: now,
-        } as unknown as OrchestrationThreadShell["lastOutcome"],
+        } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
       });
       const coder = shell({
         id: CODER_ID as unknown as string,
@@ -5107,11 +5100,11 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
   const gateRoutes = [
     { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
     { on: ["clean", "fixed_inline"], kind: "resolve" },
-  ] as unknown as OrchestrationThreadShell["routes"];
+  ] as unknown as OrchestrationThreadLeanShell["routes"];
 
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
     prefix: string,
   ) => {
     const engine = {
@@ -5127,14 +5120,13 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
       latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads,
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -5158,7 +5150,7 @@ describe("terminal child is held back by an unresolved gate (full dispatcher lay
     );
   };
 
-  const drainWith = (threads: ReadonlyArray<OrchestrationThreadShell>, prefix: string) =>
+  const drainWith = (threads: ReadonlyArray<OrchestrationThreadLeanShell>, prefix: string) =>
     Effect.scoped(
       Effect.gen(function* () {
         const dispatched: Array<OrchestrationCommand> = [];
@@ -5247,7 +5239,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
     routes: [
       { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
       { on: ["clean", "fixed_inline"], kind: "resolve" },
-    ] as unknown as OrchestrationThreadShell["routes"],
+    ] as unknown as OrchestrationThreadLeanShell["routes"],
     gateRounds: 2,
     reportPath: "/nonexistent/reviewer-cap.md",
     lastOutcome: {
@@ -5256,7 +5248,7 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
       round: 2,
       recordedByEventId: "evt-cap-1",
       at: now,
-    } as unknown as OrchestrationThreadShell["lastOutcome"],
+    } as unknown as OrchestrationThreadLeanShell["lastOutcome"],
   });
   const coder = shell({
     id: CODER_ID as unknown as string,
@@ -5280,14 +5272,13 @@ describe("cap-breach yield wake carries both reports (full dispatcher layer)", (
       latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads: [parent, reviewer, coder],
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -5522,7 +5513,7 @@ describe("fan-in settlement releases dependents", () => {
         const briefDir = yield* fs.makeTempDirectory({ prefix: "t3-fanin-brief-" });
         const dependentBrief = path.join(briefDir, "dependent.md");
         yield* fs.writeFileString(dependentBrief, "dependent kickoff brief");
-        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+        const threads = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
           shell({
             id: DEP_ID,
             parentThreadId: "parent-1" as ThreadId,
@@ -5559,7 +5550,7 @@ describe("fan-in settlement releases dependents", () => {
           latestSequence: Effect.succeed(0),
         } satisfies OrchestrationEngineShape;
         const snapshotQuery = {
-          getShellSnapshot: () => shellSnapshot,
+          getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
@@ -5616,7 +5607,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
   const parent = shell({ id: PARENT_ID as unknown as string, parentThreadId: null, session: null });
 
   const buildDeps = (
-    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>,
     dispatched: Array<OrchestrationCommand>,
     receipts: Set<string>,
     events: PubSub.PubSub<OrchestrationEvent>,
@@ -5639,7 +5630,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
       latestSequence: Effect.succeed(0),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.map(Ref.get(threadsRef), (threads) => ({
           snapshotSequence: 1,
           goals: [],
@@ -5688,7 +5679,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             shell({
               id: A as unknown as string,
@@ -5753,7 +5744,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             shell({
               id: A as unknown as string,
@@ -5814,7 +5805,10 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           const idleAtS = "2026-06-24T00:00:05.000Z";
           const dispatchedS: Array<OrchestrationCommand> = [];
           const receiptsS = new Set<string>([childWakeCommandId(A, `idle:${idleAtS}`)]);
-          const refS = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, child]);
+          const refS = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
+            parent,
+            child,
+          ]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
             yield* dispatcher.start();
@@ -5833,7 +5827,10 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           // reported.
           const dispatchedR: Array<OrchestrationCommand> = [];
           const receiptsR = new Set<string>([childWakeCommandId(A, `idle:${idleAtS}`)]);
-          const refR = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, child]);
+          const refR = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
+            parent,
+            child,
+          ]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
             yield* dispatcher.start();
@@ -5866,7 +5863,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
-          const refT = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const refT = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             shell({
               id: A as unknown as string,
@@ -5909,7 +5906,7 @@ describe("terminal-child delta rail (full dispatcher layer)", () => {
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
-          const refC = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const refC = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             shell({
               id: A as unknown as string,
@@ -5974,7 +5971,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
     });
 
   const buildDeps = (
-    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>,
     dispatched: Array<OrchestrationCommand>,
     receipts: Set<string>,
   ) => {
@@ -5992,7 +5989,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
       latestSequence: Effect.succeed(0),
     } as unknown as OrchestrationEngineShape;
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.map(Ref.get(threadsRef), (threads) => ({
           snapshotSequence: 1,
           goals: [],
@@ -6041,7 +6038,7 @@ describe("parked error wake never poisons the recovered rail (full dispatcher la
           const siblings = Array.from({ length: DEFAULT_WAKE_RATE_GUARD.maxInWindow }, (_u, i) =>
             errorChild(`child-poison-sib-${i}`),
           );
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             ...siblings,
             errorChild(TARGET as unknown as string),
@@ -6099,17 +6096,17 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
   const gateRoutes = [
     { on: ["needs_rework"], kind: "loop", to: CODER_ID, maxRounds: 2 },
     { on: ["clean", "fixed_inline"], kind: "resolve" },
-  ] as unknown as OrchestrationThreadShell["routes"];
+  ] as unknown as OrchestrationThreadLeanShell["routes"];
   const resolveOutcome = {
     outcome: "clean",
     decision: "resolve",
     round: 0,
     recordedByEventId: "evt-nc-resolve",
     at: "2026-07-07T14:32:00.000Z",
-  } as unknown as OrchestrationThreadShell["lastOutcome"];
+  } as unknown as OrchestrationThreadLeanShell["lastOutcome"];
 
   const buildDeps = (
-    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>,
     dispatched: Array<OrchestrationCommand>,
     receipts: Set<string>,
     events: PubSub.PubSub<OrchestrationEvent>,
@@ -6129,7 +6126,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
       latestSequence: Effect.succeed(0),
     } satisfies OrchestrationEngineShape;
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.map(Ref.get(threadsRef), (threads) => ({
           snapshotSequence: 1,
           goals: [],
@@ -6199,7 +6196,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             resolvedReviewer(),
             isolatedCoder("none"),
@@ -6246,7 +6243,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
         Effect.gen(function* () {
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             resolvedReviewer(),
             isolatedCoder("completed"),
@@ -6318,7 +6315,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
               activeTurnId: "turn-nc" as TurnId,
             }),
           });
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             doneSibling,
             runningChild,
@@ -6385,7 +6382,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
             }),
             reportPath: "/nonexistent/coder-nc.md",
           });
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             doneSibling,
             errorChild,
@@ -6446,7 +6443,10 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
             spawnGeneration: "gen-nc",
             reportPath: "/nonexistent/coder-nc.md",
           });
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent, doneChild]);
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
+            parent,
+            doneChild,
+          ]);
           const marker = childReportedCommandId(CODER_ID, "gen-nc");
           // Instance 1 delivers the digest wake and writes the marker.
           yield* Effect.gen(function* () {
@@ -6497,13 +6497,13 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             parent,
             resolvedReviewer(),
             {
               ...isolatedCoder("none"),
               fanInState: "conflicted" as const,
-            } as OrchestrationThreadShell,
+            } as OrchestrationThreadLeanShell,
           ]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
@@ -6542,7 +6542,7 @@ describe("notice-coalescing: gate-pair coalescing + digest tiering (full dispatc
           const dispatched: Array<OrchestrationCommand> = [];
           const receipts = new Set<string>();
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
-          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([parent]);
+          const ref = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([parent]);
           yield* Effect.gen(function* () {
             const dispatcher = yield* WorkstreamDispatcher;
             yield* dispatcher.start();
@@ -6610,7 +6610,7 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
 
   const buildLayer = (
     dispatched: Array<OrchestrationCommand>,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
   ) => {
     const engine = {
       readEvents: () => Stream.empty,
@@ -6626,14 +6626,13 @@ describe("brief gate + read-at-kickoff + brief-needed wake (full dispatcher laye
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 1,
-          goals: [],
           projects: [],
           threads,
           updatedAt: now,
-        } satisfies OrchestrationShellSnapshot),
+        } satisfies OrchestrationLeanShellSnapshot),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),
       listPendingPeerMessages: () => Effect.succeed([]),
       getActivityFreshnessByThreadId: () =>
@@ -6851,7 +6850,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
   const FORK_ID = "bbbbbbbb-0000-4000-8000-000000000002" as ThreadId;
 
   // A source that is mid-turn (running with an active turn) → not idle.
-  const runningSource = (): OrchestrationThreadShell =>
+  const runningSource = (): OrchestrationThreadLeanShell =>
     shell({
       id: SOURCE_ID as unknown as string,
       parentThreadId: "root-fork" as unknown as ThreadId,
@@ -6865,7 +6864,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
       }),
     });
 
-  const forkChild = (kickoffBriefPath: string): OrchestrationThreadShell =>
+  const forkChild = (kickoffBriefPath: string): OrchestrationThreadLeanShell =>
     shell({
       id: FORK_ID as unknown as string,
       parentThreadId: "root-fork" as unknown as ThreadId,
@@ -6882,7 +6881,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
 
   const buildForkLayer = (
     dispatched: Array<OrchestrationCommand>,
-    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>,
+    threadsRef: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>,
   ) =>
     Layer.unwrap(
       Effect.gen(function* () {
@@ -6949,7 +6948,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
           latestSequence: Effect.succeed(0),
         } as unknown as OrchestrationEngineShape;
         const snapshotQuery = {
-          getShellSnapshot: () => shellSnapshot,
+          getLeanShellSnapshot: () => shellSnapshot,
           getPendingTurnStartThreadIds: () => Ref.get(pendingTurnStarts),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
@@ -6981,7 +6980,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
       }),
     );
 
-  const idleDoneSource = (): OrchestrationThreadShell =>
+  const idleDoneSource = (): OrchestrationThreadLeanShell =>
     shell({
       id: SOURCE_ID as unknown as string,
       parentThreadId: "root-fork" as unknown as ThreadId,
@@ -6997,7 +6996,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
       Effect.scoped(
         Effect.gen(function* () {
           const dispatched: Array<OrchestrationCommand> = [];
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([]);
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([]);
           yield* Effect.gen(function* () {
             const config = yield* ServerConfig;
             const fs = yield* FileSystem.FileSystem;
@@ -7051,7 +7050,7 @@ describe("forkFrom dispatch gate + captured-selection persistence (D2/D7)", () =
       Effect.scoped(
         Effect.gen(function* () {
           const dispatched: Array<OrchestrationCommand> = [];
-          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([]);
+          const threadsRef = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([]);
           yield* Effect.gen(function* () {
             const config = yield* ServerConfig;
             const fs = yield* FileSystem.FileSystem;
@@ -7196,12 +7195,12 @@ describe("notify_thread deferred-delivery rail", () => {
     dispatched: Array<OrchestrationCommand>,
     opts: {
       readonly pending: ReadonlyArray<ReturnType<typeof pendingRow>>;
-      readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+      readonly threads: ReadonlyArray<OrchestrationThreadLeanShell>;
       readonly deliveredReceipts?: ReadonlySet<string>;
       // Optional caller-owned Ref/PubSub so a test can mutate pending / threads +
       // publish a trigger event from inside its own Effect (no manual runtime).
       readonly sharedPending?: Ref.Ref<ReadonlyArray<ReturnType<typeof pendingRow>>>;
-      readonly sharedThreads?: Ref.Ref<ReadonlyArray<OrchestrationThreadShell>>;
+      readonly sharedThreads?: Ref.Ref<ReadonlyArray<OrchestrationThreadLeanShell>>;
       readonly sharedEvents?: PubSub.PubSub<OrchestrationEvent>;
     },
   ) =>
@@ -7219,7 +7218,7 @@ describe("notify_thread deferred-delivery rail", () => {
                 : Option.none(),
             ),
         };
-        const isIdle = (threads: ReadonlyArray<OrchestrationThreadShell>, id: ThreadId) => {
+        const isIdle = (threads: ReadonlyArray<OrchestrationThreadLeanShell>, id: ThreadId) => {
           const t = threads.find((thread) => thread.id === id);
           return t !== undefined && t.session?.status !== "running";
         };
@@ -7271,7 +7270,7 @@ describe("notify_thread deferred-delivery rail", () => {
               threads: threads as never,
               updatedAt: now,
             })),
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.map(Ref.get(threadsRef), (threads) => ({
               snapshotSequence: 1,
               goals: [],
@@ -7535,7 +7534,7 @@ describe("notify_thread deferred-delivery rail", () => {
             pendingRow({ recordId: "rec-a", framedMessage: "first" }),
             pendingRow({ recordId: "rec-b", framedMessage: "second" }),
           ]);
-          const sharedThreads = yield* Ref.make<ReadonlyArray<OrchestrationThreadShell>>([
+          const sharedThreads = yield* Ref.make<ReadonlyArray<OrchestrationThreadLeanShell>>([
             idleTarget(),
           ]);
           const sharedEvents = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -7662,18 +7661,17 @@ describe("pass coalescing + single shell snapshot per pass (full dispatcher laye
     } as unknown as OrchestrationEngineShape;
 
     const snapshotQuery = {
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.suspend(() => {
           input.snapshotCalls.count += 1;
           const call = input.snapshotCalls.count;
           return (input.onSnapshot?.(call) ?? Effect.void).pipe(
             Effect.as({
               snapshotSequence: 1,
-              goals: [],
               projects: [],
               threads: [parent, child],
               updatedAt: now,
-            } satisfies OrchestrationShellSnapshot),
+            } satisfies OrchestrationLeanShellSnapshot),
           );
         }),
       getPendingTurnStartThreadIds: () => Effect.succeed(new Set<ThreadId>()),

@@ -18,6 +18,7 @@ import type {
   OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
+  OrchestrationLeanShellSnapshot,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
@@ -260,6 +261,24 @@ export interface ProjectionSnapshotQueryShape {
     OrchestrationShellSnapshot,
     ProjectionRepositoryError
   >;
+
+  /**
+   * The control-plane read: the SAME active thread rows as `getShellSnapshot`,
+   * with only the columns a sweep actually uses (see
+   * `OrchestrationLeanShellSnapshot`). Every background sweep should read this;
+   * only the client shell and the MCP surface need the wide columns.
+   *
+   * `role` narrows to a single thread role, for a sweep whose own first-line
+   * skip is already `thread.role !== X` (the handoff drafter). This is a
+   * QUARRY projection, safe only because `role` is immutable after spawn — it
+   * is emphatically NOT the refuted settledness filter, which could drop a row
+   * the sweep still owed an action on. Never narrow by a mutable, user-facing
+   * axis. Note that `updatedAt` then covers the quarry rather than the whole
+   * store; no consumer reads it, and a role-scoped caller wants the scoped one.
+   */
+  readonly getLeanShellSnapshot: (options?: {
+    readonly role: string;
+  }) => Effect.Effect<OrchestrationLeanShellSnapshot, ProjectionRepositoryError>;
 
   /**
    * The parents currently owed a DERIVED `needs_guidance` because a child has

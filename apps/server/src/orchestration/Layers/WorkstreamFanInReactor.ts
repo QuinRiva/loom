@@ -7,7 +7,7 @@ import {
   MessageId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadFanInState,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -52,7 +52,7 @@ const isTerminal = (planLane: string): boolean => planLane === "done" || planLan
 export const FAN_IN_RECONCILIATION_INTERVAL_MS = 60_000;
 
 type ProjectRef = {
-  readonly id: OrchestrationThreadShell["projectId"];
+  readonly id: OrchestrationThreadLeanShell["projectId"];
   readonly workspaceRoot: string;
 };
 
@@ -64,7 +64,7 @@ type ProjectRef = {
  * dispatcher's `threadsById` is.
  */
 type PassIndex = {
-  readonly byId: ReadonlyMap<ThreadId, OrchestrationThreadShell>;
+  readonly byId: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>;
   /** Non-terminal isolated children, keyed by parent id (branch-dependency case). */
   readonly liveIsolatedChildrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<ThreadId>>;
   /** Non-terminal threads keyed by their RESOLVED workspace cwd (resident case). */
@@ -125,12 +125,12 @@ const make = Effect.gen(function* () {
     hasAcceptedReceipt: () => Effect.succeed(false),
   });
 
-  const resolvedCommandId = (child: OrchestrationThreadShell) =>
+  const resolvedCommandId = (child: OrchestrationThreadLeanShell) =>
     `server:workstream-fanin:resolved:${child.id}`;
 
   const deliverResolutionWake = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
   ) =>
     // `deliverOnce` adds the process-local skip; the deterministic id +
     // engine receipt remain the cross-restart at-most-once truth. `"delivered"`
@@ -181,12 +181,12 @@ const make = Effect.gen(function* () {
   // hand-merge. Deterministic id → receipt-deduped, so re-running the pass (or
   // the 60s tick) never double-notifies; a deferred delivery (busy parent) is
   // retried by the next session-set/fanin re-arm.
-  const conflictCommandId = (child: OrchestrationThreadShell) =>
+  const conflictCommandId = (child: OrchestrationThreadLeanShell) =>
     `server:workstream-fanin:conflict:${child.id}`;
 
   const deliverConflictNotice = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     childBranch: string,
     conflictPaths: ReadonlyArray<string>,
   ) =>
@@ -351,7 +351,7 @@ const make = Effect.gen(function* () {
 
   const resolveCwd = (
     thread: {
-      readonly projectId: OrchestrationThreadShell["projectId"];
+      readonly projectId: OrchestrationThreadLeanShell["projectId"];
       readonly worktreePath: string | null;
     },
     projects: ReadonlyArray<ProjectRef>,
@@ -379,10 +379,10 @@ const make = Effect.gen(function* () {
     (index.liveResidentsByCwd.get(NodePath.resolve(childCwd)) ?? []).some((id) => id !== childId);
 
   const buildIndex = (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
     projects: ReadonlyArray<ProjectRef>,
   ): PassIndex => {
-    const byId = new Map<ThreadId, OrchestrationThreadShell>();
+    const byId = new Map<ThreadId, OrchestrationThreadLeanShell>();
     const liveIsolatedChildrenByParent = new Map<ThreadId, ThreadId[]>();
     const liveResidentsByCwd = new Map<string, ThreadId[]>();
     const threadsByWorktreePath = new Map<string, ThreadId[]>();
@@ -490,14 +490,14 @@ const make = Effect.gen(function* () {
   // checkpoint). Gating on `=== "completed"` wedged those coders forever
   // (permanent non-completion masquerading as a transient wait); `doFanIn`
   // commits whatever is in the child worktree, so a missing checkpoint is fine.
-  const isChildTurnInFlight = (child: OrchestrationThreadShell): boolean =>
+  const isChildTurnInFlight = (child: OrchestrationThreadLeanShell): boolean =>
     child.latestTurn !== null && child.latestTurn.state === "running";
 
   // Check if a parent thread has an active/running turn, which would mean the
   // parent is mid-turn and uncommitted (plan §11 / B2: require parent quiescence
   // before merging). Parent status "running" with an activeTurnId means a turn
   // is in flight.
-  const hasParentActiveTurn = (parent: OrchestrationThreadShell): boolean =>
+  const hasParentActiveTurn = (parent: OrchestrationThreadLeanShell): boolean =>
     parent.session !== null &&
     parent.session.status === "running" &&
     parent.session.activeTurnId !== null;
@@ -512,7 +512,7 @@ const make = Effect.gen(function* () {
   // signal — see the projector's session-set handling) and its latest turn is
   // no longer running. Re-armed by session-set / turn-diff-completed events and
   // the periodic reconciliation tick, so a missed wake-up still converges.
-  const isCancelledChildQuiescent = (child: OrchestrationThreadShell): boolean =>
+  const isCancelledChildQuiescent = (child: OrchestrationThreadLeanShell): boolean =>
     !(
       child.session !== null &&
       (child.session.status === "running" || child.session.status === "starting")
@@ -524,8 +524,8 @@ const make = Effect.gen(function* () {
   // the merge (review finding 3). Caller ensures child's turn is completed and
   // parent has no active turn before calling (plan §11 / B2).
   const doFanIn = Effect.fn("doFanIn")(function* (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     parentCwd: string,
     index: PassIndex,
   ) {
@@ -611,8 +611,8 @@ const make = Effect.gen(function* () {
   });
 
   const doCancelled = Effect.fn("doCancelled")(function* (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     parentCwd: string,
     index: PassIndex,
   ) {
@@ -658,8 +658,8 @@ const make = Effect.gen(function* () {
   // Is this isolated child provisioned into its own worktree/branch (distinct
   // from the parent's)? Guards the defensive "never provisioned" case.
   const isProvisioned = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell | undefined,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell | undefined,
     childCwd: string,
     parentCwd: string,
   ): boolean =>
@@ -689,7 +689,7 @@ const make = Effect.gen(function* () {
     // interpret ABSENCE as "no such thread" — so a filtered snapshot would let
     // this reactor remove a worktree a dependent still occupies, or merge a gate
     // member before its gate resolved. Silent, destructive, and unrecoverable.
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const threads = snapshot.threads;
     const projects = snapshot.projects;
     const index = buildIndex(threads, projects);

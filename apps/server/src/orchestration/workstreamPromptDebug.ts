@@ -34,6 +34,17 @@ const sidecarNamesCache = new Map<
 >();
 const sidecarNamesLoads = new Map<string, Promise<ReadonlySet<string>>>();
 
+/**
+ * Drop the cached directory listings. The 5s expiry is the ONLY invalidation in
+ * production (the capture extension writes out of process), which makes a
+ * sidecar written moments ago invisible for up to five seconds — fine for a
+ * debugging link, fatal for a test that writes a sidecar and immediately asserts
+ * on it. Tests that create sidecars call this after writing them.
+ */
+export const clearPromptDebugSidecarNamesCache = (): void => {
+  sidecarNamesCache.clear();
+};
+
 /** Base filename of a thread's effective-prompt debug sidecar (latest capture). */
 export const promptDebugSidecarFileName = (threadId: ThreadId): string =>
   `${safeName(threadId)}.md`;

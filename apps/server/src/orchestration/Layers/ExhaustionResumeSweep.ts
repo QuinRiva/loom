@@ -3,7 +3,7 @@ import {
   EventId,
   MessageId,
   type OrchestrationCommand,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
 } from "@t3tools/contracts";
 
 import * as Clock from "effect/Clock";
@@ -153,7 +153,7 @@ const make = Effect.gen(function* () {
   const lastAttempt = new Map<string, number>();
 
   const resumeThread = Effect.fn("exhaustionResume.resume")(function* (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationThreadLeanShell,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     // loom: forkFrom (D8) — if this thread's kickoff was never delivered to pi,
@@ -221,7 +221,7 @@ const make = Effect.gen(function* () {
     // Settle is a VISIBILITY axis: a user tidying a row while waiting out a quota
     // reset must not silently cancel the resume, which is what a settledness
     // filter here would do.
-    const snapshot = yield* projection.getShellSnapshot();
+    const snapshot = yield* projection.getLeanShellSnapshot();
     const now = yield* Clock.currentTimeMillis;
     // One health snapshot + catalogue per tick (paused folded into the marks),
     // shared across every thread's intended-health check and fallback lookup.

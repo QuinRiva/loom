@@ -6,8 +6,8 @@ import type {
   ExecutionEnvironmentDescriptor,
   OrchestrationEvent,
   OrchestrationProjectShell,
-  OrchestrationShellSnapshot,
-  OrchestrationThreadShell,
+  OrchestrationLeanShellSnapshot,
+  OrchestrationThreadLeanShell,
   ProjectId,
   ThreadId,
   TurnId,
@@ -257,7 +257,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       updatedAt: "2026-05-25T00:00:00.000Z",
       hasPendingApprovals: false,
       hasPendingUserInput: false,
-    } as OrchestrationThreadShell;
+    } as OrchestrationThreadLeanShell;
 
     expect(
       AgentAwarenessRelay.resolveAgentAwarenessRelayPublishSnapshot({
@@ -299,7 +299,6 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       parentThreadId: null,
       role: null,
       purpose: null,
-      brief: null,
       planLane: "planned" as const,
       attention: [],
       blockedBy: [],
@@ -335,17 +334,13 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       hasPendingApprovals: false,
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
-      lastActivityPreview: null,
-      consults: [],
       toolUses: null,
       usedTokens: null,
       maxTokens: null,
       diffAdditions: null,
       diffDeletions: null,
       handoffDestinations: [],
-      peerMessages: [],
-      notifySendLog: [],
-    } satisfies Omit<OrchestrationThreadShell, "id">;
+    } satisfies Omit<OrchestrationThreadLeanShell, "id">;
 
     expect(
       AgentAwarenessRelay.resolveAgentAwarenessRelayActiveThreadIds({
@@ -474,7 +469,6 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           parentThreadId: null,
           role: null,
           purpose: null,
-          brief: null,
           planLane: "planned" as const,
           attention: [],
           blockedBy: [],
@@ -526,17 +520,13 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
-          lastActivityPreview: null,
-          consults: [],
           toolUses: null,
           usedTokens: null,
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
           handoffDestinations: [],
-          peerMessages: [],
-          notifySendLog: [],
-        } satisfies OrchestrationThreadShell;
+        } satisfies OrchestrationThreadLeanShell;
 
         const orchestrationEngine = {
           readEvents: () => Stream.empty,
@@ -548,14 +538,13 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         } satisfies OrchestrationEngineShape;
 
         const snapshotQuery = {
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 1,
-              goals: [],
               projects: [project],
               threads: [thread],
               updatedAt: now,
-            } satisfies OrchestrationShellSnapshot),
+            } satisfies OrchestrationLeanShellSnapshot),
           getThreadShellById: () =>
             Deferred.succeed(threadShellRequested, undefined).pipe(
               Effect.ignore,
@@ -670,7 +659,6 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           parentThreadId: null,
           role: null,
           purpose: null,
-          brief: null,
           planLane: "planned" as const,
           attention: [],
           blockedBy: [],
@@ -722,17 +710,13 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
-          lastActivityPreview: null,
-          consults: [],
           toolUses: null,
           usedTokens: null,
           maxTokens: null,
           diffAdditions: null,
           diffDeletions: null,
           handoffDestinations: [],
-          peerMessages: [],
-          notifySendLog: [],
-        } satisfies OrchestrationThreadShell;
+        } satisfies OrchestrationThreadLeanShell;
 
         const descriptor = {
           environmentId,
@@ -777,14 +761,13 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
             latestSequence: Effect.succeed(0),
           } satisfies OrchestrationEngineShape),
           Layer.succeed(ProjectionSnapshotQuery, {
-            getShellSnapshot: () =>
+            getLeanShellSnapshot: () =>
               Effect.succeed({
                 snapshotSequence: 1,
-                goals: [],
                 projects: [project],
                 threads: [thread],
                 updatedAt: now,
-              } satisfies OrchestrationShellSnapshot),
+              } satisfies OrchestrationLeanShellSnapshot),
             getThreadShellById: () => Effect.succeed(Option.some(thread)),
             getProjectShellById: () => Effect.succeed(Option.some(project)),
           } as unknown as ProjectionSnapshotQueryShape),

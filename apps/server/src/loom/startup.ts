@@ -132,7 +132,7 @@ export const reconcileStartupStaleSessionState = Effect.gen(function* () {
   const providerSessionsByThreadId = new Map(activeProviderSessions.map((s) => [s.threadId, s]));
   const [readModel, shellSnapshot, pendingTurnStartThreadIds, now] = yield* Effect.all([
     projectionSnapshotQuery.getCommandReadModel(),
-    projectionSnapshotQuery.getShellSnapshot(),
+    projectionSnapshotQuery.getLeanShellSnapshot(),
     projectionSnapshotQuery.getPendingTurnStartThreadIds(),
     Effect.map(DateTime.now, DateTime.formatIso),
   ]);

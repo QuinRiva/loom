@@ -81,6 +81,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -208,6 +210,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -320,6 +324,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -406,6 +412,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -478,6 +486,8 @@ describe("CheckpointDiffQuery.layer", () => {
             getSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>

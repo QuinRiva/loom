@@ -9,7 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationLatestTurn,
   type OrchestrationSession,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
@@ -85,15 +85,14 @@ const placed = (count: number): ReadonlyArray<HandoffDestination> =>
   }));
 
 const makeDrafter = (
-  overrides: Partial<OrchestrationThreadShell> = {},
-): OrchestrationThreadShell => ({
+  overrides: Partial<OrchestrationThreadLeanShell> = {},
+): OrchestrationThreadLeanShell => ({
   id: "drafter" as ThreadId,
   projectId: ProjectId.make("project"),
   goalId: null,
   parentThreadId: null,
   role: HANDOFF_DRAFTER_ROLE,
   purpose: null,
-  brief: null,
   graphKey: null,
   kickoffBriefPath: null,
   planLaneSince: null,
@@ -135,10 +134,6 @@ const makeDrafter = (
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
-  lastActivityPreview: null,
-  consults: [],
-  peerMessages: [],
-  notifySendLog: [],
   ...overrides,
 });
 
@@ -244,7 +239,7 @@ describe("classifyHandoffSettlement", () => {
 // projection feeds a controlled shell snapshot), the same style the
 // WorkstreamFanInReactor suite uses. Exercises the startup reconciliation pass
 // and proves archive never precedes the projected provider stop (finding 1).
-const runReactorOnce = (drafter: OrchestrationThreadShell) =>
+const runReactorOnce = (drafter: OrchestrationThreadLeanShell) =>
   Effect.gen(function* () {
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
 
@@ -257,12 +252,16 @@ const runReactorOnce = (drafter: OrchestrationThreadShell) =>
     } as never);
 
     const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-      getShellSnapshot: () =>
+      // Honours the `role` quarry the reactor now pushes into the query — a mock
+      // that ignored it would return the drafter even when the real query would
+      // not, masking exactly the class of bug the filter could introduce.
+      getLeanShellSnapshot: (options?: { readonly role: string }) =>
         Effect.succeed({
           snapshotSequence: 0,
           projects: [],
-          threads: [drafter],
-          goals: [],
+          threads: [drafter].filter(
+            (thread) => options === undefined || thread.role === options.role,
+          ),
           updatedAt: "1970-01-01T00:00:00.000Z",
         }),
     } as never);

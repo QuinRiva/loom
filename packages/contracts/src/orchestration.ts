@@ -475,6 +475,32 @@ export const OrchestrationThreadShell = Schema.Struct({
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
+/**
+ * The SAME rows as `OrchestrationThreadShell`, minus the columns only a human-
+ * facing surface reads. Server-side control-plane sweeps (dispatcher, fan-in,
+ * liveness, worktree reaper, exhaustion resume, handoff drafter) re-read the
+ * whole active set on every pass, and that pass's cost is row WIDTH, not row
+ * count: `brief` alone is ~63% of the active set's text bytes, and
+ * `lastActivityPreview`/`consults`/`peerMessages` each cost their own query.
+ * Dropping them leaves the sweeps reading exactly what they use.
+ *
+ * Derived by omission so it can never drift from the shell, and so a full shell
+ * is structurally assignable to the lean one (a lean consumer accepts either).
+ */
+export const OrchestrationThreadLeanShell = OrchestrationThreadShell.mapFields(
+  Struct.omit([
+    "brief",
+    "consults",
+    "peerMessages",
+    "lastActivityPreview",
+    "promptDebugPath",
+    // Shell-only ledger that `getShellSnapshot` already hardcodes to `[]` — the
+    // cap is a command-read-model concern, never read off a shell.
+    "notifySendLog",
+  ]),
+);
+export type OrchestrationThreadLeanShell = typeof OrchestrationThreadLeanShell.Type;
+
 export const OrchestrationShellSnapshot = Schema.Struct({
   ...LoomShellSnapshotFields, // loom:
   snapshotSequence: NonNegativeInt,
@@ -483,6 +509,20 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
+
+/**
+ * The server-internal companion to `OrchestrationShellSnapshot`: same projects
+ * and same thread rows, narrower columns, and no `goals` (no sweep reads them,
+ * and skipping them skips two queries). Never sent over the wire — the client
+ * shell stays the full snapshot.
+ */
+export const OrchestrationLeanShellSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projects: Schema.Array(OrchestrationProjectShell),
+  threads: Schema.Array(OrchestrationThreadLeanShell),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationLeanShellSnapshot = typeof OrchestrationLeanShellSnapshot.Type;
 
 export const OrchestrationShellStreamEvent = Schema.Union([
   ...LoomShellStreamEventMembers, // loom:

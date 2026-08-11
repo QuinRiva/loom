@@ -244,6 +244,13 @@ describe("OrchestrationEngine", () => {
               threads: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
+          getLeanShellSnapshot: () =>
+            Effect.succeed({
+              snapshotSequence: projectionSnapshot.snapshotSequence,
+              projects: [],
+              threads: [],
+              updatedAt: projectionSnapshot.updatedAt,
+            }),
           getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
           getArchivedShellSnapshot: () =>
             Effect.succeed({
