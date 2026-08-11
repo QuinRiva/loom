@@ -622,13 +622,13 @@ function EditableFileSurface({
 
 /**
  * Publishes `--timeline-available-width` (from a ResizeObserver on the panel's
- * scroll viewport) around file-preview markdown, so wide-block bleed keys off
- * the panel width the way it does in the chat timeline. Without it, tables fall
- * back to the `max-w-4xl` prose measure and get stranded in a narrow column
- * with whitespace beside them (see `.chat-markdown-table-container` in
- * `index.css`).
+ * scroll viewport) around file-preview markdown AND `.mdx` plans, so wide-block
+ * bleed keys off the panel width the way it does in the chat timeline. Without
+ * it, tables and non-prose plan blocks fall back to the `max-w-4xl` prose
+ * measure and get stranded in a narrow column with whitespace beside them (see
+ * the wide-block bleed rules in `index.css`).
  */
-function MarkdownBleedFrame({ children }: { children: ReactNode }) {
+function BleedFrame({ children }: { children: ReactNode }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   useTimelineAvailableWidthVar(viewport);
   return (
@@ -670,15 +670,17 @@ function RenderedMarkdownSurface({
   if (isMdxPreviewFile(relativePath)) {
     return (
       <ScrollArea className="min-h-0 flex-1">
-        {readOnly ? (
-          <MdxPlanRenderer source={contents} />
-        ) : (
-          <MdxPlanAnnotationLayer
-            source={contents}
-            filePath={relativePath}
-            composerDraftTarget={composerDraftTarget}
-          />
-        )}
+        <BleedFrame>
+          {readOnly ? (
+            <MdxPlanRenderer source={contents} />
+          ) : (
+            <MdxPlanAnnotationLayer
+              source={contents}
+              filePath={relativePath}
+              composerDraftTarget={composerDraftTarget}
+            />
+          )}
+        </BleedFrame>
       </ScrollArea>
     );
   }
@@ -688,21 +690,21 @@ function RenderedMarkdownSurface({
   if (readOnly) {
     return (
       <ScrollArea className="min-h-0 flex-1">
-        <MarkdownBleedFrame>
+        <BleedFrame>
           <ChatMarkdown
             text={contents}
             cwd={cwd}
             threadRef={threadRef}
             className="mx-auto max-w-4xl px-6 py-5"
           />
-        </MarkdownBleedFrame>
+        </BleedFrame>
       </ScrollArea>
     );
   }
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <MarkdownBleedFrame>
+      <BleedFrame>
         <ChatMarkdown
           text={contents}
           cwd={cwd}
@@ -718,7 +720,7 @@ function RenderedMarkdownSurface({
             saveCoordinator.change(nextContents);
           }}
         />
-      </MarkdownBleedFrame>
+      </BleedFrame>
     </ScrollArea>
   );
 }

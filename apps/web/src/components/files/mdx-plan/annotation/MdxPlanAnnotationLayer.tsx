@@ -17,7 +17,7 @@ import {
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 
-import { MdxPlanRenderer } from "../MdxPlanRenderer";
+import { MdxPlanRenderer, PLAN_BLEED_ATTR } from "../MdxPlanRenderer";
 import { PlanEagerMountContext } from "../planEagerMount";
 import {
   EMPTY_QUESTION_ANSWER,
@@ -355,11 +355,22 @@ export function MdxPlanAnnotationLayer({
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
-    // Badges live in the gutter at the right edge of the capped content column
-    // (`[data-plan-root]`), never on the last highlighted rect — for a block
-    // anchor that rect lands mid-block (the floating "9"/"10" the reviewer saw).
-    const rootRect = root.getBoundingClientRect();
-    const gutterLeft = Math.min(rootRect.right - wrapperRect.left + 6, wrapperRect.width - 24);
+    // Badges live in the gutter just outside the widest thing the document
+    // paints, never on the last highlighted rect — for a block anchor that rect
+    // lands mid-block (the floating "9"/"10" the reviewer saw). That is usually
+    // the capped content column (`[data-plan-root]`), but a non-prose block may
+    // bleed past it (`[data-plan-bleed]`, see the wide-block bleed rules in
+    // `index.css`); keying off the root alone would park badges ON TOP of a bled
+    // diff. `.plan-mdx`'s bleed inset reserves the room this needs.
+    const gutterLeft = Math.min(
+      Array.from(root.querySelectorAll(`[${PLAN_BLEED_ATTR}]`)).reduce(
+        (right, block) => Math.max(right, block.getBoundingClientRect().right),
+        root.getBoundingClientRect().right,
+      ) -
+        wrapperRect.left +
+        6,
+      wrapperRect.width - 24,
+    );
     const toBox = (rect: DOMRect): Box => ({
       top: rect.top - wrapperRect.top,
       left: rect.left - wrapperRect.left,
@@ -475,7 +486,9 @@ export function MdxPlanAnnotationLayer({
     // Boxes are measured relative to the WRAPPER, so the wrapper is the
     // measurement reference that must be observed — `root` is `max-w-4xl`, so
     // toggling a side panel re-centres it without changing its border box and
-    // an observer on `root` alone stays silent (defect A). Observe both.
+    // an observer on `root` alone stays silent (defect A). Observe both. (A bled
+    // block DOES resize with the panel, but it lives under `root`, so the
+    // wrapper observation already covers it.)
     resizeObserver.observe(root);
     resizeObserver.observe(wrapper);
     const mutationObserver = new MutationObserver(schedule);
