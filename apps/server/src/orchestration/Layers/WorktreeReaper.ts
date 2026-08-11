@@ -64,19 +64,45 @@ export const WORKTREE_CLASSIFY_CONCURRENCY = 12;
  * `classifyWorktree` reads the facts only from its `dirty` check onward, and
  * `dirty: null` fails that check — so a probe verdict other than
  * `stale("dirty")` is provably independent of the facts and is already final.
- * That makes the probe a spawn gate: only the entries that reach the dirty check
- * need `git status`, and only the clean ones need `merge-base --is-ancestor`.
- * (Before this, every non-main worktree paid both unconditionally — ~197
- * worktrees × 2 spawns ≈ 400 git processes per 30-minute sweep on the loom repo,
- * a periodic burst against a steady state of ~8 spawns/s.)
+ * That makes the probe a spawn gate for the reaper's own DECISION (see
+ * {@link WorktreeFactsMode}).
  */
 const NO_GIT_FACTS = { dirty: null, mergedIntoParentBranch: null } as const;
+
+/**
+ * How much git truth one classification pass needs.
+ *
+ * - `"decision-only"` — the periodic reap pass, which acts on nothing but
+ *   `reapable`. `reapable` sits BELOW the dirty check, so any entry that could
+ *   reach it lands on `stale("dirty")` in the fact-free probe and still pays for
+ *   real facts; every other entry's disposition is already final and its two fact
+ *   fields are never read. Skipping those spawns took the loom repo's sweep from
+ *   ~393 git processes (1 + 2 per non-main worktree) to ~10-19.
+ * - `"complete"` — `classifyWorktrees`, which is NOT internal to the reaper: it is
+ *   the sole input to the human-facing Worktrees maintenance panel, and that
+ *   surface PUBLISHES the fact fields rather than merely branching on them
+ *   (`WorkstreamWorktreeStatus` maps `dirty: entry.dirty !== false` and
+ *   `merged: entry.mergedIntoParentBranch`, then passes `forceWorktree: dirty`
+ *   into removal). Under the null-means-unknown coercion an unlooked-at entry
+ *   reads as DIRTY and UNMERGED — so the panel would assert "uncommitted changes"
+ *   about trees nobody inspected, train the human to tick that box on every
+ *   delete, and then run `git worktree remove --force`, discarding git's own
+ *   refusal-on-dirty. That surface therefore gets the facts unconditionally, as
+ *   it always did; it is human-triggered (an RPC behind the settings page and its
+ *   Refresh button), never polled, so its cost is not on any hot path.
+ */
+type WorktreeFactsMode = "decision-only" | "complete";
 
 /**
  * Opt-in switch for the path-based orphan sweep's destructive branch. Off by
  * default: the sweep reports unreachable directories so a human can approve the
  * one-off reclaim, because its input is the filesystem and the blast radius is
  * gigabytes of someone's disk.
+ *
+ * BOOT-SCOPED, NOT ONE-SHOT: read once at module load, so it governs every sweep
+ * for the process lifetime — while the approval it gates is for a single reclaim.
+ * The operational sequence is therefore: set it, restart, confirm the inventory
+ * shrank, then UNSET it and restart again.
  */
 const RECLAIM_ORPHAN_WORKTREE_DIRS = process.env.T3CODE_RECLAIM_ORPHAN_WORKTREES === "1";
 
@@ -126,7 +152,8 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.ignoreCause({ log: true }));
 
   // Classify one project's linked worktrees: enumerate, gather git facts for
-  // the non-main entries, and run the pure classifier over each.
+  // the entries that need them, and run the pure classifier over each.
+  // `factsMode` decides what "need" means — see {@link WorktreeFactsMode}.
   const classifyProject = Effect.fn("classifyProject")(function* (
     project: OrchestrationProjectShell,
     snapshot: {
@@ -134,6 +161,7 @@ const make = Effect.gen(function* () {
       readonly projects: ReadonlyArray<OrchestrationProjectShell>;
     },
     nowMs: number,
+    factsMode: WorktreeFactsMode,
   ) {
     const entries = yield* gitWorkflow
       .listWorktrees(project.workspaceRoot)
@@ -158,18 +186,24 @@ const make = Effect.gen(function* () {
               nowMs,
               occupiedPaths,
             });
-          // Probe first — it costs nothing, resolves the parent branch that
-          // containment needs, and short-circuits every entry whose verdict does
-          // not depend on the git facts at all (see `NO_GIT_FACTS`).
+          // Probe first regardless of mode — it costs nothing and resolves the
+          // parent branch that containment needs. The main worktree never has
+          // facts in either mode.
           const probe = classify(NO_GIT_FACTS);
-          if (probe.staleReason !== "dirty") return probe;
+          const needsFacts =
+            factsMode === "complete" ? !entry.isMain : probe.staleReason === "dirty";
+          if (!needsFacts) return probe;
           const dirty = yield* gitWorkflow
             .hasWorkingTreeChanges(entry.path)
             .pipe(Effect.orElseSucceed(() => null));
-          // A dirty (or unknowable) tree stops at the dirty check, so its
-          // containment is never read: don't spawn for it.
+          // `decision-only`: a dirty (or unknowable) tree stops at the dirty check,
+          // so its containment is never read — don't spawn for it. `complete`: the
+          // panel publishes containment for every entry it can act on, dirty ones
+          // included (it gates `deleteBranchWhenMerged` on it), so always resolve.
           const mergedIntoParentBranch =
-            dirty === false && entry.branch !== null && probe.parentBranch !== null
+            (factsMode === "complete" || dirty === false) &&
+            entry.branch !== null &&
+            probe.parentBranch !== null
               ? yield* gitWorkflow
                   .isAncestor({
                     cwd: project.workspaceRoot,
@@ -184,12 +218,14 @@ const make = Effect.gen(function* () {
     );
   });
 
+  // The visibility surface's read: `"complete"`, because its consumer publishes
+  // the fact fields and gates a destructive control on them.
   const classifyAll = Effect.fn("classifyAll")(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const nowMs = yield* Effect.map(DateTime.now, DateTime.toEpochMillis);
     const out: ClassifiedWorktree[] = [];
     for (const project of snapshot.projects) {
-      out.push(...(yield* classifyProject(project, snapshot, nowMs)));
+      out.push(...(yield* classifyProject(project, snapshot, nowMs, "complete")));
     }
     return out;
   });
@@ -241,24 +277,25 @@ const make = Effect.gen(function* () {
   //
   // DRY RUN BY DEFAULT, and deliberately so: this is the one sweep whose input is
   // the filesystem rather than a record of intent, and the measured inventory is
-  // ~14 GB of a human's disk. It reports; reclaiming is opt-in via
+  // gigabytes of a human's disk. It reports; reclaiming is opt-in via
   // `T3CODE_RECLAIM_ORPHAN_WORKTREES=1`, and even then each removal goes through
   // the workspace lease so a directory with a live process in it is skipped
   // rather than deleted.
   //
   // `gitRegisteredPaths` comes from the classification pass that just ran, so the
-  // sweep costs no extra git spawns. A project whose `git worktree list` FAILED
-  // classifies to zero entries (`listWorktrees` falls back to `[]`, and a healthy
-  // repo always yields at least its main worktree), and an unreadable registry
-  // would make every one of that repo's worktrees look unregistered — so such a
-  // project VETOES the sweep for the pass. A project row whose workspace root is
-  // not a git repository at all is exempt from that veto: its empty listing is the
-  // truth, not a failure, and two such stale rows on the measured host would
-  // otherwise disable this sweep permanently.
+  // sweep costs no extra git spawns — and its COMPLETENESS is the sole structural
+  // protection against claiming a live checkout, so `runPass` abandons the sweep
+  // for the pass rather than sweeping with a partial registry.
   const sweepOrphanDirs = Effect.fn("sweepOrphanDirs")(function* (
     gitRegisteredPaths: ReadonlySet<string>,
   ) {
-    const parents = yield* fs.readDirectory(config.worktreesDir);
+    // Guarded: a worktrees dir that does not exist (fresh install, or one wiped by
+    // hand) is "no candidates", not a pass failure — an unguarded read here would
+    // fail the whole reap pass and log it every 30 minutes forever, which is the
+    // recurring-log defect this change set exists to remove.
+    const parents = yield* fs
+      .readDirectory(config.worktreesDir)
+      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
     const candidatePaths: string[] = [];
     for (const parent of parents) {
       const parentPath = NodePath.join(config.worktreesDir, parent);
@@ -313,6 +350,7 @@ const make = Effect.gen(function* () {
           ),
       );
       if (Option.isNone(removed)) yield* deferralLog.skipped(path);
+      else yield* deferralLog.removed(path);
     }
   });
 
@@ -322,12 +360,41 @@ const make = Effect.gen(function* () {
     const gitRegisteredPaths = new Set<string>();
     let registryComplete = true;
     for (const project of snapshot.projects) {
-      const classified = yield* classifyProject(project, snapshot, nowMs);
-      if (
-        classified.length === 0 &&
-        (yield* fs.exists(NodePath.join(project.workspaceRoot, ".git")))
-      ) {
-        registryComplete = false;
+      const classified = yield* classifyProject(project, snapshot, nowMs, "decision-only");
+      // Registry-completeness veto for the orphan sweep below. Zero entries means
+      // `listWorktrees` FAILED (it falls back to `[]`, and any healthy repo yields
+      // at least its main worktree), and a lost registry makes every one of that
+      // repo's worktrees look unregistered — i.e. claimable.
+      //
+      // Exempt only a project row that is not inside a git repository AT ALL: for
+      // that row an empty listing is the truth rather than a failure, and such
+      // stale rows exist on real hosts, where an unconditional veto would disable
+      // the sweep permanently. That question is `rev-parse --is-inside-work-tree`
+      // (which `resolveRemoteStatusRepository` answers, cached, via repository
+      // detection) and NOT the presence of `<workspaceRoot>/.git`: a project row
+      // may point at a SUBDIRECTORY of a repository, where `.git` is absent yet
+      // `git worktree list` still returns the repo's full set. One live row is
+      // exactly that shape — two levels below its repository root, owning 65
+      // worktrees inside this sweep's candidate space — so the filesystem heuristic
+      // exempted precisely the project whose registry loss is most dangerous.
+      // Detection failure counts as "is a repo", so an unreadable project fails
+      // closed onto the veto.
+      if (classified.length === 0) {
+        const insideRepository = yield* gitWorkflow
+          .resolveRemoteStatusRepository(project.workspaceRoot)
+          .pipe(
+            Effect.map((repository) => repository !== null),
+            Effect.orElseSucceed(() => true),
+          );
+        if (insideRepository) {
+          registryComplete = false;
+          // Say so: otherwise a persistently unreadable repo silently suppresses the
+          // orphan inventory and the absence looks like "nothing to reclaim".
+          yield* Effect.logWarning(
+            "worktree reaper: orphan sweep skipped, a project's worktrees could not be enumerated",
+            { projectId: project.id, workspaceRoot: project.workspaceRoot },
+          );
+        }
       }
       for (const entry of classified) {
         gitRegisteredPaths.add(NodePath.resolve(entry.path));
