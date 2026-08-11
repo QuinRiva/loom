@@ -16,7 +16,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationThread,
-  OrchestrationThreadShell,
+  OrchestrationThreadLeanShell,
   ThreadId,
 } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
@@ -35,8 +35,8 @@ import { WorkstreamFanInReactorLive } from "./WorkstreamFanInReactor.ts";
 
 // Minimal thread shell for the reactor's reads (isolation, lanes, cwd, branch).
 const shell = (
-  over: Omit<Partial<OrchestrationThreadShell>, "id"> & { id: string },
-): OrchestrationThreadShell =>
+  over: Omit<Partial<OrchestrationThreadLeanShell>, "id"> & { id: string },
+): OrchestrationThreadLeanShell =>
   ({
     projectId: "p1",
     goalId: null,
@@ -70,7 +70,7 @@ const shell = (
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
     ...over,
-  }) as unknown as OrchestrationThreadShell;
+  }) as unknown as OrchestrationThreadLeanShell;
 
 // The reactor's occupancy authority. Real instance, not a stub: the point of
 // the lease is its atomicity, and a stub predicate would test nothing.
@@ -92,8 +92,8 @@ const checkoutFs = (present: boolean) =>
   } as never);
 
 interface Scenario {
-  readonly child: OrchestrationThreadShell;
-  readonly others: ReadonlyArray<OrchestrationThreadShell>;
+  readonly child: OrchestrationThreadLeanShell;
+  readonly others: ReadonlyArray<OrchestrationThreadLeanShell>;
   readonly mergeResult?: GitMergeWorktreeBranchResult;
   /** Workspace paths a live process holds for the whole pass. */
   readonly heldPaths?: ReadonlyArray<string>;
@@ -139,7 +139,7 @@ const runReactor = (scenario: Scenario) =>
             : Option.none(),
         ),
       getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
-      getShellSnapshot: () =>
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 0,
           projects: [],
@@ -228,7 +228,7 @@ const parent = shell({
   },
 });
 
-const isolatedChild = (over: Partial<OrchestrationThreadShell> = {}) =>
+const isolatedChild = (over: Partial<OrchestrationThreadLeanShell> = {}) =>
   shell({
     id: "child",
     parentThreadId: "parent" as ThreadId,
@@ -451,7 +451,7 @@ describe("WorkstreamFanInReactor", () => {
             updatedAt: "2026-01-01T00:00:01.000Z",
           },
         });
-        const childRef = yield* Ref.make<OrchestrationThreadShell>(busyCancelled);
+        const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(busyCancelled);
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
         const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -461,7 +461,7 @@ describe("WorkstreamFanInReactor", () => {
             Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
         } as never);
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.map(Ref.get(childRef), (child) => ({
               snapshotSequence: 0,
               projects: [],
@@ -653,8 +653,8 @@ describe("WorkstreamFanInReactor", () => {
               updatedAt: "2026-01-01T00:00:00.000Z",
             },
           });
-          const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
-          const parentRef = yield* Ref.make<OrchestrationThreadShell>(parentMidTurn);
+          const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
+          const parentRef = yield* Ref.make<OrchestrationThreadLeanShell>(parentMidTurn);
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
           const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -665,7 +665,7 @@ describe("WorkstreamFanInReactor", () => {
               Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
           } as never);
           const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-            getShellSnapshot: () =>
+            getLeanShellSnapshot: () =>
               Effect.gen(function* () {
                 const child = yield* Ref.get(childRef);
                 const parentShell = yield* Ref.get(parentRef);
@@ -752,7 +752,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["README.md"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -763,7 +763,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -836,7 +836,7 @@ describe("WorkstreamFanInReactor", () => {
       const repointFails = yield* Ref.make(true);
       // Starts in the post-cleanup-failure shape: merged, but the worktree was
       // never tidied away, so the deferred-removal branch keeps selecting it.
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(
         isolatedChild({ fanInState: "completed" }),
       );
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -853,7 +853,7 @@ describe("WorkstreamFanInReactor", () => {
           ),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -919,7 +919,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["README.md"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -929,7 +929,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1053,7 +1053,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["apps/server/src/server.test.ts"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -1064,7 +1064,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1132,7 +1132,7 @@ describe("WorkstreamFanInReactor", () => {
       const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
       const committedFanInStates = yield* Ref.make<ReadonlyArray<string>>([]);
       const merges = yield* Ref.make(0);
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -1166,7 +1166,7 @@ describe("WorkstreamFanInReactor", () => {
           }),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1255,7 +1255,7 @@ describe("WorkstreamFanInReactor", () => {
           });
           const { dispatched, gitCalls } = yield* runReactor({
             child: isolatedChild({
-              latestTurn: finalTurn.latestTurn as OrchestrationThreadShell["latestTurn"],
+              latestTurn: finalTurn.latestTurn as OrchestrationThreadLeanShell["latestTurn"],
             }),
             others: [parent, reviewer],
           });

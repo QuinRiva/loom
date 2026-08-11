@@ -1,7 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodePath from "node:path";
 
-import type { OrchestrationThreadShell, ProjectId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationThreadLeanShell, ProjectId, ThreadId } from "@t3tools/contracts";
 
 import type { GitWorktreeListEntry } from "../vcs/GitVcsDriver.ts";
 import { resolveThreadWorkspaceCwd } from "../checkpointing/Utils.ts";
@@ -87,8 +87,8 @@ export interface ClassifiedWorktree {
 }
 
 export interface WorktreeOwnership {
-  readonly owner: OrchestrationThreadShell | undefined;
-  readonly parent: OrchestrationThreadShell | undefined;
+  readonly owner: OrchestrationThreadLeanShell | undefined;
+  readonly parent: OrchestrationThreadLeanShell | undefined;
 }
 
 const isTerminal = (planLane: string): boolean => planLane === "done" || planLane === "cancelled";
@@ -102,7 +102,7 @@ const isTerminal = (planLane: string): boolean => planLane === "done" || planLan
  */
 export const resolveWorktreeOwnership = (
   entry: GitWorktreeListEntry,
-  threads: ReadonlyArray<OrchestrationThreadShell>,
+  threads: ReadonlyArray<OrchestrationThreadLeanShell>,
 ): WorktreeOwnership => {
   const resolvedPath = NodePath.resolve(entry.path);
   const byPath = threads.filter(
@@ -122,7 +122,7 @@ export const resolveWorktreeOwnership = (
 export interface ClassifyWorktreeInput {
   readonly entry: GitWorktreeListEntry;
   readonly projectId: ProjectId;
-  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  readonly threads: ReadonlyArray<OrchestrationThreadLeanShell>;
   readonly projects: ReadonlyArray<{ readonly id: ProjectId; readonly workspaceRoot: string }>;
   readonly facts: WorktreeGitFacts;
   readonly nowMs: number;

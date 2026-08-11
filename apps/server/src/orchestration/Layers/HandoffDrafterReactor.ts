@@ -2,7 +2,7 @@ import {
   CommandId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
 } from "@t3tools/contracts";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
@@ -53,11 +53,11 @@ export const HANDOFF_STOP_STUCK_GRACE_MS = 300_000;
 const isTerminalTurnState = (state: string): boolean =>
   state === "completed" || state === "interrupted" || state === "error";
 
-const isSessionRunning = (thread: OrchestrationThreadShell): boolean =>
+const isSessionRunning = (thread: OrchestrationThreadLeanShell): boolean =>
   thread.session !== null &&
   (thread.session.status === "running" || thread.session.status === "starting");
 
-const hasNeedsGuidance = (thread: OrchestrationThreadShell): boolean =>
+const hasNeedsGuidance = (thread: OrchestrationThreadLeanShell): boolean =>
   thread.attention.includes("needs_guidance");
 
 /**
@@ -77,7 +77,7 @@ export type HandoffSettlementAction =
   | { readonly kind: "guidance"; readonly reasonKey: string };
 
 /** Epoch-ms the kickoff began: the running turn's start, else the drafter's creation. */
-const kickoffStartedMs = (drafter: OrchestrationThreadShell): number => {
+const kickoffStartedMs = (drafter: OrchestrationThreadLeanShell): number => {
   const iso =
     drafter.latestTurn !== null
       ? (drafter.latestTurn.startedAt ?? drafter.latestTurn.requestedAt)
@@ -87,7 +87,7 @@ const kickoffStartedMs = (drafter: OrchestrationThreadShell): number => {
 };
 
 export const classifyHandoffSettlement = (
-  drafter: OrchestrationThreadShell,
+  drafter: OrchestrationThreadLeanShell,
   nowMs: number,
   graceMs: number = HANDOFF_HUNG_GRACE_MS,
 ): HandoffSettlementAction => {
@@ -149,7 +149,7 @@ const make = Effect.gen(function* () {
   // stuck): raise needs_guidance so the broken drafter is surfaced (roots have
   // no other rail). Deterministic id keyed by the reason so it is raised at most
   // once per episode.
-  const raiseGuidance = (drafterId: OrchestrationThreadShell["id"], reasonKey: string) =>
+  const raiseGuidance = (drafterId: OrchestrationThreadLeanShell["id"], reasonKey: string) =>
     Effect.gen(function* () {
       const id = `server:handoff-settle:guidance:${drafterId}:${reasonKey}`;
       yield* dispatch({
@@ -182,7 +182,7 @@ const make = Effect.gen(function* () {
   // deterministic (projection-only, no lost side effect). A persistently stuck
   // stop is surfaced via `needs_guidance` after a grace window so it is never
   // silently retried out of sight.
-  const settleSuccess = (drafter: OrchestrationThreadShell, turnId: string, nowMs: number) =>
+  const settleSuccess = (drafter: OrchestrationThreadLeanShell, turnId: string, nowMs: number) =>
     Effect.gen(function* () {
       const now = yield* nowIso;
       const doneId = `server:handoff-settle:done:${drafter.id}:${turnId}`;
@@ -227,7 +227,7 @@ const make = Effect.gen(function* () {
       });
     });
 
-  const settleDrafter = (drafter: OrchestrationThreadShell, nowMs: number) => {
+  const settleDrafter = (drafter: OrchestrationThreadLeanShell, nowMs: number) => {
     const action = classifyHandoffSettlement(drafter, nowMs);
     switch (action.kind) {
       case "success":
@@ -240,9 +240,12 @@ const make = Effect.gen(function* () {
   };
 
   const runPass = Effect.fn("runPass")(function* () {
-    // FULL active set, deliberately — do NOT narrow this by settledness.
-    //
-    // `settleSuccess` is a MULTI-PASS sequence: it sets `planLane: done`,
+    // Every active drafter, narrowed by ROLE and nothing else — this pass's own
+    // first line was `if (thread.role !== HANDOFF_DRAFTER_ROLE) continue`, so
+    // pushing it into the query is the same quarry for ~1/1000th of the rows.
+    // Safe because `role` is fixed at spawn: unlike settledness it cannot change
+    // under the sweep. Do NOT narrow this by settledness (or any user-facing
+    // axis): `settleSuccess` is a MULTI-PASS sequence — it sets `planLane: done`,
     // requests the provider stop, and returns; the `thread.archive` is dispatched
     // only on a LATER pass, once a snapshot reads `session.status === "stopped"`.
     // A shared `done` drafter is settled IMMEDIATELY by
@@ -251,10 +254,11 @@ const make = Effect.gen(function* () {
     // stop and archive, and it is never archived. It also makes the stuck-stop
     // backstop unreachable: that path is explicitly gated on re-reading a `done`
     // snapshot (`drafter.planLane === "done"`), which is the very state excluded.
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot({
+      role: HANDOFF_DRAFTER_ROLE,
+    });
     const nowMs = yield* Clock.currentTimeMillis;
     for (const thread of snapshot.threads) {
-      if (thread.role !== HANDOFF_DRAFTER_ROLE) continue;
       yield* settleDrafter(thread, nowMs).pipe(
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)

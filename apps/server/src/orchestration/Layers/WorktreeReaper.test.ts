@@ -11,7 +11,7 @@ import { TestClock } from "effect/testing";
 import type {
   OrchestrationCommand,
   OrchestrationProjectShell,
-  OrchestrationThreadShell,
+  OrchestrationThreadLeanShell,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -31,8 +31,8 @@ import { WORKTREE_REAP_INTERVAL_MS, WorktreeReaperLive } from "./WorktreeReaper.
 const OLD = new Date(-WORKTREE_REAP_AGE_MS - 60_000).toISOString();
 
 const thread = (
-  over: Omit<Partial<OrchestrationThreadShell>, "id"> & { id: string },
-): OrchestrationThreadShell =>
+  over: Omit<Partial<OrchestrationThreadLeanShell>, "id"> & { id: string },
+): OrchestrationThreadLeanShell =>
   ({
     projectId: "p1",
     parentThreadId: null,
@@ -44,7 +44,7 @@ const thread = (
     title: "t",
     updatedAt: OLD,
     ...over,
-  }) as unknown as OrchestrationThreadShell;
+  }) as unknown as OrchestrationThreadLeanShell;
 
 describe("WorktreeReaper", () => {
   it.effect("reaps only the provably-dead worktree; stale ones survive", () =>
@@ -127,7 +127,7 @@ describe("WorktreeReaper", () => {
           }),
         ];
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
               projects: [project],
@@ -256,7 +256,7 @@ describe("WorktreeReaper", () => {
           }),
         ];
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
               projects: [project],

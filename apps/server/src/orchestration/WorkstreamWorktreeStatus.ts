@@ -112,7 +112,9 @@ const make = Effect.gen(function* () {
     const readAt = yield* DateTime.now;
     const nowMs = DateTime.toEpochMillis(readAt);
     const classified = yield* reaper.classifyWorktrees().pipe(Effect.orElseSucceed(() => []));
-    const snapshot = yield* snapshotQuery.getShellSnapshot().pipe(Effect.orElseSucceed(() => null));
+    const snapshot = yield* snapshotQuery
+      .getLeanShellSnapshot()
+      .pipe(Effect.orElseSucceed(() => null));
     const projectsById = new Map((snapshot?.projects ?? []).map((p) => [p.id, p]));
     const rolesById = new Map((snapshot?.threads ?? []).map((t) => [t.id, t.role]));
 
@@ -186,7 +188,7 @@ const make = Effect.gen(function* () {
       }
 
       const snapshot = yield* snapshotQuery
-        .getShellSnapshot()
+        .getLeanShellSnapshot()
         .pipe(Effect.orElseSucceed(() => null));
       const cwd =
         entry.parentCwd ??

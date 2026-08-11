@@ -5,7 +5,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationLatestTurn,
   type OrchestrationSession,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadId,
 } from "@t3tools/contracts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -154,7 +154,7 @@ const turnStartMs = (latestTurn: OrchestrationLatestTurn | null): number | null 
 };
 
 export interface LivenessClassifyInput {
-  readonly thread: OrchestrationThreadShell;
+  readonly thread: OrchestrationThreadLeanShell;
   readonly session: OrchestrationSession;
   readonly maxActivityCreatedAtMs: number | null;
   /** Persisted runtime heartbeat (ms), advanced on ANY runtime event. */
@@ -186,7 +186,7 @@ export interface LivenessClassifyInput {
  * error never re-escalates it.
  */
 export const submitSupersedesFailure = (
-  thread: Pick<OrchestrationThreadShell, "lastOutcome">,
+  thread: Pick<OrchestrationThreadLeanShell, "lastOutcome">,
   session: Pick<OrchestrationSession, "updatedAt">,
 ): boolean =>
   thread.lastOutcome !== null && Date.parse(thread.lastOutcome.at) >= Date.parse(session.updatedAt);
@@ -523,7 +523,7 @@ const makeWorkstreamLivenessSweep = (
       );
 
     const appendLivenessActivity = (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       verdict: LivenessVerdict,
       summary: string,
       idSuffix: string,
@@ -555,7 +555,7 @@ const makeWorkstreamLivenessSweep = (
     // still unflagged (§7 clears stored attention on every turn-start) re-raises
     // at most once a day instead of never again.
     const markDead = Effect.fn("workstreamLiveness.markDead")(function* (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       verdict: LivenessVerdict,
     ) {
       const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -606,7 +606,7 @@ const makeWorkstreamLivenessSweep = (
     // as a pure runtime steer by the status-model author (see progress.md) and
     // guarded on an open turn by the caller — a steer is not a §8 "start".
     const nudgeStall = Effect.fn("workstreamLiveness.nudgeStall")(function* (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       verdict: LivenessVerdict,
       context: StallContext | null,
       episodeMs: number,
@@ -646,7 +646,7 @@ const makeWorkstreamLivenessSweep = (
     // per-child pause notice (the idle-gated rail alone would never fire while
     // the wedged turn stays open).
     const escalateStall = Effect.fn("workstreamLiveness.escalateStall")(function* (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       verdict: LivenessVerdict,
       context: StallContext | null,
       episodeMs: number,
@@ -677,7 +677,7 @@ const makeWorkstreamLivenessSweep = (
     // the very resume that was just sent (the resume clears nothing, but a raised
     // flag makes the NEXT wedge unresumable).
     const appendStuckLaunchActivity = Effect.fn("workstreamLiveness.stuckLaunchActivity")(
-      function* (thread: OrchestrationThreadShell, episodeMs: number, resumed: boolean) {
+      function* (thread: OrchestrationThreadLeanShell, episodeMs: number, resumed: boolean) {
         const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
         return yield* deliverCommand({
           type: "thread.activity.append",
@@ -717,7 +717,7 @@ const makeWorkstreamLivenessSweep = (
     // (recoverable, a human is needed) rather than `error` — nothing has failed,
     // the launch just never takes.
     const escalateStuckLaunch = Effect.fn("workstreamLiveness.escalateStuckLaunch")(function* (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       attempts: number,
       episodeMs: number,
     ) {
@@ -756,7 +756,7 @@ const makeWorkstreamLivenessSweep = (
     // Episode-keyed (`flatSinceMs`) server-prefixed ids keep it idempotent within
     // an episode and re-armable across episodes.
     const adviseProgressLoop = Effect.fn("workstreamLiveness.adviseProgressLoop")(function* (
-      thread: OrchestrationThreadShell,
+      thread: OrchestrationThreadLeanShell,
       busyMinutes: number,
       episodeMs: number,
     ) {
@@ -797,7 +797,7 @@ const makeWorkstreamLivenessSweep = (
     });
 
     const sweep = Effect.gen(function* () {
-      const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+      const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
       const now = yield* Clock.currentTimeMillis;
       const bindings = yield* directory.listBindings();
       const boundThreadIds = new Set(bindings.map((binding) => binding.threadId));

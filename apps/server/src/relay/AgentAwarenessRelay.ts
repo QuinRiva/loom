@@ -2,7 +2,7 @@ import type {
   EnvironmentId,
   OrchestrationEvent,
   OrchestrationProjectShell,
-  OrchestrationThreadShell,
+  OrchestrationThreadLeanShell,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -221,7 +221,7 @@ const makePublishProof = Effect.fn("makePublishProof")(function* (input: {
 
 // Compact, log-safe view of the fields the awareness phase ladder reads.
 export function describeThreadShellForAwareness(
-  thread: Option.Option<OrchestrationThreadShell>,
+  thread: Option.Option<OrchestrationThreadLeanShell>,
 ): Record<string, unknown> {
   if (Option.isNone(thread)) {
     return { found: false };
@@ -242,7 +242,7 @@ export function describeThreadShellForAwareness(
 export function resolveAgentAwarenessRelayPublishSnapshot(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly thread: Option.Option<OrchestrationThreadShell>;
+  readonly thread: Option.Option<OrchestrationThreadLeanShell>;
   readonly project: Option.Option<OrchestrationProjectShell>;
 }): {
   readonly projectId: string | null;
@@ -279,7 +279,7 @@ export function resolveAgentAwarenessRelayPublishSnapshot(input: {
 export function resolveAgentAwarenessRelayActiveThreadIds(input: {
   readonly environmentId: EnvironmentId;
   readonly projects: ReadonlyArray<Pick<OrchestrationProjectShell, "id" | "title">>;
-  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  readonly threads: ReadonlyArray<OrchestrationThreadLeanShell>;
 }): ReadonlyArray<ThreadId> {
   const projectById = new Map(input.projects.map((project) => [project.id, project]));
   return input.threads
@@ -534,7 +534,7 @@ export const make = Effect.gen(function* () {
       return false;
     }
     const environmentId = yield* serverEnvironment.getEnvironmentId;
-    const snapshot = yield* snapshotQuery.getShellSnapshot();
+    const snapshot = yield* snapshotQuery.getLeanShellSnapshot();
     const activeThreadIds = resolveAgentAwarenessRelayActiveThreadIds({
       environmentId,
       projects: snapshot.projects,

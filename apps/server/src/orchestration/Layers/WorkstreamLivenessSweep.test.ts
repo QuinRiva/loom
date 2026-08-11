@@ -3,7 +3,7 @@ import { it as effectIt } from "@effect/vitest";
 import {
   type OrchestrationCommand,
   type OrchestrationSession,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   ProviderInstanceId,
   type ThreadId,
   type ThreadPlanLane,
@@ -67,7 +67,9 @@ const session = (overrides: Partial<OrchestrationSession> = {}): OrchestrationSe
   ...overrides,
 });
 
-const thread = (overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell =>
+const thread = (
+  overrides: Partial<OrchestrationThreadLeanShell> = {},
+): OrchestrationThreadLeanShell =>
   ({
     id: "child-1" as ThreadId,
     projectId: "project-1",
@@ -110,7 +112,7 @@ const thread = (overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     ...overrides,
-  }) as OrchestrationThreadShell;
+  }) as OrchestrationThreadLeanShell;
 
 const base = {
   thread: thread(),
@@ -241,7 +243,7 @@ describe("submitSupersedesFailure (Issue 3: a submit out-votes a stale error)", 
       round: 1,
       recordedByEventId: "evt-1",
       at,
-    }) as unknown as OrchestrationThreadShell["lastOutcome"];
+    }) as unknown as OrchestrationThreadLeanShell["lastOutcome"];
 
   it("treats an error session as superseded when a submit is newer than the session state", () => {
     // The provider errored, then recovered and the thread submitted a verdict:
@@ -547,7 +549,7 @@ describe("classifyLiveness does not own the stuck-launch state", () => {
 describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting)", () => {
   const CHILD_ID = "child-stuck-launch" as ThreadId;
 
-  const wedgedChild = (overrides: Partial<OrchestrationThreadShell> = {}) =>
+  const wedgedChild = (overrides: Partial<OrchestrationThreadLeanShell> = {}) =>
     thread({
       id: CHILD_ID,
       planLane: "in_progress" as ThreadPlanLane,
@@ -563,7 +565,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
     });
 
   interface SweepHarness {
-    readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+    readonly threads: ReadonlyArray<OrchestrationThreadLeanShell>;
     /** Adapter-reported live provider sessions. */
     readonly providerSessions?: ReadonlyArray<{ readonly threadId: ThreadId }>;
     /** Persisted runtime bindings (a non-`stopped` one also counts as live). */
@@ -607,7 +609,9 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
      * decided "wedged", but BEFORE the repair command is dispatched. This is the
      * exact race window the compare-and-swap must close.
      */
-    readonly raceBeforeRepair?: (current: OrchestrationThreadShell) => OrchestrationThreadShell;
+    readonly raceBeforeRepair?: (
+      current: OrchestrationThreadLeanShell,
+    ) => OrchestrationThreadLeanShell;
   }
 
   const runSweep = (input: SweepHarness) =>
@@ -615,7 +619,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
       const dispatched: Array<OrchestrationCommand> = [];
       // Live mutable thread state, so the stub can enforce the real decider's
       // compare-and-swap against state that a racing turn-start may have changed.
-      let live: ReadonlyArray<OrchestrationThreadShell> = input.threads;
+      let live: ReadonlyArray<OrchestrationThreadLeanShell> = input.threads;
       const failedOnce = new Set<string>();
       const engine = {
         readEvents: () => Stream.empty,
@@ -657,7 +661,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
       } as unknown as OrchestrationEngineShape;
       let passIndex = 0;
       const snapshotQuery = {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.sync(() => {
             if (input.reWedgeBetweenPasses === true) {
               // Return the thread to the wedged shape with a FRESH episode, as a
@@ -674,7 +678,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
                         activeTurnId: null,
                         updatedAt: minsAgo(60 - passIndex),
                       },
-                    } as OrchestrationThreadShell),
+                    } as OrchestrationThreadLeanShell),
               );
             }
             const threads = live;
@@ -894,7 +898,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
               : ({
                   ...t,
                   session: { ...t.session, updatedAt: minsAgo(0) },
-                } as OrchestrationThreadShell),
+                } as OrchestrationThreadLeanShell),
         });
         expect(dispatched.some((c) => c.type === "thread.turn.start")).toBe(false);
         expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(false);
@@ -922,7 +926,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
                     status: "running",
                     activeTurnId: "turn-raced-in" as TurnId,
                   },
-                } as OrchestrationThreadShell),
+                } as OrchestrationThreadLeanShell),
         });
         expect(dispatched.some((c) => c.type === "thread.turn.start")).toBe(false);
         expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(false);
@@ -944,7 +948,7 @@ describe("liveness sweep loop (stuck-launch backstop + honest delivery reporting
             ...t,
             // Session deliberately untouched — this is the whole point.
             latestUserMessageAt: minsAgo(0),
-          }) as OrchestrationThreadShell,
+          }) as OrchestrationThreadLeanShell,
       });
       expect(dispatched.some((c) => c.type === "thread.turn.start")).toBe(false);
       expect(dispatched.some((c) => c.type === "thread.session.set")).toBe(false);

@@ -32,6 +32,7 @@ import {
   makeBriefNeededOutwardAttention,
 } from "../briefNeededOutwardAttention.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { clearPromptDebugSidecarNamesCache } from "../workstreamPromptDebug.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
@@ -830,6 +831,89 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(outcome.payload.round, 1);
       }
     }),
+  );
+
+  it.effect(
+    "lean shell snapshot carries the same rows in the same order, and role narrows the quarry",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_thread_sessions`;
+
+        yield* sql`
+          INSERT INTO projection_projects (
+            project_id, title, workspace_root, default_model_selection_json,
+            scripts_json, created_at, updated_at, deleted_at
+          ) VALUES (
+            'project-lean', 'Lean', '/tmp/project-lean',
+            '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+            '2026-04-06T00:00:00.000Z', '2026-04-06T00:00:01.000Z', NULL
+          )
+        `;
+
+        // The drafter is in the stop→archive window the settledness filter broke:
+        // lane `done`, session `stopped`, not yet archived. The quarry MUST still
+        // return it — that is the pass that dispatches its `thread.archive`.
+        yield* sql`
+          INSERT INTO projection_threads (
+            thread_id, project_id, role, plan_lane, title, model_selection_json,
+            runtime_mode, interaction_mode, branch, worktree_path, latest_turn_id,
+            latest_user_message_at, pending_approval_count, pending_user_input_count,
+            has_actionable_proposed_plan, brief, created_at, updated_at,
+            archived_at, deleted_at
+          ) VALUES
+            ('thread-coder', 'project-lean', 'coder', 'ready', 'Coder',
+             '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+             NULL, NULL, NULL, NULL, 0, 0, 0, 'a long kickoff brief',
+             '2026-04-06T00:00:02.000Z', '2026-04-06T00:00:03.000Z', NULL, NULL),
+            ('thread-drafter', 'project-lean', 'handoff-drafter', 'done', 'Drafter',
+             '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+             NULL, NULL, NULL, NULL, 0, 0, 0, NULL,
+             '2026-04-06T00:00:04.000Z', '2026-04-06T00:00:05.000Z', NULL, NULL),
+            ('thread-archived-drafter', 'project-lean', 'handoff-drafter', 'done', 'Gone',
+             '{"provider":"codex","model":"gpt-5-codex"}', 'full-access', 'default',
+             NULL, NULL, NULL, NULL, 0, 0, 0, NULL,
+             '2026-04-06T00:00:06.000Z', '2026-04-06T00:00:07.000Z',
+             '2026-04-06T00:00:08.000Z', NULL)
+        `;
+
+        yield* sql`
+          INSERT INTO projection_thread_sessions (
+            thread_id, status, provider_name, provider_session_id, provider_thread_id,
+            runtime_mode, active_turn_id, last_error, updated_at
+          ) VALUES
+            ('thread-drafter', 'stopped', 'pi', NULL, NULL, 'full-access', NULL, NULL,
+             '2026-04-06T00:00:09.000Z')
+        `;
+
+        const full = yield* snapshotQuery.getShellSnapshot();
+        const lean = yield* snapshotQuery.getLeanShellSnapshot();
+
+        // Same rows, same order — the lean read narrows COLUMNS, never rows.
+        assert.deepStrictEqual(
+          lean.threads.map((thread) => thread.id),
+          full.threads.map((thread) => thread.id),
+        );
+        assert.deepStrictEqual(
+          lean.projects.map((project) => project.id),
+          full.projects.map((project) => project.id),
+        );
+        assert.equal(lean.snapshotSequence, full.snapshotSequence);
+        assert.ok(!("brief" in lean.threads[0]!));
+
+        const drafters = yield* snapshotQuery.getLeanShellSnapshot({ role: "handoff-drafter" });
+        assert.deepStrictEqual(
+          drafters.threads.map((thread) => thread.id),
+          ["thread-drafter"],
+        );
+        // Still carries the session the settlement pass gates archive on.
+        assert.equal(drafters.threads[0]?.session?.status, "stopped");
+        assert.equal(drafters.threads[0]?.planLane, "done");
+      }),
   );
 
   it.effect("keeps archived threads out of the main shell snapshot", () =>
@@ -2819,6 +2903,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         // A stale sidecar for the non-pi thread, so the provider gate is proven
         // on its own rather than passing because the file is simply absent.
         NodeFS.writeFileSync(NodePath.join(promptDebugDir, "thread-codex.md"), "# stale", "utf8");
+        // The listing is cached for 5s and an earlier test in this file has
+        // already read this (then empty) directory, so the sidecars just written
+        // are invisible until the cache is dropped.
+        clearPromptDebugSidecarNamesCache();
 
         const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
         const byId = (id: string) => shellSnapshot.threads.find((t) => t.id === ThreadId.make(id));
