@@ -2,7 +2,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 import * as GoalHandoffHttp from "./GoalHandoffHttp.ts";
 import * as GoalTaskHttp from "./GoalTaskHttp.ts";
-import { PROVIDER_TOOL_PATHS, workstreamBaseUrlFromMcpEndpoint } from "./toolPaths.ts";
+import {
+  DELEGATION_PROVIDER_TOOLS,
+  HUMAN_INPUT_PROVIDER_TOOLS,
+  LEAF_CORE_PROVIDER_TOOLS,
+  PROVIDER_TOOL_PATHS,
+  workstreamBaseUrlFromMcpEndpoint,
+} from "./toolPaths.ts";
 import * as ThreadForkHttp from "./ThreadForkHttp.ts";
 import * as UserInputHttp from "./UserInputHttp.ts";
 import * as WorkstreamSpawnHttp from "./WorkstreamSpawnHttp.ts";
@@ -48,5 +54,34 @@ describe("PROVIDER_TOOL_PATHS ↔ registered routes", () => {
     expect(typeof GoalHandoffHttp.layer).toBe("object");
     expect(typeof ThreadForkHttp.layer).toBe("object");
     expect(typeof UserInputHttp.layer).toBe("object");
+  });
+});
+
+describe("provider-tool families partition the path table", () => {
+  const families = {
+    "leaf-core": LEAF_CORE_PROVIDER_TOOLS,
+    delegation: DELEGATION_PROVIDER_TOOLS,
+    "human-input": HUMAN_INPUT_PROVIDER_TOOLS,
+  } as const;
+
+  // A new provider tool that joins no family would silently ship dormant to
+  // every role (unreachable even via enable_toolset); one in two families is a
+  // classification bug. Both fail here with a named diff.
+  it("covers every routed tool exactly once", () => {
+    const assigned = Object.values(families).flat();
+    expect([...assigned].sort()).toEqual(Object.keys(PROVIDER_TOOL_PATHS).sort());
+    expect(new Set(assigned).size).toBe(assigned.length);
+  });
+
+  it("keeps the families pairwise disjoint", () => {
+    for (const [aName, a] of Object.entries(families)) {
+      for (const [bName, b] of Object.entries(families)) {
+        if (aName >= bName) continue;
+        expect({
+          pair: `${aName} ∩ ${bName}`,
+          overlap: a.filter((tool) => (b as ReadonlyArray<string>).includes(tool)),
+        }).toEqual({ pair: `${aName} ∩ ${bName}`, overlap: [] });
+      }
+    }
   });
 });
