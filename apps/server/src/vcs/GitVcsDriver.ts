@@ -940,16 +940,16 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     // `SNAPSHOT_COMMIT_RETRY`. Deletion is idempotent (a missing ref exits 0),
     // so re-running the whole batch is safe. Failure is NOT swallowed: it
     // surfaces as a revert-failure activity rather than a silent wrong diff.
+    // De-duplicated because a transaction rejects repeated refs outright
+    // (`fatal: multiple updates for ref 'X' not allowed`) — uniqueness is a
+    // precondition of batching that the previous per-ref loop did not have.
     deleteCheckpointRefs: Effect.fn("GitVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {
-        if (input.checkpointRefs.length === 0) {
-          return;
-        }
         yield* execute({
           operation: "GitVcsDriver.checkpoints.deleteCheckpointRefs",
           cwd: input.cwd,
           args: ["update-ref", "--stdin"],
-          stdin: input.checkpointRefs.map((ref) => `delete ${ref}\n`).join(""),
+          stdin: [...new Set(input.checkpointRefs)].map((ref) => `delete ${ref}\n`).join(""),
         }).pipe(Effect.retry(REF_DELETE_RETRY));
       },
     ),

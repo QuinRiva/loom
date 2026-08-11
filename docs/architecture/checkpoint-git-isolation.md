@@ -17,7 +17,7 @@ git read-tree HEAD
 git add -A -- .
 git write-tree
 git commit-tree <tree>
-git update-ref refs/t3/checkpoints/<threadId>/{turn,baseline}/<n> <commit>
+git update-ref refs/t3/checkpoints/<b64url threadId>/{turn,baseline}/<n> <commit>
 ```
 
 That `add -A` is the alarming-looking line.
@@ -66,13 +66,22 @@ File exists.` (exit 128) comes from a real-index writer. The candidates are:
 - **`commitAll`** (`apps/server/src/vcs/GitVcsDriverCore.ts`) — the recognisable
   triple `git add -A`; `git diff --cached --quiet`; `git rev-parse HEAD`. Used by
   workstream fan-in and by worktree provisioning's base-commit snapshot. This is
-  the real-index path; it is serialised by `WorktreeMutationLock`, gated on child
-  quiescence, and absorbs cross-process contention with the bounded
-  `SNAPSHOT_COMMIT_RETRY` in `apps/server/src/project/WorktreeProvisioner.ts`.
+  the real-index path: serialised in-process by `WorktreeMutationLock` and gated
+  on child quiescence, but **only the provisioning site absorbs cross-process
+  contention** (`SNAPSHOT_COMMIT_RETRY`, `apps/server/src/project/WorktreeProvisioner.ts`).
+  The fan-in `commitAll`/`commitCheckout` sites in
+  `apps/server/src/orchestration/Layers/WorkstreamFanInReactor.ts` are **not**
+  retried, so one that loses `index.lock` to an agent's own git fails its pass.
+  An in-process lock cannot serialise against a separate process, which is why a
+  retry is the mechanism that matters here.
 - **The commit-panel UI action**, which deliberately stages everything — but only
   when a user clicks it.
 
-There is no automatic commit anywhere in the server.
+Nothing commits _your staging_ automatically. The only automatic commits are the
+fan-in/provisioning `wip: workstream snapshot`-style commits above, which run
+`commitAll` against the real index — so an unexplained `wip:` commit on your
+branch is one of those, not the checkpointer (checkpoint captures are
+`commit-tree` objects that no branch points at).
 
 ## The one checkpoint path that does mutate your worktree
 
