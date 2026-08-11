@@ -302,7 +302,12 @@ describe("WorkstreamFanInReactor", () => {
         dispatchFailsFor: "thread.meta.update",
       });
       expect(gitCalls).toContain("merge");
-      expect(fanInStates(dispatched)).toEqual(["completed"]);
+      // This harness serves a frozen snapshot, so the pass can repeat the merge
+      // (live, the reactor's own `completed` write is projected inside the
+      // command transaction, so the next pass sees it and takes the
+      // deferred-removal branch instead). The invariant under test is the
+      // settlement, not the repeat count.
+      expect(fanInStates(dispatched)).toContain("completed");
       expect(fanInStates(dispatched)).not.toContain("failed");
       expect(
         dispatched.some(
@@ -814,6 +819,90 @@ describe("WorkstreamFanInReactor", () => {
         const finalStates = fanInStates(yield* Ref.get(dispatched));
         expect(finalStates).toContain("conflicted");
         expect(finalStates).toContain("completed");
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    }),
+  );
+
+  // Review round 2: the cleanup breaker must not outlive the cleanup episode it
+  // was recorded for. A child whose post-merge cleanup failed is skipped only
+  // while it is still `completed`; reopening it (projection resets to `none`) and
+  // resubmitting carries NEW commits that must merge, so the SAME process has to
+  // pick it up again — a server restart is not an acceptable recovery.
+  it.effect("cleanup breaker expires on reopen: the resubmitted child merges again", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+      const record = (tag: string) => Ref.update(gitCalls, (xs) => [...xs, tag]);
+      const repointFails = yield* Ref.make(true);
+      // Starts in the post-cleanup-failure shape: merged, but the worktree was
+      // never tidied away, so the deferred-removal branch keeps selecting it.
+      const childRef = yield* Ref.make<OrchestrationThreadShell>(
+        isolatedChild({ fanInState: "completed" }),
+      );
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        readEvents: () => Stream.empty,
+        streamDomainEvents: Stream.fromPubSub(events),
+        subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        dispatch: (command: OrchestrationCommand) =>
+          Effect.flatMap(Ref.get(repointFails), (failing) =>
+            failing && command.type === "thread.meta.update"
+              ? Effect.fail(new StubGitError({ detail: "repoint refused" }))
+              : Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+          ),
+      } as never);
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+        getShellSnapshot: () =>
+          Effect.map(Ref.get(childRef), (child) => ({
+            snapshotSequence: 0,
+            projects: [],
+            goals: [],
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            threads: [child, parent],
+          })),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        commitAll: (_cwd: string, subject: string) =>
+          record(`commit:${subject}`).pipe(Effect.as({ committed: true, commitSha: "sha" })),
+        mergeWorktreeBranch: () =>
+          record("merge").pipe(Effect.as({ status: "merged", conflictPaths: [] })),
+        removeWorktree: () => record("removeWorktree"),
+        deleteBranch: () => record("deleteBranch"),
+      } as never);
+      const layer = WorkstreamFanInReactorLive.pipe(
+        Layer.provide(engineLayer),
+        Layer.provide(projectionLayer),
+        Layer.provide(gitLayer),
+        Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const reactor = yield* WorkstreamFanInReactor;
+        yield* reactor.start();
+        yield* reactor.drain;
+        // The cleanup failed and the breaker is now armed for this child — no
+        // merge was attempted (this is the deferred-removal branch) and the
+        // fan-in outcome was left alone.
+        expect(yield* Ref.get(gitCalls)).not.toContain("merge");
+        expect(fanInStates(yield* Ref.get(dispatched))).toEqual([]);
+
+        // A human reopens the child and it resubmits: the projection reset lands
+        // it back at `done` + `fanInState: none`, and the repoint now works.
+        yield* Ref.set(childRef, isolatedChild());
+        yield* Ref.set(repointFails, false);
+        yield* PubSub.publish(events, {
+          type: "thread.plan-lane-set",
+          payload: { threadId: "child" as ThreadId, planLane: "done" },
+        } as OrchestrationEvent);
+        yield* reactor.drain;
+
+        // The new work merges in the SAME process — no restart needed.
+        expect(yield* Ref.get(gitCalls)).toContain("merge");
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("completed");
       }).pipe(Effect.scoped, Effect.provide(layer));
     }),
   );

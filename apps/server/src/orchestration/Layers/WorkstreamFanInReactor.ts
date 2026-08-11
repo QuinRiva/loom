@@ -679,12 +679,20 @@ const make = Effect.gen(function* () {
     const index = buildIndex(threads, projects);
     for (const child of threads) {
       if (child.isolation !== "isolated") continue;
+      // The cleanup breaker is scoped to the EPISODE it was recorded for, not to
+      // the child: it suppresses re-attempts of the cleanup that failed, and a
+      // child that has left `completed` no longer has that cleanup to do. The only
+      // way out of `completed` is a reopen (the projector resets `fanInState` on
+      // any non-terminal lane), after which a resubmit carries NEW commits that
+      // must merge — so forgetting the entry here is what keeps the documented
+      // reopen → reset → re-fan-in recovery working without a server restart.
+      if (child.fanInState !== "completed") cleanupFailedChildren.delete(child.id);
       // Given up on: a previous pass hit an unexpected error on this child, and
       // the retry IS the bug both of these exist to kill. `failed` is the durable
       // pre-merge verdict (a human reopening the thread clears it back to `none`
-      // — the projector resets it on any non-terminal lane — which re-arms the
-      // disposition); the set is the post-merge cleanup breaker, which a restart
-      // clears so the tidy-up is attempted once more.
+      // — same projector reset — which re-arms the disposition); the set is the
+      // post-merge cleanup breaker, which a restart also clears so the tidy-up is
+      // attempted once more.
       if (child.fanInState === "failed" || cleanupFailedChildren.has(child.id)) continue;
       const parent =
         child.parentThreadId === null ? undefined : index.byId.get(child.parentThreadId);
