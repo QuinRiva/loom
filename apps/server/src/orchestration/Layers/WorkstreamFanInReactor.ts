@@ -673,6 +673,22 @@ const make = Effect.gen(function* () {
   // isolated thread is driven to its correct disposition regardless of which
   // terminal event triggered the pass.
   const runPass = Effect.fn("runPass")(function* () {
+    // FULL active set, deliberately — do NOT narrow this by settledness.
+    //
+    // W2-2 proposed "working set OR pending fan-in". The OR term is the wrong
+    // shape: this pass's dominant population is the DEFERRED-REMOVAL branch
+    // below (`fanInState === "completed"` with a `worktreePath` still set — 290
+    // of 337 such threads on the local cockpit store, production-scale), and
+    // `isFanInPending` is false for every one of them, so a working-OR-pending
+    // filter drops exactly the branch whose runaway produced the 13k-failure
+    // incident.
+    //
+    // The deeper reason is that the per-child decision is not a per-child read:
+    // `hasDependentResident` scans all threads for dependents sharing the
+    // worktree, and `isMemberOfUnresolvedGate` scans for gate siblings. Both
+    // interpret ABSENCE as "no such thread" — so a filtered snapshot would let
+    // this reactor remove a worktree a dependent still occupies, or merge a gate
+    // member before its gate resolved. Silent, destructive, and unrecoverable.
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threads = snapshot.threads;
     const projects = snapshot.projects;

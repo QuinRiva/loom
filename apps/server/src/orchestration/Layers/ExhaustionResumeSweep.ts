@@ -212,6 +212,15 @@ const make = Effect.gen(function* () {
     const currentSettings = yield* settings.getSettings;
     const failover = currentSettings.providerFailover;
     const usageInstances = usageSourceInstances(currentSettings.providerInstances);
+    // FULL active set, deliberately — do NOT narrow this by settledness.
+    //
+    // A quota-stalled session has `status === "error"`, which is NOT a settle
+    // blocker (only `starting`/`running` are). So an explicit user settle admits
+    // the thread immediately, and inactivity ages it out after the window — yet
+    // neither action cancels the plan or the resume the sweep still owes it.
+    // Settle is a VISIBILITY axis: a user tidying a row while waiting out a quota
+    // reset must not silently cancel the resume, which is what a settledness
+    // filter here would do.
     const snapshot = yield* projection.getShellSnapshot();
     const now = yield* Clock.currentTimeMillis;
     // One health snapshot + catalogue per tick (paused folded into the marks),

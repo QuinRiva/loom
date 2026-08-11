@@ -8,7 +8,7 @@
  * `effectiveSettled`, `isStagedHandoffThread`) rather than a second state model.
  */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
+import { effectiveSettled } from "@t3tools/shared/threadSettled";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";

@@ -3246,6 +3246,38 @@ const make = Effect.gen(function* () {
   //     coalesces rather than drops triggers — so the follow-up pass is
   //     guaranteed and the notice is deferred by one pass, not lost.
   const runPass = Effect.fn("runPass")(function* () {
+    // FULL active set, deliberately — do NOT narrow this by settledness.
+    //
+    // W2-2 proposed narrowing the dispatcher to the unsettled "working set" for a
+    // ~24x row cut. It is unsafe here, in both directions:
+    //
+    //  1. PREMATURE PROMOTION. `describeUnsatisfiedDependency` treats a dep id
+    //     that is ABSENT from the map as non-gating (dangling ids never gate).
+    //     A settled-but-not-done dependency dropped from the snapshot therefore
+    //     reads as SATISFIED, and its dependent is promoted onto a base whose
+    //     dependency never ran. On the local cockpit store (production-scale,
+    //     1,263 active threads) 28 threads are named in someone's `blockedBy`,
+    //     are not `done`, and would settle out — so this is a live hazard, not a
+    //     theoretical one.
+    //  2. NEVER PROMOTED. `selectThreadsToDispatch` selects exactly the thread
+    //     with no session, no user message and no turn — i.e. the one whose only
+    //     activity timestamp is `createdAt`. Once such a thread is idle past the
+    //     window it settles, and the pass that exists to launch it stops seeing
+    //     it. A brief attached to a graph a week after it was scaffolded would
+    //     silently never start.
+    //
+    // Both are silent wedges of the exact class the fan-in retry loop was. The
+    // dispatcher reads the GRAPH (deps, gate siblings, parents, fork sources),
+    // and a graph read over a filtered map misreads absence as satisfaction.
+    // Narrowing the dispatcher needs a lean full-set projection (fewer COLUMNS,
+    // same rows), not fewer rows: the pass's cost is row WIDTH (`brief`,
+    // `purpose`, `routes` — ~2.6 MB across the active set), not row count.
+    //
+    // More generally: settledness is a VISIBILITY partition, not a control-plane
+    // one. A user may settle any row at any time, and `workstreamSettleTriggered`
+    // settles any `done` thread immediately — so a thread that still owes
+    // control-plane work can always be classified settled. No sweep whose quarry
+    // is "a thread that still owes an action" can be gated on it.
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threads = snapshot.threads;
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
