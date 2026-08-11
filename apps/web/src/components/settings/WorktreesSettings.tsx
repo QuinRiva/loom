@@ -62,6 +62,7 @@ function classify(entry: WorkstreamWorktreeEntry): {
     unmanaged: { label: "Unmanaged", tone: "warn" },
     cancelled: { label: "Cancelled wip", tone: "neutral" },
     conflicted: { label: "Conflicted", tone: "warn" },
+    "fanin-failed": { label: "Fan-in failed", tone: "warn" },
     "fanin-pending": { label: "Fan-in pending", tone: "neutral" },
     dirty: { label: "Uncommitted changes", tone: "warn" },
     unmerged: { label: "Unmerged", tone: "neutral" },

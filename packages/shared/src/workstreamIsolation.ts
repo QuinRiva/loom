@@ -24,13 +24,13 @@ export const roleDefaultIsolation = (role: string | null): ThreadIsolation => {
 
 /**
  * A thread's fan-in is "settled" once the reactor has recorded a terminal
- * outcome — cleanly merged (`completed`) or aborted on conflict (`conflicted`).
- * The generation-join wake gate uses this: a `done` isolated child whose fan-in
- * is still in flight (`none`) must not wake the parent yet, but a conflicted one
- * must (with the notice).
+ * outcome — cleanly merged (`completed`), aborted on conflict (`conflicted`), or
+ * abandoned after an unexpected error (`failed`). The generation-join wake gate
+ * uses this: a `done` isolated child whose fan-in is still in flight (`none`)
+ * must not wake the parent yet, but a conflicted or failed one must (the parent
+ * is the only live actor that can act on it).
  */
-export const isFanInSettled = (fanInState: ThreadFanInState): boolean =>
-  fanInState === "completed" || fanInState === "conflicted";
+export const isFanInSettled = (fanInState: ThreadFanInState): boolean => fanInState !== "none";
 
 /**
  * Does an isolated child that has reached `done` still owe an unsettled fan-in?

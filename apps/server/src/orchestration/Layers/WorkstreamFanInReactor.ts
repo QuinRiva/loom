@@ -17,11 +17,12 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
@@ -55,8 +56,32 @@ type ProjectRef = {
   readonly workspaceRoot: string;
 };
 
+/**
+ * Per-pass indexes over the shell snapshot. The pass used to answer every
+ * lookup with a linear scan (`threads.find` per child, `threads.some` per
+ * dependent-resident check), which is ~1.4M comparisons per pass at the 1,168
+ * threads production carries. Built once, in one walk, exactly as the
+ * dispatcher's `threadsById` is.
+ */
+type PassIndex = {
+  readonly byId: ReadonlyMap<ThreadId, OrchestrationThreadShell>;
+  /** Non-terminal isolated children, keyed by parent id (branch-dependency case). */
+  readonly liveIsolatedChildrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<ThreadId>>;
+  /** Non-terminal threads keyed by their RESOLVED workspace cwd (resident case). */
+  readonly liveResidentsByCwd: ReadonlyMap<string, ReadonlyArray<ThreadId>>;
+  /** All threads whose meta `worktreePath` resolves here (repoint case). */
+  readonly threadsByWorktreePath: ReadonlyMap<string, ReadonlyArray<ThreadId>>;
+};
+
+const push = <K>(map: Map<K, ThreadId[]>, key: K, id: ThreadId): void => {
+  const existing = map.get(key);
+  if (existing === undefined) map.set(key, [id]);
+  else existing.push(id);
+};
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const fs = yield* FileSystem.FileSystem;
   const gitWorkflow = yield* GitWorkflowService;
   const worktreeMutationLock = yield* WorktreeMutationLock;
   const workspaceLease = yield* WorkspaceLease;
@@ -190,6 +215,28 @@ const make = Effect.gen(function* () {
         ),
       );
 
+  // Commit the child's own checkout — but ONLY if it is still on disk. A child's
+  // meta can point at a worktree that is already gone: a prior pass removed the
+  // checkout and then failed (or the process died) before `repointMeta` landed.
+  // `commitAll` was the one unguarded step in that path — it threw
+  // `VcsUnsupportedOperationError` and aborted BEFORE the repoint that clears
+  // `worktreePath`, which is the only thing the deferred-removal guard matches
+  // on — so every later pass retried the identical failure (13,410 of them over
+  // 6 days in production). A missing checkout has nothing to commit; skipping
+  // through to the repoint terminates the loop.
+  const commitCheckout = (cwd: string, subject: string) =>
+    fs.exists(NodePath.join(cwd, ".git")).pipe(
+      Effect.flatMap((present) =>
+        present
+          ? gitWorkflow
+              .commitAll(cwd, subject, "")
+              .pipe(Effect.map((result): string | null => result.commitSha))
+          : Effect.logInfo("workstream fan-in: child checkout is gone, skipping commit", {
+              cwd,
+            }).pipe(Effect.as(null)),
+      ),
+    );
+
   const setFanInState = (threadId: ThreadId, fanInState: ThreadFanInState) =>
     Effect.gen(function* () {
       yield* orchestrationEngine.dispatch({
@@ -288,19 +335,29 @@ const make = Effect.gen(function* () {
   // worktree three seconds after a resume provisioned it. Live-process safety
   // now belongs to `WorkspaceLease.withExclusive`, which makes check+remove
   // atomic; this predicate is only the structural half.
-  const hasDependentResident = (
-    childId: ThreadId,
-    childCwd: string,
+  const hasDependentResident = (childId: ThreadId, childCwd: string, index: PassIndex): boolean =>
+    (index.liveIsolatedChildrenByParent.get(childId)?.length ?? 0) > 0 ||
+    (index.liveResidentsByCwd.get(NodePath.resolve(childCwd)) ?? []).some((id) => id !== childId);
+
+  const buildIndex = (
     threads: ReadonlyArray<OrchestrationThreadShell>,
     projects: ReadonlyArray<ProjectRef>,
-  ): boolean => {
-    const resolvedChildCwd = NodePath.resolve(childCwd);
-    return threads.some((t) => {
-      if (t.id === childId || isTerminal(t.planLane)) return false;
-      if (t.parentThreadId === childId && t.isolation === "isolated") return true;
-      const cwd = resolveCwd(t, projects);
-      return cwd !== undefined && NodePath.resolve(cwd) === resolvedChildCwd;
-    });
+  ): PassIndex => {
+    const byId = new Map<ThreadId, OrchestrationThreadShell>();
+    const liveIsolatedChildrenByParent = new Map<ThreadId, ThreadId[]>();
+    const liveResidentsByCwd = new Map<string, ThreadId[]>();
+    const threadsByWorktreePath = new Map<string, ThreadId[]>();
+    for (const thread of threads) {
+      byId.set(thread.id, thread);
+      if (thread.worktreePath !== null)
+        push(threadsByWorktreePath, NodePath.resolve(thread.worktreePath), thread.id);
+      if (isTerminal(thread.planLane)) continue;
+      if (thread.parentThreadId !== null && thread.isolation === "isolated")
+        push(liveIsolatedChildrenByParent, thread.parentThreadId, thread.id);
+      const cwd = resolveCwd(thread, projects);
+      if (cwd !== undefined) push(liveResidentsByCwd, NodePath.resolve(cwd), thread.id);
+    }
+    return { byId, liveIsolatedChildrenByParent, liveResidentsByCwd, threadsByWorktreePath };
   };
 
   // Repoint any thread whose meta still points at a now-removed worktree back to
@@ -312,14 +369,12 @@ const make = Effect.gen(function* () {
     readonly childCwd: string;
     readonly parentBranch: string | null;
     readonly parentWorktreePath: string | null;
-    readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+    readonly index: PassIndex;
   }) {
-    const resolvedChildCwd = NodePath.resolve(input.childCwd);
-    for (const resident of input.threads) {
-      if (resident.id === input.childId || resident.worktreePath === null) continue;
-      if (NodePath.resolve(resident.worktreePath) === resolvedChildCwd) {
-        yield* repointMeta(resident.id, input.parentBranch, input.parentWorktreePath);
-      }
+    const residents = input.index.threadsByWorktreePath.get(NodePath.resolve(input.childCwd)) ?? [];
+    for (const residentId of residents) {
+      if (residentId === input.childId) continue;
+      yield* repointMeta(residentId, input.parentBranch, input.parentWorktreePath);
     }
   });
 
@@ -341,8 +396,7 @@ const make = Effect.gen(function* () {
     readonly parentCwd: string;
     readonly parentBranch: string | null;
     readonly parentWorktreePath: string | null;
-    readonly threads: ReadonlyArray<OrchestrationThreadShell>;
-    readonly projects: ReadonlyArray<ProjectRef>;
+    readonly index: PassIndex;
     // Post-completion engagement (plan §8 item 3): the child's tip commit, stamped
     // onto its shell by the SAME repoint that relocates it off the removed
     // worktree. Resolved lazily so the deferred-removal sweep (which holds no
@@ -351,8 +405,7 @@ const make = Effect.gen(function* () {
     readonly finalCommitSha?: string | null;
   }) {
     const finalCommitSha =
-      input.finalCommitSha ??
-      (yield* gitWorkflow.commitAll(input.childCwd, "wip: fan-in settle", "")).commitSha;
+      input.finalCommitSha ?? (yield* commitCheckout(input.childCwd, "wip: fan-in settle"));
     yield* gitWorkflow
       .removeWorktree({ cwd: input.parentCwd, path: input.childCwd, force: true })
       .pipe(Effect.ignoreCause({ log: true }));
@@ -365,7 +418,7 @@ const make = Effect.gen(function* () {
       childCwd: input.childCwd,
       parentBranch: input.parentBranch,
       parentWorktreePath: input.parentWorktreePath,
-      threads: input.threads,
+      index: input.index,
     });
   });
 
@@ -435,18 +488,16 @@ const make = Effect.gen(function* () {
     child: OrchestrationThreadShell,
     parent: OrchestrationThreadShell,
     parentCwd: string,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    projects: ReadonlyArray<ProjectRef>,
+    index: PassIndex,
   ) {
     const childCwd = child.worktreePath!;
     const childBranch = child.branch!;
     // Commit the child's own worktree first (its own single-writer tree). The
     // result carries the child branch tip (the new commit, or the existing HEAD
     // when the tree was already clean) — the durable `finalCommitSha` marker.
-    const childCommit = yield* gitWorkflow.commitAll(
+    const childCommitSha = yield* commitCheckout(
       childCwd,
       `wip(${child.role ?? "child"}): ${child.title}`,
-      "",
     );
 
     yield* worktreeMutationLock.withLock(
@@ -462,10 +513,10 @@ const make = Effect.gen(function* () {
           // Write ONLY on a genuine transition. Re-emitting `fanin.set` for an
           // already-`conflicted` child is a self-feeding edge: the decider emits
           // a `thread.fanin-set` event for every set command (no unchanged-value
-          // guard), the reactor re-arms its worker on that event, and the
-          // non-coalescing DrainableWorker runs another pass — which re-conflicts
-          // and re-writes, spinning git merge/abort under the worktree lock for
-          // as long as the conflict stays unresolved. Skipping the no-op write
+          // guard), the reactor re-arms its worker on that event, and the worker
+          // runs another pass — which re-conflicts and re-writes, spinning git
+          // merge/abort under the worktree lock for as long as the conflict stays
+          // unresolved (coalescing bounds the rate, not the loop). Skipping the no-op write
           // means re-attempts fire only via genuine external re-arms
           // (session-set / turn-diff-completed / the 60s tick), which is the
           // intended cadence; the self-heal path still converges (a later
@@ -497,7 +548,7 @@ const make = Effect.gen(function* () {
           return;
         }
         yield* setFanInState(child.id, "completed");
-        if (!hasDependentResident(child.id, childCwd, threads, projects)) {
+        if (!hasDependentResident(child.id, childCwd, index)) {
           yield* removeExclusively(
             childCwd,
             finaliseRemoval({
@@ -507,10 +558,9 @@ const make = Effect.gen(function* () {
               parentCwd,
               parentBranch: parent.branch,
               parentWorktreePath: parent.worktreePath,
-              threads,
-              projects,
+              index,
               // The child's tip commit — recorded on its shell by the repoint.
-              finalCommitSha: childCommit.commitSha,
+              finalCommitSha: childCommitSha,
             }),
           );
         }
@@ -522,7 +572,7 @@ const make = Effect.gen(function* () {
     child: OrchestrationThreadShell,
     parent: OrchestrationThreadShell,
     parentCwd: string,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    index: PassIndex,
   ) {
     const childCwd = child.worktreePath!;
     // Snapshot whatever is in the worktree onto the (kept) branch, then remove
@@ -538,7 +588,7 @@ const make = Effect.gen(function* () {
         // The kept branch tip is the cancelled child's `finalCommitSha` marker,
         // stamped by the child repoint inside the lease (so a held worktree that
         // is NOT removed leaves the shell untouched).
-        const childCommit = yield* gitWorkflow.commitAll(childCwd, "wip: cancelled", "");
+        const childCommitSha = yield* commitCheckout(childCwd, "wip: cancelled");
         yield* removeExclusively(
           childCwd,
           Effect.gen(function* () {
@@ -549,18 +599,13 @@ const make = Effect.gen(function* () {
             // safe; keep its branch name for discovery/recovery. Also repoint any
             // resident (e.g. a cascade-cancelled attached reviewer) off the removed
             // worktree so its meta does not dangle (review finding 1c).
-            yield* repointMeta(
-              child.id,
-              child.branch,
-              parent.worktreePath ?? null,
-              childCommit.commitSha,
-            );
+            yield* repointMeta(child.id, child.branch, parent.worktreePath ?? null, childCommitSha);
             yield* repointResidents({
               childId: child.id,
               childCwd,
               parentBranch: child.branch,
               parentWorktreePath: parent.worktreePath ?? null,
-              threads,
+              index,
             });
           }),
         );
@@ -589,12 +634,17 @@ const make = Effect.gen(function* () {
     const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
     const threads = snapshot.threads;
     const projects = snapshot.projects;
+    const index = buildIndex(threads, projects);
     for (const child of threads) {
       if (child.isolation !== "isolated") continue;
+      // Terminal failure state: a previous pass hit an unexpected error on this
+      // child and gave up on it. Never retry — the retry IS the bug this state
+      // exists to kill. A human reopening the thread clears `fanInState` back to
+      // `none` (the projector resets it on any non-terminal lane), which re-arms
+      // the disposition.
+      if (child.fanInState === "failed") continue;
       const parent =
-        child.parentThreadId === null
-          ? undefined
-          : threads.find((t) => t.id === child.parentThreadId);
+        child.parentThreadId === null ? undefined : index.byId.get(child.parentThreadId);
       const parentCwd = parent ? resolveCwd(parent, projects) : undefined;
 
       const handle = Effect.gen(function* () {
@@ -644,7 +694,7 @@ const make = Effect.gen(function* () {
           // turn-diff-completed / session-set events and the 60s tick.
           if (isChildTurnInFlight(child)) return;
           if (hasParentActiveTurn(parent)) return;
-          yield* doFanIn(child, parent, parentCwd, threads, projects);
+          yield* doFanIn(child, parent, parentCwd, index);
         } else if (child.planLane === "cancelled") {
           if (
             parent === undefined ||
@@ -655,7 +705,7 @@ const make = Effect.gen(function* () {
             return;
           }
           if (!isCancelledChildQuiescent(child)) return;
-          yield* doCancelled(child, parent, parentCwd, threads);
+          yield* doCancelled(child, parent, parentCwd, index);
         } else if (child.fanInState === "completed" && child.worktreePath !== null) {
           // Deferred-removal sweep (plan §3 step 4): a fanned-in child whose
           // removal was held by an occupant is cleaned up once the occupant goes
@@ -665,7 +715,7 @@ const make = Effect.gen(function* () {
             parentCwd === undefined ||
             child.branch === null ||
             NodePath.resolve(child.worktreePath) === NodePath.resolve(parentCwd) ||
-            hasDependentResident(child.id, child.worktreePath, threads, projects)
+            hasDependentResident(child.id, child.worktreePath, index)
           ) {
             return;
           }
@@ -681,8 +731,7 @@ const make = Effect.gen(function* () {
                 parentCwd,
                 parentBranch: parent.branch,
                 parentWorktreePath: parent.worktreePath,
-                threads,
-                projects,
+                index,
               }),
             ),
           );
@@ -690,19 +739,34 @@ const make = Effect.gen(function* () {
       });
 
       // Per-child failure surfacing (review finding 4): an unexpected git/dispatch
-      // error must not leave the child wedged (fanInState `none`, dependents
-      // blocked, parent wake held) with no signal. Raise it as an error activity
-      // + `needs_guidance` so the orchestrator/human hears, and continue the sweep.
+      // error must not leave the child wedged (dependents blocked, parent wake
+      // held) with no signal. Raise it as an error activity + `needs_guidance` so
+      // the orchestrator/human hears, and continue the sweep.
+      //
+      // Recording `failed` is the load-bearing half: without a terminal state the
+      // next pass re-selected the same child, failed identically, and appended
+      // another activity row + attention raise — 13,410 failures and 13,420 raises
+      // over 6 days on one production child, each raise buying a full dispatcher
+      // pass. `failed` is settled (the parent wake fires) but NOT `completed`, so
+      // dependents stay blocked, exactly as `conflicted` does. It is written FIRST
+      // so that even if the activity/attention dispatches fail, the loop is dead.
       yield* handle.pipe(
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-          return appendActivity({
-            threadId: child.id,
-            kind: "workstream.fanin.failed",
-            summary: "Fan-in failed unexpectedly; the branch was not merged.",
-            payload: { detail: Cause.pretty(cause) },
-            tone: "error",
-          }).pipe(Effect.andThen(raiseGuidance(child.id)));
+          return setFanInState(child.id, "failed").pipe(
+            Effect.ignoreCause({ log: true }),
+            Effect.andThen(
+              appendActivity({
+                threadId: child.id,
+                kind: "workstream.fanin.failed",
+                summary:
+                  "Fan-in failed unexpectedly; the branch was not merged and the control plane has stopped retrying. Merge it by hand, or reopen the thread to re-arm the fan-in.",
+                payload: { detail: Cause.pretty(cause) },
+                tone: "error",
+              }),
+            ),
+            Effect.andThen(raiseGuidance(child.id)),
+          );
         }),
       );
     }
@@ -717,7 +781,14 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const worker = yield* makeDrainableWorker((_trigger: void) => runPassSafely);
+  // COALESCING worker (not the queueing default), for the same reason the
+  // dispatcher is: four high-frequency event types arm this one payload-free
+  // trigger — including `thread.session-set`, which peaks around 1.5/s — while a
+  // pass is a full idempotent recompute from durable state. N queued triggers
+  // only ever did the same work N times; coalescing makes the steady-state cost
+  // the pass rate rather than the trigger rate, and cannot lose a wake (see
+  // `makeCoalescingWorker`'s no-lost-wake invariant).
+  const worker = yield* makeCoalescingWorker(runPassSafely);
 
   const start: WorkstreamFanInReactorShape["start"] = Effect.fn("start")(function* () {
     yield* Effect.forkScoped(

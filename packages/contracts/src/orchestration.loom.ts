@@ -110,8 +110,13 @@ export const DEFAULT_THREAD_ISOLATION: ThreadIsolation = "shared";
 // (design §3). `none` = not applicable (shared/attached/root, or an isolated
 // child that has not yet fanned in); `completed` = merged cleanly (releases
 // dependents); `conflicted` = merge aborted, dependents stay blocked, the
-// parent is woken with the notice. Projected from `thread.fanin-set` events.
-export const ThreadFanInState = Schema.Literals(["none", "completed", "conflicted"]);
+// parent is woken with the notice; `failed` = the disposition hit an unexpected
+// error (git/dispatch) and is TERMINAL — the reactor stops retrying that child,
+// dependents stay blocked, and a human must act. `failed` exists because
+// without it the reactor had nothing to write on an unexpected failure, so it
+// re-attempted the same child on every pass forever (13,410 identical failures
+// over 6 days in production). Projected from `thread.fanin-set` events.
+export const ThreadFanInState = Schema.Literals(["none", "completed", "conflicted", "failed"]);
 export type ThreadFanInState = typeof ThreadFanInState.Type;
 export const DEFAULT_THREAD_FAN_IN_STATE: ThreadFanInState = "none";
 // Axis 1 — plan lane (intent; the kanban board). The only "lifecycle" axis,

@@ -365,6 +365,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ),
         );
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
+        // loom: a decider may legitimately decide a command is a NO-OP and emit
+        // nothing — the unchanged-value guards (e.g. raising an attention flag
+        // that is already up, whose event is a dispatcher trigger and so bought a
+        // full pass per redundant raise). Acknowledge at the current sequence:
+        // nothing was written, so there is no receipt to record and no read-model
+        // change to publish, and an idempotent caller must not see a failure.
+        if (eventBases.length === 0) {
+          return { sequence: commandReadModel.snapshotSequence };
+        }
         const committedCommand = yield* sql
           .withTransaction(
             Effect.gen(function* () {

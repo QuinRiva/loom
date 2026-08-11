@@ -420,6 +420,7 @@ export const WorkstreamWorktreeStaleReason = Schema.Literals([
   "unmanaged",
   "cancelled",
   "conflicted",
+  "fanin-failed",
   "fanin-pending",
   "dirty",
   "unmerged",
