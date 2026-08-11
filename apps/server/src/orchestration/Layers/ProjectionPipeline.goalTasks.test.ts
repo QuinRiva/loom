@@ -126,6 +126,9 @@ it.layer(TestLayer)("goal task projection", (it) => {
       yield* eventStore.append(
         append(5, "goal.task-deleted", { goalId, taskId: task("b"), deletedAt: now }),
       );
+      // Live at rewrite time and absent from the submission: the rewrite itself
+      // has to tombstone it.
+      yield* eventStore.append(taskCreated(6, task("c"), null, "Legacy C"));
       yield* projectionPipeline.bootstrap;
 
       const live = () =>
@@ -145,12 +148,12 @@ it.layer(TestLayer)("goal task projection", (it) => {
 
       assert.deepEqual(
         (yield* live()).map((row) => row.taskId),
-        ["task-a"],
+        ["task-a", "task-c"],
       );
 
       yield* eventStore.append(
         append(
-          6,
+          7,
           "goal.tasks-rewritten",
           {
             goalId,
@@ -202,11 +205,23 @@ it.layer(TestLayer)("goal task projection", (it) => {
         },
       ]);
 
-      // A task dropped from the submission is tombstoned, not hard-deleted.
-      const dropped = yield* sql<{
+      // A live task dropped from the submission is tombstoned at the rewrite,
+      // not hard-deleted; the legacy delete's tombstone keeps its own timestamp
+      // across the replay.
+      const tombstones = yield* sql<{
+        readonly taskId: string;
         readonly deletedAt: string | null;
-      }>`SELECT deleted_at AS "deletedAt" FROM projection_goal_tasks WHERE task_id = 'task-b-child'`;
-      assert.deepEqual(dropped, [{ deletedAt: now }]);
+      }>`
+        SELECT task_id AS "taskId", deleted_at AS "deletedAt"
+        FROM projection_goal_tasks
+        WHERE deleted_at IS NOT NULL
+        ORDER BY task_id ASC
+      `;
+      assert.deepEqual(tombstones, [
+        { taskId: "task-b", deletedAt: now },
+        { taskId: "task-b-child", deletedAt: now },
+        { taskId: "task-c", deletedAt: rewrittenAt },
+      ]);
     }),
   );
 });
