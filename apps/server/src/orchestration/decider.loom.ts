@@ -40,7 +40,7 @@ import {
 } from "./commandInvariants.loom.ts";
 import { flattenGoalTasks } from "./goalTaskTree.ts";
 import { findDependencyCycle } from "@t3tools/shared/workstreamDependencies";
-import { gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+import { gateLoopTargetOf, gateSourceFor, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 import { NOTIFY_PAIR_HOURLY_CAP, notifyPairCapExceeded } from "@t3tools/shared/notify";
 // See the module-cycle note above: these are upstream bindings that stay in
 // `decider.ts`; they are only ever referenced inside the function bodies below.
@@ -56,6 +56,28 @@ import {
 import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+
+/**
+ * Unchanged-value guard for the set-style commands (W2-4, generalising W0-3).
+ *
+ * A set-style command writes ONE value to ONE field; when that field already
+ * holds the commanded value the write is a no-op, and the decider is the single
+ * chokepoint where that can be decided once instead of re-derived at every call
+ * site (the fan-in reactor used to hand-roll exactly this for `fanin.set`).
+ *
+ * Why it matters beyond tidiness: `thread.plan-lane-set`, `thread.attention-raised`,
+ * `thread.fanin-set`, `thread.dependencies-set` and `thread.kickoff-brief-set` are
+ * all `WorkstreamDispatcher` triggers, so every redundant echo bought a full pass
+ * over the whole active thread set (~1.5s at 1,168 threads; one fan-in retry
+ * incident raised an already-set attention flag 13,420 times). Suppressing the
+ * echo also stops the event's `updatedAt` / `*Since` stamps advancing, which is
+ * what let a redundant write re-arm the very reactor that issued it.
+ *
+ * A no-op command still SUCCEEDS and still persists a command receipt (see the
+ * no-event success path in `OrchestrationEngine.processEnvelope`), so an
+ * idempotent caller sees an ack and a redelivery is deduped durably.
+ */
+const noEvents: ReadonlyArray<PlannedOrchestrationEvent> = [];
 
 type DecideLoomCommandResult = PlannedOrchestrationEvent | ReadonlyArray<PlannedOrchestrationEvent>;
 
@@ -469,16 +491,22 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           const node = threadById.get(threadId);
           const lane = node?.planLane;
           if (threadId !== command.threadId && (lane === "done" || lane === "cancelled")) continue;
-          events.push({
-            ...(yield* withEventBase({
-              aggregateKind: "thread",
-              aggregateId: threadId,
-              occurredAt,
-              commandId: command.commandId,
-            })),
-            type: "thread.plan-lane-set",
-            payload: { threadId, planLane: "cancelled", updatedAt: occurredAt },
-          });
+          // Unchanged-value guard (W2-4). Only the TARGET can reach here already
+          // `cancelled` (a repeat cancel); the sweep itself must still run, because
+          // descendants, in-flight turns and wedged dependents may not have settled
+          // on the earlier pass. So the guard drops the redundant lane event, not the
+          // cascade — which makes a fully-settled re-cancel emit nothing at all.
+          if (lane !== "cancelled")
+            events.push({
+              ...(yield* withEventBase({
+                aggregateKind: "thread",
+                aggregateId: threadId,
+                occurredAt,
+                commandId: command.commandId,
+              })),
+              type: "thread.plan-lane-set",
+              payload: { threadId, planLane: "cancelled", updatedAt: occurredAt },
+            });
           if (node && node.attention.length > 0) {
             events.push({
               ...(yield* withEventBase({
@@ -522,6 +550,10 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
               subtree.has(depId) && threadById.get(depId)?.parentThreadId === thread.parentThreadId,
           );
           if (!gatedByCancelled) continue;
+          // Same unchanged-value guard as `thread.attention.raise` — applied here
+          // too because this raise is emitted as a direct event and so never passes
+          // through that command's handler.
+          if (thread.attention.includes("needs_guidance")) continue;
           events.push({
             ...(yield* withEventBase({
               aggregateKind: "thread",
@@ -534,6 +566,27 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           });
         }
         return events;
+      }
+      // Unchanged-value guard (W2-4): setting the lane already stored writes
+      // nothing, and `thread.plan-lane-set` is a dispatcher trigger. The projector
+      // hangs two derived REPAIRS off this event, and either can still be pending
+      // while the lane itself is unchanged — so they count as part of "the write":
+      // a terminal lane dissolves an open rework round on this thread's loop
+      // target, and a non-terminal lane resets `fanInState` and restores an owed
+      // rework round on this thread (the documented `set_lane(coder, ready)` gate
+      // recovery). The terminal attention-clear is emitted explicitly below, so it
+      // keeps the command alive on its own account.
+      if (laneThread.planLane === command.planLane) {
+        const liveThreads = readModel.threads.filter((thread) => thread.deletedAt === null);
+        const loopTarget = gateLoopTargetOf(laneThread);
+        const derivedRepairPending =
+          command.planLane === "done"
+            ? laneThread.attention.length > 0 ||
+              liveThreads.some((thread) => thread.id === loopTarget && thread.pendingRework)
+            : laneThread.fanInState !== "none" ||
+              (!laneThread.pendingRework &&
+                gateSourceFor(command.threadId, liveThreads)?.lastOutcome?.decision === "loop");
+        if (!derivedRepairPending) return noEvents;
       }
       // Re-engagement epoch (review-gates design §5.2 exception): a parent or
       // human reopening a terminal thread via the lane-set path (done/cancelled
@@ -664,15 +717,15 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
             "Attention 'awaiting_approval'/'awaiting_input' are derived from open requests and cannot be raised directly.",
         });
       }
-      // Unchanged-value guard. Every projector and reducer folds this event as
-      // set inclusion, so a raise of an already-set reason changes nothing —
-      // but it is a `WorkstreamDispatcher` trigger, so each one bought a full
-      // ~1.5s pass over every active thread (13,420 of them in one fan-in retry
-      // incident). Emit nothing when the flag is already up. Nothing depends on
-      // repeat delivery: the projections are idempotent and the only other
-      // consumer is the client timeline, where a duplicate "Attention raised"
-      // row is noise.
-      if (attentionThread.attention.includes(command.reason)) return [];
+      // Unchanged-value guard (see `noEvents`). Every projector and reducer folds
+      // this event as set inclusion, so a raise of an already-set reason changes
+      // nothing — but it is a `WorkstreamDispatcher` trigger, so each one bought a
+      // full ~1.5s pass over every active thread (13,420 of them in one fan-in
+      // retry incident). Nothing depends on repeat delivery: the projections are
+      // idempotent, the awareness relay ignores the event, and the only other
+      // consumer is the client timeline, where a duplicate "Attention raised" row
+      // is noise.
+      if (attentionThread.attention.includes(command.reason)) return noEvents;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -719,11 +772,22 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
     }
 
     case "thread.attention.clear": {
-      yield* requireThread({
+      const clearThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      // Unchanged-value guard (see `noEvents`), the mirror of the raise above:
+      // clearing a flag that is not up (or clearing ALL on a thread carrying none)
+      // removes nothing. Derived `awaiting_*` reasons are projected from open
+      // requests, never stored, so they are correctly invisible to this check — a
+      // clear aimed at one has always been a no-op.
+      if (
+        command.reason === undefined
+          ? clearThread.attention.length === 0
+          : !clearThread.attention.includes(command.reason)
+      )
+        return noEvents;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -799,23 +863,39 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
             dep.planLane === "cancelled"
           );
         });
-      if (!wedgedByCancelledDep) return dependenciesSet;
+      // Unchanged-value guard (see `noEvents`). Replace-set semantics, so the
+      // comparison is the recorded sequence verbatim — an identical set in an
+      // identical order is the no-op; a reorder still writes, so the stored array
+      // never diverges from the last command. `dependenciesSince` (the
+      // brief-needed episode clock) is stamped ONLY by this event, which is exactly
+      // why the echo must not be emitted: a redundant re-set would advance the
+      // episode clock and re-arm the wake it was meant to leave alone.
+      const dependenciesUnchanged =
+        targetThread.blockedBy.length === command.blockedBy.length &&
+        targetThread.blockedBy.every((depId, index) => depId === command.blockedBy[index]);
+      // The wedge raise is emitted as a direct event, so it carries the attention
+      // guard itself — and it is judged on the (possibly unchanged) set, so a re-set
+      // of an already-wedging set still surfaces a wedge nobody has flagged yet.
       return [
-        dependenciesSet,
-        {
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.attention-raised",
-          payload: {
-            threadId: command.threadId,
-            reason: "needs_guidance",
-            updatedAt: occurredAt,
-          },
-        },
+        ...(dependenciesUnchanged ? [] : [dependenciesSet]),
+        ...(wedgedByCancelledDep && !targetThread.attention.includes("needs_guidance")
+          ? [
+              {
+                ...(yield* withEventBase({
+                  aggregateKind: "thread",
+                  aggregateId: command.threadId,
+                  occurredAt,
+                  commandId: command.commandId,
+                })),
+                type: "thread.attention-raised" as const,
+                payload: {
+                  threadId: command.threadId,
+                  reason: "needs_guidance" as const,
+                  updatedAt: occurredAt,
+                },
+              },
+            ]
+          : []),
       ];
     }
 
@@ -1176,11 +1256,18 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
     // child branch back into the parent branch. Pure passthrough — the
     // projector maps it onto `fanInState`; the dependency/wake gates read it.
     case "thread.fanin.set": {
-      yield* requireThread({
+      const fanInThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      // Unchanged-value guard (see `noEvents`). This is the self-feeding edge the
+      // fan-in reactor used to hand-roll: `thread.fanin-set` re-arms that reactor's
+      // own worker, so re-emitting `conflicted` for an already-`conflicted` child
+      // spun git merge/abort under the worktree lock for as long as the conflict
+      // stayed unresolved. Guarding it here means every dispatcher of this command
+      // gets the property, not just the one that remembered to check.
+      if (fanInThread.fanInState === command.fanInState) return noEvents;
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -1346,6 +1433,14 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           detail: `Thread '${command.threadId}' is a root; a kickoff brief applies only to a scaffolded sub-thread (root kickoffs use the handoff 'brief').`,
         });
       }
+      // Unchanged-value guard (see `noEvents`). The event carries only the PATH, and
+      // the path is stable per thread — so a pre-launch re-brief (the expected
+      // overwrite path) rewrites the file and lands here with nothing to write. The
+      // rewritten markdown still reaches the child: the dispatcher reads the file's
+      // current content at launch, and the only projected consequence of this event
+      // — `kickoffBriefPath !== null`, the second launch precondition — was already
+      // satisfied, so no dispatcher pass is owed either.
+      if (target.kickoffBriefPath === command.kickoffBriefPath) return noEvents;
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",

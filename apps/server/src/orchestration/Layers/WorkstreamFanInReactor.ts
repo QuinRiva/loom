@@ -549,18 +549,18 @@ const make = Effect.gen(function* () {
           subject: `merge ${childBranch}`,
         });
         if (merge.status === "conflict") {
-          // Write ONLY on a genuine transition. Re-emitting `fanin.set` for an
-          // already-`conflicted` child is a self-feeding edge: the decider emits
-          // a `thread.fanin-set` event for every set command (no unchanged-value
-          // guard), the reactor re-arms its worker on that event, and the worker
-          // runs another pass — which re-conflicts and re-writes, spinning git
-          // merge/abort under the worktree lock for as long as the conflict stays
-          // unresolved (coalescing bounds the rate, not the loop). Skipping the no-op write
-          // means re-attempts fire only via genuine external re-arms
-          // (session-set / turn-diff-completed / the 60s tick), which is the
-          // intended cadence; the self-heal path still converges (a later
-          // up-to-date re-attempt sets `completed`).
-          if (child.fanInState !== "conflicted") yield* setFanInState(child.id, "conflicted");
+          // Writes only on a genuine transition — enforced by the decider's
+          // unchanged-value guard on `thread.fanin.set` (W2-4), not re-derived here.
+          // Re-emitting `fanin.set` for an already-`conflicted` child would be a
+          // self-feeding edge: `thread.fanin-set` re-arms this reactor's worker, and
+          // the next pass re-conflicts and re-writes, spinning git merge/abort under
+          // the worktree lock for as long as the conflict stays unresolved
+          // (coalescing bounds the rate, not the loop). With the no-op write emitting
+          // nothing, re-attempts fire only via genuine external re-arms (session-set /
+          // turn-diff-completed / the 60s tick), which is the intended cadence; the
+          // self-heal path still converges (a later up-to-date re-attempt sets
+          // `completed`).
+          yield* setFanInState(child.id, "conflicted");
           // First observation of THIS conflict (process-scoped) fires the loud,
           // one-shot signals; a retry that still conflicts (60s tick) must not
           // re-spam the activity feed or re-raise attention. After a restart the
