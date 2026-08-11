@@ -60,7 +60,7 @@ From the audit, so the plan does not reintroduce falsified claims: (1) `PR_LOOKU
 
 - **No feature removals.** The terminal-activity label (F5-E), the VCS sidebar chips, and the fork-added cost/token/diff metrics (F2-D) all stay: each is cheap once gated, cached, or computed incrementally, and each carries real UX value.
 - **No moving projection off the command transaction (F2-C).** It is architecturally the right end-state but breaks the engine's read-your-writes guarantee (`getPendingTurnStartThreadIds` reads inside the same serial boundary). High risk, separate piece of work — not bundled with a remediation effort whose goal is fast, verifiable relief.
-- **`CheckpointReactor`'s `git add -A` in user worktrees (~13/min from a background poller) is a correctness/race concern, not a perf one.** It can race an agent's own git operations. Deferred to a separate follow-up goal rather than diluting this effort (question at the bottom).
+- **Nothing about checkpointing — and the `git add -A` churn in user worktrees is `commitAll`, not `CheckpointReactor`.** The follow-up investigation (report `89f0712d`) falsified that attribution: the measured triple (`git add -A`; `git diff --cached --quiet`; `git rev-parse HEAD`) matches only `commitAll` (`GitVcsDriverCore.ts:2917-2933`), i.e. fan-in reconciliation and worktree provisioning — a real-index path that is already `WorktreeMutationLock`-serialised, child-quiescence-gated and retry-hardened, and whose call rate the fan-in items below reduce at source. `CheckpointReactor` is not a poller at all (no timer; purely turn-start/turn-end events, ~2 captures per turn) and cannot race an agent's git operations: every checkpoint command runs against a throwaway index via `GIT_INDEX_FILE` (`GitVcsDriver.ts:744-754`), so it never touches `.git/index` and never takes `index.lock` — verified empirically. See `docs/architecture/checkpoint-git-isolation.md`.
 - **No production deploy as part of this work.** Shipping ends at merge per repo policy; the Wave-1 restart is the one deliberately human-authorised production action in this plan.
 
 <FileTree
@@ -343,24 +343,6 @@ The end-to-end smoke that matches the user journey: with the dev-verify recipe (
           id: "coarse",
           label: "Coarse per-project poll (audit F4-A)",
           detail: "Simplest server story and lowest floor, but PR/branch chips go stale between coarse polls - a UX regression the per-row option avoids.",
-        },
-      ],
-    },
-    {
-      id: "checkpoint",
-      title: "CheckpointReactor's `git add -A` race with agent git operations?",
-      mode: "single",
-      options: [
-        {
-          id: "defer",
-          label: "Spin out as a separate follow-up goal",
-          recommended: true,
-          detail: "It is a correctness concern, not a perf one, and deserves its own design (checkpointing vs agent git-op mutual exclusion). Keeps this effort focused.",
-        },
-        {
-          id: "include",
-          label: "Fold a minimal mitigation into Wave 2",
-          detail: "Faster protection against a rare race, at the cost of scope creep into an unmeasured problem.",
         },
       ],
     },

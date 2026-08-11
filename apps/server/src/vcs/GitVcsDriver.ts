@@ -2,11 +2,13 @@ import * as NodeCrypto from "node:crypto";
 
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schedule from "effect/Schedule";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -358,6 +360,10 @@ export class GitVcsDriver extends Context.Service<
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
+// Bounded retry for the checkpoint-ref delete transaction losing
+// `packed-refs.lock` to another git process: 3 attempts (~150ms → 300ms
+// backoff, sub-second), mirroring `SNAPSHOT_COMMIT_RETRY`.
+const REF_DELETE_RETRY = Schedule.exponential(Duration.millis(150)).pipe(Schedule.take(2));
 const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
   "-c",
   "core.fsmonitor=false",
@@ -743,6 +749,10 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         gitCommonDir,
         `t3-checkpoint-index-${NodeCrypto.randomUUID()}`,
       );
+      // Every capture command below runs against this throwaway index, never
+      // `.git/index`: the `git add -A` cannot stage an agent's files, take
+      // `index.lock`, or disturb merge/rebase state. Full rationale and the
+      // empirical evidence: docs/architecture/checkpoint-git-isolation.md.
       const commitEnv: NodeJS.ProcessEnv = {
         ...process.env,
         GIT_INDEX_FILE: tempIndexPath,
@@ -921,19 +931,26 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return result.stdout;
     }),
 
+    // Deleted as one atomic `--stdin` transaction: partial deletion is the
+    // dangerous outcome, because a surviving stale baseline ref wins the
+    // once-per-turn capture check at the next turn start and anchors the next
+    // diff to a pre-revert tree. Deleting a *packed* ref needs
+    // `packed-refs.lock`, so this can lose a brief race with another git
+    // process — absorbed with the same bounded retry shape as
+    // `SNAPSHOT_COMMIT_RETRY`. Deletion is idempotent (a missing ref exits 0),
+    // so re-running the whole batch is safe. Failure is NOT swallowed: it
+    // surfaces as a revert-failure activity rather than a silent wrong diff.
     deleteCheckpointRefs: Effect.fn("GitVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {
-        yield* Effect.forEach(
-          input.checkpointRefs,
-          (checkpointRef) =>
-            execute({
-              operation: "GitVcsDriver.checkpoints.deleteCheckpointRefs",
-              cwd: input.cwd,
-              args: ["update-ref", "-d", checkpointRef],
-              allowNonZeroExit: true,
-            }),
-          { discard: true },
-        );
+        if (input.checkpointRefs.length === 0) {
+          return;
+        }
+        yield* execute({
+          operation: "GitVcsDriver.checkpoints.deleteCheckpointRefs",
+          cwd: input.cwd,
+          args: ["update-ref", "--stdin"],
+          stdin: input.checkpointRefs.map((ref) => `delete ${ref}\n`).join(""),
+        }).pipe(Effect.retry(REF_DELETE_RETRY));
       },
     ),
   };
