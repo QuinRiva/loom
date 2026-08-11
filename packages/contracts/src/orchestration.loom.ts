@@ -920,6 +920,10 @@ const GoalDeleteCommand = Schema.Struct({
   goalId: GoalId,
 });
 
+// The targeted, concurrency-safe append: one discovered item at the end of its
+// sibling group. Ordering is not an input here — position is derived, and
+// deliberate ordering goes through `goal.tasks.rewrite` (the emitted
+// `goal.task-created` event still carries the resolved position for replay).
 const GoalTaskCreateCommand = Schema.Struct({
   type: Schema.Literal("goal.task.create"),
   commandId: CommandId,
@@ -927,7 +931,6 @@ const GoalTaskCreateCommand = Schema.Struct({
   taskId: GoalTaskId,
   parentTaskId: Schema.NullOr(GoalTaskId),
   text: TrimmedNonEmptyString,
-  position: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
 

@@ -42,7 +42,6 @@ export const buildGoalTaskCreateCommand = (input: {
   readonly taskId: GoalTaskId;
   readonly parentTaskId: GoalTaskId | null;
   readonly text: string;
-  readonly position?: number;
   readonly createdAt: string;
 }): GoalCommand<"goal.task.create"> => ({
   type: "goal.task.create",
@@ -51,7 +50,6 @@ export const buildGoalTaskCreateCommand = (input: {
   taskId: input.taskId,
   parentTaskId: input.parentTaskId,
   text: input.text,
-  ...(input.position !== undefined ? { position: input.position } : {}),
   createdAt: input.createdAt,
 });
 

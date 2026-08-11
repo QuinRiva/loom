@@ -809,11 +809,6 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
           description:
             "Optional id of an existing task in this goal to nest the new task under. Omit for a top-level task.",
         },
-        position: {
-          type: "integer",
-          minimum: 0,
-          description: "Optional zero-based position among siblings. Omit to append.",
-        },
       },
       required: ["text"],
       additionalProperties: false,
@@ -846,6 +841,33 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     },
     errorMode: "soft",
     fallbackText: "Updated task.",
+  },
+  {
+    name: "goal_tasks_rewrite",
+    label: "Rewrite Goal Tasks",
+    description:
+      "Replace the WHOLE task tree of THIS thread's active goal with the markdown you submit — the primary structural mutation. Restructure, re-nest, reorder, merge, rename, mark done, and prune in ONE call: submit the revised tree in the same `- [x] text (id)` checklist form goal_task_list returns. Lines keeping an existing task's `(id)` ARE that task (its text, done-state, parent, and order become what you submitted; its creation time is preserved); lines without an id are new tasks; existing tasks you omit are deleted. Indentation (two spaces per level) is the nesting, so a cycle is unrepresentable. Rewrite from a fresh goal_task_list read — this is a whole-tree replace, so anything added since your last read and left out is lost. Rejected for threads that have a parent: the tree's owner does the restructuring.",
+    promptSnippet:
+      "replace this thread's goal task tree wholesale with an edited markdown checklist (the goal_task_list form) — one call restructures, re-nests, renames, done-marks and prunes.",
+    promptGuidelines: [
+      "Read the live tree (goal_task_list, or a mutation's echoed tree) and edit THAT text — keep the `(id)` marker on every task you retain, or it comes back as a brand-new task.",
+      "The submission is the whole tree: a task you leave out is deleted, and indentation alone decides nesting. An empty submission, an unparseable line, or an `(id)` that is not in this goal is rejected and nothing is applied.",
+      "Only a thread with no parent may rewrite; as a child, append with goal_task_add and mark your own task done with goal_task_update.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        markdown: {
+          type: "string",
+          description:
+            "The complete revised tree as an indented markdown checklist, one task per line: `- [ ] Open task`, `- [x] Finished task (task-id)`. Two spaces of indent per level of nesting; keep the trailing `(id)` on every retained task; omit it for new tasks.",
+        },
+      },
+      required: ["markdown"],
+      additionalProperties: false,
+    },
+    errorMode: "soft",
+    fallbackText: "Rewrote the task tree.",
   },
   {
     name: "goal_handoff",

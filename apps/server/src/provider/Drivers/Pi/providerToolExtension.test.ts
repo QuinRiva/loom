@@ -192,9 +192,9 @@ describe("generated provider-tool extension", () => {
     NodeFS.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("registers all 22 routed tools plus the one local tool, with the expected schemas", async () => {
+  it("registers all 23 routed tools plus the one local tool, with the expected schemas", async () => {
     const tools = await loadExtension();
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(24);
     for (const def of [...ALL_DEFS, ...LOCAL_PROVIDER_TOOL_DEFS]) {
       const tool = tools.find((t) => t.name === def.name);
       expect(tool).toBeDefined();

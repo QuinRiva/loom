@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type GoalId,
   GoalTaskId,
   type OrchestrationCommand,
   type OrchestrationGoal,
@@ -15,9 +16,15 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import {
   buildGoalMetaUpdateCommand,
   buildGoalTaskCreateCommand,
+  buildGoalTasksRewriteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
+import {
+  parseGoalTaskMarkdown,
+  resolveGoalTaskRewrite,
+} from "../orchestration/goalTaskMarkdown.ts";
 import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
+import { flattenGoalTasks } from "../orchestration/goalTaskTree.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { resolveWorkstreamScope } from "./httpScope.ts";
@@ -26,7 +33,10 @@ import { PROVIDER_TOOL_PATHS } from "./toolPaths.ts";
 interface GoalTaskAddRequest {
   readonly text?: unknown;
   readonly parentTaskId?: unknown;
-  readonly position?: unknown;
+}
+
+interface GoalTasksRewriteRequest {
+  readonly markdown?: unknown;
 }
 
 interface GoalTaskUpdateRequest {
@@ -47,8 +57,21 @@ const jsonError = (status: number, message: string) =>
 const trimString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 
-const nonNegativeInt = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+/** The canonical `- [x] text (id)` read format, shared by every goal-task surface. */
+const renderTasks = (tasks: ReadonlyArray<OrchestrationGoalTask>): string =>
+  tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(tasks).trimEnd();
+
+/**
+ * Every mutating tool answers with the resulting tree, not "Added task <id>":
+ * the agent sees the shape it is accreting at the moment it mutates, and gets
+ * the ids a follow-up rewrite needs without a read round-trip. Dispatch commits
+ * the sqlite projection inside its own transaction, so this re-read is the
+ * post-command tree.
+ */
+const echoTree = Effect.fn("GoalTaskHttp.echoTree")(function* (goalId: GoalId, summary: string) {
+  const goal = yield* (yield* ProjectionSnapshotQuery).getGoalById(goalId);
+  return `${summary}\n\n${renderTasks(Option.isNone(goal) ? [] : goal.value.tasks)}`;
+});
 
 const allTaskIds = (tasks: ReadonlyArray<OrchestrationGoalTask>): Set<string> => {
   const ids = new Set<string>();
@@ -87,19 +110,17 @@ const resolveActiveGoal = Effect.fn("GoalTaskHttp.resolveActiveGoal")(function* 
   if (Option.isNone(goal)) {
     return { error: jsonError(404, "This thread's active goal was not found.") };
   }
-  return { goal: goal.value };
+  return { goal: goal.value, thread: thread.value };
 });
 
 const handleGoalTaskList = Effect.gen(function* () {
   const resolved = yield* resolveActiveGoal();
   if ("error" in resolved) return resolved.error;
   const goal: OrchestrationGoal = resolved.goal;
-  const rendered =
-    goal.tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(goal.tasks).trimEnd();
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     title: goal.title,
-    rendered,
+    rendered: renderTasks(goal.tasks),
     tasks: toGoalTaskNodes(goal.tasks),
   });
 }).pipe(
@@ -121,10 +142,6 @@ const handleGoalTaskAdd = Effect.gen(function* () {
   )) as GoalTaskAddRequest;
   const text = trimString(body.text);
   if (!text) return jsonError(400, "text is required.");
-  const position = body.position === undefined ? undefined : nonNegativeInt(body.position);
-  if (body.position !== undefined && position === undefined) {
-    return jsonError(400, "position must be a non-negative integer.");
-  }
 
   let parentTaskId: GoalTaskId | null = null;
   const parent = trimString(body.parentTaskId);
@@ -146,14 +163,13 @@ const handleGoalTaskAdd = Effect.gen(function* () {
       taskId,
       parentTaskId,
       text,
-      ...(position !== undefined ? { position } : {}),
       createdAt: now,
     }) satisfies OrchestrationCommand,
   );
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     taskId,
-    rendered: `Added task ${taskId}: ${text}`,
+    rendered: yield* echoTree(goal.id, `Added task ${taskId}: ${text}`),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
@@ -203,12 +219,76 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     taskId,
-    rendered: `Updated task ${taskId}.`,
+    rendered: yield* echoTree(goal.id, `Updated task ${taskId}.`),
   });
 }).pipe(
   Effect.catch((error: unknown) =>
     Effect.succeed(
       jsonError(500, error instanceof Error ? error.message : "Failed to update the task."),
+    ),
+  ),
+);
+
+/**
+ * Declarative whole-tree replace: the submitted markdown IS the resulting tree.
+ * All-or-nothing — the whole submission is parsed and resolved before a single
+ * command is dispatched. Structure belongs to the tree's owner, so a thread with
+ * a parent is refused here (the two targeted, concurrency-safe ops stay open to
+ * it); that ownership check can only live at this edge, since the command itself
+ * carries no thread identity.
+ */
+const handleGoalTasksRewrite = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const resolved = yield* resolveActiveGoal();
+  if ("error" in resolved) return resolved.error;
+  const goal: OrchestrationGoal = resolved.goal;
+
+  if (resolved.thread.parentThreadId !== null) {
+    return jsonError(
+      403,
+      "Whole-tree rewrites belong to the thread that owns the goal, and this thread has a parent. Use goal_task_add to record discovered work (nested under the relevant parent task) and goal_task_update to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.",
+    );
+  }
+
+  const body = (yield* request.json.pipe(
+    Effect.orElseSucceed((): GoalTasksRewriteRequest => ({})),
+  )) as GoalTasksRewriteRequest;
+  if (typeof body.markdown !== "string") return jsonError(400, "markdown is required.");
+
+  const parsed = parseGoalTaskMarkdown(body.markdown, allTaskIds(goal.tasks));
+  if ("error" in parsed) return jsonError(400, parsed.error);
+
+  const crypto = yield* Crypto.Crypto;
+  const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  // One id per line that carries none; the rest keep their identity.
+  const minted = (yield* Effect.forEach(
+    parsed.lines.filter((line) => line.taskId === null),
+    () => crypto.randomUUIDv4,
+  ))[Symbol.iterator]();
+  const { tasks, summary } = resolveGoalTaskRewrite({
+    lines: parsed.lines,
+    current: flattenGoalTasks(goal.tasks),
+    mintTaskId: () => GoalTaskId.make(minted.next().value!),
+    now,
+  });
+
+  const engine = yield* OrchestrationEngineService;
+  yield* engine.dispatch(
+    buildGoalTasksRewriteCommand({
+      commandId: CommandId.make(`server:goal-tasks-rewrite:${yield* crypto.randomUUIDv4}`),
+      goalId: goal.id,
+      tasks,
+      createdAt: now,
+    }) satisfies OrchestrationCommand,
+  );
+  return HttpServerResponse.jsonUnsafe({
+    goalId: goal.id,
+    rendered: yield* echoTree(goal.id, summary),
+  });
+}).pipe(
+  Effect.catch((error: unknown) =>
+    Effect.succeed(
+      jsonError(500, error instanceof Error ? error.message : "Failed to rewrite the task tree."),
     ),
   ),
 );
@@ -263,5 +343,6 @@ export const layer = Layer.mergeAll(
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_list, handleGoalTaskList),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_add, handleGoalTaskAdd),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_update, handleGoalTaskUpdate),
+  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_tasks_rewrite, handleGoalTasksRewrite),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_update, handleGoalUpdate),
 );

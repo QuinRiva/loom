@@ -360,8 +360,7 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
         (task) => (task.parentTaskId ?? null) === command.parentTaskId,
       );
       const position =
-        command.position ??
-        (siblings.length === 0 ? 0 : Math.max(...siblings.map((task) => task.position)) + 1);
+        siblings.length === 0 ? 0 : Math.max(...siblings.map((task) => task.position)) + 1;
       return {
         ...(yield* withEventBase({
           aggregateKind: "goal",
