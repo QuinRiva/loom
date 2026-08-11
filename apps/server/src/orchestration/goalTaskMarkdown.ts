@@ -128,7 +128,12 @@ export const resolveGoalTaskRewrite = (input: {
   readonly current: ReadonlyArray<FlatGoalTask>;
   readonly mintTaskId: () => GoalTaskId;
   readonly now: string;
-}): { readonly tasks: ReadonlyArray<GoalTaskRewriteEntry>; readonly summary: string } => {
+}): {
+  readonly tasks: ReadonlyArray<GoalTaskRewriteEntry>;
+  readonly summary: string;
+  /** False when the submission restates the current tree — nothing to dispatch. */
+  readonly changed: boolean;
+} => {
   const currentById = new Map(input.current.map((task) => [task.id as string, task]));
   const ids = input.lines.map((line) => line.taskId ?? input.mintTaskId());
   const tasks = input.lines.map(
@@ -172,6 +177,7 @@ export const resolveGoalTaskRewrite = (input: {
     .map(([label, count]) => `${count} ${label}`);
   return {
     tasks,
+    changed: parts.length > 0,
     summary:
       parts.length === 0
         ? "Rewrote the task tree: no changes (the submitted tree matches the current one)."

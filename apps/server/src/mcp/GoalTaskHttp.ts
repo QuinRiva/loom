@@ -265,22 +265,26 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
     parsed.lines.filter((line) => line.taskId === null),
     () => crypto.randomUUIDv4,
   ))[Symbol.iterator]();
-  const { tasks, summary } = resolveGoalTaskRewrite({
+  const { tasks, summary, changed } = resolveGoalTaskRewrite({
     lines: parsed.lines,
     current: flattenGoalTasks(goal.tasks),
     mintTaskId: () => GoalTaskId.make(minted.next().value!),
     now,
   });
 
-  const engine = yield* OrchestrationEngineService;
-  yield* engine.dispatch(
-    buildGoalTasksRewriteCommand({
-      commandId: CommandId.make(`server:goal-tasks-rewrite:${yield* crypto.randomUUIDv4}`),
-      goalId: goal.id,
-      tasks,
-      createdAt: now,
-    }) satisfies OrchestrationCommand,
-  );
+  // A verbatim resubmission is genuinely a no-op: no event, no `updatedAt`
+  // churn on every task, no 16 KB payload on the log.
+  if (changed) {
+    const engine = yield* OrchestrationEngineService;
+    yield* engine.dispatch(
+      buildGoalTasksRewriteCommand({
+        commandId: CommandId.make(`server:goal-tasks-rewrite:${yield* crypto.randomUUIDv4}`),
+        goalId: goal.id,
+        tasks,
+        createdAt: now,
+      }) satisfies OrchestrationCommand,
+    );
+  }
   return HttpServerResponse.jsonUnsafe({
     goalId: goal.id,
     rendered: yield* echoTree(goal.id, summary),

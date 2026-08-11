@@ -68,7 +68,8 @@ const rewrite = (markdown: string) =>
 
 describe("round-trip identity", () => {
   it("reproduces the rendered tree's flat task list exactly", () => {
-    const { tasks, summary } = rewrite(renderGoalTaskTree(currentTree));
+    const { tasks, summary, changed } = rewrite(renderGoalTaskTree(currentTree));
+    expect(changed).toBe(false);
     expect(tasks).toEqual(
       currentFlat.map((task) => ({
         taskId: task.id,
