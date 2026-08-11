@@ -2128,7 +2128,15 @@ export function makePiAdapter(input: {
             ...(forkSource !== undefined ? { forkFrom: forkSource } : {}),
             ...(appendSystemPrompt ? { appendSystemPrompt } : {}),
             ...(skills && skills.length > 0 ? { skills } : {}),
-            ...(tools && tools.length > 0 ? { tools } : {}),
+            // NOTE: the role tool profile deliberately does NOT go to `--tools`.
+            // pi's allowlist filters definitions before it builds the tool
+            // registries, so an unlisted tool is deleted, not dormant, and
+            // `enable_toolset` could never activate it. The profile travels as
+            // T3_ACTIVE_TOOLS below and the provider-tool extension applies it
+            // as the ACTIVE set at session_start (same prompt shrink, full
+            // registry retained). `--tools` stays a genuine sandbox, used only
+            // by the read-only consult fork.
+            //
             // The search guard loads for EVERY loom-launched pi session; the
             // provider-tool extension only where a workstream MCP session
             // exists (its tools POST to workstream endpoints).
@@ -2140,22 +2148,34 @@ export function makePiAdapter(input: {
             // that worktree's workspace binaries before the server's inherited
             // PATH, while preserving the T3_WORKSTREAM_* additions.
             env: withLocalNodeModulesBin(
-              mcpSession
-                ? {
-                    ...process.env,
-                    T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
-                    T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
-                    // Debugging-only: the effective-prompt capture extension
-                    // writes the fully assembled prompt to this sidecar on each
-                    // agent start (fire-and-forget; a write failure only loses
-                    // debug data). Deterministic path, mirrored by the
-                    // projection query so the UI can open it.
-                    T3_PROMPT_DEBUG_PATH: promptDebugSidecarPath(
-                      input.serverConfig.workstreamPromptDebugDir,
-                      startInput.threadId,
-                    ),
-                  }
-                : process.env,
+              {
+                ...process.env,
+                // Role tool profile, applied as pi's ACTIVE tool set by the
+                // provider-tool extension (see the note on `--tools` above).
+                // Set UNCONDITIONALLY (empty = no profile = pi's full active
+                // surface): the driver owns this variable in both directions,
+                // because the server inherits its own environment. A loom server
+                // started from a profiled child's bash — exactly what the
+                // dev-verify recipe does — carries that child's T3_ACTIVE_TOOLS,
+                // which would otherwise leak in as a stale profile for every
+                // unrestricted or free-text thread it launches.
+                T3_ACTIVE_TOOLS: tools && tools.length > 0 ? [...tools].join(",") : "",
+                ...(mcpSession
+                  ? {
+                      T3_WORKSTREAM_ENDPOINT: workstreamBaseUrlFromMcpEndpoint(mcpSession.endpoint),
+                      T3_WORKSTREAM_AUTHORIZATION: mcpSession.authorizationHeader,
+                      // Debugging-only: the effective-prompt capture extension
+                      // writes the fully assembled prompt to this sidecar on each
+                      // agent start (fire-and-forget; a write failure only loses
+                      // debug data). Deterministic path, mirrored by the
+                      // projection query so the UI can open it.
+                      T3_PROMPT_DEBUG_PATH: promptDebugSidecarPath(
+                        input.serverConfig.workstreamPromptDebugDir,
+                        startInput.threadId,
+                      ),
+                    }
+                  : {}),
+              },
               piCwd,
               platform,
             ),

@@ -145,7 +145,11 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
           // The driver passed the composed argv (no fork).
           expect(fake.captured.options?.forkFrom).toBeUndefined();
           expect(fake.captured.options?.appendSystemPrompt).toBe("role overlay");
-          expect(fake.captured.options?.tools).toEqual(["read"]);
+          // The role profile is an ACTIVE-set selection carried in the env, NOT
+          // pi's registry-destructive `--tools` allowlist (which would delete
+          // the dormant families enable_toolset must be able to activate).
+          expect(fake.captured.options?.tools).toBeUndefined();
+          expect(fake.captured.options?.env?.T3_ACTIVE_TOOLS).toBe("read");
           expect(fake.captured.options?.skills).toEqual(["/skill"]);
           // ...and captured the identity record.
           const record = readLaunchIdentity(dir, threadId);
@@ -157,6 +161,38 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
       );
     },
   );
+
+  // Cross-process contamination guard: the server inherits its own env, and the
+  // documented dev-verify recipe starts a loom server from a PROFILED child's
+  // bash — so the server can be carrying that child's T3_ACTIVE_TOOLS. An
+  // unrestricted/free-text thread must still get pi's full active surface, so
+  // the driver overrides the variable in both directions rather than leaving an
+  // inherited value to be applied as a stale profile.
+  effectIt.effect("neutralises an inherited T3_ACTIVE_TOOLS when the role has no profile", () => {
+    const fake = makeFakeProcess();
+    const inherited = process.env.T3_ACTIVE_TOOLS;
+    process.env.T3_ACTIVE_TOOLS = "read,bash,stale_outer_profile";
+    return withAdapter(fake.factory, (adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.startSession({
+          threadId: ThreadId.make("44444444-0000-4000-8000-000000000004"),
+          providerInstanceId: INSTANCE,
+          modelSelection: { instanceId: INSTANCE, model: "test-model" },
+          runtimeMode: "full-access",
+        });
+        // Empty is the extension's "no profile" wire value: it must never be the
+        // outer process's profile.
+        expect(fake.captured.options?.env?.T3_ACTIVE_TOOLS).toBe("");
+      }),
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (inherited === undefined) delete process.env.T3_ACTIVE_TOOLS;
+          else process.env.T3_ACTIVE_TOOLS = inherited;
+        }),
+      ),
+    );
+  });
 
   effectIt.effect(
     "replays the SOURCE record verbatim (forkFrom + final argv, no double prepend) at a fork's first launch",
@@ -190,7 +226,8 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
           expect(fake.captured.options?.forkFrom).toBe(piSessionIdForThread(source));
           expect(fake.captured.options?.appendSystemPrompt).toBe("WORK_MODEL\n\nreader overlay");
           expect(fake.captured.options?.appendSystemPrompt?.match(/WORK_MODEL/g)?.length).toBe(1);
-          expect(fake.captured.options?.tools).toEqual(["read", "grep"]);
+          expect(fake.captured.options?.env?.T3_ACTIVE_TOOLS).toBe("read,grep");
+          expect(fake.captured.options?.tools).toBeUndefined();
           expect(fake.captured.options?.skills).toEqual(["/skill-a"]);
           // The fork's OWN record carries the replayed argv (so a fork-of-fork inherits it).
           expect(readLaunchIdentity(dir, fork)?.appendSystemPrompt).toBe(
@@ -226,7 +263,7 @@ describe("PiDriver forkFrom launch identity (driver boundary)", () => {
           expect(fake.captured.options?.forkFrom).toBe(piSessionIdForThread(source));
           // …but launches with the fork's own composed argv.
           expect(fake.captured.options?.appendSystemPrompt).toBe("retro reviewer overlay");
-          expect(fake.captured.options?.tools).toEqual(["read"]);
+          expect(fake.captured.options?.env?.T3_ACTIVE_TOOLS).toBe("read");
           // And captures the fork's own record as usual.
           expect(readLaunchIdentity(dir, fork)?.appendSystemPrompt).toBe("retro reviewer overlay");
         }),

@@ -7,9 +7,11 @@ import * as NodeURL from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { PROVIDER_TOOL_PATHS } from "../../../mcp/toolPaths.ts";
+import { DELEGATION_PROVIDER_TOOLS } from "../../../mcp/toolPaths.ts";
 import {
   buildProviderToolExtensionSource,
   ensurePiProviderToolExtension,
+  LOCAL_PROVIDER_TOOL_DEFS,
 } from "./providerToolExtension.ts";
 import { GOAL_TOOL_DEFS, WORKSTREAM_TOOL_DEFS } from "./providerToolDefs.ts";
 
@@ -104,6 +106,57 @@ const loadExtension = async (): Promise<RegisteredTool[]> => {
   return tools;
 };
 
+/**
+ * A pi stand-in with the REAL activation-boundary semantics this mechanism
+ * depends on (verified against pi 0.83.0 `agent-session.js`):
+ * - `getAllTools()` is the definition REGISTRY, fixed at launch;
+ * - `setActiveToolsByName` silently DROPS names absent from that registry — so
+ *   a tool the launch filtered out can never be activated;
+ * - `getActiveTools()` is the selection pi conditions schemas/snippets/
+ *   guidelines on.
+ * A test that lets `setActiveTools` accept unregistered names cannot catch the
+ * defect this fixture exists to pin.
+ */
+const makeFakePi = (registry: ReadonlyArray<string>) => {
+  let active = [...registry];
+  const setCalls: Array<Array<string>> = [];
+  const handlers = new Map<string, (event: unknown) => unknown>();
+  return {
+    setCalls,
+    handlers,
+    registerTool: () => {},
+    on: (event: string, handler: (e: unknown) => unknown) => handlers.set(event, handler),
+    getAllTools: () => registry.map((name) => ({ name })),
+    getActiveTools: () => [...active],
+    setActiveTools: (names: Array<string>) => {
+      setCalls.push([...names]);
+      active = names.filter((name) => registry.includes(name));
+    },
+  };
+};
+
+/** Build + import the extension and run its default export against a fake pi,
+ * returning the tools it registered. */
+const loadInto = async (pi: ReturnType<typeof makeFakePi>): Promise<RegisteredTool[]> => {
+  const tools: RegisteredTool[] = [];
+  const file = NodePath.join(tmpDir, `ext-local-${extensionCounter++}.mjs`);
+  NodeFS.writeFileSync(file, buildProviderToolExtensionSource(ALL_DEFS), "utf8");
+  const mod = await import(NodeURL.pathToFileURL(file).href);
+  mod.default({ ...pi, registerTool: (tool: RegisteredTool) => tools.push(tool) });
+  return tools;
+};
+
+/** A leaf role's launch profile, and the full registry pi is launched with. */
+const LEAF_PROFILE = ["read", "bash", "workstream_submit", "enable_toolset"];
+const REGISTRY = [
+  ...LEAF_PROFILE,
+  ...DELEGATION_PROVIDER_TOOLS,
+  "ask_user_question",
+  "browser_navigate",
+  "browser_click",
+  "studio_repl_send",
+];
+
 describe("generated provider-tool extension", () => {
   let originalFetch: typeof globalThis.fetch;
   const calls: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
@@ -135,18 +188,115 @@ describe("generated provider-tool extension", () => {
     globalThis.fetch = originalFetch;
     delete process.env.T3_WORKSTREAM_ENDPOINT;
     delete process.env.T3_WORKSTREAM_AUTHORIZATION;
+    delete process.env.T3_ACTIVE_TOOLS;
     NodeFS.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("registers all 23 tools with the expected names and schemas", async () => {
+  it("registers all 23 routed tools plus the one local tool, with the expected schemas", async () => {
     const tools = await loadExtension();
-    expect(tools).toHaveLength(23);
-    for (const def of ALL_DEFS) {
+    expect(tools).toHaveLength(24);
+    for (const def of [...ALL_DEFS, ...LOCAL_PROVIDER_TOOL_DEFS]) {
       const tool = tools.find((t) => t.name === def.name);
       expect(tool).toBeDefined();
       expect(tool!.label).toBe(def.label);
       expect(tool!.parameters).toEqual(def.parameters);
     }
+  });
+
+  it("applies the T3_ACTIVE_TOOLS profile at session_start, leaving the rest registered", async () => {
+    const pi = makeFakePi(REGISTRY);
+    await loadInto(pi);
+    process.env.T3_ACTIVE_TOOLS = LEAF_PROFILE.join(",");
+    pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+    // Selection shrank to the profile…
+    expect(pi.getActiveTools()).toEqual(LEAF_PROFILE);
+    // …while every dormant family is still REGISTERED (the property the launch
+    // `--tools` allowlist destroys and enable_toolset depends on).
+    expect(pi.getAllTools().map((tool) => tool.name)).toEqual(REGISTRY);
+  });
+
+  // Unrestricted/free-text roles keep pi's full active surface. The driver sends
+  // an EMPTY T3_ACTIVE_TOOLS for them (it overrides any value inherited from a
+  // server started inside a profiled child), so empty and absent must behave
+  // identically — both mean "no profile", never "select nothing".
+  it.each(["", " , ", undefined])(
+    "leaves pi's default active set alone when the profile is %p",
+    async (value) => {
+      const pi = makeFakePi(REGISTRY);
+      await loadInto(pi);
+      if (value === undefined) delete process.env.T3_ACTIVE_TOOLS;
+      else process.env.T3_ACTIVE_TOOLS = value;
+      pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+      expect(pi.getActiveTools()).toEqual(REGISTRY);
+      expect(pi.setCalls).toEqual([]);
+    },
+  );
+
+  it("enable_toolset activates a dormant family locally (no HTTP) and returns the delegation digest", async () => {
+    calls.length = 0;
+    const pi = makeFakePi(REGISTRY);
+    const tools = await loadInto(pi);
+    process.env.T3_ACTIVE_TOOLS = LEAF_PROFILE.join(",");
+    pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+    const enable = tools.find((tool) => tool.name === "enable_toolset")!;
+
+    const delegation = await enable.execute("id", { family: "delegation" }, undefined);
+    // Local: never POSTs, and the family is genuinely active afterwards.
+    expect(calls).toHaveLength(0);
+    expect(pi.getActiveTools()).toEqual([...LEAF_PROFILE, ...DELEGATION_PROVIDER_TOOLS]);
+    expect(delegation.content[0]!.text).toContain("workstream_spawn");
+    expect(delegation.content[0]!.text).toContain("A child inherits NONE of your conversation");
+
+    // Prefix families resolve against the live registry; no digest for them.
+    const browser = await enable.execute("id", { family: "browser" }, undefined);
+    expect(pi.getActiveTools()).toContain("browser_navigate");
+    expect(pi.getActiveTools()).toContain("browser_click");
+    expect(browser.content[0]!.text).not.toContain("A child inherits NONE");
+
+    // Re-enabling an active family is a no-op: no redundant setActiveTools call
+    // and no digest replay.
+    const setCallsBefore = pi.setCalls.length;
+    const again = await enable.execute("id", { family: "delegation" }, undefined);
+    expect(pi.setCalls).toHaveLength(setCallsBefore);
+    expect(again.content[0]!.text).toContain("already active");
+  });
+
+  // The defect this whole mechanism exists to prevent: under the old launch
+  // `--tools` allowlist pi DELETED unlisted tools from its registry, and
+  // enable_toolset reported success anyway. Against pi's real semantics
+  // (setActiveToolsByName silently drops unregistered names), an unregisterable
+  // family must fail loudly rather than return a success-shaped answer.
+  it("enable_toolset FAILS when the family is not in pi's registry", async () => {
+    const pi = makeFakePi(LEAF_PROFILE); // registry == profile: nothing dormant
+    const tools = await loadInto(pi);
+    process.env.T3_ACTIVE_TOOLS = LEAF_PROFILE.join(",");
+    pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+    const enable = tools.find((tool) => tool.name === "enable_toolset")!;
+
+    await expect(enable.execute("id", { family: "browser" }, undefined)).rejects.toThrow(
+      /Could not enable the browser toolset/,
+    );
+    await expect(enable.execute("id", { family: "delegation" }, undefined)).rejects.toThrow(
+      /Could not enable the delegation toolset/,
+    );
+    expect(pi.getActiveTools()).toEqual(LEAF_PROFILE);
+  });
+
+  it("enable_toolset reports partially-registered families honestly", async () => {
+    // A renamed/removed provider tool: the family list names it, the registry
+    // does not. The result must claim only what pi actually activated.
+    const missing = DELEGATION_PROVIDER_TOOLS[0];
+    const pi = makeFakePi(REGISTRY.filter((name) => name !== missing));
+    const tools = await loadInto(pi);
+    process.env.T3_ACTIVE_TOOLS = LEAF_PROFILE.join(",");
+    pi.handlers.get("session_start")!({ type: "session_start", reason: "startup" });
+    const result = await tools
+      .find((tool) => tool.name === "enable_toolset")!
+      .execute("id", { family: "delegation" }, undefined);
+    const text = result.content[0]!.text;
+    expect(text).toContain("NOT enabled (not registered in this session): " + missing);
+    expect(text).not.toMatch(new RegExp("Enabled the delegation toolset[^\\n]*" + missing));
+    expect(pi.getActiveTools()).not.toContain(missing);
   });
 
   it("POSTs to the endpoint + table path with the authorization header and prints rendered", async () => {

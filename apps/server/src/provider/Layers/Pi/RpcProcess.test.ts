@@ -3,6 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildPiRpcArgs } from "./RpcProcess.ts";
 
 describe("buildPiRpcArgs", () => {
+  // `--tools` is the consult fork's read-only SANDBOX (pi filters its tool
+  // registries by it at launch), never a role profile — role profiles are an
+  // active-set selection carried in T3_ACTIVE_TOOLS, so dormant families stay
+  // registered and enable_toolset can activate them.
   it("emits a repeated --skill pair per skill path, after any --tools allowlist", () => {
     const args = buildPiRpcArgs({
       binaryPath: "pi-test-binary",
