@@ -8,12 +8,15 @@ import {
   toggleUserInputOptionSelection,
 } from "@t3tools/shared/userInputAnswers";
 
+import { cn } from "~/lib/utils";
+
 import ChatMarkdown from "../components/ChatMarkdown";
 import WorkstreamGraph from "../components/WorkstreamGraph";
 import { DraftId } from "../composerDraftStore";
 import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { PendingQuestionCard } from "../components/chat/PendingQuestionCard";
 import type { SidebarThreadSummary } from "../types";
+import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
 /**
@@ -788,30 +791,132 @@ const MDX_ANNOTATION_FIXTURE_SOURCE = [
 ].join("\n");
 
 /**
- * Renders the annotation layer inside a container whose width toggles between two
- * wide states (both > the 896px `max-w-4xl` cap), reproducing the file-explorer
- * panel toggle that triggers defect A without ever narrowing the viewport.
+ * A plan document exercising wide-block bleed: a split `<Diff>` with lines far
+ * longer than the prose measure, a narrow `<Table>`, a short `<Code>` block, and
+ * the same wide diff nested inside `<Columns>` and a `<Details>`.
+ *
+ * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the
+ * panel budget; prose, the narrow table, and the short code block stay at the
+ * measure; and the nested diffs stay inside their container, scrolling
+ * internally.
  */
-function MdxAnnotationPreview() {
+const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
+  "# Wide-block bleed in a plan document",
+  "",
+  "This paragraph must keep the readable prose measure no matter how wide the panel gets — the bleed is for artefacts only, and a line of body copy that runs the full width of a large display is exactly what the capped column exists to prevent.",
+  "",
+  "## Top-level diff (split) — must bleed",
+  "",
+  `<Diff filename="apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx" mode="split" before={${JSON.stringify(
+    [
+      "export function stampBleedingBlocks(root: HTMLElement): void {",
+      "  for (const child of Array.from(root.children)) {",
+      "    const type = child.getAttribute('data-plan-block-type');",
+      "    if (type === 'diff') child.setAttribute('data-bleed', 'hug');",
+      "  }",
+      "}",
+    ].join("\n"),
+  )}} after={${JSON.stringify(
+    [
+      "export function stampBleedingBlocks(root: HTMLElement): void {",
+      "  for (const child of Array.from(root.children)) {",
+      "    const mode = BLEED_MODE_BY_BLOCK_TYPE[blockTypeOf(child)];",
+      "    if (mode) child.setAttribute(PLAN_BLEED_ATTR, mode);",
+      "  }",
+      "}",
+    ].join("\n"),
+  )}} />`,
+  "",
+  "## Narrow table and a short code block",
+  "",
+  '<Table columns={["Lane", "Releases dependents"]} rows={[["done", "yes"], ["cancelled", "no"]]} />',
+  "",
+  `<Code language="ts" filename="lane.ts" code={${JSON.stringify('type Lane = "planned" | "ready";')}} />`,
+  "",
+  "## Prose-heavy artefact — must not stretch to the cap",
+  "",
+  '<DataModel entities={[{ id: "thread", name: "Thread", fields: [{ name: "id", type: "uuid", pk: true }, { name: "plan_lane", type: "text", note: "planned | ready | in_progress | done | cancelled — only done releases dependents" }, { name: "attention", type: "text", nullable: true, note: "awaiting_acceptance | needs_guidance; cleared automatically when the thread resumes" }] }]} />',
+  "",
+  "## Nested — must NOT break out of its container",
+  "",
+  "<Columns>",
+  "",
+  "<Column>",
+  "",
+  `<Diff filename="nested-in-column.ts" mode="split" before={${JSON.stringify(
+    "const budget = availableWidth - inset; // a long line that wants far more room than a half-width column can give it",
+  )}} after={${JSON.stringify(
+    "const budget = Math.min(cap, availableWidth - inset); // a long line that wants far more room than a half-width column can give it",
+  )}} />`,
+  "",
+  "</Column>",
+  "",
+  "<Column>",
+  "",
+  "The neighbouring column must keep its half of the row — if the nested diff bled, this text would be pushed out or overlapped.",
+  "",
+  "</Column>",
+  "",
+  "</Columns>",
+  "",
+  '<Details summary="A diff inside a disclosure">',
+  "",
+  `<Diff filename="nested-in-details.ts" mode="split" before={${JSON.stringify(
+    "const gutterLeft = rootRect.right - wrapperRect.left + 6; // badges parked at the prose column edge",
+  )}} after={${JSON.stringify(
+    "const gutterLeft = contentRight - wrapperRect.left + 6; // badges parked outside the widest bled block",
+  )}} />`,
+  "",
+  "</Details>",
+  "",
+  "Closing prose, again at the readable measure, so the document's centred axis is easy to eyeball against the bled blocks above.",
+].join("\n");
+
+/**
+ * Reproduces the file-preview panel's layout chain for a plan document: a
+ * viewport publishing `--timeline-available-width` from a ResizeObserver
+ * (`FilePreviewPanel`'s `BleedFrame`, via the shared
+ * {@link useTimelineAvailableWidthVar}) wrapping the annotation layer. Rendering
+ * the plan bare would misreport wide-block bleed.
+ *
+ * The side-panel toggle changes the document container width without narrowing
+ * the viewport (annotation defect A); the narrow toggle squeezes the panel to a
+ * phone-ish width, where the bleed must collapse back to the measure rather than
+ * overflow.
+ */
+function PlanPanelPreview({ source }: { source: string }) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const [narrow, setNarrow] = useState(false);
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  useTimelineAvailableWidthVar(viewport);
+
+  const toggleClass =
+    "h-8 shrink-0 self-start rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted";
   return (
     <div className="flex min-h-[600px] gap-3">
-      <button
-        type="button"
-        onClick={() => setPanelOpen((open) => !open)}
-        className="h-8 shrink-0 self-start rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-muted"
-      >
-        {panelOpen ? "Close panel" : "Open panel"} (defect A)
-      </button>
+      <div className="flex shrink-0 flex-col gap-2">
+        <button type="button" onClick={() => setPanelOpen((open) => !open)} className={toggleClass}>
+          {panelOpen ? "Close panel" : "Open panel"} (defect A)
+        </button>
+        <button type="button" onClick={() => setNarrow((value) => !value)} className={toggleClass}>
+          {narrow ? "Wide panel" : "Narrow panel"}
+        </button>
+      </div>
       {panelOpen ? (
         <div className="w-72 shrink-0 rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
           Simulated file-explorer panel. Opening/closing it changes the document container width
           while the viewport stays wide — highlights must track.
         </div>
       ) : null}
-      <div className="min-w-0 flex-1 rounded-lg border border-border">
+      <div
+        ref={setViewport}
+        className={cn(
+          "min-w-0 overflow-x-auto rounded-lg border border-border",
+          narrow ? "w-[420px] shrink-0" : "flex-1",
+        )}
+      >
         <MdxPlanAnnotationLayer
-          source={MDX_ANNOTATION_FIXTURE_SOURCE}
+          source={source}
           filePath="plans/preview/plan.mdx"
           composerDraftTarget={DraftId.make("preview-scratch")}
         />
@@ -825,14 +930,24 @@ const mdxAnnotationFixture: PreviewFixture = {
   title: "Card › closed Details › Table",
   description:
     "All four annotation-rendering defects in one document. A: toggle the panel and watch highlights track (not drift). B: hover the card/table → 'Comment on this block' → one ring, not a fill + per-cell pills. C: comment inside the closed Details → a collapsed badge on the summary, no phantom pills below. D: set the app to dark and hover the floating 'Comment' button → stays opaque.",
-  render: () => <MdxAnnotationPreview key="mdx-annotation-defects" />,
+  render: () => (
+    <PlanPanelPreview key="mdx-annotation-defects" source={MDX_ANNOTATION_FIXTURE_SOURCE} />
+  ),
+};
+
+const mdxWideBlockFixture: PreviewFixture = {
+  id: "mdx-wide-blocks",
+  title: "Wide blocks (bleed)",
+  description:
+    "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diffs inside <Columns> and <Details> must stay in their container. Comment on a bled diff — its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
+  render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
 };
 
 export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "mdx-annotation",
-    title: "MDX annotation layer",
-    fixtures: [mdxAnnotationFixture],
+    title: "MDX plan document",
+    fixtures: [mdxWideBlockFixture, mdxAnnotationFixture],
   },
   {
     id: "pending-user-input",

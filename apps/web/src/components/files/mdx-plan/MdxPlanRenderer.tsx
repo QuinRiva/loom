@@ -132,6 +132,57 @@ export function assignBlockIds(root: HTMLElement): void {
   descend(root, true);
 }
 
+/**
+ * Non-prose block types allowed to escape the prose measure, and how they take
+ * the extra width (the CSS lives under `.plan-mdx [data-plan-bleed]` in
+ * `index.css`). This map is the single source of truth: the CSS keys off the
+ * stamped attribute and the annotation layer queries it to place its comment
+ * gutter outside the widest bled block.
+ *
+ * - `hug` — the block's max-content is meaningful (a diff, code, a table, a
+ *   file tree), so it takes only the width its content wants, capped at the
+ *   bleed budget, and stays at the measure when it wants less.
+ * - `stretch` — fixed-geometry surfaces whose contents are absolutely
+ *   positioned or `w-full`, so max-content reports ~nothing; they take the
+ *   budget outright.
+ *
+ * Deliberately absent: prose-bearing blocks (`callout`, `card`, `checklist`,
+ * `details`, `review-choice`, `question-form`, `api-endpoint`,
+ * `visual-questions`) keep the readable measure, and `wireframe`/`design`
+ * artboards are sized by their device preset, which is semantic, not a
+ * rendering accident.
+ */
+const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
+  "annotated-code": "hug",
+  code: "hug",
+  "data-model": "hug",
+  diff: "hug",
+  "field-diff": "hug",
+  "file-tree": "hug",
+  "json-explorer": "hug",
+  mermaid: "hug",
+  "openapi-spec": "hug",
+  table: "hug",
+  canvas: "stretch",
+  html: "stretch",
+  prototype: "stretch",
+};
+
+/** The attribute {@link stampBleedingBlocks} writes; also the annotation
+ * layer's query for "content that escapes the prose column". */
+export const PLAN_BLEED_ATTR = "data-plan-bleed";
+
+/** Mark the TOP-LEVEL non-prose blocks that may bleed past the prose measure.
+ * Only direct children of the root are considered, so a block nested inside a
+ * container block (`Columns`/`Tabs`/`Details`/`Card`/a canvas) never breaks out
+ * of its container. Exported for verification. */
+export function stampBleedingBlocks(root: HTMLElement): void {
+  for (const child of Array.from(root.children)) {
+    const mode = BLEED_MODE_BY_BLOCK_TYPE[child.getAttribute("data-plan-block-type") ?? ""];
+    if (mode) child.setAttribute(PLAN_BLEED_ATTR, mode);
+  }
+}
+
 interface MdxPlanRendererProps {
   source: string;
   className?: string;
@@ -191,7 +242,9 @@ export function MdxPlanRenderer({ source, className }: MdxPlanRendererProps) {
   }, [source]);
 
   useEffect(() => {
-    if (containerRef.current) assignBlockIds(containerRef.current);
+    if (!containerRef.current) return;
+    assignBlockIds(containerRef.current);
+    stampBleedingBlocks(containerRef.current);
   }, [content]);
 
   if (error !== null) {

@@ -1112,31 +1112,73 @@ label:has(> select#reasoning-effort) select {
   margin: 0.65rem 0;
 }
 
-/* Wide-block bleed: tables are allowed to escape the prose measure (max-w-3xl)
-   and use the width the viewport actually offers, up to a cap, so a large
-   display doesn't strand a table in a narrow column with whitespace either
-   side. --timeline-available-width is published by MessagesTimeline from a
-   ResizeObserver; the 100% fallback keeps prose-width behaviour when unset
-   (e.g. outside the timeline).
+/* Wide-block bleed budget — ONE definition shared by every bleeding surface.
 
-   The container hugs its content (width: max-content) so a narrow table stays
-   narrow and the footer buttons align to the table edges — but never grows
-   past the smaller of the prose width and the bleed budget. left:50% +
-   translateX(-50%) centers any resulting width on the prose axis (the parent
-   column is itself centered), which needs no knowledge of the final width and
-   so works for both sub-prose and bled tables.
+   An artefact (a markdown table, or a non-prose MDX plan block such as a split
+   <Diff>) is allowed to escape the prose measure and use the width its
+   container actually offers, up to a cap, so a large display doesn't strand it
+   in a narrow column with whitespace either side.
+   --timeline-available-width is published from a ResizeObserver by
+   MessagesTimeline and by the file-preview panel's BleedFrame; the 100%
+   fallback keeps prose-width behaviour when unset (e.g. outside either).
+   --bleed-inset is the horizontal room left unbled in total; a surface that
+   parks furniture beside the content widens it (see .plan-mdx below).
 
    Iterate on this behaviour against the dev-only component preview harness
-   (`/preview`, wide-table fixture) rather than a full authenticated app — see
-   docs/web-component-preview.md. */
-.chat-markdown .chat-markdown-table-container {
-  --bleed-cap: 90rem;
-  --bleed-target: min(var(--bleed-cap), calc(var(--timeline-available-width, 100%) - 3rem));
+   (`/preview`, "wide-table" and "Plan document" fixtures) rather than a full
+   authenticated app — see docs/web-component-preview.md. */
+.chat-markdown .chat-markdown-table-container,
+.chat-user-bubble:has(.chat-markdown-table-container),
+.plan-mdx [data-plan-bleed] {
+  --bleed-target: min(
+    90rem,
+    calc(var(--timeline-available-width, 100%) - var(--bleed-inset, 3rem))
+  );
+}
+
+/* The bleeding element hugs its content (width: max-content) so a narrow table
+   stays narrow and the footer buttons align to the table edges — but never
+   grows past the larger of the prose width and the bleed budget. left:50% +
+   translateX(-50%) centers any resulting width on the prose axis (the parent
+   column is itself centered), which needs no knowledge of the final width and
+   so works for both sub-prose and bled content. */
+.chat-markdown .chat-markdown-table-container,
+.plan-mdx [data-plan-bleed] {
   position: relative;
   left: 50%;
   width: max-content;
   max-width: max(100%, var(--bleed-target));
   transform: translateX(-50%);
+}
+
+/* MDX plan surface. `data-plan-bleed` is stamped by the renderer onto TOP-LEVEL
+   non-prose blocks only (see BLEED_MODE_BY_BLOCK_TYPE in MdxPlanRenderer.tsx),
+   so a block nested inside <Columns>/<Tabs>/<Details>/<Card>/a canvas can never
+   break out of its container.
+
+   The wider inset reserves the annotation layer's comment gutter: badges are
+   parked just outside the widest painted content, so the bleed must stop short
+   of the panel edge or a badge would land on top of a bled block
+   (MdxPlanAnnotationLayer's `gutterLeft`). */
+.plan-mdx {
+  --bleed-inset: 4rem;
+}
+
+/* Unlike a markdown table, a plan block never drops BELOW the document's
+   measure: blocks are document furniture with a shared left/right edge, and a
+   short <Code> snippet shrink-wrapped to its longest line would make the page
+   ragged. Above the measure the hug still applies — a block takes only the
+   width its content wants, up to the budget. */
+.plan-mdx [data-plan-bleed] {
+  min-width: 100%;
+}
+
+/* Fixed-geometry surfaces — a canvas board (absolutely positioned artboards)
+   and a sandboxed <Prototype>/<Html> frame (a `w-full` iframe) — have no
+   meaningful max-content, so hugging would pin them at the measure forever.
+   They take the budget outright and scroll/reflow inside it. */
+.plan-mdx [data-plan-bleed="stretch"] {
+  width: max(100%, var(--bleed-target));
 }
 
 /* User-message bubble wide-table bleed.
@@ -1155,8 +1197,6 @@ label:has(> select#reasoning-effort) select {
 
    Iterate on this against the `/preview` "User message bubble" fixtures. */
 .chat-user-bubble:has(.chat-markdown-table-container) {
-  --bleed-cap: 90rem;
-  --bleed-target: min(var(--bleed-cap), calc(var(--timeline-available-width, 100%) - 3rem));
   /* Overflow the right-aligned column symmetrically, centred on the prose axis
      (which is itself viewport-centred) so the bleed uses whitespace on both
      sides. align-self wins over the parent's items-end for this bubble only. */

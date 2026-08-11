@@ -47,6 +47,13 @@ Both `MessagesTimeline` and the harness's `TimelineLayoutFrame` consume these,
 so fixtures reproduce the real bleed chain **by construction**, not by
 copy-paste.
 
+The same variable drives the MDX plan surface: `FilePreviewPanel`'s `BleedFrame`
+publishes it around a rendered `.mdx` plan so non-prose blocks (a split `<Diff>`,
+`<Code>`, `<Table>`, …) escape the `max-w-4xl` prose measure. The harness's
+**MDX plan document › "Wide blocks (bleed)"** fixture reproduces that chain with
+the annotation layer live, plus toggles for a side panel (highlights must track)
+and a phone-ish width (the bleed must collapse without overflowing).
+
 ## Adding fixtures / components
 
 Edit `apps/web/src/preview/fixtures.tsx`. Append a `PreviewFixture` to an existing group,
