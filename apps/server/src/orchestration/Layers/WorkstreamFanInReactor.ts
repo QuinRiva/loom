@@ -7,7 +7,7 @@ import {
   MessageId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadFanInState,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -32,6 +32,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";
 import { makeReceiptDedupedDelivery } from "../receiptDedup.ts";
+import { makeRemovalDeferralLog } from "../worktreeRemovalDeferral.ts";
 import {
   WorkstreamFanInReactor,
   type WorkstreamFanInReactorShape,
@@ -52,7 +53,7 @@ const isTerminal = (planLane: string): boolean => planLane === "done" || planLan
 export const FAN_IN_RECONCILIATION_INTERVAL_MS = 60_000;
 
 type ProjectRef = {
-  readonly id: OrchestrationThreadShell["projectId"];
+  readonly id: OrchestrationThreadLeanShell["projectId"];
   readonly workspaceRoot: string;
 };
 
@@ -64,7 +65,7 @@ type ProjectRef = {
  * dispatcher's `threadsById` is.
  */
 type PassIndex = {
-  readonly byId: ReadonlyMap<ThreadId, OrchestrationThreadShell>;
+  readonly byId: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>;
   /** Non-terminal isolated children, keyed by parent id (branch-dependency case). */
   readonly liveIsolatedChildrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<ThreadId>>;
   /** Non-terminal threads keyed by their RESOLVED workspace cwd (resident case). */
@@ -113,6 +114,10 @@ const make = Effect.gen(function* () {
   // by restarts rather than by pass rate.
   const cleanupFailedChildren = new Set<ThreadId>();
 
+  // Per-path deferral episodes, so an occupied workspace is announced once and
+  // its eventual removal once — not once per retry (see `makeRemovalDeferralLog`).
+  const deferralLog = makeRemovalDeferralLog("workstream fan-in");
+
   // Receipt-deduped delivery for the two parent notices. Both carry deterministic
   // ids and lean on the engine's receipt store for cross-restart at-most-once, so
   // this instance needs no durable receipt lookup of its own
@@ -125,12 +130,12 @@ const make = Effect.gen(function* () {
     hasAcceptedReceipt: () => Effect.succeed(false),
   });
 
-  const resolvedCommandId = (child: OrchestrationThreadShell) =>
+  const resolvedCommandId = (child: OrchestrationThreadLeanShell) =>
     `server:workstream-fanin:resolved:${child.id}`;
 
   const deliverResolutionWake = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
   ) =>
     // `deliverOnce` adds the process-local skip; the deterministic id +
     // engine receipt remain the cross-restart at-most-once truth. `"delivered"`
@@ -181,12 +186,12 @@ const make = Effect.gen(function* () {
   // hand-merge. Deterministic id → receipt-deduped, so re-running the pass (or
   // the 60s tick) never double-notifies; a deferred delivery (busy parent) is
   // retried by the next session-set/fanin re-arm.
-  const conflictCommandId = (child: OrchestrationThreadShell) =>
+  const conflictCommandId = (child: OrchestrationThreadLeanShell) =>
     `server:workstream-fanin:conflict:${child.id}`;
 
   const deliverConflictNotice = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     childBranch: string,
     conflictPaths: ReadonlyArray<string>,
   ) =>
@@ -351,7 +356,7 @@ const make = Effect.gen(function* () {
 
   const resolveCwd = (
     thread: {
-      readonly projectId: OrchestrationThreadShell["projectId"];
+      readonly projectId: OrchestrationThreadLeanShell["projectId"];
       readonly worktreePath: string | null;
     },
     projects: ReadonlyArray<ProjectRef>,
@@ -379,10 +384,10 @@ const make = Effect.gen(function* () {
     (index.liveResidentsByCwd.get(NodePath.resolve(childCwd)) ?? []).some((id) => id !== childId);
 
   const buildIndex = (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
     projects: ReadonlyArray<ProjectRef>,
   ): PassIndex => {
-    const byId = new Map<ThreadId, OrchestrationThreadShell>();
+    const byId = new Map<ThreadId, OrchestrationThreadLeanShell>();
     const liveIsolatedChildrenByParent = new Map<ThreadId, ThreadId[]>();
     const liveResidentsByCwd = new Map<string, ThreadId[]>();
     const threadsByWorktreePath = new Map<string, ThreadId[]>();
@@ -470,15 +475,13 @@ const make = Effect.gen(function* () {
   // the 60s tick, so the removal simply happens on a later pass once the last
   // hold releases.
   const removeExclusively = <A, E, R>(childCwd: string, removal: Effect.Effect<A, E, R>) =>
-    workspaceLease.withExclusive(childCwd, removal).pipe(
-      Effect.tap((outcome) =>
-        Option.isNone(outcome)
-          ? Effect.logInfo("workstream fan-in: worktree removal skipped, workspace is occupied", {
-              childCwd,
-            })
-          : Effect.void,
-      ),
-    );
+    workspaceLease
+      .withExclusive(childCwd, removal)
+      .pipe(
+        Effect.tap((outcome) =>
+          Option.isNone(outcome) ? deferralLog.skipped(childCwd) : deferralLog.removed(childCwd),
+        ),
+      );
 
   // Defer the merge only while the child's runtime turn is genuinely in flight
   // (state "running") — then the worktree is mid-write and the pass is re-armed
@@ -490,14 +493,14 @@ const make = Effect.gen(function* () {
   // checkpoint). Gating on `=== "completed"` wedged those coders forever
   // (permanent non-completion masquerading as a transient wait); `doFanIn`
   // commits whatever is in the child worktree, so a missing checkpoint is fine.
-  const isChildTurnInFlight = (child: OrchestrationThreadShell): boolean =>
+  const isChildTurnInFlight = (child: OrchestrationThreadLeanShell): boolean =>
     child.latestTurn !== null && child.latestTurn.state === "running";
 
   // Check if a parent thread has an active/running turn, which would mean the
   // parent is mid-turn and uncommitted (plan §11 / B2: require parent quiescence
   // before merging). Parent status "running" with an activeTurnId means a turn
   // is in flight.
-  const hasParentActiveTurn = (parent: OrchestrationThreadShell): boolean =>
+  const hasParentActiveTurn = (parent: OrchestrationThreadLeanShell): boolean =>
     parent.session !== null &&
     parent.session.status === "running" &&
     parent.session.activeTurnId !== null;
@@ -512,7 +515,7 @@ const make = Effect.gen(function* () {
   // signal — see the projector's session-set handling) and its latest turn is
   // no longer running. Re-armed by session-set / turn-diff-completed events and
   // the periodic reconciliation tick, so a missed wake-up still converges.
-  const isCancelledChildQuiescent = (child: OrchestrationThreadShell): boolean =>
+  const isCancelledChildQuiescent = (child: OrchestrationThreadLeanShell): boolean =>
     !(
       child.session !== null &&
       (child.session.status === "running" || child.session.status === "starting")
@@ -524,8 +527,8 @@ const make = Effect.gen(function* () {
   // the merge (review finding 3). Caller ensures child's turn is completed and
   // parent has no active turn before calling (plan §11 / B2).
   const doFanIn = Effect.fn("doFanIn")(function* (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     parentCwd: string,
     index: PassIndex,
   ) {
@@ -549,18 +552,18 @@ const make = Effect.gen(function* () {
           subject: `merge ${childBranch}`,
         });
         if (merge.status === "conflict") {
-          // Write ONLY on a genuine transition. Re-emitting `fanin.set` for an
-          // already-`conflicted` child is a self-feeding edge: the decider emits
-          // a `thread.fanin-set` event for every set command (no unchanged-value
-          // guard), the reactor re-arms its worker on that event, and the worker
-          // runs another pass — which re-conflicts and re-writes, spinning git
-          // merge/abort under the worktree lock for as long as the conflict stays
-          // unresolved (coalescing bounds the rate, not the loop). Skipping the no-op write
-          // means re-attempts fire only via genuine external re-arms
-          // (session-set / turn-diff-completed / the 60s tick), which is the
-          // intended cadence; the self-heal path still converges (a later
-          // up-to-date re-attempt sets `completed`).
-          if (child.fanInState !== "conflicted") yield* setFanInState(child.id, "conflicted");
+          // Writes only on a genuine transition — enforced by the decider's
+          // unchanged-value guard on `thread.fanin.set` (W2-4), not re-derived here.
+          // Re-emitting `fanin.set` for an already-`conflicted` child would be a
+          // self-feeding edge: `thread.fanin-set` re-arms this reactor's worker, and
+          // the next pass re-conflicts and re-writes, spinning git merge/abort under
+          // the worktree lock for as long as the conflict stays unresolved
+          // (coalescing bounds the rate, not the loop). With the no-op write emitting
+          // nothing, re-attempts fire only via genuine external re-arms (session-set /
+          // turn-diff-completed / the 60s tick), which is the intended cadence; the
+          // self-heal path still converges (a later up-to-date re-attempt sets
+          // `completed`).
+          yield* setFanInState(child.id, "conflicted");
           // First observation of THIS conflict (process-scoped) fires the loud,
           // one-shot signals; a retry that still conflicts (60s tick) must not
           // re-spam the activity feed or re-raise attention. After a restart the
@@ -611,8 +614,8 @@ const make = Effect.gen(function* () {
   });
 
   const doCancelled = Effect.fn("doCancelled")(function* (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell,
     parentCwd: string,
     index: PassIndex,
   ) {
@@ -655,11 +658,50 @@ const make = Effect.gen(function* () {
     );
   });
 
+  // Deferred-removal cleanup for ONE fanned-in child: drop the spent checkout and
+  // repoint the child (and any terminal resident) off it, once nothing
+  // structurally depends on the tree. Wholly post-merge — the child is already
+  // `completed`, so every failure here is a cleanup failure by construction.
+  //
+  // Takes the parent's coordinates as values rather than a thread shell, because
+  // its second caller (the archived-orphan sweep) resolves them from SQL: an
+  // archived child's parent may itself be archived, hence absent from the pass
+  // index.
+  const removeDeferredWorktree = Effect.fn("removeDeferredWorktree")(function* (input: {
+    readonly childId: ThreadId;
+    readonly childCwd: string;
+    readonly childBranch: string;
+    readonly parentCwd: string;
+    readonly parentBranch: string | null;
+    readonly parentWorktreePath: string | null;
+    readonly index: PassIndex;
+  }) {
+    if (NodePath.resolve(input.childCwd) === NodePath.resolve(input.parentCwd)) return;
+    if (hasDependentResident(input.childId, input.childCwd, input.index)) return;
+    yield* worktreeMutationLock
+      .withLock(
+        input.parentCwd,
+        removeExclusively(
+          input.childCwd,
+          finaliseRemoval({
+            childId: input.childId,
+            childCwd: input.childCwd,
+            childBranch: input.childBranch,
+            parentCwd: input.parentCwd,
+            parentBranch: input.parentBranch,
+            parentWorktreePath: input.parentWorktreePath,
+            index: input.index,
+          }),
+        ),
+      )
+      .pipe(surviveCleanupFailure(input.childId));
+  });
+
   // Is this isolated child provisioned into its own worktree/branch (distinct
   // from the parent's)? Guards the defensive "never provisioned" case.
   const isProvisioned = (
-    child: OrchestrationThreadShell,
-    parent: OrchestrationThreadShell | undefined,
+    child: OrchestrationThreadLeanShell,
+    parent: OrchestrationThreadLeanShell | undefined,
     childCwd: string,
     parentCwd: string,
   ): boolean =>
@@ -673,7 +715,23 @@ const make = Effect.gen(function* () {
   // isolated thread is driven to its correct disposition regardless of which
   // terminal event triggered the pass.
   const runPass = Effect.fn("runPass")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    // FULL active set, deliberately — do NOT narrow this by settledness.
+    //
+    // W2-2 proposed "working set OR pending fan-in". The OR term is the wrong
+    // shape: this pass's dominant population is the DEFERRED-REMOVAL branch
+    // below (`fanInState === "completed"` with a `worktreePath` still set — 290
+    // of 337 such threads on the local cockpit store, production-scale), and
+    // `isFanInPending` is false for every one of them, so a working-OR-pending
+    // filter drops exactly the branch whose runaway produced the 13k-failure
+    // incident.
+    //
+    // The deeper reason is that the per-child decision is not a per-child read:
+    // `hasDependentResident` scans all threads for dependents sharing the
+    // worktree, and `isMemberOfUnresolvedGate` scans for gate siblings. Both
+    // interpret ABSENCE as "no such thread" — so a filtered snapshot would let
+    // this reactor remove a worktree a dependent still occupies, or merge a gate
+    // member before its gate resolved. Silent, destructive, and unrecoverable.
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const threads = snapshot.threads;
     const projects = snapshot.projects;
     const index = buildIndex(threads, projects);
@@ -761,35 +819,16 @@ const make = Effect.gen(function* () {
           // Deferred-removal sweep (plan §3 step 4): a fanned-in child whose
           // removal was held by an occupant is cleaned up once the occupant goes
           // terminal (its terminal transition re-triggers this pass).
-          if (
-            parent === undefined ||
-            parentCwd === undefined ||
-            child.branch === null ||
-            NodePath.resolve(child.worktreePath) === NodePath.resolve(parentCwd) ||
-            hasDependentResident(child.id, child.worktreePath, index)
-          ) {
-            return;
-          }
-          const deferredCwd = child.worktreePath;
-          // Wholly post-merge: this child is already `completed`, so every
-          // failure here is a cleanup failure by construction.
-          yield* worktreeMutationLock
-            .withLock(
-              parentCwd,
-              removeExclusively(
-                deferredCwd,
-                finaliseRemoval({
-                  childId: child.id,
-                  childCwd: deferredCwd,
-                  childBranch: child.branch,
-                  parentCwd,
-                  parentBranch: parent.branch,
-                  parentWorktreePath: parent.worktreePath,
-                  index,
-                }),
-              ),
-            )
-            .pipe(surviveCleanupFailure(child.id));
+          if (parent === undefined || parentCwd === undefined || child.branch === null) return;
+          yield* removeDeferredWorktree({
+            childId: child.id,
+            childCwd: child.worktreePath,
+            childBranch: child.branch,
+            parentCwd,
+            parentBranch: parent.branch,
+            parentWorktreePath: parent.worktreePath,
+            index,
+          });
         }
       });
 
@@ -826,6 +865,36 @@ const make = Effect.gen(function* () {
           );
         }),
       );
+    }
+
+    // ARCHIVED-ORPHAN sweep. The loop above walks the shell snapshot, which
+    // filters `archived_at IS NULL` — so a child ARCHIVED while its worktree was
+    // still occupied leaves the selectable set permanently and its checkout is
+    // stranded forever, silently (never selected means never even logged). One
+    // live instance had sat that way for 29 hours with its worktree still on disk
+    // and still git-registered; the worktree reaper cannot collect it either,
+    // because with the owner invisible the tree classifies as `orphaned`, which is
+    // never auto-reaped.
+    //
+    // The read is the orphan shape itself (archived, fanned-in, still pointing at
+    // its own tree), so this costs one tiny query per pass and normally iterates
+    // nothing.
+    for (const orphan of yield* projectionSnapshotQuery.getArchivedFannedInWorktreeChildren()) {
+      if (cleanupFailedChildren.has(orphan.threadId)) continue;
+      const parentCwd = resolveCwd(
+        { projectId: orphan.parentProjectId, worktreePath: orphan.parentWorktreePath },
+        projects,
+      );
+      if (parentCwd === undefined) continue;
+      yield* removeDeferredWorktree({
+        childId: orphan.threadId,
+        childCwd: orphan.worktreePath,
+        childBranch: orphan.branch,
+        parentCwd,
+        parentBranch: orphan.parentBranch,
+        parentWorktreePath: orphan.parentWorktreePath,
+        index,
+      });
     }
   });
 

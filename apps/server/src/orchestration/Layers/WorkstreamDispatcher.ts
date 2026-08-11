@@ -8,7 +8,7 @@ import {
   MessageId,
   type OrchestrationCommand,
   type OrchestrationLatestTurn,
-  type OrchestrationThreadShell,
+  type OrchestrationThreadLeanShell,
   type ThreadId,
   type ThreadPlanLane,
   type WorkOutcomeRecord,
@@ -98,8 +98,8 @@ import { piSessionIdForThread, resolveSessionFilePath } from "../../provider/piS
  * always sets them).
  */
 export const selectThreadsToDispatch = (
-  threads: ReadonlyArray<OrchestrationThreadShell>,
-): ReadonlyArray<OrchestrationThreadShell> => {
+  threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+): ReadonlyArray<OrchestrationThreadLeanShell> => {
   const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
   return threads.filter(
     (thread) =>
@@ -1218,7 +1218,7 @@ export const slowToolNoticeIndex = (
  * from the idle kind (it is waiting on deps/release, not stuck).
  */
 export const classifyChildWake = (
-  child: OrchestrationThreadShell,
+  child: OrchestrationThreadLeanShell,
   pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
 ): ChildWakeKind | null => {
   if (child.parentThreadId === null) return null;
@@ -1315,7 +1315,7 @@ export const idleWakeWithinGrace = (
 ): boolean => lastProgressMs === null || now - lastProgressMs < graceWindowMs;
 
 /** Executing-child predicate: an open turn on a released, pre-terminal child. */
-const isChildExecuting = (child: OrchestrationThreadShell): boolean =>
+const isChildExecuting = (child: OrchestrationThreadLeanShell): boolean =>
   child.session !== null &&
   child.session.activeTurnId !== null &&
   (child.planLane === "ready" || child.planLane === "in_progress");
@@ -1328,7 +1328,7 @@ const isChildExecuting = (child: OrchestrationThreadShell): boolean =>
  * of "how long has this open turn been silent".
  */
 const executingQuietMs = (
-  child: OrchestrationThreadShell,
+  child: OrchestrationThreadLeanShell,
   freshness: ProjectionActivityFreshness,
   now: number,
 ): number | null => {
@@ -1431,7 +1431,7 @@ export type ChildWakeDecision =
  * call is never queried).
  */
 export const childWakeEvidenceNeeds = (
-  child: OrchestrationThreadShell,
+  child: OrchestrationThreadLeanShell,
   pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
   waitingInGate: boolean,
 ): ReadonlySet<ChildWakeEvidenceKind> => {
@@ -1459,7 +1459,7 @@ export const childWakeEvidenceNeeds = (
  * effectful delivery tail.
  */
 export const classifyChildWakeFull = (
-  child: OrchestrationThreadShell,
+  child: OrchestrationThreadLeanShell,
   evidence: ChildWakeEvidence,
   now: number,
   pendingTurnStartThreadIds: ReadonlySet<ThreadId>,
@@ -1777,7 +1777,7 @@ const make = Effect.gen(function* () {
   // when the workstream is quiet or the oldest item has aged past the window.
   // ------------------------------------------------------------------------
   interface PendingDigestEntry {
-    readonly child: OrchestrationThreadShell;
+    readonly child: OrchestrationThreadLeanShell;
     /** Command id whose receipt records "this item was digested". */
     readonly marker: string;
     readonly kind: "terminal" | "recovered" | "slow-tool";
@@ -1811,7 +1811,7 @@ const make = Effect.gen(function* () {
   // each terminal item's report on demand). Order: terminals first, extras last.
   const renderPending = (
     entries: ReadonlyArray<PendingDigestEntry>,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
   ) =>
     Effect.gen(function* () {
       const members: WakeMember[] = [];
@@ -1882,7 +1882,7 @@ const make = Effect.gen(function* () {
   // shared children keep the parent's provisional values (today's behaviour).
   // Returns false when provisioning failed (skip the kick-off turn this pass).
   const provisionWorkspace = Effect.fn("provisionWorkspace")(function* (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationThreadLeanShell,
     role: string,
   ) {
     if (thread.isolation === "isolated") {
@@ -1922,7 +1922,7 @@ const make = Effect.gen(function* () {
   // kickoff time: launching with a stale/empty prompt is worse than parking and
   // surfacing it. Receipt-deduped (deterministic id) so a re-run never re-raises.
   const parkThreadForBriefReadFailure = Effect.fn("parkThreadForBriefReadFailure")(function* (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationThreadLeanShell,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
@@ -1934,7 +1934,9 @@ const make = Effect.gen(function* () {
     } satisfies OrchestrationCommand);
   });
 
-  const promoteThread = Effect.fn("promoteThread")(function* (thread: OrchestrationThreadShell) {
+  const promoteThread = Effect.fn("promoteThread")(function* (
+    thread: OrchestrationThreadLeanShell,
+  ) {
     const { role, purpose, kickoffBriefPath } = thread;
     // Guaranteed non-null by selectThreadsToDispatch; this also narrows types.
     if (role === null || purpose === null || kickoffBriefPath === null) return;
@@ -1997,7 +1999,7 @@ const make = Effect.gen(function* () {
   //    apply the child's stale placeholder selection and forfeit the cache.
   //    Do NOT kick this pass; log and retry on the next pass.
   const persistForkSelection = Effect.fn("persistForkSelection")(function* (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationThreadLeanShell,
   ) {
     if (thread.forkFromThreadId === null) return "ok" as const;
     const record = readLaunchIdentity(launchIdentityDir, thread.forkFromThreadId);
@@ -2031,7 +2033,7 @@ const make = Effect.gen(function* () {
   // a transient meta.update failure self-heals (the flag clears when the child
   // finally launches).
   const parkForkForUnpersistedSelection = Effect.fn("parkForkForUnpersistedSelection")(function* (
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationThreadLeanShell,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine
@@ -2051,8 +2053,8 @@ const make = Effect.gen(function* () {
   // this is the pass's first phase, so the hoisted snapshot is byte-identical to
   // the one it used to load here.
   const promoteReadyThreads = Effect.fn("promoteReadyThreads")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
   ) {
     const selected = selectThreadsToDispatch(threads);
     // loom: forkFrom (D7) — a fork child whose own pi session file does not yet
@@ -2109,8 +2111,8 @@ const make = Effect.gen(function* () {
   // dependents its terminal transition released. Only `done` releases; a
   // cancelled child releases nothing.
   const releasedDependentsOf = (
-    child: OrchestrationThreadShell,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    child: OrchestrationThreadLeanShell,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
   ): ReadonlyArray<{ readonly id: ThreadId; readonly role: string | null }> =>
     child.planLane !== "done"
       ? []
@@ -2122,9 +2124,9 @@ const make = Effect.gen(function* () {
   // report + gate context (lastOutcome/gateRounds/routes for the pair grouper) +
   // the durable event time (§5.4) + released dependents (§4.1).
   const toWakeMember = (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
     report: string | null,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
   ): WakeMember => ({
     id: child.id,
     role: child.role,
@@ -2145,9 +2147,9 @@ const make = Effect.gen(function* () {
   // you" framing. `requireIdle`, so a busy parent defers (no receipt) and the
   // items stay pending for the next pass. Returns true only on real delivery.
   const deliverStandaloneDigest = Effect.fn("deliverStandaloneDigest")(function* (
-    parent: OrchestrationThreadShell,
+    parent: OrchestrationThreadLeanShell,
     entries: ReadonlyArray<PendingDigestEntry>,
-    threads: ReadonlyArray<OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
   ) {
     const { members, extras } = yield* renderPending(entries, threads);
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -2184,7 +2186,7 @@ const make = Effect.gen(function* () {
   // (wake-before-markers); idempotent — a re-dispatch under the same id is a
   // no-op that writes no second row.
   const dispatchChildReportedMarker = Effect.fn("dispatchChildReportedMarker")(function* (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
     episode: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -2211,7 +2213,7 @@ const make = Effect.gen(function* () {
   // unchanged; only the delivery vehicle moved to the digest. Written on the
   // child after the digest turn-start succeeds (wake-before-markers).
   const dispatchDigestExtraMarker = Effect.fn("dispatchDigestExtraMarker")(function* (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
     kind: "recovered" | "slow-tool",
     commandId: string,
   ) {
@@ -2261,7 +2263,7 @@ const make = Effect.gen(function* () {
 
   // The activity marker — the SECOND durable park write (under `parkCommandId`).
   const dispatchParkMarker = Effect.fn("dispatchParkMarker")(function* (
-    parent: OrchestrationThreadShell,
+    parent: OrchestrationThreadLeanShell,
     episode: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -2290,7 +2292,7 @@ const make = Effect.gen(function* () {
   // in-memory runaway catch (backed by `wakeTimestamps`), so after a restart a
   // genuine runaway simply re-trips and re-parks — the human was already alerted.
   const parkAndEscalate = Effect.fn("parkAndEscalate")(function* (
-    parent: OrchestrationThreadShell,
+    parent: OrchestrationThreadLeanShell,
     episode: string,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -2320,7 +2322,7 @@ const make = Effect.gen(function* () {
   //  - idle: the parent got the forgot-to-finish notice + report at that activity
   //    sequence; going terminal without new activity adds nothing.
   const alreadyNoticedByPriorRail = Effect.fn("alreadyNoticedByPriorRail")(function* (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
   ) {
     // Each check is a DURABLE-delivery question ("was the parent actually told
     // through the other rail?"), so it goes through `wasDelivered` — which reads
@@ -2349,8 +2351,8 @@ const make = Effect.gen(function* () {
   // holdbacks (unresolved gate, fan-in pending, pair coherence) and prior-rail
   // suppression are unchanged — only the delivery vehicle moved to the digest.
   const collectTerminalDeltas = Effect.fn("collectTerminalDeltas")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
     pending: PendingDigests,
   ) {
     for (const child of threads) {
@@ -2402,8 +2404,8 @@ const make = Effect.gen(function* () {
   // the idle backstop's `needs_guidance` flag (design §4.7) so a forgot-to-finish
   // child cannot sit silently halted.
   const deliverChildWake = Effect.fn("deliverChildWake")(function* (
-    parent: OrchestrationThreadShell,
-    child: OrchestrationThreadShell,
+    parent: OrchestrationThreadLeanShell,
+    child: OrchestrationThreadLeanShell,
     kind: ChildWakeKind,
     commandId: string,
     context?: ChildWakeContext,
@@ -2461,8 +2463,8 @@ const make = Effect.gen(function* () {
   // `wakeTimestamps` + `parkAndEscalate` so error/idle/recovery/terminal-delta
   // wakes draw on ONE rate budget per parent (C1).
   const wakeIdleAndErroredChildren = Effect.fn("wakeIdleAndErroredChildren")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
     pending: PendingDigests,
   ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
@@ -2682,8 +2684,8 @@ const make = Effect.gen(function* () {
   // Returning the delta keeps that phase current-state-correct without paying for
   // a second full shell snapshot.
   const routeGateTraversals = Effect.fn("routeGateTraversals")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
   ) {
     const reopenedTargets = new Set<ThreadId>();
     for (const source of threads) {
@@ -2786,8 +2788,8 @@ const make = Effect.gen(function* () {
   // per-parent wake-rate budget. The child's lane is left untouched — clearing
   // `yielded` is the resume's job (any turn-start reverts it to `in_progress`).
   const wakeYieldedChildren = Effect.fn("wakeYieldedChildren")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
     pending: PendingDigests,
   ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
@@ -2904,7 +2906,7 @@ const make = Effect.gen(function* () {
   // error verdict was ever reported; day-bucketing the wake itself would
   // otherwise leave that question permanently unanswerable.
   const dispatchErrorReportedMarker = Effect.fn("dispatchErrorReportedMarker")(function* (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* orchestrationEngine.dispatch({
@@ -2927,7 +2929,7 @@ const make = Effect.gen(function* () {
   // One child owing a brief-needed rung this pass: the child, the (episode, rung)
   // marker id it will be recorded under, and the age the notice renders.
   interface BriefNeededEntry {
-    readonly child: OrchestrationThreadShell;
+    readonly child: OrchestrationThreadLeanShell;
     readonly marker: string;
     readonly sinceMs: number;
     readonly ageMs: number;
@@ -2940,7 +2942,7 @@ const make = Effect.gen(function* () {
   // re-arms. Written AFTER the wake (wake-before-markers), idempotent via the
   // deterministic id.
   const dispatchBriefNeededMarker = Effect.fn("dispatchBriefNeededMarker")(function* (
-    child: OrchestrationThreadShell,
+    child: OrchestrationThreadLeanShell,
     entry: BriefNeededEntry,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -2971,7 +2973,7 @@ const make = Effect.gen(function* () {
   // server uuid because cross-restart dedup is carried by the per-child episode
   // markers, not this id. Returns true only on real delivery.
   const deliverBriefNeededWake = Effect.fn("deliverBriefNeededWake")(function* (
-    parent: OrchestrationThreadShell,
+    parent: OrchestrationThreadLeanShell,
     entries: ReadonlyArray<BriefNeededEntry>,
   ) {
     const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -3027,8 +3029,8 @@ const make = Effect.gen(function* () {
   // retained deliberately: a crash between the two can duplicate a notice, never
   // lose one.
   const wakeBriefNeededChildren = Effect.fn("wakeBriefNeededChildren")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
   ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
     const now = yield* Clock.currentTimeMillis;
@@ -3072,8 +3074,8 @@ const make = Effect.gen(function* () {
   // guarded, `requireIdle`. Leftovers that neither flush nor piggyback simply
   // stay pending and are recomputed next pass.
   const flushPendingDigests = Effect.fn("flushPendingDigests")(function* (
-    threads: ReadonlyArray<OrchestrationThreadShell>,
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threads: ReadonlyArray<OrchestrationThreadLeanShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
     pending: PendingDigests,
   ) {
     const pendingTurnStartThreadIds = yield* projectionSnapshotQuery.getPendingTurnStartThreadIds();
@@ -3125,7 +3127,7 @@ const make = Effect.gen(function* () {
   // the reopen; carrying the reopened set forward preserves that exact semantics
   // for the one lane transition the pass itself can make.
   const deliverPendingNotifications = Effect.fn("deliverPendingNotifications")(function* (
-    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadShell>,
+    threadsById: ReadonlyMap<ThreadId, OrchestrationThreadLeanShell>,
     reopenedTargets: ReadonlySet<ThreadId>,
   ) {
     const pending = yield* projectionSnapshotQuery.listPendingPeerMessages();
@@ -3246,7 +3248,39 @@ const make = Effect.gen(function* () {
   //     coalesces rather than drops triggers — so the follow-up pass is
   //     guaranteed and the notice is deferred by one pass, not lost.
   const runPass = Effect.fn("runPass")(function* () {
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    // FULL active set, deliberately — do NOT narrow this by settledness.
+    //
+    // W2-2 proposed narrowing the dispatcher to the unsettled "working set" for a
+    // ~24x row cut. It is unsafe here, in both directions:
+    //
+    //  1. PREMATURE PROMOTION. `describeUnsatisfiedDependency` treats a dep id
+    //     that is ABSENT from the map as non-gating (dangling ids never gate).
+    //     A settled-but-not-done dependency dropped from the snapshot therefore
+    //     reads as SATISFIED, and its dependent is promoted onto a base whose
+    //     dependency never ran. On the local cockpit store (production-scale,
+    //     1,263 active threads) 28 threads are named in someone's `blockedBy`,
+    //     are not `done`, and would settle out — so this is a live hazard, not a
+    //     theoretical one.
+    //  2. NEVER PROMOTED. `selectThreadsToDispatch` selects exactly the thread
+    //     with no session, no user message and no turn — i.e. the one whose only
+    //     activity timestamp is `createdAt`. Once such a thread is idle past the
+    //     window it settles, and the pass that exists to launch it stops seeing
+    //     it. A brief attached to a graph a week after it was scaffolded would
+    //     silently never start.
+    //
+    // Both are silent wedges of the exact class the fan-in retry loop was. The
+    // dispatcher reads the GRAPH (deps, gate siblings, parents, fork sources),
+    // and a graph read over a filtered map misreads absence as satisfaction.
+    // Narrowing the dispatcher needs a lean full-set projection (fewer COLUMNS,
+    // same rows), not fewer rows: the pass's cost is row WIDTH (`brief`,
+    // `purpose`, `routes` — ~2.6 MB across the active set), not row count.
+    //
+    // More generally: settledness is a VISIBILITY partition, not a control-plane
+    // one. A user may settle any row at any time, and `workstreamSettleTriggered`
+    // settles any `done` thread immediately — so a thread that still owes
+    // control-plane work can always be classified settled. No sweep whose quarry
+    // is "a thread that still owes an action" can be gated on it.
+    const snapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const threads = snapshot.threads;
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
     yield* promoteReadyThreads(threads, threadsById);

@@ -538,6 +538,80 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("preserves localeCompare tie-breaking for actionable proposed plans", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-01-01T00:00:00.000Z";
+      const threadId = ThreadId.make("thread-plan-tie");
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.make("evt-plan-tie-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.make("cmd-plan-tie-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-plan-tie-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-plan-tie"),
+          title: "Thread Plan Tie",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const appendPlan = (suffix: string, planId: string, implementedAt: string | null) =>
+        eventStore.append({
+          type: "thread.proposed-plan-upserted",
+          eventId: EventId.make(`evt-plan-tie-${suffix}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.make(`cmd-plan-tie-${suffix}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-plan-tie-${suffix}`),
+          metadata: {},
+          payload: {
+            threadId,
+            proposedPlan: {
+              id: planId,
+              turnId: null,
+              planMarkdown: `Plan ${planId}`,
+              implementedAt,
+              implementationThreadId: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        });
+
+      // `localeCompare` sorts `a` before `A`, whereas SQLite BINARY sorts `A`
+      // before `a`. The old fold therefore selects the unimplemented `A` row.
+      yield* appendPlan("2", "a", now);
+      yield* appendPlan("3", "A", null);
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{ readonly hasActionableProposedPlan: number }>`
+        SELECT has_actionable_proposed_plan AS "hasActionableProposedPlan"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(rows, [{ hasActionableProposedPlan: 1 }]);
+    }),
+  );
+
   it.effect(
     "stamps dependencies_since on thread.dependencies-set and an activity/receipt append cannot move it (scaffold plan §3 gap c)",
     () =>
@@ -3041,6 +3115,22 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           turnId: "turn-1",
           role: "assistant",
         },
+      ]);
+
+      const shellRows = yield* sql<{
+        readonly latestUserMessageAt: string | null;
+        readonly diffAdditions: number | null;
+        readonly diffDeletions: number | null;
+      }>`
+        SELECT
+          latest_user_message_at AS "latestUserMessageAt",
+          diff_additions AS "diffAdditions",
+          diff_deletions AS "diffDeletions"
+        FROM projection_threads
+        WHERE thread_id = 'thread-revert'
+      `;
+      assert.deepEqual(shellRows, [
+        { latestUserMessageAt: null, diffAdditions: 0, diffDeletions: 0 },
       ]);
     }),
   );

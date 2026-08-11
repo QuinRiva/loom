@@ -1,21 +1,57 @@
 import type { OrchestrationThreadShell } from "@t3tools/contracts";
 // loom: the canonical "a done isolated child still owes its branch merge"
 // predicate, shared with the dispatcher's generation-join gate.
-import { isFanInPending } from "@t3tools/shared/workstreamIsolation";
+import { isFanInPending } from "./workstreamIsolation.ts";
 
 export type ChangeRequestStateLike = "open" | "closed" | "merged";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
-export function threadLastActivityAt(shell: OrchestrationThreadShell): string | null {
+/**
+ * The thread fields settle classification actually reads. Narrower than
+ * `OrchestrationThreadShell` so the SERVER can classify from a lean projection
+ * row (W2-2) without assembling a full shell — a full shell still satisfies it
+ * structurally, so every client call site is unchanged.
+ */
+export type ThreadSettledShell = Pick<
+  OrchestrationThreadShell,
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "session"
+  | "latestUserMessageAt"
+  | "latestTurn"
+  | "settledOverride"
+  | "settledAt"
+  | "attention"
+  | "planLane"
+  | "pendingRework"
+  | "isolation"
+  | "fanInState"
+  | "createdAt"
+>;
+
+/**
+ * Last real activity on a thread, falling back to `createdAt`.
+ *
+ * The fallback is load-bearing (W2-2): a thread that has never run — scaffolded
+ * but un-briefed, or briefed and never dispatched — has no user message and no
+ * turn, so every candidate below is null. Returning null there made
+ * `effectiveSettled` bail before the inactivity check, which meant such a thread
+ * could NEVER auto-settle at any age (52 measured on the local cockpit store;
+ * the plan reports 17 on production, unverified here). `createdAt` is non-null
+ * on every thread and is the honest
+ * "nothing has happened since" timestamp, so the inactivity window measures from
+ * it.
+ */
+export function threadLastActivityAt(shell: ThreadSettledShell): string {
   const candidates = [
     shell.latestUserMessageAt,
     shell.latestTurn?.requestedAt,
     shell.latestTurn?.startedAt,
     shell.latestTurn?.completedAt,
   ];
-  let latest: string | null = null;
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  let latest: string = shell.createdAt;
+  let latestTimestamp = Date.parse(shell.createdAt);
 
   for (const candidate of candidates) {
     if (candidate === null || candidate === undefined) continue;
@@ -322,7 +358,7 @@ export function workstreamSettleTriggered(
  * user-input request), so an override never goes stale silently.
  */
 export function effectiveSettled(
-  shell: OrchestrationThreadShell,
+  shell: ThreadSettledShell,
   options: {
     readonly now: string;
     readonly autoSettleAfterDays: number | null;
@@ -379,24 +415,19 @@ export function effectiveSettled(
     // Only an idle thread settles on the merge signal: the signal itself
     // never clears, so without this guard fresh activity (a message sent in
     // a settled thread) would re-settle the moment its turn completed.
-    const lastActivityAt = threadLastActivityAt(shell);
     if (
-      lastActivityAt === null ||
-      Date.parse(lastActivityAt) < Date.parse(options.now) - CHANGE_REQUEST_SETTLE_IDLE_MS
+      Date.parse(threadLastActivityAt(shell)) <
+      Date.parse(options.now) - CHANGE_REQUEST_SETTLE_IDLE_MS
     ) {
       return true;
     }
   }
   if (options.autoSettleAfterDays === null) return false;
 
-  const lastActivityAt = threadLastActivityAt(shell);
-  if (lastActivityAt === null) return false;
-
-  // threadLastActivityAt only returns candidates whose Date.parse beat
-  // -Infinity, so this parse is a real number; a malformed `now` yields NaN,
-  // the comparison is false, and the thread stays active (never a surprise
-  // auto-settle on bad input).
+  // A malformed `now` yields NaN, the comparison is false, and the thread stays
+  // active (never a surprise auto-settle on bad input).
   return (
-    Date.parse(lastActivityAt) < Date.parse(options.now) - options.autoSettleAfterDays * DAY_MS
+    Date.parse(threadLastActivityAt(shell)) <
+    Date.parse(options.now) - options.autoSettleAfterDays * DAY_MS
   );
 }

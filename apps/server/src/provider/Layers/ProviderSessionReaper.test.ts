@@ -63,6 +63,7 @@ const unsupported = () => Effect.die(new Error("Unsupported provider call in tes
  * `getThreadObligations` query would report them. Absent ids owe nothing.
  */
 type Obligations = {
+  readonly planLane?: string;
   readonly activeTurnId?: TurnId | null;
   readonly liveChildCount?: number;
   readonly hasUnmetDependencies?: boolean;
@@ -70,7 +71,10 @@ type Obligations = {
   readonly pendingRework?: boolean;
 };
 
+// Default lane is NON-terminal, so the long (30 min) threshold applies unless a
+// case opts into the terminal one.
 const NO_OBLIGATIONS = {
+  planLane: "in_progress",
   activeTurnId: null,
   liveChildCount: 0,
   hasUnmetDependencies: false,
@@ -196,6 +200,8 @@ describe("ProviderSessionReaper", () => {
     readonly readModel: ReturnType<typeof makeReadModel>;
     readonly obligationsByThreadId?: ReadonlyMap<ThreadId, Obligations>;
     readonly failThreadLivenessRead?: boolean;
+    readonly inactivityThresholdMs?: number;
+    readonly terminalInactivityThresholdMs?: number;
     /** Threads whose `deleted_at` is set (irreversible). */
     readonly deletedThreadIds?: ReadonlySet<ThreadId>;
     readonly stopSessionImplementation?: (input: {
@@ -252,7 +258,10 @@ describe("ProviderSessionReaper", () => {
       Layer.provide(runtimeRepositoryLayer),
     );
     const layer = makeProviderSessionReaperLive({
-      inactivityThresholdMs: 1_000,
+      inactivityThresholdMs: input.inactivityThresholdMs ?? 1_000,
+      ...(input.terminalInactivityThresholdMs !== undefined
+        ? { terminalInactivityThresholdMs: input.terminalInactivityThresholdMs }
+        : {}),
       sweepIntervalMs: 60_000,
     }).pipe(
       Layer.provideMerge(providerSessionDirectoryLayer),
@@ -263,6 +272,7 @@ describe("ProviderSessionReaper", () => {
           getCommandReadModel: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
+          getLeanShellSnapshot: () => Effect.die("unused"),
           getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
           getArchivedShellSnapshot: () => Effect.die("unused"),
           getSnapshotSequence: () =>
@@ -311,6 +321,8 @@ describe("ProviderSessionReaper", () => {
               ...input.obligationsByThreadId?.get(threadId),
             }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+          getReferencedWorktreePaths: () => Effect.succeed(new Set()),
           getDeletedThreadIds: () => {
             deletedThreadIdsReads += 1;
             if (input.failThreadLivenessRead) {
@@ -497,6 +509,49 @@ describe("ProviderSessionReaper", () => {
 
     expect(harness.stoppedThreadIds.has(threadId)).toBe(true);
   });
+
+  // The two-threshold split. A TERMINAL, obligation-free thread is spent — a
+  // human resume re-spawns it — so it reaps on the short threshold, which is what
+  // frees the child worktree its (attached) reviewer would otherwise occupy for
+  // half an hour after fan-in. A non-terminal thread at the same idleness must
+  // still wait out the long one: reaping a live orchestrator early is the
+  // regression this pair pins.
+  it.each<readonly [string, string, boolean]>([
+    ["done", "done", true],
+    ["cancelled", "cancelled", true],
+    ["in_progress", "in_progress", false],
+  ])(
+    "reaps a %s thread on the terminal threshold: %s -> reaped=%s",
+    async (_label, planLane, expectReaped) => {
+      const threadId = ThreadId.make(`thread-reaper-lane-${planLane}`);
+      const tenSecondsAgo = DateTime.formatIso(
+        await Effect.runPromise(Effect.map(DateTime.now, DateTime.subtract({ seconds: 10 }))),
+      );
+      const harness = await createHarness({
+        readModel: makeReadModel([
+          { id: threadId, session: { ...idleSessionFor(threadId), updatedAt: tenSecondsAgo } },
+        ]),
+        obligationsByThreadId: new Map([[threadId, { planLane }]]),
+        inactivityThresholdMs: 60 * 60_000,
+        terminalInactivityThresholdMs: 1_000,
+      });
+      await persistStaleBinding({
+        threadId,
+        providerName: "claudeAgent",
+        resumeOpaque: `resume-lane-${planLane}`,
+        lastSeenAt: tenSecondsAgo,
+      });
+
+      await startReaper();
+      if (expectReaped) {
+        await waitFor(() => harness.stopSession.mock.calls.length === 1);
+        expect(harness.stoppedThreadIds.has(threadId)).toBe(true);
+      } else {
+        await Effect.runPromise(drainFibers);
+        expect(harness.stopSession).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("does not reap sessions that are still within the inactivity threshold", async () => {
     const threadId = ThreadId.make("thread-reaper-fresh");

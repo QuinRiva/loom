@@ -228,10 +228,18 @@ it.layer(NodeServices.layer)("decider dependency coherence backstop (WP2)", (it)
   it.effect("allows clearing dependencies (empty set) on any thread", () =>
     Effect.gen(function* () {
       const model = yield* Effect.flatMap(base, (m) =>
-        apply(m, [threadCreated(T, { parentThreadId: PARENT, blockedBy: [] })]),
+        apply(m, [
+          threadCreated(A, { parentThreadId: PARENT }),
+          threadCreated(T, { parentThreadId: PARENT, blockedBy: [A] }),
+        ]),
       );
+      // Never rejected by the coherence backstop — the empty set skips it entirely.
       const ok = yield* decide(setDeps(T, []), model);
       expect(ok.map((event) => event.type)).toEqual(["thread.dependencies-set"]);
+      // On a thread that already has NO dependencies, the same clear is accepted
+      // but writes nothing (W2-4 unchanged-value guard) — `dependencies-set` is a
+      // dispatcher trigger, so the redundant echo is pure amplification.
+      expect(yield* decide(setDeps(A, []), model)).toEqual([]);
     }),
   );
 

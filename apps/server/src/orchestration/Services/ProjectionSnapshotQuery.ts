@@ -18,6 +18,7 @@ import type {
   OrchestrationGoalShell,
   OrchestrationProject,
   OrchestrationProjectShell,
+  OrchestrationLeanShellSnapshot,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
@@ -185,11 +186,39 @@ export interface ProjectionSnapshotSequence {
  * reap this guard exists to fix.
  */
 export interface ProjectionThreadObligations {
+  /**
+   * The thread's plan lane, which selects WHICH idle threshold applies: a
+   * terminal (`done`/`cancelled`) thread with no obligations is spent — a human
+   * resume re-spawns it — so it does not need its provider process kept warm for
+   * as long as a live one. Free here: the obligations row already selects it.
+   */
+  readonly planLane: string;
   readonly activeTurnId: TurnId | null;
   readonly liveChildCount: number;
   readonly hasUnmetDependencies: boolean;
   readonly openUserInputCount: number;
   readonly pendingRework: boolean;
+}
+
+/**
+ * An archived-but-not-deleted isolated child still pointing at its own worktree:
+ * the minimum the fan-in reactor's deferred-removal branch needs to finish the
+ * cleanup (remove the checkout, delete the branch, repoint the child and any
+ * resident off the removed path).
+ */
+export interface ProjectionArchivedWorktreeChild {
+  readonly threadId: ThreadId;
+  readonly branch: string;
+  readonly worktreePath: string;
+  /**
+   * The parent's own coordinates, joined in rather than looked up in the pass
+   * index: the parent of an archived child is often archived too (archive
+   * cascades), and it is absent from the shell snapshot when it is — which would
+   * reintroduce the same invisibility this read exists to remove.
+   */
+  readonly parentProjectId: ProjectId;
+  readonly parentBranch: string | null;
+  readonly parentWorktreePath: string | null;
 }
 
 /**
@@ -260,6 +289,24 @@ export interface ProjectionSnapshotQueryShape {
     OrchestrationShellSnapshot,
     ProjectionRepositoryError
   >;
+
+  /**
+   * The control-plane read: the SAME active thread rows as `getShellSnapshot`,
+   * with only the columns a sweep actually uses (see
+   * `OrchestrationLeanShellSnapshot`). Every background sweep should read this;
+   * only the client shell and the MCP surface need the wide columns.
+   *
+   * `role` narrows to a single thread role, for a sweep whose own first-line
+   * skip is already `thread.role !== X` (the handoff drafter). This is a
+   * QUARRY projection, safe only because `role` is immutable after spawn — it
+   * is emphatically NOT the refuted settledness filter, which could drop a row
+   * the sweep still owed an action on. Never narrow by a mutable, user-facing
+   * axis. Note that `updatedAt` then covers the quarry rather than the whole
+   * store; no consumer reads it, and a role-scoped caller wants the scoped one.
+   */
+  readonly getLeanShellSnapshot: (options?: {
+    readonly role: string;
+  }) => Effect.Effect<OrchestrationLeanShellSnapshot, ProjectionRepositoryError>;
 
   /**
    * The parents currently owed a DERIVED `needs_guidance` because a child has
@@ -484,6 +531,43 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getDeletedThreadIds: () => Effect.Effect<
     ReadonlySet<ThreadId>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * loom: fanned-in isolated children that are ARCHIVED but not deleted and
+   * still point at their own worktree — the fan-in reactor's deferred-removal
+   * blind spot.
+   *
+   * `getShellSnapshot()` filters `archived_at IS NULL`, so a child archived while
+   * its worktree was still occupied is never selected by the deferred-removal
+   * branch again: it is stranded permanently AND silently (never selected means
+   * never logged). Live example: one 29-hour-old orphan whose checkout was still
+   * on disk and still git-registered.
+   *
+   * Deliberately a narrow read rather than "include archived rows in the shell
+   * snapshot": that snapshot is navigation state (archived threads must not
+   * appear in it) and the fan-in pass runs on every `thread.session-set`, so
+   * unioning ~700 wide archived rows into it every pass would trade one leak for
+   * a throughput regression. The predicate here is the orphan shape itself, so
+   * production returns a single-digit row count.
+   */
+  readonly getArchivedFannedInWorktreeChildren: () => Effect.Effect<
+    ReadonlyArray<ProjectionArchivedWorktreeChild>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * loom: every `worktree_path` any thread row still references, regardless of
+   * lifecycle (active, archived AND deleted).
+   *
+   * The reference set for the path-based orphan sweep. Lifecycle-blind on
+   * purpose: a directory referenced by a deleted thread's row is not an
+   * unreachable orphan, it is a row-owned checkout whose removal belongs to the
+   * thread lifecycle, and the sweep must not claim it.
+   */
+  readonly getReferencedWorktreePaths: () => Effect.Effect<
+    ReadonlySet<string>,
     ProjectionRepositoryError
   >;
 

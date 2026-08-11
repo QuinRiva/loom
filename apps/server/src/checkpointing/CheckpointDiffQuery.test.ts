@@ -81,6 +81,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -96,6 +98,8 @@ describe("CheckpointDiffQuery.layer", () => {
             listGoalSlugsByProjectId: () => Effect.die("unused in this test"),
             listActiveProjectRefs: () => Effect.die("unused in this test"),
             getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
             getDeletedThreadIds: () => Effect.die("unused in this test"),
             listPendingPeerMessages: () => Effect.die("unused in this test"),
             getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),
@@ -208,6 +212,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -223,6 +229,8 @@ describe("CheckpointDiffQuery.layer", () => {
             listGoalSlugsByProjectId: () => Effect.die("unused in this test"),
             listActiveProjectRefs: () => Effect.die("unused in this test"),
             getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
             getDeletedThreadIds: () => Effect.die("unused in this test"),
             listPendingPeerMessages: () => Effect.die("unused in this test"),
             getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),
@@ -320,6 +328,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -335,6 +345,8 @@ describe("CheckpointDiffQuery.layer", () => {
             listGoalSlugsByProjectId: () => Effect.die("unused in this test"),
             listActiveProjectRefs: () => Effect.die("unused in this test"),
             getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
             getDeletedThreadIds: () => Effect.die("unused in this test"),
             listPendingPeerMessages: () => Effect.die("unused in this test"),
             getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),
@@ -406,6 +418,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -421,6 +435,8 @@ describe("CheckpointDiffQuery.layer", () => {
             listGoalSlugsByProjectId: () => Effect.die("unused in this test"),
             listActiveProjectRefs: () => Effect.die("unused in this test"),
             getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
             getDeletedThreadIds: () => Effect.die("unused in this test"),
             listPendingPeerMessages: () => Effect.die("unused in this test"),
             getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),
@@ -479,6 +495,8 @@ describe("CheckpointDiffQuery.layer", () => {
               Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
             getShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
+            getLeanShellSnapshot: () =>
+              Effect.die("CheckpointDiffQuery should not request the orchestration shell snapshot"),
             getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
             getArchivedShellSnapshot: () =>
               Effect.die("CheckpointDiffQuery should not request archived shell snapshots"),
@@ -494,6 +512,8 @@ describe("CheckpointDiffQuery.layer", () => {
             listGoalSlugsByProjectId: () => Effect.die("unused in this test"),
             listActiveProjectRefs: () => Effect.die("unused in this test"),
             getPendingTurnStartThreadIds: () => Effect.die("unused in this test"),
+            getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+            getReferencedWorktreePaths: () => Effect.succeed(new Set()),
             getDeletedThreadIds: () => Effect.die("unused in this test"),
             listPendingPeerMessages: () => Effect.die("unused in this test"),
             getActivityFreshnessByThreadId: () => Effect.die("unused in this test"),

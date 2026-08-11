@@ -83,6 +83,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getCommandReadModel: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
+          getLeanShellSnapshot: () => Effect.die("unused"),
           getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
           getArchivedShellSnapshot: () => Effect.die("unused"),
           getSnapshotSequence: () => Effect.die("unused"),
@@ -110,6 +111,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
           getThreadObligations: () =>
             Effect.succeed({
+              planLane: "in_progress",
               activeTurnId: null,
               liveChildCount: 0,
               hasUnmetDependencies: false,
@@ -117,6 +119,8 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
               pendingRework: false,
             }),
           getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+          getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+          getReferencedWorktreePaths: () => Effect.succeed(new Set()),
           getDeletedThreadIds: () => Effect.succeed(new Set()),
           listPendingPeerMessages: () => Effect.succeed([]),
           getActivityFreshnessByThreadId: () =>
@@ -167,6 +171,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
+        getLeanShellSnapshot: () => Effect.die("unused"),
         getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
         getArchivedShellSnapshot: () => Effect.die("unused"),
         getSnapshotSequence: () => Effect.die("unused"),
@@ -201,6 +206,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getThreadObligations: () =>
           Effect.succeed({
+            planLane: "in_progress",
             activeTurnId: null,
             liveChildCount: 0,
             hasUnmetDependencies: false,
@@ -208,6 +214,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
             pendingRework: false,
           }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
@@ -253,6 +261,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
+        getLeanShellSnapshot: () => Effect.die("unused"),
         getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
         getArchivedShellSnapshot: () => Effect.die("unused"),
         getSnapshotSequence: () => Effect.die("unused"),
@@ -274,6 +283,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getThreadObligations: () =>
           Effect.succeed({
+            planLane: "in_progress",
             activeTurnId: null,
             liveChildCount: 0,
             hasUnmetDependencies: false,
@@ -281,6 +291,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
             pendingRework: false,
           }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>
@@ -332,6 +344,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getCommandReadModel: () => Effect.die("unused"),
         getSnapshot: () => Effect.die("unused"),
         getShellSnapshot: () => Effect.die("unused"),
+        getLeanShellSnapshot: () => Effect.die("unused"),
         getBriefNeededAttentionParentIds: () => Effect.succeed(new Set()),
         getArchivedShellSnapshot: () => Effect.die("unused"),
         getSnapshotSequence: () => Effect.die("unused"),
@@ -353,6 +366,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
         getThreadObligations: () =>
           Effect.succeed({
+            planLane: "in_progress",
             activeTurnId: null,
             liveChildCount: 0,
             hasUnmetDependencies: false,
@@ -360,6 +374,8 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
             pendingRework: false,
           }),
         getPendingTurnStartThreadIds: () => Effect.succeed(new Set()),
+        getArchivedFannedInWorktreeChildren: () => Effect.succeed([]),
+        getReferencedWorktreePaths: () => Effect.succeed(new Set()),
         getDeletedThreadIds: () => Effect.succeed(new Set()),
         listPendingPeerMessages: () => Effect.succeed([]),
         getActivityFreshnessByThreadId: () =>

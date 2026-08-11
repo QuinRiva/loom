@@ -3772,8 +3772,8 @@ describe("ProviderCommandReactor", () => {
         const sweepPasses = () => sweepPassCount;
         const countingSnapshotQuery = {
           ...harness.snapshotQuery,
-          getShellSnapshot: () =>
-            harness.snapshotQuery.getShellSnapshot().pipe(
+          getLeanShellSnapshot: () =>
+            harness.snapshotQuery.getLeanShellSnapshot().pipe(
               Effect.tap(() =>
                 Effect.sync(() => {
                   sweepPassCount += 1;

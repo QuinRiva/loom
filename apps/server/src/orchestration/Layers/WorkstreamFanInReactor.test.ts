@@ -16,7 +16,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationThread,
-  OrchestrationThreadShell,
+  OrchestrationThreadLeanShell,
   ThreadId,
 } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
@@ -29,14 +29,17 @@ import {
 } from "../../workspace/WorkspaceLease.ts";
 import type { GitMergeWorktreeBranchResult } from "../../vcs/GitVcsDriver.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionArchivedWorktreeChild,
+} from "../Services/ProjectionSnapshotQuery.ts";
 import { WorkstreamFanInReactor } from "../Services/WorkstreamFanInReactor.ts";
 import { WorkstreamFanInReactorLive } from "./WorkstreamFanInReactor.ts";
 
 // Minimal thread shell for the reactor's reads (isolation, lanes, cwd, branch).
 const shell = (
-  over: Omit<Partial<OrchestrationThreadShell>, "id"> & { id: string },
-): OrchestrationThreadShell =>
+  over: Omit<Partial<OrchestrationThreadLeanShell>, "id"> & { id: string },
+): OrchestrationThreadLeanShell =>
   ({
     projectId: "p1",
     goalId: null,
@@ -70,7 +73,7 @@ const shell = (
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
     ...over,
-  }) as unknown as OrchestrationThreadShell;
+  }) as unknown as OrchestrationThreadLeanShell;
 
 // The reactor's occupancy authority. Real instance, not a stub: the point of
 // the lease is its atomicity, and a stub predicate would test nothing.
@@ -92,8 +95,8 @@ const checkoutFs = (present: boolean) =>
   } as never);
 
 interface Scenario {
-  readonly child: OrchestrationThreadShell;
-  readonly others: ReadonlyArray<OrchestrationThreadShell>;
+  readonly child: OrchestrationThreadLeanShell;
+  readonly others: ReadonlyArray<OrchestrationThreadLeanShell>;
   readonly mergeResult?: GitMergeWorktreeBranchResult;
   /** Workspace paths a live process holds for the whole pass. */
   readonly heldPaths?: ReadonlyArray<string>;
@@ -109,6 +112,13 @@ interface Scenario {
   readonly commitFails?: boolean;
   /** Dispatching this command type fails — e.g. the post-merge repoint. */
   readonly dispatchFailsFor?: OrchestrationCommand["type"];
+  /**
+   * Archived-but-not-deleted fanned-in children still pointing at their own
+   * worktree. Deliberately supplied SEPARATELY from `others`: the whole point is
+   * that these rows are absent from the shell snapshot, so the pass can only see
+   * them through this narrow read.
+   */
+  readonly archivedOrphans?: ReadonlyArray<ProjectionArchivedWorktreeChild>;
 }
 
 const runReactor = (scenario: Scenario) =>
@@ -139,7 +149,8 @@ const runReactor = (scenario: Scenario) =>
             : Option.none(),
         ),
       getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
-      getShellSnapshot: () =>
+      getArchivedFannedInWorktreeChildren: () => Effect.succeed(scenario.archivedOrphans ?? []),
+      getLeanShellSnapshot: () =>
         Effect.succeed({
           snapshotSequence: 0,
           projects: [],
@@ -228,7 +239,7 @@ const parent = shell({
   },
 });
 
-const isolatedChild = (over: Partial<OrchestrationThreadShell> = {}) =>
+const isolatedChild = (over: Partial<OrchestrationThreadLeanShell> = {}) =>
   shell({
     id: "child",
     parentThreadId: "parent" as ThreadId,
@@ -406,6 +417,66 @@ describe("WorkstreamFanInReactor", () => {
     }),
   );
 
+  // The archived-thread orphan: a child ARCHIVED while its worktree was still
+  // occupied vanishes from the shell snapshot (`archived_at IS NULL`) and so was
+  // never selected by the deferred-removal branch again — stranded permanently
+  // AND silently, since never selected also means never logged. Its parent is
+  // deliberately absent from `others` too (archive cascades), which is why the
+  // parent's coordinates ride on the row rather than being looked up in the pass
+  // index.
+  it.effect("archived orphan: reclaims a worktree no shell-snapshot row points at", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        // An unrelated, fully-settled child so the main loop does nothing.
+        child: isolatedChild({ fanInState: "completed", worktreePath: null, branch: null }),
+        others: [parent],
+        archivedOrphans: [
+          {
+            threadId: "archived-child" as ThreadId,
+            branch: "ws/main/coder-arch",
+            worktreePath: "/wt/archived-child",
+            parentProjectId: "p1" as ProjectionArchivedWorktreeChild["parentProjectId"],
+            parentBranch: "main",
+            parentWorktreePath: "/wt/parent",
+          },
+        ],
+      });
+      expect(gitCalls).toContain("removeWorktree");
+      expect(gitCalls).toContain("deleteBranch");
+      // …and the orphan row is repointed off the deleted path, so a later
+      // unarchive+resume does not land in a directory that no longer exists.
+      expect(
+        dispatched.some(
+          (c) =>
+            c.type === "thread.meta.update" &&
+            c.threadId === ("archived-child" as ThreadId) &&
+            c.worktreePath === "/wt/parent",
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("archived orphan: a held workspace still defers the reclaim", () =>
+    Effect.gen(function* () {
+      const { gitCalls } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed", worktreePath: null, branch: null }),
+        others: [parent],
+        heldPaths: ["/wt/archived-child"],
+        archivedOrphans: [
+          {
+            threadId: "archived-child" as ThreadId,
+            branch: "ws/main/coder-arch",
+            worktreePath: "/wt/archived-child",
+            parentProjectId: "p1" as ProjectionArchivedWorktreeChild["parentProjectId"],
+            parentBranch: "main",
+            parentWorktreePath: "/wt/parent",
+          },
+        ],
+      });
+      expect(gitCalls).not.toContain("removeWorktree");
+    }),
+  );
+
   it.effect("cancelled: commits wip onto the branch, removes worktree, keeps branch", () =>
     Effect.gen(function* () {
       const { dispatched, gitCalls } = yield* runReactor({
@@ -451,7 +522,7 @@ describe("WorkstreamFanInReactor", () => {
             updatedAt: "2026-01-01T00:00:01.000Z",
           },
         });
-        const childRef = yield* Ref.make<OrchestrationThreadShell>(busyCancelled);
+        const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(busyCancelled);
         const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
         const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -461,7 +532,7 @@ describe("WorkstreamFanInReactor", () => {
             Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
         } as never);
         const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-          getShellSnapshot: () =>
+          getLeanShellSnapshot: () =>
             Effect.map(Ref.get(childRef), (child) => ({
               snapshotSequence: 0,
               projects: [],
@@ -653,8 +724,8 @@ describe("WorkstreamFanInReactor", () => {
               updatedAt: "2026-01-01T00:00:00.000Z",
             },
           });
-          const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
-          const parentRef = yield* Ref.make<OrchestrationThreadShell>(parentMidTurn);
+          const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
+          const parentRef = yield* Ref.make<OrchestrationThreadLeanShell>(parentMidTurn);
           const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
           const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -665,7 +736,7 @@ describe("WorkstreamFanInReactor", () => {
               Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
           } as never);
           const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-            getShellSnapshot: () =>
+            getLeanShellSnapshot: () =>
               Effect.gen(function* () {
                 const child = yield* Ref.get(childRef);
                 const parentShell = yield* Ref.get(parentRef);
@@ -752,7 +823,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["README.md"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -763,7 +834,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -836,7 +907,7 @@ describe("WorkstreamFanInReactor", () => {
       const repointFails = yield* Ref.make(true);
       // Starts in the post-cleanup-failure shape: merged, but the worktree was
       // never tidied away, so the deferred-removal branch keeps selecting it.
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(
         isolatedChild({ fanInState: "completed" }),
       );
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -853,7 +924,7 @@ describe("WorkstreamFanInReactor", () => {
           ),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -919,7 +990,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["README.md"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -929,7 +1000,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1053,7 +1124,7 @@ describe("WorkstreamFanInReactor", () => {
         status: "conflict",
         conflictPaths: ["apps/server/src/server.test.ts"],
       });
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -1064,7 +1135,7 @@ describe("WorkstreamFanInReactor", () => {
           Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1118,18 +1189,21 @@ describe("WorkstreamFanInReactor", () => {
   );
 
   // Must-fix (round 1): a genuinely-conflicted fan-in must NOT self-feed a hot
-  // loop. `setFanInState("conflicted")` emits a `fanin-set` event; the reactor
-  // re-arms on that event; a non-coalescing worker then re-passes → re-conflicts
-  // → re-writes → … This harness closes the real feedback edge the other tests
+  // loop. A committed `fanin.set` emits a `fanin-set` event; the reactor re-arms
+  // on that event; a non-coalescing worker then re-passes → re-conflicts →
+  // re-writes → … This harness closes the real feedback edge the other tests
   // omit: `dispatch` reflects `thread.fanin.set` into the projected state AND
-  // republishes it as a `thread.fanin-set` event. With the transition-guard fix,
-  // the state is written exactly once and the worker quiesces; without it, the
-  // pass count (and `conflicted` writes) would be unbounded and drain would hang.
+  // republishes it as a `thread.fanin-set` event — including the engine's
+  // unchanged-value guard (W2-4), which is where the transition check now lives
+  // (the reactor dispatches unconditionally; the decider decides the no-op). With
+  // it, the state is WRITTEN once and the worker quiesces; without it, the pass
+  // count and `conflicted` writes would be unbounded and drain would hang.
   it.effect("conflict does not self-feed: exactly one conflicted write, worker quiesces", () =>
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const committedFanInStates = yield* Ref.make<ReadonlyArray<string>>([]);
       const merges = yield* Ref.make(0);
-      const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
+      const childRef = yield* Ref.make<OrchestrationThreadLeanShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
 
       const engineLayer = Layer.succeed(OrchestrationEngineService, {
@@ -1145,6 +1219,10 @@ describe("WorkstreamFanInReactor", () => {
             if (command.type === "thread.fanin.set") {
               const next = (command as Extract<OrchestrationCommand, { type: "thread.fanin.set" }>)
                 .fanInState;
+              // The engine's unchanged-value guard: a set to the stored value
+              // appends no event and publishes nothing.
+              if ((yield* Ref.get(childRef)).fanInState === next) return { sequence: 0 };
+              yield* Ref.update(committedFanInStates, (xs) => [...xs, next]);
               yield* Ref.update(childRef, (c) => isolatedChild({ ...c, fanInState: next }));
               yield* PubSub.publish(events, {
                 type: "thread.fanin-set",
@@ -1159,7 +1237,7 @@ describe("WorkstreamFanInReactor", () => {
           }),
       } as never);
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
-        getShellSnapshot: () =>
+        getLeanShellSnapshot: () =>
           Effect.map(Ref.get(childRef), (child) => ({
             snapshotSequence: 0,
             projects: [],
@@ -1195,11 +1273,10 @@ describe("WorkstreamFanInReactor", () => {
         // Drain terminates only because the worker quiesces (no self-feed).
         yield* reactor.drain;
 
-        // The transition is written exactly once despite multiple passes
-        // (startup double-enqueue + the one fanin-set re-arm it produces).
-        expect(fanInStates(yield* Ref.get(dispatched)).filter((s) => s === "conflicted")).toEqual([
-          "conflicted",
-        ]);
+        // The transition is COMMITTED exactly once despite multiple passes
+        // (startup double-enqueue + the one fanin-set re-arm it produces); the
+        // redundant re-dispatches are absorbed by the decider guard.
+        expect(yield* Ref.get(committedFanInStates)).toEqual(["conflicted"]);
         // Merge re-attempts stay bounded — not an unbounded busy-loop.
         expect(yield* Ref.get(merges)).toBeLessThanOrEqual(4);
       }).pipe(Effect.scoped, Effect.provide(layer));
@@ -1249,7 +1326,7 @@ describe("WorkstreamFanInReactor", () => {
           });
           const { dispatched, gitCalls } = yield* runReactor({
             child: isolatedChild({
-              latestTurn: finalTurn.latestTurn as OrchestrationThreadShell["latestTurn"],
+              latestTurn: finalTurn.latestTurn as OrchestrationThreadLeanShell["latestTurn"],
             }),
             others: [parent, reviewer],
           });

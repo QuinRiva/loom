@@ -651,7 +651,7 @@ const make = Effect.gen(function* () {
     // Refuse to revert while any other live thread occupies this worktree —
     // restoring a whole-tree snapshot (plus clean) would destroy their
     // uncommitted work. Cheap read-model check; no locking.
-    const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const shellSnapshot = yield* projectionSnapshotQuery.getLeanShellSnapshot();
     const revertCwd = NodePath.resolve(sessionRuntime.value.cwd);
     const occupants = shellSnapshot.threads.filter((occupant) => {
       if (

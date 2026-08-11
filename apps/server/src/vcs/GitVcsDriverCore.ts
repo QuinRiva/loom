@@ -107,6 +107,11 @@ class StatusRemoteRefreshCacheKey extends Data.Class<{
   remoteName: string;
 }> {}
 
+class StatusDefaultBranchCacheKey extends Data.Class<{
+  gitCommonDir: string;
+  remoteName: string;
+}> {}
+
 interface ExecuteGitOptions {
   stdin?: string | undefined;
   timeoutMs?: number | undefined;
@@ -124,6 +129,15 @@ function parseBranchAb(value: string): { ahead: number; behind: number } {
   return {
     ahead: Number(match[1] ?? "0"),
     behind: Number(match[2] ?? "0"),
+  };
+}
+
+function parseUpstreamTrack(value: string): { ahead: number; behind: number } {
+  const ahead = /ahead (\d+)/.exec(value)?.[1];
+  const behind = /behind (\d+)/.exec(value)?.[1];
+  return {
+    ahead: ahead ? Number(ahead) : 0,
+    behind: behind ? Number(behind) : 0,
   };
 }
 
@@ -994,11 +1008,35 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ? STATUS_UPSTREAM_REFRESH_INTERVAL
         : STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN,
   });
+  // An ahead-count is a pure function of the two commits it spans, so memoise it
+  // by (base tip, branch tip): an idle branch costs zero spawns on later cycles,
+  // and any tip movement is a different key.
+  const aheadCountCache = yield* Cache.makeWith(
+    (key: string) => {
+      const [cwd = "", baseTip = "", branchTip = ""] = key.split("\u0000");
+      return executeGit(
+        "GitVcsDriver.statusDetailsRemoteBatch.aheadOfDefault",
+        cwd,
+        ["rev-list", "--count", `${baseTip}..${branchTip}`],
+        { allowNonZeroExit: true },
+      ).pipe(
+        Effect.map((result) => {
+          const parsed = Number.parseInt(result.stdout.trim(), 10);
+          return result.exitCode === 0 && Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+        }),
+      );
+    },
+    {
+      capacity: 8_192,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.hours(1) : Duration.zero),
+    },
+  );
 
   const refreshStatusUpstreamIfStale = Effect.fn("refreshStatusUpstreamIfStale")(function* (
     cwd: string,
+    resolvedUpstream?: { readonly upstreamRef: string; readonly remoteName: string },
   ) {
-    const upstream = yield* resolveCurrentUpstream(cwd);
+    const upstream = resolvedUpstream ?? (yield* resolveCurrentUpstream(cwd));
     if (!upstream) return;
     const gitCommonDir = yield* resolveGitCommonDir(cwd);
     // Detach the single-flighted fetch so a slow one never blocks status for the
@@ -1020,22 +1058,43 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
   });
 
+  const readDefaultBranchName = Effect.fn("readDefaultBranchName")(function* (
+    cacheKey: StatusDefaultBranchCacheKey,
+  ) {
+    const cwd =
+      path.basename(cacheKey.gitCommonDir) === ".git"
+        ? path.dirname(cacheKey.gitCommonDir)
+        : cacheKey.gitCommonDir;
+    const result = yield* executeGit(
+      "GitVcsDriver.resolveDefaultBranchName",
+      cwd,
+      [
+        "--git-dir",
+        cacheKey.gitCommonDir,
+        "symbolic-ref",
+        `refs/remotes/${cacheKey.remoteName}/HEAD`,
+      ],
+      { allowNonZeroExit: true },
+    );
+    return result.exitCode === 0
+      ? parseDefaultBranchFromRemoteHeadRef(result.stdout, cacheKey.remoteName)
+      : null;
+  });
+  const defaultBranchCache = yield* Cache.makeWith(readDefaultBranchName, {
+    capacity: STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY,
+    timeToLive: () => Duration.seconds(30),
+  });
   const resolveDefaultBranchName = (
     cwd: string,
     remoteName: string,
   ): Effect.Effect<string | null, GitCommandError> =>
-    executeGit(
-      "GitVcsDriver.resolveDefaultBranchName",
-      cwd,
-      ["symbolic-ref", `refs/remotes/${remoteName}/HEAD`],
-      { allowNonZeroExit: true },
-    ).pipe(
-      Effect.map((result) => {
-        if (result.exitCode !== 0) {
-          return null;
-        }
-        return parseDefaultBranchFromRemoteHeadRef(result.stdout, remoteName);
-      }),
+    resolveGitCommonDir(cwd).pipe(
+      Effect.flatMap((gitCommonDir) =>
+        Cache.get(
+          defaultBranchCache,
+          new StatusDefaultBranchCacheKey({ gitCommonDir, remoteName }),
+        ),
+      ),
     );
 
   const remoteBranchExists = (
@@ -1153,6 +1212,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const resolveBaseBranchForNoUpstream = Effect.fn("resolveBaseBranchForNoUpstream")(function* (
     cwd: string,
     refName: string,
+    topology?: {
+      readonly primaryRemoteName: string | null;
+      readonly defaultBranch: string | null;
+    },
   ) {
     const configuredBaseBranch = yield* runGitStdout(
       "GitVcsDriver.resolveBaseBranchForNoUpstream.config",
@@ -1161,11 +1224,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       true,
     ).pipe(Effect.map((stdout) => stdout.trim()));
 
-    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
-      Effect.orElseSucceed(() => null),
-    );
-    const defaultBranch =
-      primaryRemoteName === null ? null : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
+    const primaryRemoteName = topology
+      ? topology.primaryRemoteName
+      : yield* resolvePrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null));
+    const defaultBranch = topology
+      ? topology.defaultBranch
+      : primaryRemoteName === null
+        ? null
+        : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
     const candidates = [
       configuredBaseBranch.length > 0 ? configuredBaseBranch : null,
       defaultBranch,
@@ -1206,8 +1272,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const computeAheadCountAgainstBase = Effect.fn("computeAheadCountAgainstBase")(function* (
     cwd: string,
     refName: string,
+    topology?: {
+      readonly primaryRemoteName: string | null;
+      readonly defaultBranch: string | null;
+    },
   ) {
-    const baseRef = yield* resolveBaseBranchForNoUpstream(cwd, refName);
+    const baseRef = yield* resolveBaseBranchForNoUpstream(cwd, refName, topology);
     if (!baseRef) {
       return 0;
     }
@@ -1226,7 +1296,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
   });
 
-  const readStatusDetailsRemote = Effect.fn("readStatusDetailsRemote")(function* (cwd: string) {
+  const readStatusDetailsRemote = Effect.fn("readStatusDetailsRemote")(function* (
+    cwd: string,
+    resolvedUpstream?: { readonly upstreamRef: string; readonly remoteName: string } | null,
+    refreshResolvedUpstream?: (upstream: {
+      readonly upstreamRef: string;
+      readonly remoteName: string;
+    }) => Effect.Effect<void>,
+  ) {
     const branchResult = yield* executeGitWithStableDiagnostics(
       "GitVcsDriver.statusDetailsRemote.branch",
       cwd,
@@ -1261,8 +1338,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     const branchValue = branchResult.stdout.trim();
     const branch = branchValue.length > 0 && branchValue !== "HEAD" ? branchValue : null;
-    const upstream = yield* resolveCurrentUpstream(cwd);
+    const upstream =
+      resolvedUpstream === undefined ? yield* resolveCurrentUpstream(cwd) : resolvedUpstream;
+    if (upstream && refreshResolvedUpstream) yield* refreshResolvedUpstream(upstream);
     const upstreamRef = upstream?.upstreamRef ?? null;
+    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+    const defaultBranch =
+      primaryRemoteName === null ? null : yield* resolveDefaultBranchName(cwd, primaryRemoteName);
+    const topology = { primaryRemoteName, defaultBranch };
     let aheadCount = 0;
     let behindCount = 0;
 
@@ -1281,12 +1366,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         behindCount = Number.isFinite(parsedBehind) ? Math.max(0, parsedBehind) : 0;
       }
     } else if (branch) {
-      aheadCount = yield* computeAheadCountAgainstBase(cwd, branch).pipe(
+      aheadCount = yield* computeAheadCountAgainstBase(cwd, branch, topology).pipe(
         Effect.orElseSucceed(() => 0),
       );
     }
 
-    const defaultBranch = yield* resolveDefaultBranchName(cwd, "origin");
     const isDefaultBranch =
       branch !== null &&
       (branch === defaultBranch ||
@@ -1295,7 +1379,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       branch && !isDefaultBranch
         ? upstreamRef === null
           ? aheadCount
-          : yield* computeAheadCountAgainstBase(cwd, branch).pipe(Effect.orElseSucceed(() => 0))
+          : yield* computeAheadCountAgainstBase(cwd, branch, topology).pipe(
+              Effect.orElseSucceed(() => 0),
+            )
         : 0;
 
     return {
@@ -1308,6 +1394,216 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       behindCount,
       aheadOfDefaultCount,
     };
+  });
+
+  const readStatusDetailsRemoteBatch = Effect.fn("readStatusDetailsRemoteBatch")(function* (
+    input: GitVcsDriver.GitRemoteStatusBatchInput,
+    options?: GitVcsDriver.GitRemoteStatusOptions,
+  ) {
+    const nonRepositoryDetails = () =>
+      input.branches.map(() => NON_REPOSITORY_REMOTE_STATUS_DETAILS);
+
+    // Every command runs in the repository's own worktree (derived from the git
+    // common dir), never in a subscriber's cwd: one removed-but-still-subscribed
+    // worktree must not be able to stall remote status for the whole repo.
+    const readRefs = executeGitWithStableDiagnostics(
+      "GitVcsDriver.statusDetailsRemoteBatch.refs",
+      input.repositoryCwd,
+      [
+        "for-each-ref",
+        "--format=%(refname:short)%09%(objectname)%09%(upstream:short)%09%(upstream:track)",
+        "refs/heads",
+        "refs/remotes",
+      ],
+      { allowNonZeroExit: true, timeoutMs: 15_000 },
+    ).pipe(
+      Effect.map((result) =>
+        result.exitCode === 0 || !isNonRepositoryGitStderr(result.stderr) ? result : null,
+      ),
+      Effect.catchTags({
+        GitCommandError: (error) =>
+          isMissingGitCwdError(error) ? Effect.succeed(null) : Effect.fail(error),
+      }),
+    );
+
+    const remoteNames = yield* listRemoteNames(input.repositoryCwd).pipe(
+      Effect.orElseSucceed((): ReadonlyArray<string> => []),
+    );
+    const remoteNamesByLength = remoteNames.toSorted((a, b) => b.length - a.length);
+    const primaryRemoteName = remoteNames.includes("origin") ? "origin" : (remoteNames[0] ?? null);
+
+    const parseRefs = (stdout: string) => {
+      const refTips = new Map<string, string>();
+      const localBranches = new Map<
+        string,
+        { readonly upstreamRef: string | null; readonly ahead: number; readonly behind: number }
+      >();
+      for (const line of stdout.split("\n")) {
+        const [name, tip = "", upstreamRaw = "", track = ""] = line.split("\t");
+        if (!name) continue;
+        refTips.set(name, tip);
+        if (!remoteNames.some((remote) => name.startsWith(`${remote}/`))) {
+          const divergence = parseUpstreamTrack(track);
+          localBranches.set(name, {
+            upstreamRef: upstreamRaw || null,
+            ahead: divergence.ahead,
+            behind: divergence.behind,
+          });
+        }
+      }
+      return { refTips, localBranches };
+    };
+
+    const firstRefs = yield* readRefs;
+    if (firstRefs === null) return nonRepositoryDetails();
+    let { refTips, localBranches } = parseRefs(firstRefs.exitCode === 0 ? firstRefs.stdout : "");
+
+    // Fetch only the remotes the subscribed branches actually track — the same
+    // set the per-cwd path fetched, and single-flighted through the same cache —
+    // so batching does not start moving refs for remotes nobody is watching.
+    if (options?.refreshUpstream !== false) {
+      const remotesToFetch = new Set(
+        input.branches.flatMap((branch) => {
+          const upstreamRef = branch ? localBranches.get(branch)?.upstreamRef : null;
+          const parsed = upstreamRef
+            ? parseRemoteRefWithRemoteNames(upstreamRef, remoteNamesByLength)
+            : null;
+          return parsed ? [parsed.remoteName] : [];
+        }),
+      );
+      if (remotesToFetch.size > 0) {
+        const fetchFiber = yield* Effect.forEach(
+          remotesToFetch,
+          (remoteName) =>
+            Cache.get(
+              statusRemoteRefreshCache,
+              new StatusRemoteRefreshCacheKey({ gitCommonDir: input.gitCommonDir, remoteName }),
+            ).pipe(Effect.ignoreCause({ log: true })),
+          { concurrency: "unbounded", discard: true },
+        ).pipe(Effect.forkDetach);
+        yield* Fiber.join(fetchFiber).pipe(
+          Effect.timeout(STATUS_UPSTREAM_REFRESH_AWAIT),
+          Effect.ignore,
+        );
+        const refreshedRefs = yield* readRefs;
+        if (refreshedRefs === null) return nonRepositoryDetails();
+        ({ refTips, localBranches } = parseRefs(
+          refreshedRefs.exitCode === 0 ? refreshedRefs.stdout : "",
+        ));
+      }
+    }
+
+    const [branchConfig, defaultBranch] = yield* Effect.all(
+      [
+        executeGit(
+          "GitVcsDriver.statusDetailsRemoteBatch.branchConfig",
+          input.repositoryCwd,
+          ["config", "--get-regexp", "^(branch\\..*\\.(gh-merge-base|remote)|remote\\..*\\.url)$"],
+          { allowNonZeroExit: true },
+        ),
+        primaryRemoteName
+          ? Cache.get(
+              defaultBranchCache,
+              new StatusDefaultBranchCacheKey({
+                gitCommonDir: input.gitCommonDir,
+                remoteName: primaryRemoteName,
+              }),
+            )
+          : Effect.succeed(null),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    const configuredBaseByBranch = new Map<string, string>();
+    const remoteNameByBranch = new Map<string, string>();
+    const remoteUrlByName = new Map<string, string>();
+    if (branchConfig.exitCode === 0) {
+      for (const line of branchConfig.stdout.split("\n")) {
+        const separator = line.search(/\s/);
+        if (separator < 0) continue;
+        const key = line.slice(0, separator);
+        const value = line.slice(separator).trim();
+        const branchSetting = /^branch\.(.+)\.(gh-merge-base|remote)$/.exec(key);
+        const remoteUrl = /^remote\.(.+)\.url$/.exec(key);
+        if (branchSetting?.[1] && branchSetting[2] === "gh-merge-base") {
+          configuredBaseByBranch.set(branchSetting[1], value);
+        } else if (branchSetting?.[1] && branchSetting[2] === "remote") {
+          remoteNameByBranch.set(branchSetting[1], value);
+        } else if (remoteUrl?.[1]) {
+          remoteUrlByName.set(remoteUrl[1], value);
+        }
+      }
+    }
+
+    const resolveBaseRef = (branch: string) => {
+      for (const candidate of [
+        configuredBaseByBranch.get(branch) ?? null,
+        defaultBranch,
+        ...DEFAULT_BASE_BRANCH_CANDIDATES,
+      ]) {
+        if (!candidate) continue;
+        const remotePrefix = primaryRemoteName ? `${primaryRemoteName}/` : null;
+        const normalized = candidate.startsWith("origin/")
+          ? candidate.slice("origin/".length)
+          : remotePrefix && candidate.startsWith(remotePrefix)
+            ? candidate.slice(remotePrefix.length)
+            : candidate;
+        if (!normalized || normalized === branch) continue;
+        if (primaryRemoteName && refTips.has(`${primaryRemoteName}/${normalized}`)) {
+          return `${primaryRemoteName}/${normalized}`;
+        }
+        if (refTips.has(normalized)) return normalized;
+      }
+      return null;
+    };
+
+    const aheadOfDefault = new Map<string, number>();
+    yield* Effect.forEach(
+      new Set(input.branches.filter((branch): branch is string => branch !== null)),
+      (branch) => {
+        const isDefault =
+          branch === defaultBranch ||
+          (defaultBranch === null && (branch === "main" || branch === "master"));
+        const baseRef = isDefault ? null : resolveBaseRef(branch);
+        const baseTip = baseRef ? refTips.get(baseRef) : null;
+        const branchTip = refTips.get(branch);
+        if (!baseTip || !branchTip) {
+          aheadOfDefault.set(branch, 0);
+          return Effect.void;
+        }
+        return Cache.get(
+          aheadCountCache,
+          [input.repositoryCwd, baseTip, branchTip].join("\u0000"),
+        ).pipe(
+          Effect.tap((count) => Effect.sync(() => aheadOfDefault.set(branch, count))),
+          Effect.asVoid,
+        );
+      },
+      { concurrency: 4, discard: true },
+    );
+
+    return input.branches.map((branch) => {
+      const tracking = branch ? localBranches.get(branch) : undefined;
+      const isDefaultBranch =
+        branch !== null &&
+        (branch === defaultBranch ||
+          (defaultBranch === null && (branch === "main" || branch === "master")));
+      const aheadOfDefaultCount = branch ? (aheadOfDefault.get(branch) ?? 0) : 0;
+      const remoteName = branch ? (remoteNameByBranch.get(branch) ?? null) : null;
+      return {
+        isRepo: true,
+        isDefaultBranch,
+        branch,
+        upstreamRef: tracking?.upstreamRef ?? null,
+        remoteName,
+        remoteUrl: remoteName ? (remoteUrlByName.get(remoteName) ?? null) : null,
+        originRemoteUrl: remoteUrlByName.get("origin") ?? null,
+        hasUpstream: tracking?.upstreamRef != null,
+        aheadCount: tracking?.upstreamRef ? tracking.ahead : aheadOfDefaultCount,
+        behindCount: tracking?.upstreamRef ? tracking.behind : 0,
+        aheadOfDefaultCount,
+      } satisfies GitVcsDriver.GitRemoteStatusDetails;
+    });
   });
 
   const readBranchRecency = Effect.fn("readBranchRecency")(function* (cwd: string) {
@@ -1529,17 +1825,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const statusDetailsRemote: GitVcsDriver.GitVcsDriver["Service"]["statusDetailsRemote"] =
     Effect.fn("statusDetailsRemote")(function* (cwd, options) {
-      if (options?.refreshUpstream !== false) {
-        yield* refreshStatusUpstreamIfStale(cwd).pipe(
-          Effect.catchTags({
-            GitCommandError: (error) =>
-              isMissingGitCwdError(error) ? Effect.void : Effect.fail(error),
-          }),
-          Effect.ignoreCause({ log: true }),
-        );
-      }
-      return yield* readStatusDetailsRemote(cwd);
+      return yield* readStatusDetailsRemote(
+        cwd,
+        undefined,
+        options?.refreshUpstream === false
+          ? undefined
+          : (upstream) =>
+              refreshStatusUpstreamIfStale(cwd, upstream).pipe(Effect.ignoreCause({ log: true })),
+      );
     });
+
+  const statusDetailsRemoteBatch: GitVcsDriver.GitVcsDriver["Service"]["statusDetailsRemoteBatch"] =
+    readStatusDetailsRemoteBatch;
 
   const status: GitVcsDriver.GitVcsDriver["Service"]["status"] = (input) =>
     statusDetails(input.cwd).pipe(
@@ -2781,6 +3078,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetails,
     statusDetailsLocal,
     statusDetailsRemote,
+    statusDetailsRemoteBatch,
     prepareCommitContext,
     commit,
     commitAll,

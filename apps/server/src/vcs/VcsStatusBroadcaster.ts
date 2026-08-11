@@ -1,5 +1,6 @@
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -7,9 +8,9 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
@@ -134,9 +135,22 @@ interface CachedVcsStatus {
   readonly remote: CachedValue<VcsStatusRemoteResult | null> | null;
 }
 
+interface RemoteStatusSubscriber {
+  readonly count: number;
+  readonly interval: Effect.Effect<Duration.Duration, never>;
+}
+
 interface ActiveRemotePoller {
   readonly fiber: Fiber.Fiber<void, never>;
-  readonly subscriberCount: number;
+  readonly wake: Queue.Queue<void>;
+  readonly repository: { readonly gitCommonDir: string; readonly repositoryCwd: string } | null;
+  readonly subscribers: ReadonlyMap<string, RemoteStatusSubscriber>;
+  readonly initialPending: ReadonlySet<string>;
+}
+
+interface PollerRegistration {
+  readonly wakeNow: Queue.Queue<void> | null;
+  readonly registered: Deferred.Deferred<void> | null;
 }
 
 interface StreamStatusOptions {
@@ -205,6 +219,7 @@ export const make = Effect.gen(function* () {
   );
   const cacheRef = yield* Ref.make(new Map<string, CachedVcsStatus>());
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
+  const repositoryKeyByCwdRef = yield* Ref.make(new Map<string, string>());
 
   const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
     cwd: string,
@@ -363,155 +378,281 @@ export const make = Effect.gen(function* () {
     "VcsStatusBroadcaster.refreshLocalStatus",
   )(function* (rawCwd) {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
-    return yield* refreshLocalStatusCore(cwd);
+    const previousRefName = (yield* getCachedStatus(cwd))?.local?.value.refName ?? null;
+    const local = yield* refreshLocalStatusCore(cwd);
+    // A local refresh fires on every turn completion. It must never bump the PR
+    // epoch (the repo PR list stays on its own ~2 min TTL) and must not wake the
+    // repo batch on the common no-op case — only a genuine branch change makes
+    // the cached remote row wrong, because the batch keys off the local refName.
+    if (local.refName !== previousRefName) {
+      const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
+      const poller = repositoryKey
+        ? (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey)
+        : undefined;
+      if (poller) yield* Queue.offer(poller.wake, undefined);
+    }
+    return local;
   });
 
-  const refreshRemoteStatus = Effect.fn("VcsStatusBroadcaster.refreshRemoteStatus")(function* (
-    cwd: string,
+  const pollerIntervals = (poller: ActiveRemotePoller) =>
+    Effect.forEach(poller.subscribers, ([cwd, subscriber]) =>
+      subscriber.interval.pipe(Effect.map((interval) => ({ cwd, interval }))),
+    );
+
+  const refreshRepositoryRemoteStatus = Effect.fn(
+    "VcsStatusBroadcaster.refreshRepositoryRemoteStatus",
+  )(function* (
+    repositoryKey: string,
+    cwds: ReadonlyArray<string>,
     options?: { readonly refreshUpstream?: boolean },
   ) {
-    if (options?.refreshUpstream !== false) {
-      yield* workflow.invalidateRemoteStatus(cwd);
-    }
-    const remote = yield* workflow.remoteStatus({ cwd }, options);
-    return yield* updateCachedRemoteStatus(cwd, remote, { publish: true });
+    const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+    if (!poller || cwds.length === 0) return;
+    const cache = yield* Ref.get(cacheRef);
+    const entries = cwds.flatMap((cwd) => {
+      const local = cache.get(cwd)?.local?.value;
+      return local ? [{ cwd, branch: local.refName }] : [];
+    });
+    if (entries.length === 0) return;
+
+    const remotes = poller.repository
+      ? yield* workflow.remoteStatuses(
+          {
+            repositoryKey,
+            repositoryCwd: poller.repository.repositoryCwd,
+            gitCommonDir: poller.repository.gitCommonDir,
+            entries,
+          },
+          options,
+        )
+      : yield* Effect.gen(function* () {
+          if (options?.refreshUpstream !== false) {
+            yield* Effect.forEach(entries, (entry) => workflow.invalidateRemoteStatus(entry.cwd), {
+              discard: true,
+            });
+          }
+          return yield* Effect.forEach(entries, (entry) =>
+            workflow.remoteStatus({ cwd: entry.cwd }, options),
+          );
+        });
+    yield* Effect.forEach(
+      entries,
+      (entry, index) =>
+        updateCachedRemoteStatus(entry.cwd, remotes[index] ?? null, { publish: true }),
+      { discard: true },
+    );
   });
+
+  const clearInitialPending = (repositoryKey: string, cwds: ReadonlyArray<string>) =>
+    SynchronizedRef.update(pollersRef, (pollers) => {
+      const poller = pollers.get(repositoryKey);
+      if (!poller) return pollers;
+      const initialPending = new Set(poller.initialPending);
+      for (const cwd of cwds) initialPending.delete(cwd);
+      const next = new Map(pollers);
+      next.set(repositoryKey, { ...poller, initialPending });
+      return next;
+    });
+
+  const logRefreshFailure = (
+    repositoryKey: string,
+    cause: Cause.Cause<unknown>,
+    consecutiveFailures: number,
+    nextDelay: Duration.Duration,
+  ) =>
+    Effect.logWarning("VCS remote status refresh failed", {
+      repositoryKeyLength: repositoryKey.length,
+      ...remoteRefreshFailureDiagnostics(cause),
+      consecutiveFailures,
+      nextDelayMs: Duration.toMillis(nextDelay),
+    });
+
+  const makeRemoteRefreshLoop = (
+    repositoryKey: string,
+    wake: Queue.Queue<void>,
+    registered: Deferred.Deferred<void>,
+  ) =>
+    Effect.gen(function* () {
+      // The fiber is forked before the poller record commits to `pollersRef`;
+      // wait for the registration rather than relying on scheduler ordering (a
+      // missed read would exit the loop for good and wedge the repo).
+      yield* Deferred.await(registered);
+      const consecutiveFailuresRef = yield* Ref.make(0);
+      const readCycle = Effect.gen(function* () {
+        const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+        if (!poller) return null;
+        const intervals = yield* pollerIntervals(poller);
+        const enabled = intervals.filter(
+          ({ cwd, interval }) => !Duration.isZero(interval) || poller.initialPending.has(cwd),
+        );
+        const nonZeroIntervals = intervals
+          .map(({ interval }) => interval)
+          .filter((interval) => !Duration.isZero(interval));
+        const activeInterval = nonZeroIntervals.reduce(
+          (shortest, interval) =>
+            Duration.toMillis(shortest) <= Duration.toMillis(interval) ? shortest : interval,
+          nonZeroIntervals[0] ?? DEFAULT_VCS_STATUS_REFRESH_INTERVAL,
+        );
+        return { poller, enabled, activeInterval };
+      });
+
+      const initial = yield* readCycle;
+      if (!initial) return;
+      if (initial.poller.initialPending.size === 0) {
+        yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
+      }
+
+      while (true) {
+        const cycle = yield* readCycle;
+        if (!cycle) return;
+        const cwds = cycle.enabled.map(({ cwd }) => cwd);
+        let nextDelay = cycle.activeInterval;
+        let failed = false;
+        if (cwds.length > 0) {
+          const exit = yield* refreshRepositoryRemoteStatus(repositoryKey, cwds, {
+            refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
+          }).pipe(Effect.exit);
+          if (Exit.isSuccess(exit)) {
+            yield* clearInitialPending(repositoryKey, cwds);
+            yield* Ref.set(consecutiveFailuresRef, 0);
+            nextDelay = yield* withRefreshJitter(cycle.activeInterval);
+          } else {
+            failed = true;
+            const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
+            if (interruptionReasons.length > 0) {
+              return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
+            }
+            const consecutiveFailures = yield* Ref.updateAndGet(
+              consecutiveFailuresRef,
+              (count) => count + 1,
+            );
+            nextDelay = remoteRefreshFailureDelay(consecutiveFailures, cycle.activeInterval);
+            yield* logRefreshFailure(repositoryKey, exit.cause, consecutiveFailures, nextDelay);
+          }
+        }
+
+        const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+        if (!failed && current?.initialPending.size) continue;
+        yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
+      }
+    });
 
   const refreshStatus: VcsStatusBroadcaster["Service"]["refreshStatus"] = Effect.fn(
     "VcsStatusBroadcaster.refreshStatus",
   )(function* (rawCwd) {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
-    // invalidateStatus (not the two partial invalidations) so an explicit
-    // refresh also bypasses GitManager's slow PR-lookup cache.
     yield* workflow.invalidateStatus(cwd);
-    const [local, remote] = yield* Effect.all(
-      [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd })],
-      { concurrency: "unbounded" },
-    );
-    return yield* updateCachedStatus(cwd, local, remote, { publish: true });
-  });
-
-  const makeRemoteRefreshLoop = (
-    cwd: string,
-    automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
-    refreshImmediately: boolean,
-  ) => {
-    return Effect.gen(function* () {
-      const consecutiveFailuresRef = yield* Ref.make(0);
-      const needsInitialRefreshRef = yield* Ref.make(refreshImmediately);
-      const refreshRemoteStatusIfEnabled = Effect.gen(function* () {
-        const configuredInterval = yield* automaticRemoteRefreshInterval;
-        const activeInterval = Duration.isZero(configuredInterval)
-          ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
-          : configuredInterval;
-        const needsInitialRefresh = yield* Ref.get(needsInitialRefreshRef);
-        if (Duration.isZero(configuredInterval) && !needsInitialRefresh) {
-          return activeInterval;
-        }
-
-        const exit = yield* refreshRemoteStatus(cwd, {
-          refreshUpstream: !Duration.isZero(configuredInterval),
-        }).pipe(Effect.exit);
-        if (Exit.isSuccess(exit)) {
-          yield* Ref.set(needsInitialRefreshRef, false);
-          yield* Ref.set(consecutiveFailuresRef, 0);
-          return yield* withRefreshJitter(activeInterval);
-        }
-
-        const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
-        if (interruptionReasons.length > 0) {
-          return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
-        }
-
-        const consecutiveFailures = yield* Ref.updateAndGet(
-          consecutiveFailuresRef,
-          (count) => count + 1,
-        );
-        const nextDelay = remoteRefreshFailureDelay(consecutiveFailures, activeInterval);
-        yield* Effect.logWarning("VCS remote status refresh failed", {
-          cwdLength: cwd.length,
-          ...remoteRefreshFailureDiagnostics(exit.cause),
-          consecutiveFailures,
-          nextDelayMs: Duration.toMillis(nextDelay),
-        });
-        return nextDelay;
-      });
-
-      if (!refreshImmediately) {
-        const configuredInterval = yield* automaticRemoteRefreshInterval;
-        yield* Effect.sleep(
-          Duration.isZero(configuredInterval)
-            ? DEFAULT_VCS_STATUS_REFRESH_INTERVAL
-            : configuredInterval,
-        );
-      }
-
-      return yield* refreshRemoteStatusIfEnabled.pipe(
-        Effect.repeat(
-          Schedule.identity<Duration.Duration>().pipe(
-            Schedule.addDelay((delay) => Effect.succeed(delay)),
-          ),
-        ),
-        Effect.asVoid,
+    const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
+    if (!repositoryKey) {
+      const [local, remote] = yield* Effect.all(
+        [workflow.localStatus({ cwd }), workflow.remoteStatus({ cwd })],
+        { concurrency: "unbounded" },
       );
+      return yield* updateCachedStatus(cwd, local, remote, { publish: true });
+    }
+
+    // An explicit refresh is scoped to the requesting cwd: the repo-wide reads it
+    // performs are shared anyway, and its siblings (including ones with automatic
+    // refresh disabled) keep their own cadence.
+    const local = yield* updateCachedLocalStatus(cwd, yield* workflow.localStatus({ cwd }), {
+      publish: true,
     });
-  };
+    yield* refreshRepositoryRemoteStatus(repositoryKey, [cwd], { refreshUpstream: true });
+    const remote = (yield* getCachedStatus(cwd))?.remote?.value ?? null;
+    return mergeGitStatusParts(local, remote);
+  });
 
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,
     automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
     refreshImmediately: boolean,
   ) {
-    yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
-      const existing = activePollers.get(cwd);
+    const repository = yield* workflow.resolveRemoteStatusRepository(cwd);
+    const repositoryKey = repository?.gitCommonDir ?? cwd;
+    yield* Ref.update(repositoryKeyByCwdRef, (byCwd) => new Map(byCwd).set(cwd, repositoryKey));
+    const started = yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
+      const existing = activePollers.get(repositoryKey);
       if (existing) {
-        const nextPollers = new Map(activePollers);
-        nextPollers.set(cwd, {
-          ...existing,
-          subscriberCount: existing.subscriberCount + 1,
+        const subscriber = existing.subscribers.get(cwd);
+        const subscribers = new Map(existing.subscribers);
+        subscribers.set(cwd, {
+          count: (subscriber?.count ?? 0) + 1,
+          interval: subscriber?.interval ?? automaticRemoteRefreshInterval,
         });
-        return Effect.succeed([undefined, nextPollers] as const);
+        const initialPending = new Set(existing.initialPending);
+        if (refreshImmediately) initialPending.add(cwd);
+        const nextPollers = new Map(activePollers);
+        nextPollers.set(repositoryKey, { ...existing, subscribers, initialPending });
+        const registration: PollerRegistration = {
+          wakeNow: refreshImmediately && existing.initialPending.size === 0 ? existing.wake : null,
+          registered: null,
+        };
+        return Effect.succeed([registration, nextPollers] as const);
       }
 
-      return makeRemoteRefreshLoop(cwd, automaticRemoteRefreshInterval, refreshImmediately).pipe(
-        Effect.forkIn(broadcasterScope),
-        Effect.map((fiber) => {
-          const nextPollers = new Map(activePollers);
-          nextPollers.set(cwd, {
-            fiber,
-            subscriberCount: 1,
-          });
-          return [undefined, nextPollers] as const;
-        }),
-      );
+      return Effect.gen(function* () {
+        const wake = yield* Queue.dropping<void>(1);
+        const registered = yield* Deferred.make<void>();
+        const fiber = yield* makeRemoteRefreshLoop(repositoryKey, wake, registered).pipe(
+          Effect.forkIn(broadcasterScope),
+        );
+        const nextPollers = new Map(activePollers);
+        nextPollers.set(repositoryKey, {
+          fiber,
+          wake,
+          repository,
+          subscribers: new Map([[cwd, { count: 1, interval: automaticRemoteRefreshInterval }]]),
+          initialPending: refreshImmediately ? new Set([cwd]) : new Set(),
+        });
+        const registration: PollerRegistration = { wakeNow: null, registered };
+        return [registration, nextPollers] as const;
+      });
     });
+    if (started.registered) yield* Deferred.succeed(started.registered, undefined);
+    if (started.wakeNow) yield* Queue.offer(started.wakeNow, undefined);
   });
 
   const releaseRemotePoller = Effect.fn("VcsStatusBroadcaster.releaseRemotePoller")(function* (
     cwd: string,
   ) {
+    const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd) ?? cwd;
     const pollerToInterrupt = yield* SynchronizedRef.modify(pollersRef, (activePollers) => {
-      const existing = activePollers.get(cwd);
-      if (!existing) {
-        return [null, activePollers] as const;
-      }
-
-      if (existing.subscriberCount > 1) {
+      const existing = activePollers.get(repositoryKey);
+      const subscriber = existing?.subscribers.get(cwd);
+      if (!existing || !subscriber) return [null, activePollers] as const;
+      if (subscriber.count > 1) {
+        const subscribers = new Map(existing.subscribers);
+        subscribers.set(cwd, { ...subscriber, count: subscriber.count - 1 });
         const nextPollers = new Map(activePollers);
-        nextPollers.set(cwd, {
-          ...existing,
-          subscriberCount: existing.subscriberCount - 1,
-        });
+        nextPollers.set(repositoryKey, { ...existing, subscribers });
         return [null, nextPollers] as const;
       }
-
+      const subscribers = new Map(existing.subscribers);
+      subscribers.delete(cwd);
+      const initialPending = new Set(existing.initialPending);
+      initialPending.delete(cwd);
       const nextPollers = new Map(activePollers);
-      nextPollers.delete(cwd);
-      return [existing.fiber, nextPollers] as const;
+      if (subscribers.size > 0) {
+        nextPollers.set(repositoryKey, { ...existing, subscribers, initialPending });
+        return [null, nextPollers] as const;
+      }
+      nextPollers.delete(repositoryKey);
+      return [{ fiber: existing.fiber, wake: existing.wake }, nextPollers] as const;
     });
 
+    const stillSubscribed = (yield* SynchronizedRef.get(pollersRef))
+      .get(repositoryKey)
+      ?.subscribers.has(cwd);
+    if (!stillSubscribed) {
+      yield* Ref.update(repositoryKeyByCwdRef, (byCwd) => {
+        const next = new Map(byCwd);
+        next.delete(cwd);
+        return next;
+      });
+    }
     if (pollerToInterrupt) {
-      yield* Fiber.interrupt(pollerToInterrupt).pipe(Effect.ignore);
+      yield* Fiber.interrupt(pollerToInterrupt.fiber).pipe(Effect.ignore);
+      yield* Queue.shutdown(pollerToInterrupt.wake).pipe(Effect.ignore);
     }
   });
 

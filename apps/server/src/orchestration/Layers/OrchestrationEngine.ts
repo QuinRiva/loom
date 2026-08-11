@@ -365,13 +365,37 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ),
         );
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
-        // loom: a decider may legitimately decide a command is a NO-OP and emit
-        // nothing — the unchanged-value guards (e.g. raising an attention flag
-        // that is already up, whose event is a dispatcher trigger and so bought a
-        // full pass per redundant raise). Acknowledge at the current sequence:
-        // nothing was written, so there is no receipt to record and no read-model
-        // change to publish, and an idempotent caller must not see a failure.
+        // loom (W2-4): a decider may legitimately decide a command is a NO-OP and
+        // emit nothing — the unchanged-value guards on the set-style commands
+        // (raising an attention flag that is already up, re-setting a fan-in state /
+        // plan lane / dependency set / brief pointer to its stored value). Those
+        // events are `WorkstreamDispatcher` triggers, so each redundant write bought
+        // a full ~1.5s pass over every active thread.
+        //
+        // RECEIPT SEMANTICS for a no-event success: it is an ACCEPTED command that
+        // wrote zero events, and it persists a receipt exactly like an
+        // event-producing success — same `status: "accepted"`, `resultSequence` set
+        // to the sequence the caller is told (the unchanged snapshot). That is
+        // load-bearing, not bookkeeping: the receipt store IS the durable
+        // at-most-once witness, both for this function's own replay check above and
+        // for every wake/notice rail that reads it through `receiptDedup`'s
+        // `hasAcceptedReceipt` (a fresh process recomputes its delivered set from
+        // receipts alone). Without a receipt, a guarded command would be the one
+        // accepted command with no durable trace: a duplicate envelope (stale
+        // transport retry, a rail re-deriving delivery after a restart) would be
+        // re-decided against LATER state, where the same payload may no longer be a
+        // no-op — e.g. re-raising attention that has since been cleared. Nothing is
+        // published, because nothing changed.
         if (eventBases.length === 0) {
+          yield* commandReceiptRepository.upsert({
+            commandId: envelope.command.commandId,
+            aggregateKind: aggregateRef.aggregateKind,
+            aggregateId: aggregateRef.aggregateId,
+            acceptedAt: DateTime.formatIso(yield* DateTime.now),
+            resultSequence: commandReadModel.snapshotSequence,
+            status: "accepted",
+            error: null,
+          });
           return { sequence: commandReadModel.snapshotSequence };
         }
         const committedCommand = yield* sql

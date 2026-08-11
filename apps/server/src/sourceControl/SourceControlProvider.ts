@@ -91,6 +91,12 @@ export class SourceControlProvider extends Context.Service<
       readonly state: ChangeRequestState | "all";
       readonly limit?: number;
     }) => Effect.Effect<ReadonlyArray<ChangeRequest>, SourceControlProviderError>;
+    readonly listRepositoryChangeRequests?: (input: {
+      readonly cwd: string;
+      readonly context?: SourceControlProviderContext;
+      readonly state: ChangeRequestState | "all";
+      readonly limit?: number;
+    }) => Effect.Effect<ReadonlyArray<ChangeRequest>, SourceControlProviderError>;
     readonly getChangeRequest: (input: {
       readonly cwd: string;
       readonly context?: SourceControlProviderContext;
