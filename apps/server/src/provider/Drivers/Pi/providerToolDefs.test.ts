@@ -132,6 +132,18 @@ describe("inherited-surfaces brief contract (P1)", () => {
     expect(spawnBrief).toMatch(/still belongs in the brief/i);
     expect(spawnBrief).toMatch(/absent from, stale in, or inapplicable/i);
   });
+
+  // Two behavioural replays showed "absent surfaces belong in the brief" was too
+  // abstract to move the output: briefing an assessor (no catalogue), the model
+  // still only named skills or gestured at "established procedures", omitting the
+  // discriminating fact those descriptions carry. The rule must be concrete AND
+  // conditional on the recipient's surfaces, or it re-flattens into restate-
+  // everything for children that do have the catalogue.
+  it("tells the author to inline a missing skill's discriminating facts, but only when the recipient lacks the catalogue", () => {
+    expect(spawnBrief).toMatch(/inline the discriminating facts/i);
+    expect(spawnBrief).toMatch(/naming a skill/i);
+    expect(spawnBrief).toMatch(/does have the catalogue, naming it remains/i);
+  });
 });
 
 // loom: child-prompt dedup P2a. workstream_submit's DESCRIPTION is the single
