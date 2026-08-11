@@ -774,6 +774,39 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             return;
           }
 
+          // Wholesale replace: upsert every submitted task, then tombstone the
+          // live tasks the submission dropped.
+          case "goal.tasks-rewritten": {
+            const submitted = new Map(event.payload.tasks.map((task) => [task.taskId, task]));
+            const existing = yield* projectionGoalRepository.listTasksByGoalId({
+              goalId: event.payload.goalId,
+            });
+            for (const task of event.payload.tasks) {
+              yield* projectionGoalRepository.upsertTask({
+                taskId: task.taskId,
+                goalId: event.payload.goalId,
+                parentTaskId: task.parentTaskId,
+                position: task.position,
+                text: task.text,
+                done: task.done ? 1 : 0,
+                createdAt: task.createdAt,
+                updatedAt: event.payload.rewrittenAt,
+                deletedAt: null,
+              });
+            }
+            for (const task of existing) {
+              if (task.deletedAt === null && !submitted.has(task.taskId)) {
+                yield* projectionGoalRepository.upsertTask({
+                  ...task,
+                  deletedAt: event.payload.rewrittenAt,
+                  updatedAt: event.payload.rewrittenAt,
+                });
+              }
+            }
+            return;
+          }
+
+          // Replay only (no producer since the rewrite command replaced it).
           case "goal.task-deleted": {
             const tasks = yield* projectionGoalRepository.listTasksByGoalId({
               goalId: event.payload.goalId,

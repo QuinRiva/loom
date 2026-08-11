@@ -210,7 +210,7 @@ const activeGoalContextInstruction = (
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
     `\n\nCurrent tasks:\n${tasks}`,
-    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. This snapshot is delivered once and is not refreshed — read the current tree on demand with \`goal_task_list\` (it mutates nothing), and mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen, reorder), \`goal_task_delete\`, and \`goal_update\` (title/description/slug).`,
+    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. This snapshot is delivered once and is not refreshed — read the current tree on demand with \`goal_task_list\` (it mutates nothing), and mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen), and \`goal_update\` (title/description/slug).`,
   ].join("");
 };
 

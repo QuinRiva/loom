@@ -15,7 +15,6 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import {
   buildGoalMetaUpdateCommand,
   buildGoalTaskCreateCommand,
-  buildGoalTaskDeleteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
 import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
@@ -34,11 +33,6 @@ interface GoalTaskUpdateRequest {
   readonly taskId?: unknown;
   readonly text?: unknown;
   readonly done?: unknown;
-  readonly position?: unknown;
-}
-
-interface GoalTaskDeleteRequest {
-  readonly taskId?: unknown;
 }
 
 interface GoalUpdateRequest {
@@ -191,12 +185,8 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   if (body.done !== undefined && done === undefined) {
     return jsonError(400, "done must be a boolean.");
   }
-  const position = body.position === undefined ? undefined : nonNegativeInt(body.position);
-  if (body.position !== undefined && position === undefined) {
-    return jsonError(400, "position must be a non-negative integer.");
-  }
-  if (text === undefined && done === undefined && position === undefined) {
-    return jsonError(400, "Provide at least one of text, done, or position.");
+  if (text === undefined && done === undefined) {
+    return jsonError(400, "Provide at least one of text or done.");
   }
 
   const crypto = yield* Crypto.Crypto;
@@ -208,7 +198,6 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
       taskId: GoalTaskId.make(taskId),
       ...(text !== undefined ? { text } : {}),
       ...(done !== undefined ? { done } : {}),
-      ...(position !== undefined ? { position } : {}),
     }) satisfies OrchestrationCommand,
   );
   return HttpServerResponse.jsonUnsafe({
@@ -220,43 +209,6 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   Effect.catch((error: unknown) =>
     Effect.succeed(
       jsonError(500, error instanceof Error ? error.message : "Failed to update the task."),
-    ),
-  ),
-);
-
-const handleGoalTaskDelete = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const resolved = yield* resolveActiveGoal();
-  if ("error" in resolved) return resolved.error;
-  const goal: OrchestrationGoal = resolved.goal;
-
-  const body = (yield* request.json.pipe(
-    Effect.orElseSucceed((): GoalTaskDeleteRequest => ({})),
-  )) as GoalTaskDeleteRequest;
-  const taskId = trimString(body.taskId);
-  if (!taskId) return jsonError(400, "taskId is required.");
-  if (!allTaskIds(goal.tasks).has(taskId)) {
-    return jsonError(400, `taskId "${taskId}" is not a task in this goal.`);
-  }
-
-  const crypto = yield* Crypto.Crypto;
-  const engine = yield* OrchestrationEngineService;
-  yield* engine.dispatch(
-    buildGoalTaskDeleteCommand({
-      commandId: CommandId.make(`server:goal-task-delete:${yield* crypto.randomUUIDv4}`),
-      goalId: goal.id,
-      taskId: GoalTaskId.make(taskId),
-    }) satisfies OrchestrationCommand,
-  );
-  return HttpServerResponse.jsonUnsafe({
-    goalId: goal.id,
-    taskId,
-    rendered: `Deleted task ${taskId}.`,
-  });
-}).pipe(
-  Effect.catch((error: unknown) =>
-    Effect.succeed(
-      jsonError(500, error instanceof Error ? error.message : "Failed to delete the task."),
     ),
   ),
 );
@@ -311,6 +263,5 @@ export const layer = Layer.mergeAll(
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_list, handleGoalTaskList),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_add, handleGoalTaskAdd),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_update, handleGoalTaskUpdate),
-  HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_task_delete, handleGoalTaskDelete),
   HttpRouter.add("POST", PROVIDER_TOOL_PATHS.goal_update, handleGoalUpdate),
 );

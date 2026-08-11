@@ -147,7 +147,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "goal.delete":
     case "goal.task.create":
     case "goal.task.update":
-    case "goal.task.delete":
+    case "goal.tasks.rewrite":
       return {
         aggregateKind: "goal",
         aggregateId: command.goalId,

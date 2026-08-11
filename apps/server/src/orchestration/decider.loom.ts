@@ -383,8 +383,8 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
     }
 
     case "goal.task.update": {
-      // Task reparenting is intentionally disallowed for MVP: there is no
-      // parentTaskId on this command, so the task tree cannot form a cycle.
+      // Targeted op: text/done only. Structure (parent, order) moves through
+      // `goal.tasks.rewrite`, so this command cannot form a task-tree cycle.
       const goal = yield* requireGoalActive({
         readModel,
         command,
@@ -405,29 +405,54 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           taskId: command.taskId,
           ...(command.text !== undefined ? { text: command.text } : {}),
           ...(command.done !== undefined ? { done: command.done } : {}),
-          ...(command.position !== undefined ? { position: command.position } : {}),
           updatedAt: occurredAt,
         },
       };
     }
 
-    case "goal.task.delete": {
-      const goal = yield* requireGoalActive({
-        readModel,
-        command,
-        goalId: command.goalId,
-      });
-      yield* requireGoalTask({ command, goal, taskId: command.taskId });
-      const occurredAt = yield* nowIso;
+    case "goal.tasks.rewrite": {
+      // Declarative whole-tree replace. The submitted list is the resulting
+      // tree: ids are minted at the edge, so the decider only enforces the
+      // structural invariants a hand-built command could violate (the markdown
+      // parser satisfies them by construction, but commands are a public seam).
+      yield* requireGoalActive({ readModel, command, goalId: command.goalId });
+      if (command.tasks.length === 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Rewrite of goal '${command.goalId}' submitted no tasks; wiping the whole tree must be explicit, not a side effect of an empty submission.`,
+        });
+      }
+      const seen = new Set<string>();
+      for (const task of command.tasks) {
+        if (seen.has(task.taskId)) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Rewrite of goal '${command.goalId}' lists task '${task.taskId}' more than once.`,
+          });
+        }
+        // Parent must PRECEDE its children: a topological order makes cycles
+        // (and dangling parents) unrepresentable in a single pass.
+        if (task.parentTaskId !== null && !seen.has(task.parentTaskId)) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Rewrite of goal '${command.goalId}' places task '${task.taskId}' under parent '${task.parentTaskId}', which is not an earlier task in the submission.`,
+          });
+        }
+        seen.add(task.taskId);
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "goal",
           aggregateId: command.goalId,
-          occurredAt,
+          occurredAt: command.createdAt,
           commandId: command.commandId,
         })),
-        type: "goal.task-deleted",
-        payload: { goalId: command.goalId, taskId: command.taskId, deletedAt: occurredAt },
+        type: "goal.tasks-rewritten",
+        payload: {
+          goalId: command.goalId,
+          tasks: command.tasks,
+          rewrittenAt: command.createdAt,
+        },
       };
     }
 

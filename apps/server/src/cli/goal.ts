@@ -20,7 +20,6 @@ import {
   buildGoalCreateCommand,
   buildGoalMetaUpdateCommand,
   buildGoalTaskCreateCommand,
-  buildGoalTaskDeleteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
 import { renderGoalTaskTree } from "../orchestration/goalTaskRender.ts";
@@ -43,8 +42,7 @@ type GoalCliDispatchCommand = Extract<
       | "goal.unarchive"
       | "goal.delete"
       | "goal.task.create"
-      | "goal.task.update"
-      | "goal.task.delete";
+      | "goal.task.update";
   }
 >;
 
@@ -330,30 +328,6 @@ const goalTaskRenameCommand = Command.make("rename", {
   ),
 );
 
-const goalTaskDeleteCommand = Command.make("delete", {
-  ...projectLocationFlags,
-  goal: Argument.string("goal").pipe(Argument.withDescription("Goal id or slug.")),
-  task: Argument.string("task").pipe(Argument.withDescription("Task id.")),
-}).pipe(
-  Command.withDescription("Delete a task (and its subtree)."),
-  Command.withHandler((flags) =>
-    runGoalMutation(flags, ({ snapshot, dispatch }) =>
-      Effect.gen(function* () {
-        const goal = yield* resolveGoal(snapshot, flags.goal);
-        const task = yield* requireTask(goal, flags.task);
-        yield* dispatch(
-          buildGoalTaskDeleteCommand({
-            commandId: CommandId.make(yield* orchestrationCliUuid),
-            goalId: goal.id,
-            taskId: task.id,
-          }),
-        );
-        return `Deleted task ${task.id}.`;
-      }),
-    ),
-  ),
-);
-
 const goalTaskCommand = Command.make("task").pipe(
   Command.withDescription("Manage goal tasks."),
   Command.withSubcommands([
@@ -361,7 +335,6 @@ const goalTaskCommand = Command.make("task").pipe(
     setTaskDoneCommand("done", true),
     setTaskDoneCommand("open", false),
     goalTaskRenameCommand,
-    goalTaskDeleteCommand,
   ]),
 );
 

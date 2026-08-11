@@ -931,8 +931,10 @@ const GoalTaskCreateCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-// Task reparenting is intentionally unsupported for MVP: there is no
-// `parentTaskId` here, which removes the only path to a task-tree cycle.
+// The targeted, concurrency-safe op a child fires mid-flight (mark my own task
+// done / rename it). Structural change — reparenting, reordering, pruning —
+// goes through `goal.tasks.rewrite`, which makes a task-tree cycle
+// unrepresentable (the submitted list is topologically ordered by construction).
 const GoalTaskUpdateCommand = Schema.Struct({
   type: Schema.Literal("goal.task.update"),
   commandId: CommandId,
@@ -940,14 +942,32 @@ const GoalTaskUpdateCommand = Schema.Struct({
   taskId: GoalTaskId,
   text: Schema.optional(TrimmedNonEmptyString),
   done: Schema.optional(Schema.Boolean),
-  position: Schema.optional(NonNegativeInt),
 });
 
-const GoalTaskDeleteCommand = Schema.Struct({
-  type: Schema.Literal("goal.task.delete"),
+// One fully-resolved task line of a whole-tree rewrite. Ids are minted at the
+// edge (the HTTP tool / CLI), so the decider stays deterministic; `createdAt` is
+// copied from the retained task for a known id and is `now` for a new one.
+// `position` is an OUTPUT of the submission's document order, never something
+// the agent hand-assigns.
+export const GoalTaskRewriteEntry = Schema.Struct({
+  taskId: GoalTaskId,
+  parentTaskId: Schema.NullOr(GoalTaskId),
+  text: TrimmedNonEmptyString,
+  done: Schema.Boolean,
+  position: NonNegativeInt,
+  createdAt: IsoDateTime,
+});
+export type GoalTaskRewriteEntry = typeof GoalTaskRewriteEntry.Type;
+
+// Declarative whole-tree replace: the submitted list IS the resulting tree.
+// Tasks absent from it are deleted; retained ids keep their identity and
+// `createdAt`. Replaces the old per-task delete command (deleted below).
+const GoalTasksRewriteCommand = Schema.Struct({
+  type: Schema.Literal("goal.tasks.rewrite"),
   commandId: CommandId,
   goalId: GoalId,
-  taskId: GoalTaskId,
+  tasks: Schema.Array(GoalTaskRewriteEntry),
+  createdAt: IsoDateTime,
 });
 
 // Axis 1 write (plan lane). Authorisation chokepoint lives in the decider:
@@ -1161,7 +1181,7 @@ export const LoomClientCommandMembers = [
   GoalDeleteCommand,
   GoalTaskCreateCommand,
   GoalTaskUpdateCommand,
-  GoalTaskDeleteCommand,
+  GoalTasksRewriteCommand,
   ThreadPlanLaneSetCommand,
   ThreadAttentionRaiseCommand,
   ThreadAttentionClearCommand,
@@ -1353,10 +1373,19 @@ export const GoalTaskUpdatedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// REPLAY ONLY — no producer since the whole-tree rewrite replaced per-task
+// deletes. The historical events (42 in the live store) must keep decoding and
+// projecting identically on every boot, so the payload schema stays.
 export const GoalTaskDeletedPayload = Schema.Struct({
   goalId: GoalId,
   taskId: GoalTaskId,
   deletedAt: IsoDateTime,
+});
+
+export const GoalTasksRewrittenPayload = Schema.Struct({
+  goalId: GoalId,
+  tasks: Schema.Array(GoalTaskRewriteEntry),
+  rewrittenAt: IsoDateTime,
 });
 
 export const ThreadPlanLaneSetPayload = Schema.Struct({
@@ -1563,6 +1592,11 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
+      type: Schema.Literal("goal.tasks-rewritten"),
+      payload: GoalTasksRewrittenPayload,
+    }),
+    Schema.Struct({
+      ...base,
       type: Schema.Literal("thread.plan-lane-set"),
       payload: ThreadPlanLaneSetPayload,
     }),
@@ -1662,6 +1696,7 @@ export const LOOM_EVENT_TYPES = [
   "goal.task-created",
   "goal.task-updated",
   "goal.task-deleted",
+  "goal.tasks-rewritten",
   "thread.plan-lane-set",
   "thread.attention-raised",
   "thread.attention-cleared",
@@ -1725,7 +1760,7 @@ export const LOOM_COMMAND_TYPES = [
   "goal.delete",
   "goal.task.create",
   "goal.task.update",
-  "goal.task.delete",
+  "goal.tasks.rewrite",
   "thread.plan-lane.set",
   "thread.attention.raise",
   "thread.attention.clear",

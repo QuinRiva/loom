@@ -825,12 +825,11 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_update",
     label: "Update Goal Task",
     description:
-      "Update an existing task in THIS thread's active goal: rename it (text), mark it done / reopen it (done), and/or reorder it (position). The goal is resolved from the session; the taskId must belong to it. A child may mark its OWN assigned task done when it finishes the work. Pass only the fields you want to change.",
-    promptSnippet:
-      "update a task in this thread's goal: rename (text), mark done/reopen (done), or reorder (position).",
+      "Update an existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done). The goal is resolved from the session; the taskId must belong to it. A child may mark its OWN assigned task done when it finishes the work. Pass only the fields you want to change.",
+    promptSnippet: "update a task in this thread's goal: rename (text) or mark done/reopen (done).",
     promptGuidelines: [
       "taskId must be a task in this thread's own active goal.",
-      "Pass only the fields you are changing; provide at least one of text, done, or position.",
+      "Pass only the fields you are changing; provide at least one of text or done.",
     ],
     parameters: {
       type: "object",
@@ -841,41 +840,12 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         },
         text: { type: "string", description: "New task text (rename)." },
         done: { type: "boolean", description: "Mark the task done (true) or reopen it (false)." },
-        position: {
-          type: "integer",
-          minimum: 0,
-          description: "New zero-based position among its siblings.",
-        },
       },
       required: ["taskId"],
       additionalProperties: false,
     },
     errorMode: "soft",
     fallbackText: "Updated task.",
-  },
-  {
-    name: "goal_task_delete",
-    label: "Delete Goal Task",
-    description:
-      "Delete a task (and its subtree) from THIS thread's active goal. The goal is resolved from the session; the taskId must belong to it. Use sparingly — prefer marking a task done over deleting it; delete is for tasks that were created in error or are no longer meaningful.",
-    promptSnippet: "delete a task (and its subtree) from this thread's goal.",
-    promptGuidelines: [
-      "taskId must be a task in this thread's own active goal.",
-      "Prefer marking a task done over deleting it; delete is for tasks added in error or no longer meaningful.",
-    ],
-    parameters: {
-      type: "object",
-      properties: {
-        taskId: {
-          type: "string",
-          description: "Id of the task to delete; must belong to this thread's goal.",
-        },
-      },
-      required: ["taskId"],
-      additionalProperties: false,
-    },
-    errorMode: "soft",
-    fallbackText: "Deleted task.",
   },
   {
     name: "goal_handoff",
