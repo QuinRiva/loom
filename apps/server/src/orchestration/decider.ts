@@ -69,7 +69,7 @@ function resolveTitleProvenance(
 
 // Session adoption takes seconds; a user message still unadopted after this
 // window is a failed/stale start, not pending work. Mirrors the client's
-// QUEUED_TURN_START_GRACE_MS in client-runtime threadSettled.ts.
+// QUEUED_TURN_START_GRACE_MS in @t3tools/shared/threadSettled.
 const QUEUED_TURN_START_GRACE_MS = 2 * 60 * 1_000;
 
 /**

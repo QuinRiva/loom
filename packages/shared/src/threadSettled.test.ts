@@ -122,13 +122,20 @@ describe("threadLastActivityAt", () => {
     };
 
     expect(threadLastActivityAt(withActivity)).toBe("2026-04-06T00:00:00.000Z");
-    expect(threadLastActivityAt(shell)).toBeNull();
+    // A thread with no user message and no turn falls back to `createdAt`
+    // rather than null (W2-2). Returning null here used to make such a thread
+    // permanently unsettleable: `effectiveSettled` bailed before the inactivity
+    // check, so a scaffolded-but-never-run thread stayed "active" at any age.
+    expect(threadLastActivityAt(shell)).toBe("2026-04-01T00:00:00.000Z");
   });
 });
 
 describe("effectiveSettled", () => {
   const overrideCases = [null, "settled", "active"] as const;
   const changeRequestStates = [undefined, "open", "merged"] as const;
+  // `no-activity` (no user message, no turn) now measures from `createdAt`,
+  // which the fixture sets to 2026-04-01 — nine days before NOW, so it is stale
+  // by the 3-day window. Before the W2-2 fix it could never settle at all.
   const inactivityCases = [
     ["fresh", FRESH],
     ["stale", STALE],
@@ -156,7 +163,9 @@ describe("effectiveSettled", () => {
               !running &&
               (settledOverride === "settled" ||
                 (settledOverride === null &&
-                  (changeRequestState === "merged" || inactivity === "stale"))),
+                  (changeRequestState === "merged" ||
+                    inactivity === "stale" ||
+                    inactivity === "no-activity"))),
           })),
         ),
       ),
