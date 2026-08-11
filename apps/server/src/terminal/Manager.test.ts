@@ -213,6 +213,12 @@ interface CreateManagerOptions {
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
   ptyAdapter?: FakePtyAdapter;
+  subscribeToEvents?: boolean;
+  registerTerminalProcesses?: (input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+    readonly processIds: ReadonlyArray<number>;
+  }) => Effect.Effect<void>;
 }
 
 interface ManagerFixture {
@@ -254,12 +260,17 @@ const createManager = (
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
           : {}),
+        ...(options.registerTerminalProcesses !== undefined
+          ? { registerTerminalProcesses: options.registerTerminalProcesses }
+          : {}),
       });
       const eventsRef = yield* Ref.make<ReadonlyArray<TerminalEvent>>([]);
-      const unsubscribe = yield* manager.subscribe((event) =>
-        Ref.update(eventsRef, (events) => [...events, event]),
-      );
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      if (options.subscribeToEvents !== false) {
+        const unsubscribe = yield* manager.subscribe((event) =>
+          Ref.update(eventsRef, (events) => [...events, event]),
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      }
 
       return {
         baseDir,
@@ -950,6 +961,41 @@ it.layer(
         Effect.sync(() => checks > 0),
         "1200 millis",
       );
+    }),
+  );
+
+  it.effect("gates subprocess polling on listeners without starving process registration", () =>
+    Effect.gen(function* () {
+      let checks = 0;
+      const registrations: ReadonlyArray<number>[] = [];
+      const { manager } = yield* createManager(5, {
+        subscribeToEvents: false,
+        subprocessInspector: () => {
+          checks += 1;
+          return Effect.succeed({
+            hasRunningSubprocess: true,
+            childCommand: "node",
+            processIds: [100, 101, 102],
+          });
+        },
+        subprocessPollIntervalMs: 20,
+        registerTerminalProcesses: (input) =>
+          Effect.sync(() => {
+            registrations.push(input.processIds);
+          }),
+      });
+
+      yield* manager.open(openInput());
+      yield* Effect.sleep("80 millis");
+      assert.equal(checks, 0);
+
+      const unsubscribe = yield* manager.subscribe(() => Effect.void);
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      yield* waitFor(
+        Effect.sync(() => registrations.some((processIds) => processIds.includes(102))),
+        "1200 millis",
+      );
+      assert.ok(checks > 0);
     }),
   );
 

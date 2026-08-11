@@ -43,6 +43,50 @@ describe("VcsDriverRegistry", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("does not cache a non-repository result across repository initialisation", () => {
+    let repositoryInitialised = false;
+    const calls: string[] = [];
+    const layer = Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
+      Layer.provide(NodeServices.layer),
+      Layer.provide(
+        Layer.mock(VcsProjectConfig.VcsProjectConfig)({
+          resolveKind: (input) => Effect.succeed(input.requestedKind ?? "auto"),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            Effect.sync(() => {
+              const command = normalizeGitArgs(input.args).join(" ");
+              calls.push(command);
+              if (command === "rev-parse --is-inside-work-tree") {
+                return processOutput(repositoryInitialised ? "true\n" : "false\n");
+              }
+              if (command === "rev-parse --show-toplevel") return processOutput("/repo\n");
+              if (command === "rev-parse --git-common-dir") return processOutput("/repo/.git\n");
+              return processOutput("");
+            }),
+        }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+      assert.equal(yield* registry.detect({ cwd: "/repo", requestedKind: "git" }), null);
+
+      repositoryInitialised = true;
+      const detected = yield* registry.detect({ cwd: "/repo", requestedKind: "git" });
+
+      assert.equal(detected?.repository.rootPath, "/repo");
+      assert.deepStrictEqual(calls, [
+        "rev-parse --is-inside-work-tree",
+        "rev-parse --is-inside-work-tree",
+        "rev-parse --show-toplevel",
+        "rev-parse --git-common-dir",
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("caches repository detection for repeated resolves in the same cwd and kind", () => {
     const calls: VcsProcess.VcsProcessInput[] = [];
     const layer = Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(

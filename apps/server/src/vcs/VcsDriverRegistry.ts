@@ -12,7 +12,8 @@ import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 
 const DETECTION_CACHE_CAPACITY = 2_048;
-const DETECTION_CACHE_TTL = Duration.seconds(2);
+// Repository kind at a fixed cwd is stable; span many status polls while bounding recreated-path staleness.
+const DETECTION_CACHE_TTL = Duration.minutes(10);
 
 export interface VcsDriverResolveInput {
   readonly cwd: string;
@@ -115,7 +116,10 @@ export const make = Effect.gen(function* () {
     (key) => detectResolvedKind(parseDetectionCacheKey(key)),
     {
       capacity: DETECTION_CACHE_CAPACITY,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? DETECTION_CACHE_TTL : Duration.zero),
+      timeToLive: Exit.match({
+        onSuccess: (handle) => (handle === null ? Duration.zero : DETECTION_CACHE_TTL),
+        onFailure: () => Duration.zero,
+      }),
     },
   );
 
