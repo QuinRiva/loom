@@ -103,6 +103,16 @@ const make = Effect.gen(function* () {
   // extra notice (the conflict itself is re-surfaced by generation reconciliation).
   const conflictedChildren = new Set<ThreadId>();
 
+  // Children whose POST-merge cleanup failed in this process. A cleanup failure
+  // is not a fan-in outcome — the branch is already in the parent — so it must
+  // not touch `fanInState`, and therefore has nothing durable to stop the
+  // deferred-removal branch re-selecting the child on every re-arm. This is that
+  // stop. Process-scoped exactly like `conflictedChildren` above: a restart
+  // re-attempts the cleanup once, which is when a transient cause (a stale
+  // `index.lock`, a held lease) may have cleared, so the retry count is bounded
+  // by restarts rather than by pass rate.
+  const cleanupFailedChildren = new Set<ThreadId>();
+
   // Receipt-deduped delivery for the two parent notices. Both carry deterministic
   // ids and lean on the engine's receipt store for cross-restart at-most-once, so
   // this instance needs no durable receipt lookup of its own
@@ -236,6 +246,35 @@ const make = Effect.gen(function* () {
             }).pipe(Effect.as(null)),
       ),
     );
+
+  // The boundary between a fan-in failure and a cleanup failure, wrapped around
+  // every step that runs AFTER the child's branch has reached the parent.
+  //
+  // Crossing that line changes what a failure means and how it must settle.
+  // `completed` is what releases dependents, and `thread.fanin-set` is a
+  // dispatcher trigger — so by the time cleanup runs, downstream work may
+  // already be released or in flight. Demoting the child to `failed` there would
+  // assert "the branch was not merged" about a branch that was, and re-block
+  // dependents the merge had released: a contradictory control plane, which is
+  // strictly worse than an untidy worktree. So the fan-in outcome stands, the
+  // failure is surfaced once, and the retry stops via the process-local set.
+  const surviveCleanupFailure =
+    (childId: ThreadId) =>
+    <A, E, R>(cleanup: Effect.Effect<A, E, R>) =>
+      cleanup.pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+          cleanupFailedChildren.add(childId);
+          return appendActivity({
+            threadId: childId,
+            kind: "workstream.fanin.cleanup-failed",
+            summary:
+              "The branch merged cleanly, but removing the child worktree afterwards failed; the control plane has stopped retrying. The fan-in stands and dependents are released — only the checkout is left behind, for the worktree reaper or a human.",
+            payload: { detail: Cause.pretty(cause) },
+            tone: "error",
+          }).pipe(Effect.andThen(raiseGuidance(childId)));
+        }),
+      );
 
   const setFanInState = (threadId: ThreadId, fanInState: ThreadFanInState) =>
     Effect.gen(function* () {
@@ -547,6 +586,9 @@ const make = Effect.gen(function* () {
           yield* deliverConflictNotice(child, parent, childBranch, merge.conflictPaths);
           return;
         }
+        // Deliberately OUTSIDE the cleanup boundary below: until this write
+        // lands, no dependent can have been released, so a failure here is still
+        // a fan-in failure and settles as one.
         yield* setFanInState(child.id, "completed");
         if (!hasDependentResident(child.id, childCwd, index)) {
           yield* removeExclusively(
@@ -562,7 +604,7 @@ const make = Effect.gen(function* () {
               // The child's tip commit — recorded on its shell by the repoint.
               finalCommitSha: childCommitSha,
             }),
-          );
+          ).pipe(surviveCleanupFailure(child.id));
         }
       }),
     );
@@ -637,12 +679,13 @@ const make = Effect.gen(function* () {
     const index = buildIndex(threads, projects);
     for (const child of threads) {
       if (child.isolation !== "isolated") continue;
-      // Terminal failure state: a previous pass hit an unexpected error on this
-      // child and gave up on it. Never retry — the retry IS the bug this state
-      // exists to kill. A human reopening the thread clears `fanInState` back to
-      // `none` (the projector resets it on any non-terminal lane), which re-arms
-      // the disposition.
-      if (child.fanInState === "failed") continue;
+      // Given up on: a previous pass hit an unexpected error on this child, and
+      // the retry IS the bug both of these exist to kill. `failed` is the durable
+      // pre-merge verdict (a human reopening the thread clears it back to `none`
+      // — the projector resets it on any non-terminal lane — which re-arms the
+      // disposition); the set is the post-merge cleanup breaker, which a restart
+      // clears so the tidy-up is attempted once more.
+      if (child.fanInState === "failed" || cleanupFailedChildren.has(child.id)) continue;
       const parent =
         child.parentThreadId === null ? undefined : index.byId.get(child.parentThreadId);
       const parentCwd = parent ? resolveCwd(parent, projects) : undefined;
@@ -720,21 +763,25 @@ const make = Effect.gen(function* () {
             return;
           }
           const deferredCwd = child.worktreePath;
-          yield* worktreeMutationLock.withLock(
-            parentCwd,
-            removeExclusively(
-              deferredCwd,
-              finaliseRemoval({
-                childId: child.id,
-                childCwd: deferredCwd,
-                childBranch: child.branch,
-                parentCwd,
-                parentBranch: parent.branch,
-                parentWorktreePath: parent.worktreePath,
-                index,
-              }),
-            ),
-          );
+          // Wholly post-merge: this child is already `completed`, so every
+          // failure here is a cleanup failure by construction.
+          yield* worktreeMutationLock
+            .withLock(
+              parentCwd,
+              removeExclusively(
+                deferredCwd,
+                finaliseRemoval({
+                  childId: child.id,
+                  childCwd: deferredCwd,
+                  childBranch: child.branch,
+                  parentCwd,
+                  parentBranch: parent.branch,
+                  parentWorktreePath: parent.worktreePath,
+                  index,
+                }),
+              ),
+            )
+            .pipe(surviveCleanupFailure(child.id));
         }
       });
 
@@ -743,11 +790,13 @@ const make = Effect.gen(function* () {
       // held) with no signal. Raise it as an error activity + `needs_guidance` so
       // the orchestrator/human hears, and continue the sweep.
       //
-      // Recording `failed` is the load-bearing half: without a terminal state the
+      // Only PRE-merge failures reach here — every post-merge step is wrapped in
+      // `surviveCleanupFailure`, which settles differently — so recording the
+      // terminal `failed` is safe and is the load-bearing half: without it the
       // next pass re-selected the same child, failed identically, and appended
-      // another activity row + attention raise — 13,410 failures and 13,420 raises
+      // another activity row + attention raise (13,410 failures and 13,420 raises
       // over 6 days on one production child, each raise buying a full dispatcher
-      // pass. `failed` is settled (the parent wake fires) but NOT `completed`, so
+      // pass). `failed` is settled (the parent wake fires) but NOT `completed`, so
       // dependents stay blocked, exactly as `conflicted` does. It is written FIRST
       // so that even if the activity/attention dispatches fail, the loop is dead.
       yield* handle.pipe(
@@ -760,7 +809,7 @@ const make = Effect.gen(function* () {
                 threadId: child.id,
                 kind: "workstream.fanin.failed",
                 summary:
-                  "Fan-in failed unexpectedly; the branch was not merged and the control plane has stopped retrying. Merge it by hand, or reopen the thread to re-arm the fan-in.",
+                  "Fan-in failed unexpectedly and the control plane has stopped retrying. Merge the child branch by hand if it is wanted, or reopen the thread to re-arm the fan-in.",
                 payload: { detail: Cause.pretty(cause) },
                 tone: "error",
               }),

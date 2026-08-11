@@ -107,6 +107,8 @@ interface Scenario {
   readonly childCheckoutGone?: boolean;
   /** `commitAll` fails — the "unexpected per-child error" the failed state exists for. */
   readonly commitFails?: boolean;
+  /** Dispatching this command type fails — e.g. the post-merge repoint. */
+  readonly dispatchFailsFor?: OrchestrationCommand["type"];
 }
 
 const runReactor = (scenario: Scenario) =>
@@ -124,7 +126,9 @@ const runReactor = (scenario: Scenario) =>
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
       dispatch: (command: OrchestrationCommand) =>
-        Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+        command.type === scenario.dispatchFailsFor
+          ? Effect.fail(new StubGitError({ detail: `dispatch refused for ${command.type}` }))
+          : Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
     } as never);
 
     const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
@@ -281,8 +285,58 @@ describe("WorkstreamFanInReactor", () => {
     }),
   );
 
-  // The other half: an unexpected error must record a TERMINAL state, or the
-  // next pass re-selects the same child and fails identically forever.
+  // The line between a fan-in failure and a CLEANUP failure. Once the merge has
+  // landed, `completed` is persisted and `thread.fanin-set` has already told the
+  // dispatcher to release dependents — so demoting the child to `failed` on a
+  // later cleanup error would claim the branch was never merged and re-block
+  // work that is already running. Deferred removal is wholly post-merge, so an
+  // input snapshot already at `completed` must survive any failure there.
+  // The same line, on the path the reviewer flagged: a merge that HAS landed in
+  // this pass. `completed` is dispatched, then the repoint fails — and the child
+  // must keep `completed`, because dependents may already be releasing on it.
+  it.effect("post-merge repoint failure: keeps `completed`, never demotes to `failed`", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        dispatchFailsFor: "thread.meta.update",
+      });
+      expect(gitCalls).toContain("merge");
+      expect(fanInStates(dispatched)).toEqual(["completed"]);
+      expect(fanInStates(dispatched)).not.toContain("failed");
+      expect(
+        dispatched.some(
+          (c) =>
+            c.type === "thread.activity.append" &&
+            c.activity.kind === "workstream.fanin.cleanup-failed",
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("deferred-removal failure: keeps `completed`, never demotes to `failed`", () =>
+    Effect.gen(function* () {
+      const { dispatched } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        commitFails: true,
+      });
+      // The fan-in outcome is untouched: no state write at all, and above all
+      // no `failed`.
+      expect(fanInStates(dispatched)).toEqual([]);
+      // …but the operator still hears about it, once, as a cleanup failure.
+      const activities = dispatched.filter(
+        (c) =>
+          c.type === "thread.activity.append" && c.activity.kind.startsWith("workstream.fanin"),
+      ) as ReadonlyArray<Extract<OrchestrationCommand, { type: "thread.activity.append" }>>;
+      expect(activities.map((c) => c.activity.kind)).toEqual(["workstream.fanin.cleanup-failed"]);
+      expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(true);
+    }),
+  );
+
+  // The other half: an unexpected error BEFORE the merge must record a TERMINAL
+  // state, or the next pass re-selects the same child and fails identically
+  // forever.
   it.effect("unexpected failure: records terminal `failed`, and a failed child is skipped", () =>
     Effect.gen(function* () {
       const { dispatched } = yield* runReactor({
