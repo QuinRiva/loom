@@ -73,6 +73,9 @@ export interface GitRemoteStatusDetails {
   isDefaultBranch: boolean;
   branch: string | null;
   upstreamRef: string | null;
+  remoteName?: string | null;
+  remoteUrl?: string | null;
+  originRemoteUrl?: string | null;
   hasUpstream: boolean;
   aheadCount: number;
   behindCount: number;
@@ -190,6 +193,12 @@ export interface GitRemoteStatusOptions {
   readonly refreshUpstream?: boolean;
 }
 
+export interface GitRemoteStatusBatchInput {
+  readonly repositoryCwd: string;
+  readonly gitCommonDir: string;
+  readonly branches: ReadonlyArray<string | null>;
+}
+
 export interface GitCommitAllResult {
   /** False when the working tree was already clean (nothing to commit). */
   readonly committed: boolean;
@@ -252,6 +261,10 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       options?: GitRemoteStatusOptions,
     ) => Effect.Effect<GitRemoteStatusDetails, GitCommandError>;
+    readonly statusDetailsRemoteBatch: (
+      input: GitRemoteStatusBatchInput,
+      options?: GitRemoteStatusOptions,
+    ) => Effect.Effect<ReadonlyArray<GitRemoteStatusDetails>, GitCommandError>;
     readonly prepareCommitContext: (
       cwd: string,
       filePaths?: readonly string[],

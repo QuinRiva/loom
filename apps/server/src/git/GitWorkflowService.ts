@@ -45,6 +45,24 @@ export class GitWorkflowService extends Context.Service<
       input: VcsStatusInput,
       options?: GitVcsDriver.GitRemoteStatusOptions,
     ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
+    readonly resolveRemoteStatusRepository: (
+      cwd: string,
+    ) => Effect.Effect<
+      { readonly gitCommonDir: string; readonly repositoryCwd: string } | null,
+      GitManagerServiceError
+    >;
+    readonly remoteStatuses: (
+      input: {
+        readonly repositoryKey: string;
+        readonly repositoryCwd: string;
+        readonly gitCommonDir: string;
+        readonly entries: ReadonlyArray<{
+          readonly cwd: string;
+          readonly branch: string | null;
+        }>;
+      },
+      options?: GitVcsDriver.GitRemoteStatusOptions,
+    ) => Effect.Effect<ReadonlyArray<VcsStatusRemoteResult | null>, GitManagerServiceError>;
     readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
@@ -290,6 +308,35 @@ export const make = Effect.gen(function* () {
           isGitRepository ? gitManager.remoteStatus(input, options) : Effect.succeed(null),
         ),
       ),
+    resolveRemoteStatusRepository: (cwd) =>
+      registry.detect({ cwd }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation: "GitWorkflowService.resolveRemoteStatusRepository",
+              cwd,
+              detail: "Failed to identify the repository for remote status batching.",
+              cause,
+            }),
+        ),
+        Effect.map((handle) => {
+          if (!handle || handle.kind !== "git") return null;
+          const rawCommonDir =
+            handle.repository.metadataPath ?? `${handle.repository.rootPath}/.git`;
+          const gitCommonDir = rawCommonDir.startsWith("/")
+            ? rawCommonDir
+            : `${cwd}/${rawCommonDir}`;
+          // Repo-wide git commands run here, not in a subscriber's worktree: the
+          // common dir outlives any linked worktree the reaper may remove.
+          return {
+            gitCommonDir,
+            repositoryCwd: gitCommonDir.endsWith("/.git")
+              ? gitCommonDir.slice(0, -"/.git".length)
+              : gitCommonDir,
+          };
+        }),
+      ),
+    remoteStatuses: gitManager.remoteStatuses,
     invalidateLocalStatus: gitManager.invalidateLocalStatus,
     invalidateRemoteStatus: gitManager.invalidateRemoteStatus,
     invalidateStatus: gitManager.invalidateStatus,
