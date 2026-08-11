@@ -139,6 +139,7 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   options: RepositoryIdentityResolverOptions = {},
 ) {
   const processRunner = yield* ProcessRunner.ProcessRunner;
+  const repositoryRootByCwd = new Map<string, string>();
 
   const repositoryIdentityCache = yield* Cache.makeWith<string, RepositoryIdentity | null>(
     (cacheKey) =>
@@ -160,9 +161,13 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   const resolve: RepositoryIdentityResolver["Service"]["resolve"] = Effect.fn(
     "RepositoryIdentityResolver.resolve",
   )(function* (cwd) {
-    const cacheKey = yield* resolveRepositoryIdentityCacheKey(cwd).pipe(
-      Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
-    );
+    let cacheKey = repositoryRootByCwd.get(cwd);
+    if (cacheKey === undefined) {
+      cacheKey = yield* resolveRepositoryIdentityCacheKey(cwd).pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+      );
+      repositoryRootByCwd.set(cwd, cacheKey);
+    }
     return yield* Cache.get(repositoryIdentityCache, cacheKey);
   });
 

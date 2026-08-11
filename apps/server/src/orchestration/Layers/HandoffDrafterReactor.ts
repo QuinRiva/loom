@@ -4,7 +4,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationThreadShell,
 } from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -267,7 +267,11 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const worker = yield* makeDrainableWorker((_trigger: void) => runPassSafely);
+  // COALESCING worker (not the queueing default): the trigger is payload-free
+  // and the pass is a full idempotent recompute over the shell snapshot, armed
+  // by `thread.session-set` — the highest-frequency lifecycle event. Queueing one
+  // pass per trigger only repeats identical work; see `makeCoalescingWorker`.
+  const worker = yield* makeCoalescingWorker(runPassSafely);
 
   const start: HandoffDrafterReactorShape["start"] = Effect.fn("start")(function* () {
     yield* Effect.forkScoped(

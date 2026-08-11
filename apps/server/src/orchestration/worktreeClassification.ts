@@ -42,6 +42,8 @@ export type WorktreeStaleReason =
   | "cancelled"
   /** Fan-in merge conflicted — needs human resolution in this worktree. */
   | "conflicted"
+  /** Fan-in gave up after an unexpected error — terminal, needs a human. */
+  | "fanin-failed"
   /** Done but fan-in not settled yet — the fan-in reactor's job, not GC's. */
   | "fanin-pending"
   /** Uncommitted changes (or dirty state unknown) — not provably dead. */
@@ -190,6 +192,7 @@ export const classifyWorktree = (input: ClassifyWorktreeInput): ClassifiedWorktr
     return stale("unmanaged");
   }
   if (owner.fanInState === "conflicted") return stale("conflicted");
+  if (owner.fanInState === "failed") return stale("fanin-failed");
   if (owner.fanInState !== "completed") return stale("fanin-pending");
   if (facts.dirty !== false) return stale("dirty");
   if (facts.mergedIntoParentBranch !== true) return stale("unmerged");

@@ -3263,10 +3263,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               );
               const peerMessagesByThread = groupPeerMessageSummaries(peerMessageRows);
               // Debugging-only: which pi threads actually have a sidecar on disk.
-              // One directory read per snapshot; a thread's promptDebugPath is
-              // surfaced only when its file exists, so a capture failure / not-
+              // One cached asynchronous directory read; a thread's promptDebugPath
+              // is surfaced only when its file exists, so a capture failure / not-
               // yet-launched thread never renders a dead link in the UI.
-              const promptDebugNames = readPromptDebugSidecarNames(promptDebugDir);
+              const promptDebugNames = yield* Effect.promise(() =>
+                readPromptDebugSidecarNames(promptDebugDir),
+              );
 
               const snapshot = {
                 snapshotSequence: computeSnapshotSequence(stateRows),
@@ -3857,6 +3859,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         return Option.none<OrchestrationThreadShell>();
       }
 
+      const hasPromptDebugSidecar =
+        Option.isSome(sessionRow) &&
+        sessionRow.value.providerName === "pi" &&
+        (yield* Effect.promise(() =>
+          promptDebugSidecarExists(promptDebugDir, threadRow.value.threadId),
+        ));
+
       return Option.some({
         id: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
@@ -3881,9 +3890,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         // `thread-upserted` shell-stream event, so omitting it here made the UI's
         // Prompt button appear on a fresh snapshot and vanish on the thread's
         // next event.
-        ...(Option.isSome(sessionRow) &&
-        sessionRow.value.providerName === "pi" &&
-        promptDebugSidecarExists(promptDebugDir, threadRow.value.threadId)
+        ...(hasPromptDebugSidecar
           ? { promptDebugPath: promptDebugSidecarPath(promptDebugDir, threadRow.value.threadId) }
           : {}),
         graphKey: threadRow.value.graphKey,

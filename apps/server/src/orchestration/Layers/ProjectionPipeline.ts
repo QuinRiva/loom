@@ -1799,11 +1799,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             if (settledTurnState === null) {
               return;
             }
-            const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            const existingTurns = yield* projectionTurnRepository.listRunningByThreadId({
               threadId: event.payload.threadId,
             });
             yield* Effect.forEach(
-              existingTurns.filter((turn) => turn.turnId !== null && turn.state === "running"),
+              existingTurns.filter((turn) => turn.turnId !== null),
               (turn) =>
                 turn.turnId === null
                   ? Effect.void
@@ -1824,13 +1824,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           // A new active turn supersedes any still-running turn on the same
           // thread — steering can open a new turn without the provider ever
           // completing the previous one.
-          const otherRunningTurns = yield* projectionTurnRepository.listByThreadId({
+          const otherRunningTurns = yield* projectionTurnRepository.listRunningByThreadId({
             threadId: event.payload.threadId,
           });
           yield* Effect.forEach(
-            otherRunningTurns.filter(
-              (turn) => turn.turnId !== null && turn.turnId !== turnId && turn.state === "running",
-            ),
+            otherRunningTurns.filter((turn) => turn.turnId !== null && turn.turnId !== turnId),
             (turn) =>
               turn.turnId === null
                 ? Effect.void

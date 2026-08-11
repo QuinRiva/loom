@@ -34,6 +34,18 @@ const makeRepositoryIdentityResolverTestLayer = (options: {
     }),
   ).pipe(Layer.provide(ProcessRunner.layer));
 
+const makeCountingProcessRunnerLayer = (calls: ProcessRunner.ProcessRunInput[]) =>
+  Layer.effect(
+    ProcessRunner.ProcessRunner,
+    Effect.gen(function* () {
+      const delegate = yield* ProcessRunner.ProcessRunner;
+      return ProcessRunner.ProcessRunner.of({
+        run: (input) =>
+          Effect.sync(() => calls.push(input)).pipe(Effect.andThen(delegate.run(input))),
+      });
+    }),
+  ).pipe(Layer.provide(ProcessRunner.layer));
+
 it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
   it.effect("normalizes equivalent GitHub remotes into a stable repository identity", () =>
     Effect.gen(function* () {
@@ -87,6 +99,30 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       );
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
+
+  it.effect("memoises the git top-level lookup for repeated resolves", () => {
+    const calls: ProcessRunner.ProcessRunInput[] = [];
+    const layer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make({ cacheCapacity: 16 }),
+    ).pipe(Layer.provide(makeCountingProcessRunnerLayer(calls)));
+
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-cache-key-test-",
+      });
+      yield* git(cwd, ["init"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:T3Tools/t3code.git"]);
+
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      yield* resolver.resolve(cwd);
+      yield* resolver.resolve(cwd);
+      yield* resolver.resolve(cwd);
+
+      expect(calls.filter((input) => input.args.at(-1) === "--show-toplevel")).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("returns null for non-git folders and repos without remotes", () =>
     Effect.gen(function* () {

@@ -85,6 +85,7 @@ import { provisionCliToken } from "./cli/cliToken.ts"; // loom:
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
+import * as RuntimePerformanceMonitor from "./diagnostics/RuntimePerformanceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 // loom: OrchestrationLayerOnSqlReadClient substitutes upstream's
 // `OrchestrationLayerLive` from ./orchestration/runtimeLayer.ts
@@ -384,6 +385,7 @@ const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.
   Layer.provideMerge(ProcessDiagnostics.layer),
   Layer.provideMerge(ProcessResourceMonitor.layer),
+  Layer.provideMerge(RuntimePerformanceMonitor.layer),
   Layer.provideMerge(TraceDiagnostics.layer),
   Layer.provideMerge(AnalyticsService.layer),
   Layer.provideMerge(ExternalLauncher.layer),

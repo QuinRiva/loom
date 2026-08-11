@@ -17,7 +17,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
@@ -239,7 +239,11 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const worker = yield* makeDrainableWorker((_trigger: void) => runPassSafely);
+  // COALESCING worker (not the queueing default): a payload-free trigger running
+  // an idempotent full sweep. Timer-armed today, so bursts are rare — but a
+  // reap pass shells out per worktree, so a startup pass overlapping the tick
+  // must collapse rather than queue. See `makeCoalescingWorker`.
+  const worker = yield* makeCoalescingWorker(runPassSafely);
 
   const start: WorktreeReaperShape["start"] = Effect.fn("start")(function* () {
     // Purely periodic — the fan-in reactor owns the prompt event-driven path;

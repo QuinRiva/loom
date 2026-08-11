@@ -641,7 +641,7 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
     }
 
     case "thread.attention.raise": {
-      yield* requireThread({
+      const attentionThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -664,6 +664,15 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
             "Attention 'awaiting_approval'/'awaiting_input' are derived from open requests and cannot be raised directly.",
         });
       }
+      // Unchanged-value guard. Every projector and reducer folds this event as
+      // set inclusion, so a raise of an already-set reason changes nothing —
+      // but it is a `WorkstreamDispatcher` trigger, so each one bought a full
+      // ~1.5s pass over every active thread (13,420 of them in one fan-in retry
+      // incident). Emit nothing when the flag is already up. Nothing depends on
+      // repeat delivery: the projections are idempotent and the only other
+      // consumer is the client timeline, where a duplicate "Attention raised"
+      // row is noise.
+      if (attentionThread.attention.includes(command.reason)) return [];
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({

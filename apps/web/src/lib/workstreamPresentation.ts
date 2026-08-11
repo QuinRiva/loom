@@ -3,6 +3,7 @@ import type {
   ContextMenuItem,
   ModelSelection,
   OrchestrationEvent,
+  ThreadFanInState,
   ThreadId,
   ThreadPlanLane,
 } from "@t3tools/contracts";
@@ -530,14 +531,17 @@ export const FAN_IN_CHIP_STYLES: Record<FanInChip["tone"], string> = {
 
 // THE single source of the settled fan-in vocabulary (label + chip tone +
 // timeline dot tone) so the card chip, graph badge, and lifecycle row agree.
-// Only the two SETTLED states have a shared label; "merging…" (a done child
+// Only the SETTLED states have a shared label; "merging…" (a done child
 // still folding in) and the reset-to-"none" case stay caller-specific.
+// `failed` shares the conflict palette: both mean "this branch was NOT merged
+// and a human must act", and neither may read as success.
 export const FAN_IN_SETTLEMENT: Record<
-  "completed" | "conflicted",
+  "completed" | "conflicted" | "failed",
   { readonly label: string; readonly chipTone: FanInChip["tone"]; readonly tone: LifecycleTone }
 > = {
   completed: { label: "merged", chipTone: "merged", tone: "emerald" },
   conflicted: { label: "merge conflict", chipTone: "conflict", tone: "amber" },
+  failed: { label: "fan-in failed", chipTone: "conflict", tone: "rose" },
 };
 
 /**
@@ -549,10 +553,10 @@ export const FAN_IN_SETTLEMENT: Record<
  */
 export function getFanInChip(thread: SidebarThreadSummary): FanInChip | null {
   if (thread.isolation !== "isolated" || thread.parentThreadId === null) return null;
-  if (thread.fanInState === "conflicted")
+  if (thread.fanInState === "conflicted" || thread.fanInState === "failed")
     return {
-      label: FAN_IN_SETTLEMENT.conflicted.label,
-      tone: FAN_IN_SETTLEMENT.conflicted.chipTone,
+      label: FAN_IN_SETTLEMENT[thread.fanInState].label,
+      tone: FAN_IN_SETTLEMENT[thread.fanInState].chipTone,
     };
   if (thread.fanInState === "completed")
     return { label: FAN_IN_SETTLEMENT.completed.label, tone: FAN_IN_SETTLEMENT.completed.chipTone };
@@ -962,22 +966,21 @@ function describeOutcome(payload: {
 
 // Reuses the shared `FAN_IN_SETTLEMENT` vocabulary (label + tone) that the card
 // chip and graph badge draw from; only "none" (a reset) is row-specific.
-function describeFanIn(state: "none" | "completed" | "conflicted"): LifecycleRowBody {
-  if (state === "completed")
-    return {
-      label: FAN_IN_SETTLEMENT.completed.label,
-      detail: "fan-in complete",
-      tone: FAN_IN_SETTLEMENT.completed.tone,
-      deepLink: false,
-    };
-  if (state === "conflicted")
-    return {
-      label: FAN_IN_SETTLEMENT.conflicted.label,
-      detail: "fan-in needs resolution",
-      tone: FAN_IN_SETTLEMENT.conflicted.tone,
-      deepLink: false,
-    };
-  return { label: "fan-in reset", detail: null, tone: "neutral", deepLink: false };
+const FAN_IN_ROW_DETAIL = {
+  completed: "fan-in complete",
+  conflicted: "fan-in needs resolution",
+  failed: "fan-in abandoned after an error — merge by hand or reopen the thread",
+} as const;
+
+function describeFanIn(state: ThreadFanInState): LifecycleRowBody {
+  if (state === "none")
+    return { label: "fan-in reset", detail: null, tone: "neutral", deepLink: false };
+  return {
+    label: FAN_IN_SETTLEMENT[state].label,
+    detail: FAN_IN_ROW_DETAIL[state],
+    tone: FAN_IN_SETTLEMENT[state].tone,
+    deepLink: false,
+  };
 }
 
 /**

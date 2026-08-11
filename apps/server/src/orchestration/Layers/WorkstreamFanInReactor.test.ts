@@ -3,10 +3,12 @@ import { describe, expect, it } from "@effect/vitest";
 const effectIt = it;
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
@@ -74,6 +76,21 @@ const shell = (
 // the lease is its atomicity, and a stub predicate would test nothing.
 const WorkspaceLeaseTestLive = Layer.effect(WorkspaceLease, makeWorkspaceLease);
 
+/** Stand-in for the driver error a git op raises against an unusable checkout. */
+class StubGitError extends Schema.TaggedErrorClass<StubGitError>()("StubGitError", {
+  detail: Schema.String,
+}) {}
+
+// Before committing a child's checkout the reactor probes whether it is still
+// on disk — a checkout that is GONE must not abort the disposition (that
+// missing guard is what turned one broken worktree into 13,410 identical
+// failures). These scenarios all use fictitious paths, so the probe is stubbed:
+// `present` for the ordinary cases, `missing` for the vanished-worktree case.
+const checkoutFs = (present: boolean) =>
+  Layer.succeed(FileSystem.FileSystem, {
+    exists: () => Effect.succeed(present),
+  } as never);
+
 interface Scenario {
   readonly child: OrchestrationThreadShell;
   readonly others: ReadonlyArray<OrchestrationThreadShell>;
@@ -86,6 +103,12 @@ interface Scenario {
    * cannot defend against.
    */
   readonly holdDuring?: { readonly onGitCall: string; readonly path: string };
+  /** The child's checkout is no longer on disk (a prior pass removed it). */
+  readonly childCheckoutGone?: boolean;
+  /** `commitAll` fails — the "unexpected per-child error" the failed state exists for. */
+  readonly commitFails?: boolean;
+  /** Dispatching this command type fails — e.g. the post-merge repoint. */
+  readonly dispatchFailsFor?: OrchestrationCommand["type"];
 }
 
 const runReactor = (scenario: Scenario) =>
@@ -103,7 +126,9 @@ const runReactor = (scenario: Scenario) =>
       streamDomainEvents: Stream.empty,
       subscribeDomainEvents: Effect.succeed(Stream.empty),
       dispatch: (command: OrchestrationCommand) =>
-        Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+        command.type === scenario.dispatchFailsFor
+          ? Effect.fail(new StubGitError({ detail: `dispatch refused for ${command.type}` }))
+          : Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
     } as never);
 
     const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
@@ -125,15 +150,21 @@ const runReactor = (scenario: Scenario) =>
     } as never);
 
     const gitLayer = Layer.succeed(GitWorkflowService, {
-      commitAll: (_cwd: string, subject: string) =>
-        record(gitCalls, `commit:${subject}`).pipe(
-          Effect.tap(() =>
-            scenario.holdDuring?.onGitCall === `commit:${subject}`
-              ? lease.hold(scenario.holdDuring.path, "test-late-process")
-              : Effect.void,
-          ),
-          Effect.as({ committed: true, commitSha: "sha" }),
-        ),
+      // A commit against a checkout that is no longer on disk throws in real
+      // life (`VcsUnsupportedOperationError` out of the driver's repo probe) —
+      // model that, or the vanished-checkout scenario cannot reproduce the loop.
+      commitAll: (cwd: string, subject: string) =>
+        scenario.commitFails === true ||
+        (scenario.childCheckoutGone === true && cwd === scenario.child.worktreePath)
+          ? Effect.fail(new StubGitError({ detail: `commitAll refused for ${subject} in ${cwd}` }))
+          : record(gitCalls, `commit:${subject}`).pipe(
+              Effect.tap(() =>
+                scenario.holdDuring?.onGitCall === `commit:${subject}`
+                  ? lease.hold(scenario.holdDuring.path, "test-late-process")
+                  : Effect.void,
+              ),
+              Effect.as({ committed: true, commitSha: "sha" }),
+            ),
       mergeWorktreeBranch: () =>
         record(gitCalls, "merge").pipe(
           Effect.tap(() =>
@@ -153,6 +184,7 @@ const runReactor = (scenario: Scenario) =>
       Layer.provide(gitLayer),
       Layer.provide(WorktreeMutationLockLive),
       Layer.provide(Layer.succeed(WorkspaceLease, lease)),
+      Layer.provide(checkoutFs(scenario.childCheckoutGone !== true)),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -225,6 +257,109 @@ describe("WorkstreamFanInReactor", () => {
         | undefined;
       expect(repoint?.worktreePath).toBe("/wt/parent");
       expect(repoint?.branch).toBe("main");
+    }),
+  );
+
+  // The 13,410-failure production loop, reproduced. A child whose checkout was
+  // already removed but whose meta still points at it: `commitAll` used to throw
+  // `VcsUnsupportedOperationError` and abort BEFORE `repointMeta`, and
+  // `repointMeta` clearing `worktreePath` is the ONLY thing that stops the
+  // deferred-removal branch rematching on the next pass.
+  it.effect("vanished child checkout: repoints instead of looping on commitAll", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        childCheckoutGone: true,
+      });
+      // Nothing was committed — there is no checkout to commit.
+      expect(gitCalls.some((call) => call.startsWith("commit:"))).toBe(false);
+      // The repoint landed, so the guard has nothing left to match.
+      const repoint = dispatched.find((c) => c.type === "thread.meta.update") as
+        | Extract<OrchestrationCommand, { type: "thread.meta.update" }>
+        | undefined;
+      expect(repoint?.worktreePath).toBe("/wt/parent");
+      // And it is a clean terminal disposition, not an error: no failure surfaced.
+      expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(false);
+      expect(fanInStates(dispatched)).not.toContain("failed");
+    }),
+  );
+
+  // The line between a fan-in failure and a CLEANUP failure. Once the merge has
+  // landed, `completed` is persisted and `thread.fanin-set` has already told the
+  // dispatcher to release dependents — so demoting the child to `failed` on a
+  // later cleanup error would claim the branch was never merged and re-block
+  // work that is already running. Deferred removal is wholly post-merge, so an
+  // input snapshot already at `completed` must survive any failure there.
+  // The same line, on the path the reviewer flagged: a merge that HAS landed in
+  // this pass. `completed` is dispatched, then the repoint fails — and the child
+  // must keep `completed`, because dependents may already be releasing on it.
+  it.effect("post-merge repoint failure: keeps `completed`, never demotes to `failed`", () =>
+    Effect.gen(function* () {
+      const { dispatched, gitCalls } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        dispatchFailsFor: "thread.meta.update",
+      });
+      expect(gitCalls).toContain("merge");
+      // This harness serves a frozen snapshot, so the pass can repeat the merge
+      // (live, the reactor's own `completed` write is projected inside the
+      // command transaction, so the next pass sees it and takes the
+      // deferred-removal branch instead). The invariant under test is the
+      // settlement, not the repeat count.
+      expect(fanInStates(dispatched)).toContain("completed");
+      expect(fanInStates(dispatched)).not.toContain("failed");
+      expect(
+        dispatched.some(
+          (c) =>
+            c.type === "thread.activity.append" &&
+            c.activity.kind === "workstream.fanin.cleanup-failed",
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("deferred-removal failure: keeps `completed`, never demotes to `failed`", () =>
+    Effect.gen(function* () {
+      const { dispatched } = yield* runReactor({
+        child: isolatedChild({ fanInState: "completed" }),
+        others: [parent],
+        commitFails: true,
+      });
+      // The fan-in outcome is untouched: no state write at all, and above all
+      // no `failed`.
+      expect(fanInStates(dispatched)).toEqual([]);
+      // …but the operator still hears about it, once, as a cleanup failure.
+      const activities = dispatched.filter(
+        (c) =>
+          c.type === "thread.activity.append" && c.activity.kind.startsWith("workstream.fanin"),
+      ) as ReadonlyArray<Extract<OrchestrationCommand, { type: "thread.activity.append" }>>;
+      expect(activities.map((c) => c.activity.kind)).toEqual(["workstream.fanin.cleanup-failed"]);
+      expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(true);
+    }),
+  );
+
+  // The other half: an unexpected error BEFORE the merge must record a TERMINAL
+  // state, or the next pass re-selects the same child and fails identically
+  // forever.
+  it.effect("unexpected failure: records terminal `failed`, and a failed child is skipped", () =>
+    Effect.gen(function* () {
+      const { dispatched } = yield* runReactor({
+        child: isolatedChild(),
+        others: [parent],
+        commitFails: true,
+      });
+      expect(fanInStates(dispatched)).toContain("failed");
+      expect(dispatched.some((c) => c.type === "thread.attention.raise")).toBe(true);
+
+      // A later pass over the persisted `failed` child does nothing at all: no
+      // git, no activity row, no attention raise. That is the loop, dead.
+      const second = yield* runReactor({
+        child: isolatedChild({ fanInState: "failed" }),
+        others: [parent],
+      });
+      expect(second.gitCalls).toEqual([]);
+      expect(second.dispatched).toEqual([]);
     }),
   );
 
@@ -349,6 +484,7 @@ describe("WorkstreamFanInReactor", () => {
           Layer.provide(gitLayer),
           Layer.provide(WorktreeMutationLockLive),
           Layer.provide(WorkspaceLeaseTestLive),
+          Layer.provide(checkoutFs(true)),
           Layer.provideMerge(NodeServices.layer),
         );
 
@@ -556,6 +692,7 @@ describe("WorkstreamFanInReactor", () => {
             Layer.provide(gitLayer),
             Layer.provide(WorktreeMutationLockLive),
             Layer.provide(WorkspaceLeaseTestLive),
+            Layer.provide(checkoutFs(true)),
             Layer.provideMerge(NodeServices.layer),
           );
 
@@ -648,6 +785,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -681,6 +819,90 @@ describe("WorkstreamFanInReactor", () => {
         const finalStates = fanInStates(yield* Ref.get(dispatched));
         expect(finalStates).toContain("conflicted");
         expect(finalStates).toContain("completed");
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    }),
+  );
+
+  // Review round 2: the cleanup breaker must not outlive the cleanup episode it
+  // was recorded for. A child whose post-merge cleanup failed is skipped only
+  // while it is still `completed`; reopening it (projection resets to `none`) and
+  // resubmitting carries NEW commits that must merge, so the SAME process has to
+  // pick it up again — a server restart is not an acceptable recovery.
+  it.effect("cleanup breaker expires on reopen: the resubmitted child merges again", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const gitCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+      const record = (tag: string) => Ref.update(gitCalls, (xs) => [...xs, tag]);
+      const repointFails = yield* Ref.make(true);
+      // Starts in the post-cleanup-failure shape: merged, but the worktree was
+      // never tidied away, so the deferred-removal branch keeps selecting it.
+      const childRef = yield* Ref.make<OrchestrationThreadShell>(
+        isolatedChild({ fanInState: "completed" }),
+      );
+      const events = yield* PubSub.unbounded<OrchestrationEvent>();
+
+      const engineLayer = Layer.succeed(OrchestrationEngineService, {
+        readEvents: () => Stream.empty,
+        streamDomainEvents: Stream.fromPubSub(events),
+        subscribeDomainEvents: Effect.succeed(Stream.fromPubSub(events)),
+        dispatch: (command: OrchestrationCommand) =>
+          Effect.flatMap(Ref.get(repointFails), (failing) =>
+            failing && command.type === "thread.meta.update"
+              ? Effect.fail(new StubGitError({ detail: "repoint refused" }))
+              : Ref.update(dispatched, (xs) => [...xs, command]).pipe(Effect.as({ sequence: 0 })),
+          ),
+      } as never);
+      const projectionLayer = Layer.succeed(ProjectionSnapshotQuery, {
+        getShellSnapshot: () =>
+          Effect.map(Ref.get(childRef), (child) => ({
+            snapshotSequence: 0,
+            projects: [],
+            goals: [],
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            threads: [child, parent],
+          })),
+      } as never);
+      const gitLayer = Layer.succeed(GitWorkflowService, {
+        commitAll: (_cwd: string, subject: string) =>
+          record(`commit:${subject}`).pipe(Effect.as({ committed: true, commitSha: "sha" })),
+        mergeWorktreeBranch: () =>
+          record("merge").pipe(Effect.as({ status: "merged", conflictPaths: [] })),
+        removeWorktree: () => record("removeWorktree"),
+        deleteBranch: () => record("deleteBranch"),
+      } as never);
+      const layer = WorkstreamFanInReactorLive.pipe(
+        Layer.provide(engineLayer),
+        Layer.provide(projectionLayer),
+        Layer.provide(gitLayer),
+        Layer.provide(WorktreeMutationLockLive),
+        Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const reactor = yield* WorkstreamFanInReactor;
+        yield* reactor.start();
+        yield* reactor.drain;
+        // The cleanup failed and the breaker is now armed for this child — no
+        // merge was attempted (this is the deferred-removal branch) and the
+        // fan-in outcome was left alone.
+        expect(yield* Ref.get(gitCalls)).not.toContain("merge");
+        expect(fanInStates(yield* Ref.get(dispatched))).toEqual([]);
+
+        // A human reopens the child and it resubmits: the projection reset lands
+        // it back at `done` + `fanInState: none`, and the repoint now works.
+        yield* Ref.set(childRef, isolatedChild());
+        yield* Ref.set(repointFails, false);
+        yield* PubSub.publish(events, {
+          type: "thread.plan-lane-set",
+          payload: { threadId: "child" as ThreadId, planLane: "done" },
+        } as OrchestrationEvent);
+        yield* reactor.drain;
+
+        // The new work merges in the SAME process — no restart needed.
+        expect(yield* Ref.get(gitCalls)).toContain("merge");
+        expect(fanInStates(yield* Ref.get(dispatched))).toContain("completed");
       }).pipe(Effect.scoped, Effect.provide(layer));
     }),
   );
@@ -729,6 +951,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -863,6 +1086,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
         Layer.provideMerge(NodeServices.layer),
       );
 
@@ -961,6 +1185,7 @@ describe("WorkstreamFanInReactor", () => {
         Layer.provide(gitLayer),
         Layer.provide(WorktreeMutationLockLive),
         Layer.provide(WorkspaceLeaseTestLive),
+        Layer.provide(checkoutFs(true)),
         Layer.provideMerge(NodeServices.layer),
       );
 

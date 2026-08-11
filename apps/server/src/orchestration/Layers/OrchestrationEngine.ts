@@ -63,6 +63,64 @@ const isOrchestrationCommandInvariantError = Schema.is(OrchestrationCommandInvar
  * the structural DB-lane work the queue-wait-vs-processing evidence it needs.
  */
 const SLOW_COMMAND_LOG_THRESHOLD_MS = 3_000;
+const SLOW_COMMAND_PROCESSING_LOG_THRESHOLD_MS = 250;
+const COMMAND_QUEUE_LOG_INTERVAL_MS = 60_000;
+const COMMAND_QUEUE_WAIT_BUCKETS_MS = [
+  0,
+  1,
+  2,
+  5,
+  10,
+  20,
+  50,
+  100,
+  250,
+  500,
+  1_000,
+  3_000,
+  10_000,
+  30_000,
+  Number.POSITIVE_INFINITY,
+] as const;
+
+type CommandAttribution = ReturnType<typeof commandToAggregateRef> & {
+  readonly commandType: OrchestrationCommand["type"];
+  readonly commandId: OrchestrationCommand["commandId"];
+};
+
+interface CommandQueueInterval {
+  commandCount: number;
+  queueWaitBuckets: number[];
+  queueWaitMaxMs: number;
+  maxQueueWaitCommand: CommandAttribution | null;
+  processingMaxMs: number;
+  maxProcessingCommand: CommandAttribution | null;
+}
+
+const makeCommandQueueInterval = (): CommandQueueInterval => ({
+  commandCount: 0,
+  queueWaitBuckets: COMMAND_QUEUE_WAIT_BUCKETS_MS.map(() => 0),
+  queueWaitMaxMs: 0,
+  maxQueueWaitCommand: null,
+  processingMaxMs: 0,
+  maxProcessingCommand: null,
+});
+
+const queueWaitPercentile = (interval: CommandQueueInterval, percentile: number): number => {
+  if (interval.commandCount === 0) return 0;
+  const target = Math.ceil(interval.commandCount * percentile);
+  let observed = 0;
+  for (const [index, count] of interval.queueWaitBuckets.entries()) {
+    observed += count;
+    if (observed >= target) {
+      const upperBound = COMMAND_QUEUE_WAIT_BUCKETS_MS[index];
+      return upperBound === undefined || !Number.isFinite(upperBound)
+        ? interval.queueWaitMaxMs
+        : upperBound;
+    }
+  }
+  return interval.queueWaitMaxMs;
+};
 
 interface CommandEnvelope {
   command: OrchestrationCommand;
@@ -123,6 +181,63 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+  let commandQueueInterval = makeCommandQueueInterval();
+
+  const recordCommandQueueTelemetry = (input: {
+    readonly attribution: CommandAttribution;
+    readonly queueWaitMs: number;
+    readonly processingMs: number;
+  }): void => {
+    commandQueueInterval.commandCount += 1;
+    const bucketIndex = COMMAND_QUEUE_WAIT_BUCKETS_MS.findIndex(
+      (upperBound) => input.queueWaitMs <= upperBound,
+    );
+    commandQueueInterval.queueWaitBuckets[
+      bucketIndex < 0 ? commandQueueInterval.queueWaitBuckets.length - 1 : bucketIndex
+    ]! += 1;
+    if (input.queueWaitMs >= commandQueueInterval.queueWaitMaxMs) {
+      commandQueueInterval.queueWaitMaxMs = input.queueWaitMs;
+      commandQueueInterval.maxQueueWaitCommand = input.attribution;
+    }
+    if (input.processingMs >= commandQueueInterval.processingMaxMs) {
+      commandQueueInterval.processingMaxMs = input.processingMs;
+      commandQueueInterval.maxProcessingCommand = input.attribution;
+    }
+  };
+
+  const logCommandQueueInterval = Effect.sync(() => {
+    const interval = commandQueueInterval;
+    commandQueueInterval = makeCommandQueueInterval();
+    return interval;
+  }).pipe(
+    Effect.flatMap((interval) =>
+      Effect.logInfo("orchestration command queue interval", {
+        intervalMs: COMMAND_QUEUE_LOG_INTERVAL_MS,
+        commandCount: interval.commandCount,
+        queueWaitP50Ms: queueWaitPercentile(interval, 0.5),
+        queueWaitP95Ms: queueWaitPercentile(interval, 0.95),
+        queueWaitP99Ms: queueWaitPercentile(interval, 0.99),
+        queueWaitMaxMs: interval.queueWaitMaxMs,
+        processingMaxMs: interval.processingMaxMs,
+        ...(interval.maxQueueWaitCommand === null
+          ? {}
+          : {
+              maxQueueWaitCommandType: interval.maxQueueWaitCommand.commandType,
+              maxQueueWaitCommandId: interval.maxQueueWaitCommand.commandId,
+              maxQueueWaitAggregateKind: interval.maxQueueWaitCommand.aggregateKind,
+              maxQueueWaitAggregateId: interval.maxQueueWaitCommand.aggregateId,
+            }),
+        ...(interval.maxProcessingCommand === null
+          ? {}
+          : {
+              maxProcessingCommandType: interval.maxProcessingCommand.commandType,
+              maxProcessingCommandId: interval.maxProcessingCommand.commandId,
+              maxProcessingAggregateKind: interval.maxProcessingCommand.aggregateKind,
+              maxProcessingAggregateId: interval.maxProcessingCommand.aggregateId,
+            }),
+      }),
+    ),
+  );
 
   const projectEventsOntoReadModel = (
     baseReadModel: OrchestrationReadModel,
@@ -250,6 +365,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ),
         );
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
+        // loom: a decider may legitimately decide a command is a NO-OP and emit
+        // nothing — the unchanged-value guards (e.g. raising an attention flag
+        // that is already up, whose event is a dispatcher trigger and so bought a
+        // full pass per redundant raise). Acknowledge at the current sequence:
+        // nothing was written, so there is no receipt to record and no read-model
+        // change to publish, and an idempotent caller must not see a failure.
+        if (eventBases.length === 0) {
+          return { sequence: commandReadModel.snapshotSequence };
+        }
         const committedCommand = yield* sql
           .withTransaction(
             Effect.gen(function* () {
@@ -342,7 +466,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
           const finishedAtMs = yield* Clock.currentTimeMillis;
           const queueWaitMs = Math.max(0, processingStartedAtMs - envelope.startedAtMs);
+          const processingMs = Math.max(0, finishedAtMs - processingStartedAtMs);
           const totalMs = Math.max(0, finishedAtMs - envelope.startedAtMs);
+          const attribution = {
+            commandType: envelope.command.type,
+            commandId: envelope.command.commandId,
+            ...aggregateRef,
+          };
+          recordCommandQueueTelemetry({ attribution, queueWaitMs, processingMs });
+          if (processingMs >= SLOW_COMMAND_PROCESSING_LOG_THRESHOLD_MS) {
+            yield* Effect.logWarning("orchestration command processing slow", {
+              ...attribution,
+              outcome,
+              queueWaitMs,
+              processingMs,
+              totalMs,
+            });
+          }
           if (totalMs >= SLOW_COMMAND_LOG_THRESHOLD_MS) {
             yield* Effect.logWarning("orchestration command slow", {
               commandType: envelope.command.type,
@@ -351,7 +491,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               aggregateId: aggregateRef.aggregateId,
               outcome,
               queueWaitMs,
-              processingMs: Math.max(0, finishedAtMs - processingStartedAtMs),
+              processingMs,
               totalMs,
             });
           }
@@ -437,6 +577,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const worker = Effect.forever(Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)));
   yield* Effect.forkScoped(worker);
+  yield* Effect.forkScoped(
+    Effect.forever(
+      Effect.sleep(COMMAND_QUEUE_LOG_INTERVAL_MS).pipe(Effect.andThen(logCommandQueueInterval)),
+    ),
+  );
   yield* Effect.logDebug("orchestration engine started").pipe(
     Effect.annotateLogs({ sequence: commandReadModel.snapshotSequence }),
   );
