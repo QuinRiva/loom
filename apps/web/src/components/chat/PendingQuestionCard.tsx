@@ -1,6 +1,6 @@
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilLineIcon } from "lucide-react";
-import { memo, useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState, type FocusEvent } from "react";
 
 import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
 import {
@@ -341,8 +341,29 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
           <div className="mt-2.5 space-y-1.5">
             {question.options.map((option) => {
               const isSelected = !usingCustomAnswer && selectedOptionLabels.includes(option.label);
-              const focusPreview = option.preview
-                ? () => setPreviewedOptionLabel(option.label)
+              // Switching the preview resizes the card, and the card is anchored to
+              // the BOTTOM of the viewport by the composer, so the pane below these
+              // rows growing drags the rows themselves upward. Nothing the POINTER
+              // does may therefore switch the preview:
+              //
+              //  - on hover it closes a feedback loop. A browser re-hit-tests under a
+              //    stationary pointer after a layout change, so the row that slides
+              //    under a resting cursor fires `mouseenter` with nobody moving the
+              //    mouse, which swaps again — the card oscillates until the user
+              //    moves away.
+              //  - on a mouse press (which focuses the row before `click` fires) the
+              //    row slides out from under the pointer between mousedown and
+              //    mouseup, so the browser dispatches the click on their common
+              //    ancestor instead and the option silently fails to select.
+              //
+              // Keyboard focus is safe — a resting pointer cannot move it — so the
+              // preview follows tab traversal, and pointer users switch it through
+              // the preview tabs or by selecting an option.
+              const previewOnKeyboardFocus = option.preview
+                ? (event: FocusEvent<HTMLButtonElement>) => {
+                    if (event.currentTarget.matches(":focus-visible"))
+                      setPreviewedOptionLabel(option.label);
+                  }
                 : undefined;
               return (
                 <button
@@ -351,6 +372,9 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
                   disabled={disabled}
                   onClick={() => {
                     onToggleOption(question, option.label);
+                    // Safe here in a way `onFocus` is not: the click has already
+                    // landed, so resizing the card cannot steal it.
+                    if (option.preview) setPreviewedOptionLabel(option.label);
                     // Selecting an option discards free text (shared draft rule),
                     // so the field folds back to its affordance with it.
                     setCustomAnswerOpened(false);
@@ -359,8 +383,7 @@ const PendingQuestionSection = memo(function PendingQuestionSection({
                     // mid-selection, so it waits for the explicit control below.
                     if (!question.multiSelect) onAnswered();
                   }}
-                  onMouseEnter={focusPreview}
-                  onFocus={focusPreview}
+                  onFocus={previewOnKeyboardFocus}
                   className={cn(
                     "group flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left outline-none transition-all duration-150 focus-visible:border-primary/40 focus-visible:ring-1 focus-visible:ring-primary/25",
                     isSelected

@@ -566,6 +566,45 @@ const PENDING_USER_INPUT_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
   },
 ];
 
+/**
+ * The hover-flicker case. Two things make it bite, and both are load-bearing:
+ *
+ *  - the previews are of **different heights**, so swapping them resizes the card;
+ *  - the card is **bottom-anchored** (see `anchor`), as the composer anchors it,
+ *    so it grows upward and the option rows translate under a resting cursor.
+ *
+ * A browser re-hit-tests under a stationary pointer after a layout change, so a
+ * row sliding under the cursor fires `mouseenter` with nobody moving the mouse.
+ * The height difference here is a few prose lines — comparable to the option-row
+ * pitch — which is what turns a single hop into a self-sustaining oscillation
+ * rather than something that settles after one swap.
+ */
+const PENDING_USER_INPUT_UNEVEN_PREVIEWS: ReadonlyArray<UserInputQuestion> = [
+  {
+    id: "uneven_previews",
+    header: "Preview heights",
+    question: "Which rollout should ship?",
+    multiSelect: false,
+    options: [
+      {
+        label: "Six-line preview",
+        description: "Six lines of preview markdown",
+        preview: `${Array.from({ length: 6 }, (_, index) => `Line ${index + 1} of the taller preview.`).join("\n\n")}\n`,
+      },
+      {
+        label: "Three-line preview",
+        description: "Three lines — a few rows shorter than its neighbour",
+        preview: `${Array.from({ length: 3 }, (_, index) => `Line ${index + 1} of the shorter preview.`).join("\n\n")}\n`,
+      },
+      {
+        label: "Tall preview",
+        description: "Long enough to hit the pane's scroll cap",
+        preview: `### Tall\n\n${Array.from({ length: 14 }, (_, index) => `- step ${index + 1} of a long plan that makes this preview far taller than its neighbours`).join("\n")}\n`,
+      },
+    ],
+  },
+];
+
 const PENDING_USER_INPUT_STAKES_AND_RECOMMENDED: ReadonlyArray<UserInputQuestion> = [
   {
     id: "title_model",
@@ -694,13 +733,21 @@ const PENDING_USER_INPUT_THREE_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
  */
 function PendingUserInputPreview({
   questions,
+  anchor = "top",
 }: {
   readonly questions: ReadonlyArray<UserInputQuestion>;
+  /** `bottom` reproduces the composer's pinned-to-the-bottom placement. */
+  readonly anchor?: "top" | "bottom";
 }) {
   const [drafts, setDrafts] = useState<Record<string, UserInputAnswerDraft>>({});
 
   return (
-    <div className="mx-auto w-full min-w-0 max-w-3xl p-6">
+    <div
+      className={cn(
+        "mx-auto w-full min-w-0 max-w-3xl p-6",
+        anchor === "bottom" && "flex h-[85vh] flex-col justify-end",
+      )}
+    >
       <div className="overflow-hidden rounded-[19px] border border-border/65">
         <PendingQuestionCard
           pendingUserInput={{
@@ -743,6 +790,7 @@ function pendingUserInputFixture(
   title: string,
   questions: ReadonlyArray<UserInputQuestion>,
   description: string,
+  anchor: "top" | "bottom" = "top",
 ): PreviewFixture {
   return {
     id,
@@ -750,7 +798,7 @@ function pendingUserInputFixture(
     description,
     // Keyed by fixture id: switching fixtures renders the same component type, so
     // without it one fixture's answers would carry into the next.
-    render: () => <PendingUserInputPreview key={id} questions={questions} />,
+    render: () => <PendingUserInputPreview key={id} questions={questions} anchor={anchor} />,
   };
 }
 
@@ -957,7 +1005,14 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "pending-user-input-previews",
         "Single-select with markdown previews",
         PENDING_USER_INPUT_QUESTIONS,
-        "Hovering or focusing an option swaps the bordered preview pane. Wide tables and long code fences must stay inside the panel and scroll rather than blowing it out; the option without a preview looks exactly as it does today.",
+        "Focusing an option or clicking a preview tab swaps the bordered preview pane — hovering deliberately does not (see the flicker fixture below). Wide tables and long code fences must stay inside the panel and scroll rather than blowing it out; the option without a preview looks exactly as it does today.",
+      ),
+      pendingUserInputFixture(
+        "pending-user-input-uneven-previews",
+        "Uneven preview heights, bottom-anchored",
+        PENDING_USER_INPUT_UNEVEN_PREVIEWS,
+        "The hover-flicker case: previews of very different heights in a card pinned to the bottom of its container, as the composer pins it. Park the cursor on an option row and leave it there — the option rows must not move and the preview must not oscillate.",
+        "bottom",
       ),
       pendingUserInputFixture(
         "pending-user-input-stakes-recommended",
