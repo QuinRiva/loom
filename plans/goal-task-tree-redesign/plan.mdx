@@ -1,0 +1,240 @@
+---
+manager_sessions:
+  - id: 3ecbdd03-7cf5-478b-90bd-2ab556a9e0a2
+    role: plan
+    authored_at: 2026-08-11T14:25:55.767Z
+---
+
+# Goal task trees: declarative rewrite + guidance redesign
+
+Every thread with a goal carries a task tree that is supposed to be the living, at-a-glance record of the plan. In practice the trees degrade into long flat append-only lists of stale journal entries. This plan redesigns how agents manage the tree: the primary mutation becomes a **single declarative whole-tree rewrite** (the agent submits the revised tree as the same markdown it reads), the surviving targeted ops shrink to the two that concurrency actually needs, every mutation echoes the resulting tree back, and the injected guidance is rewritten around shape and cadence rather than tool mechanics.
+
+**Done means:** an agent can restructure a 30-item flat tree into nested themes in ONE tool call, preserving ids and done-state of retained tasks; `goal_task_list` output fed back verbatim to the rewrite tool is a no-op; the system-prompt injection tells agents what a good tree looks like and when to restructure; existing databases (including historical `goal.task-deleted` events) replay identically.
+
+<Callout tone="decision">
+No backwards compatibility is kept on command shapes or tool contracts (prototype rules; repo AGENTS.md). The one thing that must survive unchanged is **event replay**: the in-memory read model folds the full event log from sequence 0 on every boot (`OrchestrationEngine.ts` line ~180), so historical event types stay decodable and projectable. That is durable-history replayability, not a compat shim — the *command* surface for them is deleted.
+</Callout>
+
+## Evidence: how trees actually degrade
+
+All numbers below are measured from the live cockpit store (`~/.t3/cockpit/userdata/state.sqlite`, read-only copy, 2026-08-25).
+
+<Table
+  columns={["Measure", "Value", "Reading"]}
+  rows={[
+    ["Goals with live tasks", "107", ""],
+    ["…of which fully flat (zero nesting)", "92 (86%)", "nesting is the exception, not the rule"],
+    ["Task creates, total", "1,065", ""],
+    ["…created with a parent", "136 (13%)", "and most of those come from one manual rebuild"],
+    ["Task updates, total", "1,029", ""],
+    ["…that set done", "855", "children do mark their tasks done"],
+    ["…that set text", "373", ""],
+    ["…that set position", "0", "the reorder parameter has never been used, ever"],
+    ["Task deletes, total", "42", "31 of them in a single restructuring episode"],
+    ["Avg / max task text length", "198 / 1,117 chars", "tasks are journal entries, not work items"],
+    ["Writes via the t3 goal CLI or web UI", "0", "agents are the only writers; the web panel is read-only"],
+  ]}
+/>
+
+Three degradation patterns show up in the real trees:
+
+**1. Flat append-only growth with journal-entry tasks.** The `april-group-onboarding-continuation` goal is typical: 50 top-level siblings, zero nesting, appended chronologically over five weeks. Many "tasks" are actually decisions, findings, or status notes — including an exact-duplicate pair:
+
+<Code
+  language="markdown"
+  caption="Excerpt of a real degraded tree (goal cf563f3a, 50 flat items). Note the status-note 'tasks' and the verbatim duplicate."
+  code={"- [x] CROSS_FIELD_DRIFT narrative mis-attachment — FILED AIT-30 (confirmed; 32/34 rows). NB: PoC-branch-on…\n- [x] Major rebuild: apply consolidated_adjudications overlay + provenance + tooltips + presentation fixes…\n- [x] Major rebuild: apply consolidated_adjudications overlay + provenance + tooltips + presentation fixes…\n- [ ] Solace commencement date adjudicated: visual read of the scanned PDF (19/11/2025 struck in red, 8/12…\n- [ ] Round-3 finding: published report's F&P \"stale note\" card (Moderate, \"16 in lease + 20 on monthly Li…\n- [ ] Reply to Paul owed: confirm outstanding list (his \"only guarantees & insurances\" undercounts — also…\n"}
+/>
+
+**2. Restructuring is structurally impossible, so it never happens.** `goal_task_update` supports only `text`/`done`/`position` — there is no reparent (deliberately excluded "for MVP" to avoid cycles; see the comment on `GoalTaskUpdateCommand` in `packages/contracts/src/orchestration.loom.ts`). The one observed restructuring in the entire event log (thread `2988bd1d`, goal `694c3e87`) happened only because the human complained, and the agent had to say:
+
+<Callout tone="risk">
+"It does support nesting (`goal_task_add` takes a `parentTaskId`). **Existing tasks can't be re-parented though, so I'll rebuild**: themed parents, re-create items underneath (merging a few near-duplicates), then delete the flat originals." — the agent then spent **79 events (33 creates, 31 deletes, 15 done-marks) over ~4.5 minutes** to turn 31 flat items into 6 themed branches, losing every task id and creation timestamp in the process.
+</Callout>
+
+**3. Incentives point the wrong way.** Appending a flat task costs one call. Placing it correctly costs a `goal_task_list` round-trip plus id bookkeeping. Restructuring costs dozens of calls. The only steering is a one-shot snapshot injected at session spawn (`activeGoalContextInstruction`, `ProviderCommandReactor.ts` ~line 194) that lists tool names but says nothing about what a good tree looks like, when to restructure, or that nesting is expected. Mutating tools return `"Added task <id>"` — the agent never sees the mess it is accreting.
+
+## The current chain (what exists today)
+
+<Mermaid
+  caption="Write path today. Every box on the agent row is one HTTP round-trip per task touched."
+  source={"flowchart LR\n  subgraph agent [Agent tools — pi extension]\n    A1[goal_task_add]\n    A2[goal_task_update]\n    A3[goal_task_delete]\n    A4[goal_task_list]\n  end\n  H[GoalTaskHttp.ts] --> B[goalTaskCommands.ts builders]\n  A1 --> H\n  A2 --> H\n  A3 --> H\n  B --> D[decider.loom.ts]\n  D --> E[(orchestration_events)]\n  E --> P1[projector.loom.ts in-memory]\n  E --> P2[ProjectionPipeline.ts sqlite]\n  P2 --> W[GoalTasksPanel — read-only]\n  P1 --> S[prompt snapshot at spawn]\n"}
+/>
+
+Facts that shape the design:
+
+- **Read format is already canonical markdown.** `renderGoalTaskTree` (`apps/server/src/orchestration/goalTaskRender.ts`) renders `- [x] text (id)` with 2-space indenting, and that exact shape is what the prompt injection, `goal_task_list`, and `t3 goal show` all emit.
+- **Agents are the only writers.** Every one of the 2,136 task events came through the HTTP tools (`server:goal-task-*` command ids). The CLI has never dispatched a task command; the web panel renders only. Agent ergonomics are the entire game.
+- **Task ids are pure mutation addresses.** Nothing references a `GoalTaskId` outside the task tables themselves — no thread↔task assignment, no cross-aggregate FK. Ids exist to address mutations and to keep diffing stable.
+- **Both projectors flatten-mutate-rebuild already** (`goalTaskTree.ts` `flattenGoalTasks`/`buildGoalTaskTree`), so a wholesale replace is the *easy* case for them, not a new pattern.
+
+## Design
+
+### The centre: `goal_tasks_rewrite` — read format = write format
+
+The highest-leverage change is making the whole revised tree a single submission in the exact markdown the agent already reads. Models are extremely good at emitting an edited markdown checklist; they are terrible at sequencing dozens of id-addressed micro-ops. Restructure, merge, reorder, mark-done, prune, and nest all become one edit of one string.
+
+<Endpoint
+  method="POST"
+  path="/provider-tools/goal/tasks/rewrite"
+  summary="goal_tasks_rewrite — declaratively replace this thread's goal task tree"
+  params={[
+    { name: "markdown", in: "body", type: "string", required: true },
+  ]}
+  responses={[
+    { status: "200", description: "Applied. Returns the rendered resulting tree plus a change summary (added / edited / moved / removed counts)." },
+    { status: "400", description: "Empty submission, unparseable line, or duplicate id — nothing applied (all-or-nothing)." },
+  ]}
+>
+  Submit the complete revised tree as an indented markdown checklist — the same `- [x] text (id)` form that `goal_task_list` returns. Lines carrying an `(id)` of an existing task are that task (text, done, parent, and order updated to match; `createdAt` preserved); lines without one are new tasks; existing tasks absent from the submission are deleted. Nesting comes from indentation, so a cycle is unrepresentable.
+</Endpoint>
+
+Parse rules (deliberately tolerant on whitespace, strict on meaning):
+
+- A task line is `-` or `*`, optional `[ ]`/`[x]`/`[X]` checkbox (absent ⇒ open), text, optional trailing `(uuid)`. Two spaces of indent per level; tabs count as one level. Blank lines ignored; any other line shape is a 400 naming the offending line.
+- Depth binds a line to the nearest shallower preceding line as its parent. Positions are assigned 0..n within each sibling group from document order — `position` becomes an output of the parse, never an input the agent thinks about.
+- A trailing `(uuid)` that matches an existing task id in this goal marks the line as that task. A well-formed uuid that matches nothing is a 400 (it is almost certainly a stale read — re-read and retry); non-uuid parenthetical text is just text.
+- The whole submission is validated then applied atomically. An empty submission is rejected — wiping the tree must be impossible to do by accident.
+
+**Round-trip identity is the contract's acceptance test:** parsing the output of `renderGoalTaskTree` must reproduce the flat task list exactly, so a `goal_task_list` → edit → `goal_tasks_rewrite` loop with no edits applies zero changes.
+
+### The surviving surface (4 tools, same count as today, capability massively up)
+
+<Table
+  columns={["Tool", "Today", "After"]}
+  rows={[
+    ["goal_task_list", "read; returns rendered tree + node array", "unchanged"],
+    ["goal_task_add", "append one task (optional parent, optional position)", "kept minus position — the cheap, race-free append for one discovered item"],
+    ["goal_task_update", "text / done / position by id", "kept as text / done by id — the child's 'mark my own task done' op; position deleted (never used once in 1,029 updates)"],
+    ["goal_task_delete", "delete task + subtree by id", "DELETED — a rewrite without the line is the delete"],
+    ["goal_tasks_rewrite", "—", "NEW — declarative whole-tree replace, the primary structural mutation"],
+  ]}
+/>
+
+Why keep the two targeted ops at all, when rewrite subsumes them? Concurrency. The tree is shared: an orchestrator and several children write to the same goal, and rewrite is last-write-wins over the whole tree. The two ops that children legitimately fire mid-flight — *append a discovered item* and *mark my own task done* (855 of 1,029 observed updates) — stay as targeted, conflict-free commands so a parent's rewrite and a child's done-mark rarely collide. Rewrite itself stays LWW with no revision token: writes are rare (~20 mutations per goal over its lifetime), the loss window is seconds wide, and the guidance (below) prescribes read-then-rewrite. If real losses show up, an optimistic `baseRevision` can be added later; building it now is speculative surface.
+
+### Every mutation echoes the tree
+
+All three mutating tools stop returning `"Added task <id>."` and instead return the **full rendered tree** (same string as `goal_task_list`) plus a one-line change summary. This is the cheapest behavioural lever in the whole design: the agent sees the flat mess it is accreting at the exact moment it appends to it, sees the ids it needs for a follow-up rewrite without a read round-trip, and never operates on a stale mental model of the tree. Token cost is the tree size (~0.5–3 KB typical) per mutation, paid only when mutating.
+
+### Events, decider, projectors
+
+One new command and one new event; one command deleted; one field deleted. Ids for new tasks are minted at the HTTP edge (existing pattern — the decider stays deterministic).
+
+<Code
+  language="ts"
+  filename="packages/contracts/src/orchestration.loom.ts (shape sketch)"
+  code={"// NEW — carries the fully-resolved flat tree (ids minted at the edge,\n// createdAt copied from the existing task for retained ids, else now).\nconst GoalTasksRewriteCommand = Schema.Struct({\n  type: Schema.Literal(\"goal.tasks.rewrite\"),\n  commandId: CommandId,\n  goalId: GoalId,\n  tasks: Schema.Array(Schema.Struct({\n    taskId: GoalTaskId,\n    parentTaskId: Schema.NullOr(GoalTaskId),\n    text: TrimmedNonEmptyString,\n    done: Schema.Boolean,\n    position: NonNegativeInt,\n    createdAt: IsoDateTime,\n  })),\n  createdAt: IsoDateTime,\n});\n// Event `goal.tasks-rewritten` carries the same list + rewrittenAt.\n\n// DELETED: GoalTaskDeleteCommand (goal.task.delete)\n// SHRUNK:  GoalTaskUpdateCommand loses `position`\n// KEPT (replay only, no producer): goal.task-deleted event schema\n"}
+/>
+
+- **Decider** (`decider.loom.ts`): one new case. Invariants: goal active (`requireGoalActive`), submitted ids unique, every `parentTaskId` present in the submission and preceding its children (the parser guarantees this by construction; the decider re-checks because commands are a public seam), list non-empty. Emits `goal.tasks-rewritten`. The `goal.task.delete` case is deleted.
+- **In-memory projector** (`projector.loom.ts`): `goal.tasks-rewritten` is the easy case — `updateGoalTasks(goal, at, () => payload.tasks)`. The `goal.task-deleted` case **stays** (replay of the 42 historical events).
+- **Sqlite projector** (`ProjectionPipeline.ts`): upsert every submitted task; mark every live task absent from the submission as deleted. `goal.task-deleted` handling stays for replay.
+- Payload size is bounded and fine: a 63-task tree (the largest observed) is ~16 KB of event payload per rewrite.
+
+### Guidance redesign
+
+The injection (`activeGoalContextInstruction`) is rewritten around **shape and cadence**, not tool mechanics. Draft for the root/owner variant (final wording is the implementing coder's to polish, content is settled):
+
+<Code
+  language="text"
+  filename="ProviderCommandReactor.ts — activeGoalContextInstruction, root variant (draft)"
+  code={"Active goal `<id>` (<slug>): <title>\nObjective: <description>\n\nCurrent tasks:\n<tree>\n\nThis task tree is the human's at-a-glance view of the plan — keep it shaped and current:\n- Tasks are short imperative work items (aim for a dozen words). Decisions, findings,\n  and status notes belong in reports or the goal description, never as tasks.\n- Nest. Top-level items are the phases/themes of the goal (aim for 7 or fewer);\n  concrete work hangs under them. A flat list past ~8 items is overdue for restructuring.\n- Update at the seams: when you plan or re-plan, when delegated work lands, when scope changes.\n- This snapshot is not refreshed; goal_task_list reads the live tree. goal_task_add appends\n  one item; goal_task_update marks done / renames. The moment the tree's shape stops matching\n  the plan, rewrite it in ONE call with goal_tasks_rewrite: submit the whole revised tree as\n  the same markdown you read, keeping the (id) markers on every task you retain.\n"}
+/>
+
+The child-background variant keeps its framing and adds ownership steering: *mark your OWN task done with `goal_task_update`; record discovered actionable work with `goal_task_add` nested under the relevant parent; leave whole-tree restructuring to the tree's owner unless your brief says otherwise.* The tool stays resident for all roles (a solo root leaf legitimately restructures its own goal); ownership is steered by guidance, not enforcement.
+
+Tool descriptions / `promptSnippet` / `promptGuidelines` in `providerToolDefs.ts` are rewritten to match — `goal_tasks_rewrite` gets the "primary structural mutation" framing, `goal_task_add`/`goal_task_update` get "targeted, concurrency-safe" framing, and the never-used `position` parameter language disappears.
+
+## Rejected alternatives
+
+- **Richer imperative ops (reparent/move/merge verbs).** Fixes the structural gap but not the behavioural one: cleaning up a 30-item tree still costs ~30 id-addressed calls, and the evidence says agents do not restructure even when each op is cheap (one restructuring episode in 2,136 events, and only under human protest). Also adds decider cycle-validation that the declarative form makes unrepresentable. Rewrite subsumes it at lower total surface.
+- **Store the tree as one markdown blob on the goal (maximum simplification).** Genuinely attractive line-count-wise, but it destroys per-task identity: the child's targeted "mark mine done" becomes a full-blob LWW write (real conflict exposure, since done-marks are 80% of all updates), the web panel loses stable keys/timestamps, and the entire existing projection/render chain gets rewritten instead of reused. The declarative *interface* over the structured *store* keeps the good half of both.
+- **Per-turn tree re-injection instead of better tools.** An ongoing token tax on every turn of every goal-bearing thread to solve staleness that `goal_task_list` plus mutation echoes already solve at point of use.
+- **Thread↔task assignment links.** Richer model, real uses conceivable (auto-done on fan-in), but it adds schema and lifecycle surface without touching the degradation mechanism. Defer until the rewrite loop proves out.
+- **A server-side "tree janitor" agent that periodically restructures.** A background mutator of a human-facing artefact is unpredictable and un-attributable; the fix belongs in the hands of the agent that owns the plan.
+
+## Work packages
+
+Decomposed for independent coder threads; WP1 → WP2 is the only hard ordering. Real files named throughout.
+
+<FileTree
+  title="Change map"
+  entries={[
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "WP1: +goal.tasks.rewrite command, +goal.tasks-rewritten event; −goal.task.delete command; update command loses position; task-deleted EVENT schema kept for replay" },
+    { path: "apps/server/src/orchestration/decider.loom.ts", change: "modified", note: "WP1: +rewrite case (invariants above); −goal.task.delete case" },
+    { path: "apps/server/src/orchestration/projector.loom.ts", change: "modified", note: "WP1: +tasks-rewritten (wholesale replace); task-deleted case retained" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionPipeline.ts", change: "modified", note: "WP1: +tasks-rewritten (upsert submitted, delete absent); task-deleted retained" },
+    { path: "apps/server/src/orchestration/goalTaskCommands.ts", change: "modified", note: "WP1: +buildGoalTasksRewriteCommand; −delete builder; update builder loses position" },
+    { path: "apps/server/src/orchestration/goalTaskMarkdown.ts", change: "added", note: "WP2: parse markdown → flat list; diff against current tree; single module, pure functions" },
+    { path: "apps/server/src/mcp/GoalTaskHttp.ts", change: "modified", note: "WP2: +rewrite handler; −delete handler; all mutation responses return rendered tree + change summary" },
+    { path: "apps/server/src/mcp/toolPaths.ts", change: "modified", note: "WP2: +goal_tasks_rewrite path, add to LEAF_CORE_PROVIDER_TOOLS; −goal_task_delete" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "WP2+WP3: +rewrite def; −delete def; −position params; all goal tool descriptions rewritten" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "WP3: activeGoalContextInstruction rewritten (root + child variants, drafts above)" },
+    { path: "apps/server/src/cli/goal.ts", change: "modified", note: "WP4: −task delete subcommand; +task rewrite (markdown from --file/stdin); rest unchanged" },
+    { path: "apps/web/src/components/GoalTasksPanel.tsx", change: "modified", note: "WP4: doc-comment only — panel renders the same projection, no behavioural change" },
+  ]}
+/>
+
+**WP1 — contracts + decider + projectors** (the event-sourced core). Includes decider/projector tests in the repo's existing colocated pattern (`decider.*.test.ts`) — justified departure from tests-are-rare: this is the replay-deterministic core, and a wrong projector silently corrupts every goal on the next boot. Must include a replay test folding a legacy `goal.task-deleted` event stream.
+
+**WP2 — markdown module + HTTP tool + tool defs.** The parser/diff is pure logic with one unit test that matters: **round-trip identity** (`parse(renderGoalTaskTree(tree))` reproduces the flat list; a no-edit rewrite emits an event whose application is idemposition-identical). Handler wiring follows the existing `GoalTaskHttp.ts` pattern (`resolveActiveGoal`, edge id-minting, `server:` command ids).
+
+**WP3 — guidance.** Injection text (both variants) and the tool-def prose. No logic.
+
+**WP4 — CLI + web touch-ups.** Small; can ride with WP2 or WP3.
+
+## Verification
+
+- `vp check` and `vp run typecheck` pass (repo gate).
+- Unit: round-trip identity test (WP2); decider/projector cases incl. legacy-event replay (WP1).
+- **Live end-to-end via the dev-verify recipe** (`docs/dev-site-testing.md`): seed a workstream, give the thread's goal a flat multi-item tree, prompt the agent to restructure it, and confirm (a) it reaches for `goal_tasks_rewrite` unprompted, (b) one call produces the nested tree in `GoalTasksPanel` with done-state preserved, (c) the mutation response carried the rendered tree.
+- Boot the server against a copy of the real cockpit store and diff `t3 goal show` output for goal `694c3e87` before/after — replay equivalence on real history.
+
+<Checklist
+  items={[
+    { id: "one-call", label: "30-item flat tree → nested themes in ONE tool call, ids + done-state preserved" },
+    { id: "roundtrip", label: "goal_task_list output resubmitted verbatim is a zero-change no-op" },
+    { id: "echo", label: "add / update / rewrite responses all return the rendered tree" },
+    { id: "guidance", label: "injection carries shape + cadence guidance in both variants" },
+    { id: "replay", label: "existing DB with historical goal.task-deleted events boots and projects identically" },
+  ]}
+/>
+
+## Risks
+
+- **Concurrent rewrite loses a racing done-mark** (LWW). Bounded: the racing child re-marks or the parent sees it at fan-in; targeted ops keep the common concurrent writes off the rewrite path. Escalation path (optional `baseRevision`) named but deliberately not built.
+- **Agents drop `(id)` markers when re-emitting the tree**, turning retained tasks into new ones (fresh ids, lost `createdAt`; done-state still survives via the checkbox). Mitigated by guidance ("keep the (id) markers") and by the strict unknown-uuid 400 catching stale reads. Accepted residual: `createdAt` loss on id-dropped lines.
+- **Behavioural bet:** the thesis is that one-call rewriting plus visible tree echoes plus shape guidance actually changes agent behaviour mid-conversation. The evidence supports it (the observed agent *wanted* to restructure and was blocked by cost), but if trees still degrade, the next lever is a just-in-time nudge in mutation responses — cheap to add onto this design.
+
+<QuestionForm
+  questions={[
+    {
+      id: "nudge",
+      title: "Add a just-in-time restructure hint to mutation responses?",
+      mode: "single",
+      options: [
+        { id: "no", label: "No — rendered-tree echo + injection guidance only", recommended: true, detail: "Keep the surface minimal; add the nudge later if trees still degrade. The echo already makes the mess visible." },
+        { id: "yes", label: "Yes — one appended line when the tree has 8+ open top-level items", detail: "e.g. 'This tree looks flat/overgrown — consider one goal_tasks_rewrite call.' Fires exactly at the failure moment; costs a sentence." },
+      ],
+    },
+    {
+      id: "child-rewrite",
+      title: "Should child threads be blocked from goal_tasks_rewrite, or steered by guidance only?",
+      mode: "single",
+      options: [
+        { id: "guidance", label: "Guidance only (proposed)", recommended: true, detail: "A solo root leaf legitimately restructures its own goal; ownership enforcement adds a role-conditional tool surface for a conflict we have never observed." },
+        { id: "enforce", label: "Enforce: reject rewrite from threads with a parentThreadId", detail: "Hard guarantee the orchestrator owns structure; costs an error path and blocks the solo-leaf case." },
+      ],
+    },
+    {
+      id: "text-match",
+      title: "For rewrite lines missing an (id): match existing tasks by exact text as a fallback?",
+      mode: "single",
+      options: [
+        { id: "id-only", label: "Id-only matching (proposed)", recommended: true, detail: "Predictable; a dropped id means a new task id but the checkbox still preserves done-state. Text matching risks silently merging genuine duplicates the agent meant to keep distinct." },
+        { id: "text-fallback", label: "Exact-text fallback", detail: "Preserves createdAt when agents forget ids, at the cost of occasional surprising matches." },
+      ],
+    },
+  ]}
+/>
