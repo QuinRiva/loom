@@ -37,6 +37,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   isStreaming: Schema.Boolean,
   reasoningText: Schema.optional(Schema.String),
   reasoningStreaming: Schema.optional(Schema.Boolean),
+  reasoningMs: Schema.optional(Schema.Number),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

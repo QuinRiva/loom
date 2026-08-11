@@ -917,13 +917,21 @@ const make = Effect.gen(function* () {
 
   // Reasoning (thinking) traces always stream live, independent of
   // enableAssistantStreaming: live reasoning is the feature's value and also
-  // direct evidence the agent is actively working. `reasoningActiveByMessageId`
-  // tracks which messages still have an open reasoning stream so completion is
-  // dispatched exactly once.
-  const reasoningActiveByMessageId = yield* Cache.make<MessageId, boolean>({
+  // direct evidence the agent is actively working. `reasoningTimingByMessageId`
+  // tracks the message's reasoning burst state: `openedAt` is the wall clock of
+  // the burst's first delta while a burst is open (null between bursts, so it
+  // doubles as the "is a burst still open" flag that makes completion fire
+  // exactly once), and `totalMs` accumulates the spans of closed bursts. That
+  // total is the only honest source for "Thought for Xs": the message's own
+  // createdAt/updatedAt measure the message, and in the durable record they
+  // collapse to the single finalize instant.
+  const reasoningTimingByMessageId = yield* Cache.make<
+    MessageId,
+    { openedAt: number | null; totalMs: number }
+  >({
     capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
-    lookup: () => Effect.succeed(false),
+    lookup: () => Effect.succeed({ openedAt: null, totalMs: 0 }),
   });
 
   // v2 ephemeral reasoning: accumulate all reasoning chunks for a message across
@@ -1150,6 +1158,28 @@ const make = Effect.gen(function* () {
       Effect.map((chunks) => Option.getOrElse(chunks, () => [] as string[]).join("")),
     );
 
+  const readReasoningTiming = (messageId: MessageId) =>
+    Cache.getOption(reasoningTimingByMessageId, messageId).pipe(
+      Effect.map(Option.getOrElse(() => ({ openedAt: null as number | null, totalMs: 0 }))),
+    );
+
+  // Close an open reasoning burst at `createdAt`, folding its span into the
+  // message's accumulated thinking time. Returns the new total, or `null` when
+  // no burst was open (nothing to close, nothing to announce), so both the
+  // transient complete and the durable event carry the same server-computed
+  // number.
+  const closeReasoningBurst = (messageId: MessageId, createdAt: string) =>
+    Effect.gen(function* () {
+      const timing = yield* readReasoningTiming(messageId);
+      if (timing.openedAt === null) {
+        return null;
+      }
+      const span = Date.parse(createdAt) - timing.openedAt;
+      const totalMs = timing.totalMs + (Number.isFinite(span) ? Math.max(0, span) : 0);
+      yield* Cache.set(reasoningTimingByMessageId, messageId, { openedAt: null, totalMs });
+      return totalMs;
+    });
+
   // v2 ephemeral reasoning delta: accumulate the chunk, mark the burst open, and
   // (in streaming delivery mode) push it onto the transient ReasoningStreamBus
   // for live display. NO domain event / event-store write / projection pass.
@@ -1160,6 +1190,7 @@ const make = Effect.gen(function* () {
     messageId: MessageId;
     turnId?: TurnId;
     delta: string;
+    createdAt: string;
     liveStreaming: boolean;
   }) =>
     Effect.gen(function* () {
@@ -1168,7 +1199,15 @@ const make = Effect.gen(function* () {
         ...Option.getOrElse(existing, () => [] as string[]),
         input.delta,
       ]);
-      yield* Cache.set(reasoningActiveByMessageId, input.messageId, true);
+      // First delta of a burst opens it; deltas inside an open burst leave the
+      // start alone, so the gap a paused burst spent answering is not counted.
+      const timing = yield* readReasoningTiming(input.messageId);
+      if (timing.openedAt === null) {
+        yield* Cache.set(reasoningTimingByMessageId, input.messageId, {
+          openedAt: Date.parse(input.createdAt),
+          totalMs: timing.totalMs,
+        });
+      }
       yield* Cache.invalidate(reasoningPersistedByMessageId, input.messageId);
       if (input.liveStreaming) {
         yield* reasoningStreamBus.publish({
@@ -1191,16 +1230,16 @@ const make = Effect.gen(function* () {
     createdAt: string;
   }) =>
     Effect.gen(function* () {
-      const active = yield* Cache.getOption(reasoningActiveByMessageId, input.messageId);
-      if (Option.isNone(active) || active.value !== true) {
+      const reasoningMs = yield* closeReasoningBurst(input.messageId, input.createdAt);
+      if (reasoningMs === null) {
         return;
       }
-      yield* Cache.set(reasoningActiveByMessageId, input.messageId, false);
       yield* reasoningStreamBus.publish({
         kind: "complete",
         threadId: input.threadId,
         messageId: input.messageId,
         reasoningCompletedAt: input.createdAt,
+        reasoningMs,
       });
     });
 
@@ -1216,14 +1255,14 @@ const make = Effect.gen(function* () {
     createdAt: string;
   }) =>
     Effect.gen(function* () {
-      const active = yield* Cache.getOption(reasoningActiveByMessageId, input.messageId);
-      if (Option.isSome(active) && active.value === true) {
-        yield* Cache.set(reasoningActiveByMessageId, input.messageId, false);
+      const closedMs = yield* closeReasoningBurst(input.messageId, input.createdAt);
+      if (closedMs !== null) {
         yield* reasoningStreamBus.publish({
           kind: "complete",
           threadId: input.threadId,
           messageId: input.messageId,
           reasoningCompletedAt: input.createdAt,
+          reasoningMs: closedMs,
         });
       }
       const persisted = yield* Cache.getOption(reasoningPersistedByMessageId, input.messageId);
@@ -1241,6 +1280,7 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         messageId: input.messageId,
         reasoningText,
+        reasoningMs: closedMs ?? (yield* readReasoningTiming(input.messageId)).totalMs,
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
@@ -1252,7 +1292,7 @@ const make = Effect.gen(function* () {
     Effect.all(
       [
         Cache.invalidate(reasoningChunksByMessageId, messageId),
-        Cache.invalidate(reasoningActiveByMessageId, messageId),
+        Cache.invalidate(reasoningTimingByMessageId, messageId),
         Cache.invalidate(reasoningPersistedByMessageId, messageId),
       ],
       { discard: true },
@@ -1992,6 +2032,7 @@ const make = Effect.gen(function* () {
           messageId: reasoningMessageId,
           ...(turnId ? { turnId } : {}),
           delta: reasoningDelta,
+          createdAt: now,
           liveStreaming,
         });
       }

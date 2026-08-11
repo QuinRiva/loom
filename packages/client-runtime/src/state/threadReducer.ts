@@ -126,7 +126,9 @@ export function applyReasoningStreamItem(
       thread: {
         ...thread,
         messages: Arr.map(thread.messages, (entry) =>
-          entry.id !== item.messageId ? entry : { ...entry, reasoningStreaming: false },
+          entry.id !== item.messageId
+            ? entry
+            : { ...entry, reasoningStreaming: false, reasoningMs: item.reasoningMs },
         ),
       },
     };
@@ -569,6 +571,9 @@ export function applyThreadDetailEvent(
                   ...entry,
                   reasoningText: event.payload.reasoningText,
                   reasoningStreaming: false,
+                  ...(event.payload.reasoningMs !== undefined
+                    ? { reasoningMs: event.payload.reasoningMs }
+                    : {}),
                   updatedAt: event.payload.updatedAt,
                 },
           )
@@ -580,6 +585,9 @@ export function applyThreadDetailEvent(
             streaming: true,
             reasoningText: event.payload.reasoningText,
             reasoningStreaming: false,
+            ...(event.payload.reasoningMs !== undefined
+              ? { reasoningMs: event.payload.reasoningMs }
+              : {}),
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           } satisfies OrchestrationMessage);

@@ -388,6 +388,9 @@ export const ReasoningStreamItem = Schema.Union([
     threadId: ThreadId,
     messageId: MessageId,
     reasoningCompletedAt: IsoDateTime,
+    // Accumulated thinking time for this message so far (sum of burst spans).
+    // Server-computed so the live header and the replayed header agree.
+    reasoningMs: Schema.Number,
   }),
 ]);
 export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
@@ -709,6 +712,12 @@ export const LoomMessageFields = {
   // answer. Absent for messages without reasoning.
   reasoningText: Schema.optional(Schema.String),
   reasoningStreaming: Schema.optional(Schema.Boolean),
+  // Wall-clock thinking time, summed across the message's reasoning bursts.
+  // Absent for messages without reasoning and for reasoning persisted before
+  // this field existed — the header then renders "Thought" with no duration
+  // rather than inventing one from `createdAt`/`updatedAt`, which measure the
+  // message, not the thinking.
+  reasoningMs: Schema.optional(Schema.Number),
   // Provenance of a user-role message (absent ⇒ human). See `MessageOrigin`.
   origin: Schema.optional(MessageOrigin),
   // Structured source-of-truth for a control-plane digest/notice (absent ⇒ this
@@ -1006,6 +1015,7 @@ const ThreadMessageReasoningCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   reasoningText: Schema.String,
+  reasoningMs: Schema.Number,
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1399,6 +1409,9 @@ export const ThreadMessageReasoningPayload = Schema.Struct({
   // `reasoningStreaming` is always false here.
   reasoningText: Schema.String,
   reasoningStreaming: Schema.Boolean,
+  // Thinking time for the segment, summed across its bursts. Optional because
+  // events written before this field existed carry no value.
+  reasoningMs: Schema.optional(Schema.Number),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

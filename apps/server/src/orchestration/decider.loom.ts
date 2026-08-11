@@ -922,6 +922,7 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
           turnId: command.turnId ?? null,
           reasoningText: command.reasoningText,
           reasoningStreaming: false,
+          reasoningMs: command.reasoningMs,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

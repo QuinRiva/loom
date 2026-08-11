@@ -627,6 +627,9 @@ export function projectLoomEvent(
                     ...entry,
                     reasoningText: payload.reasoningText,
                     reasoningStreaming: payload.reasoningStreaming,
+                    ...(payload.reasoningMs !== undefined
+                      ? { reasoningMs: payload.reasoningMs }
+                      : {}),
                     updatedAt: payload.updatedAt,
                   }
                 : entry,
@@ -643,6 +646,9 @@ export function projectLoomEvent(
                   streaming: true,
                   reasoningText: payload.reasoningText,
                   reasoningStreaming: payload.reasoningStreaming,
+                  ...(payload.reasoningMs !== undefined
+                    ? { reasoningMs: payload.reasoningMs }
+                    : {}),
                   createdAt: payload.createdAt,
                   updatedAt: payload.updatedAt,
                 },

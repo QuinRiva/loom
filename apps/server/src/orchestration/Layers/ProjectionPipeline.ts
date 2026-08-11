@@ -1583,6 +1583,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             // v2 REPLACE: the event carries the full accumulated text.
             reasoningText: event.payload.reasoningText,
             reasoningStreaming: event.payload.reasoningStreaming,
+            ...(event.payload.reasoningMs !== undefined
+              ? { reasoningMs: event.payload.reasoningMs }
+              : {}),
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });

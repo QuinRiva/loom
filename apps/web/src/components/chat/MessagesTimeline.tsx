@@ -1843,8 +1843,12 @@ export function formatWorkingTimer(startIso: string, endIso: string): string | n
   if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
     return null;
   }
+  return formatElapsedMs(endedAtMs - startedAtMs);
+}
 
-  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+/** Same clock vocabulary as the working timer, for an already-known duration. */
+export function formatElapsedMs(elapsedMs: number): string {
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
   if (elapsedSeconds < 60) {
     return `${elapsedSeconds}s`;
   }
