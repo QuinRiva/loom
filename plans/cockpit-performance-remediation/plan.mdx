@@ -1,0 +1,368 @@
+---
+manager_sessions:
+  - id: 6dd2f591-c8f7-4dd6-87bf-b064f82a4a56
+    role: plan
+    authored_at: 2026-08-10T23:38:31.225Z
+---
+
+# Cockpit performance remediation
+
+**Objective.** Restore and protect cockpit responsiveness at real workstream load (85+ worktrees, 1,168 nominally-active threads, a PTY per agent), after the production instance (`loom-cockpit.service`) degraded to the point of timing out websocket-ticket mints. **Done means:** total subprocess spawns under 10/s at today's worktree/PTY counts, HTTP p50 under 20 ms after 24 h of uptime, zero orchestration slow-command entries in steady state, and the fan-in retry-loop class structurally impossible — all verified with the same measurement harness that produced the baseline numbers.
+
+This plan synthesises two completed investigations: a live measurement of the production instance (report `e7ee63dc`) and a code audit at HEAD `84d49ab48` (report `c6957453`). Both supersede the earlier write-up in `loom-slack-bridge/docs/cockpit-sluggishness-investigation.md`, which is partly falsified. Every remediation below is a **patch or targeted re-architecture — nothing is removed**: both investigations found that every expensive feature is cheap once gated or cached, and this plan adopts that conclusion.
+
+## What made it slow — the reconciled story
+
+The two investigations agree on the load composition and disagree on the acute trigger. The reconciled picture has three layers.
+
+**Layer 1 — a proven steady-state floor: 53.2 subprocess spawns/s.** Measured composition: `VcsStatusBroadcaster` remote-status polling 27.3/s (51%), repository-identity/detection probes 15.0/s (28%), terminal subprocess poll 10.1/s (19%). Children consume 55% of total CPU; ~43% of the server's own CPU is fork/exec system time. Critically, this floor is **identical in the starved and healthy states** — it is a scaling ceiling (~2× aggregate headroom; terminals are the steepest per-unit driver, starving the main thread at ~50 PTYs), not the acute cause.
+
+**Layer 2 — the acute starvation: two compounding mechanisms, neither yet proven.**
+
+- **Heap-sawtooth hypothesis (measurement, moderate confidence).** The live process runs a ~1.4 GB V8 heap sawtooth (~39 min period, 19.3 MB/min growth, dropping to ~721 MB on major GC). Latency stalls (p95 143 ms, worst 1,184 ms) correlate with concurrent-GC CPU and are uncorrelated with child CPU. Node spawns via `fork()`, so per-spawn cost scales with RSS — measured 0.26 ms at 46 MB vs 0.85 ms at 1,454 MB. A restart (which resets only the heap) restored responsiveness.
+- **Projection-stall hypothesis (audit, mechanism proven, load not reproduced).** `refreshThreadShellSummary` runs five unbounded `listByThreadId` scans **inside the command transaction on the single serialised command queue** (`OrchestrationEngine.ts:252-259` → `ProjectionPipeline.ts:771-822`). On the retry-storm thread (13,609 activity rows) one refresh took 9.2 s — and everything behind it on the queue, including the user's next message, waits. At current load the measurement could not reproduce it: queueWait p50 is 1 ms and the only two slow commands since boot were on a thread with just 299 events.
+
+These theories **compound rather than conflict**: a big heap makes all 53 spawns/s costlier, and a multi-second projection stall makes everything queued behind it invisible to the user. Both can be true, and the same amplifier feeds both.
+
+**Layer 3 — the amplifier that connects them: unguarded feedback loops over a 55× inflated thread set.** The fork-only fan-in reactor has no terminal failure state; one incident looped 13,410 times over 6 days, each failure appending an activity row (growing exactly the table `refreshThreadShellSummary` rescans) and raising attention with no unchanged-value guard — and each raise bought a full dispatcher pass (~1.5 s decoding shell snapshots for all 1,168 "active" threads, of which ~21 are genuinely working). Those full-set decode passes at ~1.5/s are also the leading suspect for the heap sawtooth's allocation churn. **A live instance of the same class is running right now**: "worktree removal skipped, workspace is occupied" logged 28× in 43 min for `ws-ws-t3code-84f4cc4c-coder-7b8c915b-coder-ef0c4003`.
+
+<Mermaid
+  caption="The compounding loop. Wave 0 cuts the red edges (guards, gating, caching); Wave 1 discriminates which of the two acute mechanisms dominates; Wave 2 removes the 55x multiplier and the O(history) scan."
+  source={"flowchart TD\n  FANIN[\"Fan-in retry loop\\n(no terminal failure state)\"] -->|activity row per failure| ACT[\"Activity table growth\\n13,609 rows on one thread\"]\n  FANIN -->|unguarded attention raise| DISP[\"Dispatcher pass ~1.5s\\nover 1,168 'active' threads\"]\n  ACT --> F2[\"refreshThreadShellSummary\\nO(history), inside command txn\"]\n  F2 -->|serialised command queue| STALL[\"UI-visible stalls\\n(every command waits)\"]\n  DISP -->|full-set schema decodes| HEAP[\"Heap churn -> 1.4GB sawtooth\"]\n  F2 --> HEAP\n  HEAP -->|fork page-table copy| SPAWN[\"Per-spawn cost x3.3\\nat 53 spawns/s\"]\n  SPAWN --> STALL\n  HEAP -->|concurrent GC| STALL\n"}
+/>
+
+<Callout tone="decision">
+The acute root cause is **not yet proven** — the heap theory is moderate-confidence and the projection-stall theory is unreproduced at current load. This plan therefore does not bet everything on either: Wave 0 ships the convergent quick wins immediately, Wave 1 is a cheap instrumented restart that discriminates the two theories, and Wave 2's structural items are justified independently of which theory wins (the O(history) scan and the 55× multiplier are real regardless).
+</Callout>
+
+### Reconciliation 1 — sidebar VCS load is remote-status polling, not local-status polling
+
+The audit predicted ~21/s of `git status --porcelain` from per-sidebar-row subscriptions; the measurement observed **zero** `status --porcelain` spawns. Reading `VcsStatusBroadcaster.ts` resolves this mechanistically: the audit got the **subscription cardinality** right and the **poll content** wrong. Every rendered sidebar row does open a live per-cwd subscription (`SidebarV2.tsx:515-521` → `streamStatus`), but the subscription loads local status **once** at subscribe time and thereafter serves it from cache, refreshing only on explicit invalidation (event-driven, after git operations). The steady-state poller each subscription retains (`makeRemoteRefreshLoop`, 30 s + 20% jitter) refreshes **remote status only**. So the fix target for the 51% bucket is the **remote batch composition and the subscription cardinality** — the audit's F4-C (a cheap local-status variant for the poller) targets a call that is not being polled, and is dropped from this plan.
+
+What one remote refresh actually spawns (median 9 git processes per cwd per cycle, measured):
+
+- `VcsDriverRegistry.detect` re-probes the repo on **every** status call because its cache TTL is 2 s (`VcsDriverRegistry.ts:15`) — never survives a 30 s cycle: 3 spawns (`rev-parse --is-inside-work-tree`, `--show-toplevel`, `--git-common-dir`). This, not `RepositoryIdentityResolver` alone, explains most of the measured 28% "identity probe" bucket (`--is-inside-work-tree` and `--git-common-dir` at 3.35/s each).
+- `readStatusDetailsRemote` (`GitVcsDriverCore.ts:1229-1305`): branch lookup, upstream resolution, divergence `rev-list`, and — duplicated within a single refresh via both `resolveDefaultBranchName` and the `computeAheadCountAgainstBase`/`resolveBaseBranchForNoUpstream` path — `symbolic-ref refs/remotes/origin/HEAD` and `rev-parse --abbrev-ref @{upstream}` (each measured ~2× per cwd per cycle). The no-upstream path additionally runs `readBranchRecency`'s `git for-each-ref refs/heads refs/remotes` — at 56–106 ms the single most expensive command in the system — **per worktree**, even though all ~85 worktrees share one repo's refs.
+
+### Reconciliation 2 — the terminal poll
+
+No tension in substance: exactly 3 spawns/PTY/s confirmed (`pgrep -P`, `ps -p comm=`, and an unconditional full `ps -eo pid=,ppid=` table scan per PTY per second — `Manager.ts:697-843`), no subscriber gate anywhere (`terminalEventListeners` is a bare global Set, `Manager.ts:1220`). This is upstream code whose cost model assumed a handful of human-opened terminals; loom opens a PTY per agent and they persist after every client disconnects. It is the steepest per-unit scaling driver (starvation at ~50 PTYs). The fix is gating and sharing, not interval tuning — a 5 s interval only moves the constant.
+
+### Reconciliation 3 — five corrections carried forward
+
+From the audit, so the plan does not reintroduce falsified claims: (1) `PR_LOOKUP_CACHE_TTL` is keyed by cwd+branch+upstreamRef+epoch, not cwd alone; (2) `useThreadRunningTerminalIds` has three callers (all cosmetic), not zero; (3) `refreshThreadShellSummary` derives eight scalars from five queries, not four; (4) the POSIX terminal inspector costs 3–4 spawns per poll, not one; (5) the fan-in infinite loop lives in the **deferred-removal** branch (`WorkstreamFanInReactor.ts:659`) where `fanInState` is already `completed` — advancing the fan-in state is not by itself a fix; only clearing `worktreePath` (via `repointMeta`) or a terminal failure state stops the guard rematching.
+
+## Scope and non-goals
+
+**In scope:** the seven Wave-0 quick wins, the Wave-1 diagnostic restart, and the four Wave-2 structural items below. All are patches or targeted re-architectures of existing mechanisms.
+
+**Explicitly not doing, adopting both reports' recommendations:**
+
+- **No feature removals.** The terminal-activity label (F5-E), the VCS sidebar chips, and the fork-added cost/token/diff metrics (F2-D) all stay: each is cheap once gated, cached, or computed incrementally, and each carries real UX value.
+- **No moving projection off the command transaction (F2-C).** It is architecturally the right end-state but breaks the engine's read-your-writes guarantee (`getPendingTurnStartThreadIds` reads inside the same serial boundary). High risk, separate piece of work — not bundled with a remediation effort whose goal is fast, verifiable relief.
+- **`CheckpointReactor`'s `git add -A` in user worktrees (~13/min from a background poller) is a correctness/race concern, not a perf one.** It can race an agent's own git operations. Deferred to a separate follow-up goal rather than diluting this effort (question at the bottom).
+- **No production deploy as part of this work.** Shipping ends at merge per repo policy; the Wave-1 restart is the one deliberately human-authorised production action in this plan.
+
+<FileTree
+  title="Files touched across all waves (W0 = quick wins, W2 = structural)"
+  entries={[
+    { path: "apps/server/src/project/RepositoryIdentityResolver.ts", change: "modified", note: "W0-1: memoise cwd->toplevel cache key" },
+    { path: "apps/server/src/vcs/VcsDriverRegistry.ts", change: "modified", note: "W0-1: detection cache TTL 2s -> minutes" },
+    { path: "apps/server/src/orchestration/Layers/WorkstreamFanInReactor.ts", change: "modified", note: "W0-2 guard + failed state; W0-5 coalescing worker + threadsById" },
+    { path: "packages/contracts/src/orchestration.loom.ts", change: "modified", note: "W0-2: add 'failed' to ThreadFanInState" },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "W0-2: loom migration >=1001 if stored shape requires it" },
+    { path: "apps/server/src/orchestration/decider.loom.ts", change: "modified", note: "W0-3: unchanged-value guard on attention.raise; W2-4 generalise" },
+    { path: "apps/server/src/terminal/Manager.ts", change: "modified", note: "W0-4: listener gate + one shared process snapshot per tick" },
+    { path: "apps/server/src/orchestration/Layers/HandoffDrafterReactor.ts", change: "modified", note: "W0-5: coalescing worker" },
+    { path: "apps/server/src/orchestration/Layers/WorktreeReaper.ts", change: "modified", note: "W0-5: coalescing worker" },
+    { path: "apps/server/src/orchestration/workstreamPromptDebug.ts", change: "modified", note: "W0-6: dev-flag gate the sync fs calls" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionPipeline.ts", change: "modified", note: "W0-7: running-turn WHERE filters; W2-1 aggregate-SQL shell summary" },
+    { path: "apps/server/src/persistence/Layers/ProjectionThreadActivities.ts", change: "modified", note: "W2-1: aggregate queries beside listByThreadId" },
+    { path: "packages/shared/src/threadSettled.ts", change: "added", note: "W2-2: settledness predicate lifted server-side (from client-runtime)" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "W2-2: listWorkingThreadRows beside listActiveThreadRows" },
+    { path: "apps/server/src/vcs/GitVcsDriverCore.ts", change: "modified", note: "W2-3: per-repo topology memo, intra-refresh dedupe" },
+    { path: "apps/web/src/components/SidebarV2.tsx", change: "modified", note: "W2-3: VCS subscription only for visible rows" },
+  ]}
+/>
+
+Effort scale used throughout: **XS** under an hour of focused change, **S** roughly half a day, **M** one to two days including verification.
+
+## Wave 0 — quick wins
+
+All seven are independently shippable patches, each convergently recommended by both investigations (or mechanically implied by their agreed findings). Together they remove most of the measured spawn load and cut every red edge in the loop diagram. Ship as separate small PRs via the ship procedure; land all before the Wave-1 restart so the restart carries them.
+
+<Table
+  columns={["Id", "Item", "Verdict", "Effort", "Risk", "Expected effect"]}
+  rows={[
+    ["W0-1", "Memoise repo-identity cache key + detection TTL", "patch", "XS", "nil", "-28% of all spawns (15/s)"],
+    ["W0-2", "Fan-in: skip-if-missing guard + terminal failed state", "patch + small contract change", "S/M", "low", "kills the live retry loop and the 13k-failure class"],
+    ["W0-3", "Unchanged-value guard on thread.attention.raise", "patch", "S", "low", "removes dispatcher-pass amplification (13,420 passes in one incident)"],
+    ["W0-4", "Terminal poll: listener gate + shared snapshot", "patch", "S", "low", "-19% of spawns; removes the ~50-PTY starvation ceiling"],
+    ["W0-5", "Coalescing workers + threadsById in fan-in/handoff/reaper", "patch", "XS x3", "low", "burst-proofs three global sweeps; kills O(n^2) pass"],
+    ["W0-6", "Prompt-debug sync fs off hot paths", "patch (dev-flag gate)", "XS", "nil", "no readdirSync per snapshot / existsSync per shell event"],
+    ["W0-7", "WHERE state='running' for the two turn scans", "patch", "XS", "nil", "no full turn-table decode per thread.session-set"],
+  ]}
+/>
+
+### W0-1 · Repository-identity memoisation + detection TTL
+
+Two mechanisms produce the 15/s probe bucket, and both are caches that fail to cache:
+
+<AnnotatedCode
+  filename="apps/server/src/project/RepositoryIdentityResolver.ts"
+  language="ts"
+  code={"const resolve = Effect.fn(\"RepositoryIdentityResolver.resolve\")(\n  function* (cwd) {\n    const cacheKey = yield* resolveRepositoryIdentityCacheKey(cwd).pipe(\n      Effect.provideService(ProcessRunner.ProcessRunner, processRunner),\n    );\n    return yield* Cache.get(repositoryIdentityCache, cacheKey);\n  },\n);\n"}
+  annotations={[
+    { lines: "3-5", label: "the bug", note: "resolveRepositoryIdentityCacheKey shells `git rev-parse --show-toplevel` on EVERY resolve(), before the cache lookup — the 1-minute Cache only elides `git remote -v` (measured: remote -v 0.20/s cached, identity probes 15/s uncached)." },
+    { lines: "6", note: "Fix: an in-process Map cwd -> toplevel in front of this. The mapping is immutable while the path exists; no TTL needed." },
+  ]}
+/>
+
+The second mechanism: `VcsDriverRegistry`'s `DETECTION_CACHE_TTL` is **2 seconds** (`VcsDriverRegistry.ts:15`), so every 30 s status refresh re-runs the 3-spawn `detectRepository` probe per cwd. A repo's kind at a fixed cwd is stable; raise the TTL to 10 minutes (keep zero TTL on failure, as now).
+
+- **Breaks:** a directory deleted and recreated as a different repo kind serves a stale answer for up to the TTL; a moved worktree keeps a stale toplevel entry until restart. Both acceptable for a prototype — worktree paths are create-once.
+- **Acceptance:** `rev-parse --show-toplevel` + `--is-inside-work-tree` + `--git-common-dir` combined under 0.5/s in a 45 s spawn sample (baseline 11.4/s).
+
+### W0-2 · Fan-in: stop the loop, then make the class impossible
+
+Two changes, shipped together (the audit's F1-B + F1-A):
+
+1. **Skip-if-missing guard (stops the live loop today).** In `finaliseRemoval` (`WorkstreamFanInReactor.ts:337-355`), when the child cwd no longer exists on disk, skip the unguarded `commitAll` and go straight to `repointMeta` — the only step that clears `worktreePath` and stops the deferred-removal guard (`:659`) rematching.
+2. **Terminal `failed` fan-in state (makes the class impossible).** `ThreadFanInState` is `["none","completed","conflicted"]` (`packages/contracts/src/orchestration.loom.ts:114`) — there is nothing for the error handler (`:698-706`) to write, so it appends an activity, raises attention, and loops forever. Add `"failed"`, write it on unexpected per-child failure, and surface a stuck-fan-in badge in the UI. A `failed` fan-in must **not** release dependents (same semantics as `conflicted`). If the stored shape needs it, the migration is a loom migration numbered ≥1001 in `LoomMigrations.ts` — never in upstream's `Migrations.ts`.
+
+- **Breaks:** nothing; a previously-infinite retry becomes a visible terminal state a human can act on.
+- **Acceptance:** the live loop (`ws-ws-t3code-84f4cc4c-…`, 28 skips in 43 min) stops within one pass of deploy; an artificially induced `commitAll` failure lands the child in `failed` exactly once, with exactly one attention raise and no repeats over 24 h.
+
+### W0-3 · Unchanged-value guard on `thread.attention.raise`
+
+`decider.loom.ts:643-681` emits `thread.attention-raised` even when the flag is already set with the same reason, and that event is a `WorkstreamDispatcher` trigger (`WorkstreamDispatcher.ts:3300`) — each redundant raise bought a ~1.5 s full-set pass. Make the command a no-op when reason and payload are unchanged. The fan-in reactor already hand-rolls exactly this guard for `fanin.set` (`WorkstreamFanInReactor.ts:466`), with a comment explaining the self-feeding edge — this moves the same idea to the decider where it belongs.
+
+- **Breaks:** anything relying on a re-raise re-notifying (e.g. an external notification hook firing again for an already-raised thread). Verify no consumer of `thread.attention-raised` depends on repeat delivery before landing; none is known.
+- **Acceptance:** raising the same attention reason twice emits one event (assert via event log); dispatcher pass rate stays flat during an induced repeated-raise burst.
+
+### W0-4 · Terminal poll: gate on listeners, share one snapshot per tick
+
+Two orthogonal patches to `Manager.ts` (audit F5-A + F5-C, extended by the measurement's per-command costs):
+
+1. **Listener gate:** skip the poll cycle entirely when `terminalEventListeners.size === 0` — no client is connected, nobody can see the tab label. This zeroes the cost whenever the cockpit is unattended, which is most of the time.
+2. **One process snapshot per tick:** replace the per-PTY `pgrep -P` + `ps -p comm=` + full `ps -eo pid=,ppid=` scan (3–4 spawns/PTY/s, `Manager.ts:697-843`) with a single shared `ps -eo pid=,ppid=,comm=` snapshot per tick (or an in-process `/proc` read), answered for all PTYs from the one table. Cost becomes ≤1 spawn/s **total**, independent of PTY count.
+
+`PortDiscovery.registerTerminalProcesses` (`PortScanner.ts:350`) consumes the descendant PID set and must keep receiving it for polled PTYs — the shared snapshot produces the same set. If finer gating is ever wanted, `PortScanner`'s retain-count pattern (`PortScanner.ts:313-330`) is the in-repo model for per-terminal attachment tracking (audit F5-B) — deferred; the two patches above already remove the scaling term.
+
+- **Breaks:** the tab label and the three cosmetic running-terminal indicators freeze while no client is connected (nobody is looking) and update from a snapshot up to 1 s stale (as today).
+- **Acceptance:** terminal bucket ≤1 spawn/s with a client attached regardless of PTY count (baseline 3/PTY/s); 0 spawns/s with no clients connected. The projected ~50-PTY starvation ceiling disappears from the scaling table.
+
+### W0-5 · Coalescing workers + `threadsById` index
+
+`WorkstreamDispatcher` already diagnosed this class and fixed itself: it uses `makeCoalescingWorker` with a comment explaining that a pass costs ~1.5 s while triggers arrive at ~1.5/s (`WorkstreamDispatcher.ts:3290-3291`). Three reactors armed by the same high-frequency events still queue every trigger via `makeDrainableWorker` on a payload-free, idempotent full recompute — the precise precondition for coalescing: `WorkstreamFanInReactor.ts:720`, `HandoffDrafterReactor.ts:270`, `WorktreeReaper.ts:242`. Swap all three. In the same change, build a `threadsById` Map once per fan-in pass, replacing the per-child `threads.find` (`:594`) and `hasDependentResident`'s `threads.some` (`:317-329`) — ~1.4 M comparisons per pass at 1,168 threads today.
+
+- **Breaks:** nothing — coalescing is semantics-preserving for idempotent full recomputes (the dispatcher's comment is the proof this codebase already accepts).
+- **Acceptance:** during an event burst, each reactor runs at most one pass plus one queued pass (log-assertable); fan-in pass CPU no longer quadratic in thread count.
+
+### W0-6 · Prompt-debug fs off the hot paths
+
+`workstreamPromptDebug.ts:42` runs a blocking `readdirSync` on the event loop per shell snapshot, and `:58` an `existsSync` per shell-stream `thread-upserted` event per subscriber — both serving a **debugging-only** surface. Gate the whole prompt-debug surface behind a dev flag (default off in production). Async+cached is the fallback if the surface turns out to be wanted always-on (question at the bottom).
+
+- **Acceptance:** production config performs zero sync fs calls in `getShellSnapshot` and the shell-stream event path (assert by code inspection + a grep-level lint in review).
+
+### W0-7 · `WHERE state='running'` for the session-set turn scans
+
+`ProjectionPipeline.ts:1802` and `:1827` each run a full `projectionTurnRepository.listByThreadId` (turn rows carry `checkpointFiles` JSON) on every `thread.session-set` — the highest-frequency lifecycle event — purely to find turns with `state === "running"`. Add a filtered repository query and use it at both sites.
+
+- **Acceptance:** `thread.session-set` on a thread with thousands of turns decodes only its running turns (typically 0–1 rows).
+
+## Wave 1 — the acute-cause diagnostic
+
+One authorised production restart, carrying Wave 0 plus instrumentation, discriminates the two acute theories for the cost of seconds of downtime. This is deliberately **before** committing to heap-hunting work that may be unnecessary: Waves 0+2 already shrink both suspected drivers (the attention guard cuts pass frequency; settledness cuts per-pass allocation ~55×; aggregate SQL removes the O(history) scans), so the diagnostic's real job is telling us **what remains**.
+
+**Instrumentation to land with Wave 0 (S, one PR):**
+
+- Start flags for the restart: `--trace-gc` (GC type, pause, heap before/after per collection, to the journal) and an explicit `--max-old-space-size` so the sawtooth ceiling is a chosen number rather than a machine-derived heuristic.
+- In-process, permanent (cheap enough to keep): a periodic log line with `v8.getHeapStatistics()` + `monitorEventLoopDelay` percentiles (60 s cadence), and command-queue wait percentiles alongside the existing `orchestration command slow` log so queue stalls are visible below the current 3 s threshold.
+- Keep the inspector port available (bind loopback) so a heap snapshot can be taken on demand at sawtooth peak without another restart.
+
+**Decision table — what the evidence triggers:**
+
+<Table
+  columns={["Observation after 24-48h", "Conclusion", "Remediation triggered"]}
+  rows={[
+    ["Latency stalls line up with major-GC pauses in --trace-gc; event-loop delay spikes during GC; spawn syscall time tracks RSS", "Heap sawtooth is the acute driver", "Heap snapshot at peak; find the retainer. Prime suspects: full-set snapshot decode churn (already reduced by W0/W2-2), retained decoded activity/event history in caches or subscriptions, unbounded PubSub buffers. Fix the retainer; keep --max-old-space-size as a mitigation forcing earlier, smaller major GCs."],
+    ["Stalls line up with queue-wait spikes / slow-command entries on specific threads, GC quiet", "Projection stall is the acute driver", "Promote W2-1 (aggregate-SQL shell summary) to immediate; if still hot afterwards, W2-1's incremental follow-up. No heap work."],
+    ["Both signatures present", "Compounding, as hypothesised", "Both tracks, W2-1 first (cheaper, lower risk)."],
+    ["Neither; latency stays healthy at 24h+ uptime", "Wave 0 removed the acute driver (churn/passes were the cause)", "Ship Wave 2 on its scaling merits; close the acute investigation."],
+  ]}
+/>
+
+- **Effort:** S (instrumentation) + one restart. **Risk:** seconds of downtime at a chosen quiet moment; `--trace-gc` journal noise is bounded.
+- **Acceptance for the diagnostic itself:** after 48 h we can state, with logged evidence, which row of the table we are in.
+
+## Wave 2 — structural
+
+Justified independently of the Wave-1 outcome (each removes a mechanism that is real at today's scale), but sequenced after it so the diagnostic's before/after is clean.
+
+### W2-1 · Shell summary: aggregate SQL, then incremental if needed
+
+Replace `refreshThreadShellSummary`'s five list-and-fold scans (`ProjectionPipeline.ts:771-822`) with aggregate queries — `MAX(created_at) WHERE role='user'`, `COUNT(*) WHERE status='pending'`, `SUM` for cost/diff totals, `ORDER BY … LIMIT 1` for the latest token snapshot (audit F2-B). This keeps the recompute-on-every-event shape (replay-exact by construction, low risk) while removing the O(history) row decode — ~90% of the win. Only if the Wave-1 diagnostic or re-measurement shows the aggregate version still hot, follow with incremental-on-write (F2-A: fold the incoming event into the prior row; keep the full recompute for `thread.reverted`, which genuinely rewinds history) — medium risk, so it must earn its way in with evidence.
+
+- **Effort:** S/M (aggregates), M (incremental, conditional). **Risk:** low / medium respectively. **Breaks:** nothing on the wire — same eight scalars.
+- **Acceptance:** shell-summary refresh on the 13,609-activity thread drops from 9.2 s to under 50 ms; command queueWait p99 under 100 ms during a synthetic activity burst.
+
+### W2-2 · Settledness-aware server sweeps
+
+The server's "active" predicate is archive-era (`deleted_at IS NULL AND archived_at IS NULL`, `ProjectionSnapshotQuery.ts:899-937`): 1,168 rows vs ~21 genuinely working — a 55× multiplier on every sweep and the client snapshot. Upstream's sidebar settledness (#4026) got no server counterpart — a rebase artefact. Fix: lift the settledness predicate from `packages/client-runtime/src/state/threadSettled.ts` into `@t3tools/shared` (both sides import one definition), add `listWorkingThreadRows`, and migrate consumers **sweep-by-sweep with an explicit per-sweep audit** — a settled-but-not-terminal thread that a sweep stops visiting is a sweep that stops doing its job:
+
+<Table
+  columns={["Consumer", "Set it needs", "Rationale"]}
+  rows={[
+    ["WorkstreamDispatcher (:3249)", "working", "dispatches next turns; settled threads by definition have nothing to dispatch"],
+    ["WorkstreamFanInReactor (:589)", "working + fan-in-pending", "must still see completed children awaiting worktree removal; filter is settled-OR-pending-fanin, audited against the deferred-removal branch"],
+    ["HandoffDrafterReactor (:243)", "working", "drafts handoffs for active work only"],
+    ["WorktreeReaper (:153, :205)", "full active set", "reaps worktrees of settled threads — shrinking its set would stop reaping; keep as-is (timer-driven, now coalescing after W0-5)"],
+    ["ExhaustionResumeSweep (:215)", "working", "resumes exhausted-but-live threads"],
+    ["WorkstreamLivenessSweep (:800)", "full active set", "its quarry is precisely the stalled thread that looks settled; MUST keep the wide set"],
+    ["AgentAwarenessRelay (:537)", "working", "relays awareness between live agents"],
+    ["ws.ts client snapshot (:1338)", "full active set (unchanged)", "the client renders shelf history; its own settledness filter handles display"],
+  ]}
+/>
+
+Also in this item: fix the edge bug where a never-run thread can never auto-settle — `threadLastActivityAt` returns null for it and `effectiveSettled` bails (`threadSettled.ts:10-30`, `:393`); fall back to `createdAt`.
+
+- **Effort:** M. **Risk:** medium — the audit table above is the risk control; each sweep migration is reviewed against "what does this sweep exist to catch". **Breaks:** nothing user-visible when the table is honoured.
+- **Acceptance:** dispatcher pass wall time from ~1.5 s to under 100 ms at 1,168 stored threads; per-pass decoded rows ≈ working set (~21); every sweep demonstrably still catches its quarry (one induced case each for liveness and reaper).
+
+### W2-3 · VCS remote batch slimming + subscription scoping
+
+Three cuts to the 51% bucket, in cost order (per Reconciliation 1, the fix target is the remote batch and cardinality — not local status):
+
+1. **Per-repo topology memo.** Key the default-branch lookup (`symbolic-ref refs/remotes/origin/HEAD`) and `readBranchRecency`'s `for-each-ref` (56–106 ms) by **git common dir**, TTL ≈ one poll cycle — all ~85 worktrees of one repo share the answer, so the most expensive command runs once per repo per cycle instead of per worktree. (S)
+2. **Intra-refresh dedupe.** One `readStatusDetailsRemote` invocation currently resolves the upstream ref and default branch twice via its two call paths; thread the resolved values through instead. Removes ~40% of the batch per the measured duplication. (S)
+3. **Subscription scoping.** Every rendered sidebar row opens a live per-cwd subscription (`SidebarV2.tsx:515-521`); mount the VCS query only for rows actually on screen (virtualised list or section-visibility gate). Combines multiplicatively with W2-2 shrinking the unsettled row count. The audit's coarser alternative (one poll per project, F4-A) is held in reserve — visible-rows keeps today's UX. (S/M)
+
+- **Breaks:** off-screen rows' PR/branch chips update on scroll-into-view instead of continuously — acceptable.
+- **Acceptance:** VCS bucket under 5 spawns/s at 85 worktrees (baseline 27.3/s); `for-each-ref` at most once per repo per cycle in the spawn sample.
+
+### W2-4 · Decider-level unchanged-value guards for all set-style commands
+
+Generalise W0-3: every set-style command in `decider.loom.ts` (attention, fan-in state, plan lane, and siblings) should emit no event when the write is a no-op, in the decider once — not re-derived per call site (the fan-in reactor's hand-rolled guard at `WorkstreamFanInReactor.ts:466` gets deleted in favour of it). This removes the whole class of "redundant write → global sweep" amplification, including future instances.
+
+- **Effort:** S. **Risk:** low; per-command review that no consumer depends on echo events.
+- **Acceptance:** replaying any set command with identical payload appends zero events (event-log assertion across the command inventory).
+
+## Sequencing
+
+1. **Wave 0** — seven small PRs, parallelisable, no ordering constraints between them. Land all, plus the Wave-1 instrumentation PR.
+2. **Wave 1** — one authorised restart at a quiet moment; 24–48 h of observation; read the decision table.
+3. **Wave 2** — W2-1 and W2-4 start immediately after the restart (they need no diagnostic outcome); W2-2 and W2-3 follow, sequenced so re-measurement can attribute each. Heap-retainer work happens only if the diagnostic demands it.
+
+## Verification
+
+Reuse the measurement report's harness verbatim as the before/after instrument — it is already validated against this exact process:
+
+- **Spawn attribution:** 45 s tight poll of `/proc/<server-pid>/task/*/children` (~4 kHz), children re-read until cmdline diverges, bucketed by command. Run before and after each wave lands.
+- **Latency:** loopback `GET /favicon.ico` via Python `http.client`, 5 requests per 5 s for ≥335 s; report p50/p90/p95/worst and the fraction of 5 s windows with p50 over 20 ms.
+- **CPU:** `/proc/<pid>/stat` u/s/cu/cs deltas over 90 s and 335 s windows (self vs children, user vs system).
+- **Heap:** RSS + the new `v8.getHeapStatistics()` log over ≥1 full sawtooth period (40+ min); after Wave 2, over 24 h.
+- **Queue:** the new queueWait percentile log; `orchestration command slow` count per day.
+
+**Final acceptance targets (at ~85 worktrees, ~4 PTYs, 24 h uptime):**
+
+<Table
+  columns={["Metric", "Baseline", "Target"]}
+  rows={[
+    ["Total subprocess spawns/s", "53.2", "under 10"],
+    ["Identity/detection probe spawns/s", "15.0", "under 0.5"],
+    ["VCS remote-status spawns/s", "27.3", "under 5"],
+    ["Terminal poll spawns/s (client attached)", "3.0 per PTY", "1 total; 0 unattended"],
+    ["favicon p50 at 24h uptime", "1.1ms fresh; starved when aged", "under 20ms"],
+    ["favicon p95", "143ms", "under 100ms"],
+    ["Slow-command entries (steady state)", "2 per boot-day (worse when starved)", "0"],
+    ["Shell-summary refresh, 13.6k-activity thread", "9,196ms", "under 50ms"],
+    ["Dispatcher pass wall time", "~1,500ms", "under 100ms"],
+    ["Fan-in retry repeats per child", "unbounded (13,410 observed)", "0 (terminal failed state)"],
+    ["Heap sawtooth growth", "19.3 MB/min to ~1.4GB", "materially reduced, or GC pauses shown uncorrelated with latency"],
+  ]}
+/>
+
+The end-to-end smoke that matches the user journey: with the dev-verify recipe (or the production instance post-deploy), open the cockpit at full sidebar load after 24 h of server uptime and confirm thread switching, message send, and terminal open all feel immediate while the spawn sampler shows the target composition.
+
+<QuestionForm
+  questions={[
+    {
+      id: "restart",
+      title: "Authorise the Wave-1 instrumented production restart?",
+      mode: "single",
+      options: [
+        {
+          id: "bundled",
+          label: "Yes - one restart carrying Wave 0 + instrumentation",
+          recommended: true,
+          detail: "One downtime window buys both the fixes and the diagnostic. Cost: the before/after for Wave 0 alone is inferred from the pre-restart baseline rather than isolated.",
+        },
+        {
+          id: "separate",
+          label: "Yes - instrumentation-only restart first, Wave 0 later",
+          detail: "Cleanest attribution of the acute cause at today's exact behaviour, at the price of a second downtime window and slower relief.",
+        },
+        {
+          id: "no",
+          label: "No restart - ship Waves 0/2 and re-measure only",
+          detail: "Zero downtime, but the heap theory stays unproven and a genuine leak (if any) is found later and more expensively.",
+        },
+      ],
+    },
+    {
+      id: "promptdebug",
+      title: "Prompt-debug surface: dev-flag gate or keep always-on (async + cached)?",
+      mode: "single",
+      options: [
+        {
+          id: "flag",
+          label: "Dev-flag gate, default off in production",
+          recommended: true,
+          detail: "Zero production cost and less code than a cache; the surface is debugging-only. You lose ad-hoc prompt-debug inspection on prod without a flag flip.",
+        },
+        {
+          id: "async",
+          label: "Keep always-on, make it async + cached",
+          detail: "Preserves prod inspection at slightly more code and a small residual cost.",
+        },
+      ],
+    },
+    {
+      id: "vcs-scope",
+      title: "VCS subscription scoping approach (W2-3c)?",
+      mode: "single",
+      options: [
+        {
+          id: "visible",
+          label: "Per-row subscriptions, gated to visible rows",
+          recommended: true,
+          detail: "Keeps today's live-chip UX; cost scales with viewport, not thread count. Needs list virtualisation or visibility gating in SidebarV2.",
+        },
+        {
+          id: "coarse",
+          label: "Coarse per-project poll (audit F4-A)",
+          detail: "Simplest server story and lowest floor, but PR/branch chips go stale between coarse polls - a UX regression the per-row option avoids.",
+        },
+      ],
+    },
+    {
+      id: "checkpoint",
+      title: "CheckpointReactor's `git add -A` race with agent git operations?",
+      mode: "single",
+      options: [
+        {
+          id: "defer",
+          label: "Spin out as a separate follow-up goal",
+          recommended: true,
+          detail: "It is a correctness concern, not a perf one, and deserves its own design (checkpointing vs agent git-op mutual exclusion). Keeps this effort focused.",
+        },
+        {
+          id: "include",
+          label: "Fold a minimal mitigation into Wave 2",
+          detail: "Faster protection against a rare race, at the cost of scope creep into an unmeasured problem.",
+        },
+      ],
+    },
+  ]}
+/>
