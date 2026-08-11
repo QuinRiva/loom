@@ -753,6 +753,87 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  // W2-4: a guarded set-style command that decides NO-OP is an accepted command
+  // that wrote zero events — and it must still persist a command receipt, because
+  // the receipt store is the durable at-most-once witness the wake/notice rails
+  // read (`receiptDedup.hasAcceptedReceipt`) and the engine's own replay check.
+  it("a no-op set-style command appends no event and still persists an accepted receipt", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+    const threadId = ThreadId.make("thread-noop-receipt");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-noop-project"),
+        projectId: asProjectId("project-noop"),
+        title: "Project No-op",
+        workspaceRoot: "/tmp/project-noop",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-noop-thread"),
+        threadId,
+        projectId: asProjectId("project-noop"),
+        title: "Guard me",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const raise = (commandId: string) =>
+      engine.dispatch({
+        type: "thread.attention.raise",
+        commandId: CommandId.make(commandId),
+        threadId,
+        reason: "needs_guidance",
+        createdAt,
+      });
+    const first = await system.run(raise("cmd-noop-raise-1"));
+    // Same payload, DIFFERENT command id: the receipt store cannot dedup it, so
+    // the decider's unchanged-value guard is what makes it a no-op.
+    const replay = await system.run(raise("cmd-noop-raise-2"));
+
+    // Acknowledged at the unchanged sequence — nothing was appended.
+    expect(replay.sequence).toBe(first.sequence);
+    const events = await system.run(
+      system.sql<{ count: number }>`
+        SELECT COUNT(*) AS count FROM orchestration_events
+        WHERE event_type = 'thread.attention-raised'
+      `,
+    );
+    expect(events[0]?.count).toBe(1);
+
+    // ...but the no-op success is receipted exactly like an event-producing one.
+    const receipts = await system.run(
+      system.sql<{
+        command_id: string;
+        status: string;
+        result_sequence: number;
+      }>`
+        SELECT command_id, status, result_sequence FROM orchestration_command_receipts
+        WHERE command_id = 'cmd-noop-raise-2'
+      `,
+    );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]?.status).toBe("accepted");
+    expect(receipts[0]?.result_sequence).toBe(first.sequence);
+
+    await system.dispose();
+  });
+
   it("replays append-only events from sequence", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

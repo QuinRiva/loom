@@ -1118,16 +1118,19 @@ describe("WorkstreamFanInReactor", () => {
   );
 
   // Must-fix (round 1): a genuinely-conflicted fan-in must NOT self-feed a hot
-  // loop. `setFanInState("conflicted")` emits a `fanin-set` event; the reactor
-  // re-arms on that event; a non-coalescing worker then re-passes → re-conflicts
-  // → re-writes → … This harness closes the real feedback edge the other tests
+  // loop. A committed `fanin.set` emits a `fanin-set` event; the reactor re-arms
+  // on that event; a non-coalescing worker then re-passes → re-conflicts →
+  // re-writes → … This harness closes the real feedback edge the other tests
   // omit: `dispatch` reflects `thread.fanin.set` into the projected state AND
-  // republishes it as a `thread.fanin-set` event. With the transition-guard fix,
-  // the state is written exactly once and the worker quiesces; without it, the
-  // pass count (and `conflicted` writes) would be unbounded and drain would hang.
+  // republishes it as a `thread.fanin-set` event — including the engine's
+  // unchanged-value guard (W2-4), which is where the transition check now lives
+  // (the reactor dispatches unconditionally; the decider decides the no-op). With
+  // it, the state is WRITTEN once and the worker quiesces; without it, the pass
+  // count and `conflicted` writes would be unbounded and drain would hang.
   it.effect("conflict does not self-feed: exactly one conflicted write, worker quiesces", () =>
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+      const committedFanInStates = yield* Ref.make<ReadonlyArray<string>>([]);
       const merges = yield* Ref.make(0);
       const childRef = yield* Ref.make<OrchestrationThreadShell>(isolatedChild());
       const events = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -1145,6 +1148,10 @@ describe("WorkstreamFanInReactor", () => {
             if (command.type === "thread.fanin.set") {
               const next = (command as Extract<OrchestrationCommand, { type: "thread.fanin.set" }>)
                 .fanInState;
+              // The engine's unchanged-value guard: a set to the stored value
+              // appends no event and publishes nothing.
+              if ((yield* Ref.get(childRef)).fanInState === next) return { sequence: 0 };
+              yield* Ref.update(committedFanInStates, (xs) => [...xs, next]);
               yield* Ref.update(childRef, (c) => isolatedChild({ ...c, fanInState: next }));
               yield* PubSub.publish(events, {
                 type: "thread.fanin-set",
@@ -1195,11 +1202,10 @@ describe("WorkstreamFanInReactor", () => {
         // Drain terminates only because the worker quiesces (no self-feed).
         yield* reactor.drain;
 
-        // The transition is written exactly once despite multiple passes
-        // (startup double-enqueue + the one fanin-set re-arm it produces).
-        expect(fanInStates(yield* Ref.get(dispatched)).filter((s) => s === "conflicted")).toEqual([
-          "conflicted",
-        ]);
+        // The transition is COMMITTED exactly once despite multiple passes
+        // (startup double-enqueue + the one fanin-set re-arm it produces); the
+        // redundant re-dispatches are absorbed by the decider guard.
+        expect(yield* Ref.get(committedFanInStates)).toEqual(["conflicted"]);
         // Merge re-attempts stay bounded — not an unbounded busy-loop.
         expect(yield* Ref.get(merges)).toBeLessThanOrEqual(4);
       }).pipe(Effect.scoped, Effect.provide(layer));
