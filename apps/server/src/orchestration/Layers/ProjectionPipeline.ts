@@ -2,6 +2,9 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   inferLegacyTitleProvenance,
+  IsoDateTime,
+  NonNegativeInt,
+  NonNegativeNumber,
   type OrchestrationEvent,
   type OrchestrationSessionStatus,
   ThreadId,
@@ -11,9 +14,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { openUserInputRequestIds } from "@t3tools/shared/openRequests";
+import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { remapLegacyStatus } from "../projector.loom.ts";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
@@ -69,6 +73,31 @@ import {
 // preview is aggregated onto the asker shell.
 const CONSULT_QUESTION_PREVIEW_MAX_LENGTH = 140;
 const PEER_MESSAGE_PREVIEW_MAX_LENGTH = 140;
+
+const ThreadShellSummaryInput = Schema.Struct({
+  threadId: ThreadId,
+  latestTurnId: Schema.NullOr(Schema.String),
+});
+
+const ThreadShellSummaryQueryResult = Schema.Struct({
+  latestUserMessageAt: Schema.NullOr(IsoDateTime),
+  pendingApprovalCount: NonNegativeInt,
+  pendingUserInputCount: NonNegativeInt,
+  actionablePlanCandidates: Schema.fromJsonString(
+    Schema.Array(
+      Schema.Struct({
+        planId: Schema.String,
+        implementedAt: Schema.NullOr(IsoDateTime),
+      }),
+    ),
+  ),
+  cumulativeCostUsd: NonNegativeNumber,
+  toolUses: Schema.NullOr(NonNegativeInt),
+  usedTokens: Schema.NullOr(NonNegativeInt),
+  maxTokens: Schema.NullOr(NonNegativeInt),
+  diffAdditions: Schema.NullOr(NonNegativeInt),
+  diffDeletions: Schema.NullOr(NonNegativeInt),
+});
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
@@ -144,137 +173,6 @@ function isStalePendingApprovalFailureDetail(detail: string | null): boolean {
     detail.includes("unknown pending approval request") ||
     detail.includes("unknown pending permission request")
   );
-}
-
-// Terminal-wins per requestId, and resolution is the only clearing signal — see
-// `@t3tools/shared/openRequests`. No sort is needed (or wanted): the fold is
-// order-independent, so a duplicate or late `requested` row can never reopen a
-// settled request. The decider's `hasOpenBlockingRequest` twin uses the same
-// helper, so the shell flags and the settle/snooze guard can never disagree.
-function derivePendingUserInputCountFromActivities(
-  activities: ReadonlyArray<ProjectionThreadActivity>,
-): number {
-  return openUserInputRequestIds(activities).size;
-}
-
-// Context cost meter: cumulative dollar spend for a thread = sum of every
-// `context-window.updated` activity's `costUsd`. Derived from the durable
-// activity log (not in-memory adapter state), so it is exact on replay and after
-// a mid-session restart. Non-pi providers never emit `costUsd`, so they sum to 0.
-function deriveCumulativeCostUsd(activities: ReadonlyArray<ProjectionThreadActivity>): number {
-  let total = 0;
-  for (const activity of activities) {
-    if (activity.kind !== "context-window.updated") {
-      continue;
-    }
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const costUsd = payload?.costUsd;
-    if (typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd > 0) {
-      total += costUsd;
-    }
-  }
-  return total;
-}
-
-// Effort/health meter for a thread.
-//  - `usedTokens`/`maxTokens`: latest `context-window.updated` snapshot. This is
-//    a LATEST-SNAPSHOT (newest wins) — do not accumulate. Null when unknown
-//    (no context-window activity yet) so the UI suppresses the chip.
-//  - `toolUses`: COUNT of tool-lifecycle activities in the durable log. We count
-//    real tool-call events rather than the provider's self-reported
-//    `usage.tool_uses`, which is empty for several adapters (e.g. Claude). Each
-//    tool call is ONE upserted row keyed `tool:<itemId>` whose kind advances
-//    `started`→`updated`→`completed` in place, so we count any tool.* row (not
-//    just `tool.started`, which no longer exists once the call finishes). Null
-//    when the thread has made no tool calls yet so the UI suppresses the chip.
-function deriveContextMetrics(activities: ReadonlyArray<ProjectionThreadActivity>): {
-  readonly toolUses: number | null;
-  readonly usedTokens: number | null;
-  readonly maxTokens: number | null;
-} {
-  const asInt = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
-  let toolCalls = 0;
-  let usedTokens: number | null = null;
-  let maxTokens: number | null = null;
-  // Newest-first: count each tool-lifecycle row everywhere, and take the first
-  // (latest) context-window snapshot that carries a usable usedTokens.
-  for (let index = activities.length - 1; index >= 0; index -= 1) {
-    const activity = activities[index];
-    if (!activity) continue;
-    if (
-      activity.kind === "tool.started" ||
-      activity.kind === "tool.updated" ||
-      activity.kind === "tool.completed"
-    ) {
-      toolCalls += 1;
-      continue;
-    }
-    if (activity.kind !== "context-window.updated" || usedTokens !== null) continue;
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null
-        ? (activity.payload as Record<string, unknown>)
-        : null;
-    const used = asInt(payload?.usedTokens);
-    if (used === null) continue;
-    usedTokens = used;
-    maxTokens = asInt(payload?.maxTokens);
-  }
-  return { toolUses: toolCalls > 0 ? toolCalls : null, usedTokens, maxTokens };
-}
-
-// Lines-of-diff meter for a thread: SUM of every checkpoint turn's per-file
-// additions/deletions. Isolation makes this attribution honest (an isolated
-// child's turn diffs contain exactly its own edits). Null when the thread has no
-// checkpoint turn yet so the UI suppresses the chip rather than showing 0.
-function deriveDiffTotals(turns: ReadonlyArray<ProjectionTurn>): {
-  readonly diffAdditions: number | null;
-  readonly diffDeletions: number | null;
-} {
-  let additions = 0;
-  let deletions = 0;
-  let hasCheckpoint = false;
-  for (const turn of turns) {
-    if (turn.checkpointTurnCount === null) continue;
-    hasCheckpoint = true;
-    for (const file of turn.checkpointFiles) {
-      additions += file.additions;
-      deletions += file.deletions;
-    }
-  }
-  return hasCheckpoint
-    ? { diffAdditions: additions, diffDeletions: deletions }
-    : { diffAdditions: null, diffDeletions: null };
-}
-
-function deriveHasActionableProposedPlan(input: {
-  readonly latestTurnId: string | null;
-  readonly proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>;
-}): boolean {
-  const sorted = [...input.proposedPlans].toSorted(
-    (left, right) =>
-      left.updatedAt.localeCompare(right.updatedAt) || left.planId.localeCompare(right.planId),
-  );
-
-  let latestForTurn: ProjectionThreadProposedPlan | null = null;
-  if (input.latestTurnId !== null) {
-    for (let index = sorted.length - 1; index >= 0; index -= 1) {
-      const plan = sorted[index];
-      if (plan?.turnId === input.latestTurnId) {
-        latestForTurn = plan;
-        break;
-      }
-    }
-  }
-  if (latestForTurn !== null) {
-    return latestForTurn.implementedAt === null;
-  }
-
-  const latestPlan = sorted.at(-1) ?? null;
-  return latestPlan !== null && latestPlan.implementedAt === null;
 }
 
 function retainProjectionMessagesAfterRevert(
@@ -562,6 +460,148 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
 
+    // This stays a full history recompute (so replay and thread.reverted remain
+    // exact), but SQLite now returns only the shell scalars instead of decoding
+    // five unbounded row sets on the serialised command queue.
+    const readThreadShellSummary = SqlSchema.findOne({
+      Request: ThreadShellSummaryInput,
+      Result: ThreadShellSummaryQueryResult,
+      execute: ({ threadId, latestTurnId }) => sql`
+        WITH
+          activity_totals AS (
+            SELECT
+              COALESCE(
+                SUM(
+                  CASE
+                    WHEN kind = 'context-window.updated'
+                      AND json_type(payload_json, '$.costUsd') IN ('integer', 'real')
+                      AND json_extract(payload_json, '$.costUsd') > 0
+                      AND json_extract(payload_json, '$.costUsd') <= 1.7976931348623157e308
+                    THEN json_extract(payload_json, '$.costUsd')
+                    ELSE 0
+                  END
+                ),
+                0
+              ) AS cumulative_cost_usd,
+              NULLIF(
+                SUM(kind IN ('tool.started', 'tool.updated', 'tool.completed')),
+                0
+              ) AS tool_uses
+            FROM projection_thread_activities AS activities
+              INDEXED BY idx_projection_thread_activities_thread_sequence_created_id
+            WHERE activities.thread_id = ${threadId}
+          ),
+          pending_user_inputs AS (
+            SELECT COUNT(*) AS pending_count
+            FROM (
+              SELECT json_extract(payload_json, '$.requestId') AS request_id
+              FROM projection_thread_activities
+                INDEXED BY idx_projection_thread_activities_thread_kind_sequence_created_id
+              WHERE thread_id = ${threadId}
+                AND kind IN ('user-input.requested', 'user-input.resolved')
+                AND json_type(payload_json, '$.requestId') = 'text'
+                AND length(json_extract(payload_json, '$.requestId')) > 0
+              GROUP BY request_id
+              HAVING MAX(kind = 'user-input.requested') = 1
+                AND MAX(kind = 'user-input.resolved') = 0
+            )
+          ),
+          context_snapshot AS (
+            SELECT MAX(used_tokens) AS used_tokens, MAX(max_tokens) AS max_tokens
+            FROM (
+              SELECT
+                ROUND(json_extract(payload_json, '$.usedTokens')) AS used_tokens,
+                CASE
+                  WHEN json_type(payload_json, '$.maxTokens') IN ('integer', 'real')
+                    AND json_extract(payload_json, '$.maxTokens') >= 0
+                    AND json_extract(payload_json, '$.maxTokens') <= 1.7976931348623157e308
+                  THEN ROUND(json_extract(payload_json, '$.maxTokens'))
+                  ELSE NULL
+                END AS max_tokens
+              FROM projection_thread_activities
+                INDEXED BY idx_projection_thread_activities_thread_kind_sequence_created_id
+              WHERE thread_id = ${threadId}
+                AND kind = 'context-window.updated'
+                AND json_type(payload_json, '$.usedTokens') IN ('integer', 'real')
+                AND json_extract(payload_json, '$.usedTokens') >= 0
+                AND json_extract(payload_json, '$.usedTokens') <= 1.7976931348623157e308
+              ORDER BY sequence DESC, created_at DESC, activity_id DESC
+              LIMIT 1
+            )
+          ),
+          checkpoint_totals AS (
+            SELECT
+              COUNT(DISTINCT turns.row_id) AS checkpoint_count,
+              COALESCE(SUM(json_extract(files.value, '$.additions')), 0) AS additions,
+              COALESCE(SUM(json_extract(files.value, '$.deletions')), 0) AS deletions
+            FROM projection_turns AS turns
+            LEFT JOIN json_each(turns.checkpoint_files_json) AS files
+            WHERE turns.thread_id = ${threadId}
+              AND turns.checkpoint_turn_count IS NOT NULL
+          )
+        SELECT
+          (
+            SELECT MAX(created_at)
+            FROM projection_thread_messages
+            WHERE thread_id = ${threadId} AND role = 'user'
+          ) AS "latestUserMessageAt",
+          (
+            SELECT COUNT(*)
+            FROM projection_pending_approvals
+            WHERE thread_id = ${threadId} AND status = 'pending'
+          ) AS "pendingApprovalCount",
+          pending_user_inputs.pending_count AS "pendingUserInputCount",
+          CASE
+            WHEN ${latestTurnId} IS NOT NULL AND EXISTS (
+              SELECT 1
+              FROM projection_thread_proposed_plans
+              WHERE thread_id = ${threadId} AND turn_id = ${latestTurnId}
+            )
+            THEN (
+              SELECT json_group_array(
+                json_object('planId', plan_id, 'implementedAt', implemented_at)
+              )
+              FROM projection_thread_proposed_plans
+              WHERE thread_id = ${threadId}
+                AND turn_id = ${latestTurnId}
+                AND updated_at = (
+                  SELECT MAX(updated_at)
+                  FROM projection_thread_proposed_plans
+                  WHERE thread_id = ${threadId} AND turn_id = ${latestTurnId}
+                )
+            )
+            ELSE (
+              SELECT json_group_array(
+                json_object('planId', plan_id, 'implementedAt', implemented_at)
+              )
+              FROM projection_thread_proposed_plans
+              WHERE thread_id = ${threadId}
+                AND updated_at = (
+                  SELECT MAX(updated_at)
+                  FROM projection_thread_proposed_plans
+                  WHERE thread_id = ${threadId}
+                )
+            )
+          END AS "actionablePlanCandidates",
+          activity_totals.cumulative_cost_usd AS "cumulativeCostUsd",
+          activity_totals.tool_uses AS "toolUses",
+          context_snapshot.used_tokens AS "usedTokens",
+          context_snapshot.max_tokens AS "maxTokens",
+          CASE
+            WHEN checkpoint_totals.checkpoint_count > 0 THEN checkpoint_totals.additions
+            ELSE NULL
+          END AS "diffAdditions",
+          CASE
+            WHEN checkpoint_totals.checkpoint_count > 0 THEN checkpoint_totals.deletions
+            ELSE NULL
+          END AS "diffDeletions"
+        FROM activity_totals
+        CROSS JOIN pending_user_inputs
+        CROSS JOIN context_snapshot
+        CROSS JOIN checkpoint_totals
+      `,
+    });
+
     const applyProjectsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyProjectsProjection",
     )(function* (event, _attachmentSideEffects) {
@@ -778,48 +818,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [messages, proposedPlans, activities, pendingApprovals, turns] = yield* Effect.all([
-        projectionThreadMessageRepository.listByThreadId({ threadId }),
-        projectionThreadProposedPlanRepository.listByThreadId({ threadId }),
-        projectionThreadActivityRepository.listByThreadId({ threadId }),
-        projectionPendingApprovalRepository.listByThreadId({ threadId }),
-        projectionTurnRepository.listByThreadId({ threadId }),
-      ]);
-
-      let latestUserMessageAt: string | null = null;
-      for (const message of messages) {
-        if (
-          message.role === "user" &&
-          (latestUserMessageAt === null || message.createdAt > latestUserMessageAt)
-        ) {
-          latestUserMessageAt = message.createdAt;
-        }
-      }
-
-      const pendingApprovalCount = pendingApprovals.filter(
-        (approval) => approval.status === "pending",
-      ).length;
-      const pendingUserInputCount = derivePendingUserInputCountFromActivities(activities);
-      const hasActionableProposedPlan = deriveHasActionableProposedPlan({
+      const { actionablePlanCandidates, ...summary } = yield* readThreadShellSummary({
+        threadId,
         latestTurnId: existingRow.value.latestTurnId,
-        proposedPlans,
-      });
-      const cumulativeCostUsd = deriveCumulativeCostUsd(activities);
-      const contextMetrics = deriveContextMetrics(activities);
-      const diffTotals = deriveDiffTotals(turns);
+      }).pipe(Effect.mapError(toPersistenceSqlError("refreshThreadShellSummary:aggregateQuery")));
+      const latestPlan = actionablePlanCandidates
+        .toSorted((left, right) => left.planId.localeCompare(right.planId))
+        .at(-1);
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
-        latestUserMessageAt,
-        pendingApprovalCount,
-        pendingUserInputCount,
-        hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
-        cumulativeCostUsd,
-        toolUses: contextMetrics.toolUses,
-        usedTokens: contextMetrics.usedTokens,
-        maxTokens: contextMetrics.maxTokens,
-        diffAdditions: diffTotals.diffAdditions,
-        diffDeletions: diffTotals.diffDeletions,
+        ...summary,
+        hasActionableProposedPlan: latestPlan?.implementedAt === null ? 1 : 0,
       });
     });
 
@@ -2177,8 +2187,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           // Only approval-requested activities should create pending-approval
           // rows.  Other activity kinds that happen to carry a requestId
           // (e.g. user-input.requested / user-input.resolved) must not
-          // pollute this projection — they have their own accounting via
-          // derivePendingUserInputCountFromActivities.
+          // pollute this projection — the shell aggregate accounts for them
+          // directly from the activity log.
           if (event.payload.activity.kind !== "approval.requested") {
             return;
           }
