@@ -16,6 +16,7 @@ import {
 } from "./annotation/anchoring";
 import { assignBlockIds, compilePlanMdx } from "./MdxPlanRenderer";
 import { ColumnRead, ColumnsRead } from "./blocks/columns";
+import { TableRead } from "./blocks/table";
 import { TabRead, TabsRead } from "./blocks/tabs";
 import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock } from "./registry";
 
@@ -97,7 +98,7 @@ describe("containers — Columns nesting + annotation (A2)", () => {
     expect(resolved?.toString()).not.toContain("before code");
   });
 
-  it("a selection inside a nested block yields a visual anchor with the document-level section", () => {
+  it("a selection inside a nested block yields a text anchor with the document-level section", () => {
     const root = setup();
     const text = root
       .querySelectorAll('[data-plan-block-type="code"]')[1]!
@@ -106,9 +107,71 @@ describe("containers — Columns nesting + annotation (A2)", () => {
     range.setStart(text, 0);
     range.setEnd(text, 5);
     const res = anchorFromRange(range, root);
-    expect(res?.anchor.anchorKind).toBe("visual");
+    expect(res?.anchor.anchorKind).toBe("text");
     expect(res?.anchor.sectionTitle).toBe("Migration"); // document heading, not nesting-local
-    expect(resolveAnchor(res!.anchor, root)?.toString()).toContain("after code");
+    // Context disambiguation picks the SECOND column's block, not the first match.
+    expect(resolveAnchor(res!.anchor, root)?.toString()).toBe("after");
+  });
+});
+
+/**
+ * The reported bug, against the REAL `<Table>` renderer: dragging across a few
+ * words in one cell must anchor to those words (not outline the whole table),
+ * and must re-resolve to the same cell after a full re-render. A cross-cell drag
+ * stays a text anchor too — whole-block is reserved for blocks with no quotable
+ * text at all.
+ */
+describe("table — intra-cell selection anchors to the selected text (real render)", () => {
+  function renderTable(): HTMLElement {
+    const html = renderToStaticMarkup(
+      createElement(TableRead, {
+        data: {
+          columns: ["Block", "Port size", "Risk"],
+          rows: [
+            ["Callout / Checklist / Table", "trivial", "mirror shipped pattern"],
+            ["Diff", "medium", "inline LCS differ, self-contained"],
+          ],
+        },
+        blockId: undefined,
+      }),
+    );
+    document.body.innerHTML = `<div data-plan-root><h2>Port plan</h2>${html}</div>`;
+    const root = document.querySelector<HTMLElement>("[data-plan-root]")!;
+    assignBlockIds(root);
+    return root;
+  }
+
+  /** The text node holding `cell`, in the rendered table. */
+  const cellText = (root: HTMLElement, cell: string): Text =>
+    Array.from(root.querySelectorAll("td")).find((td) => td.textContent === cell)!
+      .firstChild as Text;
+
+  it("anchors a phrase inside one cell to that phrase and round-trips a re-render", () => {
+    const root = renderTable();
+    const node = cellText(root, "inline LCS differ, self-contained");
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.setEnd(node, 17); // "inline LCS differ"
+    const res = anchorFromRange(range, root)!;
+    expect(res.anchor.anchorKind).toBe("text");
+    expect(res.anchor.targetSelector).toBeUndefined(); // not the whole table
+    expect(res.quotedText).toBe("inline LCS differ");
+
+    const reRendered = renderTable(); // full re-render, fresh DOM
+    const back = resolveAnchor(res.anchor, reRendered)!;
+    expect(back.toString()).toBe("inline LCS differ");
+    expect(back.startContainer.parentElement!.tagName).toBe("TD");
+  });
+
+  it("keeps a cross-cell drag as a text anchor, separated at the cell boundary", () => {
+    const root = renderTable();
+    const range = document.createRange();
+    range.setStart(cellText(root, "Diff"), 0);
+    range.setEnd(cellText(root, "medium"), 6);
+    const res = anchorFromRange(range, root)!;
+    expect(res.anchor.anchorKind).toBe("text"); // NOT a whole-table fallback
+    expect(res.quotedText).toBe("Diff\nmedium");
+    expect(resolveAnchor(res.anchor, renderTable())?.toString()).toBe("Diffmedium");
   });
 });
 

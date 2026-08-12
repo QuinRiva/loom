@@ -973,6 +973,54 @@ function PlanPanelPreview({ source }: { source: string }) {
   );
 }
 
+/**
+ * A table wide enough to overflow its own `overflow-x-auto` scroller inside a
+ * capped panel, for the intra-block text-selection + scroller-drift case: select
+ * a phrase in a cell → it anchors to that phrase (fill highlight, not a whole-
+ * table ring); scroll the table sideways → the highlight tracks the words and is
+ * clipped to the scrollport instead of drifting across the page.
+ */
+const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
+  "# Intra-cell selection in a horizontally scrolling table",
+  "",
+  "Select a phrase inside one cell below. It must highlight only that phrase, not outline the whole table. Then scroll the table sideways with its own scrollbar — the highlight must stay on the words and never spill onto the rest of the page.",
+  "",
+  `<Table columns={["Block type", "Anchoring behaviour", "Round-trip note", "Scroller behaviour"]} rows={${JSON.stringify(
+    [
+      [
+        "table_cell_prose_kept_as_one_long_unbreakable_token_so_the_column_is_forced_wide",
+        "anchors_to_the_exact_selected_phrase_via_the_flattened_text_quote_never_the_table",
+        "re_resolves_into_the_same_cell_after_a_full_re_render_of_the_whole_document",
+        "clipped_to_the_overflow_x_auto_scrollport_so_the_highlight_tracks_when_scrolled",
+      ],
+      [
+        "code_or_diff_or_json_explorer_lines_with_identifiers_repeated_many_times_over",
+        "joins_the_text_path_and_context_disambiguation_picks_the_right_occurrence",
+        "stable_because_dom_text_order_equals_visual_order_for_code_blocks",
+        "same_scrollport_clipping_as_a_wide_tables_own_inner_horizontal_scroller",
+      ],
+      [
+        "diagram_or_mermaid_or_prototype_or_html_opaque_surfaces_you_cannot_quote",
+        "stays_a_whole_block_visual_anchor_the_last_resort_fallback_only",
+        "resolves_by_block_id_rather_than_by_a_text_quote",
+        "no_text_highlight_to_clip_here_at_all",
+      ],
+    ],
+  )}} />`,
+  "",
+  "Closing prose after the wide table, so you can confirm a scrolled highlight never paints over these words.",
+].join("\n");
+
+const mdxScrollingTableFixture: PreviewFixture = {
+  id: "mdx-scrolling-table",
+  title: "Wide table (intra-cell selection + scroll)",
+  description:
+    "Select a phrase in a cell: it highlights that phrase (fill), not the whole table (ring). Scroll the table sideways: the highlight tracks the words and is clipped to the scrollport. Use 'Narrow panel' to force the inner scrollbar.",
+  render: () => (
+    <PlanPanelPreview key="mdx-scrolling-table" source={MDX_SCROLLING_TABLE_FIXTURE_SOURCE} />
+  ),
+};
+
 const mdxAnnotationFixture: PreviewFixture = {
   id: "mdx-annotation-defects",
   title: "Card › closed Details › Table",
@@ -995,7 +1043,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   {
     id: "mdx-annotation",
     title: "MDX plan document",
-    fixtures: [mdxWideBlockFixture, mdxAnnotationFixture],
+    fixtures: [mdxWideBlockFixture, mdxAnnotationFixture, mdxScrollingTableFixture],
   },
   {
     id: "pending-user-input",
