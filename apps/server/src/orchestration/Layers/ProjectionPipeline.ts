@@ -777,7 +777,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           // Wholesale replace: upsert every submitted task, then tombstone the
           // live tasks the submission dropped.
           case "goal.tasks-rewritten": {
-            const submitted = new Map(event.payload.tasks.map((task) => [task.taskId, task]));
+            const submitted = new Set(event.payload.tasks.map((task) => task.taskId));
             const existing = yield* projectionGoalRepository.listTasksByGoalId({
               goalId: event.payload.goalId,
             });

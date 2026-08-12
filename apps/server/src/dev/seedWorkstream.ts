@@ -192,9 +192,9 @@ const seedProgram = Effect.gen(function* () {
     { text: "Capture real turn checkpoints for the diff scope", done: true },
     { text: "Verify the goal panel's handoff ordering", done: false },
   ].entries()) {
-    // Uuid-shaped on purpose: `goal_tasks_rewrite` binds a submitted line to an
-    // existing task only via a well-formed uuid, so a seeded tree must look
-    // like a real one to be rewritable in the dev-verify recipe.
+    // Uuid-shaped so the seeded tree looks like a real one (live ids are
+    // uuids minted at the edge); `goal_tasks_rewrite` matches ids against the
+    // goal's known-id set, so the shape is cosmetic rather than load-bearing.
     const taskId = GoalTaskId.make(`00000000-0000-4000-8000-00000000000${index}`);
     yield* dispatch({
       type: "goal.task.create",
