@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 const effectIt = it;
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -203,11 +204,20 @@ const runReactor = (scenario: Scenario) =>
       yield* lease.hold(path, "test-process");
     }
 
-    yield* Effect.gen(function* () {
+    // The commit sites retry on `GIT_LOCK_RETRY`, whose backoff sleeps against
+    // the test clock — so run the pass on its own fiber and keep the clock
+    // moving until it settles, or a commit-failure scenario never reaches its
+    // verdict. The steps stay well under the 60s reconciliation tick, so no
+    // scenario picks up a spurious second pass.
+    const pass = yield* Effect.gen(function* () {
       const reactor = yield* WorkstreamFanInReactor;
       yield* reactor.start();
       yield* reactor.drain;
-    }).pipe(Effect.scoped, Effect.provide(layer));
+    }).pipe(Effect.scoped, Effect.provide(layer), Effect.forkScoped);
+    yield* Effect.raceFirst(
+      Fiber.join(pass),
+      TestClock.adjust(Duration.millis(100)).pipe(Effect.forever),
+    );
 
     return {
       lease,

@@ -16,8 +16,8 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schedule from "effect/Schedule";
 
+import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
@@ -133,16 +133,6 @@ export const isProvisionedChildBranch = (branch: string | null, threadId: string
   branch !== null && branch.startsWith("ws/") && branch.endsWith(`-${threadId.slice(0, 8)}`);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-
-// The parent-worktree snapshot commit races the parent agent's OWN git
-// subprocess (index.lock contention) — a brief, self-resolving failure that the
-// in-process WorktreeMutationLock cannot serialise against (it is a separate
-// process). Absorb it with a bounded retry before parking the child: 3 attempts
-// total (~150ms → 300ms backoff, sub-second). `commitAll` is idempotent — a now
-// -clean tree returns `committed:false` — so a plain re-run is safe.
-export const SNAPSHOT_COMMIT_RETRY = Schedule.exponential(Duration.millis(150)).pipe(
-  Schedule.take(2),
-);
 
 /**
  * How long a freshly provisioned worktree is held before the provider launch is
@@ -370,9 +360,11 @@ const make = Effect.gen(function* () {
         // which may be uncommitted in the parent worktree. Snapshot it onto the
         // parent branch so the child branches from an exact, committed HEAD and
         // the fan-in merge-base is clean. The shipper squashes wip at PR time.
+        // Retried: this races the parent agent's own git subprocess, which the
+        // in-process lock above cannot serialise against.
         yield* gitWorkflow
           .commitAll(input.parentCwd, "wip: workstream snapshot", "")
-          .pipe(Effect.retry(SNAPSHOT_COMMIT_RETRY));
+          .pipe(Effect.retry(GIT_LOCK_RETRY));
         return yield* provisionWorktree({
           threadId: input.threadId,
           ...(input.projectId ? { projectId: input.projectId } : {}),

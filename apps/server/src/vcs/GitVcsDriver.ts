@@ -2,13 +2,11 @@ import * as NodeCrypto from "node:crypto";
 
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schedule from "effect/Schedule";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -30,6 +28,7 @@ import {
   type VcsStatusInput,
   type VcsStatusResult,
 } from "@t3tools/contracts";
+import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -360,10 +359,6 @@ export class GitVcsDriver extends Context.Service<
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
-// Bounded retry for the checkpoint-ref delete transaction losing
-// `packed-refs.lock` to another git process: 3 attempts (~150ms → 300ms
-// backoff, sub-second), mirroring `SNAPSHOT_COMMIT_RETRY`.
-const REF_DELETE_RETRY = Schedule.exponential(Duration.millis(150)).pipe(Schedule.take(2));
 const WORKSPACE_GIT_HARDENED_CONFIG_ARGS = [
   "-c",
   "core.fsmonitor=false",
@@ -936,10 +931,10 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
     // once-per-turn capture check at the next turn start and anchors the next
     // diff to a pre-revert tree. Deleting a *packed* ref needs
     // `packed-refs.lock`, so this can lose a brief race with another git
-    // process — absorbed with the same bounded retry shape as
-    // `SNAPSHOT_COMMIT_RETRY`. Deletion is idempotent (a missing ref exits 0),
-    // so re-running the whole batch is safe. Failure is NOT swallowed: it
-    // surfaces as a revert-failure activity rather than a silent wrong diff.
+    // process — absorbed by the shared `GIT_LOCK_RETRY`. Deletion is idempotent
+    // (a missing ref exits 0), so re-running the whole batch is safe. Failure
+    // is NOT swallowed: it surfaces as a revert-failure activity rather than a
+    // silent wrong diff.
     // De-duplicated because a transaction rejects repeated refs outright
     // (`fatal: multiple updates for ref 'X' not allowed`) — uniqueness is a
     // precondition of batching that the previous per-ref loop did not have.
@@ -950,7 +945,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           cwd: input.cwd,
           args: ["update-ref", "--stdin"],
           stdin: [...new Set(input.checkpointRefs)].map((ref) => `delete ${ref}\n`).join(""),
-        }).pipe(Effect.retry(REF_DELETE_RETRY));
+        }).pipe(Effect.retry(GIT_LOCK_RETRY));
       },
     ),
   };
