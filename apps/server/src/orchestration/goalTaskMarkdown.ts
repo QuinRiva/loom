@@ -36,10 +36,12 @@ export type ParsedGoalTaskMarkdown =
 
 // `- ` / `* ` bullet, optional `[ ]`/`[x]`/`[X]` checkbox (absent => open), text.
 const TASK_LINE = /^([ \t]*)[-*][ \t]+(?:\[([ xX])\][ \t]*)?(.*\S)[ \t]*$/;
-// A trailing parenthetical is an id ONLY if it is a well-formed uuid; anything
-// else is just part of the task text.
-const TRAILING_ID =
-  /^(.*?)[ \t]*\(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)$/;
+// A trailing `(token)` is an id when it names a task of this goal — that is the
+// authority, so a task id of any shape round-trips. Uuid shape only decides
+// what an UNKNOWN token means: a well-formed uuid is a stale read (400),
+// anything else ("(WP2)") is just part of the task text.
+const TRAILING_TOKEN = /^(.*?)[ \t]*\(([^\s()]+)\)$/;
+const UUID_SHAPE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 /** Two spaces per level; a tab counts as one whole level. */
 const indentDepth = (indent: string): number =>
@@ -72,14 +74,14 @@ export const parseGoalTaskMarkdown = (
     }
     const [, indent = "", checkbox, body = ""] = match;
 
-    const withId = TRAILING_ID.exec(body);
+    const trailing = TRAILING_TOKEN.exec(body);
+    const id = trailing?.[2];
     let taskId: GoalTaskId | null = null;
     let text = body;
-    if (withId) {
-      const id = withId[2]!;
+    if (id !== undefined && (knownTaskIds.has(id) || UUID_SHAPE.test(id))) {
       if (!knownTaskIds.has(id)) {
         return {
-          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal — your view of the tree is stale (or the id was mistyped). Call goal_task_list and rewrite from the tree it returns; drop the "(id)" to submit the line as a new task.`,
+          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal — your view of the tree is stale (or the id was mistyped). Re-read the tree (goal_task_list, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
         };
       }
       if (seen.has(id)) {
@@ -89,7 +91,7 @@ export const parseGoalTaskMarkdown = (
       }
       seen.add(id);
       taskId = GoalTaskId.make(id);
-      text = withId[1]!.trim();
+      text = trailing![1]!.trim();
     }
     if (text.length === 0) {
       return { error: `Line "${raw.trim()}" has no task text.` };

@@ -150,6 +150,13 @@ describe("parse rules", () => {
     expect(lines[0]).toMatchObject({ taskId: null, text: "Ship the rewrite tool (WP2)" });
   });
 
+  it("matches a trailing token against the goal's ids first, whatever its shape", () => {
+    // Id shape is not the parser's authority — membership is. A non-uuid task id
+    // must round-trip as that task, not be silently replaced by a new one.
+    const lines = parseOrThrow("- [x] Legacy task (legacy-task-7)", new Set(["legacy-task-7"]));
+    expect(lines[0]).toMatchObject({ taskId: "legacy-task-7", text: "Legacy task", done: true });
+  });
+
   it("rejects an id that is not a task of this goal (a stale read)", () => {
     expect(errorOf(`- [ ] Ghost (${uuid("9")})`)).toContain("your view of the tree is stale");
   });
