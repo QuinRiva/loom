@@ -133,6 +133,13 @@ describe("parse rules", () => {
     ]);
   });
 
+  it("accepts CRLF submissions (files and stdin routinely carry them)", () => {
+    expect(parseOrThrow("- [ ] Task one\r\n  - [x] Task two\r\n", new Set())).toEqual([
+      { taskId: null, parentIndex: null, text: "Task one", done: false, position: 0 },
+      { taskId: null, parentIndex: 0, text: "Task two", done: true, position: 0 },
+    ]);
+  });
+
   it("binds a line to the nearest shallower preceding line, not to its indent depth", () => {
     const lines = parseOrThrow(["- Parent", "      - Over-indented child"].join("\n"), new Set());
     expect(lines[1]).toMatchObject({ parentIndex: 0, position: 0 });

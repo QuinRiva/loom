@@ -60,7 +60,9 @@ export const parseGoalTaskMarkdown = (
   const nextPosition = new Map<number, number>();
   const seen = new Set<string>();
 
-  for (const raw of markdown.split("\n")) {
+  // CRLF is ordinary in file/stdin submissions (the WP4 CLI reads both); a
+  // trailing `\r` would otherwise fail every line on a presentation detail.
+  for (const raw of markdown.split(/\r?\n/)) {
     if (raw.trim().length === 0) continue;
     const match = TASK_LINE.exec(raw);
     if (!match) {
