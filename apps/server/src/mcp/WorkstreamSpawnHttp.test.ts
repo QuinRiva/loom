@@ -737,7 +737,9 @@ describe("modelCatalogueOf / validateModelSelection", () => {
     expect(explicit).toContain("This modelSelection");
     expect(explicit).toContain('instanceId "google-vertex-claude"');
     expect(explicit).toContain("is not a configured provider instance");
-    expect(explicit).toContain("anthropic/claude-opus-4-8");
+    // Compact error surface: instance ids with model counts, never slug dumps.
+    expect(explicit).toContain("pi (2 models)");
+    expect(explicit).not.toContain("anthropic/claude-opus-4-8");
     expect(explicit).toContain("coder, reviewer");
     expect(explicit).toContain("Nothing was spawned.");
     // A stale configured preset names the preset in the error.
@@ -754,12 +756,28 @@ describe("modelCatalogueOf / validateModelSelection", () => {
   it("rejects an unknown model slug when the catalogue is populated", () => {
     const v = validateModelSelection(sel("pi", "claude-opus-4-8"), catalogue);
     expect(v.kind).toBe("unknown-model");
+    const message = invalidModelSelectionMessage(
+      v as Exclude<typeof v, { readonly kind: "ok" }>,
+      catalogue,
+      [],
+      { kind: "role-preset", role: "coder" },
+    );
+    expect(message).toContain('is not a known model for instance "pi"');
+    // Near-match suggestion: the bare slug finds its provider-prefixed form
+    // without dumping unrelated slugs.
+    expect(message).toContain("Closest known slugs: anthropic/claude-opus-4-8.");
+    expect(message).not.toContain("openai-codex/gpt-5.5");
+  });
+
+  it("says so when no known slug resembles the attempted one", () => {
+    const v = validateModelSelection(sel("pi", "totally-made-up"), catalogue);
+    expect(v.kind).toBe("unknown-model");
     expect(
       invalidModelSelectionMessage(v as Exclude<typeof v, { readonly kind: "ok" }>, catalogue, [], {
         kind: "role-preset",
         role: "coder",
       }),
-    ).toContain('is not a known model for instance "pi"');
+    ).toContain("None of the 2 known slugs for this instance resemble it.");
   });
 
   it("accepts any slug best-effort when the instance catalogue is empty", () => {
