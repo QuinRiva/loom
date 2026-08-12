@@ -1695,15 +1695,40 @@ export const validateModelSelection = (
   return { kind: "ok" };
 };
 
+// Error-surface rendering is deliberately compact: a deployment's catalogue can
+// run to thousands of slugs, so the instance list carries counts (not slugs) and
+// a per-instance slug list is capped.
 const formatCatalogue = (catalogue: ReadonlyArray<ModelCatalogueEntry>): string =>
   catalogue.length === 0
     ? "none configured"
     : catalogue
         .map(
           (e) =>
-            `${e.instanceId} (models: ${e.models.length > 0 ? e.models.join(", ") : "unknown"})`,
+            `${e.instanceId} (${e.models.length > 0 ? e.models.length + " models" : "catalogue not yet loaded"})`,
         )
         .join("; ");
+
+// The unknown-model error suggests slugs RELEVANT to the attempted one instead
+// of dumping the instance's catalogue (thousands of slugs on large deployments;
+// an arbitrary prefix of it is both costly and useless). Case-insensitive
+// containment in either direction catches the dominant failure — a missing or
+// extra provider prefix (`claude-opus-4-8` vs `anthropic/claude-opus-4-8`).
+// The limit is a shortlist bound, not a token budget: a needle matching more
+// slugs than this was too generic to disambiguate anyway, and the remainder is
+// reported as a count.
+const NEAR_MATCH_LIMIT = 10;
+const nearMatchesLine = (attempted: string, models: ReadonlyArray<string>): string => {
+  const needle = attempted.toLowerCase();
+  const near = models.filter((slug) => {
+    const s = slug.toLowerCase();
+    return s.includes(needle) || needle.includes(s);
+  });
+  return near.length === 0
+    ? `None of the ${models.length} known slugs for this instance resemble it.`
+    : `Closest known slugs: ${near.slice(0, NEAR_MATCH_LIMIT).join(", ")}${
+        near.length > NEAR_MATCH_LIMIT ? ` (+${near.length - NEAR_MATCH_LIMIT} more)` : ""
+      }.`;
+};
 
 const describeSource = (source: SelectionSource): string => {
   switch (source.kind) {
@@ -1732,7 +1757,7 @@ export const invalidModelSelectionMessage = (
 ): string =>
   validation.kind === "unknown-instance"
     ? `${describeSource(source)} references instanceId "${validation.instanceId}", which is not a configured provider instance in this build. Valid instances: ${formatCatalogue(catalogue)}. Configured presets: ${presets.length > 0 ? presets.join(", ") : "none"}. Prefer a configured modelPreset (or omit both to inherit) rather than guessing instance ids/model slugs from another environment${source.kind === "preset" || source.kind === "role-preset" ? ", or fix the preset in server settings" : ""}. Nothing was spawned.`
-    : `${describeSource(source)} references model "${validation.model}", which is not a known model for instance "${validation.instanceId}". Known models for ${validation.instanceId}: ${validation.models.join(", ")}. Nothing was spawned.`;
+    : `${describeSource(source)} references model "${validation.model}", which is not a known model for instance "${validation.instanceId}". ${nearMatchesLine(validation.model, validation.models)} Prefer a configured modelPreset or taskShape over a raw slug. Nothing was spawned.`;
 
 /**
  * A configured preset resolved against the catalogue for the discovery surface:
@@ -3094,11 +3119,13 @@ const handleWorkstreamList = Effect.gen(function* () {
     lastActivityAt: thread.updatedAt,
     lastActivitySummary: thread.lastActivityPreview,
   }));
-  // Proactive model discoverability: the same catalogue the spawn validator
-  // checks against, plus each configured preset resolved (with a validity flag)
-  // so an orchestrator can read valid instance ids / model slugs before spawning
-  // instead of guessing and hitting the fail-fast 400 — and is never pointed at a
-  // stale preset that would still strand the child.
+  // Model discoverability: presets, task shapes, and profiles only. The raw
+  // per-instance model catalogue is deliberately NOT included — on deployments
+  // with large catalogues it dwarfs the graph itself (tens of thousands of
+  // tokens per call), and the recommended selection paths never need it. The
+  // catalogue is still computed to resolve preset/profile validity flags, and
+  // an explicit modelSelection is fail-fast validated at spawn with a helpful
+  // error, so discoverability degrades gracefully.
   const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
   const settings = yield* (yield* ServerSettingsService).getSettings;
   // The caller is implicitly in its own tree; no target arg, no 403 path.
@@ -3108,7 +3135,6 @@ const handleWorkstreamList = Effect.gen(function* () {
       viewThreads,
       (id) => resolveSessionFilePath(piSessionIdForThread(id)) ?? null,
     ),
-    modelCatalogue: catalogue,
     modelPresets: presetCatalogueOf(
       settings.workstreamModelPresets as Record<string, ModelSelection>,
       catalogue,

@@ -5,11 +5,7 @@
 // a live MCP session) is unit-testable. The output must be character-identical
 // to the historical extension output.
 
-import type {
-  ModelCatalogueEntry,
-  PresetCatalogueEntry,
-  ProfileSummaryEntry,
-} from "./WorkstreamSpawnHttp.ts";
+import type { PresetCatalogueEntry, ProfileSummaryEntry } from "./WorkstreamSpawnHttp.ts";
 
 // Stable one-line hint per task shape for the discovery surface. References task
 // characteristics, never model names, so it never goes stale (plan §3).
@@ -52,7 +48,6 @@ export interface WorkstreamListView {
   readonly callerId?: string;
   readonly nodes?: ReadonlyArray<WorkstreamListNode>;
   readonly waitsOnEdges?: ReadonlyArray<{ readonly from: string; readonly to: string }>;
-  readonly modelCatalogue?: ReadonlyArray<ModelCatalogueEntry>;
   readonly modelPresets?: ReadonlyArray<PresetCatalogueEntry>;
   readonly taskShapes?: ReadonlyArray<string>;
   readonly modelProfiles?: ReadonlyArray<ProfileSummaryEntry>;
@@ -60,7 +55,7 @@ export interface WorkstreamListView {
 
 /**
  * The whole workstream graph as indented text: lineage tree, per-node activity /
- * report / session / waits-on lines, then the model catalogue + presets block.
+ * report / session / waits-on lines, then the model presets/shapes/profiles block.
  * This is the untestable-logic centrepiece the tool-bridge collapse exists for.
  */
 export const renderWorkstreamList = (view: WorkstreamListView): string => {
@@ -122,16 +117,10 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
     for (const child of children.get(node.id) ?? []) emit(child, depth + 1);
   };
   for (const root of roots) emit(root, 0);
-  const catalogue = Array.isArray(view.modelCatalogue) ? view.modelCatalogue : [];
   const modelPresets = Array.isArray(view.modelPresets) ? view.modelPresets : [];
   const taskShapes = Array.isArray(view.taskShapes) ? view.taskShapes : [];
   const modelProfiles = Array.isArray(view.modelProfiles) ? view.modelProfiles : [];
-  if (
-    catalogue.length > 0 ||
-    modelPresets.length > 0 ||
-    taskShapes.length > 0 ||
-    modelProfiles.length > 0
-  ) {
+  if (modelPresets.length > 0 || taskShapes.length > 0 || modelProfiles.length > 0) {
     lines.push("", "Model selection (for spawning children):");
     if (taskShapes.length > 0) {
       lines.push("  task shapes (pass one as taskShape; the server picks the model):");
@@ -139,13 +128,6 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         const hint = TASK_SHAPE_HINTS[shape];
         lines.push('    - "' + shape + '"' + (hint ? " — " + hint : ""));
       }
-    }
-    for (const entry of catalogue) {
-      const models =
-        Array.isArray(entry.models) && entry.models.length > 0
-          ? entry.models.join(", ")
-          : "(catalogue not yet loaded)";
-      lines.push('  - instance "' + entry.instanceId + '": ' + models);
     }
     if (modelPresets.length > 0) {
       lines.push("  presets (prefer these):");

@@ -100,14 +100,10 @@ describe("renderWorkstreamList", () => {
     );
   });
 
-  it("renders the model catalogue and presets block with the INVALID marker", () => {
+  it("renders the presets block with the INVALID marker and no raw model catalogue", () => {
     const view: WorkstreamListView = {
       callerId: "root",
       nodes: [{ id: "root", parentThreadId: null, role: null, title: "R", planLane: "ready" }],
-      modelCatalogue: [
-        { instanceId: "pi", models: ["a", "b"] },
-        { instanceId: "empty", models: [] },
-      ],
       modelPresets: [
         { name: "coder", instanceId: "pi", model: "a", valid: true },
         { name: "stale", instanceId: "gone", model: "x", valid: false },
@@ -119,8 +115,6 @@ describe("renderWorkstreamList", () => {
         '- root (you) [thread] "R" lane=ready',
         "",
         "Model selection (for spawning children):",
-        '  - instance "pi": a, b',
-        '  - instance "empty": (catalogue not yet loaded)',
         "  presets (prefer these):",
         '    - "coder" → pi / a',
         '    - "stale" → gone / x [INVALID — points at an unconfigured instance/model; do not use]',
@@ -128,12 +122,12 @@ describe("renderWorkstreamList", () => {
     );
   });
 
-  it("shows 'presets: none configured' when a catalogue exists but no presets", () => {
+  it("shows 'presets: none configured' when shapes exist but no presets", () => {
     const view: WorkstreamListView = {
       callerId: "root",
       nodes: [{ id: "root", parentThreadId: null, role: null, title: "R", planLane: "ready" }],
-      modelCatalogue: [{ instanceId: "pi", models: ["a"] }],
       modelPresets: [],
+      taskShapes: ["explore"],
     };
     expect(renderWorkstreamList(view)).toContain("  presets: none configured");
   });
@@ -142,7 +136,6 @@ describe("renderWorkstreamList", () => {
     const view: WorkstreamListView = {
       callerId: "root",
       nodes: [{ id: "root", parentThreadId: null, role: null, title: "R", planLane: "ready" }],
-      modelCatalogue: [{ instanceId: "pi", models: ["a"] }],
       modelPresets: [],
       taskShapes: ["explore", "thorough", "mechanical"],
       modelProfiles: [
