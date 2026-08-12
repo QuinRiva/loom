@@ -779,12 +779,12 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_list",
     label: "List Goal Tasks",
     description:
-      "Read the current task tree of THIS thread's active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. This is a read — it mutates nothing. Errors cleanly if this thread has no active goal.",
+      "Read the current task tree of THIS thread's active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. It is also the text you edit and hand to goal_tasks_rewrite. This is a read — it mutates nothing. Errors cleanly if this thread has no active goal.",
     promptSnippet:
       "read this thread's active goal's current task tree (the shared tree) for orientation/reconciliation; mutates nothing.",
     promptGuidelines: [
       "You never pass a goalId — this always reads this thread's own active goal.",
-      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed.",
+      "The prompt-injected task tree is a frozen snapshot from your spawn; call this to see tasks a child has since added or completed. Every mutation echoes the resulting tree, so you only need this read when you have not just written.",
     ],
     parameters: { type: "object", properties: {}, additionalProperties: false },
     errorMode: "soft",
@@ -794,20 +794,23 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_add",
     label: "Add Goal Task",
     description:
-      "Add a task to the task tree of THIS thread's active goal. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use this to record new actionable work: an orchestrator keeps the tree current as work evolves; a child should add a discovered-but-out-of-scope actionable item (e.g. 'evaluate whether to fix pre-existing bug X') directly rather than only mentioning it in its report. Errors cleanly if this thread has no active goal.",
-    promptSnippet: "add a task to this thread's goal task tree (optionally under a parent task).",
+      "Append ONE task to the task tree of THIS thread's active goal — a targeted, concurrency-safe write that touches only the task it creates, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use it to record a single discovered actionable item (e.g. 'evaluate whether to fix pre-existing bug X') as a short imperative work item, nested under the task or theme it belongs to. To add several items at once, or to reshape the tree, edit the whole tree with goal_tasks_rewrite instead. Returns the resulting tree. Errors cleanly if this thread has no active goal.",
+    promptSnippet: "add one task to this thread's goal task tree (nested under a parent task).",
     promptGuidelines: [
       "You never pass a goalId — the task is always added to this thread's own active goal.",
-      "Pass parentTaskId (a task id from this goal) to nest the new task under an existing one; omit it for a top-level task.",
+      "Pass parentTaskId (a task id from this goal) to nest the new task under the theme it belongs to; a top-level append is for a genuinely new phase of the goal, not the default.",
     ],
     parameters: {
       type: "object",
       properties: {
-        text: { type: "string", description: "The task text." },
+        text: {
+          type: "string",
+          description: "The task text: a short imperative work item, not a finding or status note.",
+        },
         parentTaskId: {
           type: "string",
           description:
-            "Optional id of an existing task in this goal to nest the new task under. Omit for a top-level task.",
+            "Id of an existing task in this goal to nest the new task under. Omit only for a new top-level phase/theme.",
         },
       },
       required: ["text"],
@@ -820,11 +823,12 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_task_update",
     label: "Update Goal Task",
     description:
-      "Update an existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done). The goal is resolved from the session; the taskId must belong to it. A child may mark its OWN assigned task done when it finishes the work. Pass only the fields you want to change.",
-    promptSnippet: "update a task in this thread's goal: rename (text) or mark done/reopen (done).",
+      "Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it. This is how a child marks its OWN assigned task done the moment it finishes the work. Re-nesting, reordering and removing a task are not here: they are edits of the whole tree via goal_tasks_rewrite. Returns the resulting tree.",
+    promptSnippet:
+      "update one task in this thread's goal: rename (text) or mark done/reopen (done).",
     promptGuidelines: [
       "taskId must be a task in this thread's own active goal.",
-      "Pass only the fields you are changing; provide at least one of text or done.",
+      "Pass only the fields you are changing; provide at least one of text or done. Mark your own task done as soon as the work lands, not at the end of the session.",
     ],
     parameters: {
       type: "object",
@@ -852,6 +856,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptGuidelines: [
       "Read the live tree (goal_task_list, or a mutation's echoed tree) and edit THAT text — keep the `(id)` marker on every task you retain, or it comes back as a brand-new task.",
       "The submission is the whole tree: a task you leave out is deleted, and indentation alone decides nesting. An empty submission, an unparseable line, or an `(id)` that is not in this goal is rejected and nothing is applied.",
+      "This is the tool that fixes shape: hang the concrete work under a handful of phase/theme parents, keep every line a short imperative work item, and drop the stale journal entries rather than carrying them forward.",
       "Only a thread with no parent may rewrite; as a child, append with goal_task_add and mark your own task done with goal_task_update.",
     ],
     parameters: {
