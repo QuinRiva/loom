@@ -32,6 +32,7 @@ const HTML = `<div data-plan-root>
   <h2 data-plan-block-id="sec-b">Details</h2>
   <p data-plan-block-id="p2">Then the system uses a shared cache again here.</p>
   <figure data-plan-block-id="dia1" data-plan-block-type="diagram"><span>Node A</span><span>Node B</span></figure>
+  <div data-plan-block-id="tbl1" data-plan-block-type="table"><table><tbody><tr><td>latency budget</td><td>120ms</td></tr></tbody></table></div>
 </div>`;
 
 let root: Element;
@@ -94,13 +95,110 @@ describe("anchoring — context disambiguation", () => {
   });
 });
 
-describe("anchoring — whole-block fallback", () => {
-  it("falls back to a visual (whole-block) anchor inside a non-prose block", () => {
+describe("anchoring — whole-block is the LAST resort", () => {
+  it("falls back to a visual (whole-block) anchor inside an OPAQUE block", () => {
+    // A diagram is positioned boxes / generated SVG: DOM text order is not
+    // visual order, so there is no stable quote — the block IS the finest target.
     const res = anchorFromRange(rangeForText("Node A"), root);
     expect(res?.anchor.anchorKind).toBe("visual");
     expect(res?.anchor.targetSelector).toBe('[data-plan-block-id="dia1"]');
     expect(res?.anchor.targetKind).toBe("diagram");
     expect(resolveAnchor(res!.anchor, root)?.startContainer).toBeDefined();
+  });
+
+  it("falls back to the whole block when the selection captures no text", () => {
+    // A drag that grabs only chrome/whitespace inside a structured block must
+    // still produce a usable comment target rather than nothing at all.
+    const cell = root.querySelector('[data-plan-block-id="tbl1"] td')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(cell, 3);
+    range.setEnd(cell, 3); // collapsed → empty quote
+    const res = anchorFromRange(range, root);
+    expect(res?.anchor.anchorKind).toBe("visual");
+    expect(res?.anchor.targetSelector).toBe('[data-plan-block-id="tbl1"]');
+  });
+
+  it("returns null for an empty selection outside any block", () => {
+    const prose = root.querySelector('[data-plan-block-id="p1"]')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(prose, 3);
+    range.setEnd(prose, 3);
+    expect(anchorFromRange(range, root)).toBeNull();
+  });
+});
+
+/**
+ * The fix: a selection *inside* a structured block (the reported case is a few
+ * words in one table cell) anchors to that text, never swallowing the block.
+ * The round-trip is the load-bearing part — a mis-resolved anchor silently
+ * re-attributes a reviewer's comment to the wrong passage.
+ */
+describe("anchoring — intra-block text selection", () => {
+  it("anchors a phrase in a table cell to that phrase, not the whole table", () => {
+    const res = anchorFromRange(rangeForText("latency"), root);
+    expect(res?.anchor.anchorKind).toBe("text");
+    expect(res?.anchor.blockType).toBe("table"); // block context retained…
+    expect(res?.anchor.targetSelector).toBeUndefined(); // …but NOT a whole-block anchor
+    expect(res?.quotedText).toBe("latency");
+    expect(res?.anchor.sectionTitle).toBe("Details"); // nearest preceding heading
+    expect(resolveAnchor(res!.anchor, root)?.toString()).toBe("latency");
+  });
+
+  it("re-resolves into the same cell after the document re-renders", () => {
+    const res = anchorFromRange(rangeForText("latency"), root);
+    document.body.innerHTML = HTML; // fresh DOM, same content
+    const reRoot = document.querySelector("[data-plan-root]")!;
+    const back = resolveAnchor(res!.anchor, reRoot);
+    expect(back?.toString()).toBe("latency");
+    expect(back?.startContainer.parentElement?.closest("[data-plan-block-id]")).toBe(
+      reRoot.querySelector('[data-plan-block-id="tbl1"]'),
+    );
+  });
+
+  it("keeps a CROSS-CELL selection as a text anchor, separated at the cell boundary", () => {
+    // Never degrades to the whole table. flattenDocument inserts a newline at
+    // each block boundary — symmetrically on capture and resolve — so the quote
+    // reads as separate cells instead of the run-on "budget120".
+    const cells = root.querySelectorAll('[data-plan-block-id="tbl1"] td');
+    const range = document.createRange();
+    range.setStart(cells[0]!.firstChild!, 8); // "…budget"
+    range.setEnd(cells[1]!.firstChild!, 3); // "120…"
+    const res = anchorFromRange(range, root);
+    expect(res?.anchor.anchorKind).toBe("text");
+    expect(res?.quotedText).toBe("budget\n120");
+    expect(resolveAnchor(res!.anchor, root)?.toString()).toBe("budget120"); // same DOM range
+  });
+
+  it("separates rows and list items too, and round-trips a multi-row quote", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <div data-plan-block-id="t2" data-plan-block-type="table"><table><tbody>
+        <tr><td>alpha</td><td>one</td></tr><tr><td>beta</td><td>two</td></tr>
+      </tbody></table></div>
+    </div>`;
+    const r = document.querySelector("[data-plan-root]")!;
+    const cells = r.querySelectorAll("td");
+    const range = document.createRange();
+    range.setStart(cells[1]!.firstChild!, 0);
+    range.setEnd(cells[2]!.firstChild!, 4);
+    const res = anchorFromRange(range, r);
+    expect(res?.quotedText).toBe("one\nbeta"); // row boundary, not "onebeta"
+    expect(resolveAnchor(res!.anchor, r)?.toString()).toBe("onebeta");
+  });
+
+  it("anchors code text inside a code block to the selected identifier", () => {
+    document.body.innerHTML = `<div data-plan-root>
+      <h2>Registry</h2>
+      <figure data-plan-block-id="c1" data-plan-block-type="code"><pre><code><span>const PLAN_BLOCKS = [</span><span>  codeBlock,</span></code></pre></figure>
+    </div>`;
+    const codeRoot = document.querySelector("[data-plan-root]")!;
+    const line = codeRoot.querySelectorAll("span")[0]!.firstChild!;
+    const range = document.createRange();
+    range.setStart(line, 6);
+    range.setEnd(line, 17); // "PLAN_BLOCKS"
+    const res = anchorFromRange(range, codeRoot);
+    expect(res?.anchor.anchorKind).toBe("text");
+    expect(res?.quotedText).toBe("PLAN_BLOCKS");
+    expect(resolveAnchor(res!.anchor, codeRoot)?.toString()).toBe("PLAN_BLOCKS");
   });
 });
 
@@ -188,7 +286,7 @@ describe("anchoring — nested blocks in container blocks (A2)", () => {
     expect(resolved?.toString()).not.toContain("before code");
   });
 
-  it("a selection inside a nested block yields a visual anchor for that block with the document-level section", () => {
+  it("a selection inside a nested block yields a text anchor with the document-level section", () => {
     const nestedRoot = setup();
     const text = nestedRoot
       .querySelectorAll('[data-plan-block-type="code"]')[1]!
@@ -197,11 +295,19 @@ describe("anchoring — nested blocks in container blocks (A2)", () => {
     range.setStart(text, 0);
     range.setEnd(text, 5);
     const res = anchorFromRange(range, nestedRoot);
-    expect(res?.anchor.anchorKind).toBe("visual");
+    expect(res?.anchor.anchorKind).toBe("text");
     expect(res?.anchor.sectionTitle).toBe("Before / After"); // document-level heading, not nesting-local
-    const resolved = resolveAnchor(res!.anchor, nestedRoot);
-    expect(resolved?.toString()).toContain("after code");
-    expect(resolved?.toString()).not.toContain("before code");
+    // Disambiguated to the SECOND nested block by context, not the first match.
+    expect(resolveAnchor(res!.anchor, nestedRoot)?.toString()).toBe("after");
+  });
+
+  it("a selection inside a nested OPAQUE block still resolves to that block, not the container", () => {
+    const nestedRoot = setup();
+    const range = document.createRange();
+    range.selectNodeContents(nestedRoot.querySelector('[data-plan-block-type="diagram"] span')!);
+    const res = anchorFromRange(range, nestedRoot);
+    expect(res?.anchor.anchorKind).toBe("visual");
+    expect(resolveAnchor(res!.anchor, nestedRoot)?.toString()).toContain("top diagram");
   });
 });
 

@@ -150,6 +150,20 @@ function anchorElement(range: Range): Element | null {
   return container.parentElement;
 }
 
+/** The nearest ancestor that scrolls its own content (a wide `<Table>`, `<Diff>`
+ * or `<Code>` block's inner scroller), or `null` when nothing between the node
+ * and the plan root scrolls. A text highlight inside one must be clipped to it —
+ * otherwise scrolling the block carries the highlight out of the scrollport and
+ * paints it over the rest of the page. */
+function scrollportOf(node: Node, root: Element): Element | null {
+  let el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  while (el && el !== root) {
+    if (el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 function fileNameOf(filePath: string): string {
   const normalized = filePath.replaceAll("\\", "/");
   return normalized.slice(normalized.lastIndexOf("/") + 1) || filePath;
@@ -377,6 +391,18 @@ export function MdxPlanAnnotationLayer({
       width: rect.width,
       height: rect.height,
     });
+    /** `rect` intersected with an optional clipping scrollport; `null` when the
+     * rect lies entirely outside it (its text is scrolled out of view). */
+    const clipToBox = (rect: DOMRect, port: DOMRect | undefined): Box | null => {
+      if (!port) return toBox(rect);
+      const top = Math.max(rect.top, port.top);
+      const left = Math.max(rect.left, port.left);
+      const height = Math.min(rect.bottom, port.bottom) - top;
+      const width = Math.min(rect.right, port.right) - left;
+      return width > 0 && height > 0
+        ? { top: top - wrapperRect.top, left: left - wrapperRect.left, width, height }
+        : null;
+    };
     // Flatten the document ONCE per pass and share it across every text-quote
     // resolve, turning an O(comments × document) pass into O(document + comments)
     // — this removes the per-toggle recompute cliff on evidence-heavy docs.
@@ -449,14 +475,30 @@ export function MdxPlanAnnotationLayer({
         // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
         // wants ONE box from the element, drawn as a ring so it reads as "this
         // block is annotated", not "everything here is selected".
+        const port = isText ? scrollportOf(range.startContainer, root) : null;
+        const portRect = port?.getBoundingClientRect();
         const boxes = (
           isText
-            ? Array.from(range.getClientRects(), toBox)
+            ? Array.from(range.getClientRects(), (rect) => clipToBox(rect, portRect))
             : element
               ? [toBox(element.getBoundingClientRect())]
               : []
-        ).filter((box) => box.width > 0 && box.height > 0);
-        if (boxes.length === 0) return detachedOverlay(comment);
+        ).filter((box): box is Box => box !== null && box.width > 0 && box.height > 0);
+        if (boxes.length === 0) {
+          // Nothing to paint. Inside a scrollport that means the quoted text is
+          // simply scrolled out of view — still resolved, so keep the badge on
+          // the block so the comment stays reachable. Anywhere else it is a
+          // genuinely geometry-less anchor: detached.
+          if (!portRect) return detachedOverlay(comment);
+          return {
+            id: comment.id,
+            comment,
+            boxes: [],
+            badge: { top: portRect.top - wrapperRect.top, left: gutterLeft },
+            variant: "fill",
+            state: "resolved",
+          };
+        }
         return {
           id: comment.id,
           comment,
@@ -499,6 +541,15 @@ export function MdxPlanAnnotationLayer({
       characterData: true,
     });
     window.addEventListener("resize", schedule);
+    // A block with its own scroller (a wide table, diff or code block) moves its
+    // text with neither a mutation nor a resize, so nothing above fires and a
+    // text highlight inside it drifts off the words it quotes. Listen in the
+    // capture phase for scrolls originating INSIDE the plan; document/page
+    // scroll cannot move a wrapper-relative box, so it is deliberately ignored.
+    const onInnerScroll = (event: Event) => {
+      if (event.target instanceof Node && root.contains(event.target)) schedule();
+    };
+    document.addEventListener("scroll", onInnerScroll, true);
     // A web-font swap changes text metrics with neither a mutation nor a resize
     // (line wrapping is width-capped, so `root` never changes size), so no
     // observer fires — re-measure once fonts settle.
@@ -512,6 +563,7 @@ export function MdxPlanAnnotationLayer({
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       window.removeEventListener("resize", schedule);
+      document.removeEventListener("scroll", onInnerScroll, true);
     };
   }, [root, recompute]);
 

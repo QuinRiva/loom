@@ -71,29 +71,22 @@ const countOccurrences = (haystack: string, needle: string): number => {
   return count;
 };
 
-/** Block types whose bodies are not prose — a selection inside these falls back
- * to a whole-block anchor rather than a text-quote (nothing sensible to quote). */
-export const NON_PROSE_BLOCK_TYPES = new Set([
-  "code",
-  "annotated-code",
-  "diagram",
-  "data-model",
-  "file-tree",
-  "question-form",
-  "json-explorer",
-  "checklist",
-  "table",
-  "visual-questions",
-  "field-diff",
-  "review-choice",
-  "diff",
-  "openapi-spec",
-  "mermaid",
-  // Sandboxed-iframe surfaces (Wave B5/C4): opaque-origin frames you cannot
-  // select into, so a selection on the host resolves to a whole-block anchor.
-  "prototype",
-  "html",
-]);
+/** Block types with no host text a `Range` can meaningfully quote — a selection
+ * anywhere inside one of these always yields a whole-block anchor:
+ *
+ *  - `diagram` / `mermaid`: absolutely-positioned boxes and generated SVG, so
+ *    DOM text order is not visual order — a drag across them serialises to a
+ *    scrambled quote that resolves to the wrong glyphs after a re-layout.
+ *  - `prototype` / `html`: opaque-origin sandboxed iframes. You cannot get a
+ *    `Range` into them at all, so the host block IS the finest target.
+ *
+ * Every OTHER block type renders real, stable, human-meaningful text (table
+ * cells, checklist items, code lines, JSON keys, data-model descriptions), so an
+ * intra-block selection anchors to exactly what was highlighted rather than
+ * swallowing the whole block. Commenting on a block as a whole stays one click
+ * away via the per-block hover affordance ({@link anchorForBlockElement}), and
+ * a selection that captures no text still degrades to the whole block. */
+export const OPAQUE_BLOCK_TYPES = new Set(["diagram", "mermaid", "prototype", "html"]);
 
 /** Map a plan block type to the anchor's coarse `targetKind`. */
 function targetKindForBlock(blockType: string | null): PlanCommentTargetKind {
@@ -141,31 +134,56 @@ export interface FlattenedDocument {
   spans: TextSpan[];
 }
 
-function collectTextNodes(root: Node): Text[] {
-  const walker = root.ownerDocument!.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  let current = walker.nextNode();
-  while (current) {
-    nodes.push(current as Text);
-    current = walker.nextNode();
-  }
-  return nodes;
-}
+/** Tags whose start opens a new line box, so the text inside them must not run
+ * on from the text before them. Adjacent text nodes are otherwise concatenated
+ * bare, which is what made a selection across two table cells serialise as the
+ * unreadable `"budget120"`. The separator is inserted by
+ * {@link flattenDocument}, which is the SAME function used to capture a quote
+ * and to re-resolve it — so the round-trip holds exactly while the quote the
+ * reviewer (and the agent consuming the comment) sees reads as separate cells,
+ * rows and lines. */
+const BOUNDARY_TAGS = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DETAILS", "DIV", "DL", "DT",
+  "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6",
+  "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "SUMMARY", "TABLE",
+  "TBODY", "TD", "TFOOT", "TH", "THEAD", "TR", "UL",
+]); // prettier-ignore
+const BOUNDARY_SEP = "\n";
 
-/** Flatten a subtree's text nodes into one string + a prefix-offset index. */
+/** Flatten a subtree's text into one string + a prefix-offset index over its
+ * text nodes, with a newline at every block boundary (see {@link BOUNDARY_TAGS}). */
 export function flattenDocument(root: Node): FlattenedDocument {
+  const walker = root.ownerDocument!.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+  );
   let text = "";
-  const spans = collectTextNodes(root).map((node) => {
+  const spans: TextSpan[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (BOUNDARY_TAGS.has((node as Element).tagName) && text && !text.endsWith(BOUNDARY_SEP))
+        text += BOUNDARY_SEP;
+      continue;
+    }
     const start = text.length;
-    text += node.data;
-    return { node, start, end: text.length };
-  });
+    text += (node as Text).data;
+    spans.push({ node: node as Text, start, end: text.length });
+  }
   return { text, spans };
 }
 
+/** Map a flattened offset back to a text node + node offset. An offset landing
+ * inside a boundary separator (no text node owns it) snaps to the start of the
+ * next node; the result is clamped so a `Range` endpoint can never overflow. */
 function locate(spans: TextSpan[], offset: number): { node: Text; offset: number } {
-  const span = spans.find((s) => offset >= s.start && offset <= s.end) ?? spans[spans.length - 1]!;
-  return { node: span.node, offset: offset - span.start };
+  const span =
+    spans.find((s) => offset >= s.start && offset <= s.end) ??
+    spans.find((s) => s.start > offset) ??
+    spans[spans.length - 1]!;
+  return {
+    node: span.node,
+    offset: Math.min(Math.max(offset - span.start, 0), span.node.data.length),
+  };
 }
 
 function asElement(node: Node): Element | null {
@@ -270,9 +288,12 @@ const prefixOverlap = (a: string, b: string): number => {
 
 /** Serialise a selection into an anchor + the passage/preview it evidences.
  *
- * A selection inside a non-prose block yields a whole-block (`"visual"`) anchor;
- * anything else yields a text-quote (`"text"`) anchor. Returns `null` when the
- * selection carries no usable target (empty quote outside any block). */
+ * A text-quote (`"text"`) anchor is the default — including *inside* structured
+ * blocks, so highlighting a phrase in a table cell comments on that phrase. A
+ * whole-block (`"visual"`) anchor is used only when the enclosing block is
+ * {@link OPAQUE_BLOCK_TYPES opaque} or the selection captured no text (a click,
+ * or a drag over non-text chrome). Returns `null` when neither applies — an
+ * empty selection outside any block. */
 export function anchorFromRange(
   range: Range,
   root: Element,
@@ -289,20 +310,8 @@ export function anchorFromRange(
     if (pin) return pin;
   }
 
-  if (block && NON_PROSE_BLOCK_TYPES.has(block.type)) {
-    const quotedText = collapse(block.element.textContent ?? "", BLOCK_SNIPPET_MAX);
-    return {
-      anchor: {
-        anchorKind: "visual",
-        targetKind: targetKindForBlock(block.type),
-        blockType: block.type,
-        targetSelector: blockSelector(block.id),
-        snippet: quotedText || undefined,
-        ...sectionFields,
-      },
-      quotedText: quotedText || block.type,
-    };
-  }
+  const wholeBlock = () => (block ? anchorForBlockElement(block.element, root) : null);
+  if (block && OPAQUE_BLOCK_TYPES.has(block.type)) return wholeBlock();
 
   const { text, spans } = flattenDocument(root);
   const offsetOf = (node: Node, nodeOffset: number): number => {
@@ -312,7 +321,7 @@ export function anchorFromRange(
   const start = offsetOf(range.startContainer, range.startOffset);
   const end = offsetOf(range.endContainer, range.endOffset);
   const textQuote = text.slice(start, end);
-  if (!textQuote.trim()) return null;
+  if (!textQuote.trim()) return wholeBlock();
 
   return {
     anchor: {
@@ -339,7 +348,9 @@ export function anchorForBlockElement(
   const type = element.getAttribute("data-plan-block-type");
   const id = element.getAttribute("data-plan-block-id") ?? "";
   const section = sectionFor(element, root);
-  const quotedText = collapse(element.textContent ?? "", BLOCK_SNIPPET_MAX);
+  // Flatten (not `textContent`) so the block snippet reads as separate cells/rows
+  // rather than one run-on string — same boundary rule as a text quote.
+  const quotedText = collapse(flattenDocument(element).text, BLOCK_SNIPPET_MAX);
   return {
     anchor: {
       anchorKind: "visual",
