@@ -1,10 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -15,54 +13,13 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 
-import {
-  SNAPSHOT_COMMIT_RETRY,
-  WorktreeProvisioner,
-  layer as WorktreeProvisionerLive,
-} from "./WorktreeProvisioner.ts";
+import { WorktreeProvisioner, layer as WorktreeProvisionerLive } from "./WorktreeProvisioner.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectSetupScriptRunner } from "./ProjectSetupScriptRunner.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
 import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceLease.ts";
-
-// The snapshot commit races the parent agent's own git subprocess (index.lock
-// contention). The retry schedule must absorb a brief failure but stay bounded
-// so a genuinely-broken commit still parks the child promptly. The backoff runs
-// against the test clock, so advance it past the total window to flush retries.
-describe("SNAPSHOT_COMMIT_RETRY", () => {
-  it.effect("absorbs a failing-then-succeeding commit (transient index.lock race)", () =>
-    Effect.gen(function* () {
-      const attempts = yield* Ref.make(0);
-      const fiber = yield* Effect.gen(function* () {
-        const n = yield* Ref.updateAndGet(attempts, (x) => x + 1);
-        if (n < 3) return yield* Effect.fail("index.lock: File exists" as const);
-        return "committed" as const;
-      }).pipe(Effect.retry(SNAPSHOT_COMMIT_RETRY), Effect.exit, Effect.forkScoped);
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust(Duration.seconds(1));
-      expect(yield* Fiber.join(fiber)).toStrictEqual(Exit.succeed("committed"));
-      expect(yield* Ref.get(attempts)).toBe(3);
-    }),
-  );
-
-  it.effect("gives up after 3 attempts total when the commit keeps failing", () =>
-    Effect.gen(function* () {
-      const attempts = yield* Ref.make(0);
-      const fiber = yield* Ref.update(attempts, (x) => x + 1).pipe(
-        Effect.andThen(Effect.fail("index.lock: File exists" as const)),
-        Effect.retry(SNAPSHOT_COMMIT_RETRY),
-        Effect.exit,
-        Effect.forkScoped,
-      );
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust(Duration.seconds(1));
-      expect(Exit.isFailure(yield* Fiber.join(fiber))).toBe(true);
-      expect(yield* Ref.get(attempts)).toBe(3);
-    }),
-  );
-});
 
 // ensureIsolatedChildProvisioned is the shared turn-start guard (item 4): it
 // (re)provisions an isolated child's worktree and, on failure, parks the child

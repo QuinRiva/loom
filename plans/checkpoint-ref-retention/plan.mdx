@@ -1,0 +1,180 @@
+---
+manager_sessions:
+  - id: e8a265aa-8dc6-41c3-a783-e15885e6d747
+    role: plan
+    authored_at: 2026-08-11T23:54:39.816Z
+---
+
+# Checkpoint-ref retention policy
+
+**Objective.** Bound the growth of `refs/t3/checkpoints/*` refs in project repos. Today they are created on every turn and deleted only on revert, so they grow without bound — on the live cockpit repo they are 6,831 of ~8,900 refs (77%, `packed-refs` ≈ 940 KB, growing ~2.8k refs/month). This plan establishes what revert and diff viewing actually need retained, compares retention policies, and proposes the smallest mechanism that bounds growth: a checkpoint-ref sweep folded into the existing `WorktreeReaper` 30-minute pass, deleting a thread's whole ref namespace once the thread is terminal (deleted / done / cancelled / archived) and has been quiet past a grace window.
+
+**Done means:** the sweep ships behind the existing reaper cadence, steady-state ref count on the live repo settles at roughly the live-thread share (~1.6k today), the 6.8k backlog is reclaimed on the first pass after an owner-approved rollout, and reopening an old thread degrades gracefully (documented below) rather than erroring loudly or corrupting anything.
+
+<Callout tone="decision">
+  **Recommendation: Option A — terminal-state + grace sweep in the existing `WorktreeReaper` pass.** One new pure selector module, one new `for-each-ref` listing op, one small SQL read, ~30 lines of integration. No new periodic machinery, no migration, no event-flow changes, and the first pass after deploy performs the one-off backlog cleanup (owner-gated, dry-run command included).
+</Callout>
+
+## How checkpoint refs work today
+
+All refs live under `refs/t3/checkpoints/<base64url(threadId)>/…` in the project repo's **shared** `.git` (worktrees share the common ref store — which is why one repo accumulates every thread's refs, and why refs survive worktree removal and fan-in repointing). Two ref kinds per thread (`apps/server/src/checkpointing/Utils.ts`):
+
+<Table
+  columns={["Ref", "Written when", "Read by", "Deleted when"]}
+  rows={[
+    ["…/turn/<n>", "turn n completes (CheckpointReactor.captureAndDispatchCheckpoint)", "turn-diff view (from anchor for wide ranges), full-thread diff (to anchor), revert target", "revert past it — otherwise never"],
+    ["…/turn/0", "thread's first turn starts", "full-thread diff + revert-to-start anchor (reconstructed by name, not via read model)", "never"],
+    ["…/baseline/<n>", "turn n starts (start-of-turn tree snapshot)", "adjacent turn-diff view (preferred from anchor), capture of turn n's diff", "revert past it — otherwise never"],
+  ]}
+/>
+
+So a thread accrues ~2 refs per turn forever. The read model (`projection_threads` + per-thread checkpoint rows in SQLite) stores the ref *names* and the per-turn file summary chips; the full patch text is **not** persisted — `checkpoint_diff_blobs` exists as a table but is written by nothing and is empty on the live DB. Every historical patch view re-derives from the git refs on demand (`CheckpointDiffQuery.getTurnDiff` / `getFullThreadDiff`).
+
+<Mermaid
+  caption="Checkpoint ref lifecycle — today the only deletion edge is revert"
+  source={"flowchart LR\n  A[turn starts] -->|capture baseline/n| R[(refs/t3/checkpoints/thread/...)]\n  B[turn completes] -->|capture turn/n| R\n  R --> D[turn-diff / full-thread diff view]\n  R --> V[revert to turn n]\n  V -->|deletes refs above n| R\n  X[thread done / archived / deleted] -.->|nothing today| R\n"}
+/>
+
+## The invariant: what must exist for what
+
+Established from `CheckpointReactor.handleRevertRequested`, `CheckpointDiffQuery`, and the capture paths:
+
+- **Revert to turn n of thread T** needs: the read-model checkpoint row for turn n (turn 0 excepted — reconstructed by name), the `turn/<n>` ref, an **active provider session** bound to T with a live git cwd, and sole occupancy of the worktree (other live threads sharing it refuse the revert). A missing ref fails gracefully today: an error activity "Filesystem checkpoint is unavailable for turn n", no state change.
+- **Turn-diff view (n−1 → n)** needs `turn/<n>` plus `baseline/<n>` (preferred) or `turn/<n−1>`. Missing ref → `CheckpointRefUnavailableError`, rendered as diff-unavailable; the stored file-summary chips still render.
+- **Full-thread diff** needs `turn/0` plus the latest `turn/<n>`.
+- **Future captures need no old refs.** Each turn's capture anchors to the `baseline/<n>` written at that turn's own start; a thread whose historical refs are gone captures new turns correctly (there is even an existing log-and-continue path for a missing from-anchor).
+
+Therefore a ref is **provably useless** only when its thread is deleted (permanent, no reopen path). For every other state the refs back a *history-viewing and revert UX* whose value decays with time: a done/cancelled thread can be reopened, an archived one unarchived — but revert additionally requires resuming a session in the original cwd and sole worktree occupancy, which for a fanned-in child (worktree removed, meta repointed to the parent's cwd) is effectively never satisfiable again. Retention beyond "thread deleted" is thus a **product decision about how long finished threads keep their browsable diff history**, not a correctness constraint. The read-model cap (`MAX_THREAD_CHECKPOINTS = 500` per thread) already unreferences refs beyond 500 turns, but no real thread approaches it — it is not the binding bound.
+
+## Live-repo evidence
+
+Measured 2026-08-12 against `/home/Carl/loom/.git` (6,831 refs across 1,057 thread namespaces) joined read-only against the live SQLite store:
+
+<Table
+  columns={["Thread state", "Threads", "Refs", "Share", "Under proposed policy"]}
+  rows={[
+    ["deleted", "11", "50", "0.7%", "delete (after grace)"],
+    ["done / cancelled (not archived)", "342", "1,398", "20%", "delete after grace"],
+    ["archived (any lane)", "620", "3,753", "55%", "delete after grace"],
+    ["live (planned / in_progress)", "76", "1,593", "23%", "keep"],
+    ["unknown thread (no DB row)", "8", "37", "0.5%", "keep (multi-instance safety)"],
+  ]}
+/>
+
+Age of the terminal-thread refs: 332 belong to threads that went quiet under 7 days ago, 3,300 between 7–30 days, 1,569 over 30 days. A 14-day grace window reclaims roughly 4,500–4,800 refs on the first pass and the rest as they age out; steady state is the live share plus a rolling recent-terminal band — roughly 2k refs on today's workload instead of unbounded.
+
+## Policy options
+
+<Table
+  columns={["Option", "What it deletes", "What it retains", "Failure mode", "Verdict"]}
+  rows={[
+    ["A. Terminal-state + grace sweep in existing WorktreeReaper pass", "whole namespace of deleted/done/cancelled/archived threads quiet > grace", "all refs of live threads; recent-terminal history through the review window", "reopened long-terminal thread loses old diff views + revert targets — graceful, pre-existing error paths; no code loss (code lives in branches)", "recommended"],
+    ["B. Event-driven prune in ThreadDeletionReactor (terminal lanes)", "namespace at the moment of done/cancelled/archived/deleted", "live threads only", "prunes at exactly review time — a child's diffs are inspected right after it goes done; also races the final capture (done lands mid-turn); misses the 6.8k backlog, needs the one-off anyway; ThreadDeletionReactor is an upstream-origin file (merge surface)", "rejected"],
+    ["C. Event-driven prune on thread.deleted only", "namespaces of deleted threads", "everything else", "invariant-perfect but reclaims ~50 of 6,831 refs — does not bound growth (deletion is the rare end state in the fork)", "rejected — subsumed by A"],
+    ["D. Prune on worktree removal (fan-in cleanup)", "child namespace when its worktree is removed", "root/workspace threads' refs forever", "same review-time problem as B, and structurally cannot bound growth: threads without worktrees (65 live 'planned' threads hold 1.4k refs) never prune", "rejected"],
+    ["E. Pure age cap (delete refs older than N days)", "any ref older than N days", "recent refs only", "deletes live threads' history — a long-running planner thread loses revert while still active; state-blind", "rejected"],
+  ]}
+/>
+
+Option A wins on the brief's own criteria: it is event-shaped where it matters (piggybacks an existing timer + worker + per-project loop rather than adding one), it is the only option that cleans the backlog with the same code that bounds the future, and its one failure mode lands on graceful, already-shipped error paths.
+
+## Mechanism (Option A)
+
+<FileTree
+  title="Files to touch"
+  entries={[
+    { path: "apps/server/src/checkpointing/checkpointRefSweep.ts", change: "added", note: "pure selector: (ref names, thread states, now, grace) → namespaces to delete" },
+    { path: "apps/server/src/checkpointing/checkpointRefSweep.test.ts", change: "added", note: "unit test on the pure selector — destructive decision logic warrants it" },
+    { path: "apps/server/src/vcs/VcsDriver.ts", change: "modified", note: "add listCheckpointRefs to VcsCheckpointOps" },
+    { path: "apps/server/src/vcs/GitVcsDriver.ts", change: "modified", note: "implement via for-each-ref --format=%(refname) refs/t3/checkpoints" },
+    { path: "apps/server/src/checkpointing/CheckpointStore.ts", change: "modified", note: "expose listCheckpointRefs (same delegation shape as the five existing ops)" },
+    { path: "apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts", change: "modified", note: "add getThreadRetentionStates: one SELECT of thread_id, plan_lane, deleted_at, archived_at, updated_at over all threads" },
+    { path: "apps/server/src/orchestration/Layers/WorktreeReaper.ts", change: "modified", note: "call the sweep once per project in runPass (fork-owned file — no upstream merge surface)" },
+  ]}
+/>
+
+The decision logic is a pure function so the destructive predicate is testable without git:
+
+<AnnotatedCode
+  filename="apps/server/src/checkpointing/checkpointRefSweep.ts (sketch)"
+  language="ts"
+  code={"export const CHECKPOINT_REF_TERMINAL_GRACE_MS = 14 * 24 * 60 * 60_000;\n\nexport function selectCheckpointRefsToDelete(input: {\n  readonly refNames: ReadonlyArray<string>; // for-each-ref refs/t3/checkpoints output\n  readonly threadStates: ReadonlyMap<string, {\n    readonly terminal: boolean; // deletedAt ?? archivedAt ?? planLane in (done, cancelled)\n    readonly updatedAtMs: number;\n  }>;\n  readonly nowMs: number;\n}): ReadonlyArray<string> {\n  return input.refNames.filter((ref) => {\n    const threadId = decodeThreadIdFromRef(ref); // base64url segment 4; null if undecodable\n    if (threadId === null) return false;          // not ours to judge — keep\n    const state = input.threadStates.get(threadId);\n    if (state === undefined) return false;        // unknown thread — keep (multi-instance safety)\n    return state.terminal && input.nowMs - state.updatedAtMs > CHECKPOINT_REF_TERMINAL_GRACE_MS;\n  });\n}\n"}
+  annotations={[
+    { lines: "1", label: "grace", note: "14 days: covers the review/reopen window (only 332 of 5.2k terminal refs are under 7 days old); an open question below" },
+    { lines: "13", note: "namespace-level decision — a thread's refs are deleted all-or-none, so a thread can never be left with a broken partial history" },
+    { lines: "15", label: "unknown ⇒ keep", note: "a second server instance (dev instance) sharing the repo has its own DB; deleting refs for threads absent from THIS DB would destroy the other instance's live history. Costs 37 refs today." },
+    { lines: "16", note: "updated_at is bumped by any thread event, so a reopened or still-settling thread self-excludes; reopening also leaves the terminal state entirely" },
+  ]}
+/>
+
+Integration in `WorktreeReaper.runPass`, per project (it already iterates projects with a coalescing worker on a 30-minute schedule plus a startup pass): list refs from `project.workspaceRoot` via the new `CheckpointStore.listCheckpointRefs`, fetch `getThreadRetentionStates` once per pass, run the selector, and delete via the existing `CheckpointStore.deleteCheckpointRefs` in chunks of ~500 refs per `update-ref --stdin` transaction (bounds transaction size and isolates a lock failure to one chunk; the call already carries bounded retry — `REF_DELETE_RETRY` — which the sibling fan-in lock-retry work is hardening further). Failures log and leave the refs for the next pass — GC is best-effort by design, matching the reaper's existing posture. Two projects sharing one repo double-enumerate harmlessly: deletion is idempotent and the second pass finds nothing.
+
+**Safety rules (all enforced by the selector or the existing ops):** only refs under `refs/t3/checkpoints/`; whole-namespace-or-nothing per thread; unknown/undecodable thread → keep; terminal + grace only; live threads never touched, so the sweep can never race an in-flight capture (a thread mid-turn is not terminal, and a terminal thread with a just-finished turn has a fresh `updated_at`).
+
+**Degradation when it fires** (reopen/unarchive after the grace window): old turn rows keep their file-summary chips, but opening an old patch view shows the existing diff-unavailable error, and reverting to an old turn produces the existing "Filesystem checkpoint is unavailable" activity. New turns capture and diff normally from their own fresh baselines. No commits, branches, or worktree contents are affected — checkpoint refs only ever back the timeline-diff/revert UX.
+
+## Rollout and the one-off backlog cleanup (owner-gated)
+
+New code only bounds future growth — except that this design's first pass *is* the backlog cleanup: on deploy, the startup reap pass will delete the ~4,500–4,800 currently-eligible refs on the live repo. That deletion on the live repo is **explicitly owner-gated**: approving this plan approves the mechanism, and the owner should run the dry-run below against the live repo before (or instead of immediately) deploying, to eyeball exactly what the first pass will delete. No separate cleanup script is needed — one mechanism, no drift between the one-off and the steady state.
+
+<Code
+  filename="dry-run (read-only, run as the owner before rollout)"
+  language="bash"
+  code={"git -C /home/Carl/loom for-each-ref 'refs/t3/checkpoints/**' --format='%(refname)' |\npython3 -c \"\nimport sys, base64, sqlite3, datetime\nrefs = [l.strip() for l in sys.stdin]\ncon = sqlite3.connect('file:/home/Carl/.t3/cockpit/userdata/state.sqlite?mode=ro', uri=True)\nstates = {tid: (bool(d or a or lane in ('done','cancelled')), u) for tid, lane, d, a, u in\n          con.execute('SELECT thread_id, plan_lane, deleted_at, archived_at, updated_at FROM projection_threads')}\nnow = datetime.datetime.now(datetime.timezone.utc)\ngrace = datetime.timedelta(days=14)\ndef eligible(ref):\n    seg = ref.split('/')[3]\n    tid = base64.urlsafe_b64decode(seg + '=' * (-len(seg) % 4)).decode()\n    s = states.get(tid)\n    return s is not None and s[0] and now - datetime.datetime.fromisoformat(s[1].replace('Z','+00:00')) > grace\nhits = [r for r in refs if eligible(r)]\nprint(f'{len(hits)} of {len(refs)} refs would be deleted')\n\"\n"}
+/>
+
+If the owner wants a rehearsal beyond the count, the same command with `print(*hits, sep=chr(10))` lists the refs; feeding that list to `git update-ref --stdin` is exactly what the sweep will do — but that manual step should not be needed, and this plan does not propose running it by hand.
+
+## Scope and non-goals
+
+- **No read-model changes.** Checkpoint rows, file-summary chips, activities, and events stay; only git refs are reclaimed. No migration (nothing numbered 1037 needed).
+- **No changes to capture, revert, or diff flows.** All existing error paths are reused, none added.
+- **The dead `checkpoint_diff_blobs` table is left alone** — it is upstream schema; removing it is not this plan's business.
+- **Not pursued:** persisting diffs to SQLite before deleting refs (would preserve history-viewing forever, but adds a write path and storage for a UX that decays in value; can be layered on later without conflicting with this design).
+- **`git pack-refs` / repo GC** is untouched; deleting ~5k packed refs rewrites `packed-refs` once per chunk and shrinks it by ~three quarters.
+
+## Risks
+
+- **Grace window mis-sized.** Too short and a human reviewing a finished child late loses its patch views; too long and the repo carries weeks of dead refs. 14 days is a judgement call — it is a one-line constant, and the open question below asks the owner to confirm.
+- **Archived-as-terminal is the aggressive half of the policy** (55% of refs). Archive is reversible in the UI, so this is where reopen-after-grace degradation will actually be felt if it ever is. The alternative — treating archive as live — leaves 3.7k refs and most future growth unbounded, since archiving is how threads actually end on this host.
+- **Ref-transaction contention** with agents' own git subprocesses: bounded by chunking plus the existing/hardened retry; a failed chunk simply waits for the next 30-minute pass.
+
+## Verification
+
+- Unit: `checkpointRefSweep.test.ts` covers the selector (live kept, terminal-within-grace kept, terminal-past-grace deleted, unknown kept, undecodable kept, namespace integrity).
+- `vp check` and `vp run typecheck` pass.
+- Live smoke on the dev-verify recipe: seed a workstream, drive a thread to done, backdate its `updated_at` in the dev DB past the grace, trigger a reaper pass, and confirm (a) its `refs/t3/checkpoints/<id>/*` refs are gone, (b) a live thread's refs survive, (c) opening the pruned thread's old diff shows the graceful unavailable state, (d) reopening it and running a new turn captures and diffs normally.
+- Rollout check on the live repo after owner-approved deploy: `git for-each-ref 'refs/t3/**' | wc -l` drops from ~6.8k to ~2k and stays bounded across subsequent days.
+
+<QuestionForm
+  questions={[
+    {
+      id: "archived-terminal",
+      title: "Treat archived threads as terminal for ref retention?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes — archived threads' refs age out after the grace window", recommended: true, detail: "55% of refs. Archiving is how threads normally end here; unarchive-after-grace degrades gracefully (diff views unavailable, new turns fine)." },
+        { id: "no", label: "No — only deleted/done/cancelled age out", detail: "Keeps 3.7k refs today and leaves the dominant growth path unbounded." },
+      ],
+    },
+    {
+      id: "grace",
+      title: "Grace window before a terminal thread's refs are deleted",
+      mode: "single",
+      options: [
+        { id: "d14", label: "14 days", recommended: true, detail: "Covers the realistic review/reopen window; reclaims ~4.5–4.8k refs on the first pass." },
+        { id: "d7", label: "7 days", detail: "Reclaims ~5.1k immediately; tighter reopen window." },
+        { id: "d30", label: "30 days", detail: "Most conservative; reclaims ~1.6k now, the rest over the following weeks." },
+      ],
+    },
+    {
+      id: "backlog-go",
+      title: "Owner go-ahead: let the first reaper pass after deploy delete the eligible refs on the live cockpit repo?",
+      mode: "single",
+      options: [
+        { id: "go", label: "Yes — I will run/inspect the dry-run, then approve the deploy", recommended: true },
+        { id: "hold", label: "Hold — ship the mechanism for new repos only for now (requires adding a kill-switch, which the current minimal design deliberately omits)" },
+      ],
+    },
+  ]}
+/>

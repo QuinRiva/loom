@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { GIT_LOCK_RETRY } from "../../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
 import { WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
@@ -239,13 +240,22 @@ const make = Effect.gen(function* () {
   // on — so every later pass retried the identical failure (13,410 of them over
   // 6 days in production). A missing checkout has nothing to commit; skipping
   // through to the repoint terminates the loop.
+  //
+  // Retried on `GIT_LOCK_RETRY`: the child's own agent process may still hold
+  // `index.lock` in this worktree, and `WorktreeMutationLock` is in-process, so
+  // it cannot serialise against a separate git subprocess. Losing that race
+  // used to fail the child's disposition outright and stall its fan-in until
+  // the next 60s tick. `commitAll` is idempotent (a now-clean tree is a no-op
+  // reporting the existing HEAD), so a plain re-run is safe; a retry that still
+  // fails propagates exactly as before, into the terminal `failed` state.
   const commitCheckout = (cwd: string, subject: string) =>
     fs.exists(NodePath.join(cwd, ".git")).pipe(
       Effect.flatMap((present) =>
         present
-          ? gitWorkflow
-              .commitAll(cwd, subject, "")
-              .pipe(Effect.map((result): string | null => result.commitSha))
+          ? gitWorkflow.commitAll(cwd, subject, "").pipe(
+              Effect.retry(GIT_LOCK_RETRY),
+              Effect.map((result): string | null => result.commitSha),
+            )
           : Effect.logInfo("workstream fan-in: child checkout is gone, skipping commit", {
               cwd,
             }).pipe(Effect.as(null)),
@@ -545,7 +555,11 @@ const make = Effect.gen(function* () {
     yield* worktreeMutationLock.withLock(
       parentCwd,
       Effect.gen(function* () {
-        yield* gitWorkflow.commitAll(parentCwd, "wip: workstream snapshot", "");
+        // Same cross-process race, on the PARENT worktree this time (the
+        // orchestrator's own git subprocess), with the same idempotency argument.
+        yield* gitWorkflow
+          .commitAll(parentCwd, "wip: workstream snapshot", "")
+          .pipe(Effect.retry(GIT_LOCK_RETRY));
         const merge = yield* gitWorkflow.mergeWorktreeBranch({
           cwd: parentCwd,
           branch: childBranch,
