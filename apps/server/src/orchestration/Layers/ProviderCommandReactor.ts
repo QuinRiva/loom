@@ -203,14 +203,15 @@ const activeGoalContextInstruction = (
       goal.description.trim().length > 0
         ? `\nParent's objective (background only, NOT your task): ${goal.description.trim()}`
         : "",
-      `\n\nParent's current task tree (the orchestrator owns it, but you may mark your own task done and add discovered work):\n${tasks}`,
+      `\n\nParent's current task tree (a snapshot, never refreshed — \`goal_task_list\` reads it live):\n${tasks}`,
+      `\n\nYour writes to this shared tree are the two that are safe to make mid-flight: mark your OWN task done with \`goal_task_update\` the moment you finish it, and record discovered actionable work with \`goal_task_add\`, nested under the task it belongs to. Keep anything you add a short imperative work item — findings, decisions and status notes go in your report, not the tree. Restructuring the tree belongs to its owner: \`goal_tasks_rewrite\` is rejected for a thread with a parent, so if the shape is wrong, say so in your report.`,
     ].join("");
   }
   return [
     `Active goal \`${goal.id}\` (${goal.slug}): ${goal.title}`,
     goal.description.trim().length > 0 ? `\nObjective: ${goal.description.trim()}` : "",
     `\n\nCurrent tasks:\n${tasks}`,
-    `\n\nKeep this task tree current as the work evolves — it is how the human re-orients at a glance. This snapshot is delivered once and is not refreshed — read the current tree on demand with \`goal_task_list\` (it mutates nothing), and mutate it with the goal/task tools, which act on THIS thread's goal (you never pass a goal id): \`goal_task_add\` (optionally under a parent task), \`goal_task_update\` (rename, mark done/reopen, reorder), \`goal_task_delete\`, and \`goal_update\` (title/description/slug).`,
+    `\n\nThis tree is the human's at-a-glance view of the plan, so keep it shaped — not merely appended to:\n- Tasks are short imperative work items (a dozen words or so). Decisions, findings and status notes are not tasks; they belong in reports or in the goal description.\n- Nest. Top-level items are the goal's phases or themes (aim for 7 or fewer) and the concrete work hangs under them; a flat list past ~8 items is overdue for restructuring.\n- Update at the seams: when you plan or re-plan, when delegated work lands, when scope changes.\n- The snapshot above is never refreshed — \`goal_task_list\` reads the live tree, and every mutation echoes it back. \`goal_task_add\` appends one item, \`goal_task_update\` renames or marks done, \`goal_update\` edits the goal itself. The moment the tree's shape stops matching the plan, fix it in ONE \`goal_tasks_rewrite\` call: submit the whole revised tree as the same markdown you read, keeping the \`(id)\` marker on every task you retain.`,
   ].join("");
 };
 

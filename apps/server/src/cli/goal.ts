@@ -10,7 +10,7 @@ import {
 import type * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import type * as FileSystem from "effect/FileSystem";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import type * as Path from "effect/Path";
 import { Argument, Command, Flag } from "effect/unstable/cli";
@@ -20,10 +20,15 @@ import {
   buildGoalCreateCommand,
   buildGoalMetaUpdateCommand,
   buildGoalTaskCreateCommand,
-  buildGoalTaskDeleteCommand,
+  buildGoalTasksRewriteCommand,
   buildGoalTaskUpdateCommand,
 } from "../orchestration/goalTaskCommands.ts";
+import {
+  parseGoalTaskMarkdown,
+  resolveGoalTaskRewrite,
+} from "../orchestration/goalTaskMarkdown.ts";
 import { renderGoalTaskTree } from "../orchestration/goalTaskRender.ts";
+import { buildGoalTaskTree, flattenGoalTasks } from "../orchestration/goalTaskTree.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { type CliAuthLocationFlags, projectLocationFlags } from "./config.ts";
 import {
@@ -44,7 +49,7 @@ type GoalCliDispatchCommand = Extract<
       | "goal.delete"
       | "goal.task.create"
       | "goal.task.update"
-      | "goal.task.delete";
+      | "goal.tasks.rewrite";
   }
 >;
 
@@ -330,25 +335,92 @@ const goalTaskRenameCommand = Command.make("rename", {
   ),
 );
 
-const goalTaskDeleteCommand = Command.make("delete", {
+/** A whole markdown tree is not a flag value: it arrives as a file or on stdin. */
+const readRewriteMarkdown = Effect.fn("readGoalTaskRewriteMarkdown")(function* (
+  file: Option.Option<string>,
+) {
+  if (Option.isSome(file)) {
+    const fs = yield* FileSystem.FileSystem;
+    return yield* fs
+      .readFileString(file.value)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationCliError({ message: `Could not read '${file.value}': ${cause}.` }),
+        ),
+      );
+  }
+  if (process.stdin.isTTY) {
+    return yield* new OrchestrationCliError({
+      message: "Pass the markdown task tree with --file <path>, or pipe it on stdin.",
+    });
+  }
+  // Stream stdin rather than reading fd 0 synchronously: a piped stdin is often
+  // non-blocking, and a sync read of it fails with EAGAIN.
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const chunks: Array<Buffer> = [];
+      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+      return Buffer.concat(chunks).toString("utf8");
+    },
+    catch: (cause) =>
+      new OrchestrationCliError({ message: `Could not read the task tree from stdin: ${cause}.` }),
+  });
+});
+
+/**
+ * Declarative whole-tree replace, the human twin of the `goal_tasks_rewrite`
+ * agent tool: the same markdown `t3 goal show` prints goes back in, and the same
+ * parse/diff module resolves it. Unlike the HTTP edge there is no child-thread
+ * ownership block — that enforcement steers agents; the CLI is the human's tool.
+ */
+const goalTaskRewriteCommand = Command.make("rewrite", {
   ...projectLocationFlags,
   goal: Argument.string("goal").pipe(Argument.withDescription("Goal id or slug.")),
-  task: Argument.string("task").pipe(Argument.withDescription("Task id.")),
+  file: Flag.string("file").pipe(
+    Flag.withDescription("Markdown checklist file; omit to read stdin."),
+    Flag.optional,
+  ),
 }).pipe(
-  Command.withDescription("Delete a task (and its subtree)."),
+  Command.withDescription("Replace a goal's whole task tree with a markdown checklist."),
   Command.withHandler((flags) =>
     runGoalMutation(flags, ({ snapshot, dispatch }) =>
       Effect.gen(function* () {
         const goal = yield* resolveGoal(snapshot, flags.goal);
-        const task = yield* requireTask(goal, flags.task);
-        yield* dispatch(
-          buildGoalTaskDeleteCommand({
-            commandId: CommandId.make(yield* orchestrationCliUuid),
-            goalId: goal.id,
-            taskId: task.id,
-          }),
+        const markdown = yield* readRewriteMarkdown(flags.file);
+        const current = flattenGoalTasks(goal.tasks);
+        const parsed = parseGoalTaskMarkdown(markdown, new Set(current.map((task) => task.id)));
+        if ("error" in parsed) return yield* new OrchestrationCliError({ message: parsed.error });
+
+        // Ids for the lines that carry none, minted up front so the resolver
+        // stays a pure function (same pattern as the HTTP edge).
+        const minted = (yield* Effect.forEach(
+          parsed.lines.filter((line) => line.taskId === null),
+          () => orchestrationCliUuid,
+        ))[Symbol.iterator]();
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const { tasks, summary, changed } = resolveGoalTaskRewrite({
+          lines: parsed.lines,
+          current,
+          mintTaskId: () => GoalTaskId.make(minted.next().value!),
+          now,
+        });
+        if (changed) {
+          yield* dispatch(
+            buildGoalTasksRewriteCommand({
+              commandId: CommandId.make(yield* orchestrationCliUuid),
+              goalId: goal.id,
+              tasks,
+              createdAt: now,
+            }),
+          );
+        }
+        // The submitted tree IS the result, so render it directly rather than
+        // re-reading the store (the snapshot above is pre-dispatch anyway).
+        const applied = buildGoalTaskTree(
+          tasks.map((task) => ({ ...task, id: task.taskId, goalId: goal.id, updatedAt: now })),
         );
-        return `Deleted task ${task.id}.`;
+        return `${summary}\n\n${renderGoalTaskTree(applied).trimEnd()}`;
       }),
     ),
   ),
@@ -361,7 +433,7 @@ const goalTaskCommand = Command.make("task").pipe(
     setTaskDoneCommand("done", true),
     setTaskDoneCommand("open", false),
     goalTaskRenameCommand,
-    goalTaskDeleteCommand,
+    goalTaskRewriteCommand,
   ]),
 );
 

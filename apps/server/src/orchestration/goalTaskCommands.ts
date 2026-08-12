@@ -11,6 +11,7 @@ import type {
   CommandId,
   GoalId,
   GoalTaskId,
+  GoalTaskRewriteEntry,
   ProjectId,
 } from "@t3tools/contracts";
 
@@ -41,7 +42,6 @@ export const buildGoalTaskCreateCommand = (input: {
   readonly taskId: GoalTaskId;
   readonly parentTaskId: GoalTaskId | null;
   readonly text: string;
-  readonly position?: number;
   readonly createdAt: string;
 }): GoalCommand<"goal.task.create"> => ({
   type: "goal.task.create",
@@ -50,7 +50,6 @@ export const buildGoalTaskCreateCommand = (input: {
   taskId: input.taskId,
   parentTaskId: input.parentTaskId,
   text: input.text,
-  ...(input.position !== undefined ? { position: input.position } : {}),
   createdAt: input.createdAt,
 });
 
@@ -60,7 +59,6 @@ export const buildGoalTaskUpdateCommand = (input: {
   readonly taskId: GoalTaskId;
   readonly text?: string;
   readonly done?: boolean;
-  readonly position?: number;
 }): GoalCommand<"goal.task.update"> => ({
   type: "goal.task.update",
   commandId: input.commandId,
@@ -68,18 +66,25 @@ export const buildGoalTaskUpdateCommand = (input: {
   taskId: input.taskId,
   ...(input.text !== undefined ? { text: input.text } : {}),
   ...(input.done !== undefined ? { done: input.done } : {}),
-  ...(input.position !== undefined ? { position: input.position } : {}),
 });
 
-export const buildGoalTaskDeleteCommand = (input: {
+/**
+ * Declarative whole-tree replace. `tasks` is already fully resolved by the
+ * caller (the edge mints ids for new lines, copies `createdAt` from retained
+ * tasks, and assigns positions from document order); parents must precede their
+ * children, which the decider re-checks.
+ */
+export const buildGoalTasksRewriteCommand = (input: {
   readonly commandId: CommandId;
   readonly goalId: GoalId;
-  readonly taskId: GoalTaskId;
-}): GoalCommand<"goal.task.delete"> => ({
-  type: "goal.task.delete",
+  readonly tasks: ReadonlyArray<GoalTaskRewriteEntry>;
+  readonly createdAt: string;
+}): GoalCommand<"goal.tasks.rewrite"> => ({
+  type: "goal.tasks.rewrite",
   commandId: input.commandId,
   goalId: input.goalId,
-  taskId: input.taskId,
+  tasks: input.tasks,
+  createdAt: input.createdAt,
 });
 
 export const buildGoalMetaUpdateCommand = (input: {

@@ -388,6 +388,9 @@ export const ReasoningStreamItem = Schema.Union([
     threadId: ThreadId,
     messageId: MessageId,
     reasoningCompletedAt: IsoDateTime,
+    // Accumulated thinking time for this message so far (sum of burst spans).
+    // Server-computed so the live header and the replayed header agree.
+    reasoningMs: Schema.Number,
   }),
 ]);
 export type ReasoningStreamItem = typeof ReasoningStreamItem.Type;
@@ -709,6 +712,12 @@ export const LoomMessageFields = {
   // answer. Absent for messages without reasoning.
   reasoningText: Schema.optional(Schema.String),
   reasoningStreaming: Schema.optional(Schema.Boolean),
+  // Wall-clock thinking time, summed across the message's reasoning bursts.
+  // Absent for messages without reasoning and for reasoning persisted before
+  // this field existed — the header then renders "Thought" with no duration
+  // rather than inventing one from `createdAt`/`updatedAt`, which measure the
+  // message, not the thinking.
+  reasoningMs: Schema.optional(Schema.Number),
   // Provenance of a user-role message (absent ⇒ human). See `MessageOrigin`.
   origin: Schema.optional(MessageOrigin),
   // Structured source-of-truth for a control-plane digest/notice (absent ⇒ this
@@ -911,6 +920,10 @@ const GoalDeleteCommand = Schema.Struct({
   goalId: GoalId,
 });
 
+// The targeted, concurrency-safe append: one discovered item at the end of its
+// sibling group. Ordering is not an input here — position is derived, and
+// deliberate ordering goes through `goal.tasks.rewrite` (the emitted
+// `goal.task-created` event still carries the resolved position for replay).
 const GoalTaskCreateCommand = Schema.Struct({
   type: Schema.Literal("goal.task.create"),
   commandId: CommandId,
@@ -918,12 +931,13 @@ const GoalTaskCreateCommand = Schema.Struct({
   taskId: GoalTaskId,
   parentTaskId: Schema.NullOr(GoalTaskId),
   text: TrimmedNonEmptyString,
-  position: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
 
-// Task reparenting is intentionally unsupported for MVP: there is no
-// `parentTaskId` here, which removes the only path to a task-tree cycle.
+// The targeted, concurrency-safe op a child fires mid-flight (mark my own task
+// done / rename it). Structural change — reparenting, reordering, pruning —
+// goes through `goal.tasks.rewrite`, which makes a task-tree cycle
+// unrepresentable (the submitted list is topologically ordered by construction).
 const GoalTaskUpdateCommand = Schema.Struct({
   type: Schema.Literal("goal.task.update"),
   commandId: CommandId,
@@ -931,14 +945,32 @@ const GoalTaskUpdateCommand = Schema.Struct({
   taskId: GoalTaskId,
   text: Schema.optional(TrimmedNonEmptyString),
   done: Schema.optional(Schema.Boolean),
-  position: Schema.optional(NonNegativeInt),
 });
 
-const GoalTaskDeleteCommand = Schema.Struct({
-  type: Schema.Literal("goal.task.delete"),
+// One fully-resolved task line of a whole-tree rewrite. Ids are minted at the
+// edge (the HTTP tool / CLI), so the decider stays deterministic; `createdAt` is
+// copied from the retained task for a known id and is `now` for a new one.
+// `position` is an OUTPUT of the submission's document order, never something
+// the agent hand-assigns.
+export const GoalTaskRewriteEntry = Schema.Struct({
+  taskId: GoalTaskId,
+  parentTaskId: Schema.NullOr(GoalTaskId),
+  text: TrimmedNonEmptyString,
+  done: Schema.Boolean,
+  position: NonNegativeInt,
+  createdAt: IsoDateTime,
+});
+export type GoalTaskRewriteEntry = typeof GoalTaskRewriteEntry.Type;
+
+// Declarative whole-tree replace: the submitted list IS the resulting tree.
+// Tasks absent from it are deleted; retained ids keep their identity and
+// `createdAt`. Replaces the old per-task delete command (deleted below).
+const GoalTasksRewriteCommand = Schema.Struct({
+  type: Schema.Literal("goal.tasks.rewrite"),
   commandId: CommandId,
   goalId: GoalId,
-  taskId: GoalTaskId,
+  tasks: Schema.Array(GoalTaskRewriteEntry),
+  createdAt: IsoDateTime,
 });
 
 // Axis 1 write (plan lane). Authorisation chokepoint lives in the decider:
@@ -1006,6 +1038,7 @@ const ThreadMessageReasoningCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   reasoningText: Schema.String,
+  reasoningMs: Schema.Number,
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -1151,7 +1184,7 @@ export const LoomClientCommandMembers = [
   GoalDeleteCommand,
   GoalTaskCreateCommand,
   GoalTaskUpdateCommand,
-  GoalTaskDeleteCommand,
+  GoalTasksRewriteCommand,
   ThreadPlanLaneSetCommand,
   ThreadAttentionRaiseCommand,
   ThreadAttentionClearCommand,
@@ -1343,10 +1376,19 @@ export const GoalTaskUpdatedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+// REPLAY ONLY — no producer since the whole-tree rewrite replaced per-task
+// deletes. The historical events (42 in the live store) must keep decoding and
+// projecting identically on every boot, so the payload schema stays.
 export const GoalTaskDeletedPayload = Schema.Struct({
   goalId: GoalId,
   taskId: GoalTaskId,
   deletedAt: IsoDateTime,
+});
+
+export const GoalTasksRewrittenPayload = Schema.Struct({
+  goalId: GoalId,
+  tasks: Schema.Array(GoalTaskRewriteEntry),
+  rewrittenAt: IsoDateTime,
 });
 
 export const ThreadPlanLaneSetPayload = Schema.Struct({
@@ -1399,6 +1441,9 @@ export const ThreadMessageReasoningPayload = Schema.Struct({
   // `reasoningStreaming` is always false here.
   reasoningText: Schema.String,
   reasoningStreaming: Schema.Boolean,
+  // Thinking time for the segment, summed across its bursts. Optional because
+  // events written before this field existed carry no value.
+  reasoningMs: Schema.optional(Schema.Number),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1550,6 +1595,11 @@ export const makeLoomOrchestrationEventMembers = <const Base extends Schema.Stru
     }),
     Schema.Struct({
       ...base,
+      type: Schema.Literal("goal.tasks-rewritten"),
+      payload: GoalTasksRewrittenPayload,
+    }),
+    Schema.Struct({
+      ...base,
       type: Schema.Literal("thread.plan-lane-set"),
       payload: ThreadPlanLaneSetPayload,
     }),
@@ -1649,6 +1699,7 @@ export const LOOM_EVENT_TYPES = [
   "goal.task-created",
   "goal.task-updated",
   "goal.task-deleted",
+  "goal.tasks-rewritten",
   "thread.plan-lane-set",
   "thread.attention-raised",
   "thread.attention-cleared",
@@ -1712,7 +1763,7 @@ export const LOOM_COMMAND_TYPES = [
   "goal.delete",
   "goal.task.create",
   "goal.task.update",
-  "goal.task.delete",
+  "goal.tasks.rewrite",
   "thread.plan-lane.set",
   "thread.attention.raise",
   "thread.attention.clear",

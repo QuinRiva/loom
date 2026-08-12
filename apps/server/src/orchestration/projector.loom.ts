@@ -45,6 +45,7 @@ import {
   GoalTaskCreatedPayload,
   GoalTaskUpdatedPayload,
   GoalTaskDeletedPayload,
+  GoalTasksRewrittenPayload,
 } from "./Schemas.ts";
 import {
   buildGoalTaskTree,
@@ -255,6 +256,8 @@ export function projectLoomEvent(
         })),
       );
 
+    // No producer since the whole-tree rewrite landed; retained so historical
+    // events still project identically on the boot-time replay from sequence 0.
     case "goal.task-deleted":
       return decodeForEvent(GoalTaskDeletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
@@ -267,6 +270,32 @@ export function projectLoomEvent(
               current.filter((task) => !removed.has(task.id)),
             );
           }),
+        })),
+      );
+
+    // Wholesale replace: the submitted list IS the tree (tasks absent from it
+    // are gone). `updatedAt` moves to the rewrite for every task, since a
+    // rewrite restates each one.
+    case "goal.tasks-rewritten":
+      return decodeForEvent(GoalTasksRewrittenPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          goals: nextBase.goals.map((goal) =>
+            goal.id === payload.goalId
+              ? updateGoalTasks(goal, payload.rewrittenAt, () =>
+                  payload.tasks.map((task) => ({
+                    id: task.taskId,
+                    goalId: payload.goalId,
+                    parentTaskId: task.parentTaskId,
+                    text: task.text,
+                    done: task.done,
+                    position: task.position,
+                    createdAt: task.createdAt,
+                    updatedAt: payload.rewrittenAt,
+                  })),
+                )
+              : goal,
+          ),
         })),
       );
 
@@ -627,6 +656,9 @@ export function projectLoomEvent(
                     ...entry,
                     reasoningText: payload.reasoningText,
                     reasoningStreaming: payload.reasoningStreaming,
+                    ...(payload.reasoningMs !== undefined
+                      ? { reasoningMs: payload.reasoningMs }
+                      : {}),
                     updatedAt: payload.updatedAt,
                   }
                 : entry,
@@ -643,6 +675,9 @@ export function projectLoomEvent(
                   streaming: true,
                   reasoningText: payload.reasoningText,
                   reasoningStreaming: payload.reasoningStreaming,
+                  ...(payload.reasoningMs !== undefined
+                    ? { reasoningMs: payload.reasoningMs }
+                    : {}),
                   createdAt: payload.createdAt,
                   updatedAt: payload.updatedAt,
                 },

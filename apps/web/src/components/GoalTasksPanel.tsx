@@ -4,10 +4,16 @@
  * open a goal other than through a thread that carries it — see
  * plans/sidebar-v2-rehome/plan.mdx).
  *
- * It renders the goal's task tree from the DB-authoritative orchestration store
- * (kept current by the agent via the `t3 goal task ...` CLI or by the user), the
- * goal's edit-in-place title/description, the goal's threads in handoff order,
- * and goal CRUD behind the overflow menu.
+ * It renders the goal's task tree from the DB-authoritative orchestration store,
+ * the goal's edit-in-place title/description, the goal's threads in handoff
+ * order, and goal CRUD behind the overflow menu.
+ *
+ * Tasks are read-only here: they are written by agents through the goal-task
+ * provider tools (`goal_tasks_rewrite` for the whole tree, `goal_task_add` /
+ * `goal_task_update` for targeted appends and done-marks) and by humans through
+ * `t3 goal task …`. Both surfaces dispatch the same commands and land in the
+ * same projection, so this panel needs no write path of its own — it just
+ * re-renders the projected tree.
  */
 import { type EnvironmentId } from "@t3tools/contracts";
 import { MoreHorizontalIcon } from "lucide-react";

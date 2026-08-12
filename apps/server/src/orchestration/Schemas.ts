@@ -10,6 +10,7 @@ import {
   GoalTaskCreatedPayload as ContractsGoalTaskCreatedPayloadSchema,
   GoalTaskUpdatedPayload as ContractsGoalTaskUpdatedPayloadSchema,
   GoalTaskDeletedPayload as ContractsGoalTaskDeletedPayloadSchema,
+  GoalTasksRewrittenPayload as ContractsGoalTasksRewrittenPayloadSchema,
   ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
   ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
   ThreadSettledPayload as ContractsThreadSettledPayloadSchema,
@@ -62,6 +63,7 @@ export const GoalDeletedPayload = ContractsGoalDeletedPayloadSchema;
 export const GoalTaskCreatedPayload = ContractsGoalTaskCreatedPayloadSchema;
 export const GoalTaskUpdatedPayload = ContractsGoalTaskUpdatedPayloadSchema;
 export const GoalTaskDeletedPayload = ContractsGoalTaskDeletedPayloadSchema;
+export const GoalTasksRewrittenPayload = ContractsGoalTasksRewrittenPayloadSchema;
 
 export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
 export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;

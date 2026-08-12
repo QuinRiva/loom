@@ -43,7 +43,7 @@ export const PROVIDER_TOOL_PATHS = {
   goal_task_list: "/provider-tools/goal/task/list",
   goal_task_add: "/provider-tools/goal/task/add",
   goal_task_update: "/provider-tools/goal/task/update",
-  goal_task_delete: "/provider-tools/goal/task/delete",
+  goal_tasks_rewrite: "/provider-tools/goal/tasks/rewrite",
   goal_update: "/provider-tools/goal/update",
   goal_handoff: "/provider-tools/goal/handoff",
   goal_continue: "/provider-tools/goal/continue",
@@ -73,7 +73,7 @@ export const LEAF_CORE_PROVIDER_TOOLS = [
   "goal_task_list",
   "goal_task_add",
   "goal_task_update",
-  "goal_task_delete",
+  "goal_tasks_rewrite",
 ] as const satisfies ReadonlyArray<ProviderToolName>;
 
 /** The delegation family: graph authoring and child management, plus the other
