@@ -196,6 +196,15 @@ One coder-sized work package — guidance and cap land together (the guidance qu
 - **Displacement into the goal description.** Guarded by guidance only in this wave; a description cap is named in the open questions rather than built speculatively.
 - **Cap surprises a legitimate long task.** At 300 chars the observed collision rate with *good* register is zero across 1,232 historic tasks; the error tells the agent exactly how to proceed, and the human CLI path stays uncapped.
 
+## Resolved decisions (2026-08-13, Carl)
+
+All four open questions were answered with the recommended option; these resolutions are binding on implementation:
+
+1. **Cap value: 300 characters** for new/edited task text.
+2. **One short pointer per task allowed** (ticket id or artefact name).
+3. **No retroactive cleanup** — owners rewrite degraded trees in one call when next touched.
+4. **Goal description guarded by guidance only** ("a short objective statement, not a journal"); no description cap this wave.
+
 <QuestionForm
   submitLabel="Resolve and approve"
   questions={[
