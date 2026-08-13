@@ -6,6 +6,7 @@
 // runnable `.mjs` extension whose runtime is a generic POST-and-print shim.
 
 import { PROVIDER_TOOL_PATHS, type ProviderToolName } from "../../../mcp/toolPaths.ts";
+import { MAX_GOAL_TASK_TEXT_LENGTH } from "../../../orchestration/goalTaskMarkdown.ts";
 
 export interface ProviderToolDef {
   readonly name: ProviderToolName;
@@ -799,13 +800,14 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptGuidelines: [
       "You never pass a goalId — the task is always added to this thread's own active goal.",
       "Pass parentTaskId (a task id from this goal) to nest the new task under the theme it belongs to; a top-level append is for a genuinely new phase of the goal, not the default.",
+      `Write a short plain-language work item naming the outcome and its value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
     ],
     parameters: {
       type: "object",
       properties: {
         text: {
           type: "string",
-          description: "The task text: a short imperative work item, not a finding or status note.",
+          description: `A short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, or status note; details go in reports or memos.`,
         },
         parentTaskId: {
           type: "string",
@@ -828,7 +830,8 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       "update one task in this thread's goal: rename (text) or mark done/reopen (done).",
     promptGuidelines: [
       "taskId must be a task in this thread's own active goal.",
-      "Pass only the fields you are changing; provide at least one of text or done. Mark your own task done as soon as the work lands, not at the end of the session.",
+      "Pass only the fields you are changing; provide at least one of text or done. Mark your own task done as soon as the work lands, not at the end of the session — never rewrite it into a result record.",
+      `Renamed text must be a short plain-language work item naming the outcome and its value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
     ],
     parameters: {
       type: "object",
@@ -837,7 +840,10 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
           type: "string",
           description: "Id of the task to update; must belong to this thread's goal.",
         },
-        text: { type: "string", description: "New task text (rename)." },
+        text: {
+          type: "string",
+          description: `New task text: a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, or status note; details go in reports or memos.`,
+        },
         done: { type: "boolean", description: "Mark the task done (true) or reopen it (false)." },
       },
       required: ["taskId"],
@@ -856,7 +862,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     promptGuidelines: [
       "Read the live tree (goal_task_list, or a mutation's echoed tree) and edit THAT text — keep the `(id)` marker on every task you retain, or it comes back as a brand-new task.",
       "The submission is the whole tree: a task you leave out is deleted, and indentation alone decides nesting. An empty submission, an unparseable line, or an `(id)` that is not in this goal is rejected and nothing is applied.",
-      "This is the tool that fixes shape: hang the concrete work under a handful of phase/theme parents, keep every line a short imperative work item, and drop the stale journal entries rather than carrying them forward.",
+      `This is the tool that fixes shape and register: hang the concrete work under a handful of phase/theme parents, and rewrite journal-entry tasks into short plain-language items naming the outcome and value (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters). The cap binds only text you add or change; retained verbatim text is grandfathered. Details, findings and verdicts go in reports or memos.`,
       "Only a thread with no parent may rewrite; as a child, append with goal_task_add and mark your own task done with goal_task_update.",
     ],
     parameters: {
@@ -864,8 +870,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
       properties: {
         markdown: {
           type: "string",
-          description:
-            "The complete revised tree as an indented markdown checklist, one task per line: `- [ ] Open task`, `- [x] Finished task (task-id)`. Two spaces of indent per level of nesting; keep the trailing `(id)` on every retained task; omit it for new tasks.",
+          description: `The complete revised tree as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level of nesting; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text must be a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict, or status note; details go in reports or memos.`,
         },
       },
       required: ["markdown"],
@@ -948,7 +953,7 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
     name: "goal_update",
     label: "Update Goal",
     description:
-      "Update the metadata of THIS thread's active goal: its title, description (the objective paragraph), and/or slug. The goal is resolved from the session — you never pass a goalId. Use this to keep the goal's framing accurate as understanding evolves. Pass only the fields you want to change.",
+      "Update the metadata of THIS thread's active goal: its title, description (a short objective statement, not a journal), and/or slug. The goal is resolved from the session — you never pass a goalId. Use this to keep the goal's framing accurate as understanding evolves. Pass only the fields you want to change.",
     promptSnippet: "update this thread's goal metadata (title / description / slug).",
     promptGuidelines: [
       "You never pass a goalId — this always updates this thread's own active goal.",
@@ -960,7 +965,8 @@ export const GOAL_TOOL_DEFS: ReadonlyArray<ProviderToolDef> = [
         title: { type: "string", description: "New goal title." },
         description: {
           type: "string",
-          description: "New goal objective paragraph (may be empty to clear it).",
+          description:
+            "New short goal objective statement, not a journal (may be empty to clear it).",
         },
         slug: { type: "string", description: "New stable goal slug." },
       },

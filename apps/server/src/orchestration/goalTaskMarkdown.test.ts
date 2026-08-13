@@ -7,7 +7,13 @@
 import { GoalId, GoalTaskId, type OrchestrationGoalTask } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { parseGoalTaskMarkdown, resolveGoalTaskRewrite } from "./goalTaskMarkdown.ts";
+import {
+  MAX_GOAL_TASK_TEXT_LENGTH,
+  parseGoalTaskMarkdown,
+  resolveGoalTaskRewrite,
+  validateGoalTaskRewriteText,
+  validateGoalTaskText,
+} from "./goalTaskMarkdown.ts";
 import { renderGoalTaskTree } from "./goalTaskRender.ts";
 import { buildGoalTaskTree, type FlatGoalTask } from "./goalTaskTree.ts";
 
@@ -179,6 +185,48 @@ describe("parse rules", () => {
 
   it("rejects an empty submission", () => {
     expect(errorOf("   \n\n")).toContain("Wiping the whole task tree must be deliberate");
+  });
+});
+
+describe("task text length cap", () => {
+  const historicWall = flat({
+    id: "6",
+    text: "w".repeat(MAX_GOAL_TASK_TEXT_LENGTH + 1),
+    position: 0,
+  });
+  const wallIds = new Set([historicWall.id as string]);
+
+  it("rejects a new over-limit line and names the offending line", () => {
+    const text = "n".repeat(MAX_GOAL_TASK_TEXT_LENGTH + 1);
+    const error = validateGoalTaskRewriteText(parseOrThrow(`- [ ] ${text}`, new Set()), []);
+    expect(error).toContain(`Line 1 ("${text}") was rejected.`);
+    expect(error).toContain(`the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}`);
+    expect(error).toContain("Nothing was applied.");
+  });
+
+  it("allows a retained historic wall to be restructured without shortening it", () => {
+    const lines = parseOrThrow(
+      [
+        "- [ ] Put historic work under a readable phase",
+        `  - [ ] ${historicWall.text} (${historicWall.id})`,
+      ].join("\n"),
+      wallIds,
+    );
+    expect(validateGoalTaskRewriteText(lines, [historicWall])).toBeUndefined();
+  });
+
+  it("rejects a changed historic wall", () => {
+    const text = `${historicWall.text} changed`;
+    const lines = parseOrThrow(`- [ ] ${text} (${historicWall.id})`, wallIds);
+    expect(validateGoalTaskRewriteText(lines, [historicWall])).toContain(`Line 1 ("${text}")`);
+  });
+
+  it("accepts text exactly at the boundary", () => {
+    const text = "b".repeat(MAX_GOAL_TASK_TEXT_LENGTH);
+    expect(validateGoalTaskText(text)).toBeUndefined();
+    expect(
+      validateGoalTaskRewriteText(parseOrThrow(`- [ ] ${text}`, new Set()), []),
+    ).toBeUndefined();
   });
 });
 

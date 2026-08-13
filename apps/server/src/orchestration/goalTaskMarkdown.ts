@@ -15,6 +15,8 @@ import { GoalTaskId, type GoalTaskRewriteEntry } from "@t3tools/contracts";
 
 import type { FlatGoalTask } from "./goalTaskTree.ts";
 
+export const MAX_GOAL_TASK_TEXT_LENGTH = 300;
+
 /**
  * One parsed checklist line. `taskId` is set only when the line carried an
  * `(id)` of an existing task (id-only matching — a line without one is always a
@@ -33,6 +35,33 @@ export interface ParsedGoalTaskLine {
 export type ParsedGoalTaskMarkdown =
   | { readonly lines: ReadonlyArray<ParsedGoalTaskLine> }
   | { readonly error: string };
+
+const taskTextLimitError = (text: string): string | undefined =>
+  text.length > MAX_GOAL_TASK_TEXT_LENGTH
+    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan — a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
+    : undefined;
+
+/** Validate text written by add/update, where every supplied text is new. */
+export const validateGoalTaskText = taskTextLimitError;
+
+/**
+ * Validate a whole-tree rewrite without stranding historic walls: retained text
+ * is grandfathered, while every new or renamed line must fit the current cap.
+ */
+export const validateGoalTaskRewriteText = (
+  lines: ReadonlyArray<ParsedGoalTaskLine>,
+  current: ReadonlyArray<Pick<FlatGoalTask, "id" | "text">>,
+): string | undefined => {
+  const currentById = new Map(current.map((task) => [task.id as string, task.text]));
+  const index = lines.findIndex(
+    (line) =>
+      (line.taskId === null || currentById.get(line.taskId) !== line.text) &&
+      taskTextLimitError(line.text) !== undefined,
+  );
+  if (index < 0) return undefined;
+  const line = lines[index]!;
+  return `Line ${index + 1} ("${line.text}") was rejected. ${taskTextLimitError(line.text)} Nothing was applied.`;
+};
 
 // `- ` / `* ` bullet, optional `[ ]`/`[x]`/`[X]` checkbox (absent => open), text.
 const TASK_LINE = /^([ \t]*)[-*][ \t]+(?:\[([ xX])\][ \t]*)?(.*\S)[ \t]*$/;
