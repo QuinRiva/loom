@@ -1,0 +1,241 @@
+---
+manager_sessions:
+  - id: 0fead933-8076-4edd-8346-817ecc9a2dd4
+    role: plan
+    authored_at: 2026-08-13T06:52:53.621Z
+---
+
+# Task trees people can actually read: the content contract
+
+The goal task tree exists so a human can glance at a thread and understand what is happening, what is planned, and what has been done — which means every task must be digestible in seconds and communicate the *value* of the work. Real trees fail this completely: tasks run to 2,600 characters of ticket ids, name-hashes, building numbers and ALL-CAPS adjudication verdicts. The structural redesign that just shipped (declarative `goal_tasks_rewrite`, tree echoes, child restrictions — `plans/goal-task-tree-redesign/plan.mdx`) fixed the *shape* problem; this plan fixes the *register* problem: what a task is allowed to say, carried by rewritten guidance with worked before/after examples plus one cheap enforcement lever.
+
+**Done means:** the injected guidance states a concrete content contract (audience, register, where details live) anchored by a real before/after example; the server rejects new or edited task text over a hard length cap with an error that teaches the correct register; tool definitions demand value-register text; and a degraded 88-task tree from the live store, rewritten under the contract, reads as a legible plan.
+
+## Evidence: how task content fails
+
+All numbers measured from the live cockpit store (`~/.t3/cockpit/userdata/state.sqlite`, read-only, 2026-08-13), 1,232 live tasks across 5 projects. None of these tasks postdate the guidance that shipped hours ago — that guidance is untested, and its one sentence on content ("short imperative work items… a dozen words or so") is far thinner than the contract designed here.
+
+<Table
+  columns={["Measure", "Value", "Reading"]}
+  rows={[
+    ["Live tasks / mean / max length", "1,232 / 251 / 2,630 chars", "the guidance target is ~80 chars; the mean is 3× that"],
+    ["Tasks over 300 chars", "336 (27%)", "over a quarter of all tasks are walls"],
+    ["…of which already done", "172", "half the walls are *finished* work carried as result records"],
+    ["Tasks over 600 chars", "104 (8%)", "genuine essays"],
+    ["ALL-CAPS verdict tokens (DONE / RESOLVED / CONFIRMED / FILED / ANSWERED / WITHDRAWN)", "246 (20%)", "one in five tasks is a result, not work"],
+    ["Contain an 8+ char hex id/hash run", "249 (20%)", "commit SHAs, task ids, name-hashes in human-facing text"],
+    ["Contain ticket ids (AIT- / PE- / CSM-)", "164 (13%)", ""],
+    ["Numbered sub-lists “(1)…(2)…(3)” inside ONE task", "16", "entire runbooks and reply drafts inlined as a single task"],
+    ["lease-extraction project: 690 tasks, mean 343 chars, 43% over 300", "", "investigation-heavy work degrades worst"],
+    ["loom project: 493 tasks, mean 132 chars, 8% over 300", "", "code work stays closer to register — but its long tail is the same failure"],
+  ]}
+/>
+
+The failures cluster into five modes, and they share one root cause — **audience error**. The agent writes the tree for its *future self* (the most durable, always-visible surface in a long-running thread) instead of for the human glancing at the sidebar. Notably, many of the worst walls already cite a memo file holding the same content — the details exist elsewhere; the task duplicates them anyway.
+
+<Table
+  columns={["Failure mode", "What it looks like", "Share"]}
+  rows={[
+    ["Finding-as-task", "“Item 5 display names — MEASURED, AND FAR WORSE THAN THE \u20187+7\u2019 ESTIMATE…” (1,479 chars). A result recorded as a to-do.", "~20% carry verdict tokens"],
+    ["Ledger-as-task", "A 2,630-char scoring-rules ledger (“rules 9–28”) stored as one task — the tree used as cross-session working memory.", "the 600+ tail"],
+    ["Coordinate soup", "“002336 Duescount bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…” — ids, hashes, paths and line numbers as the primary content.", "~20% hex runs"],
+    ["Result-append on completion", "Ticking a task by rewriting it: “Confirm prod outage — done: 2 faults (flag off + 9-night sync gap)”. The wall grows at the moment of finishing.", "172 done walls"],
+    ["Inlined deliverable", "The actual content of the work (11 numbered asks for a client reply; a rollout runbook) pasted into the task text.", "16 numbered walls"],
+  ]}
+/>
+
+<Details summary="Two verbatim worst offenders from the live store (truncated)">
+
+<Code language="text" wrap caption="2,630 chars — a scoring-rules ledger stored as one task" code={"Scorer guidance ledger (rules 9–28; rules 1–8 in companion d93a9c2f): (9) ±$0.01 tails on compounded rent chains; (10) 'AD848743' = source-doc typo, score neither; (11) DTL duplicate bucket pre-exists both sides + baseline internally inconsistent across its own two DTL buckets (≥4 fields); (12) 111253 term dates per ruling (withdrawn as noise); (13) ADJUDICATED 113941 baseline RIGHT/v2 WRONG, 111266 v2 RIGHT/baseline under-recovery; (14) Dopa outgoings Δ$1,144.78 — v2's certified area better justified, don't score; … [continues for another ~1,900 characters]"} />
+
+<Code language="text" wrap caption="930 chars — a rollout runbook stored as one task" code={"PROD ROLLOUT — MASTER SEQUENCE (updated 2026-08-13): (1) STAGING REHEARSAL first (Carl's call) — full pilot procedure on staging, 4 buildings, IN FLIGHT; (2) publish release v1.27.38; (3) PROD PILOT batch 1 = 002336/002338/310011/310035 (Carl chose \"deliberately SAFE\" over my representative rec) — GATING: no batch 2 until its 3 checks are reviewed; (4) remaining ~66 buildings in ~10-building batches… [continues]"} />
+
+</Details>
+
+## The contract: what a task is allowed to say
+
+Derive the rules from the reader. The person glancing at the tree asks exactly three questions: **what is being done, why does it matter, and where does it stand?** The checkbox answers the third. The text must answer the first two — in language a person who has *not* lived the thread understands.
+
+<Callout tone="decision">
+**The tree records THAT work exists and whether it is done — never the details of it.** A task is a short plain-language work item naming the outcome and, when it is not obvious, its value. Everything else has a home that is not the tree: coordinates (ids, hashes, SHAs, file paths, line numbers, building/ticket numbers) live in the task's own thread, its report, or a memo file; findings, verdicts and decisions live in reports, memos, or the goal description; draft content lives in the artefact it belongs to. At most **one short pointer** (a ticket id or an artefact name) is tolerated in a task when the reader genuinely needs the key.
+</Callout>
+
+Five rules, each one falsifiable at review time:
+
+1. **Imperative, outcome-first, plain language.** Lead with the verb; name the thing the user gets, not the mechanism ("Fix renamed tenants vanishing from the lease tab", not "re-key off names: tenant_id-FIRST with NAME FALLBACK").
+2. **About a dozen words; never more than the hard cap** (~40 words / 300 characters, enforced below). If it does not fit, the surplus is detail that belongs elsewhere.
+3. **At most one pointer.** One ticket id or artefact name when the reader needs it. Two or more coordinates is coordinate soup.
+4. **Results are not tasks.** A finding that creates work becomes a task *phrased as the work*. A finding that settles a question goes in a report or memo. Finishing a task means ticking it — never rewriting it into a result record.
+5. **Content is never inlined.** The eleven asks, the rule ledger, the runbook — those are artefacts the task can name, not text the task can carry.
+
+### Worked examples: real degraded tasks, rewritten
+
+These four before/afters cover the taxonomy and are the single strongest steering device in the wave; one of them (the first — the user's own chosen exemplar) ships in the injected guidance, and one ships in the cap's error message.
+
+**A — coordinate soup / mechanism register** (the AIT-101 task; the detail moves to the ticket and the thread that owns the work):
+
+<Columns>
+<Column label="Before (1,479 chars, abridged)">
+<Code language="text" wrap code={"Item 5 display names — MEASURED, AND FAR WORSE THAN THE \"7+7\" ESTIMATE. AIT-101 filed. … hidden tenancies go 450112 1/17 → 10/16, 450117 3/24 → 17/24 = 24 of 40 tenancies … ROOT CAUSE: prod LEASE/TENANT records hold KF TRADING names throughout … FIX (recommended, small, client-side): key the extraction tab on _tenant_id — already in the payload … MUST LAND BEFORE 450112/450117 re-trigger; pilot buildings' own exposure being measured now. Artefacts: eval/name-match/."} />
+</Column>
+<Column label="After (124 chars)">
+<Code language="markdown" wrap code={"- [ ] Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101) — blocks re-running the affected buildings"} />
+</Column>
+</Columns>
+
+**B — ledger-as-task** (the 2,630-char scoring ledger; the ledger moves to the memo file it already half-lives in):
+
+<Columns>
+<Column label="Before (2,630 chars)">
+<Code language="text" wrap code={"Scorer guidance ledger (rules 9–28; rules 1–8 in companion d93a9c2f): (9) ±$0.01 tails on compounded rent chains; (10) 'AD848743' = source-doc typo, score neither; … (28) BASELINES DIFFER PER BUILDING — never attribute a schema-caused delta cross-building; memo: eval/extraction-code-diff-adjudication.md."} />
+</Column>
+<Column label="After (95 chars)">
+<Code language="markdown" wrap code={"- [ ] Score the baseline-vs-current differences against the agreed rule ledger (in the eval memo)"} />
+</Column>
+</Columns>
+
+**C — finding-as-task.** The 1,479-char "Item 5 display names — MEASURED…" entry is not a task at all: the measurement was *work that finished*. Correct handling is to tick the task that produced it ("Measure how many renamed tenants the lease tab hides"), put the numbers and root cause in the report/memo, and add the work the finding created — which is exactly example A.
+
+**D — inlined deliverable** (a 1,336-char task carrying eleven numbered asks for a client reply):
+
+<Columns>
+<Column label="Before (1,336 chars)">
+<Code language="text" wrap code={"Paul reply (0240474e) — round-5 additions: (1) DroneShield L1&2 BG re-ask naming registered lease AV494175 (~$1.05M expected…); (2) Hurst — ORIGINAL ANZ guarantee 321635 ($111,324.29; copy sent is not claimable); (3) Figtree — $10m PUBLIC LIABILITY cert per head-lease cl 9.1(b); … (11) a third of the two batches were byte-identical re-sends — gentle note with the do-not-re-send list"} />
+</Column>
+<Column label="After (98 chars)">
+<Code language="markdown" wrap code={"- [ ] Send Paul the round-5 follow-up on missing guarantees and certificates (11 asks, drafted in-thread)"} />
+</Column>
+</Columns>
+
+### What a good tree reads like end-to-end
+
+The worst goal in the store (`investigate-building-document-reprocessing-backlog`: 88 tasks, mean 615 chars, fully flat) versus the same content under the contract. Everything the right column drops still exists — in the eval memos, tickets, and thread reports the left column already cites.
+
+<Columns>
+<Column label="Today (excerpt of 88 flat tasks, each truncated)">
+<Code language="markdown" wrap code={"- [ ] PROD ROLLOUT — MASTER SEQUENCE (updated 2026-08-13): (1) STAGING REHEARSAL first (Carl's call)… [930 chars]\n- [ ] MARTIN BRIEF recap.mdx REWRITE — UNBLOCKED (consumer-chain + code-diff adjudication both landed)… [1,465 chars]\n- [x] Item 5 display names — MEASURED, AND FAR WORSE THAN THE \"7+7\" ESTIMATE. AIT-101 filed… [1,479 chars]\n- [x] 002338 ADJUDICATED: v2 is correct. All 3 dropped buckets have zero lease content… [274 chars]\n- [x] Item 4 documentless tenants — ANSWERED, NO PIPELINE CHANGE NEEDED… [1,166 chars]\n- [ ] Scorer guidance ledger (rules 9–28; rules 1–8 in companion d93a9c2f)… [2,630 chars]\n- [x] Re-baseline 450112 to 16 tenants (v2's Shop NE.13 merge CORRECT — one tenancy, one lease…) [694 chars]\n… 81 more"} />
+</Column>
+<Column label="Under the contract (same goal, whole plan visible)">
+<Code language="markdown" wrap code={"- [ ] Roll the v2 pipeline out to production (all 76 buildings)\n  - [x] Rehearse the full pilot procedure on staging (4 buildings)\n  - [ ] Run the 4-building pilot batch and review its three checks\n  - [ ] Run the remaining ~66 buildings in ~10-building batches\n  - [ ] Flip the doc-sync trigger flag on — last step, after all 76\n- [x] Adjudicate baseline-vs-v2 differences per building (verdicts in the eval memo)\n- [ ] Land the client-side fixes the eval surfaced\n  - [ ] Fix renamed tenants vanishing from the lease tab (re-key by tenant id; AIT-101)\n  - [ ] Fix the inflated \"fields extracted\" metric (misses native-null not-founds)\n- [ ] Rewrite the Martin brief to the agreed framing and re-share it"} />
+</Column>
+</Columns>
+
+## Mechanism: what carries the contract
+
+Three levers ship; two are rejected. Everything below layers on the shipped mechanics (rewrite tool, tree echoes, child restrictions) — no schema, command, or event changes.
+
+### 1. Injection guidance rewrite (both variants)
+
+`activeGoalContextInstruction` (`apps/server/src/orchestration/Layers/ProviderCommandReactor.ts` ~line 194) currently spends one clause on content. It gains the contract and the micro-example; final wording is the coder's to polish, content is settled. Root-variant draft (the shape/cadence and staleness bullets survive unchanged):
+
+<Code language="text" wrap filename="ProviderCommandReactor.ts — root variant, content bullets (draft)" code={"This tree is the human's at-a-glance view of the plan, so keep it shaped — not merely appended to:\n- Write each task for a reader who has NOT lived this thread: a short imperative item (a dozen words or so) naming the outcome in plain language — the value, not the mechanism. The server rejects task text over 300 characters.\n- The tree records THAT work exists and whether it is done, never the details: ids, hashes, file paths, ticket numbers, findings, verdicts, decisions and draft content live in reports, memo files, or the goal description. At most one short pointer (a ticket id or artefact name) belongs in a task.\n  Not: \"AIT-101 — re-key the Lease Extraction tab off names: tenant_id-FIRST with NAME FALLBACK (002336 bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…); MUST land before 450112/450117 re-trigger\"\n  But: \"Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)\"\n- Finishing a task means ticking it, not rewriting it into a result record — outcomes go in your report or a memo, and the goal description is a short objective statement, not a journal.\n- Nest. Top-level items are the goal's phases or themes (aim for 7 or fewer)… [unchanged]\n- Update at the seams… [unchanged]\n- The snapshot above is never refreshed… [unchanged]"} />
+
+The child variant's single content sentence becomes: *"Keep anything you add a short plain-language work item a reader outside your thread understands (the server rejects text over 300 characters) — ids, hashes, paths, findings and verdicts go in your report, not the tree."* Token cost of the whole change: ~120 tokens once per goal-bearing thread spawn (the example is the biggest line item and is deliberately the user's own exemplar). The full four-example set does **not** ship in the injection — it lives here and one pair lives in the cap error, paid only on violation.
+
+### 2. Hard length cap at the HTTP edge, with a teaching error
+
+A server-side cap of **300 characters** on task text, enforced in `apps/server/src/mcp/GoalTaskHttp.ts` for all three mutating tools, with the limit exported as a constant from `goalTaskMarkdown.ts` so tests and tool-def prose reference one number.
+
+Why 300: the healthy register sits at 80–160 chars; 300 (~40 words) is loose enough that no observed *good* task would ever hit it, yet it would have blocked 27% of historic writes — essentially every wall in the taxonomy. The cap is a backstop that makes the pathological register *impossible*; the register itself is the guidance's job.
+
+<Callout tone="decision">
+**Grandfathering: the cap applies to new text only.** `goal_task_add` and `goal_task_update` renames always check; `goal_tasks_rewrite` checks only lines that are new tasks or whose text differs from the current task's text. A retained line resubmitted verbatim always passes, whatever its length — otherwise the shipped round-trip identity contract ("`goal_task_list` output resubmitted verbatim is a no-op") breaks on every tree with a historic wall, and degraded trees become impossible to restructure. Contracts/schemas are untouched: historic 2,600-char texts must keep decoding on replay, so the cap can only live at the edge.
+</Callout>
+
+The 400 error is the teachable moment — it fires exactly when an agent is mid-wall, so it carries the register, the destinations, and the example (soft error mode returns it as tool-result text the agent reads):
+
+<Code language="text" wrap caption="Cap error copy (add/update; the rewrite variant prefixes the offending line and appends 'Nothing was applied.')" code={"Task text is 1,479 characters; the limit is 300. The tree is the human's at-a-glance view of the plan — a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. \"Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)\") and put ids, findings, verdicts and draft content in your report, a memo file, or the goal description."} />
+
+The `t3 goal` CLI dispatches commands directly (`apps/server/src/cli/goal.ts` → `runOrchestrationMutation`), bypassing the HTTP edge — deliberately left uncapped as the human escape hatch. Evidence says agents are the only writers anyway (zero CLI task writes ever).
+
+Evasion risks, weighed: **splitting** a ledger across ten 290-char tasks (bounded — each fragment is at least individually readable, the echo shows the accreting mess, and guidance says findings are not tasks at any length); **cramming** via abbreviation (guidance names plain language as the register); **displacement** into the goal description via `goal_update` (the description is injected into every spawn, so a journal there taxes every child — countered by one clause in the injection and in `goal_update`'s tool description; no cap on it yet, see open questions).
+
+### 3. Tool-definition prose (`providerToolDefs.ts`)
+
+Small sharpening, no new tools: `goal_task_add`'s `text` param description becomes *"a short plain-language work item naming the outcome (at most 300 characters) — never a finding, verdict, or status note; details go in reports or memos"*; `goal_task_update`'s `text` param and `goal_tasks_rewrite`'s markdown-param guideline gain the same clause; the existing `goal_tasks_rewrite` shape guideline adds "rewrite journal-entry tasks into short value-register items as you restructure — the cap only binds text you change"; `goal_update`'s description gains "the description is a short objective statement, not a journal". The six `roles/*.md` one-liners fold the register clause into their existing tree sentence.
+
+### Rejected levers
+
+- **Write-time content linting** (reject/warn on hex runs, ticket-id density, CAPS verdict tokens): every heuristic has legitimate hits — the contract itself permits one ticket pointer, and "Fix AIT-101" must not bounce. False positives on a hard reject poison trust in the tool; a warn is a nudge the prior wave already decided against. The cap plus register guidance covers the same mass without an arms race.
+- **LLM-based register review of task text**: latency and cost on every mutation for a prototype; unpredictable rejections.
+- **Per-turn re-injection of the contract**: ongoing token tax; the spawn injection plus at-violation error hit the two moments that matter.
+- **Retroactive migration of existing trees**: no data change ships. Owners of live degraded goals can rewrite them in one `goal_tasks_rewrite` call whenever they next touch them (see open questions for whether to do a one-off pass now).
+
+## Change map and work packages
+
+One coder-sized work package — guidance and cap land together (the guidance quotes the cap, so shipping them apart leaves one of them lying).
+
+<FileTree
+  title="Change map (single WP)"
+  entries={[
+    { path: "apps/server/src/orchestration/goalTaskMarkdown.ts", change: "modified", note: "export MAX_GOAL_TASK_TEXT_LENGTH = 300 (+ a tiny shared validator if cleanest)" },
+    { path: "apps/server/src/mcp/GoalTaskHttp.ts", change: "modified", note: "cap checks: add (always), update rename (always), rewrite (new/changed lines only, all-or-nothing, error names the line); teaching error copy" },
+    { path: "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts", change: "modified", note: "activeGoalContextInstruction: content-contract bullets + micro-example, both variants" },
+    { path: "apps/server/src/provider/Drivers/Pi/providerToolDefs.ts", change: "modified", note: "text-param descriptions + guidelines for add/update/rewrite; goal_update description clause" },
+    { path: "roles/orchestrator.md", change: "modified", note: "register clause folded into the existing tree sentence (same for coder/reviewer/planner/researcher/assessor)" },
+    { path: "apps/server/src/orchestration/goalTaskMarkdown.test.ts", change: "modified", note: "cap cases: new-line over limit rejected naming the line; retained verbatim wall passes; changed wall rejected; boundary at exactly 300" },
+  ]}
+/>
+
+**Verification:** `vp check` and `vp run typecheck` pass; targeted tests above plus the existing round-trip identity test still green (grandfathering preserves it by construction); render both injection variants from the real source with a sample goal (the WP3 pattern) and eyeball the final text; smoke the cap live against a dev instance — one `goal_task_add` with 400-char text returns the teaching error, then succeeds at 250.
+
+<Checklist
+  items={[
+    { id: "cap", label: "New/edited task text over 300 chars is rejected on all three tools with the teaching error" },
+    { id: "grandfather", label: "A tree containing a historic 2,600-char task round-trips and restructures without shortening it" },
+    { id: "injection", label: "Both injection variants carry the contract + the AIT-101 micro-example" },
+    { id: "tooldefs", label: "add/update/rewrite text params demand value-register text and name the cap" },
+    { id: "roundtrip", label: "Existing round-trip identity test unchanged and green" },
+  ]}
+/>
+
+## Risks
+
+- **Behavioural bet, again.** Whether register guidance changes what agents write is unfalsifiable until live trees accumulate; the cap guarantees only the ceiling, not the register. The before/after example is the strongest known steering device (it anchors the norm, not just the rule), and the at-violation error re-teaches at the exact failure moment. If register stays bad under the cap, the next lever is making `workstream_submit`/report guidance name the tree explicitly as a non-destination — cheap to add later.
+- **Splitting.** A determined journaller can shard a ledger into many sub-cap tasks. Accepted: the sharded form is strictly more readable than the wall, the tree echo makes the accretion visible, and shape guidance (~7 top-level themes) caps the blast radius.
+- **Displacement into the goal description.** Guarded by guidance only in this wave; a description cap is named in the open questions rather than built speculatively.
+- **Cap surprises a legitimate long task.** At 300 chars the observed collision rate with *good* register is zero across 1,232 historic tasks; the error tells the agent exactly how to proceed, and the human CLI path stays uncapped.
+
+<QuestionForm
+  submitLabel="Resolve and approve"
+  questions={[
+    {
+      id: "cap-value",
+      title: "Hard cap value for new/edited task text",
+      mode: "single",
+      options: [
+        { id: "cap-300", label: "300 characters (~40 words)", recommended: true, detail: "Would have blocked 27% of historic writes — essentially every wall — while no observed good-register task comes near it. Loose backstop; guidance owns the register." },
+        { id: "cap-200", label: "200 characters (~28 words)", detail: "Tighter norm-setting, but rejects ~16% of even the healthy project's historic writes, some of them defensible bug-capture tasks. More friction, more split-evasion." },
+        { id: "cap-500", label: "500 characters", detail: "Blocks only the true essays (13% of historic writes); permits the 300–500 finding-with-coordinates register the user is objecting to." },
+        { id: "cap-none", label: "No cap — guidance only", detail: "Zero enforcement surface, but the shipped one-sentence guidance is exactly what the 2,630-char ledger ignored; nothing stops the next one." },
+      ],
+    },
+    {
+      id: "pointer-policy",
+      title: "Coordinate policy in the guidance: allow one short pointer per task?",
+      mode: "single",
+      options: [
+        { id: "one-pointer", label: "Allow one pointer (ticket id or artefact name)", recommended: true, detail: "\u201CFix … (AIT-101)\u201D keeps the join to the system of record; banning it outright forces a lookup for every cross-reference and will simply be ignored." },
+        { id: "no-coordinates", label: "Ban coordinates from task text entirely", detail: "Purest register; the task's own thread carries every key. Costs real convenience for orchestrators scanning for a ticket." },
+      ],
+    },
+    {
+      id: "retro-cleanup",
+      title: "Existing degraded trees: clean up now, or leave to their owners?",
+      mode: "single",
+      options: [
+        { id: "leave", label: "Leave them — owners rewrite in one call when next touched", recommended: true, detail: "No migration, no background mutation of a human-facing artefact; most degraded goals are winding down anyway." },
+        { id: "cleanup-pass", label: "One-off cleanup: prompt each active goal's owner thread to rewrite under the contract", detail: "Immediate legibility for the trees you actually look at (lease-extraction), at the cost of a manual pass and rewrite-vs-history judgement calls per goal." },
+      ],
+    },
+    {
+      id: "description-guard",
+      title: "Goal description as the displacement channel: guidance only, or cap it too?",
+      mode: "single",
+      options: [
+        { id: "guidance-only", label: "Guidance clause only (\u201Ca short objective statement, not a journal\u201D)", recommended: true, detail: "No observed abuse yet; don't build enforcement for a failure mode the cap hasn't created. Revisit if descriptions start bloating." },
+        { id: "cap-description", label: "Also cap goal_update descriptions (e.g. 1,000 chars)", detail: "Closes the channel pre-emptively; risks blocking legitimately rich objectives (some goals carry genuinely useful multi-paragraph descriptions today)." },
+      ],
+    },
+  ]}
+/>
