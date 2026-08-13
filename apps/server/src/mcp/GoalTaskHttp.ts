@@ -22,6 +22,8 @@ import {
 import {
   parseGoalTaskMarkdown,
   resolveGoalTaskRewrite,
+  validateGoalTaskRewriteText,
+  validateGoalTaskText,
 } from "../orchestration/goalTaskMarkdown.ts";
 import { renderGoalTaskTree, toGoalTaskNodes } from "../orchestration/goalTaskRender.ts";
 import { flattenGoalTasks } from "../orchestration/goalTaskTree.ts";
@@ -142,6 +144,8 @@ const handleGoalTaskAdd = Effect.gen(function* () {
   )) as GoalTaskAddRequest;
   const text = trimString(body.text);
   if (!text) return jsonError(400, "text is required.");
+  const textError = validateGoalTaskText(text);
+  if (textError) return jsonError(400, textError);
 
   let parentTaskId: GoalTaskId | null = null;
   const parent = trimString(body.parentTaskId);
@@ -197,6 +201,8 @@ const handleGoalTaskUpdate = Effect.gen(function* () {
   if (body.text !== undefined && text === undefined) {
     return jsonError(400, "text must be a non-empty string.");
   }
+  const textError = text === undefined ? undefined : validateGoalTaskText(text);
+  if (textError) return jsonError(400, textError);
   const done = typeof body.done === "boolean" ? body.done : undefined;
   if (body.done !== undefined && done === undefined) {
     return jsonError(400, "done must be a boolean.");
@@ -257,6 +263,9 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
 
   const parsed = parseGoalTaskMarkdown(body.markdown, allTaskIds(goal.tasks));
   if ("error" in parsed) return jsonError(400, parsed.error);
+  const current = flattenGoalTasks(goal.tasks);
+  const textError = validateGoalTaskRewriteText(parsed.lines, current);
+  if (textError) return jsonError(400, textError);
 
   const crypto = yield* Crypto.Crypto;
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -267,7 +276,7 @@ const handleGoalTasksRewrite = Effect.gen(function* () {
   ))[Symbol.iterator]();
   const { tasks, summary, changed } = resolveGoalTaskRewrite({
     lines: parsed.lines,
-    current: flattenGoalTasks(goal.tasks),
+    current,
     mintTaskId: () => GoalTaskId.make(minted.next().value!),
     now,
   });

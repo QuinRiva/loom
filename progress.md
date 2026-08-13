@@ -424,3 +424,9 @@ Mutation-verified the way a reviewer would attack it: with the union leaked into
 event-stream _equality itself_ fails (live emits one event, restarted emits two).
 An earlier version of this test passed under that same procedure — the direct
 assertions were doing all the work and the diff was decorative.
+
+---
+
+## Task-tree content-contract gate consult
+
+- **2026-08-13 — destination wording in the cap error and injected guidance.** Consulted plan author `0fead933-8076-4edd-8346-817ecc9a2dd4` via `plans/task-tree-content-contract/plan.mdx`. **Confidence: high.** The literal draft copy was a compression slip: keep goal descriptions as short objectives, send coordinates/findings to threads/reports/memos as appropriate, and send draft content to its artefact. The gate requires that wording correction rather than preserving the contradictory draft sentence. Full payload: `.pi/manager/consults.jsonl`.
