@@ -5,7 +5,10 @@ import {
   formatContextWindowTokens,
   formatCostUsd,
 } from "~/lib/contextWindow";
+import { Button } from "../ui/button";
+
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { formatContextWindowCompactionMessage } from "./ContextWindowMeter.logic";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -19,10 +22,12 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
+  // loom: workstream cost roll-up alongside upstream's context meter.
   cost?: ContextCostSummary | null;
   providerDisplayName?: string | null;
+  modelDisplayName?: string | null;
 }) {
-  const { usage, cost, providerDisplayName } = props;
+  const { usage, cost, providerDisplayName, modelDisplayName } = props;
   // Headline = the whole subtree's spend when this thread has descendants (so the
   // root orchestrator shows the entire workstream), else this thread's own spend.
   const headlineCostValue = cost
@@ -39,12 +44,12 @@ export function ContextWindowMeter(props: {
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (normalizedPercentage / 100) * circumference;
+  const dashOffset = circumference * (1 - normalizedPercentage / 100);
   const totalProcessedTokens = usage.totalProcessedTokens ?? null;
   const showTotalProcessed = totalProcessedTokens !== null && totalProcessedTokens > 0;
   const isOverloaded = normalizedPercentage > 90;
   const usageColor = isOverloaded
-    ? "var(--color-red-500)"
+    ? "var(--color-error)"
     : "color-mix(in oklab, var(--color-muted-foreground) 72%, transparent)";
 
   return (
@@ -54,13 +59,10 @@ export function ContextWindowMeter(props: {
         delay={150}
         closeDelay={0}
         render={
-          <button
-            type="button"
-            className={cn(
-              "inline-flex size-7 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors",
-              "hover:bg-accent data-[pressed]:bg-accent",
-              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-            )}
+          <Button
+            size="icon-sm"
+            variant="ghost-muted"
+            className="size-7 rounded-full hover:text-muted-foreground data-pressed:text-muted-foreground"
             aria-label={
               usage.maxTokens !== null && usedPercentage
                 ? `Context window ${usedPercentage} used`
@@ -70,7 +72,7 @@ export function ContextWindowMeter(props: {
             <span className="relative flex size-5 items-center justify-center">
               <svg
                 viewBox="0 0 24 24"
-                className="-rotate-90 absolute inset-0 size-full transform-gpu"
+                className="-rotate-90 absolute inset-0 size-full transform-gpu mx-0!"
                 aria-hidden="true"
               >
                 <circle
@@ -91,24 +93,25 @@ export function ContextWindowMeter(props: {
                   strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={dashOffset}
-                  className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
+                  className="transition-[stroke-dashoffset,stroke] duration-500 ease-out motion-reduce:transition-none"
                 />
               </svg>
             </span>
-          </button>
+          </Button>
         }
       />
       <PopoverPopup
         tooltipStyle
         side="top"
         align="end"
-        className="dropdown-glass w-64 max-w-none border-0! bg-secondary! p-0 shadow-none! before:hidden"
+        viewportClassName="p-0"
+        className="w-64 max-w-none text-left whitespace-normal"
       >
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex flex-col gap-2 p-[var(--floating-content-inset)]">
           <div className="flex items-center justify-between gap-3">
             <div className="font-medium text-muted-foreground text-xs">Context Window</div>
             {usage.maxTokens !== null && usedPercentage ? (
-              <div className="text-[11px] tabular-nums text-muted-foreground/70">
+              <div className="text-secondary-label text-[11px] tabular-nums">
                 <span>{usedPercentage}</span>
                 <span className="mx-1">·</span>
                 <span>
@@ -117,7 +120,7 @@ export function ContextWindowMeter(props: {
                 </span>
               </div>
             ) : (
-              <div className="text-[11px] tabular-nums text-muted-foreground/70">
+              <div className="text-secondary-label text-[11px] tabular-nums">
                 {formatContextWindowTokens(usage.usedTokens)}
               </div>
             )}
@@ -139,15 +142,15 @@ export function ContextWindowMeter(props: {
           ) : null}
           {showTotalProcessed ? (
             <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
-              <span className="text-muted-foreground/60">Total processed</span>
-              <span className="font-medium tabular-nums text-muted-foreground/80">
+              <span className="text-secondary-label">Total processed</span>
+              <span className="font-medium tabular-nums text-secondary-label">
                 {formatContextWindowTokens(totalProcessedTokens)}
               </span>
             </div>
           ) : null}
           {usage.compactsAutomatically ? (
-            <div className="mt-1 text-pretty text-[11px] font-medium text-muted-foreground/70">
-              {providerDisplayName ?? "It"} automatically compacts its context when needed.
+            <div className="mt-1 text-pretty text-secondary-label text-[11px] font-medium">
+              {formatContextWindowCompactionMessage(modelDisplayName)}
             </div>
           ) : null}
           {showCostBreakdown && cost ? (

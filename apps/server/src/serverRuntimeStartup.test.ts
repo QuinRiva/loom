@@ -105,7 +105,6 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getFullThreadDiffContext: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
-          getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getThreadActivitiesPage: () => Effect.succeed({ activities: [], hasMore: false }),
           getThreadLifecycle: () => Effect.succeed([]),
           getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
@@ -131,6 +130,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
             Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
           getInFlightToolByThreadId: () => Effect.succeed(null),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+          searchThreads: () => Effect.succeed({ matches: [] }),
         }),
         Effect.provideService(AnalyticsService.AnalyticsService, {
           record: () => Effect.void,
@@ -200,7 +200,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getFullThreadDiffContext: () => Effect.succeed(Option.none()),
         getThreadShellById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
-        getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
@@ -226,6 +225,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
         getThreadDetailSnapshot: () => Effect.die("unused"),
+        searchThreads: () => Effect.succeed({ matches: [] }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -277,7 +277,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getFullThreadDiffContext: () => Effect.succeed(Option.none()),
         getThreadShellById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
-        getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
@@ -303,6 +302,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
         getThreadDetailSnapshot: () => Effect.die("unused"),
+        searchThreads: () => Effect.succeed({ matches: [] }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,
@@ -360,7 +360,6 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
         getFullThreadDiffContext: () => Effect.succeed(Option.none()),
         getThreadShellById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
-        getThreadDetailSnapshotById: () => Effect.die("unused"),
         getThreadActivitiesPage: () => Effect.die("unused"),
         getThreadLifecycle: () => Effect.die("unused"),
         getLiveSubtreeSessionLiveness: () => Effect.succeed([]),
@@ -386,6 +385,7 @@ it.effect("resolveAutoBootstrapWelcomeTargets preserves typed UUID generation fa
           Effect.succeed({ recentInputsSource: null, checkpointSource: null }),
         getInFlightToolByThreadId: () => Effect.succeed(null),
         getThreadDetailSnapshot: () => Effect.die("unused"),
+        searchThreads: () => Effect.succeed({ matches: [] }),
       }),
       Effect.provideService(OrchestrationEngine.OrchestrationEngineService, {
         readEvents: () => Stream.empty,

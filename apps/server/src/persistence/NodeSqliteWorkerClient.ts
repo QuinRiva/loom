@@ -133,6 +133,19 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       Effect.catchTag(rpc.Execute({ ...request, safeIntegers }), "RpcClientError", Effect.die),
     ) as Effect.Effect<ReadonlyArray<any>, SqlError>;
 
+  const executeValuesWorker = (request: {
+    readonly sql: string;
+    readonly params: ReadonlyArray<unknown>;
+    readonly noCache: boolean;
+  }): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
+    Effect.flatMap(safeIntegers, (safeIntegers) =>
+      Effect.catchTag(
+        rpc.ExecuteValues({ ...request, safeIntegers }),
+        "RpcClientError",
+        Effect.die,
+      ),
+    ) as Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>;
+
   const connection: Connection = {
     execute(sql, params, rowTransform) {
       const effect = executeWorker({ sql, params, raw: false, noCache: false });
@@ -142,13 +155,10 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       return executeWorker({ sql, params, raw: true, noCache: false });
     },
     executeValues(sql, params) {
-      return Effect.flatMap(safeIntegers, (safeIntegers) =>
-        Effect.catchTag(
-          rpc.ExecuteValues({ sql, params, safeIntegers }),
-          "RpcClientError",
-          Effect.die,
-        ),
-      ) as Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>;
+      return executeValuesWorker({ sql, params, noCache: false });
+    },
+    executeValuesUnprepared(sql, params) {
+      return executeValuesWorker({ sql, params: params ?? [], noCache: true });
     },
     executeUnprepared(sql, params, rowTransform) {
       const effect = executeWorker({ sql, params: params ?? [], raw: false, noCache: true });
@@ -179,6 +189,8 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       withPermit(connection.execute(sql, params, rowTransform)),
     executeRaw: (sql, params) => withPermit(connection.executeRaw(sql, params)),
     executeValues: (sql, params) => withPermit(connection.executeValues(sql, params)),
+    executeValuesUnprepared: (sql, params) =>
+      withPermit(connection.executeValuesUnprepared(sql, params)),
     executeUnprepared: (sql, params, rowTransform) =>
       withPermit(connection.executeUnprepared(sql, params, rowTransform)),
     executeStream: connection.executeStream,

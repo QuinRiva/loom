@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vite-plus/test";
+import { expect, it } from "@effect/vitest";
+import { describe } from "vite-plus/test";
 
-import { assetCacheControl, isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
+import {
+  assetCacheControl,
+  assetResponseHeaders,
+  isLoopbackHostname,
+  resolveDevRedirectUrl,
+} from "./http.ts";
 
 describe("http dev routing", () => {
   it("treats localhost and loopback addresses as local", () => {
@@ -35,5 +41,24 @@ describe("asset cache control", () => {
 
   it("keeps a long cache for immutable content-addressed assets", () => {
     expect(assetCacheControl(false)).toBe("private, max-age=3600");
+  });
+});
+
+describe("assetResponseHeaders", () => {
+  it("sandboxes SVG assets", () => {
+    expect(assetResponseHeaders("/attachments/user-image.svg")).toMatchObject({
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "X-Content-Type-Options": "nosniff",
+    });
+    expect(assetResponseHeaders("/attachments/user-image.SVG")).toHaveProperty(
+      "Content-Security-Policy",
+    );
+  });
+
+  it("does not apply document policy to raster images", () => {
+    expect(assetResponseHeaders("/attachments/user-image.png")).toEqual({
+      "Cache-Control": "private, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+    });
   });
 });

@@ -28,6 +28,7 @@ export type ModelEsque = {
   subProvider?: string | undefined;
   /** Excluded by the instance's model preferences — see `AppModelOption.excluded`. */
   excluded?: boolean | undefined;
+  isLegacy?: boolean | undefined;
 };
 
 function escapeRegExp(value: string): string {

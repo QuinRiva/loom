@@ -255,7 +255,7 @@ export interface OrchestrationGoalTask {
   readonly children: ReadonlyArray<OrchestrationGoalTask>;
 }
 
-interface OrchestrationGoalTaskEncoded {
+export interface OrchestrationGoalTaskEncoded {
   readonly id: string;
   readonly goalId: string;
   readonly parentTaskId: string | null;

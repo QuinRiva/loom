@@ -5,14 +5,25 @@ import {
   type ModelSelection,
   type ProviderDriverKind,
   type ServerProvider,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import { type ChatMessage, type SessionPhase, type Thread } from "../types";
+import {
+  type ChatMessage,
+  type SessionPhase,
+  type Thread,
+  type ThreadShell,
+} from "../types";
 import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
-import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+
+import {
+  type ComposerImageAttachment,
+  type DraftThreadState,
+  type DraftThreadEnvMode,
+} from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
@@ -21,11 +32,11 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../lib/terminalContext";
-import type { DraftThreadEnvMode } from "../composerDraftStore";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
+export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -180,6 +191,28 @@ export async function runComposerDraftIntercept<A, E>(ports: {
   }
 }
 
+export function scheduleEnvironmentReconnectWarning(showWarning: () => void): () => void {
+  const timeoutId = globalThis.setTimeout(showWarning, ENVIRONMENT_RECONNECT_WARNING_GRACE_MS);
+  return () => globalThis.clearTimeout(timeoutId);
+}
+
+export function hasEnvironmentReconnectWarningGraceElapsed(
+  activeEnvironmentId: EnvironmentId | null,
+  elapsedEnvironmentId: EnvironmentId | null,
+): boolean {
+  return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
+}
+
+export function startNewThreadForProject(
+  projectRef: ScopedProjectRef | null,
+  handleNewThread: (projectRef: ScopedProjectRef) => Promise<unknown>,
+): boolean {
+  if (projectRef === null) return false;
+  void handleNewThread(projectRef);
+
+  return true;
+}
+
 export function resolveThreadMetadataUpdateForNextTurn(input: {
   currentModelSelection: ModelSelection;
   nextModelSelection?: ModelSelection;
@@ -266,8 +299,19 @@ export function buildLocalDraftThread(
   };
 }
 
+export function buildLoadingThreadFromShell(shell: ThreadShell): Thread {
+  return {
+    ...shell,
+    messages: [],
+    proposedPlans: [],
+    activities: [],
+    checkpoints: [],
+    deletedAt: null,
+  };
+}
+
 export function shouldWriteThreadErrorToCurrentServerThread(input: {
-  serverThread:
+  activeServerThread:
     | {
         environmentId: EnvironmentId;
         id: ThreadId;
@@ -278,10 +322,10 @@ export function shouldWriteThreadErrorToCurrentServerThread(input: {
   targetThreadId: ThreadId;
 }): boolean {
   return Boolean(
-    input.serverThread &&
+    input.activeServerThread &&
     input.targetThreadId === input.routeThreadRef.threadId &&
-    input.serverThread.environmentId === input.routeThreadRef.environmentId &&
-    input.serverThread.id === input.targetThreadId,
+    input.activeServerThread.environmentId === input.routeThreadRef.environmentId &&
+    input.activeServerThread.id === input.targetThreadId,
   );
 }
 

@@ -87,7 +87,12 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
     },
     executeValues(sql, params) {
       return Effect.flatMap(safeIntegers, (safeIntegers) =>
-        raw.executeValues(sql, params, { safeIntegers }),
+        raw.executeValues(sql, params, { safeIntegers, noCache: false }),
+      );
+    },
+    executeValuesUnprepared(sql, params) {
+      return Effect.flatMap(safeIntegers, (safeIntegers) =>
+        raw.executeValues(sql, params ?? [], { safeIntegers, noCache: true }),
       );
     },
     executeUnprepared(sql, params, rowTransform) {

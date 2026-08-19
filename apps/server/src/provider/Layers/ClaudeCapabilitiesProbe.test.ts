@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import {
   buildClaudeCapabilitiesProbeQueryOptions,
   CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES,
+  isLegacyClaudeModel,
   probeClaudeCapabilities,
 } from "./ClaudeProvider.ts";
 
@@ -34,6 +35,20 @@ async function awaitProcessExit(pid: number, attempts = 300): Promise<boolean> {
   }
   return false;
 }
+it("keeps only the Claude 5 family out of legacy models", () => {
+  assert.deepStrictEqual(
+    ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"].map((model) => [
+      model,
+      isLegacyClaudeModel(model),
+    ]),
+    [
+      ["claude-fable-5", false],
+      ["claude-opus-5", false],
+      ["claude-sonnet-5", false],
+      ["claude-opus-4-8", true],
+    ],
+  );
+});
 
 it("isolates Claude capability probes without dropping workspace setting sources", () => {
   const abortController = new AbortController();
@@ -51,6 +66,7 @@ it("isolates Claude capability probes without dropping workspace setting sources
   assert.equal(options.strictMcpConfig, true);
   assert.equal(options.cwd, "/workspace/project");
   assert.deepEqual(options.settingSources, [...CLAUDE_CAPABILITIES_PROBE_SETTING_SOURCES]);
+  assert.deepEqual(options.settings, { disableAllHooks: true });
   assert.deepEqual(options.allowedTools, []);
   assert.equal(options.persistSession, false);
   assert.equal(options.pathToClaudeCodeExecutable, "/usr/bin/claude");
@@ -258,6 +274,13 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         readonly pid: number;
       };
       assert.equal(yield* Effect.promise(() => awaitProcessExit(invocation.pid, 50)), true);
+      const settingsFlagIndex = invocation.args.indexOf("--settings");
+      assert.notEqual(settingsFlagIndex, -1);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const flagSettings = JSON.parse(invocation.args[settingsFlagIndex + 1] ?? "{}") as {
+        readonly disableAllHooks?: boolean;
+      };
+      assert.equal(flagSettings.disableAllHooks, true);
     }).pipe(Effect.scoped),
   );
 });

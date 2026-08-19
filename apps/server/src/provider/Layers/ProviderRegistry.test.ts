@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -32,15 +33,14 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
 import {
   haveProvidersChanged,
   mergeProviderSnapshot,
-  mergeProviderSnapshots,
   ProviderRegistryLive,
-  selectProvidersByKind,
 } from "./ProviderRegistry.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettingsModule from "../../serverSettings.ts";
@@ -67,6 +67,7 @@ process.env.T3CODE_CURSOR_ENABLED = "1";
 // ── Test helpers ────────────────────────────────────────────────────
 
 const encoder = new TextEncoder();
+const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
 
 const TestHttpClientLive = Layer.succeed(
   HttpClient.HttpClient,
@@ -74,6 +75,35 @@ const TestHttpClientLive = Layer.succeed(
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ version: "0.0.0" }))),
   ),
 );
+
+const BackgroundPolicyAlwaysRunLayer = Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+  reportClientActivity: () => Effect.void,
+  removeRpcClient: () => Effect.void,
+  reportHostPowerState: () => Effect.void,
+  snapshot: Effect.succeed({
+    hostPower: {
+      source: "unknown",
+      idle: "unknown",
+      idleSeconds: null,
+      locked: "unknown",
+      suspended: false,
+      onBattery: "unknown",
+      lowPowerMode: "unknown",
+      thermalState: "unknown",
+      stale: true,
+      updatedAt: TEST_EPOCH,
+    },
+    leases: [],
+    activeForegroundLeaseCount: 0,
+    activeScopeKeys: [],
+    shouldRunOpportunisticWork: true,
+    updatedAt: TEST_EPOCH,
+  }),
+  streamChanges: Stream.empty,
+  hasDemand: () => Effect.succeed(true),
+  shouldRunScopeWork: () => Effect.succeed(true),
+  shouldRunOpportunisticWork: Effect.succeed(true),
+});
 
 function selectDescriptor(
   id: string,
@@ -280,6 +310,11 @@ function makeMutableServerSettingsService(
         }),
       get streamChanges() {
         return Stream.fromPubSub(changes);
+      },
+      get subscribeChanges() {
+        return PubSub.subscribe(changes).pipe(
+          Effect.map((subscription) => Stream.fromSubscription(subscription)),
+        );
       },
     } satisfies ServerSettingsModule.ServerSettingsService["Service"];
   });
@@ -840,70 +875,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
-      it("persists merged provider snapshots for the providers that were refreshed", () => {
-        const previousProviders = [
-          {
-            instanceId: ProviderInstanceId.make("cursor"),
-            driver: ProviderDriverKind.make("cursor"),
-            status: "ready",
-            enabled: true,
-            installed: true,
-            auth: { status: "authenticated" },
-            checkedAt: "2026-04-14T00:00:00.000Z",
-            version: "2026.04.09-f2b0fcd",
-            models: [
-              {
-                slug: "claude-opus-4-6",
-                name: "Opus 4.6",
-                isCustom: false,
-                capabilities: createModelCapabilities({
-                  optionDescriptors: [
-                    selectDescriptor("reasoning", "Reasoning", [
-                      { id: "high", label: "High", isDefault: true },
-                    ]),
-                    booleanDescriptor("fastMode", "Fast Mode"),
-                    booleanDescriptor("thinking", "Thinking"),
-                  ],
-                }),
-              },
-            ],
-            slashCommands: [],
-            skills: [],
-          },
-          {
-            instanceId: ProviderInstanceId.make("codex"),
-            driver: ProviderDriverKind.make("codex"),
-            status: "ready",
-            enabled: true,
-            installed: true,
-            auth: { status: "authenticated" },
-            checkedAt: "2026-04-14T00:00:00.000Z",
-            version: "1.0.0",
-            models: [],
-            slashCommands: [],
-            skills: [],
-          },
-        ] as const satisfies ReadonlyArray<ServerProvider>;
-        const refreshedCursor = {
-          ...previousProviders[0],
-          checkedAt: "2026-04-14T00:01:00.000Z",
-          models: [],
-        } satisfies ServerProvider;
-
-        const mergedProviders = mergeProviderSnapshots(previousProviders, [refreshedCursor]);
-        const persistedProviders = selectProvidersByKind(
-          mergedProviders,
-          new Set([ProviderDriverKind.make("cursor")]),
-        );
-
-        assert.deepStrictEqual(persistedProviders, [
-          {
-            ...refreshedCursor,
-            models: [...previousProviders[0].models],
-          },
-        ]);
-      });
-
       it.effect("persists the merged snapshot when a live update has empty models", () =>
         Effect.gen(function* () {
           const cursorDriver = ProviderDriverKind.make("cursor");
@@ -984,6 +955,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   prefix: "t3-provider-registry-merged-persist-",
                 }),
               ),
+              Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
               Layer.provideMerge(NodeServices.layer),
             ),
           ).pipe(Scope.provide(scope));
@@ -1219,6 +1191,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   prefix: "t3-provider-registry-refresh-failure-",
                 }),
               ),
+              Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
               Layer.provideMerge(NodeServices.layer),
             ),
           ).pipe(Scope.provide(scope));
@@ -1326,6 +1299,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   prefix: "t3-provider-registry-sync-failure-",
                 }),
               ),
+              Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
               Layer.provideMerge(NodeServices.layer),
             ),
           ).pipe(Scope.provide(scope));
@@ -1521,6 +1495,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             ),
             Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
             Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           );
           const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
             Scope.provide(scope),
@@ -1590,6 +1565,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             ),
             Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
             Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           );
           const runtimeServices = yield* Layer.build(
             Layer.mergeAll(
@@ -1613,6 +1589,106 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           }).pipe(Effect.provide(runtimeServices));
         }),
       );
+
+      it.effect(
+        "keeps cursor disabled and skips probing when the provider setting is disabled",
+        () =>
+          Effect.gen(function* () {
+            const serverSettings = yield* makeMutableServerSettingsService(
+              decodeServerSettings(
+                deepMerge(encodedDefaultServerSettings, {
+                  providers: {
+                    codex: {
+                      enabled: false,
+                    },
+                    cursor: {
+                      enabled: false,
+                    },
+                    grok: {
+                      enabled: false,
+                    },
+                  },
+                }),
+              ),
+            );
+            let cursorSpawned = false;
+            const scope = yield* Scope.make();
+            yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+            const providerRegistryLayer = ProviderRegistryLive.pipe(
+              Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
+              Layer.provideMerge(
+                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
+              ),
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3-provider-registry-",
+                }),
+              ),
+              Layer.provideMerge(TestHttpClientLive),
+              Layer.provideMerge(
+                Layer.succeed(
+                  ProviderEventLoggers.ProviderEventLoggers,
+                  ProviderEventLoggers.NoOpProviderEventLoggers,
+                ),
+              ),
+              Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
+              Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+              Layer.provideMerge(
+                mockCommandSpawnerLayer((command, args) => {
+                  if (command === "cursor-agent") {
+                    cursorSpawned = true;
+                  }
+                  const joined = args.join(" ");
+                  if (joined === "--version") {
+                    return {
+                      stdout: `${command} 1.0.0\n`,
+                      stderr: "",
+                      code: 0,
+                    };
+                  }
+                  if (joined === "auth status") {
+                    return {
+                      stdout: '{"authenticated":true}\n',
+                      stderr: "",
+                      code: 0,
+                    };
+                  }
+                  throw new Error(`Unexpected args: ${command} ${joined}`);
+                }),
+              ),
+            );
+            const runtimeServices = yield* Layer.build(
+              Layer.mergeAll(
+                Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
+                providerRegistryLayer,
+              ),
+            ).pipe(Scope.provide(scope));
+
+            yield* Effect.gen(function* () {
+              const registry = yield* ProviderRegistry.ProviderRegistry;
+              const providers = yield* registry.getProviders;
+              const cursorProvider = providers.find(
+                (provider) => provider.instanceId === ProviderInstanceId.make("cursor"),
+              );
+
+              assert.deepStrictEqual(providers.map((provider) => provider.instanceId).toSorted(), [
+                "claudeAgent",
+                "codex",
+                "cursor",
+                "grok",
+                "opencode",
+              ]);
+              assert.strictEqual(cursorProvider?.enabled, false);
+              assert.strictEqual(cursorProvider?.status, "disabled");
+              assert.strictEqual(
+                cursorProvider?.message,
+                "Cursor is disabled in T3 Code settings.",
+              );
+              assert.strictEqual(cursorSpawned, false);
+            }).pipe(Effect.provide(runtimeServices));
+          }),
+      );
+
       it.effect("skips codex probes entirely when the provider is disabled", () =>
         Effect.gen(function* () {
           const status = yield* checkCodexProviderStatus(disabledCodexSettings).pipe(

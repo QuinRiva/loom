@@ -138,6 +138,8 @@ interface ChatMarkdownProps {
   className?: string;
   /** Treat single newlines as hard breaks — chat-style user input. */
   lineBreaks?: boolean;
+  /** Parse sanitized raw HTML instead of displaying its source text. */
+  parseRawHtml?: boolean;
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -175,6 +177,24 @@ function findTaskListMarkerOffset(markdown: string, listItemStart: number): numb
   if (!match?.[1]) return null;
   return listItemStart + firstLine.indexOf(match[1]);
 }
+/**
+ * The default `1.25rem` marker gutter (`.chat-markdown ol`) fits two-digit
+ * decimal markers. Once a list's last item reaches three digits (item 100+),
+ * `list-style-position: outside` paints the marker wider than that gutter and
+ * the leading digit gets clipped by the item's own overflow. Rather than
+ * widening the gutter for every list, only lists whose last marker is 3+
+ * digits get a wider `--list-gutter`, sized to that marker's digit count.
+ */
+export function orderedListGutterStyle(
+  itemCount: number,
+  start: number | undefined,
+): { "--list-gutter": string } | undefined {
+  const firstNumber = typeof start === "number" && Number.isFinite(start) ? start : 1;
+  const lastNumber = firstNumber + Math.max(itemCount - 1, 0);
+  const digits = String(Math.abs(lastNumber)).length;
+  return digits <= 2 ? undefined : { "--list-gutter": `${digits + 1}ch` };
+}
+
 const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   ...defaultSchema,
   attributes: {
@@ -1413,6 +1433,7 @@ function ChatMarkdown({
   skills = EMPTY_MARKDOWN_SKILLS,
   className,
   lineBreaks = false,
+  parseRawHtml = true,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -1738,6 +1759,15 @@ function ChatMarkdown({
     const components: Components = {
       p({ node: _node, children, ...props }) {
         return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
+      },
+      ol({ node, start, style, ...props }) {
+        const itemCount =
+          node?.children?.filter((child) => child.type === "element" && child.tagName === "li")
+            .length ?? 0;
+        const gutterStyle = orderedListGutterStyle(itemCount, start);
+        return (
+          <ol {...props} start={start} style={gutterStyle ? { ...style, ...gutterStyle } : style} />
+        );
       },
       li({ node, children, ...props }) {
         const listItemStart = node?.position?.start.offset;
@@ -2066,11 +2096,14 @@ function ChatMarkdown({
           // loom (#79): reuse upstream's extracted rehype constant, appending the
           // prose path-linking plugin only once streaming completes so the text
           // is not re-split on every streamed parse (no per-token rescans); the
-          // completed message runs it once.
-          isStreaming
-            ? CHAT_MARKDOWN_REHYPE_PLUGINS
-            : [...CHAT_MARKDOWN_REHYPE_PLUGINS, rehypeChatFilePaths]
+          // completed message runs it once. Path linking is independent of raw
+          // HTML, so it still runs when the caller opts out of `parseRawHtml`.
+          [
+            ...(parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : []),
+            ...(isStreaming ? [] : [rehypeChatFilePaths]),
+          ]
         }
+        skipHtml={false}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >

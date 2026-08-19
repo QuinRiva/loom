@@ -3,7 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { useClientSettings, useSidebarV2Enabled } from "../hooks/useSettings";
+import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -15,8 +15,6 @@ import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
-// loom: centre-panel thread tabs
-import { useThreadTabKeyboard } from "../loom/useThreadTabKeyboard";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
@@ -29,11 +27,8 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
-  // loom: tab-strip keyboard bindings (tab.previous/next + tab.jump.N on
-  // mod+alt+…, mod+w close, mod+shift+t reopen). The sidebar keeps thread.*.
-  useThreadTabKeyboard(routeThreadRef);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const sidebarV2Enabled = useSidebarV2Enabled();
+  const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -97,10 +92,10 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
-        // Sidebar v2 routes creation through the command palette whenever
-        // there is a real choice to make; v1 (and single-project setups)
-        // keep the immediate contextual create.
-        if (sidebarV2Enabled && projectGroupCount > 1) {
+        // The default sidebar routes creation through the command palette
+        // whenever there is a real choice to make; the legacy sidebar (and
+        // single-project setups) keep the immediate contextual create.
+        if (!legacySidebarEnabled && projectGroupCount > 1) {
           openCommandPalette({ open: "new-thread-in" });
           return;
         }
@@ -172,7 +167,7 @@ function ChatRouteGlobalShortcuts() {
     projectGroupCount,
     routeThreadRef,
     selectedThreadKeysSize,
-    sidebarV2Enabled,
+    legacySidebarEnabled,
     terminalOpen,
   ]);
 

@@ -78,7 +78,7 @@ function ChatThreadRouteView() {
     finalizePromotedDraftThreadByRef(threadRef);
   }, [draftThread, serverThreadStarted, threadRef]);
 
-  if (!threadRef || renderState !== "ready") {
+  if (!threadRef) {
     return null;
   }
 
@@ -86,11 +86,16 @@ function ChatThreadRouteView() {
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
       {/* loom: centre-panel thread tabs */}
       <ThreadTabsStrip activeRouteRef={threadRef} />
-      <ChatView
-        environmentId={threadRef.environmentId}
-        threadId={threadRef.threadId}
-        routeKind="server"
-      />
+      {/* loom: ChatView owns the hydrating/missing states (ThreadHydratingState,
+          NoActiveThreadState), so the route renders it as soon as a shell or a
+          detail snapshot exists rather than gating on a sync phase. */}
+      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
+        <ChatView
+          environmentId={threadRef.environmentId}
+          threadId={threadRef.threadId}
+          routeKind="server"
+        />
+      ) : null}
     </SidebarInset>
   );
 }

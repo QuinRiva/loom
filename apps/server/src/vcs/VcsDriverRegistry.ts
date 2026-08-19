@@ -118,6 +118,7 @@ export const make = Effect.gen(function* () {
       capacity: DETECTION_CACHE_CAPACITY,
       timeToLive: Exit.match({
         onSuccess: (handle) => (handle === null ? Duration.zero : DETECTION_CACHE_TTL),
+        onSuccess: (detected) => (detected === null ? Duration.zero : DETECTION_CACHE_TTL),
         onFailure: () => Duration.zero,
       }),
     },

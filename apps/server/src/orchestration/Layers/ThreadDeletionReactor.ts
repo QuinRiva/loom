@@ -12,6 +12,7 @@ import {
   ThreadDeletionReactor,
   type ThreadDeletionReactorShape,
 } from "../Services/ThreadDeletionReactor.ts";
+import { forkParked } from "../../serverActivation.ts";
 
 /**
  * Why a thread's runtime resources are being reclaimed. `deleted` is the
@@ -137,7 +138,7 @@ const make = Effect.gen(function* () {
   const worker = yield* makeDrainableWorker(processThreadCleanupSafely);
 
   const start: ThreadDeletionReactorShape["start"] = Effect.fn("start")(function* () {
-    yield* Effect.forkScoped(
+    yield* forkParked(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
         const request = toThreadCleanupRequest(event);
         if (!request) {

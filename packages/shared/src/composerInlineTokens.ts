@@ -54,10 +54,24 @@ export function expandSkillTokensToPromptText(
 }
 
 const MENTION_TOKEN_REGEX = /(^|\s)@(?:"((?:\\.|[^"\\])*)"|([^\s@"]+))(?=\s)/g;
-const FILE_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)\)(?=\s)/g;
-// `thread://` links are parsed in their own branch; the file-link branch above
-// deliberately skips them via the external-scheme check, so they never become
-// file mentions.
+/**
+ * The label body is bounded rather than `*`. Unbounded, every whitespace in
+ * the composer is a candidate start: the engine scans the rest of the text for
+ * a closing `]`, fails, and rescans from the next whitespace — quadratic on
+ * input like " [[[[[…". A cap makes each attempt constant-bounded.
+ *
+ * Only a basename ever survives the `label !== basename` check below, so this
+ * cannot reject a link a user could meaningfully write; the longest filename
+ * any common filesystem allows is 255.
+ */
+const MAX_FILE_LINK_LABEL_LENGTH = 512;
+const FILE_LINK_TOKEN_REGEX = new RegExp(
+  `(^|\\s)\\[((?:\\\\.|[^\\]\\\\]){0,${MAX_FILE_LINK_LABEL_LENGTH}})\\]\\(([^)\\s]+)\\)(?=\\s)`,
+  "g",
+);
+// loom: `thread://` links are parsed in their own branch; the file-link branch
+// above deliberately skips them via the external-scheme check, so they never
+// become file mentions.
 const THREAD_LINK_TOKEN_REGEX = /(^|\s)\[((?:\\.|[^\]\\])*)\]\(thread:\/\/([^)\s]+)\)(?=\s)/g;
 const URI_SCHEME_REGEX = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const WINDOWS_DRIVE_PATH_REGEX = /^[A-Za-z]:[\\/]/;

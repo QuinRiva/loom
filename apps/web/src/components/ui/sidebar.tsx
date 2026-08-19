@@ -166,6 +166,8 @@ function SidebarProvider({
           {
             "--sidebar-width": SIDEBAR_WIDTH,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+            "--workspace-titlebar-content-left":
+              "calc(var(--workspace-controls-left) + var(--workspace-titlebar-control-size) + var(--workspace-titlebar-control-gap))",
             ...style,
           } as React.CSSProperties
         }
@@ -684,32 +686,42 @@ function SidebarSeparator({ className, ...props }: React.ComponentProps<typeof S
   );
 }
 
-function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
+function SidebarContent({
+  className,
+  fixedHeader,
+  ...props
+}: React.ComponentProps<"div"> & {
+  fixedHeader?: React.ReactNode;
+}) {
   return (
-    // loom: scrollbars VISIBLE (upstream passed hideScrollbars). This viewport is
-    // the element the thread list actually scrolls, so hiding them left a long
-    // sidebar with nothing to see or grab — and `scrollbar-width: none` inherits,
-    // so no descendant could reinstate one either. Renders the same base-ui
-    // overlay thumb every other long panel in the app uses (combobox, command
-    // palette): idle-transparent, fading in while hovering or scrolling.
-    <ScrollArea scrollFade className="h-auto min-h-0 flex-1">
-      <div
-        className={cn(
-          "flex w-full min-w-0 flex-col gap-2 group-data-[collapsible=icon]:overflow-hidden",
-          className,
-        )}
-        data-sidebar="content"
-        data-slot="sidebar-content"
-        {...props}
-      />
-    </ScrollArea>
+    <>
+      {fixedHeader ? <div className="w-full shrink-0">{fixedHeader}</div> : null}
+      {/* loom: scrollbars VISIBLE (upstream passes hideScrollbars). This viewport is
+          the element the thread list actually scrolls, so hiding them left a long
+          sidebar with nothing to see or grab — and `scrollbar-width: none` inherits,
+          so no descendant could reinstate one either. */}
+      <ScrollArea scrollFade className="h-auto min-h-0 flex-1">
+        <div
+          className={cn(
+            "flex w-full min-w-0 flex-col gap-2 group-data-[collapsible=icon]:overflow-hidden",
+            className,
+          )}
+          data-sidebar="content"
+          data-slot="sidebar-content"
+          {...props}
+        />
+      </ScrollArea>
+    </>
   );
 }
 
 function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("relative flex w-full min-w-0 flex-col p-2", className)}
+      className={cn(
+        "relative flex w-full min-w-0 flex-col p-[var(--sidebar-content-inset)]",
+        className,
+      )}
       data-sidebar="group"
       data-slot="sidebar-group"
       {...props}
@@ -789,7 +801,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg p-2 text-left text-sm outline-hidden ring-ring transition-[width,height,padding] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-row-selected data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground data-[state=open]:hover:bg-sidebar-row-hover data-[state=open]:hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0",
+  "peer/menu-button flex w-full cursor-pointer items-center gap-[var(--sidebar-control-gap)] overflow-hidden text-left outline-hidden ring-ring transition-[width,height,padding] hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 active:bg-sidebar-row-active active:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-row-selected data-[active=true]:font-medium data-[active=true]:text-sidebar-foreground data-[state=open]:hover:bg-sidebar-row-hover data-[state=open]:hover:text-sidebar-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-[var(--sidebar-content-inset)]! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-[var(--sidebar-icon-color)] hover:[&>svg]:text-sidebar-foreground active:[&>svg]:text-sidebar-foreground data-[active=true]:[&>svg]:text-sidebar-foreground",
   {
     defaultVariants: {
       size: "default",
@@ -797,14 +809,15 @@ const sidebarMenuButtonVariants = cva(
     },
     variants: {
       size: {
-        default: "h-8 text-sm",
-        lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
-        sm: "h-7 text-xs",
+        default:
+          "h-8 rounded-[var(--control-radius)] px-[var(--sidebar-row-content-inset)] py-1.5 text-sm",
+        icon: "size-8 justify-center rounded-[var(--control-radius)] p-0",
+        lg: "h-12 rounded-lg p-2 text-sm group-data-[collapsible=icon]:p-0!",
+        sm: "h-7 rounded-lg p-2 text-xs",
       },
       variant: {
-        default: "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-        outline:
-          "bg-sidebar-control-surface ring-1 ring-sidebar-border hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+        default: "font-medium text-sidebar-muted-foreground/80",
+        outline: "bg-sidebar-control-surface ring-1 ring-sidebar-border",
       },
     },
   },

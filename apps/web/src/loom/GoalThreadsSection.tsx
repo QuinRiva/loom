@@ -4,7 +4,7 @@
  *
  * Only ROOT threads appear: workstream children belong to the WorkstreamPanel,
  * and showing them here would rebuild the nesting the design retired. State
- * chips derive from the same helpers the sidebar rows use (`resolveSidebarV2Status`,
+ * chips derive from the same helpers the sidebar rows use (`resolveSidebarThreadStatus`,
  * `effectiveSettled`, `isStagedHandoffThread`) rather than a second state model.
  */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -13,7 +13,7 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
-import { resolveSidebarV2Status } from "../components/Sidebar.logic";
+import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { isStagedHandoffThread } from "../components/Sidebar.logic.loom";
 import { useClientSettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -36,7 +36,7 @@ interface ChipStyle {
  * a machine is doing, which outranks where the thread rests.
  */
 function resolveChipStyle(thread: SidebarThreadSummary, settled: boolean): ChipStyle {
-  switch (resolveSidebarV2Status(thread)) {
+  switch (resolveSidebarThreadStatus(thread)) {
     case "attention":
       return { label: "needs you", dot: "bg-amber-400" };
     case "approval":

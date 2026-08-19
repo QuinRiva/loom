@@ -20,9 +20,12 @@ import type {
   OrchestrationProjectShell,
   OrchestrationLeanShellSnapshot,
   OrchestrationReadModel,
+  OrchestrationSearchThreadsInput,
+  OrchestrationSearchThreadsResult,
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
+  OrchestrationThreadDetailWindow,
   OrchestrationThreadShell,
   GoalId,
   ProjectId,
@@ -236,11 +239,6 @@ export interface ProjectionPendingPeerMessage {
   readonly createdAt: string;
 }
 
-export interface ProjectionThreadDetailSnapshot {
-  readonly thread: OrchestrationThread;
-  readonly snapshotSequence: number;
-}
-
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId;
@@ -359,6 +357,14 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * Search active thread navigation metadata, user messages, and canonical
+   * assistant outputs without hydrating thread detail snapshots.
+   */
+  readonly searchThreads: (
+    input: OrchestrationSearchThreadsInput,
+  ) => Effect.Effect<OrchestrationSearchThreadsResult, ProjectionRepositoryError>;
+
+  /**
    * Read the latest projection snapshot sequence without hydrating read-model
    * entities.
    */
@@ -456,18 +462,6 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadDetailById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
-
-  /**
-   * Read a single active thread detail snapshot together with the projection
-   * `snapshotSequence` derived from the SAME read transaction. Callers use this
-   * one consistent sequence both as the snapshot cursor and as the live-stream
-   * dedup boundary (`event.sequence > snapshotSequence`), so no event committed
-   * between the detail read and the sequence read can be dropped — the failure
-   * mode when the two are read as independent snapshots.
-   */
-  readonly getThreadDetailSnapshotById: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<ProjectionThreadDetailSnapshot>, ProjectionRepositoryError>;
 
   /**
    * Cursor-paginated load of a thread's older activities (lazy-load / infinite
@@ -636,9 +630,16 @@ export interface ProjectionSnapshotQueryShape {
    * sequence in one consistent transaction, so the returned `snapshotSequence`
    * exactly matches the state reflected in `thread` (no interleaving projector
    * update between the two reads).
+   *
+   * When `window` is provided, the thread's messages, activities, proposed
+   * plans, and checkpoints are bounded to a page of recent turns and the
+   * response carries `page` metadata (see `OrchestrationThreadDetailWindow`).
+   * Without a window the full thread is returned with no `page` field —
+   * pagination is strictly opt-in.
    */
   readonly getThreadDetailSnapshot: (
     threadId: ThreadId,
+    window?: OrchestrationThreadDetailWindow,
   ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 }
 
