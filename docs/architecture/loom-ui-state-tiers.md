@@ -48,20 +48,17 @@ Concretely, for the loom goal-tasks and workstream auto-opens:
 The disease this cures: "last opener wins" races where the active surface depends on component
 lifetime and effect declaration order rather than on what the user chose.
 
-## Documented exception: upstream's plan auto-open
+## Retired exception: upstream's plan auto-open
 
-Upstream's plan-sidebar auto-open (`apps/web/src/components/ChatView.tsx`, the
-`autoOpenPlanSidebar` effect) still calls the activating `open(..., "plan")` from an automatic
-effect. It is retained **as-is** and is a deliberate exception, not a violation of the policy
-above, because it is:
+This section used to carve out an exception for upstream's plan-sidebar auto-open
+(`autoOpenPlanSidebar` + `planSidebarDismissedForTurnRef`), which activated a surface from an
+automatic effect.
 
-- **opt-in** — gated on the `autoOpenPlanSidebar` setting, which defaults **off**; and
-- **turn-scoped with dismissal memory** — `planSidebarDismissedForTurnRef` suppresses reopening
-  within the turn the user dismissed it in.
-
-Its suppression scope is a _turn_; the loom auto-opens are one-shot per _thread_. Leave the
-upstream mechanism (`autoOpenPlanSidebar`, `planSidebarDismissedForTurnRef`,
-`planSidebarOpenOnNextThreadRef`) untouched.
+**It is gone.** Upstream folded plans into the chat transcript and deleted `PlanSidebar`
+(#5558); cadence pull 6 adopted that deletion, so the `autoOpenPlanSidebar` setting, the `plan`
+right-panel surface, and the turn-scoped dismissal refs no longer exist. The seed-not-override
+policy above now has **no exceptions** — every automatic surface opener goes through
+`seedSurfaces`.
 
 ## Orphan keys: no automatic sweep (by design)
 
