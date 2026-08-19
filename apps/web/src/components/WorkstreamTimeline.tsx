@@ -19,6 +19,7 @@ import { isAbsolutePreviewablePath } from "../markdown-links";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
 import type { SidebarThreadSummary } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export type LifecycleLoadState =
   | { readonly status: "loading" }
@@ -180,51 +181,77 @@ export function WorkstreamLifecycleDrawer({
           {thread ? (
             <div className="ml-auto flex shrink-0 items-center gap-1.5">
               {thread.reportPath ? (
-                <button
-                  type="button"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                  onClick={() => onOpenReport(thread.reportPath!)}
-                  title="Open this thread's completion report"
-                >
-                  <FileTextIcon className="size-3" />
-                  Report
-                </button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        onClick={() => onOpenReport(thread.reportPath!)}
+                      />
+                    }
+                  >
+                    <FileTextIcon className="size-3" />
+                    Report
+                  </TooltipTrigger>
+                  <TooltipPopup>Open this thread&rsquo;s completion report</TooltipPopup>
+                </Tooltip>
               ) : null}
               {/* Debugging-only: open the effective-prompt debug sidecar (the
                   full LLM prompt this pi thread sent, by section). Present only
                   for pi threads; reuses the generic open-absolute-path handler. */}
               {thread.promptDebugPath && isAbsolutePreviewablePath(thread.promptDebugPath) ? (
-                <button
-                  type="button"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                  onClick={() => onOpenReport(thread.promptDebugPath!)}
-                  title="Open this thread's effective-prompt debug capture"
-                >
-                  <BugIcon className="size-3" />
-                  Prompt
-                </button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                        onClick={() => onOpenReport(thread.promptDebugPath!)}
+                      />
+                    }
+                  >
+                    <BugIcon className="size-3" />
+                    Prompt
+                  </TooltipTrigger>
+                  <TooltipPopup>
+                    Open this thread&rsquo;s effective-prompt debug capture
+                  </TooltipPopup>
+                </Tooltip>
               ) : null}
-              <button
-                type="button"
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                onClick={() => onOpenThread(thread)}
-                title="Open this thread's conversation"
-              >
-                <ExternalLinkIcon className="size-3" />
-                Open thread
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                      onClick={() => onOpenThread(thread)}
+                    />
+                  }
+                >
+                  <ExternalLinkIcon className="size-3" />
+                  Open thread
+                </TooltipTrigger>
+                <TooltipPopup>Open this thread&rsquo;s conversation</TooltipPopup>
+              </Tooltip>
             </div>
           ) : null}
-          <button
-            ref={closeRef}
-            type="button"
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
-            onClick={onClose}
-            title="Close (Esc)"
-            aria-label="Close lifecycle history"
-          >
-            <XIcon className="size-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  ref={closeRef}
+                  type="button"
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/55 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                  onClick={onClose}
+                  aria-label="Close lifecycle history"
+                />
+              }
+            >
+              <XIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup>Close (Esc)</TooltipPopup>
+          </Tooltip>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
@@ -253,38 +280,56 @@ export function WorkstreamLifecycleDrawer({
                     {row.deepLink ? (
                       <ArrowUpRightIcon className="mt-0.5 size-3 shrink-0 text-white/30 group-hover:text-white/60" />
                     ) : null}
-                    <span
-                      className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-white/35"
-                      title={row.at}
-                    >
-                      {formatRelativeAge(row.at)}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="mt-0.5 shrink-0 font-mono text-[10px] tabular-nums text-white/35" />
+                        }
+                      >
+                        {formatRelativeAge(row.at)}
+                      </TooltipTrigger>
+                      <TooltipPopup>{row.at}</TooltipPopup>
+                    </Tooltip>
                   </>
                 );
                 return (
                   <li key={row.key} className="flex items-stretch border-l border-white/10 pl-3">
                     {row.deepLink ? (
-                      <button
-                        type="button"
-                        className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                        onClick={() => onOpenDispatch(thread.id, row.at)}
-                        title="Jump to this point in the thread's conversation"
-                      >
-                        {content}
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              className="group -ml-px flex flex-1 items-start gap-2 rounded py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                              onClick={() => onOpenDispatch(thread.id, row.at)}
+                            />
+                          }
+                        >
+                          {content}
+                        </TooltipTrigger>
+                        <TooltipPopup>
+                          Jump to this point in the thread&rsquo;s conversation
+                        </TooltipPopup>
+                      </Tooltip>
                     ) : (
                       <div className="flex flex-1 items-start gap-2 py-1.5">{content}</div>
                     )}
                     {row.reportPath ? (
-                      <button
-                        type="button"
-                        className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                        onClick={() => onOpenReport(row.reportPath!)}
-                        title="Open this round's completion report"
-                        aria-label="Open this round's completion report"
-                      >
-                        <FileTextIcon className="size-3" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              className="mt-0.5 ml-1 inline-flex size-6 shrink-0 items-center justify-center self-start rounded-md border border-white/10 bg-white/[0.03] text-white/45 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                              onClick={() => onOpenReport(row.reportPath!)}
+                              aria-label="Open this round's completion report"
+                            />
+                          }
+                        >
+                          <FileTextIcon className="size-3" />
+                        </TooltipTrigger>
+                        <TooltipPopup>Open this round&rsquo;s completion report</TooltipPopup>
+                      </Tooltip>
                     ) : null}
                   </li>
                 );

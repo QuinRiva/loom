@@ -244,16 +244,19 @@ function collectCoderDescendants(
 
 function CoderDiffLabel({ option }: { readonly option: CoderDiffOption }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2" title={option.thread.title}>
-      <span className="min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-        {option.thread.title}
-      </span>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-        +{option.additions} -{option.deletions}
-      </span>
-      {option.thread.isolation === "shared" && <DiffScopeBadge>approximate</DiffScopeBadge>}
-      {option.thread.planLane === "cancelled" && <DiffScopeBadge>not merged</DiffScopeBadge>}
-    </div>
+    <Tooltip>
+      <TooltipTrigger render={<div className="flex min-w-0 flex-1 items-center gap-2" />}>
+        <span className="min-w-0 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+          {option.thread.title}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          +{option.additions} -{option.deletions}
+        </span>
+        {option.thread.isolation === "shared" && <DiffScopeBadge>approximate</DiffScopeBadge>}
+        {option.thread.planLane === "cancelled" && <DiffScopeBadge>not merged</DiffScopeBadge>}
+      </TooltipTrigger>
+      <TooltipPopup>{option.thread.title}</TooltipPopup>
+    </Tooltip>
   );
 }
 

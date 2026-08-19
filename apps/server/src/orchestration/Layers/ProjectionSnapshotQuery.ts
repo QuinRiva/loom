@@ -638,7 +638,12 @@ function mapLatestTurn(
   };
 }
 
-function mapTitleRegeneration(row: Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>) {
+function mapTitleRegeneration(
+  row: Pick<
+    Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>,
+    "titleRegenerationRequestId" | "titleRegenerationStartedAt"
+  >,
+) {
   return row.titleRegenerationRequestId != null && row.titleRegenerationStartedAt != null
     ? {
         requestId: row.titleRegenerationRequestId,
@@ -1124,6 +1129,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           settled_at AS "settledAt",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
+          pinned_at AS "pinnedAt",
+          pin_order_key AS "pinOrderKey",
+          title_regeneration_request_id AS "titleRegenerationRequestId",
+          title_regeneration_started_at AS "titleRegenerationStartedAt",
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
@@ -2239,6 +2248,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           provider_name AS "providerName",
           provider_instance_id AS "providerInstanceId",
+          provider_session_id AS "providerSessionId",
+          provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",
           active_turn_id AS "activeTurnId",
           last_error AS "lastError",
@@ -2450,9 +2461,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           role,
+          origin,
+          control_payload_json AS "controlPayload",
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          reasoning_text AS "reasoningText",
+          reasoning_streaming AS "reasoningStreaming",
+          reasoning_ms AS "reasoningMs",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -4893,9 +4909,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         return Option.none<OrchestrationThread>();
       }
 
+      // The activity read fetches WINDOW+1 ascending rows; the extra one means
+      // older activities exist beyond the window. Window the READ rows first and
+      // only then union the pinned (still-unresolved) requests: pinning exists
+      // precisely to carry rows that fall OUTSIDE the window, so slicing the
+      // merged array — as the tail of both sides' logic did — silently dropped
+      // them again, since they sort oldest.
+      const hasMoreActivities = activityRows.length > THREAD_DETAIL_ACTIVITY_WINDOW;
+      const windowedActivityRows = hasMoreActivities
+        ? activityRows.slice(activityRows.length - THREAD_DETAIL_ACTIVITY_WINDOW)
+        : activityRows;
       const selectedActivityRows = [
         ...new Map(
-          [...activityRows, ...pinnedActivityRows].map((row) => [row.activityId, row] as const),
+          [...windowedActivityRows, ...pinnedActivityRows].map(
+            (row) => [row.activityId, row] as const,
+          ),
         ).values(),
       ].toSorted(
         (left, right) =>
@@ -4977,13 +5005,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           return message;
         }),
         proposedPlans: proposedPlanRows.map(mapProposedPlanRow),
-        // The query fetches WINDOW+1 ascending rows; if it returned the extra
-        // one, older activities exist beyond the window — drop that oldest row
-        // and flag it so clients can lazy-load older history.
-        activities: (selectedActivityRows.length > THREAD_DETAIL_ACTIVITY_WINDOW
-          ? selectedActivityRows.slice(selectedActivityRows.length - THREAD_DETAIL_ACTIVITY_WINDOW)
-          : selectedActivityRows
-        ).map((row) => {
+        activities: selectedActivityRows.map((row) => {
           const activity = {
             id: row.activityId,
             tone: row.tone,
@@ -4998,7 +5020,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           }
           return activity;
         }),
-        hasMoreActivities: selectedActivityRows.length > THREAD_DETAIL_ACTIVITY_WINDOW,
+        hasMoreActivities,
         checkpoints: checkpointRows.map((row) => ({
           turnId: row.turnId,
           checkpointTurnCount: row.checkpointTurnCount,

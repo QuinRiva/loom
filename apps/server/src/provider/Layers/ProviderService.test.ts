@@ -724,6 +724,7 @@ it.effect("ProviderServiceLive getSession finds an active session with no persis
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const found = yield* Effect.gen(function* () {
@@ -790,6 +791,7 @@ it.effect(
             ProviderEventLoggers.NoOpProviderEventLoggers,
           ),
         ),
+        Layer.provide(serverConfigTestLayer),
       );
 
       const found = yield* Effect.gen(function* () {
@@ -857,6 +859,7 @@ it.effect(
             ProviderEventLoggers.NoOpProviderEventLoggers,
           ),
         ),
+        Layer.provide(serverConfigTestLayer),
       );
 
       const exit = yield* Effect.gen(function* () {
@@ -900,6 +903,7 @@ it.effect("ProviderServiceLive resolves one session without listing any adapter'
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const result = yield* Effect.gen(function* () {
@@ -990,6 +994,7 @@ it.effect(
             ProviderEventLoggers.NoOpProviderEventLoggers,
           ),
         ),
+        Layer.provide(serverConfigTestLayer),
       );
 
       // The routing invariant `listSessions` enforces is preserved on the
@@ -1090,6 +1095,7 @@ it.effect("ProviderServiceLive lists sessions with a constant number of director
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const { sessions, reads } = yield* Effect.gen(function* () {
@@ -1232,6 +1238,7 @@ it.effect("ProviderServiceLive does not rewrite already-stopped bindings on shut
           Layer.provide(defaultServerSettingsLayer),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(WorkspaceLeaseTestLive),
+          Layer.provide(serverConfigTestLayer),
           Layer.provide(
             Layer.succeed(
               ProviderEventLoggers.ProviderEventLoggers,
@@ -1306,6 +1313,7 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     yield* ProviderService.ProviderService.pipe(Effect.provide(providerLayer));
@@ -2736,6 +2744,7 @@ it.effect("a process death without clean shutdown releases the lease and reconci
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-death");
@@ -2816,6 +2825,7 @@ it.effect("a superseded launch's exit event does not release the live launch's h
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-superseded");
@@ -2908,6 +2918,7 @@ it.effect("a stopped launch's late exit does not release the next launch's hold"
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-stop-restart");
@@ -2993,6 +3004,7 @@ it.effect("a stop's absorption debt does not survive to swallow a later launch's
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-stop-exit-start");
@@ -3078,6 +3090,7 @@ it.effect("holds obey at-most-one-live-per-thread across every launch ordering",
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-invariant");
@@ -3213,6 +3226,7 @@ it.effect("a failed start's straggler exit does not release the retry's hold", (
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-failed-start");
@@ -3303,6 +3317,7 @@ it.effect("a silent-stop driver leaks no hold when restarted within the window",
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-silent-subwindow");
@@ -3380,6 +3395,7 @@ it.effect("MF2 repro: silent stop then immediate restart, live exit still releas
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       ),
+      Layer.provide(serverConfigTestLayer),
     );
 
     const threadId = asThreadId("thread-lease-mf2-repro");
@@ -3455,6 +3471,7 @@ describe("agent browser access", () => {
             ProviderEventLoggers.NoOpProviderEventLoggers,
           ),
         ),
+        Layer.provide(WorkspaceLeaseTestLive),
       );
 
       yield* Effect.gen(function* () {

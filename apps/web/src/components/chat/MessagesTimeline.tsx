@@ -116,10 +116,7 @@ import { HandoffReceiptRow } from "~/loom/HandoffReceiptRow";
 import { type HandoffReceiptView } from "~/loom/handoffReceipts.logic";
 import { ControlDigestCard } from "~/loom/ControlDigestCard";
 import { useScrollToDispatch } from "~/loom/useScrollToDispatch";
-import {
-  type ReasoningDisplayMode,
-  type TimestampFormat,
-} from "@t3tools/contracts/settings";
+import { type ReasoningDisplayMode, type TimestampFormat } from "@t3tools/contracts/settings";
 import {
   formatChatTimestampTooltip,
   formatShortTimestamp,
@@ -1082,9 +1079,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           "chat-user-bubble relative max-w-[80%] rounded-2xl p-3",
           // loom: tint the container only (never the body text) so ChatMarkdown
           // code blocks and links keep their own colours — the spawn-card recipe.
-          originLabel
-            ? "border border-info/30 bg-info/10"
-            : "bg-message text-message-foreground",
+          originLabel ? "border border-info/30 bg-info/10" : "bg-message text-message-foreground",
         )}
       >
         {originLabel ? (

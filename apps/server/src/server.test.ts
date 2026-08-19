@@ -7564,6 +7564,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                       runtimeMode: "full-access",
                       activeTurnId: null,
                       lastError: null,
+                      queuedMessages: { steering: [], followUp: [] },
                       updatedAt: now,
                     },
                   }),
@@ -7590,7 +7591,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(sessionStopCommand?.type, "thread.session.stop");
       if (sessionStopCommand?.type === "thread.session.stop") {
         assert.equal(sessionStopCommand.threadId, threadId);
-        assert.equal(sessionStopCommand.commandId, "session-stop-for-settle:cmd-thread-settle");
+        // The id carries the thread as well: loom's archive path cascades over a
+        // subtree, so one parking command can fan out to several stops.
+        assert.equal(
+          sessionStopCommand.commandId,
+          "session-stop-for-settle:cmd-thread-settle:thread-settle",
+        );
         assert.equal(sessionStopCommand.onlyIfSettled, true);
       }
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),

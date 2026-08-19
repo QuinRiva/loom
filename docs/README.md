@@ -1,24 +1,3 @@
-# Documentation
-
-- [Getting started](./getting-started/quick-start.md)
-- Architecture
-  - [Overview](./architecture/overview.md)
-  - [Loom UI state conventions](./architecture/loom-ui-state-tiers.md)
-  - [Connection runtime](./architecture/connection-runtime.md)
-  - [Checkpointing and your git state](./architecture/checkpoint-git-isolation.md)
-  - [Remote environments](./architecture/remote.md)
-  - [Server updates](./architecture/server-updates.md)
-- User guides
-  - [Background service](./user/background-service.md)
-  - [Remote access](./user/remote-access.md)
-  - [Keeping T3 Code in sync](./user/server-updates.md)
-  - [Keybindings](./user/keybindings.md)
-- [T3 Connect](./cloud/t3-connect-clerk.md)
-- [Integrations](./integrations/source-control-providers.md)
-- [Mobile](./mobile/app.md)
-- [Operations](./operations/ci.md)
-- [Providers](./providers/codex.md)
-- [Reference](./reference/encyclopedia.md)
 # T3 Code docs
 
 ## Using T3 Code
@@ -55,12 +34,16 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 - [Server updates](./internals/server-updates.md)
 - [Resource telemetry](./internals/resource-telemetry.md)
 - [Environment auth](./internals/environment-auth.md)
+- [Loom UI state conventions](./architecture/loom-ui-state-tiers.md)
+- [Checkpointing and your git state](./architecture/checkpoint-git-isolation.md)
+- [Upstream sync doctrine](./upstream-sync/)
 - [T3 Connect](./internals/t3-connect.md)
 - [CI gates](./internals/ci.md)
 
 ### Runbooks
 
 - [Release](./operations/release.md)
+- [Shipping (branch → PR → merge)](./operations/shipping.md)
 - [Observability](./operations/observability.md)
 - [Relay observability](./operations/relay-observability.md)
 - [Mobile app store screenshots](./operations/mobile-app-store-screenshots.md)

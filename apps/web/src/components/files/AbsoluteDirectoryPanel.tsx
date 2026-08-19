@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PierreEntryIcon } from "~/components/chat/PierreEntryIcon";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -103,17 +104,23 @@ export default function AbsoluteDirectoryPanel({
       {/* Plain overflow-x row: a ScrollArea's full-size viewport would overlay
           and intercept pointer events on the entry list below it. */}
       <div className="flex h-7 shrink-0 items-center overflow-x-auto border-b border-border/60 px-3 text-[11px]">
-        <button
-          type="button"
-          className={cn(
-            "max-w-40 shrink-0 truncate rounded px-1 py-0.5 hover:bg-accent",
-            segments.length === 0 ? "font-medium text-foreground" : "text-muted-foreground",
-          )}
-          title={normalizedRoot}
-          onClick={() => navigateToDepth(0)}
-        >
-          {rootLabel(normalizedRoot)}
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "max-w-40 shrink-0 truncate rounded px-1 py-0.5 hover:bg-accent",
+                  segments.length === 0 ? "font-medium text-foreground" : "text-muted-foreground",
+                )}
+                onClick={() => navigateToDepth(0)}
+              />
+            }
+          >
+            {rootLabel(normalizedRoot)}
+          </TooltipTrigger>
+          <TooltipPopup>{normalizedRoot}</TooltipPopup>
+        </Tooltip>
         {segments.map((segment, index) => (
           <div
             key={segments.slice(0, index + 1).join("/")}

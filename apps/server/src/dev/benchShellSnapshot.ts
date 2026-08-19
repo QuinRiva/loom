@@ -20,11 +20,15 @@ import { makeSqlitePersistenceLive } from "../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
 
 const DB = process.env.BENCH_DB ?? "/tmp/snapbench.sqlite";
 const ROUNDS = Number(process.env.BENCH_ROUNDS ?? 7);
 
 const layer = OrchestrationProjectionSnapshotQueryLive.pipe(
+  Layer.provideMerge(ThreadBackgroundLiveness.layer),
+  Layer.provideMerge(ThreadPlanProgress.layer),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
   Layer.provideMerge(makeSqlitePersistenceLive(DB)),
   Layer.provideMerge(

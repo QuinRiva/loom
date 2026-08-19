@@ -180,7 +180,7 @@ Content is upstream's newer implementation plus loom's additions:
 - **`ClaudeAdapter`**: kept loom's `settlement`/`released` pending-user-input
   seam; upstream's teardown loop was adapted to unpark via the settlement
   deferred instead of its `cancel` effect.
-- **`resolveThreadPr` / `onAnchorSizeChanged`**: upstream *removed* both
+- **`resolveThreadPr` / `onAnchorSizeChanged`**: upstream _removed_ both
   deliberately (#4460, #5449). Adopted the removals — these were upstream
   fields loom had merely inherited, not fork choices.
 
@@ -188,19 +188,19 @@ Content is upstream's newer implementation plus loom's additions:
 
 Carrying loom's side; upstream's delta is deferred and needs a follow-up:
 
-| file | deferred upstream work |
-| --- | --- |
-| `apps/web/src/components/ChatView.tsx` | the ~1,200-line refresh minus the seams repaired here |
-| `apps/web/src/components/chat/ChatComposer.tsx` | `ComposerPendingUserInputPanel` + pending-action primary actions (its orphaned `ComposerPrimaryActions.test.tsx` was deleted) |
-| `apps/web/src/components/ChatMarkdown.tsx` | the render-tree refresh (`orderedListGutterStyle` and `parseRawHtml` were re-homed here) |
-| `apps/web/src/components/chat/ModelPickerContent.tsx` | upstream's inline layout (its encoded model keys + legacy section WERE adopted onto loom's `SearchableModelList`) |
-| `apps/web/src/components/settings/ProviderModelsSection.tsx` | upstream's layout |
-| `packages/client-runtime/src/state/shell.ts` | matched pair with `ws.ts` |
-| `apps/mobile/.../PendingUserInputCard.tsx` | the collapsible card — ThreadDetailScreen's collapse machinery (`userInputCollapsed`, `cardProgress`) is merged but **inert** until the card lands |
-| `apps/mobile/src/lib/threadActivity.ts` | lazy `getFullDetail`/`getCopyText`/`canExpand` (#4607/#4882); consumers were adapted to loom's eager fields |
-| `apps/mobile/.../use-selected-thread-requests.ts` | upstream grew it in place |
-| **thread-side pull-request surface** (ChatView) | `pullRequestAvailable={false}` + no-op `onAddPullRequest`; the PR *route* is fully merged |
-| **`ThreadSyncStatusPill`** | merged but unmounted — loom's ChatView owns its own hydrating state |
+| file                                                         | deferred upstream work                                                                                                                             |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/components/ChatView.tsx`                       | the ~1,200-line refresh minus the seams repaired here                                                                                              |
+| `apps/web/src/components/chat/ChatComposer.tsx`              | `ComposerPendingUserInputPanel` + pending-action primary actions (its orphaned `ComposerPrimaryActions.test.tsx` was deleted)                      |
+| `apps/web/src/components/ChatMarkdown.tsx`                   | the render-tree refresh (`orderedListGutterStyle` and `parseRawHtml` were re-homed here)                                                           |
+| `apps/web/src/components/chat/ModelPickerContent.tsx`        | upstream's inline layout (its encoded model keys + legacy section WERE adopted onto loom's `SearchableModelList`)                                  |
+| `apps/web/src/components/settings/ProviderModelsSection.tsx` | upstream's layout                                                                                                                                  |
+| `packages/client-runtime/src/state/shell.ts`                 | matched pair with `ws.ts`                                                                                                                          |
+| `apps/mobile/.../PendingUserInputCard.tsx`                   | the collapsible card — ThreadDetailScreen's collapse machinery (`userInputCollapsed`, `cardProgress`) is merged but **inert** until the card lands |
+| `apps/mobile/src/lib/threadActivity.ts`                      | lazy `getFullDetail`/`getCopyText`/`canExpand` (#4607/#4882); consumers were adapted to loom's eager fields                                        |
+| `apps/mobile/.../use-selected-thread-requests.ts`            | upstream grew it in place                                                                                                                          |
+| **thread-side pull-request surface** (ChatView)              | `pullRequestAvailable={false}` + no-op `onAddPullRequest`; the PR _route_ is fully merged                                                          |
+| **`ThreadSyncStatusPill`**                                   | merged but unmounted — loom's ChatView owns its own hydrating state                                                                                |
 
 ### Newly wired (was merged-but-unreachable)
 
@@ -208,8 +208,8 @@ Carrying loom's side; upstream's delta is deferred and needs a follow-up:
   `foldSubagentActivities`, an `agents` right-panel surface, the Agents add-card,
   and the live-agent badge on `PanelLayoutControls`.
 - **User-anchored turn-window pagination** (#5493): `loadEarlierTurns` now
-  reaches `MessagesTimeline`. The timeline shows loom's older-*activity* pager
-  first and upstream's earlier-*turn* pager once that is exhausted.
+  reaches `MessagesTimeline`. The timeline shows loom's older-_activity_ pager
+  first and upstream's earlier-_turn_ pager once that is exhausted.
 
 ## What is NOT done
 
@@ -256,15 +256,15 @@ Upstream rewrote the chat surface substantially in this window. On five large
 files loom's own fork of the same file had diverged structurally, so the tree
 currently carries **loom's version** and upstream's is deferred:
 
-| file | upstream delta since merge-base | why loom's side was kept |
-| --- | --- | --- |
-| `ChatView.tsx` | +1172/−481 | composer contract (`validateProviderInput`, `addDroppedFiles`, `pendingUserInput` module) is upstream-only; loom's ChatView is the fork's biggest surface |
-| `chat/ChatComposer.tsx` | +706/−207 | upstream's `ComposerPendingUserInputPanel` is a file loom deliberately deleted for its non-modal question card |
-| `chat/ChatMarkdown.tsx` | +366/−120 | loom's file-chip / existence-verification / prose-path work (+588) supersedes the same region |
-| `chat/PendingUserInputCard.tsx` (mobile) | +310/−64 | same question-card divergence, mobile side |
-| `chat/ModelPickerContent.tsx`, `settings/ProviderModelsSection.tsx` | +227/−~ | loom's `SearchableModelList` refactor (pull-5 doctrine) vs upstream's inline layout |
-| `client-runtime/state/shell.ts` (+ `shell-sync.test.ts`) | +56/−23 | matched pair with loom's `ws.ts` shell seam (pull-5 precedent) |
-| `mobile/lib/threadActivity.ts`, `state/use-selected-thread-requests.ts` | +256/−~ | loom moved this logic into `@t3tools/shared/userInputAnswers`; upstream grew it in place |
+| file                                                                    | upstream delta since merge-base | why loom's side was kept                                                                                                                                  |
+| ----------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ChatView.tsx`                                                          | +1172/−481                      | composer contract (`validateProviderInput`, `addDroppedFiles`, `pendingUserInput` module) is upstream-only; loom's ChatView is the fork's biggest surface |
+| `chat/ChatComposer.tsx`                                                 | +706/−207                       | upstream's `ComposerPendingUserInputPanel` is a file loom deliberately deleted for its non-modal question card                                            |
+| `chat/ChatMarkdown.tsx`                                                 | +366/−120                       | loom's file-chip / existence-verification / prose-path work (+588) supersedes the same region                                                             |
+| `chat/PendingUserInputCard.tsx` (mobile)                                | +310/−64                        | same question-card divergence, mobile side                                                                                                                |
+| `chat/ModelPickerContent.tsx`, `settings/ProviderModelsSection.tsx`     | +227/−~                         | loom's `SearchableModelList` refactor (pull-5 doctrine) vs upstream's inline layout                                                                       |
+| `client-runtime/state/shell.ts` (+ `shell-sync.test.ts`)                | +56/−23                         | matched pair with loom's `ws.ts` shell seam (pull-5 precedent)                                                                                            |
+| `mobile/lib/threadActivity.ts`, `state/use-selected-thread-requests.ts` | +256/−~                         | loom moved this logic into `@t3tools/shared/userInputAnswers`; upstream grew it in place                                                                  |
 
 Individually each is the pull-5 "defensible fallback"; **collectively it is
 ~2,800 lines of upstream UI work deferred in one pull**, which is a bigger

@@ -62,10 +62,7 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 
-import {
-  isDesktopLocalConnectionTarget,
-  desktopLocalBackendId,
-} from "../connection/desktopLocal";
+import { isDesktopLocalConnectionTarget, desktopLocalBackendId } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useClientSettings } from "../hooks/useSettings";
@@ -144,10 +141,7 @@ import {
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
-import {
-  resolveShortcutCommand,
-  threadJumpIndexFromCommand,
-} from "../keybindings";
+import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import {
   deriveProviderInstanceEntries,
   resolveDefaultProviderModelSelection,
@@ -159,9 +153,7 @@ import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerHandleContext,
-  useComposerHandleContext,
-} from "../composerHandleContext";
+import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";

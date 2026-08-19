@@ -94,7 +94,7 @@ user explicitly asks for a deploy. When asked, the mechanism lives in
 `pnpm cockpit:build`.
 
 This supersedes upstream's "Never make a PR unless the developer explicitly asks"
-bullet only in the sense that the approval gate is the user's *shipping* approval;
+bullet only in the sense that the approval gate is the user's _shipping_ approval;
 the PR itself is still never opened unprompted.
 
 ## Database migrations

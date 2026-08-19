@@ -23,6 +23,7 @@ import { formatCompactAge, getLastActivityAt } from "../lib/workstreamPresentati
 import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
 import { filterRootThreads } from "./rootThreads";
 
@@ -117,35 +118,41 @@ export function GoalThreadsSection({
             const isCurrent = thread.id === activeThreadId;
             return (
               <li key={thread.id}>
-                <button
-                  type="button"
-                  title={thread.title}
-                  onClick={() =>
-                    void navigate({
-                      to: "/$environmentId/$threadId",
-                      params: buildThreadRouteParams(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                      ),
-                    })
-                  }
-                  className={cn(
-                    "flex w-full flex-col gap-0.5 rounded-md border border-transparent px-2 py-1.5 text-left hover:bg-accent",
-                    isContinuation && "ml-2 w-[calc(100%-0.5rem)] border-l-border/70",
-                    isCurrent && "border-primary/40 bg-accent/60",
-                    // Settled is not archived: dimmed, never disabled.
-                    settled && !isCurrent && "opacity-60 hover:opacity-100",
-                  )}
-                >
-                  <span className="truncate text-xs text-foreground/90">{thread.title}</span>
-                  <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-1.5">
-                      <span className={cn("size-1.5 rounded-full", chip.dot)} />
-                      {chip.label}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void navigate({
+                            to: "/$environmentId/$threadId",
+                            params: buildThreadRouteParams(
+                              scopeThreadRef(thread.environmentId, thread.id),
+                            ),
+                          })
+                        }
+                        className={cn(
+                          "flex w-full flex-col gap-0.5 rounded-md border border-transparent px-2 py-1.5 text-left hover:bg-accent",
+                          isContinuation && "ml-2 w-[calc(100%-0.5rem)] border-l-border/70",
+                          isCurrent && "border-primary/40 bg-accent/60",
+                          // Settled is not archived: dimmed, never disabled.
+                          settled && !isCurrent && "opacity-60 hover:opacity-100",
+                        )}
+                      />
+                    }
+                  >
+                    <span className="truncate text-xs text-foreground/90">{thread.title}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-1.5">
+                        <span className={cn("size-1.5 rounded-full", chip.dot)} />
+                        {chip.label}
+                      </span>
+                      <span>{formatCompactAge(getLastActivityAt(thread))}</span>
+                      {isCurrent ? <span className="ml-auto text-primary/80">current</span> : null}
                     </span>
-                    <span>{formatCompactAge(getLastActivityAt(thread))}</span>
-                    {isCurrent ? <span className="ml-auto text-primary/80">current</span> : null}
-                  </span>
-                </button>
+                  </TooltipTrigger>
+                  <TooltipPopup>{thread.title}</TooltipPopup>
+                </Tooltip>
               </li>
             );
           })}

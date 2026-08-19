@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadBackgroundLivenessService } from "../../orchestration/ThreadBackgroundLiveness.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
   ProviderSessionReaper,
@@ -58,6 +59,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
     const providerService = yield* ProviderService;
     const directory = yield* ProviderSessionDirectory;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
 
     const inactivityThresholdMs = Math.max(
       1,
@@ -214,10 +216,17 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         // fleets, workflow runs, Monitor watch loops). Those live inside the
         // provider process, so stopping the session would kill them silently,
         // and nothing bumps lastSeenAt between turns.
-        if (thread?.backgroundLiveness != null) {
+        //
+        // Read from the in-memory liveness registry rather than upstream's
+        // `getThreadShellById` (six SQL statements per binding — the cost this
+        // sweep deliberately avoids, see the retention note above).
+        const backgroundLiveness = threadBackgroundLiveness.getThreadBackgroundLiveness(
+          binding.threadId,
+        );
+        if (backgroundLiveness != null) {
           yield* Effect.logDebug("provider.session.reaper.skipped-background-work", {
             threadId: binding.threadId,
-            backgroundLiveness: thread.backgroundLiveness,
+            backgroundLiveness,
             idleDurationMs,
           });
           continue;

@@ -269,18 +269,13 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           }),
       );
 
+      // This fixture records only its pid: the flag assertions live with the
+      // invocation test above, which is the one whose fake echoes argv.
       // @effect-diagnostics-next-line preferSchemaOverJson:off
       const invocation = JSON.parse(yield* fs.readFileString(invocationPath)) as {
         readonly pid: number;
       };
       assert.equal(yield* Effect.promise(() => awaitProcessExit(invocation.pid, 50)), true);
-      const settingsFlagIndex = invocation.args.indexOf("--settings");
-      assert.notEqual(settingsFlagIndex, -1);
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const flagSettings = JSON.parse(invocation.args[settingsFlagIndex + 1] ?? "{}") as {
-        readonly disableAllHooks?: boolean;
-      };
-      assert.equal(flagSettings.disableAllHooks, true);
     }).pipe(Effect.scoped),
   );
 });

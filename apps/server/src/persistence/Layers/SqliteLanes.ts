@@ -14,6 +14,8 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../../orchestration/Services/OrchestrationEngine.ts";
+import * as ThreadBackgroundLiveness from "../../orchestration/ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "../../orchestration/ThreadPlanProgress.ts";
 import { SqlReadClient } from "./SqliteRead.ts";
 
 const SqlReadClientAsSqlClient = Layer.effect(SqlClient.SqlClient, SqlReadClient);
@@ -74,6 +76,13 @@ const OrchestrationInfrastructureOnSqlReadClient = Layer.mergeAll(
   ProjectionSnapshotQueryOnSqlReadClient,
   OrchestrationEventInfrastructureLayerLive,
   OrchestrationProjectionPipelineLayerLive,
+  // Mirrors upstream's `OrchestrationInfrastructureLayerLive`: the shared
+  // background-liveness and plan-progress registries are written by runtime
+  // ingestion and read by the snapshot query, so the same instance must be fed
+  // here and re-exported for ingestion.
+).pipe(
+  Layer.provideMerge(ThreadBackgroundLiveness.layer),
+  Layer.provideMerge(ThreadPlanProgress.layer),
 );
 
 export const OrchestrationLayerOnSqlReadClient = Layer.mergeAll(

@@ -897,7 +897,9 @@ describe("resolveSidebarThreadStatus", () => {
   });
 
   it("reports a server-raised error flag as failed, below live work", () => {
-    expect(resolveSidebarThreadStatus({ ...idle, attention: ["error"], session: null })).toBe("failed");
+    expect(resolveSidebarThreadStatus({ ...idle, attention: ["error"], session: null })).toBe(
+      "failed",
+    );
     expect(resolveSidebarThreadStatus({ ...idle, attention: ["error"], session })).toBe("working");
   });
 

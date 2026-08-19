@@ -366,49 +366,21 @@ export const make = (options?: StartupOptions) =>
         ),
       );
 
-    yield* Effect.logDebug("startup phase: starting orchestration reactors");
-    yield* runStartupPhase(
-      "reactors.start",
-      Effect.gen(function* () {
-        yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
-        yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
-        yield* startLoomSweeps.pipe(Scope.provide(reactorScope)); // loom: fork provider/runtime sweeps
-      }),
-    );
-
-    // loom: reconcile stale session lifecycle state after reactors have started
-    // but before command readiness — live provider sessions are visible, and no
-    // queued user command can start a new turn mid-reconcile (logic in loom/startup.ts).
-    yield* Effect.logDebug("startup phase: reconciling session lifecycle state");
-    yield* runStartupPhase("sessions.reconcile", reconcileStaleSessionsGuarded);
-
-    const welcomeBase = yield* resolveWelcomeBase;
-    const environment = yield* serverEnvironment.getDescriptor;
-    yield* Effect.logDebug("startup phase: preparing welcome payload");
-    yield* Effect.logDebug("startup phase: publishing welcome event", {
-      environmentId: environment.environmentId,
-      cwd: welcomeBase.cwd,
-      projectName: welcomeBase.projectName,
-    });
-    yield* runStartupPhase(
-      "welcome.publish",
-      lifecycleEvents.publish({
-        version: 1,
-        type: "welcome",
-        payload: {
-          environment,
-          ...welcomeBase,
-        },
-      }),
-    );
       yield* Effect.logDebug("startup phase: parking orchestration roots at activation");
       yield* runStartupPhase(
         "reactors.start",
         Effect.gen(function* () {
           yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
           yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
+          yield* startLoomSweeps.pipe(Scope.provide(reactorScope)); // loom: fork provider/runtime sweeps
         }),
       );
+
+      // loom: reconcile stale session lifecycle state after reactors have started
+      // but before command readiness — live provider sessions are visible, and no
+      // queued user command can start a new turn mid-reconcile (logic in loom/startup.ts).
+      yield* Effect.logDebug("startup phase: reconciling session lifecycle state");
+      yield* runStartupPhase("sessions.reconcile", reconcileStaleSessionsGuarded);
 
       const welcomeBase = yield* resolveWelcomeBase;
       const environment = yield* serverEnvironment.getDescriptor;

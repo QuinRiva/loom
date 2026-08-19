@@ -96,7 +96,7 @@ import {
 import type { ProjectionRepositoryError } from "./persistence/Errors.ts";
 import * as UsageBreakdownQuery from "./orchestration/Services/UsageBreakdownQuery.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
-import { LOOM_RPC_SCOPES, makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
+import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom:
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -368,87 +368,6 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
-// loom: `WS_METHODS.heartbeat` is intentionally absent. It is an
-// authenticated-session-only keepalive (least privilege; carries no data): any
-// session that authenticated at the WS upgrade may beat, regardless of scope.
-// Its handler therefore bypasses the scope-checked `observeRpcEffect` wrapper.
-const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
-  ...LOOM_RPC_SCOPES, // loom: fork RPC method scopes (loom/wsMethods.ts)
-  [ORCHESTRATION_WS_METHODS.dispatchCommand, AuthOrchestrationOperateScope],
-  [ORCHESTRATION_WS_METHODS.getTurnDiff, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.getThreadActivities, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.getFullThreadDiff, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.getThreadLifecycle, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.subscribeShell, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot, AuthOrchestrationReadScope],
-  [ORCHESTRATION_WS_METHODS.subscribeThread, AuthOrchestrationReadScope],
-  [WS_METHODS.serverProbe, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
-  [WS_METHODS.serverRefreshProviders, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverUpdateProvider, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverUpdateServer, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverRemoveKeybinding, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverGetSettings, AuthOrchestrationReadScope],
-  [WS_METHODS.serverUpdateSettings, AuthOrchestrationOperateScope],
-  [WS_METHODS.serverDiscoverSourceControl, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetTraceDiagnostics, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetProcessDiagnostics, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetProcessResourceHistory, AuthOrchestrationReadScope],
-  [WS_METHODS.serverSignalProcess, AuthOrchestrationOperateScope],
-  [WS_METHODS.cloudGetRelayClientStatus, AuthRelayWriteScope],
-  [WS_METHODS.cloudInstallRelayClient, AuthRelayWriteScope],
-  [WS_METHODS.sourceControlLookupRepository, AuthOrchestrationReadScope],
-  [WS_METHODS.sourceControlCloneRepository, AuthOrchestrationOperateScope],
-  [WS_METHODS.sourceControlPublishRepository, AuthOrchestrationOperateScope],
-  [WS_METHODS.projectsListEntries, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsReadFile, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsReadAbsoluteFile, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsListAbsoluteDirectory, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsStatPaths, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsSearchEntries, AuthOrchestrationReadScope],
-  [WS_METHODS.projectsWriteFile, AuthOrchestrationOperateScope],
-  [WS_METHODS.shellOpenInEditor, AuthOrchestrationOperateScope],
-  [WS_METHODS.filesystemBrowse, AuthOrchestrationReadScope],
-  [WS_METHODS.assetsCreateUrl, AuthOrchestrationReadScope],
-  [WS_METHODS.subscribeVcsStatus, AuthOrchestrationReadScope],
-  [WS_METHODS.vcsRefreshStatus, AuthOrchestrationReadScope],
-  [WS_METHODS.vcsPull, AuthOrchestrationOperateScope],
-  [WS_METHODS.gitRunStackedAction, AuthOrchestrationOperateScope],
-  [WS_METHODS.gitResolvePullRequest, AuthOrchestrationOperateScope],
-  [WS_METHODS.gitPreparePullRequestThread, AuthOrchestrationOperateScope],
-  [WS_METHODS.vcsListRefs, AuthOrchestrationReadScope],
-  [WS_METHODS.vcsCreateWorktree, AuthOrchestrationOperateScope],
-  [WS_METHODS.vcsRemoveWorktree, AuthOrchestrationOperateScope],
-  [WS_METHODS.vcsCreateRef, AuthOrchestrationOperateScope],
-  [WS_METHODS.vcsSwitchRef, AuthOrchestrationOperateScope],
-  [WS_METHODS.vcsInit, AuthOrchestrationOperateScope],
-  [WS_METHODS.reviewGetDiffPreview, AuthReviewWriteScope],
-  [WS_METHODS.terminalOpen, AuthTerminalOperateScope],
-  [WS_METHODS.terminalAttach, AuthTerminalOperateScope],
-  [WS_METHODS.terminalWrite, AuthTerminalOperateScope],
-  [WS_METHODS.terminalResize, AuthTerminalOperateScope],
-  [WS_METHODS.terminalClear, AuthTerminalOperateScope],
-  [WS_METHODS.terminalRestart, AuthTerminalOperateScope],
-  [WS_METHODS.terminalClose, AuthTerminalOperateScope],
-  [WS_METHODS.subscribeTerminalEvents, AuthTerminalOperateScope],
-  [WS_METHODS.subscribeTerminalMetadata, AuthTerminalOperateScope],
-  [WS_METHODS.previewOpen, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewNavigate, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewResize, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewRefresh, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewClose, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewList, AuthOrchestrationReadScope],
-  [WS_METHODS.previewReportStatus, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewAutomationConnect, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewAutomationRespond, AuthOrchestrationOperateScope],
-  [WS_METHODS.previewAutomationFocusHost, AuthOrchestrationOperateScope],
-  [WS_METHODS.subscribePreviewEvents, AuthOrchestrationReadScope],
-  [WS_METHODS.subscribeDiscoveredLocalServers, AuthOrchestrationReadScope],
-  [WS_METHODS.subscribeServerConfig, AuthOrchestrationReadScope],
-  [WS_METHODS.subscribeServerLifecycle, AuthOrchestrationReadScope],
-  [WS_METHODS.subscribeAuthAccess, AuthAccessReadScope],
-]);
 function toAuthAccessStreamEvent(
   change: PairingGrantStore.BootstrapCredentialChange | SessionStore.SessionCredentialChange,
   revision: number,
@@ -719,7 +638,10 @@ const makeWsRpcLayer = (
       // stays silent (the goal branch depends on it to emit goal-removed). The
       // bounded retry absorbs a transient SQLite contention blip (~75ms across 3
       // attempts) without tearing down every connected subscription.
-      const shellLookupRetry = Schedule.max([Schedule.exponential("25 millis"), Schedule.recurs(2)]);
+      const shellLookupRetry = Schedule.max([
+        Schedule.exponential("25 millis"),
+        Schedule.recurs(2),
+      ]);
 
       // The shell-event mapper is built PER SUBSCRIPTION because its derived
       // brief-needed tracker memoises what that client was last told (liveness
@@ -991,6 +913,8 @@ const makeWsRpcLayer = (
           remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
             remoteOpenTargets.resolveTargets(),
           ),
+          // loom: client-launched editors (Zed remote) need the ssh host.
+          remoteEditorSshHost: Option.getOrNull(yield* ExternalLauncher.readRemoteEditorSshHost),
           observability: {
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,
@@ -1338,6 +1262,12 @@ const makeWsRpcLayer = (
                     }),
               ),
             ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.getWorkflowScript]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getWorkflowScript,
+            readWorkflowScript({ scriptPath: input.scriptPath }),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>

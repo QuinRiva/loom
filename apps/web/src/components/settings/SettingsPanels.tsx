@@ -5,7 +5,12 @@ import type { ProviderInstanceConfig, ProviderInstanceId } from "@t3tools/contra
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { usePrimaryEnvironment } from "../../state/environments";
-import { ArchiveIcon, ArchiveX, ChevronRightIcon, LoaderIcon, SettingsIcon,
+import {
+  ArchiveIcon,
+  ArchiveX,
+  ChevronRightIcon,
+  LoaderIcon,
+  SettingsIcon,
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
@@ -97,7 +102,9 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { isMacPlatform } from "../../lib/utils";
-import { primaryServerObservabilityAtom, primaryServerProvidersAtom,
+import {
+  primaryServerObservabilityAtom,
+  primaryServerProvidersAtom,
   serverEnvironment,
 } from "../../state/server";
 import { useProjects } from "../../state/entities";
@@ -542,7 +549,8 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff whitespace changes"]
         : []),
       ...loomAutoOpenChangedLabels(settings), // loom:
-      ...(settings.enableLegacyTokenStreaming !== DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
+      ...(settings.enableLegacyTokenStreaming !==
+      DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
         ? ["Assistant output"]
         : []),
       ...(settings.reasoningDisplay !== DEFAULT_UNIFIED_SETTINGS.reasoningDisplay

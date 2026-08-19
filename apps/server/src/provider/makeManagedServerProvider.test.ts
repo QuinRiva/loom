@@ -438,7 +438,7 @@ describe("makeManagedServerProvider", () => {
           ["a", "b", "c"],
         );
       }),
-    ),
+    ).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
 
   it.effect("carries enrichment-owned models and skills forward across a bare base refresh", () =>
@@ -485,7 +485,7 @@ describe("makeManagedServerProvider", () => {
         assert.deepStrictEqual(updates.at(-1)?.skills, enrichedWithSkills.skills);
         assert.deepStrictEqual((yield* provider.getSnapshot).skills, enrichedWithSkills.skills);
       }),
-    ),
+    ).pipe(Effect.provide(AlwaysRunTestLayer)),
   );
 
   it.effect("ignores stale enrichment callbacks after a newer refresh advances generation", () =>

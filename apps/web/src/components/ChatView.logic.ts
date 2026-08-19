@@ -11,12 +11,7 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import {
-  type ChatMessage,
-  type SessionPhase,
-  type Thread,
-  type ThreadShell,
-} from "../types";
+import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } from "../types";
 import { parseHandoffDraft, parseRetroDraft } from "../composer-logic";
 
 import {

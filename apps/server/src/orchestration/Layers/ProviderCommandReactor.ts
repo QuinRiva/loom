@@ -562,7 +562,11 @@ const make = Effect.gen(function* () {
         detail: input.detail,
         createdAt: input.createdAt,
       })
-      .pipe(Effect.retry(Schedule.max([Schedule.exponential(Duration.millis(100)), Schedule.recurs(3)])));
+      .pipe(
+        Effect.retry(
+          Schedule.max([Schedule.exponential(Duration.millis(100)), Schedule.recurs(3)]),
+        ),
+      );
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     return yield* projectionSnapshotQuery

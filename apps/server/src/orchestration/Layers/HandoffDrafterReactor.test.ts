@@ -35,6 +35,8 @@ import { OrchestrationEventStoreLive } from "../../persistence/Layers/Orchestrat
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../../project/RepositoryIdentityResolver.ts";
+import * as ThreadBackgroundLiveness from "../ThreadBackgroundLiveness.ts";
+import * as ThreadPlanProgress from "../ThreadPlanProgress.ts";
 import { ServerConfig } from "../../config.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { HandoffDrafterReactor } from "../Services/HandoffDrafterReactor.ts";
@@ -433,6 +435,8 @@ const realEngineLayer = OrchestrationEngineLive.pipe(
   Layer.provide(OrchestrationEventStoreLive),
   Layer.provide(OrchestrationCommandReceiptRepositoryLive),
   Layer.provide(RepositoryIdentityResolver.layer),
+  Layer.provide(ThreadBackgroundLiveness.layer),
+  Layer.provide(ThreadPlanProgress.layer),
   Layer.provide(SqlitePersistenceMemory),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3code-handoff-conv-" })),
   Layer.provide(NodeServices.layer),

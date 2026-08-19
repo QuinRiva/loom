@@ -329,25 +329,25 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
-        <ThreadLineageBreadcrumb
-          lineage={threadLineage}
-          role={threadRole}
+      <ThreadLineageBreadcrumb
+        lineage={threadLineage}
+        role={threadRole}
+        onNavigateToThread={onNavigateToThread}
+      />
+      {/* loom: */}
+      <GoalChip
+        goalId={threadGoalId}
+        environmentId={activeThreadEnvironmentId}
+        panelOpen={goalPanelOpen}
+        onToggle={onToggleGoalPanel}
+      />
+      {!draftId && (
+        <ForkedFromBadge
+          environmentId={activeThreadEnvironmentId}
+          threadId={activeThreadId}
           onNavigateToThread={onNavigateToThread}
         />
-        {/* loom: */}
-        <GoalChip
-          goalId={threadGoalId}
-          environmentId={activeThreadEnvironmentId}
-          panelOpen={goalPanelOpen}
-          onToggle={onToggleGoalPanel}
-        />
-        {!draftId && (
-          <ForkedFromBadge
-            environmentId={activeThreadEnvironmentId}
-            threadId={activeThreadId}
-            onNavigateToThread={onNavigateToThread}
-          />
-        )}
+      )}
       <div
         data-chat-header-actions
         className={cn(

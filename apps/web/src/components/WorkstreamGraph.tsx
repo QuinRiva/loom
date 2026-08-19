@@ -65,6 +65,7 @@ import {
   wrapLabel,
 } from "../lib/workstreamPresentation";
 import type { SidebarThreadSummary } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamQuickFacts } from "./WorkstreamQuickFacts";
 
 const SPINE_STROKE = "rgba(255,255,255,0.30)";
@@ -1163,14 +1164,20 @@ function GraphControlButton({
   readonly children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="rounded-md border border-white/10 bg-black/40 p-1.5 text-white/55 outline-none backdrop-blur transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            onClick={onClick}
+            className="rounded-md border border-white/10 bg-black/40 p-1.5 text-white/55 outline-none backdrop-blur transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sky-400/70"
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   );
 }

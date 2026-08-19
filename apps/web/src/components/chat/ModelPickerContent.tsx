@@ -4,29 +4,12 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
-import {
-  memo,
-  useMemo,
-  useState,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from "react";
-import {
-  ModelListRow,
-} from "./ModelListRow";
-import {
-  ModelPickerSidebar,
-} from "./ModelPickerSidebar";
+import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { ModelListRow } from "./ModelListRow";
+import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { SearchableModelList } from "./SearchableModelList";
-import {
-  isModelPickerNewModel,
-} from "./modelPickerModelHighlights";
-import {
-  buildModelPickerSearchText,
-  scoreModelPickerSearch,
-} from "./modelPickerSearch";
+import { isModelPickerNewModel } from "./modelPickerModelHighlights";
+import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 
 import { ChevronRightIcon, SearchIcon } from "lucide-react";

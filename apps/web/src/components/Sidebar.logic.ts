@@ -559,11 +559,7 @@ export type SidebarThreadStatus =
 
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
-  | "hasPendingApprovals"
-  | "hasPendingUserInput"
-  | "session"
-  | "backgroundLiveness"
-  | "attention" // loom:
+  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "attention" // loom:
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {

@@ -427,6 +427,8 @@ describe("ProviderCommandReactor", () => {
         const engine = yield* OrchestrationEngineService;
         return {
           readEvents: engine.readEvents,
+          readStreamEvents: engine.readStreamEvents,
+          subscribeDomainEvents: engine.subscribeDomainEvents,
           dispatch: (command) => {
             if (command.type === "thread.title.regeneration.complete") {
               titleRegenerationCompletionDispatchAttempts += 1;
@@ -487,9 +489,6 @@ describe("ProviderCommandReactor", () => {
     // loom: the SAME claims instance the reactor holds claims on, so an integrated
     // test can observe the real claim rather than a stand-in.
     const launchClaims = await runtime.runPromise(Effect.service(ProviderLaunchClaims));
-    scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(reactor.start().pipe(Scope.provide(scope)));
-    const drain = () => Effect.runPromise(reactor.drain);
     const runEffect = <A, E>(effect: Effect.Effect<A, E>) => runtime!.runPromise(effect);
 
     await Effect.runPromise(
@@ -1584,15 +1583,6 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.sendTurn.mock.calls.length >= 1);
-    await harness.drain();
-
-    // No interpretation round-trip was issued, and no orphan goal was attached.
-    expect(harness.generateStructured.mock.calls.length).toBe(0);
-    const readModel = await harness.readModel();
-    const drafter = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-drafter"));
-    expect(drafter?.goalId).toBeNull();
-    expect(readModel.goals.length).toBe(0);
     await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.meta.update",

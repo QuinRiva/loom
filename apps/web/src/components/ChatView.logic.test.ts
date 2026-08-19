@@ -6,13 +6,7 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import {
-  describe,
-  expect,
-  it,
-  afterEach,
-  vi,
-} from "vite-plus/test";
+import { describe, expect, it, afterEach, vi } from "vite-plus/test";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";

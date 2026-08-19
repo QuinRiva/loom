@@ -25,6 +25,8 @@ export const RPC_REQUIRED_SCOPES = {
   [ORCHESTRATION_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
   [ORCHESTRATION_WS_METHODS.getTurnDiff]: AuthOrchestrationReadScope,
   [ORCHESTRATION_WS_METHODS.getFullThreadDiff]: AuthOrchestrationReadScope,
+  [ORCHESTRATION_WS_METHODS.getThreadActivities]: AuthOrchestrationReadScope, // loom
+  [ORCHESTRATION_WS_METHODS.getThreadLifecycle]: AuthOrchestrationReadScope, // loom
   [ORCHESTRATION_WS_METHODS.searchThreads]: AuthOrchestrationReadScope,
   [ORCHESTRATION_WS_METHODS.subscribeShell]: AuthOrchestrationReadScope,
   [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]: AuthOrchestrationReadScope,
@@ -78,6 +80,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.sourceControlPublishRepository]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsListEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsReadFile]: AuthOrchestrationReadScope,
+  [WS_METHODS.projectsReadAbsoluteFile]: AuthOrchestrationReadScope, // loom
+  [WS_METHODS.projectsListAbsoluteDirectory]: AuthOrchestrationReadScope, // loom
+  [WS_METHODS.projectsStatPaths]: AuthOrchestrationReadScope, // loom
   [WS_METHODS.projectsSearchContents]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsSearchEntries]: AuthOrchestrationReadScope,
   [WS_METHODS.projectsWriteFile]: AuthOrchestrationOperateScope,
@@ -124,6 +129,20 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeServerLifecycle]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
+  // loom fork RPCs.
+  [WS_METHODS.serverGetUsageBreakdown]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverGetWorkstreamWorktrees]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverRemoveWorkstreamWorktree]: AuthOrchestrationOperateScope,
+  // `/handoff` fork-drafter: minting a drafter + injecting its turn is a write.
+  [WS_METHODS.serverHandoffDraft]: AuthOrchestrationOperateScope,
+  // `/retro` fork-reviewer: minting a reviewer + injecting its turn is a write.
+  [WS_METHODS.serverRetroDraft]: AuthOrchestrationOperateScope,
+  // loom: `heartbeat` is an authenticated-session-only keepalive carrying no
+  // data, so its handler deliberately bypasses the scope check (least
+  // privilege: any session that authenticated at the WS upgrade may beat).
+  // The entry exists only to keep this map exhaustive over the RPC group;
+  // nothing reads it.
+  [WS_METHODS.heartbeat]: AuthOrchestrationReadScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

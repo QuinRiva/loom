@@ -331,6 +331,7 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: createdAt,
         lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt,
     });
@@ -1163,6 +1164,7 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: seededAt,
         lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt: seededAt,
     });
@@ -1202,6 +1204,7 @@ describe("ProviderRuntimeIngestion", () => {
         activeTurnId: null,
         updatedAt: seededAt,
         lastError: null,
+        queuedMessages: { steering: [], followUp: [] },
       },
       createdAt: seededAt,
     });

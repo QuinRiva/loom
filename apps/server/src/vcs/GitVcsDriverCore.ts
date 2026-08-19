@@ -3584,12 +3584,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
             .filter((line) => line.length > 0),
         ),
       );
-      yield* runGit(
-        "GitVcsDriver.mergeWorktreeBranch.abort",
-        input.cwd,
-        ["merge", "--abort"],
-        { allowNonZeroExit: true },
-      );
+      yield* runGit("GitVcsDriver.mergeWorktreeBranch.abort", input.cwd, ["merge", "--abort"], {
+        allowNonZeroExit: true,
+      });
       return { status: "conflict", conflictPaths: conflicts } as const;
     });
 

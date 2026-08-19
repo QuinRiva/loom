@@ -6,10 +6,7 @@ import {
   resolveSnoozePresets,
   snoozeWakeLabel,
 } from "@t3tools/shared/threadSettled";
-import type {
-  ChangeRequestSettleSource,
-  SnoozePreset,
-} from "@t3tools/shared/threadSettled";
+import type { ChangeRequestSettleSource, SnoozePreset } from "@t3tools/shared/threadSettled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { sortPinnedThreadsByOrderKey } from "@t3tools/client-runtime/state/thread-sort";

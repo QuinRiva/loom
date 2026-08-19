@@ -1086,7 +1086,10 @@ export const make = Effect.gen(function* () {
     },
     {
       capacity: 128,
-      timeToLive: (exit) => (Exit.isSuccess(exit) ? PR_LOOKUP_CACHE_TTL : PR_LOOKUP_FAILURE_TTL),
+      // Flat retry delay: this repo-wide list has one key per repository, so the
+      // per-branch failure streak the branch cache backs off with does not apply.
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) ? PR_LOOKUP_CACHE_TTL : PR_LOOKUP_FAILURE_BASE_TTL,
     },
   );
   // A transient lookup failure (rate limit, network blip) must not clear an
@@ -1294,6 +1297,7 @@ export const make = Effect.gen(function* () {
         return lookupStatusPr(entry.cwd, {
           branch,
           upstreamRef: statusDetails.upstreamRef,
+          defaultBranch: statusDetails.defaultBranch,
           isDefaultBranch: statusDetails.isDefaultBranch,
         }).pipe(
           Effect.map(

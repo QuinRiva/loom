@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { useShikiHtml } from "../shiki";
 
@@ -138,15 +139,21 @@ function FileRow({ node, depth }: { node: TreeNode; depth: number }) {
           {node.name}
         </span>
         {entry.change && (
-          <span
-            title={entry.change}
-            className={cn(
-              "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
-              CHANGE_BADGE[entry.change],
-            )}
-          >
-            {CHANGE_GLYPH[entry.change]}
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold leading-none",
+                    CHANGE_BADGE[entry.change],
+                  )}
+                />
+              }
+            >
+              {CHANGE_GLYPH[entry.change]}
+            </TooltipTrigger>
+            <TooltipPopup>{entry.change}</TooltipPopup>
+          </Tooltip>
         )}
         {entry.note && (
           <span className="truncate text-[11px] italic text-muted-foreground">— {entry.note}</span>

@@ -99,6 +99,7 @@ const makeIntegrationFixture = (options?: { readonly analytics?: Layer.Layer<Ana
       ServerSettingsService.layerTest(DEFAULT_SERVER_SETTINGS),
       options?.analytics ?? AnalyticsService.layerTest,
       Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers),
+      WorkspaceLeaseLive,
     ).pipe(Layer.provide(SqlitePersistenceMemory));
 
     const layer = makeProviderServiceLive().pipe(Layer.provide(shared));

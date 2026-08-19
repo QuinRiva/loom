@@ -22,6 +22,7 @@ import { TaskTree, countGoalTasks, useGoalById } from "../goals/goalState";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { useGoalPanelActions } from "../loom/useGoalPanelActions";
 import type { GoalShell, SidebarThreadSummary } from "../types";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /** Everything the goal surface needs from the thread it is anchored to. */
 type GoalPanelThread = Pick<SidebarThreadSummary, "id" | "projectId" | "branch" | "worktreePath">;
@@ -147,25 +148,30 @@ function GoalHeader({
             }
           }}
           aria-label="Goal title"
-          title={goal.title || goal.slug}
           placeholder={goal.slug}
           className="min-w-0 flex-1 truncate bg-transparent text-sm font-semibold text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
         />
         <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
           {progress.done}/{progress.total}
         </span>
-        <button
-          type="button"
-          aria-label="Goal actions"
-          title="Goal actions"
-          onClick={(event) => {
-            const box = event.currentTarget.getBoundingClientRect();
-            onOpenOverflow({ x: box.left, y: box.bottom });
-          }}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <MoreHorizontalIcon className="size-4" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="Goal actions"
+                onClick={(event) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  onOpenOverflow({ x: box.left, y: box.bottom });
+                }}
+                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              />
+            }
+          >
+            <MoreHorizontalIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup>Goal actions</TooltipPopup>
+        </Tooltip>
       </div>
       <textarea
         value={descriptionDraft}

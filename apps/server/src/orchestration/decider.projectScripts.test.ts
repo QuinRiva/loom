@@ -114,6 +114,7 @@ it.layer(NodeServices.layer)("decider project scripts", (it) => {
           title: "Favicon",
           workspaceRoot: "/tmp/favicon",
           defaultModelSelection: null,
+          defaultStartFromOrigin: null,
           scripts: [],
           createdAt: now,
           updatedAt: now,

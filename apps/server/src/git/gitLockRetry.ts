@@ -13,4 +13,7 @@ import * as Schedule from "effect/Schedule";
  * Only ever apply it to an IDEMPOTENT operation: `commitAll` on a now-clean
  * tree reports a no-op, `update-ref delete` of a missing ref exits 0.
  */
-export const GIT_LOCK_RETRY = Schedule.max([Schedule.exponential(Duration.millis(150)), Schedule.recurs(2)]);
+export const GIT_LOCK_RETRY = Schedule.max([
+  Schedule.exponential(Duration.millis(150)),
+  Schedule.recurs(2),
+]);

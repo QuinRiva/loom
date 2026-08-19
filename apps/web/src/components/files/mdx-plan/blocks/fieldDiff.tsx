@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
@@ -115,9 +116,14 @@ export function FieldDiffRead({ data, blockId }: PlanBlockReadProps<FieldDiffDat
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
       <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px]">
-        <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={data.title}>
-          {data.title ?? "field diff"}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="min-w-0 flex-1 truncate font-mono text-foreground" />}
+          >
+            {data.title ?? "field diff"}
+          </TooltipTrigger>
+          <TooltipPopup>{data.title ?? "field diff"}</TooltipPopup>
+        </Tooltip>
         <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 font-medium text-muted-foreground">
           {changed} changed
         </span>

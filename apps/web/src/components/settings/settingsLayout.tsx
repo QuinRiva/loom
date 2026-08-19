@@ -1,8 +1,4 @@
-import {
-  InfoIcon,
-  RefreshCwIcon,
-  Undo2Icon,
-} from "lucide-react";
+import { InfoIcon, RefreshCwIcon, Undo2Icon } from "lucide-react";
 import {
   type ComponentPropsWithoutRef,
   type ReactNode,

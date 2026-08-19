@@ -23,7 +23,6 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
   McpSessionRegistry.__testing
     .make({
       now,
-      maximumLifetimeMs: 1_000,
       livenessWindowMs: 100,
     })
     .pipe(

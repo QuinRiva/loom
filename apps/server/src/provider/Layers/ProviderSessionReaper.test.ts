@@ -18,6 +18,7 @@ import * as Stream from "effect/Stream";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadBackgroundLivenessService } from "../../orchestration/ThreadBackgroundLiveness.ts";
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../../persistence/ProviderSessionRuntime.ts";
@@ -169,7 +170,6 @@ function makeReadModel(
       session: thread.session
         ? { ...thread.session, queuedMessages: { steering: [], followUp: [] } }
         : null,
-      session: thread.session,
       backgroundLiveness: thread.backgroundLiveness ?? null,
       activities: [],
       proposedPlans: [],
@@ -198,14 +198,6 @@ describe("ProviderSessionReaper", () => {
     }
     runtime = null;
   });
-
-  // Shared start sequence so each test adds no manual Effect runners
-  // (no-manual-effect-runtime-in-tests tracks this file's legacy count).
-  async function startReaper() {
-    const reaper = await runtime!.runPromise(Effect.service(ProviderSessionReaper));
-    scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(reaper.start().pipe(Scope.provide(scope)));
-  }
 
   async function createHarness(input: {
     readonly readModel: ReturnType<typeof makeReadModel>;
@@ -357,6 +349,17 @@ describe("ProviderSessionReaper", () => {
           searchThreads: () => Effect.succeed({ matches: [] }),
         }),
       ),
+      // The sweep's background-work guard reads the in-memory liveness registry;
+      // the fixture's per-thread value stands in for what ingestion would record.
+      Layer.provideMerge(
+        Layer.succeed(ThreadBackgroundLivenessService, {
+          recordTaskLiveness: () => {},
+          clearThreadLiveness: () => {},
+          getThreadBackgroundLiveness: (threadId) =>
+            input.readModel.threads.find((thread) => thread.id === threadId)?.backgroundLiveness ??
+            null,
+        }),
+      ),
       Layer.provideMerge(NodeServices.layer),
     );
 
@@ -497,8 +500,7 @@ describe("ProviderSessionReaper", () => {
     await Effect.runPromise(drainFibers);
 
     expect(harness.stopSession).not.toHaveBeenCalled();
-    const remaining = await runtime!.runPromise(repository.getByThreadId({ threadId }));
-    expect(Option.isSome(remaining)).toBe(true);
+    expect(await bindingStillPersisted(threadId)).toBe(true);
   });
 
   it("skips stale sessions while background work is still live", async () => {

@@ -3,10 +3,7 @@ import {
   scopedThreadKey,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  type ScopedThreadRef,
-  type VcsStatusResult,
-} from "@t3tools/contracts";
+import { type ScopedThreadRef, type VcsStatusResult } from "@t3tools/contracts";
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -17,10 +14,7 @@ import {
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import {
-  useMemo,
-  useState,
-} from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { AttentionReason, GraphBreakdown, GraphRollup } from "../lib/workstreamRollup";

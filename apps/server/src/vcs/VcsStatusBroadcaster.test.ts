@@ -428,6 +428,7 @@ describe("VcsStatusBroadcaster", () => {
     let singleRemoteCalls = 0;
     const testLayer = VcsStatusBroadcaster.layer.pipe(
       Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           resolveRemoteStatusRepository: () =>
@@ -490,6 +491,7 @@ describe("VcsStatusBroadcaster", () => {
     const refNames = new Map<string, string>([["/repo/one", "one"]]);
     const testLayer = VcsStatusBroadcaster.layer.pipe(
       Layer.provideMerge(NodeServices.layer),
+      Layer.provide(makeBackgroundPolicyLayer(() => true)),
       Layer.provide(
         Layer.mock(GitWorkflowService.GitWorkflowService)({
           resolveRemoteStatusRepository: () =>

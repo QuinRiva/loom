@@ -12,6 +12,7 @@ import {
   loomMigrationsTable,
   reconcileMigrationLedgers,
   runAllMigrations,
+  runLoomMigrations,
 } from "./LoomMigrations.ts";
 import { migrationEntries } from "./Migrations.ts";
 import * as NodeSqliteClient from "./NodeSqliteClient.ts";
@@ -45,8 +46,19 @@ const LAST_RECONCILED_LOOM_ID = 1032;
  */
 const CURRENT_LOOM_LANE_END = loomMigrationEntries.at(-1)![0];
 
+/**
+ * The last id the UPSTREAM lane currently ships. Derived for the same reason as
+ * `CURRENT_LOOM_LANE_END`: every cadence pull adds upstream migrations, and the
+ * property under test is DENSITY, not a particular head. The reconciled
+ * historical head stays the literal `34` where that frozen fact is the subject.
+ */
+const CURRENT_UPSTREAM_LANE_END = migrationEntries.at(-1)![0];
+
 /** One past the shipped lane: a stand-in for "the next fork migration". */
 const SYNTHETIC_FORK_ID = CURRENT_LOOM_LANE_END + 1;
+
+/** One past the shipped upstream lane: "the next upstream migration". */
+const SYNTHETIC_UPSTREAM_ID = CURRENT_UPSTREAM_LANE_END + 1;
 
 /**
  * INDEPENDENT ORACLE for the historical fork tail: ids `33..64` of the shared
@@ -113,6 +125,23 @@ const historicalLedger: ReadonlyArray<
     .filter(([id]) => id === 33 || id === 34)
     .map(([id, name, body]) => [id + 32, name, body] as const),
 ];
+
+/**
+ * Run the upstream lane only up to `throughId`. The equivalence claim below is
+ * about the SHARED history, so both lanes are capped at the reconciliation
+ * point; upstream migrations landed by later cadence pulls extend the schema
+ * beyond that history exactly as post-split fork migrations do.
+ */
+const runUpstreamThrough = (throughId: number) =>
+  Migrator.make({})({
+    loader: Migrator.fromRecord(
+      Object.fromEntries(
+        migrationEntries
+          .filter(([id]) => id <= throughId)
+          .map(([id, name, body]) => [`${id}_${name}`, body]),
+      ),
+    ),
+  });
 
 /** Replay the historical single-ledger order onto a fresh database. */
 const runHistoricalOrder = (throughId: number) =>
@@ -222,8 +251,8 @@ describe.each([0, 1, 32, 33, 34, 48, 64, 65, 66])(
 
           assert.deepStrictEqual(
             yield* ledgerIds("effect_sql_migrations"),
-            range(1, 34),
-            "upstream ledger must be dense 1..34 — a hole means an upstream migration can never run again",
+            range(1, CURRENT_UPSTREAM_LANE_END),
+            `upstream ledger must be dense 1..${CURRENT_UPSTREAM_LANE_END} — a hole means an upstream migration can never run again`,
           );
           assert.deepStrictEqual(
             yield* ledgerIds(loomMigrationsTable),
@@ -300,14 +329,16 @@ describe("lane ordering does not change the resulting schema", () => {
     Effect.gen(function* () {
       const twoLane = yield* onFreshDb(
         Effect.gen(function* () {
-          // Cap the loom lane at the reconciliation point: the equivalence claim
+          // Cap BOTH lanes at the reconciliation point: the equivalence claim
           // is split-reconstruction == historical interleave for the SHARED
-          // history. Fork migrations added after the split (1033+) legitimately
-          // EXTEND the schema beyond history (same principle the row-identity
-          // test above scopes to `<= LAST_RECONCILED_LOOM_ID`), so comparing the
-          // full current schema to the frozen historical one would spuriously
-          // fail the moment any post-split migration adds a column.
-          yield* runAllMigrations({ toLoomMigrationInclusive: LAST_RECONCILED_LOOM_ID });
+          // history. Migrations added after the split — fork ids 1033+ and every
+          // upstream id a later cadence pull lands — legitimately EXTEND the
+          // schema beyond that history (same principle the row-identity test
+          // above scopes to `<= LAST_RECONCILED_LOOM_ID`), so comparing the full
+          // current schema to the frozen historical one would spuriously fail
+          // the moment any post-split migration adds a column.
+          yield* runUpstreamThrough(34);
+          yield* runLoomMigrations({ toMigrationInclusive: LAST_RECONCILED_LOOM_ID });
           return yield* schemaFingerprint;
         }),
       );
@@ -352,19 +383,22 @@ const withSyntheticFork = () =>
 describe.each([0, 66])(
   "future migrations still run on a reconciled database (historical stop %i)",
   (stoppedAt) => {
-    it.effect("synthetic upstream 035 and 067 plus a new fork migration all execute", () =>
+    it.effect("a synthetic next-upstream id and 067 plus a new fork migration all execute", () =>
       onFreshDb(
         Effect.gen(function* () {
           if (stoppedAt > 0) yield* runHistoricalOrder(stoppedAt);
           yield* runAllMigrations();
 
-          const upstream = yield* withSyntheticUpstream([35, 67]);
+          const upstream = yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID, 67]);
           assert.deepStrictEqual(
             upstream.map(([id]) => id),
-            [35, 67],
+            [SYNTHETIC_UPSTREAM_ID, 67],
             "upstream migrations were skipped — a lane is masking the other's high-water mark",
           );
-          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [...range(1, 35), 67]);
+          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [
+            ...range(1, SYNTHETIC_UPSTREAM_ID),
+            67,
+          ]);
 
           const fork = yield* withSyntheticFork();
           assert.deepStrictEqual(
@@ -384,7 +418,7 @@ describe.each([0, 66])(
         Effect.gen(function* () {
           if (stoppedAt > 0) yield* runHistoricalOrder(stoppedAt);
           yield* runAllMigrations();
-          yield* withSyntheticUpstream([35, 67]);
+          yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID, 67]);
 
           // The marker must not expire: a healthy, advanced database must not be
           // re-validated against the historical 0..66 layout.
@@ -392,7 +426,10 @@ describe.each([0, 66])(
 
           assert.deepStrictEqual(again.upstream, []);
           assert.deepStrictEqual(again.loom, []);
-          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [...range(1, 35), 67]);
+          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [
+            ...range(1, SYNTHETIC_UPSTREAM_ID),
+            67,
+          ]);
         }),
       ),
     );
@@ -530,7 +567,10 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
     yield* Effect.gen(function* () {
       yield* runHistoricalOrder(66);
       yield* runAllMigrations();
-      assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), range(1, 34));
+      assert.deepStrictEqual(
+        yield* ledgerIds("effect_sql_migrations"),
+        range(1, CURRENT_UPSTREAM_LANE_END),
+      );
       assert.deepStrictEqual(
         yield* ledgerIds(loomMigrationsTable),
         range(1001, CURRENT_LOOM_LANE_END),
@@ -543,10 +583,10 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
       assert.deepStrictEqual(second.loom, []);
 
       // And a future upstream migration still runs against the reopened file.
-      const executed = yield* withSyntheticUpstream([35]);
+      const executed = yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID]);
       assert.deepStrictEqual(
         executed.map(([id]) => id),
-        [35],
+        [SYNTHETIC_UPSTREAM_ID],
       );
     }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
