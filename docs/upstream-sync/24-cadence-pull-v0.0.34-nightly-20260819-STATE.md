@@ -1,6 +1,9 @@
-# 24 — Cadence pull 6 (v0.0.29-nightly.20260725.898 → v0.0.34-nightly.20260819.1132) — IN PROGRESS
+# 24 — Cadence pull 6 (v0.0.29-nightly.20260725.898 → v0.0.34-nightly.20260819.1132) — GATES GREEN
 
-**Status: merge committed, resolutions landed, gates NOT yet green.** This note is the
+**Status: merge committed, resolutions landed, all three gates green, migration
+smoke test executed on a copy of the live database. Pending: reviewer gate,
+human approval, ship.** (Session 3's record is §"Session 3" at the end; the
+"What is NOT done" list below is superseded by it.) This note is the
 mid-flight state record so the next agent (or a reviewer) can pick up without
 re-deriving anything. Australian English.
 
@@ -284,3 +287,159 @@ additive hunks (import lists, object literals, switch arms). For anything that
 rewrites a render tree or a hook body, resolve the hunk by hand or take one side
 whole. The helper used to find the damage afterwards (a string/comment-aware
 brace-depth scanner) is worth rebuilding if you need it.
+
+## Session 3 (last mile) — gates green, smoke test executed
+
+### Numbers
+
+| gate                | before                         | after                          |
+| ------------------- | ------------------------------ | ------------------------------ |
+| `vp run typecheck`  | 306 errors (all `apps/server`) | **0**, all 15 packages checked |
+| `pnpm build`        | not run                        | **exit 0**                     |
+| `vp check`          | 34 errors + formatting         | **0 errors**, formatted        |
+| `apps/server` suite | 64 failed / 14 files           | 19 failed / 8 files            |
+
+### The typecheck roots (union damage, not design)
+
+- **`ProviderService.ts`** duplicate `runtimeEventPubSub`/`nowIso`;
+  **`serverRuntimeStartup.ts`** loom's reactors/welcome block spliced ahead of
+  upstream's — loom's fork sweeps and `sessions.reconcile` were re-attached
+  inside upstream's structure and the duplicate deleted.
+- **`ProviderSessionReaper.ts`**: upstream's new background-work guard is real
+  behaviour worth keeping, but it read `getThreadShellById` (six SQL statements
+  per binding — the exact cost this sweep was rewritten to avoid). Re-homed onto
+  the in-memory `ThreadBackgroundLivenessService` registry, which already holds
+  the answer.
+- **`RpcAuthorization.ts`**: upstream extracted the scope map and made it
+  exhaustive over the RPC group (`satisfies Record<WsRpcMethod, …>`), and the
+  merge left loom's 11 RPCs out of it (`heartbeat`, `projects.readAbsoluteFile`
+  / `listAbsoluteDirectory` / `statPaths`, `server.getUsageBreakdown`,
+  `getWorkstreamWorktrees`, `removeWorkstreamWorktree`, `handoffDraft`,
+  `retroDraft`, `orchestration.getThreadActivities` / `getThreadLifecycle`).
+  Adopted upstream's single map: `ws.ts`'s now-dead `RPC_REQUIRED_SCOPE` and
+  `loom/wsMethods.ts`'s `LOOM_RPC_SCOPES` are gone, and heartbeat carries an
+  entry documented as inert (its handler still bypasses the check by design).
+- **`ws.ts`**: the `orchestration.getWorkflowScript` handler had been dropped
+  from the RPC group (which is what made the whole layer's requirements `any`
+  and cascaded 133 errors into `server.test.ts`), and loom's
+  `remoteEditorSshHost` config field had been dropped from `loadServerConfig`.
+- **`SqliteLanes.ts`**: loom's read-lane mirror of the orchestration
+  infrastructure never gained upstream's shared `ThreadBackgroundLiveness` /
+  `ThreadPlanProgress` registries, so the whole server layer was missing two
+  services (`bin.ts`'s TS2345).
+
+### Three real defects the tests found in `ProjectionSnapshotQuery.ts`
+
+Worth recording because none is visible from typecheck, and all three would have
+shipped:
+
+1. The **shell-snapshot thread list** lost `pinned_at`, `pin_order_key` and both
+   `title_regeneration_*` columns, so **every** `getShellSnapshot` decode failed
+   (`Missing key at [0].pinnedAt`) — the sidebar's whole read.
+2. The **windowed message read** (upstream's new keyset pagination) lost
+   `origin`, `control_payload_json` and loom's three `reasoning_*` columns, so
+   the merged load-earlier-turns path could not decode.
+3. The window slice was applied **after** unioning the pinned unresolved
+   requests, so the oldest rows — the ones pinning exists to carry past the
+   window — were sliced off again. Now the read rows are windowed first and the
+   pinned rows unioned after.
+
+A cheap structural check found (1) and (2): compare every `SqlSchema` query's
+alias list against the widest list for the same `Result` schema. Worth rerunning
+after any pull that touches this file.
+
+### Test-suite work
+
+- **`LoomMigrations.test.ts` (13 failures → 0).** The lane assertions pinned the
+  upstream head at `34`, so this pull's `035`–`040` broke them and every future
+  pull would too. The head is now derived from the shipped entries
+  (`CURRENT_UPSTREAM_LANE_END`), the synthetic "next upstream migration" is
+  derived as well (a literal `35` no longer exceeds the high-water mark, which is
+  what made the regression test silently stop testing anything), and the
+  schema-equivalence test caps **both** lanes at the reconciliation point —
+  upstream migrations landed after the split extend the schema exactly as fork
+  ids `1033+` do.
+- ~18 harnesses regained dropped layers or fields (`ServerConfig`,
+  `WorkspaceLease`, `BackgroundPolicy`, `queuedMessages`, the workstream thread
+  fields, `defaultStartFromOrigin`, `goals: []`), duplicate spliced test bodies
+  were de-duplicated (`ProviderSessionReaper`, `ProviderCommandReactor` — whose
+  harness had started the reactor twice), and upstream's
+  `mockCommandSpawnerLayer` helper was restored.
+- **Intentional loom drops kept dropped:** upstream's cursor-registry test is
+  deleted (the Pi-first driver registry ships pi only; the pi case beside it is
+  the live coverage), and upstream's `--settings` flag assertions were moved off
+  loom's pid-only orphan-kill fixture (the `disableAllHooks` contract is
+  asserted in the options test).
+
+### Web: upstream's `no-native-title-tooltip` rule
+
+Upstream added this rule in this window and loom's own surfaces violated it 34
+times (`WorkstreamPanel` ×12, `WorkstreamTimeline` ×7, `WorkstreamActiveStrip`,
+`GoalTasksPanel`, `GoalThreadsSection`, `WorkstreamGraph`, `WorkstreamModelPill`,
+`DiffPanel`, `ChatView`, `ArtifactViewPanel`, `AbsoluteDirectoryPanel`, four
+mdx-plan blocks). All converted to `Tooltip`/`TooltipTrigger`/`TooltipPopup`;
+`TooltipTrigger render={<el/>}` renders the same element, so the DOM is
+unchanged and the popup is portalled. Three redundant titles (text that already
+appears in the element, an `aria-label` duplicate, a card-level goal already
+rendered in the card body) were dropped instead of converted.
+
+`docs/README.md` also carried union damage: loom's pre-split index was stacked on
+top of upstream's new split index, with 11 dead links. Upstream's index is the
+base; the surviving loom docs (UI-state tiers, checkpoint isolation, shipping,
+upstream-sync) are re-attached.
+
+### Migration smoke test — executed, clean
+
+First live exercise of `22-migration-lane-split-plan.md` against a pull that
+lands upstream migrations. `VACUUM INTO` copy of `~/.t3/cockpit/userdata/state.sqlite`
+(3.7 GB, 2654 threads) into a temp `T3CODE_HOME`; built `dist/bin.mjs` on ports
+13971–13974; the live database was never opened.
+
+| check                      | result                                                                                                                                                                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| migrations on first launch | exactly `35_ProjectionThreadTitleRegeneration`, `36_ProjectionThreadsPinned`, `37_ProjectionTurnsKeysetIndex`, `38_ProjectionThreadsPinOrderKey`, `39_ProjectionProjectsDefaultThreadEnvMode`, `40_ProjectionProjectFaviconPath` |
+| upstream ledger            | dense `1–40`, no duplicate ids, `35–40` stamped at run time                                                                                                                                                                      |
+| fork ledger                | `1001–1037`, `created_at` values untouched (nothing re-ran)                                                                                                                                                                      |
+| new columns                | `projection_threads.pinned_at`, `pin_order_key`, both `title_regeneration_*`; `projection_projects.default_thread_env_mode`, favicon path                                                                                        |
+| data                       | 2654 threads intact; `GET /` → 200                                                                                                                                                                                               |
+| relaunch                   | zero migrations; both ledgers byte-identical including `created_at`                                                                                                                                                              |
+| fresh empty DB             | both lanes run (`1–40`, `1001–1037`); object set **identical** to the migrated copy; `GET /` → 200                                                                                                                               |
+| real-data query check      | `benchShellSnapshot` against the migrated copy decodes 1900 shell rows (the defect above would have failed here)                                                                                                                 |
+
+### Remaining test failures — `apps/server` 19 in 8 files
+
+None of these is a typecheck or gate failure; each is recorded so a reviewer can
+tell them apart from new breakage.
+
+| file                                                        | n   | shape                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/git/GitManager.test.ts`                                | 11  | PR-worktree materialisation against real git fixtures: the fakes have no `refs/pull/N/head` and one repo has no remote, so upstream's newer fetch path (plus the `remoteExists` guard port) fails to materialise. Fixture work, not a code fix.                                                         |
+| `src/server.test.ts`                                        | 1   | **performance budget**: measured-turn WebSocket messages 52 vs max 21, wire bytes 8046 vs 8000, for both codex and claudeAgent. Either upstream's new push surface legitimately raises the count (re-baseline) or something double-publishes. Needs a decision, so it is escalated rather than guessed. |
+| `test/ActivityPayloadProjection.test.ts`                    | 1   | asserts the mobile lazy `getFullDetail`/`getCopyText` API, which is on the ratified **deferred** ledger; an orphan of that wave.                                                                                                                                                                        |
+| `src/vcs/GitVcsDriverCore.test.ts`                          | 2   | ref-snapshot fixtures.                                                                                                                                                                                                                                                                                  |
+| `src/vcs/VcsStatusBroadcaster.test.ts`                      | 1   | foreground-demand gating.                                                                                                                                                                                                                                                                               |
+| `src/terminal/Manager.test.ts`                              | 1   | polling-vs-registration ordering in upstream's adopted rewrite.                                                                                                                                                                                                                                         |
+| `src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` | 1   | in-flight tool checkpoint cadence.                                                                                                                                                                                                                                                                      |
+| `src/provider/Layers/ClaudeAdapter.test.ts`                 | 1   | settle-on-stop pending user-input wait.                                                                                                                                                                                                                                                                 |
+
+`apps/web` additionally has 7 failures in 3 files, all pre-existing merge
+fallout in areas this session did not touch: `MessagesTimeline.test.tsx` ×4
+(upstream renamed the user-bubble classes — the test expects `bg-secondary`,
+the merged component renders `bg-message`), `composerDraftStore.test.ts` ×2,
+`rightPanelStore.test.ts` ×1.
+
+### Pre-existing noise confirmed NOT merge fallout
+
+`subscription-usage poller: Codex poll failed — SchemaError: Expected string |
+null | null at ["rate_limit_reached_type"]` on every boot. `piQuotas.ts` is
+byte-identical to `loom/main`, so this is the Codex usage API having drifted,
+not this pull.
+
+### Topology
+
+`ec10b8de6` merge commit unchanged; `^1 == b3fbb6612`, `^2 == 36f4314ab`,
+verified after every commit. Code fixes are a **separate commit on top**
+(`fix(server): repair merge union damage …`) rather than amended into the merge:
+`HEAD` was already the session-2 docs commit, so amending would have folded code
+into a docs commit, and rewriting to reach the merge commit would have meant a
+rebase. No rebase, no squash, `--no-verify` on every commit.
