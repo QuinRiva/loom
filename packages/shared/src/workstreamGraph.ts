@@ -184,7 +184,9 @@ export const isTerminalForJoin = (node: TerminalForJoinNode): boolean =>
 // (response echo + per-round report naming), and the web board (waiting badges).
 // ---------------------------------------------------------------------------
 
-const isTerminalLane = (lane: ThreadPlanLane): boolean => lane === "done" || lane === "cancelled";
+/** `done`/`cancelled` — the lanes whose work is settled and released. */
+export const isTerminalLane = (lane: ThreadPlanLane): boolean =>
+  lane === "done" || lane === "cancelled";
 
 /**
  * The minimal gate-party shape. Both `OrchestrationThread` (read model) and
@@ -403,6 +405,41 @@ export const routeWorkSubmit = <T extends GateNode>(
   }
   return { ...base, decision: outcome === "done" ? "terminal" : "yield" };
 };
+
+/**
+ * The attention reasons an agent may raise (for itself or a child it parents).
+ * `error` is server-only and the two `awaiting_*` request reasons are derived
+ * from open approval/input requests — the decider rejects all three.
+ */
+export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<AttentionReason> = [
+  "awaiting_acceptance",
+  "needs_guidance",
+];
+
+/**
+ * The raise-then-complete contradiction: the standing attention reason a
+ * COMPLETING submit would erase, or null when the submit leaves the hold
+ * intact. Only `terminal`/`resolve` land the calling thread in `done` (which
+ * clears stored attention and releases dependents); every other decision keeps
+ * it non-terminal, so a raise still holds.
+ *
+ * A turn-start clears stored attention, so a standing raisable reason is never a
+ * stale flag from an earlier turn: it was raised against THIS turn — usually by
+ * the thread itself (the contradiction), otherwise by a parent raising on a
+ * running child, the liveness sweep parking a frozen turn, or a parent flagging
+ * an already-terminal thread. Completing is wrong in every one of those cases,
+ * which is why the reason is reported rather than attributed. The 2026-08-21
+ * attention audit found 10 of 20 recent `awaiting_acceptance` raises erased by
+ * the raiser's own submit seconds later, releasing the very work the sign-off
+ * was meant to gate.
+ */
+export const holdErasedByCompletion = (input: {
+  readonly attention: ReadonlyArray<AttentionReason>;
+  readonly decision: WorkOutcomeDecision;
+}): AttentionReason | null =>
+  input.decision === "terminal" || input.decision === "resolve"
+    ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.includes(reason)) ?? null)
+    : null;
 
 /** The richer node shape the discovery view needs (lineage + report + waits-on). */
 export interface GraphViewThread extends GraphThread {

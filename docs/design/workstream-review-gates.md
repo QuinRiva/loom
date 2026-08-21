@@ -175,6 +175,26 @@ The "unknown outcome yields" default is load-bearing: `rework_approach` needs
 no declared edge, a future researcher's `infeasible` needs no declared edge,
 and no outcome can ever silently become `done`. Escalation is the safe default.
 
+**A completing submit is refused while the caller holds a raise** (2026-08-21
+attention audit: 10 of 20 recent `awaiting_acceptance` raises were erased by the
+raiser's own submit seconds later, releasing the work the sign-off was meant to
+gate). A turn-start clears stored attention, so an `awaiting_acceptance` /
+`needs_guidance` flag still standing at submit time was raised in that same turn:
+the `terminal`/`resolve` decisions — the two that land the caller in `done` — are
+rejected with a 409 telling it to resubmit under a non-`done` outcome, which
+records the report and yields with the flag standing. Every other decision leaves
+the lane non-terminal, so the hold survives and the submit is allowed.
+Symmetrically, a self-raise on an already-terminal thread is refused: it would
+hold nothing and no later turn-start or terminal transition would clear it.
+
+Two doors are knowingly left open, neither seen in the audited corpus. A thread
+can still `workstream_set_lane` itself `done` while holding a raise — not on a
+leaf child's tool surface, so guarding it would be speculative. And a gate
+`resolve` completes the submitter's _counterpart_, so a reviewer's `clean` can
+clear a coder's standing hold: the guard reads only the submitter's own flags,
+and refusing the reviewer over a flag it cannot clear would trade a rare silent
+clear for a routine wedge.
+
 ---
 
 ## 4. Route edges and the review gate
