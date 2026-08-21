@@ -187,6 +187,14 @@ the lane non-terminal, so the hold survives and the submit is allowed.
 Symmetrically, a self-raise on an already-terminal thread is refused: it would
 hold nothing and no later turn-start or terminal transition would clear it.
 
+Two doors are knowingly left open, neither seen in the audited corpus. A thread
+can still `workstream_set_lane` itself `done` while holding a raise — not on a
+leaf child's tool surface, so guarding it would be speculative. And a gate
+`resolve` completes the submitter's _counterpart_, so a reviewer's `clean` can
+clear a coder's standing hold: the guard reads only the submitter's own flags,
+and refusing the reviewer over a flag it cannot clear would trade a rare silent
+clear for a routine wedge.
+
 ---
 
 ## 4. Route edges and the review gate

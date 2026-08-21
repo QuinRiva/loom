@@ -423,13 +423,15 @@ export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<AttentionReason> = [
  * clears stored attention and releases dependents); every other decision keeps
  * it non-terminal, so a raise still holds.
  *
- * A turn-start clears stored attention, so a raisable reason standing when a
- * running thread submits was raised inside that same turn (the only exception is
- * a flag a parent raised on an already-terminal thread): the flag and the
- * completion are one agent contradicting itself, not a stale flag. The
- * 2026-08-21 attention audit found 10 of 20 recent `awaiting_acceptance` raises
- * erased this way seconds after they were raised, releasing the very work the
- * sign-off was meant to gate.
+ * A turn-start clears stored attention, so a standing raisable reason is never a
+ * stale flag from an earlier turn: it was raised against THIS turn — usually by
+ * the thread itself (the contradiction), otherwise by a parent raising on a
+ * running child, the liveness sweep parking a frozen turn, or a parent flagging
+ * an already-terminal thread. Completing is wrong in every one of those cases,
+ * which is why the reason is reported rather than attributed. The 2026-08-21
+ * attention audit found 10 of 20 recent `awaiting_acceptance` raises erased by
+ * the raiser's own submit seconds later, releasing the very work the sign-off
+ * was meant to gate.
  */
 export const holdErasedByCompletion = (input: {
   readonly attention: ReadonlyArray<AttentionReason>;

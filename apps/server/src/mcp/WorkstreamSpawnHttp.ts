@@ -2654,7 +2654,7 @@ const handleWorkstreamRequestAttention = Effect.gen(function* () {
     if (Option.isSome(self) && isTerminalLane(self.value.planLane)) {
       return jsonError(
         409,
-        `Refused: this thread's plan is already '${self.value.planLane}', so its work is released and a flag raised now holds nothing. A raise has to come BEFORE completion: raise, then end your turn — or hand the report back with a short non-'done' outcome on workstream_submit, which yields you to your parent with the flag standing.`,
+        `Refused: this thread's plan is already '${self.value.planLane}', so its work is settled — a flag raised now would hold nothing, and no later turn-start or terminal transition would ever clear it again. A raise has to come BEFORE completion, so the channel now is words, not the flag: say plainly in your reply that a human needs to look at this, and your parent (woken by your completion, holding your report) can carry it.`,
       );
     }
   }
@@ -3056,7 +3056,7 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
   if (heldReason !== null) {
     return jsonError(
       409,
-      `Refused: this thread is holding the '${heldReason}' attention flag, and completing now would clear it and release your dependents — nothing would be held for the human it asks for. Resubmit this report with a short non-'done' outcome token (e.g. 'needs_acceptance'): the report is recorded and you yield to your parent with the flag standing. If no human is needed after all, say that in the report you yield.`,
+      `Refused: this thread is holding the '${heldReason}' attention flag, and completing now would clear it and release your dependents — nothing would be held for the human it asks for. Resubmit this report with a short non-'done' outcome token (e.g. 'needs_acceptance'): the report is recorded, the flag stands, and you are not completed (the result names where the outcome routed). If no human is needed after all, say that in the report you resubmit.`,
     );
   }
 
