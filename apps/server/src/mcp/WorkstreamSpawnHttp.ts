@@ -34,6 +34,9 @@ import {
   gateLoopTargetOf,
   gateSourceFor,
   graphViewFor,
+  holdErasedByCompletion,
+  isTerminalLane,
+  RAISABLE_ATTENTION_REASONS,
   requiresSubmitToComplete,
   routeWorkSubmit,
   subtreeOf,
@@ -197,11 +200,9 @@ const VALID_LANES = new Set<ThreadPlanLane>(SETTABLE_LANES);
 // directly settable — it is the control-plane default for a gated reviewer.
 const SPAWN_ISOLATIONS: ReadonlyArray<ThreadIsolation> = ["isolated", "shared"];
 const VALID_SPAWN_ISOLATIONS = new Set<ThreadIsolation>(SPAWN_ISOLATIONS);
-// Attention reasons an agent may raise. `error` is server-only and the two
-// `awaiting_*` request reasons are derived from open requests — the decider
-// rejects all three; this mirrors that set at the boundary.
-const RAISABLE_REASONS: ReadonlyArray<AttentionReason> = ["awaiting_acceptance", "needs_guidance"];
-const VALID_REASONS = new Set<AttentionReason>(RAISABLE_REASONS);
+// Attention reasons an agent may raise — the shared set the decider enforces,
+// mirrored here at the boundary.
+const VALID_REASONS = new Set<AttentionReason>(RAISABLE_ATTENTION_REASONS);
 
 const jsonError = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
@@ -2635,12 +2636,28 @@ const handleWorkstreamRequestAttention = Effect.gen(function* () {
   const threadId = trimString(body.threadId);
   const reason = trimString(body.reason);
   if (!reason || !VALID_REASONS.has(reason as AttentionReason)) {
-    return jsonError(400, `reason must be one of: ${RAISABLE_REASONS.join(", ")}.`);
+    return jsonError(400, `reason must be one of: ${RAISABLE_ATTENTION_REASONS.join(", ")}.`);
   }
 
   const targetThreadId = threadId ? ThreadId.make(threadId) : scope.threadId;
   const denied = yield* authorizationError(scope.threadId, targetThreadId);
   if (denied) return denied;
+
+  // The submit guard's mirror image, keyed off the ACTOR SCOPE like the lane-set
+  // bypass guard: a thread flagging ITSELF after its own work is already settled
+  // holds nothing (dependents are released) and nothing clears the flag again —
+  // no turn-start and no terminal transition is still coming. A parent flagging
+  // a finished child is left alone: that one is a notification about work it
+  // owns, not a thread erasing its own hold.
+  if (targetThreadId === scope.threadId) {
+    const self = yield* (yield* ProjectionSnapshotQuery).getThreadDetailById(targetThreadId);
+    if (Option.isSome(self) && isTerminalLane(self.value.planLane)) {
+      return jsonError(
+        409,
+        `Refused: this thread's plan is already '${self.value.planLane}', so its work is released and a flag raised now holds nothing. A raise has to come BEFORE completion: raise, then end your turn — or hand the report back with a short non-'done' outcome on workstream_submit, which yields you to your parent with the flag standing.`,
+      );
+    }
+  }
 
   const now = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
   const crypto = yield* Crypto.Crypto;
@@ -3026,6 +3043,22 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
   const self = snapshot.threads.find((thread) => thread.id === scope.threadId);
   const routing =
     self === undefined ? undefined : routeWorkSubmit(self, snapshot.threads, effectiveOutcome);
+  const decision = routing?.decision ?? (effectiveOutcome === "done" ? "terminal" : "yield");
+
+  // A raise is a HOLD, not a label on a report (2026-08-21 attention audit).
+  // Completing here would clear a flag this thread is holding and release its
+  // dependents, so the human it asked for gates nothing. Refuse instead of
+  // silently undoing the raise — the tool result is where the agent is actually
+  // listening, and the yield path below hands the report back with the hold
+  // intact.
+  const heldReason =
+    self === undefined ? null : holdErasedByCompletion({ attention: self.attention, decision });
+  if (heldReason !== null) {
+    return jsonError(
+      409,
+      `Refused: this thread is holding the '${heldReason}' attention flag, and completing now would clear it and release your dependents — nothing would be held for the human it asks for. Resubmit this report with a short non-'done' outcome token (e.g. 'needs_acceptance'): the report is recorded and you yield to your parent with the flag standing. If no human is needed after all, say that in the report you yield.`,
+    );
+  }
 
   // A child may submit only its OWN work; the report is always keyed to the
   // calling thread (no threadId override). Loop rounds write
@@ -3054,7 +3087,6 @@ const handleWorkstreamSubmit = Effect.gen(function* () {
     createdAt: now,
   } satisfies OrchestrationCommand);
 
-  const decision = routing?.decision ?? (effectiveOutcome === "done" ? "terminal" : "yield");
   const disposition =
     decision === "terminal"
       ? "done"

@@ -1,4 +1,9 @@
-import type { AttentionReason, ThreadId, ThreadPlanLane } from "@t3tools/contracts";
+import type {
+  AttentionReason,
+  ThreadId,
+  ThreadPlanLane,
+  WorkOutcomeDecision,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -8,6 +13,7 @@ import {
   type GateNode,
   graphViewFor,
   type GraphViewThread,
+  holdErasedByCompletion,
   isHeldForCounterpartFanIn,
   isMemberOfUnresolvedGate,
   isTerminalForJoin,
@@ -591,6 +597,30 @@ describe("isMemberOfUnresolvedGate (generation-join gating)", () => {
   it("never marks gate-free threads", () => {
     const solo = gnode({ id: "solo", planLane: "done" });
     expect(isMemberOfUnresolvedGate(solo, [solo])).toBe(false);
+  });
+});
+
+describe("holdErasedByCompletion (raise-then-complete guard predicate)", () => {
+  const held = (attention: ReadonlyArray<AttentionReason>, decision: WorkOutcomeDecision) =>
+    holdErasedByCompletion({ attention, decision });
+
+  it("names the raised reason a completing submit would erase", () => {
+    expect(held(["awaiting_acceptance"], "terminal")).toBe("awaiting_acceptance");
+    expect(held(["needs_guidance"], "terminal")).toBe("needs_guidance");
+    // A gate `resolve` completes the submitter too, so it erases the hold alike.
+    expect(held(["awaiting_acceptance"], "resolve")).toBe("awaiting_acceptance");
+  });
+
+  it("allows every decision that leaves the thread non-terminal (the flag survives)", () => {
+    for (const decision of ["loop", "yield", "cap-breach", "attention"] as const) {
+      expect(held(["awaiting_acceptance"], decision)).toBeNull();
+    }
+  });
+
+  it("ignores flags an agent cannot raise, so a liveness `error` never blocks a completion", () => {
+    expect(held(["error"], "terminal")).toBeNull();
+    expect(held(["awaiting_approval", "awaiting_input"], "terminal")).toBeNull();
+    expect(held([], "terminal")).toBeNull();
   });
 });
 

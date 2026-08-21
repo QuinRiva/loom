@@ -33,7 +33,7 @@ export const workstreamChildPrompt = (input: {
     "Work autonomously toward the outcome this brief is meant to deliver — stay anchored to the value it produces (the capability, fix, or decision), not just the mechanical steps. Keep the work focused and report progress clearly.",
     "If you run a command you expect to take much longer than ~5 minutes (a full pipeline, a corpus classification, a long build or test suite), declare its expected duration so your parent is not spammed with slow-tool notices: prefix the bash command with an inline `# eta: <n>m` comment (e.g. `# eta: 25m — full corpus classification`, or `# eta: 1h`). The notices are then deferred until your estimate elapses; a declared `timeout` on the call is used as a fallback signal.",
     "Finish with ONE call: `workstream_submit` — its description is the contract for outcomes and routing, and its result names where your report went. Write the report as a concise handoff for your parent orchestrator, not a transcript dump: lead with the value you delivered and what it enables or unblocks, then the key results/decisions and anything the parent must act on.",
-    "If a HUMAN is needed, raise it with `workstream_request_attention` (its description covers the two reasons). Do not sit silently halted: either submit or raise attention — your parent is woken automatically either way.",
+    "If a HUMAN is needed, raise it with `workstream_request_attention` — its description covers the two reasons and why a raise HOLDS your work rather than labelling your report. Do not sit silently halted: complete your work, or raise — never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.",
   ].join("\n");
 
 /**
