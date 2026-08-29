@@ -189,6 +189,27 @@ const SHELL_CATCHUP_MAX_EVENTS = 500;
 // exists. See plans/2026-07-28-thread-catchup-silent-truncation.md.
 const THREAD_CATCHUP_MAX_EVENTS = 500;
 
+// loom: batch the thread subscription's live leg into multi-value RPC frames.
+// One turn emits ~50 thread detail events a few milliseconds apart, and one
+// frame each spends ~50 WebSocket envelopes (plus their per-frame overhead) on
+// data that fits in a dozen. Re-homed from upstream's pull-5 burst coalescing,
+// which applies exactly this `groupedWithin` shape on its shell leg
+// (SHELL_COALESCE_*). The thread leg only *batches*: unlike the shell leg it
+// must never collapse two events into one, because the client applies every
+// activity item, so each group is re-emitted whole and in order as one chunk.
+// The window bounds the worst-case added latency for an activity item to reach
+// the UI (imperceptible next to a turn) and is what makes the batching
+// deterministic rather than a function of how fast the server happens to be.
+const THREAD_COALESCE_WINDOW = Duration.millis(50);
+const THREAD_COALESCE_MAX_CHUNK = 512;
+const coalesceThreadStream = <E, R>(
+  stream: Stream.Stream<OrchestrationThreadStreamItem, E, R>,
+): Stream.Stream<OrchestrationThreadStreamItem, E, R> =>
+  stream.pipe(
+    Stream.groupedWithin(THREAD_COALESCE_MAX_CHUNK, THREAD_COALESCE_WINDOW),
+    Stream.flatMap((items) => Stream.fromIterable(items)),
+  );
+
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
 
@@ -1529,7 +1550,7 @@ const makeWsRpcLayer = (
               yield* Effect.forkScoped(
                 reasoningStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
               );
-              const bufferedLiveStream = Stream.fromQueue(liveBuffer);
+              const bufferedLiveStream = coalesceThreadStream(Stream.fromQueue(liveBuffer));
 
               // loom: re-homed from upstream 8e3467fe6, whose server-side emission
               // was lost in the fork's upstream-rehome (777bd20f8) while the
