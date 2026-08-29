@@ -4,10 +4,17 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_RUNTIME_MODE, type GoalId, type ScopedProjectRef } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type GoalId,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
+  composerDraftHasUserContent,
+  type DraftId,
   goalDraftBucketKey,
   markPromotedDraftThreadByRef,
   type DraftThreadEnvMode,
@@ -65,14 +72,25 @@ export function useNewThreadHandler() {
          */
         contextMode?: "overwrite" | "seed";
         replace?: boolean;
+        /**
+         * Move the current draft's typed text and images to the thread this
+         * opens — for a repo switch on a draft the user has already written
+         * in. Explicit new-thread surfaces leave this unset and keep
+         * mint-fresh semantics.
+         */
+        carryComposerContent?: boolean;
       },
-    ): Promise<void> => {
+      // Which draft the thread ended up in, so a caller that has something to put in it — a
+      // prepared checkout, a task to write — addresses that one rather than looking the project
+      // up again and finding whichever draft it happens to hold.
+    ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
       const {
         getComposerDraft,
         getDraftSessionByLogicalProjectKey,
         getDraftSession,
         getDraftThread,
         applyStickyState,
+        moveComposerPromptAndImages,
         setDraftThreadContext,
         setLogicalProjectDraftThreadId,
         setModelSelection,
@@ -157,6 +175,23 @@ export function useNewThreadHandler() {
           ? getDraftThread(currentRouteTarget.threadRef)
           : getDraftSession(currentRouteTarget.draftId)
         : null;
+      // Resolved up front, but applied at move time: the paths below await, and
+      // text typed during those awaits must still come along.
+      const carryContentSourceDraftId =
+        options?.carryComposerContent === true && currentRouteTarget?.kind === "draft"
+          ? currentRouteTarget.draftId
+          : null;
+      const carryComposerContentTo = (destinationDraftId: DraftId) => {
+        if (
+          carryContentSourceDraftId &&
+          carryContentSourceDraftId !== destinationDraftId &&
+          // Never clobber a destination the user already invested in.
+          !composerDraftHasUserContent(getComposerDraft(destinationDraftId)) &&
+          composerDraftHasUserContent(getComposerDraft(carryContentSourceDraftId))
+        ) {
+          moveComposerPromptAndImages(carryContentSourceDraftId, destinationDraftId);
+        }
+      };
       if (reusableStoredDraftThread) {
         return (async () => {
           if (shouldApplyContext(reusableStoredDraftThread.goalId)) {
@@ -189,17 +224,23 @@ export function useNewThreadHandler() {
               threadId: reusableStoredDraftThread.threadId,
             },
           );
+          carryComposerContentTo(reusableStoredDraftThread.draftId);
+          const opened = {
+            draftId: reusableStoredDraftThread.draftId,
+            threadId: reusableStoredDraftThread.threadId,
+          };
           if (
             currentRouteTarget?.kind === "draft" &&
             currentRouteTarget.draftId === reusableStoredDraftThread.draftId
           ) {
-            return;
+            return opened;
           }
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: reusableStoredDraftThread.draftId },
             replace: options?.replace ?? false,
           });
+          return opened;
         })();
       }
 
@@ -235,7 +276,10 @@ export function useNewThreadHandler() {
               }
             : {}),
         });
-        return Promise.resolve();
+        return Promise.resolve({
+          draftId: currentRouteTarget.draftId,
+          threadId: latestActiveDraftThread.threadId,
+        });
       }
 
       const draftId = newDraftId();
@@ -269,12 +313,14 @@ export function useNewThreadHandler() {
           // whatever sticky state just wrote".
           setModelSelection(draftId, carryModelSelection, { replaceOptions: true });
         }
+        carryComposerContentTo(draftId);
 
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId },
           replace: options?.replace ?? false,
         });
+        return { draftId, threadId };
       })();
     },
     [getCurrentRouteTarget, primaryServerSettings, projectGroupingSettings, projects, router],

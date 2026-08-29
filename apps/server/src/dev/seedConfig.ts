@@ -58,6 +58,7 @@ export const buildSeedConfig = Effect.gen(function* () {
     logWebSocketEvents: false,
     tailscaleServeEnabled: false,
     tailscaleServePort: 443,
+    devAllowedOrigins: [],
   };
   return config;
 });

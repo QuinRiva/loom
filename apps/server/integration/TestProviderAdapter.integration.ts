@@ -11,7 +11,6 @@ import {
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
@@ -227,9 +226,9 @@ function missingSessionEffect(
 export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapterHarnessOptions) =>
   Effect.gen(function* () {
     const provider = options?.provider ?? ProviderDriverKind.make("codex");
-    const crypto = yield* Crypto.Crypto;
     const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     let sessionCount = 0;
+    let eventCount = 0;
     const sessions = new Map<ThreadId, SessionState>();
     const queuedResponsesForNextSession: TestTurnResponse[] = [];
     const interruptCallsBySession = new Map<ThreadId, Array<TurnId | undefined>>();
@@ -243,18 +242,10 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     >();
 
     const emit = (event: ProviderRuntimeEvent) => Queue.offer(runtimeEvents, event);
-    const randomUUIDv4 = (threadId: ThreadId) =>
-      crypto.randomUUIDv4.pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterValidationError({
-              provider,
-              operation: "crypto/randomUUIDv4",
-              issue: `Failed to generate test runtime identifier for thread '${threadId}'.`,
-              cause,
-            }),
-        ),
-      );
+    const nextEventId = (threadId: ThreadId) => {
+      eventCount += 1;
+      return EventId.make(`test-provider:${provider}:${threadId}:${eventCount}`);
+    };
 
     const startSession: ProviderAdapterShape<ProviderAdapterError>["startSession"] = (input) =>
       Effect.gen(function* () {
@@ -323,7 +314,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         for (const fixtureEvent of response.events) {
           const rawEvent: Record<string, unknown> = {
             ...(fixtureEvent as Record<string, unknown>),
-            eventId: yield* randomUUIDv4(input.threadId),
+            eventId: nextEventId(input.threadId),
             provider,
             sessionId: RuntimeSessionId.make(String(input.threadId)),
           };
@@ -380,7 +371,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         if (deferredTurnCompletedEvents.length === 0) {
           yield* emit({
             type: "turn.completed",
-            eventId: EventId.make(yield* randomUUIDv4(input.threadId)),
+            eventId: nextEventId(input.threadId),
             provider,
             createdAt: nowIso(),
             threadId: state.snapshot.threadId,

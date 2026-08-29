@@ -72,10 +72,12 @@ import {
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import {
+  COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME,
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
   COMPOSER_INLINE_CHIP_CLASS_NAME,
   COMPOSER_INLINE_SKILL_CHIP_CLASS_NAME,
+  COMPOSER_INLINE_SKILL_CHIP_LABEL_CLASS_NAME,
   SKILL_CHIP_ICON_SVG,
   THREAD_CHIP_ICON_SVG,
 } from "./composerInlineChip";
@@ -202,7 +204,7 @@ class ComposerMentionNode extends DecoratorNode<React.ReactElement> {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement("span");
-    dom.className = "composer-inline-chip relative inline-flex align-middle leading-none";
+    dom.className = COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME;
     return dom;
   }
 
@@ -358,7 +360,7 @@ function ComposerSkillDecorator(props: { skillLabel: string; skillDescription: s
         className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
         dangerouslySetInnerHTML={{ __html: SKILL_CHIP_ICON_SVG }}
       />
-      <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{props.skillLabel}</span>
+      <span className={COMPOSER_INLINE_SKILL_CHIP_LABEL_CLASS_NAME}>{props.skillLabel}</span>
     </span>
   );
 
@@ -428,7 +430,7 @@ class ComposerSkillNode extends DecoratorNode<React.ReactElement> {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement("span");
-    dom.className = "composer-inline-chip relative inline-flex align-middle leading-none";
+    dom.className = COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME;
     return dom;
   }
 
@@ -499,7 +501,7 @@ class ComposerTerminalContextNode extends DecoratorNode<React.ReactElement> {
 
   override createDOM(): HTMLElement {
     const dom = document.createElement("span");
-    dom.className = "composer-inline-chip relative inline-flex align-middle leading-none";
+    dom.className = COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME;
     return dom;
   }
 
@@ -1864,12 +1866,13 @@ function ComposerPromptEditorInner({
 
   return (
     <ComposerTerminalContextActionsContext value={terminalContextActions}>
-      <div className="relative">
+      <div className="relative [font-family:var(--font-composer,var(--font-sans))] [font-size:var(--font-size-prompt,0.875rem)] [@media(max-width:39.999rem)_and_(pointer:coarse)]:[font-size:max(var(--font-size-prompt,1rem),16px)]">
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
               className={cn(
-                "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
+                // The wrapper owns the appearance preference; keep everything else here.
+                "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
                 className,
               )}
               data-testid="composer-editor"
@@ -1880,7 +1883,7 @@ function ComposerPromptEditorInner({
           }
           placeholder={
             terminalContexts.length > 0 ? null : (
-              <div className="pointer-events-none absolute inset-0 text-[16px] leading-relaxed text-muted-foreground/35 sm:text-[14px]">
+              <div className="pointer-events-none absolute inset-0 leading-relaxed text-placeholder">
                 {placeholder}
               </div>
             )

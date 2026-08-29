@@ -110,12 +110,16 @@ export default function ArtifactViewPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="surface-subheader gap-2 px-3" data-surface-subheader>
-        <div
-          className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
-          title={relativePath}
-        >
-          {relativePath}
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" />
+            }
+          >
+            {relativePath}
+          </TooltipTrigger>
+          <TooltipPopup>{relativePath}</TooltipPopup>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={

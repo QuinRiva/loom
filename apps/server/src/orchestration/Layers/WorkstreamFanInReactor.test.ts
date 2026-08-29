@@ -149,7 +149,6 @@ const runReactor = (scenario: Scenario) =>
             ? Option.some(scenario.child as unknown as OrchestrationThread)
             : Option.none(),
         ),
-      getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
       getArchivedFannedInWorktreeChildren: () => Effect.succeed(scenario.archivedOrphans ?? []),
       getLeanShellSnapshot: () =>
         Effect.succeed({

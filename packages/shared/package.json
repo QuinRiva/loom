@@ -7,6 +7,14 @@
       "types": "./src/accountUsage.ts",
       "import": "./src/accountUsage.ts"
     },
+    "./themePalettes": {
+      "types": "./src/themePalettes.ts",
+      "import": "./src/themePalettes.ts"
+    },
+    "./themePreview": {
+      "types": "./src/themePreview.ts",
+      "import": "./src/themePreview.ts"
+    },
     "./projectFavicon": {
       "types": "./src/projectFavicon.ts",
       "import": "./src/projectFavicon.ts"
@@ -87,6 +95,10 @@
       "types": "./src/serverSettings.ts",
       "import": "./src/serverSettings.ts"
     },
+    "./backgroundActivitySettings": {
+      "types": "./src/backgroundActivitySettings.ts",
+      "import": "./src/backgroundActivitySettings.ts"
+    },
     "./String": {
       "types": "./src/String.ts",
       "import": "./src/String.ts"
@@ -94,6 +106,10 @@
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
+    },
+    "./threadEnvMode": {
+      "types": "./src/threadEnvMode.ts",
+      "import": "./src/threadEnvMode.ts"
     },
     "./t3ProjectFile": {
       "types": "./src/t3ProjectFile.ts",
@@ -242,6 +258,22 @@
     "./userInputAnswers": {
       "types": "./src/userInputAnswers.ts",
       "import": "./src/userInputAnswers.ts"
+    },
+    "./devHome": {
+      "types": "./src/devHome.ts",
+      "import": "./src/devHome.ts"
+    },
+    "./devProxy": {
+      "types": "./src/devProxy.ts",
+      "import": "./src/devProxy.ts"
+    },
+    "./usageMerge": {
+      "types": "./src/usageMerge.ts",
+      "import": "./src/usageMerge.ts"
+    },
+    "./usageFormat": {
+      "types": "./src/usageFormat.ts",
+      "import": "./src/usageFormat.ts"
     }
   },
   "scripts": {

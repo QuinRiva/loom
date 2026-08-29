@@ -212,9 +212,10 @@ export const dispatchUserInputResolutions = (input: {
               // swallowing it — the caller's success count must mean "confirmed
               // persisted", or a startup log claiming success is worse than no log.
               Effect.retry({
-                schedule: Schedule.exponential(SETTLEMENT_RETRY_BASE).pipe(
-                  Schedule.take(SETTLEMENT_DISPATCH_ATTEMPTS - 1),
-                ),
+                schedule: Schedule.max([
+                  Schedule.exponential(SETTLEMENT_RETRY_BASE),
+                  Schedule.recurs(SETTLEMENT_DISPATCH_ATTEMPTS - 1),
+                ]),
                 // Retry only what a retry can fix. The decider rejects a second
                 // resolution for an already-settled request (first-terminal-wins),
                 // which is TERMINAL and, importantly, means the durable resolution

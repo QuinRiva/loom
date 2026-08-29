@@ -3,9 +3,10 @@
  *
  * Loom adds four ws handlers (a bypass keepalive plus usage-breakdown and
  * workstream-worktree queries) and their authorization scopes. Extracting them
- * here keeps `ws.ts` at two `// loom:`-marked splice lines (`...LOOM_RPC_SCOPES`
- * in the scope map, `...makeLoomWsHandlers({ … })` in the RPC group) instead of
- * scattered handler blocks. The entangled ws rewrites (subscribeThread
+ * here keeps `ws.ts` at one `// loom:`-marked splice line
+ * (`...makeLoomWsHandlers({ … })` in the RPC group) instead of scattered
+ * handler blocks; the fork RPCs' scopes live with upstream's canonical map in
+ * `auth/RpcAuthorization.ts`. The entangled ws rewrites (subscribeThread
  * connect-gap, provider exhaustion overlay, goal-aggregate shell mapping, …)
  * stay in `ws.ts` — they modify upstream flows, not just add handlers.
  *
@@ -26,17 +27,6 @@ import * as Effect from "effect/Effect";
 import type * as UsageBreakdownQuery from "../orchestration/Services/UsageBreakdownQuery.ts";
 import type * as WorkstreamWorktreeStatus from "../orchestration/WorkstreamWorktreeStatus.ts";
 
-/** Fork RPC methods and their required scopes; spread into `RPC_REQUIRED_SCOPE`. */
-export const LOOM_RPC_SCOPES: ReadonlyArray<readonly [string, AuthEnvironmentScope]> = [
-  [WS_METHODS.serverGetUsageBreakdown, AuthOrchestrationReadScope],
-  [WS_METHODS.serverGetWorkstreamWorktrees, AuthOrchestrationReadScope],
-  [WS_METHODS.serverRemoveWorkstreamWorktree, AuthOrchestrationOperateScope],
-  // `/handoff` fork-drafter: minting a drafter + injecting its turn is a write.
-  [WS_METHODS.serverHandoffDraft, AuthOrchestrationOperateScope],
-  // `/retro` fork-reviewer: minting a reviewer + injecting its turn is a write.
-  [WS_METHODS.serverRetroDraft, AuthOrchestrationOperateScope],
-];
-
 export interface LoomWsHandlerDeps {
   /** The local scope-checked + instrumented RPC wrapper from `makeWsRpcLayer`. */
   readonly observeRpcEffect: <A, E, R>(
@@ -56,7 +46,7 @@ export const makeLoomWsHandlers = ({
   // Authenticated-session-only keepalive: the WS upgrade already authenticated
   // this session, so the handler just acknowledges. No scope check, no
   // instrumentation (kept out of request telemetry) — hence no
-  // `RPC_REQUIRED_SCOPE` entry and no `observeRpcEffect` wrapper.
+  // scope check and no `observeRpcEffect` wrapper (see `RPC_REQUIRED_SCOPES`).
   [WS_METHODS.heartbeat]: (_input: unknown) => Effect.void,
   [WS_METHODS.serverGetUsageBreakdown]: (input: ServerUsageBreakdownInput) =>
     observeRpcEffect(

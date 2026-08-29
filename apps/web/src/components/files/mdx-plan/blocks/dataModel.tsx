@@ -136,8 +136,8 @@ const CHANGE_ROW_ACCENT: Record<DataModelChange, string> = {
 
 function ChangeChip({ change }: { change: DataModelChange }) {
   return (
+    // The label is the chip's own text, so a hover hint would only repeat it.
     <span
-      title={CHANGE_LABEL[change]}
       className={cn(
         "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wide",
         CHANGE_BADGE[change],

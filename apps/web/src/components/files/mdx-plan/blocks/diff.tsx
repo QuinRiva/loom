@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { cn } from "~/lib/utils";
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { WrapToggle } from "./wrapToggle";
 
@@ -327,9 +328,14 @@ export function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
     >
       <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px]">
         <IconFileDiff className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={data.filename}>
-          {data.filename ?? "diff"}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="min-w-0 flex-1 truncate font-mono text-foreground" />}
+          >
+            {data.filename ?? "diff"}
+          </TooltipTrigger>
+          <TooltipPopup>{data.filename ?? "diff"}</TooltipPopup>
+        </Tooltip>
         <span className="shrink-0 font-mono text-emerald-700 dark:text-emerald-300">+{added}</span>
         <span className="shrink-0 font-mono text-destructive">−{removed}</span>
         <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border border-border">

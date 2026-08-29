@@ -38,6 +38,8 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stream from "effect/Stream";
 
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import * as ServerConfig from "../../config.ts";
 import {
   increment,
   providerMetricAttributes,
@@ -59,6 +61,7 @@ import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import { WorkspaceLease, type WorkspaceHold } from "../../workspace/WorkspaceLease.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 const isModelSelection = Schema.is(ModelSelection);
 
 /**
@@ -77,6 +80,15 @@ const STRAGGLER_EXIT_WINDOW = Duration.seconds(30);
  */
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogger?: EventNdjsonLogger;
+  /**
+   * Overrides MCP credential issuance. The real issuer reads a module-global
+   * registry that only a running MCP server installs, which makes the
+   * agent-browser-access gate unobservable from a unit test; this seam lets a
+   * test see whether a credential was requested at all.
+   */
+  readonly issueMcpCredential?: typeof McpSessionRegistry.issueActiveMcpCredential;
+  /** Same seam as `issueMcpCredential`, for observing the deny path's revoke. */
+  readonly revokeMcpCredential?: typeof McpSessionRegistry.revokeActiveMcpThread;
 }
 
 type ProviderServiceMethod<Name extends keyof ProviderService.ProviderService["Service"]> =
@@ -216,6 +228,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
   const analytics = yield* Effect.service(AnalyticsService.AnalyticsService);
+  const serverConfig = yield* ServerConfig.ServerConfig;
   const eventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
   // Options-provided logger wins (test overrides); otherwise we take whatever
   // the `ProviderEventLoggers` tag exposes — `undefined` means "no canonical
@@ -431,15 +444,56 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       endedLaunches.delete(threadId);
       return releaseCurrentLaunchHold(threadId);
     });
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const issueMcpCredential =
+    options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
+  const revokeMcpCredential =
+    options?.revokeMcpCredential ?? McpSessionRegistry.revokeActiveMcpThread;
+  /**
+   * Attach the `t3-code` MCP server to the session that is about to start.
+   *
+   * This is the only place a credential is minted, so withholding one here is
+   * what disables agent browser access everywhere: every adapter already
+   * treats a missing session as "no MCP server", and the `/mcp` endpoint
+   * accepts nothing but tokens issued from this path.
+   */
+  /**
+   * Deny on an unreadable settings file rather than letting the read failure
+   * escape: adding `ServerSettingsError` to `ProviderServiceError` would widen
+   * a union every caller handles, for a branch that only decides whether one
+   * optional toolset is attached. Denying is the safe direction — an explicit
+   * "off" silently becoming "on" would violate the user's stated choice,
+   * whereas the reverse costs an agent one toolset and is visible immediately.
+   */
+  const agentBrowserAccessEnabled = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.enableAgentBrowserAccess),
+    Effect.catch((cause) =>
+      Effect.logWarning(
+        "Could not read server settings; withholding agent browser access for this session.",
+        { cause },
+      ).pipe(Effect.as(false)),
+    ),
+  );
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
-    McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
-      Effect.tap((credential) =>
-        credential
-          ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
-          : Effect.void,
-      ),
-    );
+    Effect.gen(function* () {
+      if (!(yield* agentBrowserAccessEnabled)) {
+        // Revoke as well as clear. Every other prepare path reaches
+        // `issueActiveMcpCredential`, which revokes the thread first, so
+        // skipping it here would leave a previously issued bearer token valid
+        // against `/mcp` for the rest of its liveness window — and later turns
+        // would keep refreshing it. A session restart (runtime mode, cwd,
+        // model) re-prepares without stopping, so it relies on this.
+        yield* revokeMcpCredential(threadId);
+        yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
+        return undefined;
+      }
+      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      if (credential) {
+        yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
+      }
+      return credential;
+    });
   const clearMcpSession = (threadId: ThreadId) =>
     McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
       Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
@@ -740,6 +794,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         adapter,
         instanceId,
         threadId: input.threadId,
+        runtimeMode: binding.runtimeMode,
         isActive: true,
       } as const;
     }
@@ -749,6 +804,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         adapter,
         instanceId,
         threadId: input.threadId,
+        runtimeMode: binding.runtimeMode,
         isActive: false,
       } as const;
     }
@@ -761,6 +817,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       adapter: recovered.adapter,
       instanceId,
       threadId: input.threadId,
+      runtimeMode: recovered.session.runtimeMode,
       isActive: true,
     } as const;
   });
@@ -918,6 +975,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             input.modelSelection.model.trim().length > 0,
         });
 
+        // Changing runtime mode restarts the session, so the transition is only
+        // observable here, by diffing against the mode the previous session for
+        // this thread was bound to. Recording it separately is what makes the
+        // "started supervised, switched to full access" funnel answerable.
+        const previousRuntimeMode = persistedBinding?.runtimeMode;
+        if (previousRuntimeMode !== undefined && previousRuntimeMode !== input.runtimeMode) {
+          yield* analytics.record("provider.runtime_mode.changed", {
+            provider: sessionWithInstance.provider,
+            from: previousRuntimeMode,
+            to: input.runtimeMode,
+          });
+        }
+
         return sessionWithInstance;
       }).pipe(
         withMetrics({
@@ -938,16 +1008,44 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       payload: rawInput,
     });
 
-    const input = {
-      ...parsed,
-      attachments: parsed.attachments ?? [],
-    };
-    if (!input.input && input.attachments.length === 0) {
+    const attachments = parsed.attachments ?? [];
+    if (!parsed.input && attachments.length === 0) {
       return yield* toValidationError(
         "ProviderService.sendTurn",
         "Either input text or at least one attachment is required",
       );
     }
+
+    // Adapters inline attachment pixels into the model prompt, but the model's
+    // tools cannot dereference pixels. Appending the on-disk path is what lets
+    // a turn like "include this screenshot in the PR" copy the actual file.
+    // This runs after schema decode, so the appended lines are exempt from the
+    // PROVIDER_SEND_TURN_MAX_INPUT_CHARS check; attachment count is capped, so
+    // the overhead is bounded. Unresolvable ids are skipped here and surface
+    // as adapter errors when the file is read for inlining.
+    const attachmentPathLines = attachments.flatMap((attachment) => {
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      return attachmentPath === null
+        ? []
+        : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
+    });
+    const inputTextWithAttachmentPaths =
+      attachmentPathLines.length === 0
+        ? parsed.input
+        : [parsed.input, attachmentPathLines.join("\n")]
+            .filter((part): part is string => typeof part === "string" && part.length > 0)
+            .join("\n\n");
+
+    const input = {
+      ...parsed,
+      ...(inputTextWithAttachmentPaths !== undefined
+        ? { input: inputTextWithAttachmentPaths }
+        : {}),
+      attachments,
+    };
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
       "provider.thread_id": input.threadId,
@@ -968,6 +1066,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         "provider.kind": routed.adapter.provider,
         ...(input.modelSelection?.model ? { "provider.model": input.modelSelection.model } : {}),
       });
+      // A turn is the clearest sign a session is still alive. The MCP
+      // credential is minted once at session start and cannot be rotated into
+      // an already-spawned agent process, so we keep the existing token valid
+      // rather than issuing a new one: sessions that go a long time between
+      // browser tool calls used to lose the toolkit outright.
+      yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
       const turn = yield* routed.adapter.sendTurn(input);
       yield* directory.upsert({
         threadId: input.threadId,
@@ -986,6 +1090,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         provider: routed.adapter.provider,
         model: input.modelSelection?.model,
         interactionMode: input.interactionMode,
+        // Session-start events alone skew runtime mode toward users who toggle
+        // often, since every toggle restarts the session. Recording it per turn
+        // gives a usage-weighted view and lets it cross with interactionMode.
+        runtimeMode: routed.runtimeMode,
         attachmentCount: input.attachments.length,
         hasInput: typeof input.input === "string" && input.input.trim().length > 0,
       });

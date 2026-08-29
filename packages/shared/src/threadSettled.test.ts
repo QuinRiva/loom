@@ -9,6 +9,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   canSettle,
+  changeRequestAutoSettles,
   effectiveSettled,
   hasQueuedTurnStart,
   threadLastActivityAt,
@@ -18,6 +19,108 @@ import {
 const NOW = "2026-04-10T00:00:00.000Z";
 const FRESH = "2026-04-09T00:00:00.000Z";
 const STALE = "2026-04-06T23:59:59.999Z";
+
+describe("changeRequestAutoSettles", () => {
+  it.each([
+    ["open", true, false],
+    ["merged", true, true],
+    ["merged", false, false],
+    ["closed", false, true],
+    [null, false, false],
+  ] as const)("state=%s autoSettleOnMerge=%s returns %s", (state, autoSettleOnMerge, expected) => {
+    expect(changeRequestAutoSettles(state === null ? null : { state }, { autoSettleOnMerge })).toBe(
+      expected,
+    );
+  });
+
+  const THREAD_CREATED_AT = "2026-04-01T00:00:00.000Z";
+  const idleThread = {
+    createdAt: THREAD_CREATED_AT,
+    latestUserMessageAt: null,
+    latestTurn: null,
+  };
+
+  it("ignores a terminal change request last touched before the thread existed", () => {
+    for (const state of ["merged", "closed"] as const) {
+      expect(
+        changeRequestAutoSettles(
+          { state, updatedAt: "2026-03-31T23:59:59.999Z" },
+          { thread: idleThread },
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("settles on a terminal change request touched at or after the thread's latest event", () => {
+    for (const updatedAt of [THREAD_CREATED_AT, "2026-04-02T00:00:00.000Z"]) {
+      expect(changeRequestAutoSettles({ state: "merged", updatedAt }, { thread: idleThread })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("never re-settles a thread revived after the merge", () => {
+    // Settling on a merge happens once: a user message newer than the PR's
+    // last activity means the conversation outlived the PR.
+    const revived = {
+      createdAt: THREAD_CREATED_AT,
+      latestUserMessageAt: "2026-04-05T00:00:00.000Z",
+      latestTurn: null,
+    };
+    expect(
+      changeRequestAutoSettles(
+        { state: "merged", updatedAt: "2026-04-03T00:00:00.000Z" },
+        { thread: revived },
+      ),
+    ).toBe(false);
+    // A merge landing after the revival still settles.
+    expect(
+      changeRequestAutoSettles(
+        { state: "merged", updatedAt: "2026-04-06T00:00:00.000Z" },
+        { thread: revived },
+      ),
+    ).toBe(true);
+  });
+
+  it("still settles when the merge lands during an in-flight turn", () => {
+    // Anchor is user-initiated activity only: the agent finishing a turn
+    // after the merge must not block the settle the merge earned.
+    const midTurnMerge = {
+      createdAt: THREAD_CREATED_AT,
+      latestUserMessageAt: "2026-04-02T00:00:00.000Z",
+      latestTurn: {
+        turnId: TurnId.make("turn-mid"),
+        state: "completed" as const,
+        requestedAt: "2026-04-02T00:00:00.000Z",
+        startedAt: "2026-04-02T00:00:05.000Z",
+        completedAt: "2026-04-02T00:20:00.000Z",
+        assistantMessageId: null,
+      },
+    };
+    expect(
+      changeRequestAutoSettles(
+        { state: "merged", updatedAt: "2026-04-02T00:10:00.000Z" },
+        { thread: midTurnMerge },
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to settling when either timestamp is missing or malformed", () => {
+    expect(changeRequestAutoSettles({ state: "merged" }, { thread: idleThread })).toBe(true);
+    expect(
+      changeRequestAutoSettles({ state: "merged", updatedAt: null }, { thread: idleThread }),
+    ).toBe(true);
+    expect(
+      changeRequestAutoSettles({ state: "merged", updatedAt: "2026-03-01T00:00:00.000Z" }, {}),
+    ).toBe(true);
+    expect(
+      changeRequestAutoSettles(
+        { state: "merged", updatedAt: "not-a-date" },
+        { thread: idleThread },
+      ),
+    ).toBe(true);
+  });
+});
 
 function makeShell(input: {
   readonly settledOverride?: "settled" | "active" | null;
@@ -157,15 +260,16 @@ describe("effectiveSettled", () => {
             // Settled iff nothing blocks (pending work / live session) AND
             // the override says settled, or (with no override) a merged PR
             // or staleness auto-settles. The "active" pin suppresses both
-            // auto signals.
+            // auto signals, and an open PR suppresses the inactivity path:
+            // a thread with a PR out for review is never done, however quiet.
             expected:
               pending === undefined &&
               !running &&
               (settledOverride === "settled" ||
                 (settledOverride === null &&
                   (changeRequestState === "merged" ||
-                    inactivity === "stale" ||
-                    inactivity === "no-activity"))),
+                    (changeRequestState !== "open" &&
+                      (inactivity === "stale" || inactivity === "no-activity"))))),
           })),
         ),
       ),
@@ -184,7 +288,7 @@ describe("effectiveSettled", () => {
       const changeRequestOptions =
         changeRequestState === undefined
           ? {}
-          : { changeRequestState: changeRequestState as ChangeRequestStateLike };
+          : { changeRequest: { state: changeRequestState as ChangeRequestStateLike } };
 
       expect(
         effectiveSettled(shell, {
@@ -202,53 +306,101 @@ describe("effectiveSettled", () => {
       effectiveSettled(shell, {
         now: NOW,
         autoSettleAfterDays: null,
-        changeRequestState: "closed",
+        changeRequest: { state: "closed" },
       }),
     ).toBe(true);
   });
 
-  it("does not re-settle a warm thread on the merge signal: a message sent in a settled thread keeps it active until idle", () => {
-    // The merge signal never clears, so without the idle guard a follow-up
-    // message would un-settle the row only until its turn completed, then
-    // snap straight back into the settled tail.
-    const justActive = makeShell({ activityAt: "2026-04-09T23:30:00.000Z" });
-    // The idle gate is strict: activity exactly one hour old is still warm.
-    const boundary = makeShell({ activityAt: "2026-04-09T23:00:00.000Z" });
-    const idle = makeShell({ activityAt: "2026-04-09T22:59:59.999Z" });
-
+  it("settles immediately when a change request merges or closes", () => {
+    const recentlyActive = makeShell({ activityAt: "2026-04-09T23:59:59.999Z" });
     for (const changeRequestState of ["merged", "closed"] as const) {
       expect(
-        effectiveSettled(justActive, {
+        effectiveSettled(recentlyActive, {
           now: NOW,
           autoSettleAfterDays: null,
-          changeRequestState,
-        }),
-      ).toBe(false);
-      expect(
-        effectiveSettled(boundary, {
-          now: NOW,
-          autoSettleAfterDays: null,
-          changeRequestState,
-        }),
-      ).toBe(false);
-      expect(
-        effectiveSettled(idle, {
-          now: NOW,
-          autoSettleAfterDays: null,
-          changeRequestState,
+          changeRequest: { state: changeRequestState },
         }),
       ).toBe(true);
     }
   });
 
-  it("re-settles a merged-PR thread once the follow-up burst goes idle", () => {
-    // Same shell, advancing clock: active while warm, settled again after
-    // the idle window passes — the burst cools and the merge signal wins.
-    const shell = makeShell({ activityAt: "2026-04-09T23:30:00.000Z" });
-    const options = { autoSettleAfterDays: null, changeRequestState: "merged" as const };
+  it("ignores a change request that merged before the thread's latest event", () => {
+    // A new thread started at a worktree root inherits the branch's old
+    // merged PR, and a revived thread outlives its merge; neither settles
+    // the live conversation.
+    const fresh = makeShell({ activityAt: FRESH });
+    for (const state of ["merged", "closed"] as const) {
+      expect(
+        effectiveSettled(fresh, {
+          now: NOW,
+          autoSettleAfterDays: null,
+          changeRequest: { state, updatedAt: "2026-03-20T00:00:00.000Z" },
+        }),
+      ).toBe(false);
+    }
+    // A merge during the thread's life still settles it.
+    expect(
+      effectiveSettled(fresh, {
+        now: NOW,
+        autoSettleAfterDays: null,
+        changeRequest: { state: "merged", updatedAt: "2026-04-09T00:00:00.000Z" },
+      }),
+    ).toBe(true);
+  });
 
-    expect(effectiveSettled(shell, { ...options, now: NOW })).toBe(false);
-    expect(effectiveSettled(shell, { ...options, now: "2026-04-10T00:30:00.001Z" })).toBe(true);
+  it("can keep a merged change request active", () => {
+    const recentlyActive = makeShell({ activityAt: "2026-04-09T23:59:59.999Z" });
+    expect(
+      effectiveSettled(recentlyActive, {
+        now: NOW,
+        autoSettleAfterDays: null,
+        autoSettleOnMerge: false,
+        changeRequest: { state: "merged" },
+      }),
+    ).toBe(false);
+
+    expect(
+      effectiveSettled(recentlyActive, {
+        now: NOW,
+        autoSettleAfterDays: null,
+        autoSettleOnMerge: false,
+        changeRequest: { state: "closed" },
+      }),
+    ).toBe(true);
+  });
+
+  it("never auto-settles a stale thread with an open change request", () => {
+    const stale = makeShell({ activityAt: STALE });
+    expect(
+      effectiveSettled(stale, {
+        now: NOW,
+        autoSettleAfterDays: 3,
+        changeRequest: { state: "open" },
+      }),
+    ).toBe(false);
+    // An explicit user settle still wins: open PR only blocks the auto path.
+    const settled = makeShell({ settledOverride: "settled", activityAt: STALE });
+    expect(
+      effectiveSettled(settled, {
+        now: NOW,
+        autoSettleAfterDays: 3,
+        changeRequest: { state: "open" },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps an explicitly un-settled merged-PR thread active", () => {
+    const shell = makeShell({
+      settledOverride: "active",
+      activityAt: "2026-04-09T23:59:59.999Z",
+    });
+    expect(
+      effectiveSettled(shell, {
+        now: NOW,
+        autoSettleAfterDays: null,
+        changeRequest: { state: "merged" },
+      }),
+    ).toBe(false);
   });
 
   it("never settles a starting session, even with a settled override", () => {
@@ -261,7 +413,7 @@ describe("effectiveSettled", () => {
       effectiveSettled(shell, {
         now: NOW,
         autoSettleAfterDays: 3,
-        changeRequestState: "merged",
+        changeRequest: { state: "merged" },
       }),
     ).toBe(false);
   });
@@ -306,7 +458,7 @@ describe("effectiveSettled", () => {
         effectiveSettled(shell, {
           now: transitionNow,
           autoSettleAfterDays: 3,
-          changeRequestState: "merged",
+          changeRequest: { state: "merged" },
         }),
       ).toBe(false);
     }
@@ -585,7 +737,7 @@ describe("canSettle", () => {
       effectiveSettled(queued, {
         now: justAfter,
         autoSettleAfterDays: 3,
-        changeRequestState: "merged",
+        changeRequest: { state: "merged" },
       }),
     ).toBe(false);
     // Past the window the message is a failed/stale start: settleable again.

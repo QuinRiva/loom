@@ -16,8 +16,13 @@ import { resolveServerBackedAppStageLabel } from "../branding.logic";
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
-// nearby thread usually reuses an already-hot subscription.
-export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
+// nearby thread usually reuses an already-hot subscription. Each prewarmed
+// thread holds a live, fully hydrated detail subscription (all messages and
+// activities, growing as agents work) for as long as the row stays visible,
+// so this limit is a direct renderer-heap and server-load multiplier — keep
+// it small; cold opens still render instantly from the cached snapshot.
+export const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
+
 type SidebarProject = {
   id: string;
   title: string;
@@ -94,10 +99,29 @@ export function buildMultiSelectThreadContextMenuItems(input: {
   ];
 }
 
+export function buildBulkTitleRegenerationContextMenuItem(input: {
+  supportedCount: number;
+  actionableCount: number;
+}): ContextMenuItem<"regenerate-title"> | null {
+  if (input.supportedCount === 0) return null;
+  if (input.actionableCount === 0) {
+    return {
+      id: "regenerate-title",
+      label: `Regenerating… (${input.supportedCount})`,
+      disabled: true,
+    };
+  }
+  return {
+    id: "regenerate-title",
+    label: `Regenerate titles (${input.actionableCount})`,
+  };
+}
+
 export interface ThreadStatusPill {
   label:
     | "Needs Attention"
     | "Working"
+    | "Monitoring"
     | "Connecting"
     | "Completed"
     | "Pending Approval"
@@ -108,13 +132,17 @@ export interface ThreadStatusPill {
   pulse: boolean;
 }
 
+// Rollup order mirrors the per-thread resolver exactly: attention states,
+// then active work, then the actionable plan prompt, then passive
+// monitoring. A Monitoring sibling must never hide a Plan Ready thread.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Needs Attention": 6,
-  "Pending Approval": 5,
-  "Awaiting Input": 4,
-  Working: 3,
-  Connecting: 3,
-  "Plan Ready": 2,
+  "Needs Attention": 7,
+  "Pending Approval": 6,
+  "Awaiting Input": 5,
+  Working: 4,
+  Connecting: 4,
+  "Plan Ready": 3,
+  Monitoring: 2,
   Completed: 1,
 };
 
@@ -126,6 +154,7 @@ type ThreadStatusInput = Pick<
   | "interactionMode"
   | "latestTurn"
   | "session"
+  | "backgroundLiveness"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -331,6 +360,35 @@ export function resolveSidebarNewThreadSeedContext(input: {
   };
 }
 
+function nodeClosest(node: object | null, selector: string): unknown {
+  if (node === null || !("closest" in node) || typeof node.closest !== "function") return null;
+  return node.closest(selector);
+}
+
+/** Clicks on a nested link keep the link's meaning. The row must not treat them as multi-select. */
+export function isSidebarNestedLinkClick(target: EventTarget | null): boolean {
+  if (target == null || typeof target !== "object") return false;
+  if (nodeClosest(target, "a[href]") !== null) return true;
+  const parent =
+    "parentElement" in target &&
+    target.parentElement !== null &&
+    typeof target.parentElement === "object"
+      ? target.parentElement
+      : null;
+  return nodeClosest(parent, "a[href]") !== null;
+}
+
+// Shift+click on the new thread button creates directly in the current
+// project, skipping the command palette's project picker. With a single
+// project there is nothing to pick, so a plain click already creates
+// immediately and the modifier changes nothing.
+export function shouldCreateNewThreadInCurrentProject(
+  shiftKey: boolean,
+  projectGroupCount: number,
+): boolean {
+  return shiftKey || projectGroupCount <= 1;
+}
+
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];
@@ -480,24 +538,31 @@ export function resolveThreadRowClassName(input: {
   );
 }
 
-// ── Sidebar v2 status model ─────────────────────────────────────────
+// ── Sidebar thread status model ─────────────────────────────────────
 // Five visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
 // unlabeled resting state — the agent stopped and is waiting on the user,
 // whether it finished, asked a question, or proposed a plan.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
-// loom: `attention` is a sixth state — the fork's primary wake signal, which the
-// upstream five cannot express (a `needs_guidance` thread has no session, no
+// loom: `attention` is an extra state — the fork's primary wake signal, which
+// upstream's set cannot express (a `needs_guidance` thread has no session, no
 // approval and no input, so it would rest as "ready").
-export type SidebarV2Status = "attention" | "approval" | "input" | "working" | "failed" | "ready";
+export type SidebarThreadStatus =
+  | "attention" // loom:
+  | "approval"
+  | "input"
+  | "working"
+  | "monitoring"
+  | "failed"
+  | "ready";
 
-type SidebarV2StatusInput = Pick<
+type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "attention" // loom: attention
+  "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "attention" // loom:
 >;
 
-export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
+export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   // loom: precedence mirrors resolveThreadStatusPill — a human-gated thread
   // outranks everything, since nothing else on the row is actionable until the
   // human answers.
@@ -513,10 +578,20 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
+  // A failed session outranks lingering background liveness: the user must
+  // see the failure, not a stale Working (review finding).
   // loom: a server-raised `error` flag (liveness sweep) is the same class of
   // failure as a broken session and reads as one.
   if (thread.session?.status === "error" || thread.attention.includes("error")) {
     return "failed";
+  }
+  // Background work outlives the turn: fleets read as working; monitoring
+  // only when watch loops are the sole live work.
+  if (thread.backgroundLiveness === "working") {
+    return "working";
+  }
+  if (thread.backgroundLiveness === "monitoring") {
+    return "monitoring";
   }
   // loom: work finished but a human still owes it a decision — never idle.
   if (thread.attention.includes("awaiting_acceptance")) {
@@ -558,11 +633,11 @@ export function firstValidTimestamp(
   return null;
 }
 
-// v2 sort: static creation order, newest thread on top. Activity NEVER
+// Sidebar sort: static creation order, newest thread on top. Activity NEVER
 // reorders the list — a row holds its position from open until settled, so
 // the screen only moves at lifecycle transitions. Status (including pending
 // approval) is carried by each card's edge strip, not by position.
-export function sortThreadsForSidebarV2<
+export function sortThreadsForSidebar<
   T extends { readonly id: string; readonly createdAt: string },
 >(threads: readonly T[]): T[] {
   return [...threads].toSorted(
@@ -570,6 +645,29 @@ export function sortThreadsForSidebarV2<
       parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
       left.id.localeCompare(right.id),
   );
+}
+
+// Pinned-reorder key math and the keyed sort live in client-runtime
+// (state/thread-sort) so web and mobile compute identical pinned orders.
+export {
+  generateSpreadPinOrderKeys,
+  pinOrderKeyBetween,
+  planPinnedReorder,
+} from "@t3tools/client-runtime/state/thread-sort";
+export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
+
+/**
+ * Search the already-ordered sidebar thread collection by title only.
+ * Keeping the input order means lifecycle ordering (active, snoozed, settled)
+ * remains stable while the user narrows the list.
+ */
+export function searchSidebarThreadsByTitle<T extends { readonly title: string }>(
+  threads: readonly T[],
+  query: string,
+): T[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length === 0) return [];
+  return threads.filter((thread) => thread.title.toLowerCase().includes(normalizedQuery));
 }
 
 type SettledTimestampInput = Pick<
@@ -587,7 +685,7 @@ export type ActivityTimestampInput = Pick<
     a thread whose last activity was a turn completion doesn't read as older
     than its message time. updatedAt is the final net. Extracted from
     resolveSettledTimestamp so the active list's label and sort key can be the
-    one value (see sortActiveThreadsByActivityForSidebarV2). */
+    one value (see sortActiveThreadsByActivityForSidebar). */
 export function resolveActivityTimestamp(thread: ActivityTimestampInput): string | null {
   let latest: string | null = null;
   let latestMs = Number.NEGATIVE_INFINITY;
@@ -614,7 +712,7 @@ export function resolveSettledTimestamp(thread: SettledTimestampInput): string |
 }
 
 // loom: the ACTIVE list's order — last activity, most recent first. Upstream's
-// sortThreadsForSidebarV2 above is left intact but unused by loom's sidebar.
+// sortThreadsForSidebar above is left intact but unused by loom's sidebar.
 //
 // The defect this fixes: rows LABEL activity age while that sort keys on
 // creation age, so the timestamp column reads as random (a six-day-old thread
@@ -629,10 +727,10 @@ export function resolveSettledTimestamp(thread: SettledTimestampInput): string |
 // backlog that noisy "what moved" is the only question the list can answer.
 // Revisit once that migration has landed and the backlog is cleaned up: if the
 // active block is then readable at a glance, prefer upstream's stability.
-// Revert = call sortThreadsForSidebarV2 at the one call site in SidebarV2.tsx
+// Revert = call sortThreadsForSidebar at the one call site in Sidebar.tsx
 // and point threadTimeLabel at whatever the sort keys on (createdAt), so label
 // and order still agree. Full note: docs/upstream-sync/23-sidebar-v2-rehome.md §I1.
-export function sortActiveThreadsByActivityForSidebarV2<
+export function sortActiveThreadsByActivityForSidebar<
   T extends ActivityTimestampInput & { readonly id: string },
 >(threads: readonly T[]): T[] {
   const activityMs = (thread: T) => firstValidTimestampMs(resolveActivityTimestamp(thread));
@@ -643,7 +741,7 @@ export function sortActiveThreadsByActivityForSidebarV2<
 
 // Settled rows are history, so they order by when the work ENDED, not when
 // the thread was created or last touched.
-export function sortSettledThreadsForSidebarV2<
+export function sortSettledThreadsForSidebar<
   T extends SettledTimestampInput & { readonly id: string },
 >(threads: readonly T[]): T[] {
   const timestampMs = (thread: T) => {
@@ -731,6 +829,8 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
+  // An actionable plan prompt outranks lingering background work: it needs
+  // the user's decision, while liveness merely reports (review finding).
   const hasPlanReadyPrompt =
     !thread.hasPendingUserInput &&
     thread.interactionMode === "plan" &&
@@ -741,6 +841,28 @@ export function resolveThreadStatusPill(input: {
       label: "Plan Ready",
       colorClass: "text-violet-600 dark:text-violet-300/90",
       dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      pulse: false,
+    };
+  }
+
+  // The turn can settle while native background work runs on. Subagent and
+  // workflow fleets read as plain Working; Monitoring is reserved for watch
+  // loops (a parent agent babysitting a PR, tailing checks) with no other
+  // live work. Same recede treatment as Working per inbox-zero.
+  if (thread.backgroundLiveness === "working") {
+    return {
+      label: "Working",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: true,
+    };
+  }
+
+  if (thread.backgroundLiveness === "monitoring") {
+    return {
+      label: "Monitoring",
+      colorClass: "text-sky-600 dark:text-sky-300/80",
+      dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: false,
     };
   }

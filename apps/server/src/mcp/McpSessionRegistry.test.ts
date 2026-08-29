@@ -23,7 +23,7 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
   McpSessionRegistry.__testing
     .make({
       now,
-      maximumLifetimeMs: 1_000,
+      livenessWindowMs: 100,
     })
     .pipe(
       Effect.provideService(HttpServer.HttpServer, httpServer),
@@ -74,22 +74,56 @@ it.effect("builds MCP endpoints from the bound server host", () =>
   }),
 );
 
-it.effect("keeps idle credentials valid until the hard lifetime cap", () =>
+it.effect("expires credentials once their session stops showing signs of life", () =>
   Effect.gen(function* () {
     let timestamp = 1_000;
     const registry = yield* makeRegistry(() => timestamp);
-    const threadId = ThreadId.make("thread-2");
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-2"),
+      providerInstanceId: ProviderInstanceId.make("claude"),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+    timestamp += 101;
+    expect(yield* registry.resolve(token)).toBeUndefined();
+  }),
+);
+
+it.effect("keeps a credential alive across turns that never touch an MCP tool", () =>
+  Effect.gen(function* () {
+    let timestamp = 1_000;
+    const registry = yield* makeRegistry(() => timestamp);
+    const threadId = ThreadId.make("thread-3");
     const issued = yield* registry.issue({
       threadId,
       providerInstanceId: ProviderInstanceId.make("claude"),
     });
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
-    // No tool calls for a long stretch (idle no longer expires anything): still
-    // valid because only the hard cap expires a credential (expiresAt = 2_000).
-    timestamp += 900;
+
+    // Well past the liveness window in total, but each turn reports in before
+    // it lapses — this is the long-session case that used to lose the toolkit.
+    for (let turn = 0; turn < 10; turn += 1) {
+      timestamp += 99;
+      yield* registry.touch(threadId);
+    }
+
     expect((yield* registry.resolve(token))?.threadId).toBe(threadId);
-    // Past the hard cap: expired.
-    timestamp += 200;
+  }),
+);
+
+it.effect("does not keep credentials of other threads alive", () =>
+  Effect.gen(function* () {
+    let timestamp = 1_000;
+    const registry = yield* makeRegistry(() => timestamp);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-4"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+
+    timestamp += 99;
+    yield* registry.touch(ThreadId.make("thread-unrelated"));
+    timestamp += 2;
+
     expect(yield* registry.resolve(token)).toBeUndefined();
   }),
 );

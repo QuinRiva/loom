@@ -158,7 +158,10 @@ export const LoomServerSettingsPatchFields = {
     Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean),
       resumeOnReset: Schema.optionalKey(Schema.Boolean),
-      chains: Schema.optionalKey(
+      // `optional`, not `optionalKey`: the settings-side `chains` is itself
+      // optional, so a caller spreading the current value through the patch
+      // (FailoverSettingsCard) legitimately carries an explicit undefined.
+      chains: Schema.optional(
         Schema.Record(TrimmedNonEmptyString, Schema.Array(TrimmedNonEmptyString)),
       ),
       pausedAccounts: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),

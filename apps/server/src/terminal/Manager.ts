@@ -35,6 +35,7 @@ import {
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+// loom: worktree-local node_modules/.bin PATH prepend for spawned terminals.
 import { withLocalNodeModulesBin } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
@@ -90,12 +91,21 @@ class TerminalSubprocessCheckError extends Schema.TaggedErrorClass<TerminalSubpr
   "TerminalSubprocessCheckError",
   {
     cause: Schema.optional(Schema.Defect()),
-    terminalPid: Schema.Number,
     command: Schema.Literals(["powershell", "ps"]),
+    exitCode: Schema.optional(Schema.NullOr(Schema.Number)),
+    timedOut: Schema.optional(Schema.Boolean),
+    stdoutTruncated: Schema.optional(Schema.Boolean),
   },
 ) {
   override get message(): string {
-    return `Failed to inspect terminal subprocesses for PID ${this.terminalPid} with ${this.command}`;
+    const details = [
+      this.exitCode !== undefined && this.exitCode !== null ? `exit code ${this.exitCode}` : null,
+      this.timedOut ? "timed out" : null,
+      this.stdoutTruncated ? "output truncated" : null,
+    ]
+      .filter((detail) => detail !== null)
+      .join(", ");
+    return `Failed to inspect terminal subprocesses with ${this.command}${details.length > 0 ? ` (${details})` : ""}`;
   }
 }
 
@@ -199,15 +209,6 @@ interface TerminalSubprocessInspector {
   (
     terminalPid: number,
   ): Effect.Effect<TerminalSubprocessInspectResult, TerminalSubprocessCheckError>;
-}
-
-interface TerminalSubprocessBatchInspector {
-  (
-    terminalPids: ReadonlyArray<number>,
-  ): Effect.Effect<
-    ReadonlyMap<number, TerminalSubprocessInspectResult>,
-    TerminalSubprocessCheckError
-  >;
 }
 
 const resizePtyProcess = (
@@ -620,39 +621,55 @@ function isRetryableShellSpawnError(error: PtyAdapter.PtySpawnError): boolean {
   );
 }
 
-interface ProcessSnapshot {
-  readonly processNameById: ReadonlyMap<number, string>;
+interface TerminalProcessTableSnapshot {
   readonly childrenByParent: ReadonlyMap<number, ReadonlyArray<number>>;
+  readonly commandById: ReadonlyMap<number, string>;
 }
 
-function buildProcessSnapshot(
-  stdout: string,
-  parseLine: (line: string) => readonly [number, number, string] | null,
-): ProcessSnapshot {
-  const processNameById = new Map<number, string>();
+function parsePosixProcessTable(stdout: string): TerminalProcessTableSnapshot {
   const childrenByParent = new Map<number, number[]>();
+  const commandById = new Map<number, string>();
   for (const line of stdout.split(/\r?\n/g)) {
-    const process = parseLine(line);
-    if (!process) continue;
-    const [pid, parentPid, name] = process;
-    processNameById.set(pid, name);
+    // `comm=` is the final column and may itself contain spaces, so only the
+    // first two tokens are structural.
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ppid = Number(match[2]);
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
+    commandById.set(pid, (match[3] ?? "").trim());
+    const children = childrenByParent.get(ppid) ?? [];
+    children.push(pid);
+    childrenByParent.set(ppid, children);
+  }
+  return { childrenByParent, commandById };
+}
+
+function parseWindowsProcessTable(stdout: string): TerminalProcessTableSnapshot {
+  const childrenByParent = new Map<number, number[]>();
+  const commandById = new Map<number, string>();
+  for (const line of stdout.split(/\r?\n/g)) {
+    const [pidRaw, parentPidRaw, nameRaw] = line.trim().split("|", 3);
+    const pid = Number(pidRaw);
+    const parentPid = Number(parentPidRaw);
+    if (!Number.isInteger(pid) || !Number.isInteger(parentPid)) continue;
+    commandById.set(pid, nameRaw?.trim() ?? "");
     const children = childrenByParent.get(parentPid) ?? [];
     children.push(pid);
     childrenByParent.set(parentPid, children);
   }
-  return { processNameById, childrenByParent };
+  return { childrenByParent, commandById };
 }
 
-function inspectTerminalFromSnapshot(
+function deriveSubprocessInspectResult(
+  snapshot: TerminalProcessTableSnapshot,
   terminalPid: number,
-  snapshot: ProcessSnapshot,
   platform: NodeJS.Platform,
 ): TerminalSubprocessInspectResult {
-  const childPid = snapshot.childrenByParent.get(terminalPid)?.[0];
+  const childPid = (snapshot.childrenByParent.get(terminalPid) ?? [])[0];
   if (childPid === undefined) {
     return { hasRunningSubprocess: false, childCommand: null, processIds: [] };
   }
-
   const processIds = new Set<number>([terminalPid]);
   const pending = [terminalPid];
   while (pending.length > 0) {
@@ -664,11 +681,7 @@ function inspectTerminalFromSnapshot(
       pending.push(pid);
     }
   }
-
-  const normalized = normalizeChildCommandName(
-    snapshot.processNameById.get(childPid) ?? "",
-    platform,
-  );
+  const normalized = normalizeChildCommandName(snapshot.commandById.get(childPid) ?? "", platform);
   return {
     hasRunningSubprocess: true,
     childCommand: normalized ? truncateTerminalWireLabel(normalized) : null,
@@ -676,56 +689,34 @@ function inspectTerminalFromSnapshot(
   };
 }
 
-const windowsProcessSnapshot = Effect.fn("terminal.windowsProcessSnapshot")(function* (
-  terminalPids: ReadonlyArray<number>,
-): Effect.fn.Return<ProcessSnapshot, TerminalSubprocessCheckError, ProcessRunner.ProcessRunner> {
-  const processRunner = yield* ProcessRunner.ProcessRunner;
-  const command =
-    'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { Write-Output "$($_.ProcessId)|$($_.ParentProcessId)|$($_.Name)" }';
-  const result = yield* processRunner
-    .run({
-      // powershell.exe is a real executable — never spawn it through cmd.exe
-      // shell mode, which would re-tokenize the `-Command` payload (pipes,
-      // semicolons) before PowerShell ever sees it.
-      command: "powershell.exe",
-      args: ["-NoProfile", "-NonInteractive", "-Command", command],
-      timeout: "1500 millis",
-      maxOutputBytes: 1024 * 1024,
-      outputMode: "truncate",
-      timeoutBehavior: "timedOutResult",
-    })
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new TerminalSubprocessCheckError({
-            cause,
-            terminalPid: terminalPids[0] ?? 0,
-            command: "powershell",
-          }),
-      ),
-    );
-  return result.code === 0
-    ? buildProcessSnapshot(result.stdout, (line) => {
-        const [pidRaw, parentPidRaw, name = ""] = line.trim().split("|", 3);
-        const pid = Number(pidRaw);
-        const parentPid = Number(parentPidRaw);
-        return Number.isInteger(pid) && Number.isInteger(parentPid)
-          ? [pid, parentPid, name.trim()]
-          : null;
-      })
-    : { processNameById: new Map(), childrenByParent: new Map() };
+const POSIX_PS_ABSOLUTE_PATHS = ["/bin/ps", "/usr/bin/ps"] as const;
+
+// Resolve `ps` to an absolute path once at startup. Spawning by bare name
+// walks every PATH entry per spawn (one failed posix_spawn per directory
+// until the hit), which is measurable at a 1s poll cadence on long PATHs.
+const resolvePosixPsCommand = Effect.fn("terminal.resolvePosixPsCommand")(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  for (const candidate of POSIX_PS_ABSOLUTE_PATHS) {
+    const exists = yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false));
+    if (exists) return candidate;
+  }
+  return "ps";
 });
 
-const posixProcessSnapshot = Effect.fn("terminal.posixProcessSnapshot")(function* (
-  terminalPids: ReadonlyArray<number>,
-): Effect.fn.Return<ProcessSnapshot, TerminalSubprocessCheckError, ProcessRunner.ProcessRunner> {
+const posixProcessTableSnapshot = Effect.fn("terminal.posixProcessTableSnapshot")(function* (
+  psCommand: string,
+): Effect.fn.Return<
+  TerminalProcessTableSnapshot,
+  TerminalSubprocessCheckError,
+  ProcessRunner.ProcessRunner
+> {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const result = yield* processRunner
     .run({
-      command: "ps",
+      command: psCommand,
       args: ["-eo", "pid=,ppid=,comm="],
       timeout: "1 second",
-      maxOutputBytes: 1024 * 1024,
+      maxOutputBytes: 524_288,
       outputMode: "truncate",
       timeoutBehavior: "timedOutResult",
     })
@@ -734,35 +725,66 @@ const posixProcessSnapshot = Effect.fn("terminal.posixProcessSnapshot")(function
         (cause) =>
           new TerminalSubprocessCheckError({
             cause,
-            terminalPid: terminalPids[0] ?? 0,
             command: "ps",
           }),
       ),
     );
-  return result.code === 0
-    ? buildProcessSnapshot(result.stdout, (line) => {
-        const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
-        if (!match) return null;
-        return [Number(match[1]), Number(match[2]), match[3]?.trim() ?? ""];
-      })
-    : { processNameById: new Map(), childrenByParent: new Map() };
+  if (result.code !== 0 || result.timedOut || result.stdoutTruncated) {
+    // Not authoritative: an empty or partial table would mark every terminal
+    // idle and clear its registered process ids. Failing skips the tick.
+    return yield* new TerminalSubprocessCheckError({
+      command: "ps",
+      exitCode: result.code,
+      timedOut: result.timedOut,
+      stdoutTruncated: result.stdoutTruncated,
+    });
+  }
+  return parsePosixProcessTable(result.stdout);
 });
 
-function defaultSubprocessInspectorForPlatform(platform: NodeJS.Platform) {
-  return Effect.fn("terminal.defaultSubprocessInspector")(function* (
-    terminalPids: ReadonlyArray<number>,
-  ) {
-    const snapshot = yield* platform === "win32"
-      ? windowsProcessSnapshot(terminalPids)
-      : posixProcessSnapshot(terminalPids);
-    return new Map(
-      terminalPids.map(
-        (terminalPid) =>
-          [terminalPid, inspectTerminalFromSnapshot(terminalPid, snapshot, platform)] as const,
-      ),
-    );
-  });
-}
+const windowsProcessTableSnapshot = Effect.fn("terminal.windowsProcessTableSnapshot")(
+  function* (): Effect.fn.Return<
+    TerminalProcessTableSnapshot,
+    TerminalSubprocessCheckError,
+    ProcessRunner.ProcessRunner
+  > {
+    const command =
+      'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { Write-Output "$($_.ProcessId)|$($_.ParentProcessId)|$($_.Name)" }';
+    const processRunner = yield* ProcessRunner.ProcessRunner;
+    const result = yield* processRunner
+      .run({
+        // powershell.exe is a real executable — never spawn it through cmd.exe
+        // shell mode, which would re-tokenize the `-Command` payload (pipes,
+        // semicolons) before PowerShell ever sees it.
+        command: "powershell.exe",
+        args: ["-NoProfile", "-NonInteractive", "-Command", command],
+        timeout: "1500 millis",
+        maxOutputBytes: 262_144,
+        outputMode: "truncate",
+        timeoutBehavior: "timedOutResult",
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new TerminalSubprocessCheckError({
+              cause,
+              command: "powershell",
+            }),
+        ),
+      );
+    if (result.code !== 0 || result.timedOut || result.stdoutTruncated) {
+      // Not authoritative: an empty or partial table would mark every terminal
+      // idle and clear its registered process ids. Failing skips the tick.
+      return yield* new TerminalSubprocessCheckError({
+        command: "powershell",
+        exitCode: result.code,
+        timedOut: result.timedOut,
+        stdoutTruncated: result.stdoutTruncated,
+      });
+    }
+    return parseWindowsProcessTable(result.stdout);
+  },
+);
 
 function capHistory(history: string, maxLines: number): string {
   if (history.length === 0) return history;
@@ -790,7 +812,29 @@ function shouldStripCsiSequence(body: string, finalByte: string): boolean {
   if (finalByte === "c" && /^[>0-9;?]*$/.test(body)) {
     return true;
   }
+  // DECRQM mode queries (…$p) and DECRPM replies (…$y): replaying a stored
+  // query makes the terminal answer again, and the shell echoes the answer as
+  // junk at the prompt. The `$` guard keeps setters like DECSTR (!p) and
+  // DECSCL ("p) intact.
+  if ((finalByte === "p" || finalByte === "y") && /^[0-9;?]*\$$/.test(body)) {
+    return true;
+  }
+  // XTVERSION query (>q). DECSCUSR (space-intermediate q) stays.
+  if (finalByte === "q" && /^>[0-9;]*$/.test(body)) {
+    return true;
+  }
+  // Kitty keyboard protocol query/reply (?u). Restore-cursor (bare u) stays.
+  if (finalByte === "u" && body.startsWith("?")) {
+    return true;
+  }
   return false;
+}
+
+// DECRQSS ($q) and XTGETTCAP (+q) queries plus their replies ([01]$r / [01]+r):
+// pure request/response traffic with no visual value, and replaying a stored
+// query triggers a fresh reply.
+function shouldStripDcsSequence(content: string): boolean {
+  return /^[01]?[$+][qr]/.test(content);
 }
 
 function shouldStripOscSequence(content: string): boolean {
@@ -893,7 +937,10 @@ function sanitizeTerminalHistoryChunk(
         }
         const sequence = input.slice(index, terminatorIndex);
         const content = stripStringTerminator(input.slice(index + 2, terminatorIndex));
-        if (nextCodePoint !== 0x5d || !shouldStripOscSequence(content)) {
+        const strip =
+          (nextCodePoint === 0x5d && shouldStripOscSequence(content)) ||
+          (nextCodePoint === 0x50 && shouldStripDcsSequence(content));
+        if (!strip) {
           append(sequence);
         }
         index = terminatorIndex;
@@ -936,7 +983,10 @@ function sanitizeTerminalHistoryChunk(
       }
       const sequence = input.slice(index, terminatorIndex);
       const content = stripStringTerminator(input.slice(index + 1, terminatorIndex));
-      if (codePoint !== 0x9d || !shouldStripOscSequence(content)) {
+      const strip =
+        (codePoint === 0x9d && shouldStripOscSequence(content)) ||
+        (codePoint === 0x90 && shouldStripDcsSequence(content));
+      if (!strip) {
         append(sequence);
       }
       index = terminatorIndex;
@@ -981,10 +1031,19 @@ function shouldExcludeTerminalEnvKey(key: string): boolean {
 // They describe the AppImage itself, not the user's session, so terminals must
 // not inherit them.
 const APPIMAGE_RUNTIME_ENV_KEYS = ["APPIMAGE", "APPDIR", "ARGV0", "OWD"] as const;
-// PATH-style variables the AppImage runtime prepends with its temporary mount
-// (e.g. /tmp/.mount_T3-XXXX/usr/bin). Only the mount segments are dropped; the
-// user's real entries are preserved.
-const APPIMAGE_PATH_LIKE_ENV_KEYS = ["PATH", "LD_LIBRARY_PATH"] as const;
+// Colon-separated search-path variables the AppImage runtime points at its
+// temporary mount (e.g. /tmp/.mount_T3-XXXX/usr/bin, the bundled glib schemas,
+// and an $APPDIR/usr/share XDG data entry). Only the mount segments are
+// dropped; the user's real entries are preserved. When nothing but mount
+// segments remain the variable is removed entirely so consumers fall back to
+// their platform default (e.g. gsettings finds the host schemas instead of
+// reporting "No schemas installed"). See issues #1699 and #5059.
+const APPIMAGE_PATH_LIKE_ENV_KEYS = [
+  "PATH",
+  "LD_LIBRARY_PATH",
+  "XDG_DATA_DIRS",
+  "GSETTINGS_SCHEMA_DIR",
+] as const;
 
 function isPathSegmentUnderAppDir(segment: string, appDir: string): boolean {
   return segment === appDir || segment.startsWith(`${appDir}/`);
@@ -1041,7 +1100,7 @@ function createTerminalSpawnEnv(
       spawnEnv[key] = value;
     }
   }
-  // Strip AppImage runtime env leakage (issue #1699), then resolve the
+  // loom: strip AppImage runtime env leakage (issue #1699), then resolve the
   // terminal's own worktree binaries (e.g. `vp`) before anything inherited from
   // the server's PATH, which may point at a different checkout.
   return withLocalNodeModulesBin(stripAppImageRuntimeEnv(spawnEnv), cwd, platform);
@@ -1107,20 +1166,26 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const baseEnv = options.env ?? process.env;
   const shellResolver = options.shellResolver ?? (() => defaultShellResolver(platform, baseEnv));
   const processRunner = yield* ProcessRunner.ProcessRunner;
+  // One process-table snapshot per poll tick, shared across every terminal.
+  // Per-terminal `pgrep`/`ps` calls multiply spawn load by terminal count and
+  // can exhaust the PID space on hosts with many sessions (#6332).
+  const fetchProcessTableSnapshot = (
+    platform === "win32"
+      ? windowsProcessTableSnapshot()
+      : posixProcessTableSnapshot(yield* resolvePosixPsCommand())
+  ).pipe(Effect.provideService(ProcessRunner.ProcessRunner, processRunner));
   const customSubprocessInspector = options.subprocessInspector;
-  const subprocessInspector: TerminalSubprocessBatchInspector = customSubprocessInspector
-    ? (terminalPids) =>
-        Effect.forEach(
-          terminalPids,
-          (terminalPid) =>
-            customSubprocessInspector(terminalPid).pipe(
-              Effect.map((result) => [terminalPid, result] as const),
-            ),
-          { concurrency: "unbounded" },
-        ).pipe(Effect.map((results) => new Map(results)))
-    : (terminalPids) =>
-        defaultSubprocessInspectorForPlatform(platform)(terminalPids).pipe(
-          Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
+  const acquireSubprocessInspector: Effect.Effect<
+    TerminalSubprocessInspector,
+    TerminalSubprocessCheckError
+  > =
+    customSubprocessInspector !== undefined
+      ? Effect.succeed(customSubprocessInspector)
+      : Effect.map(
+          fetchProcessTableSnapshot,
+          (snapshot): TerminalSubprocessInspector =>
+            (terminalPid) =>
+              Effect.succeed(deriveSubprocessInspectResult(snapshot, terminalPid, platform)),
         );
   const subprocessPollIntervalMs =
     options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
@@ -1948,8 +2013,6 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
 
   const pollSubprocessActivity = Effect.fn("terminal.pollSubprocessActivity")(function* () {
-    if (terminalEventListeners.size === 0) return;
-
     const state = yield* readManagerState;
     const runningSessions = [...state.sessions.values()].filter(
       (session): session is TerminalSessionState & { pid: number } =>
@@ -1960,25 +2023,42 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       return;
     }
 
-    // The default inspector answers every PTY from one process-table snapshot.
-    const inspectResults = yield* subprocessInspector(
-      runningSessions.map((session) => session.pid),
-    ).pipe(
+    const inspectorOption = yield* acquireSubprocessInspector.pipe(
       Effect.map(Option.some),
       Effect.catch((reason) =>
-        Effect.logWarning("failed to check terminal subprocess activity", { reason }).pipe(
-          Effect.as(Option.none<ReadonlyMap<number, TerminalSubprocessInspectResult>>()),
-        ),
+        Effect.logWarning("failed to snapshot processes for terminal subprocess polling", {
+          reason,
+        }).pipe(Effect.as(Option.none<TerminalSubprocessInspector>())),
       ),
     );
-    if (Option.isNone(inspectResults)) return;
+
+    if (Option.isNone(inspectorOption)) {
+      return;
+    }
+
+    const subprocessInspector = inspectorOption.value;
 
     const checkSubprocessActivity = Effect.fn("terminal.checkSubprocessActivity")(function* (
       session: TerminalSessionState & { pid: number },
     ) {
       const terminalPid = session.pid;
-      const next = inspectResults.value.get(terminalPid);
-      if (!next) return;
+      const inspectResult = yield* subprocessInspector(terminalPid).pipe(
+        Effect.map(Option.some),
+        Effect.catch((reason) =>
+          Effect.logWarning("failed to check terminal subprocess activity", {
+            threadId: session.threadId,
+            terminalId: session.terminalId,
+            terminalPid,
+            reason,
+          }).pipe(Effect.as(Option.none<TerminalSubprocessInspectResult>())),
+        ),
+      );
+
+      if (Option.isNone(inspectResult)) {
+        return;
+      }
+
+      const next = inspectResult.value;
       yield* registerTerminalProcesses({
         threadId: session.threadId,
         terminalId: session.terminalId,

@@ -94,7 +94,7 @@ export interface NodeSqliteRawConnection {
   readonly executeValues: (
     sql: string,
     params: ReadonlyArray<unknown>,
-    options: { readonly safeIntegers: boolean },
+    options: { readonly safeIntegers: boolean; readonly noCache: boolean },
   ) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError>;
 }
 
@@ -188,7 +188,7 @@ export const makeRawConnection = Effect.fnUntraced(function* (
       ),
     executeValues: (sql, params, options) =>
       Effect.acquireUseRelease(
-        Cache.get(prepareCache, sql),
+        options.noCache ? prepare(sql) : Cache.get(prepareCache, sql),
         (statement) =>
           Effect.try({
             try: () => {
@@ -271,6 +271,7 @@ export const SqliteWorkerRpcs = RpcGroup.make(
       sql: Schema.String,
       params: Schema.Array(Schema.Any),
       safeIntegers: Schema.Boolean,
+      noCache: Schema.Boolean,
     },
     success: Schema.Any,
     error: SqlError,

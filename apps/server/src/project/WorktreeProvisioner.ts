@@ -316,7 +316,13 @@ const make = Effect.gen(function* () {
     input: ProvisionWorktreeInput,
   ) {
     let worktreeBaseRef = input.baseBranch;
-    if (input.startFromOrigin) {
+    // "Start from origin" is a stored default; repos without an origin remote
+    // fall back to the local base branch instead of failing the whole bootstrap
+    // on `git fetch origin`.
+    const startFromOrigin =
+      input.startFromOrigin === true &&
+      (yield* gitWorkflow.remoteExists({ cwd: input.projectCwd, remoteName: "origin" }));
+    if (startFromOrigin) {
       yield* gitWorkflow.fetchRemote({ cwd: input.projectCwd, remoteName: "origin" });
       const resolved = yield* gitWorkflow.resolveRemoteTrackingCommit({
         cwd: input.projectCwd,

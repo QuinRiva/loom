@@ -21,16 +21,27 @@ import {
   type ClientSettingsPatch,
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
+  type EnvironmentIdentificationMode,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import { ensureLocalApi } from "~/localApi";
+import {
+  getThemeDefinition,
+  getThemePreviewSidebarArtwork,
+  resolveThemeHalf,
+  subscribeToThemePreview,
+  themeAllowsSidebarArtwork,
+} from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
 import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { useTheme } from "./useTheme";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
+
+type UnifiedSettingsPatch = ServerSettingsPatch & ClientSettingsPatch;
 
 const clientSettingsListeners = new Set<() => void>();
 const clientSettingsHydrationListeners = new Set<() => void>();
@@ -144,7 +155,7 @@ function persistClientSettings(settings: ClientSettings): void {
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
 
-function splitPatch(patch: Partial<UnifiedSettings>): {
+function splitPatch(patch: UnifiedSettingsPatch): {
   serverPatch: ServerSettingsPatch;
   clientPatch: ClientSettingsPatch;
 } {
@@ -172,6 +183,17 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
  */
 export function getClientSettings(): ClientSettings {
   return getClientSettingsSnapshot();
+}
+
+/**
+ * Resolves once client settings have been read from disk.
+ *
+ * The pre-hydration snapshot is just the schema defaults, so imperative paths
+ * that open a preview must await this or they bake the built-in viewport, zoom
+ * and appearance into a tab that never picks up the user's saved values.
+ */
+export function ensureClientSettingsHydrated(): Promise<void> {
+  return hydrateClientSettings();
 }
 
 export function useClientSettingsHydrated(): boolean {
@@ -218,26 +240,53 @@ export function useClientSettings<T = ClientSettings>(
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
 }
 
+export function resolveEnvironmentIdentificationMode(input: {
+  mode: EnvironmentIdentificationMode;
+  settingsHydrated: boolean;
+  paletteThemeActive?: boolean;
+  paletteThemeAllowsArtwork?: boolean;
+}): EnvironmentIdentificationMode {
+  // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
+  if (!input.settingsHydrated) return "none";
+  // Artwork palettes are maintained for built-ins only. Keep an explicit
+  // "none", but use the theme-aware pill for user-controlled palettes.
+  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
+    ? "pill"
+    : input.mode;
+}
+
+export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMode {
+  const settingsHydrated = useClientSettingsHydrated();
+  const mode = useClientSettingsValue().environmentIdentificationMode;
+  const { resolvedTheme, theme, themeHalves } = useTheme();
+  const previewSidebarArtwork = useSyncExternalStore(
+    subscribeToThemePreview,
+    getThemePreviewSidebarArtwork,
+    () => null,
+  );
+  const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
+  const activeThemeDefinition = getThemeDefinition(activeTheme);
+  return resolveEnvironmentIdentificationMode({
+    mode,
+    settingsHydrated,
+    paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
+    paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
+  });
+}
+
 /**
- * loom: sidebar v2 is loom's default surface on every build (the re-home landed
- * the workstream roll-ups, settle semantics and goal panel that made v1's
- * goal nesting redundant — docs/upstream-sync/23-sidebar-v2-rehome.md). Only an
- * explicit Settings → Beta choice holds v1. Every consumer must read through
- * this rather than `settings.sidebarV2Enabled`, which is only meaningful
- * alongside `sidebarV2ConfiguredByUser`.
+ * Whether the legacy sidebar (Settings → General → Legacy features) replaces
+ * the default one.
  *
- * Client settings persist as a whole blob, so a stored `sidebarV2Enabled: false`
- * is almost always a default that rode along with an unrelated setting rather
- * than a real opt-out — hence the companion bit, written only by the toggle.
- *
- * Unlike upstream's channel-derived default (`resolveSidebarV2Default`,
- * c13a021e4), loom needs no hydration guard: the pre-hydration snapshot resolves
- * to v2, which is where all but explicitly opted-out users end up, so the common
- * path never remounts the tree.
+ * Held at the default sidebar until client settings hydrate: the pre-hydration
+ * snapshot is just the schema defaults, so resolving against it could mount one
+ * sidebar and then swap it out once persisted settings land — remounting the
+ * whole tree for everyone instead of only for legacy opt-ins.
  */
-export function useSidebarV2Enabled(): boolean {
-  const settings = useClientSettingsValue();
-  return settings.sidebarV2ConfiguredByUser ? settings.sidebarV2Enabled : true;
+export function useLegacySidebarEnabled(): boolean {
+  const settingsHydrated = useClientSettingsHydrated();
+  const legacySidebarEnabled = useClientSettingsValue().legacySidebarEnabled;
+  return settingsHydrated && legacySidebarEnabled;
 }
 
 /** Read current settings for one environment, merged with client-local preferences. */
@@ -268,7 +317,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
     "server settings update",
   );
   const updateSettings = useCallback(
-    (patch: Partial<UnifiedSettings>) => {
+    (patch: UnifiedSettingsPatch) => {
       const { serverPatch, clientPatch } = splitPatch(patch);
 
       if (Object.keys(serverPatch).length > 0) {
@@ -279,7 +328,6 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
           });
         }
       }
-
       if (Object.keys(clientPatch).length > 0) {
         persistClientSettings({
           ...getClientSettingsSnapshot(),

@@ -1,6 +1,7 @@
 import type { ModelSelection } from "@t3tools/contracts";
 
 import { getProviderModelParts, getProviderTint } from "../lib/workstreamPresentation";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
  * Shared provider + model pill (plan §2.2): `{provider} · {model}` with a
@@ -20,21 +21,27 @@ export function WorkstreamModelPill({ selection }: { selection: ModelSelection }
   const { provider, model } = getProviderModelParts(selection);
   const tint = getProviderTint(provider ?? model);
   return (
-    <span
-      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full py-[1.5px] pl-1.5 pr-2 font-mono text-[9.5px] text-white/[0.78]"
-      style={{ border: `1px solid ${tint}66`, background: `${tint}1c` }}
-      title={provider ? `${provider} · ${model}` : model}
-    >
-      <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: tint }} />
-      {provider ? (
-        <>
-          <span className="min-w-0 truncate text-white/55">{provider}</span>
-          <span aria-hidden className="shrink-0 text-white/30">
-            ·
-          </span>
-        </>
-      ) : null}
-      <span className="shrink-0">{model}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full py-[1.5px] pl-1.5 pr-2 font-mono text-[9.5px] text-white/[0.78]"
+            style={{ border: `1px solid ${tint}66`, background: `${tint}1c` }}
+          />
+        }
+      >
+        <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: tint }} />
+        {provider ? (
+          <>
+            <span className="min-w-0 truncate text-white/55">{provider}</span>
+            <span aria-hidden className="shrink-0 text-white/30">
+              ·
+            </span>
+          </>
+        ) : null}
+        <span className="shrink-0">{model}</span>
+      </TooltipTrigger>
+      <TooltipPopup>{provider ? `${provider} · ${model}` : model}</TooltipPopup>
+    </Tooltip>
   );
 }

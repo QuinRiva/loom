@@ -1,6 +1,6 @@
 import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   PI_DEFAULT_MODEL,
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   type ModelSelection,
   ProviderDriverKind,
@@ -82,6 +82,7 @@ export interface AppModelOption {
    */
   excluded?: boolean;
   isDefault?: boolean;
+  isLegacy?: boolean;
 }
 
 interface InstanceModelPreferences {
@@ -100,6 +101,7 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   if (model.shortName) option.shortName = model.shortName;
   if (model.subProvider) option.subProvider = model.subProvider;
   if (model.isDefault) option.isDefault = true;
+  if (model.isLegacy) option.isLegacy = true;
   return option;
 }
 
@@ -306,6 +308,7 @@ export function resolveAppModelSelectionState(
 ): ModelSelection {
   const selection = settings.textGenerationModelSelection ?? {
     instanceId: DEFAULT_TEXT_GENERATION_INSTANCE_ID,
+    // loom: pi is the fork's default provider.
     model: PI_DEFAULT_MODEL,
   };
   const entries = deriveProviderInstanceEntries(providers);
@@ -321,7 +324,7 @@ export function resolveAppModelSelectionState(
     const model =
       resolveAppModelSelectionForInstance(entry.instanceId, settings, providers, selectedModel) ??
       entry.models[0]?.slug ??
-      DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[entry.driverKind];
+      DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[entry.driverKind];
     if (!model) {
       return createModelSelection(entry.instanceId, "", []);
     }

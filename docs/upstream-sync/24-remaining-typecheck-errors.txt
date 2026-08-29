@@ -1,0 +1,310 @@
+# Remaining `vp run typecheck` errors after cadence pull 6, session 2.
+# Every other package is clean; these are all apps/server (run from apps/server: tsgo --noEmit).
+# Regenerate with: cd apps/server && tsgo --noEmit
+
+integration/providerService.integration.test.ts(109,7): error TS2375: Type 'Layer<ProviderService, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError, WorkspaceLease>' is not assignable to type 'Layer<ProviderService, unknown, never>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(109,7): error TS377034: Missing 'WorkspaceLease' in the expected Layer context. effect(missingLayerContext)
+integration/providerService.integration.test.ts(155,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope | WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(155,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+integration/providerService.integration.test.ts(190,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope | WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(190,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+integration/providerService.integration.test.ts(227,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope | WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(227,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+integration/providerService.integration.test.ts(279,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope | WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(279,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+integration/providerService.integration.test.ts(334,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope | WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+integration/providerService.integration.test.ts(334,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+src/auth/RpcAuthorization.ts(127,12): error TS2740: Type '{ readonly "orchestration.dispatchCommand": "orchestration:operate"; readonly "orchestration.getWorkflowScript": "orchestration:read"; readonly "orchestration.getTurnDiff": "orchestration:read"; ... 95 more ...; readonly subscribeBackgroundPolicy: "orchestration:read"; }' is missing the following properties from type 'Readonly<Record<"assets.createUrl" | "cloud.getRelayClientStatus" | "cloud.installRelayClient" | "filesystem.browse" | "git.preparePullRequestThread" | "git.resolvePullRequest" | ... 103 more ... | "vcs.switchRef", "access:read" | ... 6 more ... | "terminal:operate">>': heartbeat, "orchestration.getThreadActivities", "orchestration.getThreadLifecycle", "projects.listAbsoluteDirectory", and 7 more.
+src/auth/RpcAuthorization.ts(133,25): error TS7053: Element implicitly has an 'any' type because expression of type '"assets.createUrl" | "cloud.getRelayClientStatus" | "cloud.installRelayClient" | "filesystem.browse" | "git.preparePullRequestThread" | "git.resolvePullRequest" | "git.runStackedAction" | ... 102 more ... | "vcs.switchRef"' can't be used to index type '{ readonly "orchestration.dispatchCommand": "orchestration:operate"; readonly "orchestration.getWorkflowScript": "orchestration:read"; readonly "orchestration.getTurnDiff": "orchestration:read"; ... 95 more ...; readonly subscribeBackgroundPolicy: "orchestration:read"; }'.
+src/bin.test.ts(52,3): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(53,56): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(55,3): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(168,5): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(172,5): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(177,28): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(192,28): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(211,47): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(227,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(252,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(280,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(283,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(303,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(321,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(339,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(347,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(371,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(380,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(419,28): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(450,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(466,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(474,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(498,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(526,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(557,18): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.test.ts(583,28): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.ts(51,36): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.ts(69,3): error TS377030: This has any in the requirements channel which is not recommended.
+src/bin.ts(71,5): error TS2345: Argument of type '<A, E, R>(self: Effect<A, E, R>) => Effect<A, E, Exclude<R, NetService | NodeServices>>' is not assignable to parameter of type '(_: Effect<void, BootstrapEnvelopeDecodeError | BootstrapEnvelopeReadError | BootstrapFdStatError | ... 72 more ... | ProjectionRepositoryError, any>) => Effect<...>'.
+src/bin.ts(71,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `any`. effect(missingEffectContext)
+src/cli/pair.test.ts(86,49): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(153,45): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(166,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(190,45): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(202,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(233,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/pair.test.ts(259,9): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/server.ts(5,10): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/server.ts(18,19): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/server.ts(23,34): error TS377030: This has any in the requirements channel which is not recommended.
+src/cli/server.ts(31,5): error TS377030: This has any in the requirements channel which is not recommended.
+src/dev/benchShellSnapshot.ts(69,25): error TS2345: Argument of type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | SqlError, ThreadBackgroundLivenessService | ThreadPlanProgressService>' is not assignable to parameter of type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | SqlError, never>'.
+src/dev/benchShellSnapshot.ts(69,25): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ThreadBackgroundLivenessService | ThreadPlanProgressService`. effect(missingEffectContext)
+src/dev/seedConfig.ts(35,9): error TS2322: Type '{ stateDir: string; dbPath: string; keybindingsConfigPath: string; settingsPath: string; providerStatusCacheDir: string; worktreesDir: string; attachmentsDir: string; workstreamReportsDir: string; ... 37 more ...; tailscaleServePort: number; }' is not assignable to type 'ServerDerivedPaths & { readonly logLevel: LogLevel; readonly traceMinLevel: LogLevel; readonly traceTimingEnabled: boolean; readonly traceBatchWindowMs: number; ... 23 more ...; readonly tailscaleServePort: number; }'.
+src/git/GitManager.test.ts(278,9): error TS2322: Type '{ generateStructured?: <S extends Schema.Top>(input: StructuredGenerationInput<S>) => Effect<S["Type"], TextGenerationError, S["DecodingServices"]>; generateCommitMessage: (input: CommitMessageGenerationInput) => Effect<...>; generatePrContent: (input: PrContentGenerationInput) => Effect<...>; generateBranchName: (i...' is not assignable to type '{ readonly generateCommitMessage: (input: CommitMessageGenerationInput) => Effect<CommitMessageGenerationResult, TextGenerationError, never>; readonly generatePrContent: (input: PrContentGenerationInput) => Effect<...>; readonly generateBranchName: (input: BranchNameGenerationInput) => Effect<...>; readonly generate...'.
+src/git/GitManager.ts(1089,75): error TS2552: Cannot find name 'PR_LOOKUP_FAILURE_TTL'. Did you mean 'nextPrLookupFailureTtl'?
+src/git/GitManager.ts(1294,42): error TS2741: Property 'defaultBranch' is missing in type '{ branch: string; upstreamRef: string | null; isDefaultBranch: boolean; }' but required in type '{ branch: string; upstreamRef: string | null; defaultBranch: string | null; isDefaultBranch: boolean; }'.
+src/mcp/McpSessionRegistry.test.ts(26,7): error TS2353: Object literal may only specify known properties, and 'maximumLifetimeMs' does not exist in type 'McpSessionRegistryOptions'.
+src/orchestration/Layers/HandoffDrafterReactor.test.ts(450,5): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | OrchestrationCommandDeferredError | ... 7 more ... | ProjectionRepositoryError, ThreadBackgroundLivenessService | ThreadPlanProgressService>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | OrchestrationCommandDeferredError | ... 7 more ... | ProjectionRepositoryError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/orchestration/Layers/HandoffDrafterReactor.test.ts(450,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ThreadBackgroundLivenessService | ThreadPlanProgressService`. effect(missingEffectContext)
+src/orchestration/Layers/ProjectionSnapshotQuery.test.ts(34,10): error TS2300: Duplicate identifier 'ProjectionSnapshotQuery'.
+src/orchestration/Layers/ProjectionSnapshotQuery.test.ts(38,10): error TS2300: Duplicate identifier 'ProjectionSnapshotQuery'.
+src/orchestration/Layers/ProjectionSnapshotQuery.ts(756,45): error TS2741: Property 'brief' is missing in type '{ readonly threadId: string & Brand<"ThreadId">; readonly projectId: string & Brand<"ProjectId">; readonly goalId: (string & Brand<"GoalId">) | null; ... 52 more ...; readonly handoffDestinations: readonly { ...; }[]; }' but required in type '{ readonly threadId: string & Brand<"ThreadId">; readonly projectId: string & Brand<"ProjectId">; readonly goalId: (string & Brand<"GoalId">) | null; ... 53 more ...; readonly handoffDestinations: readonly { ...; }[]; }'.
+src/orchestration/Layers/ProviderCommandReactor.test.ts(426,7): error TS2345: Argument of type 'Effect<{ readEvents: (fromSequenceExclusive: number, limit?: number | undefined) => Stream<{ readonly type: "goal.created"; readonly payload: { readonly goalId: string & Brand<"GoalId">; ... 6 more ...; readonly updatedAt: string; }; ... 8 more ...; readonly metadata: { ...; }; } | ... 53 more ... | { ...; }, Orches...' is not assignable to parameter of type 'Effect<OrchestrationEngineShape, never, OrchestrationEngineService>'.
+src/orchestration/Layers/ProviderCommandReactor.test.ts(446,11): error TS2739: Type '{ readEvents: (fromSequenceExclusive: number, limit?: number | undefined) => Stream<{ readonly type: "goal.created"; readonly payload: { readonly goalId: string & Brand<"GoalId">; readonly projectId: string & Brand<...>; ... 5 more ...; readonly updatedAt: string; }; ... 8 more ...; readonly metadata: { ...; }; } | ...' is missing the following properties from type 'OrchestrationEngineShape': readStreamEvents, subscribeDomainEvents
+src/orchestration/Layers/ProviderCommandReactor.test.ts(492,11): error TS2451: Cannot redeclare block-scoped variable 'drain'.
+src/orchestration/Layers/ProviderCommandReactor.test.ts(562,11): error TS2451: Cannot redeclare block-scoped variable 'drain'.
+src/orchestration/Layers/ProviderCommandReactor.test.ts(1592,11): error TS2451: Cannot redeclare block-scoped variable 'readModel'.
+src/orchestration/Layers/ProviderCommandReactor.test.ts(1607,11): error TS2451: Cannot redeclare block-scoped variable 'readModel'.
+src/orchestration/Layers/ProviderRuntimeIngestion.test.ts(326,7): error TS2741: Property 'queuedMessages' is missing in type '{ threadId: string & Brand<"ThreadId">; status: "ready"; providerName: string; runtimeMode: "approval-required"; activeTurnId: null; updatedAt: string; lastError: null; }' but required in type '{ readonly lastErrorClass?: "permission_error" | "provider_error" | "quota_exhausted" | "transport_error" | "unknown" | "validation_error" | undefined; readonly queuedMessages: { readonly steering: readonly string[]; readonly followUp: readonly string[]; }; ... 7 more ...; readonly updatedAt: string; }'.
+src/orchestration/Layers/ProviderRuntimeIngestion.test.ts(1158,7): error TS2741: Property 'queuedMessages' is missing in type '{ threadId: string & Brand<"ThreadId">; status: "starting"; providerName: string; runtimeMode: "approval-required"; activeTurnId: null; updatedAt: string; lastError: null; }' but required in type '{ readonly lastErrorClass?: "permission_error" | "provider_error" | "quota_exhausted" | "transport_error" | "unknown" | "validation_error" | undefined; readonly queuedMessages: { readonly steering: readonly string[]; readonly followUp: readonly string[]; }; ... 7 more ...; readonly updatedAt: string; }'.
+src/orchestration/Layers/ProviderRuntimeIngestion.test.ts(1197,7): error TS2741: Property 'queuedMessages' is missing in type '{ threadId: string & Brand<"ThreadId">; status: "starting"; providerName: string; runtimeMode: "approval-required"; activeTurnId: null; updatedAt: string; lastError: null; }' but required in type '{ readonly lastErrorClass?: "permission_error" | "provider_error" | "quota_exhausted" | "transport_error" | "unknown" | "validation_error" | undefined; readonly queuedMessages: { readonly steering: readonly string[]; readonly followUp: readonly string[]; }; ... 7 more ...; readonly updatedAt: string; }'.
+src/orchestration/decider.pinned.test.ts(30,7): error TS2740: Type '{ id: string & Brand<"ThreadId">; projectId: string & Brand<"ProjectId">; title: string; modelSelection: { instanceId: string & Brand<"ProviderInstanceId">; model: string; }; ... 19 more ...; session: null; }' is missing the following properties from type '{ readonly goalId: (string & Brand<"GoalId">) | null; readonly titleProvenance?: "curated" | "default" | "derived" | "seed" | undefined; readonly parentThreadId: (string & Brand<"ThreadId">) | null; ... 52 more ...; readonly session: { ...; } | null; }': goalId, parentThreadId, role, purpose, and 23 more.
+src/orchestration/decider.projectScripts.test.ts(101,72): error TS2345: Argument of type '{ sequence: number; eventId: string & Brand<"EventId">; aggregateKind: "project"; aggregateId: string & Brand<"ProjectId">; type: "project.created"; occurredAt: string; commandId: string & Brand<...>; causationEventId: null; correlationId: string & Brand<...>; metadata: {}; payload: { ...; }; }' is not assignable to parameter of type '{ readonly type: "goal.created"; readonly payload: { readonly goalId: string & Brand<"GoalId">; readonly projectId: string & Brand<"ProjectId">; readonly slug: string; readonly title: string; readonly titleProvenance?: "curated" | ... 3 more ... | undefined; readonly description: string; readonly createdAt: string; ...'.
+src/orchestration/decider.projectThreadEnvMode.test.ts(12,71): error TS2322: Type '{ sequence: number; eventId: string & Brand<"EventId">; aggregateKind: "project"; aggregateId: string & Brand<"ProjectId">; type: "project.created"; occurredAt: string; ... 4 more ...; payload: { ...; }; }' is not assignable to type '{ readonly type: "goal.created"; readonly payload: { readonly goalId: string & Brand<"GoalId">; readonly projectId: string & Brand<"ProjectId">; readonly slug: string; readonly title: string; readonly titleProvenance?: "curated" | ... 3 more ... | undefined; readonly description: string; readonly createdAt: string; ...'.
+src/orchestration/decider.titleRegeneration.test.ts(20,5): error TS2740: Type '{ id: string & Brand<"ThreadId">; projectId: string & Brand<"ProjectId">; title: string; modelSelection: { instanceId: string & Brand<"ProviderInstanceId">; model: string; }; ... 17 more ...; session: null; }' is missing the following properties from type '{ readonly goalId: (string & Brand<"GoalId">) | null; readonly titleProvenance?: "curated" | "default" | "derived" | "seed" | undefined; readonly parentThreadId: (string & Brand<"ThreadId">) | null; ... 52 more ...; readonly session: { ...; } | null; }': goalId, parentThreadId, role, purpose, and 23 more.
+src/persistence/Layers/ProjectionRepositories.test.ts(180,29): error TS2741: Property 'pinnedAt' is missing in type '{ threadId: string & Brand<"ThreadId">; projectId: string & Brand<"ProjectId">; goalId: null; parentThreadId: string & Brand<"ThreadId">; role: string; purpose: null; brief: null; ... 44 more ...; deletedAt: null; }' but required in type '{ readonly threadId: string & Brand<"ThreadId">; readonly projectId: string & Brand<"ProjectId">; readonly goalId: (string & Brand<"GoalId">) | null; ... 53 more ...; readonly deletedAt: string | null; }'.
+src/persistence/Layers/SqliteLanes.test.ts(18,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | SqlError | ProjectionRepositoryError, ThreadBackgroundLivenessService | ThreadPlanProgressService>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | SqlError | ProjectionRepositoryError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/persistence/Layers/SqliteLanes.test.ts(18,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ThreadBackgroundLivenessService | ThreadPlanProgressService`. effect(missingEffectContext)
+src/persistence/Layers/SqliteLanes.test.ts(48,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PersistenceDecodeError | PersistenceSqlError | PlatformError | SqlError, ThreadBackgroundLivenessService | ThreadPlanProgressService>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PersistenceDecodeError | PersistenceSqlError | PlatformError | SqlError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/persistence/Layers/SqliteLanes.test.ts(48,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ThreadBackgroundLivenessService | ThreadPlanProgressService`. effect(missingEffectContext)
+src/provider/Drivers/PiDriver.ts(2584,5): error TS2375: Type 'Effect<{ instanceId: string & Brand<"ProviderInstanceId">; driverKind: string & Brand<"ProviderDriverKind">; continuationIdentity: ProviderContinuationIdentity; ... 5 more ...; textGeneration: { ...; }; }, ProviderDriverError, BackgroundPolicy | ... 3 more ... | ServerSettingsService>' is not assignable to type 'Effect<ProviderInstance, ProviderDriverError, Scope | PiDriverEnv>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Drivers/PiDriver.ts(2584,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `BackgroundPolicy`. effect(missingEffectContext)
+src/provider/Layers/ClaudeCapabilitiesProbe.test.ts(277,44): error TS2339: Property 'args' does not exist on type '{ readonly pid: number; }'.
+src/provider/Layers/ClaudeCapabilitiesProbe.test.ts(280,50): error TS2339: Property 'args' does not exist on type '{ readonly pid: number; }'.
+src/provider/Layers/ProviderRegistry.test.ts(1617,19): error TS377030: This has any in the requirements channel and any in the error channel which is not recommended.
+src/provider/Layers/ProviderRegistry.test.ts(1617,43): error TS377030: This has any in the requirements channel and any in the error channel which is not recommended.
+src/provider/Layers/ProviderRegistry.test.ts(1637,17): error TS2552: Cannot find name 'mockCommandSpawnerLayer'. Did you mean 'mockSpawnerLayer'?
+src/provider/Layers/ProviderRegistry.test.ts(1637,42): error TS7006: Parameter 'command' implicitly has an 'any' type.
+src/provider/Layers/ProviderRegistry.test.ts(1637,51): error TS7006: Parameter 'args' implicitly has an 'any' type.
+src/provider/Layers/ProviderRegistry.test.ts(1663,17): error TS377030: This has any in the requirements channel and any in the error channel which is not recommended.
+src/provider/Layers/ProviderRegistry.test.ts(1667,20): error TS377030: This has any in the requirements channel which is not recommended.
+src/provider/Layers/ProviderService.test.ts(689,3): error TS2375: Type 'Effect<void, ServerSettingsError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, ServerSettingsError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(689,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(750,5): error TS2375: Type 'Effect<void, ServerSettingsError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, ServerSettingsError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(750,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(816,5): error TS2375: Type 'Effect<void, ServerSettingsError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, ServerSettingsError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(816,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(880,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(880,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(970,5): error TS2375: Type 'Effect<void, CheckpointDiffResultInvalidError | CheckpointRefUnavailableError | CheckpointThreadNotFoundError | ... 26 more ... | VcsUnsupportedOperationError, ServerConfig>' is not assignable to type 'Effect<void, CheckpointDiffResultInvalidError | CheckpointRefUnavailableError | CheckpointThreadNotFoundError | ... 26 more ... | VcsUnsupportedOperationError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(970,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(1024,3): error TS2375: Type 'Effect<void, ServerSettingsError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, ServerSettingsError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(1024,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(1190,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderSessionDirectoryWriteError | ProviderSessionRuntimeRepositoryError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderSessionDirectoryWriteError | ProviderSessionRuntimeRepositoryError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(1190,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(1273,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderSessionDirectoryWriteError | ProviderSessionRuntimeRepositoryError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderSessionDirectoryWriteError | ProviderSessionRuntimeRepositoryError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(1273,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(2714,3): error TS2375: Type 'Effect<void, CheckpointDiffResultInvalidError | CheckpointRefUnavailableError | CheckpointThreadNotFoundError | ... 26 more ... | VcsUnsupportedOperationError, ServerConfig>' is not assignable to type 'Effect<void, CheckpointDiffResultInvalidError | CheckpointRefUnavailableError | CheckpointThreadNotFoundError | ... 26 more ... | VcsUnsupportedOperationError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(2714,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(2796,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(2796,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(2888,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(2888,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(2973,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(2973,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3058,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3058,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3193,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3193,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3283,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3283,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3360,3): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, ServerConfig>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3360,3): error TS377004: This Effect requires a service that is missing from the expected Effect context: `ServerConfig`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3477,5): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3477,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3485,5): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3485,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.test.ts(3499,5): error TS2375: Type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, WorkspaceLease>' is not assignable to type 'Effect<void, LoomLedgerReconciliationError | MigrationError | PlatformError | ServerSettingsError | SqlError | ProviderServiceError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/Layers/ProviderService.test.ts(3499,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `WorkspaceLease`. effect(missingEffectContext)
+src/provider/Layers/ProviderService.ts(242,9): error TS2451: Cannot redeclare block-scoped variable 'runtimeEventPubSub'.
+src/provider/Layers/ProviderService.ts(243,9): error TS2451: Cannot redeclare block-scoped variable 'nowIso'.
+src/provider/Layers/ProviderService.ts(452,9): error TS2451: Cannot redeclare block-scoped variable 'runtimeEventPubSub'.
+src/provider/Layers/ProviderService.ts(453,9): error TS2451: Cannot redeclare block-scoped variable 'nowIso'.
+src/provider/Layers/ProviderSessionReaper.test.ts(172,7): error TS1117: An object literal cannot have multiple properties with the same name.
+src/provider/Layers/ProviderSessionReaper.test.ts(204,18): error TS2393: Duplicate function implementation.
+src/provider/Layers/ProviderSessionReaper.test.ts(301,11): error TS2322: Type '(threadId: string & Brand<"ThreadId">) => Effect<never, PersistenceSqlError, never> | Effect<Option<...> | Option<...>, never, never>' is not assignable to type '(threadId: string & Brand<"ThreadId">) => Effect<Option<{ readonly goalId: (string & Brand<"GoalId">) | null; readonly titleProvenance?: "curated" | "default" | "derived" | "seed" | undefined; ... 60 more ...; readonly planProgress?: { ...; } | ... 1 more ... | undefined; }>, ProjectionRepositoryError, never>'.
+src/provider/Layers/ProviderSessionReaper.test.ts(399,18): error TS2393: Duplicate function implementation.
+src/provider/Layers/ProviderSessionReaper.test.ts(500,49): error TS2304: Cannot find name 'repository'.
+src/provider/Layers/ProviderSessionReaper.test.ts(501,26): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Option<unknown>'.
+src/provider/Layers/ProviderSessionReaper.ts(217,13): error TS2552: Cannot find name 'thread'. Did you mean 'ThreadId'?
+src/provider/Layers/ProviderSessionReaper.ts(220,33): error TS2552: Cannot find name 'thread'. Did you mean 'ThreadId'?
+src/provider/makeManagedServerProvider.test.ts(397,5): error TS2375: Type 'Effect<void, ServerSettingsError, BackgroundPolicy | ServerSettingsService>' is not assignable to type 'Effect<void, ServerSettingsError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/makeManagedServerProvider.test.ts(397,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `BackgroundPolicy | ServerSettingsService`. effect(missingEffectContext)
+src/provider/makeManagedServerProvider.test.ts(445,5): error TS2375: Type 'Effect<void, ServerSettingsError, BackgroundPolicy | ServerSettingsService>' is not assignable to type 'Effect<void, ServerSettingsError, Scope>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+src/provider/makeManagedServerProvider.test.ts(445,5): error TS377004: This Effect requires a service that is missing from the expected Effect context: `BackgroundPolicy | ServerSettingsService`. effect(missingEffectContext)
+src/pullRequest/PullRequestService.test.ts(34,3): error TS2741: Property 'defaultStartFromOrigin' is missing in type '{ id: ProjectId; title: string; workspaceRoot: string; repositoryIdentity?: { canonicalKey: string; locator: { source: "git-remote"; remoteName: string; remoteUrl: string; }; provider: string; displayName: string; }; defaultModelSelection: null; scripts: never[]; createdAt: string; updatedAt: string; }' but required in type '{ readonly id: string & Brand<"ProjectId">; readonly title: string; readonly workspaceRoot: string; readonly repositoryIdentity?: { readonly canonicalKey: string; readonly locator: { readonly source: "git-remote"; readonly remoteName: string; readonly remoteUrl: string; }; ... 4 more ...; readonly name?: string; } |...'.
+src/pullRequest/PullRequestService.test.ts(165,11): error TS2322: Type '() => Effect.Effect<{ snapshotSequence: number; projects: readonly { readonly id: string & Brand<"ProjectId">; readonly title: string; readonly workspaceRoot: string; readonly repositoryIdentity?: { readonly canonicalKey: string; ... 5 more ...; readonly name?: string; } | null | undefined; ... 6 more ...; readonly ...' is not assignable to type '() => Effect<{ readonly goals: readonly { readonly id: string & Brand<"GoalId">; readonly projectId: string & Brand<"ProjectId">; readonly slug: string; readonly title: string; readonly titleProvenance?: "curated" | ... 3 more ... | undefined; ... 4 more ...; readonly archivedAt: string | null; }[]; readonly snapsho...'.
+src/server.test.ts(801,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(801,31): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1039,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1039,22): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1213,24): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1671,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1702,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1712,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1726,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1743,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1768,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1786,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1817,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1850,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1893,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(1956,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2030,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2083,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2118,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2158,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2195,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2236,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2280,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2322,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2364,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2402,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2436,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2474,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2518,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2549,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2626,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2669,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2731,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2745,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2840,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2899,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(2958,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3018,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3079,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3147,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3228,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3295,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3346,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3397,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3462,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3512,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3562,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3590,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3614,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3662,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3716,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3735,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3760,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3788,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3813,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3840,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3868,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3890,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3911,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3922,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(3969,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4010,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4121,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4180,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4237,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4249,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4296,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4316,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4454,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4529,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4573,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4647,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4683,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4704,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4751,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4798,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4853,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4886,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4949,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(4986,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5016,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5060,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5113,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5223,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5248,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5274,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5307,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5339,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5370,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5394,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5730,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5810,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5884,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(5936,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6013,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6160,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6259,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6308,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6363,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6410,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6448,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6482,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6522,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6559,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6607,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6669,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6747,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6806,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6855,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6909,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(6960,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7017,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7074,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7124,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7173,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7247,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7329,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7412,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7469,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7537,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7560,21): error TS2741: Property 'queuedMessages' is missing in type '{ threadId: string & Brand<"ThreadId">; status: "ready"; providerName: string; runtimeMode: "full-access"; activeTurnId: null; lastError: null; updatedAt: string; }' but required in type '{ readonly lastErrorClass?: "permission_error" | "provider_error" | "quota_exhausted" | "transport_error" | "unknown" | "validation_error" | undefined; readonly queuedMessages: { readonly steering: readonly string[]; readonly followUp: readonly string[]; }; ... 7 more ...; readonly updatedAt: string; }'.
+src/server.test.ts(7605,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7657,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7736,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(7885,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8062,16): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8165,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8274,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8387,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8462,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8548,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8634,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.test.ts(8675,24): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(526,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(717,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(717,25): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(720,11): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(721,7): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(728,12): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(742,14): error TS377030: This has any in the requirements channel which is not recommended.
+src/server.ts(742,39): error TS377030: This has any in the requirements channel which is not recommended.
+src/serverRuntimeStartup.ts(385,11): error TS2451: Cannot redeclare block-scoped variable 'welcomeBase'.
+src/serverRuntimeStartup.ts(386,11): error TS2451: Cannot redeclare block-scoped variable 'environment'.
+src/serverRuntimeStartup.ts(413,13): error TS2451: Cannot redeclare block-scoped variable 'welcomeBase'.
+src/serverRuntimeStartup.ts(414,13): error TS2451: Cannot redeclare block-scoped variable 'environment'.
+src/vcs/VcsDriverRegistry.ts(121,9): error TS1117: An object literal cannot have multiple properties with the same name.
+src/vcs/VcsStatusBroadcaster.test.ts(424,73): error TS2345: Argument of type '() => Effect.Effect<void, GitCommandError | GitManagerError | GitPullRequestMaterializationError | SourceControlProviderError | TextGenerationError, BackgroundPolicy.BackgroundPolicy>' is not assignable to parameter of type 'TestFunction<void, GitCommandError | GitManagerError | GitPullRequestMaterializationError | SourceControlProviderError | TextGenerationError, Scope, [...]>'.
+src/vcs/VcsStatusBroadcaster.test.ts(424,73): error TS377004: This Effect requires a service that is missing from the expected Effect context: `BackgroundPolicy`. effect(missingEffectContext)
+src/vcs/VcsStatusBroadcaster.test.ts(487,81): error TS2345: Argument of type '() => Effect.Effect<void, GitCommandError | GitManagerError | GitPullRequestMaterializationError | SourceControlProviderError | TextGenerationError, BackgroundPolicy.BackgroundPolicy>' is not assignable to parameter of type 'TestFunction<void, GitCommandError | GitManagerError | GitPullRequestMaterializationError | SourceControlProviderError | TextGenerationError, Scope, [...]>'.
+src/vcs/VcsStatusBroadcaster.test.ts(487,81): error TS377004: This Effect requires a service that is missing from the expected Effect context: `BackgroundPolicy`. effect(missingEffectContext)
+src/ws.ts(496,3): error TS377030: This has any in the requirements channel which is not recommended.
+src/ws.ts(1770,11): error TS2322: Type 'Effect<{ environment: { readonly environmentId: string & Brand<"EnvironmentId">; readonly label: string; readonly platform: { readonly os: "darwin" | "linux" | "unknown" | "windows"; readonly arch: "arm64" | ... 1 more ... | "x64"; }; readonly serverVersion: string; readonly capabilities: { ...; }; }; ... 12 more .....' is not assignable to type 'WrapperOr<Effect<Deferred<{ readonly environment: { readonly environmentId: string & Brand<"EnvironmentId">; readonly label: string; readonly platform: { readonly os: "darwin" | "linux" | "unknown" | "windows"; readonly arch: "arm64" | ... 1 more ... | "x64"; }; readonly serverVersion: string; readonly capabilities:...'.
+src/ws.ts(2580,11): error TS2322: Type 'Stream<{ version: 1; type: "keybindingsUpdated"; payload: { keybindings: readonly { readonly command: "chat.new" | "chat.newLocal" | "commandPalette.toggle" | "composer.stash" | "diff.toggle" | "editor.openFavorite" | ... 51 more ... | `script.${string}.run`; readonly shortcut: { ...; }; readonly whenAst?: { ...; } ...' is not assignable to type 'WrapperOr<Effect<Dequeue<{ readonly version: 1; readonly type: "snapshot"; readonly config: { readonly environment: { readonly environmentId: string & Brand<"EnvironmentId">; readonly label: string; readonly platform: { ...; }; readonly serverVersion: string; readonly capabilities: { ...; }; }; ... 13 more ...; read...'.
+src/ws.ts(2772,13): error TS377030: This has any in the requirements channel which is not recommended.

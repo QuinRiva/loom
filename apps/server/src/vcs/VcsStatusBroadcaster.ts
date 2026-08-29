@@ -24,6 +24,7 @@ import type {
 } from "@t3tools/contracts";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
 
+import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
@@ -209,6 +210,7 @@ const normalizeCwd = (cwd: string) =>
 
 export const make = Effect.gen(function* () {
   const workflow = yield* GitWorkflowService.GitWorkflowService;
+  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const fs = yield* FileSystem.FileSystem;
   const changesPubSub = yield* Effect.acquireRelease(
     PubSub.unbounded<VcsStatusChange>(),
@@ -508,7 +510,19 @@ export const make = Effect.gen(function* () {
         const cwds = cycle.enabled.map(({ cwd }) => cwd);
         let nextDelay = cycle.activeInterval;
         let failed = false;
-        if (cwds.length > 0) {
+        // Upstream's background-policy gate, re-homed onto the per-repository
+        // poller: a tick runs only while at least one subscribed cwd still wants
+        // background work (an initial refresh always does — the subscriber is
+        // waiting on its first status).
+        const policyAllows =
+          cycle.poller.initialPending.size > 0 ||
+          (yield* Effect.all(
+            cwds.map((demandCwd) =>
+              backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
+            ),
+            { concurrency: "unbounded" },
+          )).some(Boolean);
+        if (cwds.length > 0 && policyAllows) {
           const exit = yield* refreshRepositoryRemoteStatus(repositoryKey, cwds, {
             refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
           }).pipe(Effect.exit);
@@ -564,6 +578,7 @@ export const make = Effect.gen(function* () {
 
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,
+    demandCwd: string,
     automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
     refreshImmediately: boolean,
   ) {
@@ -614,6 +629,7 @@ export const make = Effect.gen(function* () {
 
   const releaseRemotePoller = Effect.fn("VcsStatusBroadcaster.releaseRemotePoller")(function* (
     cwd: string,
+    demandCwd: string,
   ) {
     const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd) ?? cwd;
     const pollerToInterrupt = yield* SynchronizedRef.modify(pollersRef, (activePollers) => {
@@ -666,12 +682,13 @@ export const make = Effect.gen(function* () {
         const initialRemote = cachedStatus?.remote?.value ?? null;
         yield* retainRemotePoller(
           cwd,
+          input.cwd,
           options?.automaticRemoteRefreshInterval ??
             Effect.succeed(DEFAULT_VCS_STATUS_REFRESH_INTERVAL),
           cachedStatus?.remote === null || cachedStatus?.remote === undefined,
         );
 
-        const release = releaseRemotePoller(cwd).pipe(Effect.ignore, Effect.asVoid);
+        const release = releaseRemotePoller(cwd, input.cwd).pipe(Effect.ignore, Effect.asVoid);
 
         return Stream.concat(
           Stream.make({

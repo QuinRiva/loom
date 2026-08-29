@@ -55,6 +55,7 @@ import { useLoomScrollStore } from "../loom/loomScrollStore";
 import { useRightPanelStore } from "../rightPanelStore";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 type WorkstreamView = "board" | "graph";
 
@@ -354,15 +355,23 @@ export function WorkstreamPanel({ activeThread, activeProjectId }: WorkstreamPan
                 its one UI path to the capture. Same gating/open path as the
                 lifecycle drawer's per-thread Prompt button. */}
             {rootShell?.promptDebugPath && isAbsolutePreviewablePath(rootShell.promptDebugPath) ? (
-              <button
-                type="button"
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
-                onClick={() => openReport(rootShell.promptDebugPath!)}
-                title="Open the root orchestrator's effective-prompt debug capture"
-              >
-                <BugIcon className="size-3" />
-                Prompt
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/50 outline-none transition hover:bg-white/10 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-sky-400/70"
+                      onClick={() => openReport(rootShell.promptDebugPath!)}
+                    />
+                  }
+                >
+                  <BugIcon className="size-3" />
+                  Prompt
+                </TooltipTrigger>
+                <TooltipPopup>
+                  Open the root orchestrator&rsquo;s effective-prompt debug capture
+                </TooltipPopup>
+              </Tooltip>
             ) : null}
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] tabular-nums text-white/55">
               {children.length} {children.length === 1 ? "sub-thread" : "sub-threads"}
@@ -620,7 +629,6 @@ function WorkstreamCard({
   return (
     <div
       className={`group rounded-lg border border-l-4 ${status.borderClass} ${status.leftBorderClass} bg-[#12171f] p-3 text-left shadow-[0_1px_0_rgba(0,0,0,0.25)] transition hover:border-white/20 hover:bg-[#161c26]`}
-      title={`Goal: ${getPurpose(thread)}`}
     >
       <button
         type="button"
@@ -633,29 +641,36 @@ function WorkstreamCard({
           <span className="truncate">{getRoleLabel(thread)}</span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-white/35">
-          <span
-            className="max-w-[7.5rem] truncate"
-            title={`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}
-          >
-            {formatModelLabel(thread.modelSelection)}
-          </span>
+          <Tooltip>
+            <TooltipTrigger render={<span className="max-w-[7.5rem] truncate" />}>
+              {formatModelLabel(thread.modelSelection)}
+            </TooltipTrigger>
+            <TooltipPopup>{`${thread.modelSelection.instanceId} · ${thread.modelSelection.model}`}</TooltipPopup>
+          </Tooltip>
           {ownCost ? (
             <>
               <span className="text-white/20">·</span>
-              <span className="tabular-nums" title="This sub-thread's own spend">
-                {ownCost}
-              </span>
+              <Tooltip>
+                <TooltipTrigger render={<span className="tabular-nums" />}>
+                  {ownCost}
+                </TooltipTrigger>
+                <TooltipPopup>This sub-thread&rsquo;s own spend</TooltipPopup>
+              </Tooltip>
             </>
           ) : null}
           {contextPercent ? (
             <>
               <span className="text-white/20">·</span>
-              <span
-                className={`tabular-nums ${isContextHot ? "text-rose-400" : ""}`}
-                title="Context window used"
-              >
-                {contextPercent}
-              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className={`tabular-nums ${isContextHot ? "text-rose-400" : ""}`} />
+                  }
+                >
+                  {contextPercent}
+                </TooltipTrigger>
+                <TooltipPopup>Context window used</TooltipPopup>
+              </Tooltip>
             </>
           ) : null}
           <span className="text-white/20">·</span>
@@ -687,7 +702,12 @@ function WorkstreamCard({
           <span>{activity}</span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] tabular-nums text-white/35">
             {diffMetric ? (
-              <span title="Lines changed across this sub-thread's checkpoints">{diffMetric}</span>
+              <Tooltip>
+                <TooltipTrigger render={<span />}>{diffMetric}</TooltipTrigger>
+                <TooltipPopup>
+                  Lines changed across this sub-thread&rsquo;s checkpoints
+                </TooltipPopup>
+              </Tooltip>
             ) : null}
             {diffMetric && thread.toolUses && thread.toolUses > 0 ? (
               <span className="text-white/20">·</span>
@@ -704,12 +724,20 @@ function WorkstreamCard({
       {badges.length > 0 || verdictChip || gateWait || fanInChip ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {fanInChip ? (
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
-              title="Fan-in merge of this isolated child's branch into its parent"
-            >
-              {fanInChip.label}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] ${FAN_IN_CHIP_STYLES[fanInChip.tone]}`}
+                  />
+                }
+              >
+                {fanInChip.label}
+              </TooltipTrigger>
+              <TooltipPopup>
+                Fan-in merge of this isolated child&rsquo;s branch into its parent
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {badges.map(({ reason, label }) => {
             const style = ATTENTION_STYLES[reason];
@@ -723,28 +751,40 @@ function WorkstreamCard({
             );
           })}
           {verdictChip ? (
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
-              title="Latest review verdict submitted by this gate source"
-            >
-              {verdictChip.label}
-            </span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] ${verdictChip.borderClass} ${verdictChip.bgClass} ${verdictChip.textClass}`}
+                  />
+                }
+              >
+                {verdictChip.label}
+              </TooltipTrigger>
+              <TooltipPopup>Latest review verdict submitted by this gate source</TooltipPopup>
+            </Tooltip>
           ) : null}
           {gateWait ? (
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                gateWait.active
-                  ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
-                  : "border-white/15 bg-white/[0.04] text-white/55"
-              }`}
-              title={
-                gateWait.active
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                      gateWait.active
+                        ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
+                        : "border-white/15 bg-white/[0.04] text-white/55"
+                    }`}
+                  />
+                }
+              >
+                {gateWait.label}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {gateWait.active
                   ? "This party holds the active gate leg right now"
-                  : "Idle by design — the gate counterpart holds the active leg"
-              }
-            >
-              {gateWait.label}
-            </span>
+                  : "Idle by design — the gate counterpart holds the active leg"}
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
         </div>
       ) : null}
@@ -779,34 +819,57 @@ function WorkstreamCard({
           </select>
         </label>
         {thread.planLane === "planned" ? (
-          <button
-            type="button"
-            className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-200 transition hover:bg-cyan-400/20"
-            onClick={() => onSetLane(thread.id, "ready")}
-            title="Release this held sub-thread so it runs once dependencies clear and a kickoff brief is attached"
-          >
-            Release
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-200 transition hover:bg-cyan-400/20"
+                  onClick={() => onSetLane(thread.id, "ready")}
+                />
+              }
+            >
+              Release
+            </TooltipTrigger>
+            <TooltipPopup>
+              Release this held sub-thread so it runs once dependencies clear and a kickoff brief is
+              attached
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {isRunning ? (
-          <button
-            type="button"
-            className="rounded-md border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200 transition hover:bg-rose-400/20"
-            onClick={() => onStop(thread.id)}
-            title="Stop the active turn (flags it needs_guidance so it doesn't sit silently halted)"
-          >
-            Stop
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="rounded-md border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-200 transition hover:bg-rose-400/20"
+                  onClick={() => onStop(thread.id)}
+                />
+              }
+            >
+              Stop
+            </TooltipTrigger>
+            <TooltipPopup>
+              Stop the active turn (flags it needs_guidance so it doesn&rsquo;t sit silently halted)
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {badges.length > 0 ? (
-          <button
-            type="button"
-            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
-            onClick={() => onClearAttention(thread.id)}
-            title="Dismiss the attention flags on this sub-thread"
-          >
-            Clear flags
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-white/55 transition hover:bg-white/10"
+                  onClick={() => onClearAttention(thread.id)}
+                />
+              }
+            >
+              Clear flags
+            </TooltipTrigger>
+            <TooltipPopup>Dismiss the attention flags on this sub-thread</TooltipPopup>
+          </Tooltip>
         ) : null}
       </div>
 

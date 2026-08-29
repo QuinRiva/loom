@@ -325,6 +325,8 @@ const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   // Project resolution only reads `.projects`; the command read model returns the
   // same shape without loading the heavy per-thread activity/message tables.
+  // Project commands only read the project list, so use the lightweight
+  // command read model instead of hydrating every thread body in the database.
   return yield* projectionSnapshotQuery.getCommandReadModel();
 });
 

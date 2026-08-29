@@ -91,7 +91,7 @@ describe("thread snapshot cache schema", () => {
   const decodeStoredThread = Schema.decodeUnknownEffect(
     Schema.fromJsonString(StoredThreadSnapshot),
   );
-  const encodeUnknownJson = Schema.encodeEffect(Schema.UnknownFromJsonString);
+  const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
   it.effect("rejects pre-fix v2 entries so they cold-load once", () =>
     Effect.gen(function* () {

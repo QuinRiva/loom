@@ -63,6 +63,7 @@ import {
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { listRoleOverlays, loadRoleOverlay } from "../roleOverlay.ts";
+import { forkParked, ServerActivation } from "../../serverActivation.ts";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import {
@@ -78,6 +79,7 @@ type ProviderIntentEvent = Extract<
   OrchestrationEvent,
   {
     type:
+      | "thread.meta-updated"
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
@@ -214,6 +216,125 @@ const activeGoalContextInstruction = (
     `\n\nThis tree is the human's at-a-glance view of the plan, so keep it shaped — not merely appended to:\n- Write for a reader who has NOT lived this thread: short imperative plain-language tasks (about a dozen words) naming the outcome and value, not the mechanism. The server rejects text over 300 characters.\n- The tree records THAT work exists and whether it is done, never its details: coordinates live in the task's thread; findings, verdicts and decisions in reports or memos; draft content in its artefact. At most one short ticket or artefact pointer belongs in a task. Keep the goal description a short objective, not a journal.\n  Not: "AIT-101 — re-key the Lease Extraction tab off names: tenant_id-FIRST with NAME FALLBACK (002336 bucket keyed by name-hash 13ef806c… ≠ roster id aacbb602…); MUST land before 450112/450117 re-trigger"\n  But: "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"\n- Finish by ticking a task, never by rewriting it into a result record; outcomes go in a report or memo.\n- Nest. Top-level items are phases or themes (aim for 7 or fewer); concrete work hangs under them. A flat list past ~8 items needs restructuring.\n- Update at the seams: when you plan or re-plan, when delegated work lands, when scope changes.\n- The snapshot above is never refreshed — \`goal_task_list\` reads the live tree, and every mutation echoes it. \`goal_task_add\` appends one item; \`goal_task_update\` renames or marks done; \`goal_update\` edits the goal. When the shape stops matching the plan, fix it in ONE \`goal_tasks_rewrite\` call: submit the whole edited markdown, retaining each kept task's \`(id)\`.`,
   ].join("");
 };
+const MAX_REGENERATION_ATTACHMENTS = 4;
+const MAX_THREAD_TITLE_CONTEXT_CHARS = 8_000;
+const MAX_FIRST_USER_TITLE_CONTEXT_CHARS = 2_000;
+const THREAD_TITLE_CONTEXT_TRUNCATION_MARKER = "[Earlier content truncated]\n\n";
+const FIRST_USER_CONTEXT_TRUNCATION_MARKER = "\n[First user message truncated]";
+
+type ThreadTitleMessage = {
+  readonly role: "user" | "assistant" | "system";
+  readonly text: string;
+  readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+};
+
+function formatThreadTitleSection(message: ThreadTitleMessage): string | undefined {
+  if (message.role === "system") {
+    return undefined;
+  }
+  const text = message.text.trim();
+  const attachmentSummary = (message.attachments ?? [])
+    .map((attachment) => attachment.name)
+    .join(", ");
+  const contents = [
+    ...(text.length > 0 ? [text] : []),
+    ...(attachmentSummary.length > 0 ? [`[Attachments: ${attachmentSummary}]`] : []),
+  ].join("\n");
+  return contents.length > 0 ? `${message.role.toUpperCase()}:\n${contents}` : undefined;
+}
+
+function limitFirstUserSection(section: string): string {
+  if (section.length <= MAX_FIRST_USER_TITLE_CONTEXT_CHARS) {
+    return section;
+  }
+  return `${section.slice(
+    0,
+    MAX_FIRST_USER_TITLE_CONTEXT_CHARS - FIRST_USER_CONTEXT_TRUNCATION_MARKER.length,
+  )}${FIRST_USER_CONTEXT_TRUNCATION_MARKER}`;
+}
+
+function collectRecentThreadTitleContext(
+  messages: ReadonlyArray<ThreadTitleMessage>,
+  maxChars: number,
+): {
+  readonly context: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly truncated: boolean;
+} {
+  let context = "";
+  let truncated = false;
+  const retainedAttachments: Array<ChatAttachment> = [];
+
+  for (const message of messages.toReversed()) {
+    const section = formatThreadTitleSection(message);
+    if (section === undefined) {
+      continue;
+    }
+
+    const separator = context.length > 0 ? "\n\n" : "";
+    const available = maxChars - context.length - separator.length;
+    if (section.length > available) {
+      if (available > 0) {
+        context = `${section.slice(-available)}${separator}${context}`;
+        retainedAttachments.unshift(...(message.attachments ?? []));
+      }
+      truncated = true;
+      break;
+    }
+    context = `${section}${separator}${context}`;
+    retainedAttachments.unshift(...(message.attachments ?? []));
+  }
+
+  return { context, attachments: retainedAttachments, truncated };
+}
+
+function formatThreadTitleContext(messages: ReadonlyArray<ThreadTitleMessage>): {
+  readonly message: string;
+  readonly attachments: ReadonlyArray<ChatAttachment>;
+} {
+  const recent = collectRecentThreadTitleContext(messages, MAX_THREAD_TITLE_CONTEXT_CHARS);
+  if (!recent.truncated) {
+    return {
+      message: recent.context,
+      attachments: recent.attachments.slice(-MAX_REGENERATION_ATTACHMENTS),
+    };
+  }
+
+  const firstUserMessage = messages.find(
+    (message) => message.role === "user" && formatThreadTitleSection(message),
+  );
+  const firstUserSection = firstUserMessage
+    ? formatThreadTitleSection(firstUserMessage)
+    : undefined;
+  if (!firstUserMessage || !firstUserSection) {
+    return {
+      message: `${THREAD_TITLE_CONTEXT_TRUNCATION_MARKER}${recent.context}`,
+      attachments: recent.attachments.slice(-MAX_REGENERATION_ATTACHMENTS),
+    };
+  }
+
+  const pinnedSection = limitFirstUserSection(firstUserSection);
+  const recentContextBudget =
+    MAX_THREAD_TITLE_CONTEXT_CHARS -
+    pinnedSection.length -
+    "\n\n".length -
+    THREAD_TITLE_CONTEXT_TRUNCATION_MARKER.length;
+  const retainedRecent = collectRecentThreadTitleContext(messages, recentContextBudget);
+  const pinnedAttachment = firstUserMessage.attachments?.[0];
+  const recentAttachments = retainedRecent.attachments.filter(
+    (attachment) => attachment.id !== pinnedAttachment?.id,
+  );
+
+  return {
+    message: `${pinnedSection}\n\n${THREAD_TITLE_CONTEXT_TRUNCATION_MARKER}${retainedRecent.context}`,
+    attachments: [
+      ...(pinnedAttachment ? [pinnedAttachment] : []),
+      ...recentAttachments.slice(
+        -(MAX_REGENERATION_ATTACHMENTS - (pinnedAttachment === undefined ? 0 : 1)),
+      ),
+    ],
+  };
+}
 
 export function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -441,7 +562,11 @@ const make = Effect.gen(function* () {
         detail: input.detail,
         createdAt: input.createdAt,
       })
-      .pipe(Effect.retry(Schedule.exponential(Duration.millis(100)).pipe(Schedule.take(3))));
+      .pipe(
+        Effect.retry(
+          Schedule.max([Schedule.exponential(Duration.millis(100)), Schedule.recurs(3)]),
+        ),
+      );
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     return yield* projectionSnapshotQuery
@@ -771,6 +896,7 @@ const make = Effect.gen(function* () {
           ...(preferredProvider ? { provider: preferredProvider } : {}),
           providerInstanceId: desiredInstanceId,
           ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          ...(thread.title ? { title: thread.title } : {}),
           modelSelection: desiredModelSelection,
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
           ...(appendSystemPrompt.length > 0 ? { appendSystemPrompt } : {}),
@@ -1007,7 +1133,6 @@ const make = Effect.gen(function* () {
     if (sharesWorktree) return;
     const targetBranch = buildGeneratedWorktreeBranchName(input.title);
     if (targetBranch === oldBranch) return;
-
     yield* Effect.gen(function* () {
       const renamed = yield* gitWorkflow.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
       yield* orchestrationEngine.dispatch({
@@ -1165,6 +1290,176 @@ const make = Effect.gen(function* () {
       Effect.forkScoped,
     );
   });
+
+  const regenerateThreadTitle = Effect.fn("regenerateThreadTitle")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.meta-updated" }>,
+    requestId: CommandId,
+  ) {
+    if (event.payload.regenerateTitle !== true) {
+      return { _tag: "Superseded" } as const;
+    }
+
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (!thread || thread.titleRegeneration?.requestId !== requestId) {
+      return { _tag: "Superseded" } as const;
+    }
+
+    const { message, attachments } = formatThreadTitleContext(thread.messages);
+    if (message.length === 0) {
+      return { _tag: "Completed", title: undefined } as const;
+    }
+
+    const previousTitle = event.payload.previousTitle ?? thread.title;
+    if (thread.title !== previousTitle) {
+      return { _tag: "Superseded" } as const;
+    }
+    const project = yield* resolveProject(thread.projectId);
+    const cwd =
+      resolveThreadWorkspaceCwd({
+        thread,
+        projects: project ? [project] : [],
+      }) ?? process.cwd();
+    const { textGenerationModelSelection: modelSelection } =
+      yield* serverSettingsService.getSettings;
+    const generated = yield* textGeneration.generateThreadTitle({
+      cwd,
+      message,
+      previousTitle,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      modelSelection,
+    });
+    if (generated.title === DEFAULT_THREAD_TITLE || generated.title === previousTitle) {
+      return { _tag: "Completed", title: undefined } as const;
+    }
+
+    const latestThread = yield* resolveThread(event.payload.threadId);
+    if (
+      !latestThread ||
+      latestThread.titleRegeneration?.requestId !== requestId ||
+      latestThread.title !== previousTitle
+    ) {
+      return { _tag: "Superseded" } as const;
+    }
+
+    return { _tag: "Completed", title: generated.title } as const;
+  });
+  const dispatchThreadTitleRegenerationCompletion = Effect.fn(
+    "dispatchThreadTitleRegenerationCompletion",
+  )(function* (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: CommandId;
+    readonly title?: string;
+  }) {
+    yield* orchestrationEngine.dispatch({
+      type: "thread.title.regeneration.complete",
+      commandId: yield* serverCommandId("thread-title-regeneration-complete"),
+      threadId: input.threadId,
+      requestId: input.requestId,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+    });
+  });
+  const findInterruptedThreadTitleRegenerations = Effect.fn(
+    "findInterruptedThreadTitleRegenerations",
+  )(function* () {
+    const readModel = yield* projectionSnapshotQuery.getCommandReadModel();
+    return readModel.threads.flatMap((thread) => {
+      const requestId = thread.titleRegeneration?.requestId;
+      return requestId === undefined ? [] : [{ threadId: thread.id, requestId }];
+    });
+  });
+  const clearInterruptedThreadTitleRegenerations = Effect.fn(
+    "clearInterruptedThreadTitleRegenerations",
+  )(function* (
+    interrupted: ReadonlyArray<{ readonly threadId: ThreadId; readonly requestId: CommandId }>,
+  ) {
+    yield* Effect.forEach(
+      interrupted,
+      ({ threadId, requestId }) => {
+        return dispatchThreadTitleRegenerationCompletion({
+          threadId,
+          requestId,
+        }).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.interrupt;
+            }
+            return Effect.logWarning(
+              "provider command reactor failed to clear interrupted title regeneration",
+              {
+                threadId,
+                cause: Cause.pretty(cause),
+              },
+            );
+          }),
+        );
+      },
+      { discard: true },
+    );
+  });
+  const processThreadTitleRegenerationSafely = Effect.fn("processThreadTitleRegenerationSafely")(
+    function* (event: Extract<ProviderIntentEvent, { type: "thread.meta-updated" }>) {
+      if (event.payload.regenerateTitle !== true) {
+        return;
+      }
+
+      const requestId = event.payload.titleRegeneration?.requestId ?? event.commandId;
+      if (requestId === null) {
+        return;
+      }
+      const result = yield* regenerateThreadTitle(event, requestId).pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.failCause(cause);
+          }
+          return Effect.logWarning("provider command reactor failed to regenerate thread title", {
+            threadId: event.payload.threadId,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as({ _tag: "Completed", title: undefined } as const));
+        }),
+      );
+      if (result._tag === "Superseded") {
+        return;
+      }
+
+      const completion = {
+        threadId: event.payload.threadId,
+        requestId,
+        ...(result.title !== undefined ? { title: result.title } : {}),
+      };
+      yield* dispatchThreadTitleRegenerationCompletion(completion).pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.failCause(cause);
+          }
+          return Effect.logWarning(
+            "provider command reactor retrying title regeneration completion",
+            {
+              threadId: event.payload.threadId,
+              cause: Cause.pretty(cause),
+            },
+          ).pipe(Effect.andThen(dispatchThreadTitleRegenerationCompletion(completion)));
+        }),
+      );
+    },
+    (effect, event) =>
+      effect.pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.failCause(cause);
+          }
+          return Effect.logWarning(
+            "provider command reactor failed to complete title regeneration",
+            {
+              threadId: event.payload.threadId,
+              cause: Cause.pretty(cause),
+            },
+          );
+        }),
+      ),
+  );
+  const threadTitleRegenerationWorker = yield* makeDrainableWorker(
+    processThreadTitleRegenerationSafely,
+  );
 
   // loom: stuck-launch recovery guard. This span writes `session.starting` and
   // then BLOCKS in `providerService.startSession` (process spawn / pi fork / MCP
@@ -1709,6 +2004,9 @@ const make = Effect.gen(function* () {
       eventType: event.type,
     });
     switch (event.type) {
+      case "thread.meta-updated":
+        yield* threadTitleRegenerationWorker.enqueue(event);
+        return;
       case "thread.runtime-mode-set": {
         const thread = yield* resolveThread(event.payload.threadId);
         if (!thread?.session || thread.session.status === "stopped") {
@@ -1744,7 +2042,7 @@ const make = Effect.gen(function* () {
     processDomainEvent(event).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.failCause(cause);
+          return Effect.interrupt;
         }
         return Effect.logWarning("provider command reactor failed to process event", {
           eventType: event.type,
@@ -1756,8 +2054,20 @@ const make = Effect.gen(function* () {
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
+    const interruptedTitleRegenerations = yield* findInterruptedThreadTitleRegenerations().pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.interrupt;
+        }
+        return Effect.logWarning(
+          "provider command reactor failed to find interrupted title regenerations",
+          { cause: Cause.pretty(cause) },
+        ).pipe(Effect.as([]));
+      }),
+    );
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
       if (
+        (event.type === "thread.meta-updated" && event.payload.regenerateTitle === true) ||
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
@@ -1769,14 +2079,40 @@ const make = Effect.gen(function* () {
       }
     });
 
-    yield* Effect.forkScoped(
-      Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent),
+    yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent));
+
+    // The domain event stream is hot, so work pending before this reactor
+    // starts cannot be resumed. Correlated completions only clear the request
+    // captured here, leaving any newer request untouched.
+    const clearInterrupted = clearInterruptedThreadTitleRegenerations(
+      interruptedTitleRegenerations,
+    ).pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.interrupt;
+        }
+        return Effect.logWarning(
+          "provider command reactor failed to clear interrupted title regenerations",
+          {
+            cause: Cause.pretty(cause),
+          },
+        );
+      }),
     );
+    const activation = yield* ServerActivation;
+    if (activation === undefined) {
+      yield* clearInterrupted;
+    } else {
+      yield* forkParked(clearInterrupted);
+    }
   });
 
   return {
     start,
-    drain: worker.drain,
+    drain: Effect.gen(function* () {
+      yield* worker.drain;
+      yield* threadTitleRegenerationWorker.drain;
+    }),
   } satisfies ProviderCommandReactorShape;
 });
 

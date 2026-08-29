@@ -49,6 +49,7 @@ import {
   createAttachmentId,
   resolveAttachmentPath,
 } from "../../attachmentStore.ts";
+import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { workstreamBaseUrlFromMcpEndpoint } from "../../mcp/toolPaths.ts";
@@ -173,7 +174,11 @@ const PI_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   ],
 });
 
-export type PiDriverEnv = ServerConfig | ProviderHealthRegistry | ServerSettingsService;
+export type PiDriverEnv =
+  | BackgroundPolicy.BackgroundPolicy
+  | ServerConfig
+  | ProviderHealthRegistry
+  | ServerSettingsService;
 
 /** Failover config used when settings can't be read (rare, cache-backed). */
 const DEFAULT_FAILOVER: Pick<ProviderFailoverSettings, "enabled" | "chains"> = {
