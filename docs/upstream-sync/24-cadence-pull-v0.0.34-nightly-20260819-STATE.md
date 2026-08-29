@@ -411,16 +411,16 @@ lands upstream migrations. `VACUUM INTO` copy of `~/.t3/cockpit/userdata/state.s
 None of these is a typecheck or gate failure; each is recorded so a reviewer can
 tell them apart from new breakage.
 
-| file                                                        | n   | shape                                                                                                                                                                                                                                                       |
-| ----------------------------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/git/GitManager.test.ts`                                | 11  | PR-worktree materialisation against real git fixtures: the fakes have no `refs/pull/N/head` and one repo has no remote, so upstream's newer fetch path (plus the `remoteExists` guard port) fails to materialise. Fixture work, not a code fix.             |
-| `src/server.test.ts`                                        | 1   | **performance budget**: measured-turn WebSocket messages 52 vs max 21, wire bytes 8046 vs 8000, for both codex and claudeAgent. Diagnosed at the review gate (see "Review round 1" below): **not** a double-publish. Awaiting a human re-baseline decision. |
-| `test/ActivityPayloadProjection.test.ts`                    | 1   | asserts the mobile lazy `getFullDetail`/`getCopyText` API, which is on the ratified **deferred** ledger; an orphan of that wave.                                                                                                                            |
-| `src/vcs/GitVcsDriverCore.test.ts`                          | 2   | ref-snapshot fixtures.                                                                                                                                                                                                                                      |
-| `src/vcs/VcsStatusBroadcaster.test.ts`                      | 1   | foreground-demand gating.                                                                                                                                                                                                                                   |
-| `src/terminal/Manager.test.ts`                              | 1   | polling-vs-registration ordering in upstream's adopted rewrite.                                                                                                                                                                                             |
-| `src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` | 1   | in-flight tool checkpoint cadence.                                                                                                                                                                                                                          |
-| `src/provider/Layers/ClaudeAdapter.test.ts`                 | 1   | settle-on-stop pending user-input wait.                                                                                                                                                                                                                     |
+| file                                                        | n   | shape                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/git/GitManager.test.ts`                                | 11  | PR-worktree materialisation against real git fixtures: the fakes have no `refs/pull/N/head` and one repo has no remote, so upstream's newer fetch path (plus the `remoteExists` guard port) fails to materialise. Fixture work, not a code fix. |
+| `src/server.test.ts`                                        | 0   | ~~**performance budget**: measured-turn WebSocket messages 52 vs max 21~~ — **RESOLVED** by re-homing burst coalescing onto the thread live leg; see "WS transfer budget" below. Passes at upstream's budget.                                   |
+| `test/ActivityPayloadProjection.test.ts`                    | 1   | asserts the mobile lazy `getFullDetail`/`getCopyText` API, which is on the ratified **deferred** ledger; an orphan of that wave.                                                                                                                |
+| `src/vcs/GitVcsDriverCore.test.ts`                          | 2   | ref-snapshot fixtures.                                                                                                                                                                                                                          |
+| `src/vcs/VcsStatusBroadcaster.test.ts`                      | 1   | foreground-demand gating.                                                                                                                                                                                                                       |
+| `src/terminal/Manager.test.ts`                              | 1   | polling-vs-registration ordering in upstream's adopted rewrite.                                                                                                                                                                                 |
+| `src/orchestration/Layers/ProviderRuntimeIngestion.test.ts` | 1   | in-flight tool checkpoint cadence.                                                                                                                                                                                                              |
+| `src/provider/Layers/ClaudeAdapter.test.ts`                 | 1   | settle-on-stop pending user-input wait.                                                                                                                                                                                                         |
 
 `apps/web` additionally has 7 failures in 3 files, all pre-existing merge
 fallout in areas this session did not touch: `MessagesTimeline.test.tsx` ×4
@@ -461,7 +461,23 @@ Typechecks clean, invisible to every gate; exactly the marker-less conflict clas
 this doctrine warns about. Loom's import and call are restored verbatim at their
 original position.
 
-### WS transfer budget — diagnosed, still a human decision
+### WS transfer budget — RESOLVED (coalescing re-homed)
+
+**Resolution (follow-up branch `t3code/ws-burst-coalescing`):** the human chose
+coalescing over re-baselining, and `subscribeThread`'s live leg is now grouped
+into batched RPC frames (`coalesceThreadStream` in `apps/server/src/ws.ts`:
+`Stream.groupedWithin(512, 50 millis)` re-emitted whole as one chunk). Same
+events, same order, ~4 per frame instead of 1: **52 → 18 (codex) / 17
+(claudeAgent) messages, 8024/8045 → 6898/6849 wire bytes**, both inside
+upstream's 21/8000 budget. Unlike upstream's shell-leg coalescer this one never
+collapses events — the thread client applies every activity item. The #115
+fail-loud mapper is untouched (it lives on the shell leg) and the #4079 marker
+ordering is preserved because the marker still rides the same FIFO queue. Two
+thread-subscription tests moved to `TestClock.withLive`, matching upstream's own
+coalescing tests: the flush window is a real sleep that virtual time never
+reaches. The original diagnosis below is kept for the record.
+
+### The original diagnosis — how it was measured
 
 The review gate instrumented the recorder and ran the budget test against both
 this branch and upstream tip:
@@ -482,7 +498,8 @@ re-baseline loom's budget and log a coalescing follow-up (e.g.
 `Stream.groupedWithin` on the thread live leg - upstream applies exactly that on
 its shell leg, which loom's #115 fail-loud shell leg deliberately does not
 share), or fund the coalescing work now. The test keeps failing honestly until
-then; it must not be skipped.
+then; it must not be skipped. _(The human funded the work; see the resolution
+above.)_
 
 ### Rejected, with evidence
 

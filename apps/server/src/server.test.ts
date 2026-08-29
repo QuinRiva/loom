@@ -6949,6 +6949,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   // attach EAGERLY (subscribeDomainEvents) before the snapshot read, or an event
   // committed during the snapshot window lands on neither leg. The shell path was
   // hardened for this; the thread path was not. Deferred-gated for determinism.
+  // Runs under TestClock.withLive because the live leg is now coalesced into
+  // batched frames (see coalesceThreadStream): the group's flush window is a
+  // real sleep, which virtual time never advances past.
   it.effect("delivers a thread event published during snapshot load after the snapshot", () =>
     Effect.gen(function* () {
       const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -6998,7 +7001,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(items[0]?.kind, "snapshot");
       assert.equal(items[1]?.kind, "event");
       assert.equal(items[1]?.kind === "event" ? items[1].event.sequence : null, 500);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   // loom: the thread completion marker, re-homed from upstream 8e3467fe6 (its
@@ -7007,6 +7010,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   // same queue as the live events, so anything buffered during the snapshot/
   // catch-up window is emitted BEFORE it. A marker merely concatenated ahead of
   // the live leg would overtake those events and claim synchronisation too early.
+  // Runs under TestClock.withLive for the coalescing window (see above).
   it.effect("emits the thread completion marker after events buffered during catch-up", () =>
     Effect.gen(function* () {
       const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
@@ -7064,7 +7068,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         items.map((item) => (item.kind === "event" ? `event:${item.event.sequence}` : item.kind)),
         ["event:11", "event:60", "synchronized"],
       );
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   it.effect("omits the thread completion marker when it was not requested", () =>
