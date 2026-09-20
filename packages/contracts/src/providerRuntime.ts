@@ -908,14 +908,19 @@ export type AccountUsageSnapshot = typeof AccountUsageSnapshot.Type;
 // (`createdAt`) already ride the runtime-event envelope, so ingestion assembles
 // the full AccountUsageSnapshot from envelope + payload rather than duplicating
 // them here.
+// Two consumers, two shapes, and an adapter supplies whichever its native
+// payload can express:
+//   `limits` — upstream's normalised update, folded into the provider snapshot
+//     by ProviderUsageLimitsIngestion.
+//   `windows` / `planType` — loom's account-usage rollup, folded by
+//     ProviderRuntimeIngestion into the AccountUsageRegistry.
+// Both are optional because no adapter can currently derive both from one
+// native notification; each consumer skips an event that does not carry its
+// field rather than inventing values for the other.
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  windows: Schema.Array(AccountUsageWindow),
-  planType: Schema.NullOr(TrimmedNonEmptyString),
-/**
- * Adapters normalise their native rate-limit payload at the boundary so the
- * consumer that folds it into the provider snapshot never sees driver shapes.
- */
-  limits: ProviderUsageLimitsUpdate,
+  windows: Schema.optional(Schema.Array(AccountUsageWindow)),
+  planType: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  limits: Schema.optional(ProviderUsageLimitsUpdate),
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

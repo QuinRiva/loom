@@ -84,6 +84,7 @@ import {
   selectAntigravityPermissionOptionId,
 } from "../acp/AntigravityProtocol.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import { userInputContentDelivered } from "../Services/ProviderAdapter.ts";
 import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = ProviderDriverKind.make("antigravity");
@@ -1228,6 +1229,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
         });
       }
       yield* Deferred.succeed(pending.response, { answers, result });
+      return userInputContentDelivered;
     });
 
   const stopSession: Adapter["stopSession"] = (threadId) =>
@@ -1271,6 +1273,11 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
       ),
     hasSession: (threadId) =>
       Effect.sync(() => sessions.has(threadId) && !sessions.get(threadId)?.stopped),
+    getSession: (threadId) =>
+      Effect.sync(() => {
+        const context = sessions.get(threadId);
+        return context === undefined || context.stopped ? undefined : { ...context.session };
+      }),
     readThread: (threadId) =>
       Effect.map(requireSession(threadId), (context) => ({ threadId, turns: context.turns })),
     rollbackThread: (_threadId: ThreadId, _numTurns: number) =>

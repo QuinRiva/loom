@@ -132,9 +132,14 @@ export const make = Effect.gen(function* () {
           Effect.flatMap((decoded) =>
             Result.isSuccess(decoded)
               ? Effect.succeed(
-                  decoded.success.map((item) => ({
-                    ...toChangeRequest(item),
-                    updatedAt: item.updatedAt,
+                  decoded.success.map(({ updatedAt, ...rest }) => ({
+                    ...toChangeRequest({
+                      ...rest,
+                      ...(Option.isSome(updatedAt)
+                        ? { updatedAt: DateTime.formatIso(updatedAt.value) }
+                        : {}),
+                    }),
+                    updatedAt,
                   })),
                 )
               : Effect.fail(

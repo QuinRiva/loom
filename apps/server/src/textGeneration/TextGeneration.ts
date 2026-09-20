@@ -73,6 +73,7 @@ export interface ThreadTitleGenerationInput {
 
 export interface ThreadTitleGenerationResult {
   title: string;
+  needsRefinement?: boolean | undefined;
 }
 
 export interface StructuredGenerationInput<S extends Schema.Top> {

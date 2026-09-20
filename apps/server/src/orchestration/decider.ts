@@ -1449,6 +1449,105 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return events.length === 1 ? metaUpdatedEvent : events;
     }
 
+    case "thread.pull-request.link": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const key = normalizeThreadPullRequestKey(command);
+      const existing = findPullRequestLink(thread, key);
+      // An explicit link on a dismissed stack member un-dismisses it; any
+      // other duplicate is a no-op the engine would reject as zero-event.
+      const undismisses =
+        existing?.source === "stack-dismissed" &&
+        (command.source === "manual" || command.source === "agent" || command.source === "created");
+      if (existing !== undefined && !undismisses) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `pull request ${key.host}/${key.repository}#${key.number} is already linked to thread ${command.threadId}`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.pull-request-linked",
+        payload: {
+          threadId: command.threadId,
+          link:
+            existing !== undefined
+              ? { ...existing, url: command.url, source: command.source }
+              : {
+                  ...key,
+                  url: command.url,
+                  source: command.source,
+                  linkedAt: occurredAt,
+                  snapshot: null,
+                  stack: null,
+                },
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.pull-request.unlink": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const key = normalizeThreadPullRequestKey(command);
+      const existing = findPullRequestLink(thread, key);
+      if (existing === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `pull request ${key.host}/${key.repository}#${key.number} is not linked to thread ${command.threadId}`,
+        });
+      }
+      const occurredAt = yield* nowIso;
+      const eventBase = yield* withEventBase({
+        aggregateKind: "thread",
+        aggregateId: command.threadId,
+        occurredAt,
+        commandId: command.commandId,
+      });
+      // Any known native-stack member needs a tombstone, regardless of who linked it.
+      // A sibling can rediscover it even before this link has its own stack snapshot.
+      const belongsToStack =
+        existing.source === "stack" ||
+        existing.stack !== null ||
+        thread.pullRequests.some(
+          (link) =>
+            link.host.toLowerCase() === key.host &&
+            link.repository.toLowerCase() === key.repository &&
+            link.stack?.layers.some((layer) => layer.number === key.number),
+        );
+      if (belongsToStack) {
+        return {
+          ...eventBase,
+          type: "thread.pull-request-linked",
+          payload: {
+            threadId: command.threadId,
+            link: { ...existing, source: "stack-dismissed" },
+            updatedAt: occurredAt,
+          },
+        };
+      }
+      return {
+        ...eventBase,
+        type: "thread.pull-request-unlinked",
+        payload: {
+          threadId: command.threadId,
+          ...key,
+          updatedAt: occurredAt,
+        },
+      };
+    }
     case "thread.pull-request-link.sync": {
       const thread = yield* requireThread({
         readModel,
@@ -2298,6 +2397,47 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.message.user.append": {
+      if (isImportedAgentSessionMessageId(command.message.messageId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message id '${command.message.messageId}' uses the reserved imported-session namespace.`,
+        });
+      }
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.messages.some((message) => message.id === command.message.messageId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Message '${command.message.messageId}' already exists on thread '${command.threadId}'.`,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+          metadata: { deferredTurn: true },
+        })),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.message.messageId,
+          role: "user",
+          text: command.message.text,
+          attachments: command.message.attachments,
+          ...(command.message.context !== undefined ? { context: command.message.context } : {}),
+          turnId: null,
+          streaming: false,
+          createdAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
     case "thread.history.import": {
       const thread = yield* requireThread({
         readModel,

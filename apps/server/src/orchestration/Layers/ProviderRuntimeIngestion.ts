@@ -2152,13 +2152,17 @@ const make = Effect.gen(function* () {
       // envelope already carries the provider identity and timestamp, so the
       // adapter payload only needs the normalised windows + plan type.
       if (event.type === "account.rate-limits.updated") {
-        yield* accountUsageRegistry.update({
-          providerName: event.provider,
-          providerInstanceId: event.providerInstanceId ?? null,
-          windows: event.payload.windows,
-          planType: event.payload.planType,
-          observedAt: event.createdAt,
-        });
+        // Adapters that only carry upstream's normalised `limits` have nothing
+        // for this rollup; ProviderUsageLimitsIngestion handles those.
+        if (event.payload.windows !== undefined) {
+          yield* accountUsageRegistry.update({
+            providerName: event.provider,
+            providerInstanceId: event.providerInstanceId ?? null,
+            windows: event.payload.windows,
+            planType: event.payload.planType ?? null,
+            observedAt: event.createdAt,
+          });
+        }
         return;
       }
 

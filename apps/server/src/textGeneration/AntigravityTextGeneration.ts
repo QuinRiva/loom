@@ -405,10 +405,21 @@ export const makeAntigravityTextGeneration = Effect.fn("makeAntigravityTextGener
       };
     });
 
+  const generateStructured: TextGeneration.TextGeneration["Service"]["generateStructured"] = (
+    input,
+  ) =>
+    runAntigravityJson({
+      operation: "generateStructured",
+      prompt: input.prompt,
+      outputSchema: input.outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateStructured,
   } satisfies TextGeneration.TextGeneration["Service"];
 });

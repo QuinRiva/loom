@@ -33,6 +33,11 @@ export const ProviderUsageLimitsIngestionLive = Layer.effectDiscard(
           if (!instance) {
             return;
           }
+          // Adapters that only carry loom's `windows` rollup have nothing to
+          // fold here; ProviderRuntimeIngestion handles those.
+          if (event.payload.limits === undefined) {
+            return;
+          }
           const checkedAt = DateTime.formatIso(yield* DateTime.now);
           yield* instance.snapshot.applyUsageLimits({ ...event.payload.limits, checkedAt });
           // One bad event must not end the subscriber for every later one.
