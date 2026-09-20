@@ -2943,6 +2943,7 @@ describe("composerDraftStore inline context references", () => {
   const threadId = ThreadId.make("thread-inline-context");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
   const reviewComment = {
+    kind: "line" as const,
     id: "rc-1",
     sectionId: "file:a/b.ts",
     sectionTitle: "File comment",

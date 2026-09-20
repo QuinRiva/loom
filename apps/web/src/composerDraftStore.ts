@@ -556,6 +556,8 @@ interface ComposerDraftStoreState {
       projectDefaultStartFromOrigin?: boolean | null;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      environmentSelection?: "auto" | "manual";
+      loadBalancedEnvironmentId?: EnvironmentId | null;
     },
   ) => void;
   /**

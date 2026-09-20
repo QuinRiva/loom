@@ -4,8 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildDiffReviewComment,
   buildFileReviewComment,
+  formatReviewCommentContext,
   formatReviewCommentFence,
   inferReviewCommentFenceLanguage,
+  parseReviewCommentMessageSegments,
   restoreDiffReviewCommentRange,
 } from "./reviewCommentContext";
 

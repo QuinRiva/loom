@@ -357,7 +357,7 @@ export function buildFileReviewComment(input: {
   endLine: number;
   text: string;
   contents: string;
-}): ReviewCommentContext {
+}): LineReviewCommentContext {
   const startLine = Math.max(1, Math.min(input.startLine, input.endLine));
   const endLine = Math.max(startLine, Math.max(input.startLine, input.endLine));
   const selectedLines = input.contents.split("\n").slice(startLine - 1, endLine);
@@ -703,7 +703,7 @@ export function buildDiffReviewComment(input: {
   fileDiff: FileDiffMetadata;
   range: SelectedLineRange;
   text: string;
-}): ReviewCommentContext | null {
+}): LineReviewCommentContext | null {
   const includeExpandedContext = !input.fileDiff.isPartial;
   const startIndex = findDiffReviewLineIndex(
     input.fileDiff,

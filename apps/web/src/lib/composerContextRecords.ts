@@ -428,7 +428,9 @@ export function terminalContextDraftFromRecord(
   };
 }
 
-export function reviewCommentFromRecord(record: ReviewCommentContextRecord): ReviewCommentContext {
+export function reviewCommentFromRecord(
+  record: ReviewCommentContextRecord,
+): LineReviewCommentContext {
   return {
     kind: "line",
     id: producerIdFromComposerContextId("review-comment", record.contextId),
