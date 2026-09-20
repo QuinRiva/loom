@@ -4,7 +4,6 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   CorrelationId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
   ProjectId,

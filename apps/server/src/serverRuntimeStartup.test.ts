@@ -1,8 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { PI_DEFAULT_MODEL, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import {
   DEFAULT_MODEL,
   DEFAULT_SERVER_SETTINGS,
+  PI_DEFAULT_MODEL,
   ProjectId,
   ProviderInstanceId,
   ThreadId,

@@ -5,22 +5,20 @@ import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
 
 import {
-  VcsProcessTimeoutError,
-  VcsProcessSpawnError,
-  ProviderDriverKind,
-  ProviderRuntimeEvent,
-  ProviderSession,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
-import {
-  CommandId,
   CheckpointRef,
+  CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderRuntimeEvent,
+  ProviderSession,
   ThreadId,
   TurnId,
+  VcsProcessSpawnError,
+  VcsProcessTimeoutError,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
@@ -66,7 +64,6 @@ import {
   checkpointBaselineRefForThreadTurn,
   checkpointRefForThreadTurn,
 } from "../../checkpointing/Utils.ts";
-import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
 import { ProviderValidationError } from "../../provider/Errors.ts";
 import { ServerConfig } from "../../config.ts";
 import * as WorkspaceEntries from "../../workspace/WorkspaceEntries.ts";
