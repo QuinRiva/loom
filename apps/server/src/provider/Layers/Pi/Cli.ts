@@ -19,7 +19,8 @@ export function resolveBundledPiCliPath(): string | undefined {
       // condition and never exposes `./package.json`, so neither a CJS
       // `require.resolve` nor a `/package.json` subpath resolve works. Resolve
       // the package's main entry via the `import` condition, walk up to the
-      // package root, and take the CLI declared in `bin.pi` (dist/cli.js).
+      // package root, and take the CLI declared in `bin.pi` (dist/bundle/cli.js
+      // since pi 0.84, dist/cli.js before that).
       let dir = NodePath.dirname(NodeURL.fileURLToPath(import.meta.resolve(packageName)));
       while (dir !== NodePath.dirname(dir)) {
         const manifestPath = NodePath.join(dir, "package.json");
