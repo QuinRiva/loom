@@ -916,6 +916,10 @@ export function ProviderInstanceCard({
               onHiddenModelsChange={onHiddenModelsChange}
               onFavoriteModelsChange={onFavoriteModelsChange}
               onModelOrderChange={onModelOrderChange}
+              selectedModels={selectedModels}
+              showOnlySelectedModels={showOnlySelectedModels}
+              onSelectedModelsChange={onSelectedModelsChange}
+              onShowOnlySelectedModelsChange={onShowOnlySelectedModelsChange}
             />
           </div>
         </SettingsSection>

@@ -907,6 +907,8 @@ export function EnvironmentProviderSettings({
     const modelPreferences = settings.providerModelPreferences?.[row.instanceId] ?? {
       hiddenModels: [],
       modelOrder: [],
+      selectedModels: [],
+      showOnlySelectedModels: false,
     };
     const favoriteModels = Arr.filterMap(settings.favorites ?? [], (favorite) =>
       favorite.provider === row.instanceId ? Result.succeed(favorite.model) : Result.failVoid,
@@ -981,6 +983,20 @@ export function EnvironmentProviderSettings({
           updateProviderModelPreferences(row.instanceId, {
             ...modelPreferences,
             modelOrder,
+          })
+        }
+        selectedModels={modelPreferences.selectedModels ?? []}
+        showOnlySelectedModels={modelPreferences.showOnlySelectedModels ?? false}
+        onSelectedModelsChange={(selectedModels) =>
+          updateProviderModelPreferences(row.instanceId, {
+            ...modelPreferences,
+            selectedModels,
+          })
+        }
+        onShowOnlySelectedModelsChange={(showOnlySelectedModels) =>
+          updateProviderModelPreferences(row.instanceId, {
+            ...modelPreferences,
+            showOnlySelectedModels,
           })
         }
         onRunUpdate={

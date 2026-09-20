@@ -217,22 +217,37 @@ export function ProviderModelsSection({
   const hiddenModelSet = useMemo(() => new Set(hiddenModels), [hiddenModels]);
   const selectedModelSet = useMemo(() => new Set(selectedModels), [selectedModels]);
   const favoriteModelSet = useMemo(() => new Set(favoriteModels), [favoriteModels]);
+  const builtInModels = useMemo(() => models.filter((model) => !model.isCustom), [models]);
+  // loom: two curation modes share one row UI. The deny-list (`hiddenModels`) is
+  // upstream's; the allow-list (`selectedModels`) is the fork's. Everything that
+  // renders "is this model in the picker?" reads the mode's effective hidden set,
+  // so groups, counts and switches never disagree with what the picker shows.
+  const pickerHiddenSet = useMemo(
+    () =>
+      showOnlySelectedModels
+        ? new Set(
+            builtInModels
+              .filter((model) => !selectedModelSet.has(model.slug))
+              .map((model) => model.slug),
+          )
+        : hiddenModelSet,
+    [builtInModels, hiddenModelSet, selectedModelSet, showOnlySelectedModels],
+  );
   const displayModels = useMemo(
     () =>
       groupModelsForDisplay(models, {
         favoriteModels: favoriteModelSet,
-        hiddenModels: hiddenModelSet,
+        hiddenModels: pickerHiddenSet,
         modelOrder,
       }),
-    [favoriteModelSet, hiddenModelSet, modelOrder, models],
+    [favoriteModelSet, pickerHiddenSet, modelOrder, models],
   );
   const favoriteCount = displayModels.filter((model) => favoriteModelSet.has(model.slug)).length;
   const hiddenCount = displayModels.filter(
-    (model) => !model.isCustom && hiddenModelSet.has(model.slug),
+    (model) => !model.isCustom && pickerHiddenSet.has(model.slug),
   ).length;
-  const builtInModels = useMemo(() => models.filter((model) => !model.isCustom), [models]);
   const allBuiltInModelsHidden =
-    builtInModels.length > 0 && builtInModels.every((model) => hiddenModelSet.has(model.slug));
+    builtInModels.length > 0 && builtInModels.every((model) => pickerHiddenSet.has(model.slug));
   const showFilter = models.length > FILTER_THRESHOLD;
   const normalizedFilter = filter.trim().toLowerCase();
   const isFiltering = showFilter && normalizedFilter.length > 0;
@@ -307,33 +322,30 @@ export function ProviderModelsSection({
   };
 
   const setHidden = (slug: string, hidden: boolean) => {
+    if (showOnlySelectedModels) {
+      if (hidden !== selectedModelSet.has(slug)) return;
+      onSelectedModelsChange(
+        hidden ? selectedModels.filter((model) => model !== slug) : [...selectedModels, slug],
+      );
+      return;
+    }
     if (hidden === hiddenModelSet.has(slug)) return;
     onHiddenModelsChange(
       hidden ? [...hiddenModels, slug] : hiddenModels.filter((model) => model !== slug),
     );
   };
 
-  // Bulk curation acts on the current query's matches, so a search plus one
-  // click is enough to cull a hundred-model catalogue down to what you use.
+  // Allow-list curation acts on the current filter's matches, so a filter plus
+  // one click is enough to cull a hundred-model catalogue down to what you use.
+  // The deny-list equivalent is upstream's single Enable all/Disable all button.
   const bulkSlugs = useMemo(
-    () => visibleSlugs.filter((slug) => modelBySlug.get(slug)?.isCustom === false),
-    [modelBySlug, visibleSlugs],
+    () => visibleModels.filter((model) => !model.isCustom).map((model) => model.slug),
+    [visibleModels],
   );
-  const handleShowAll = () => {
-    if (showOnlySelectedModels) {
-      onSelectedModelsChange([...new Set([...selectedModels, ...bulkSlugs])]);
-      return;
-    }
+  const selectBulk = () => onSelectedModelsChange([...new Set([...selectedModels, ...bulkSlugs])]);
+  const deselectBulk = () => {
     const remove = new Set(bulkSlugs);
-    onHiddenModelsChange(hiddenModels.filter((slug) => !remove.has(slug)));
-  };
-  const handleHideAll = () => {
-    if (showOnlySelectedModels) {
-      const remove = new Set(bulkSlugs);
-      onSelectedModelsChange(selectedModels.filter((slug) => !remove.has(slug)));
-      return;
-    }
-    onHiddenModelsChange([...new Set([...hiddenModels, ...bulkSlugs])]);
+    onSelectedModelsChange(selectedModels.filter((slug) => !remove.has(slug)));
   };
 
   const handleToggleFavorite = (slug: string) => {
@@ -349,7 +361,7 @@ export function ProviderModelsSection({
   const groupOf = (model: (typeof displayModels)[number]) =>
     favoriteModelSet.has(model.slug)
       ? "favorite"
-      : !model.isCustom && hiddenModelSet.has(model.slug)
+      : !model.isCustom && pickerHiddenSet.has(model.slug)
         ? "hidden"
         : "visible";
   const handleMove = (slug: string, direction: -1 | 1) => {
@@ -507,7 +519,7 @@ export function ProviderModelsSection({
     const group = groupOf(model);
     // Hidden is read from the preference itself: a favorited model can still be
     // hidden, and its switch must say so even though it sits in the favorites group.
-    const isHidden = !model.isCustom && hiddenModelSet.has(model.slug);
+    const isHidden = !model.isCustom && pickerHiddenSet.has(model.slug);
     const isFavorite = group === "favorite";
     const index = displayModels.indexOf(model);
     const previousModel = displayModels[index - 1];
@@ -578,7 +590,16 @@ export function ProviderModelsSection({
           />
         ) : null}
         <div className="flex items-center gap-2">
-          {builtInModels.length > 0 ? (
+          {builtInModels.length === 0 ? null : showOnlySelectedModels ? (
+            <>
+              <Button type="button" size="xs" variant="ghost-muted" onClick={selectBulk}>
+                Select {isFiltering ? "matches" : "all"}
+              </Button>
+              <Button type="button" size="xs" variant="ghost-muted" onClick={deselectBulk}>
+                Deselect {isFiltering ? "matches" : "all"}
+              </Button>
+            </>
+          ) : (
             <Button
               type="button"
               size="xs"
@@ -589,7 +610,7 @@ export function ProviderModelsSection({
             >
               {allBuiltInModelsHidden ? "Enable all" : "Disable all"}
             </Button>
-          ) : null}
+          )}
           <span className="text-xs text-muted-foreground">
             {models.length} model{models.length === 1 ? "" : "s"}
             {favoriteCount > 0
@@ -611,6 +632,16 @@ export function ProviderModelsSection({
           </Button>
         ) : null}
       </div>
+      <label className="mt-2 flex cursor-pointer items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          Show only selected models in the picker
+        </span>
+        <Switch
+          checked={showOnlySelectedModels}
+          onCheckedChange={(checked) => onShowOnlySelectedModelsChange(Boolean(checked))}
+          aria-label="Show only selected models in the picker"
+        />
+      </label>
       <div
         ref={listRef}
         className="mt-2 -mx-2 max-h-64 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
