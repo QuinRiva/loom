@@ -26,7 +26,10 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import type * as PlatformError from "effect/PlatformError";
 
-import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import {
+  OrchestrationCommandInvariantError,
+  type OrchestrationCommandRejection,
+} from "./Errors.ts";
 import { requireProject, requireThread, requireThreadAbsent } from "./commandInvariants.ts";
 import {
   requireGoal,
@@ -175,9 +178,11 @@ export const decideLoomCommand = Effect.fn("decideLoomCommand")(function* ({
 }: {
   readonly command: LoomOrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
+  // The archive/delete cascades delegate to `decideCommandSequence`, whose
+  // rejection channel now also carries `OrchestrationThreadSettleBlockedError`.
 }): Effect.fn.Return<
   DecideLoomCommandResult,
-  OrchestrationCommandInvariantError | PlatformError.PlatformError,
+  OrchestrationCommandRejection | PlatformError.PlatformError,
   Crypto.Crypto
 > {
   switch (command.type) {

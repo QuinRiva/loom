@@ -148,23 +148,20 @@ const make = Effect.gen(function* () {
 
   const start: ThreadDeletionReactorShape["start"] = Effect.fn("start")(function* () {
     yield* forkParked(
-      Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-        const request = toThreadCleanupRequest(event);
-        if (!request) {
-          return Effect.void;
-        }
-        return worker.enqueue(request);
-      }),
       Stream.runForEach(
         orchestrationEngine.streamDomainEvents.pipe(
           // Events that landed before the subscription are not replayed, so
           // start the watermark at the current head instead of zero.
           Stream.onStart(orchestrationEngine.latestSequence.pipe(Effect.flatMap(noteSeen))),
         ),
-        (event) =>
-          (event.type === "thread.deleted" ? worker.enqueue(event) : Effect.void).pipe(
+        (event) => {
+          // loom: cleanup is keyed off the derived request, not `thread.deleted`
+          // alone, so the fork's other terminal transitions are swept too.
+          const request = toThreadCleanupRequest(event);
+          return (request ? worker.enqueue(request) : Effect.void).pipe(
             Effect.andThen(noteSeen(event.sequence)),
-          ),
+          );
+        },
       ),
     );
   });

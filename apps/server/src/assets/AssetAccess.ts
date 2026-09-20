@@ -161,11 +161,26 @@ const encodeAssetClaims = Schema.encodeSync(AssetClaimsJson);
  * artefact viewer reload picks up fresh subresources; immutable ones keep a
  * long cache.
  */
-export type ResolvedAsset = {
-  readonly kind: "file";
-  readonly path: string;
-  readonly mutable: boolean;
-};
+export type ResolvedAsset =
+  | {
+      readonly kind: "file";
+      readonly path: string;
+      // loom: workspace-backed assets can change under a stable URL, so the
+      // HTTP layer must send a revalidating Cache-Control for them.
+      readonly mutable: boolean;
+      readonly download?: boolean;
+      readonly fileName?: string;
+      readonly mimeType?: string;
+      readonly file?: OpenMediaFile;
+    }
+  | {
+      readonly kind: "github-media";
+      readonly url: string;
+      readonly cwd: string;
+      /** When the signed URL that granted this stops working, which bounds how long a client
+          may keep the bytes it fetched with it. */
+      readonly expiresAt: number;
+    };
 
 function decodeClaims(encodedPayload: string): AssetClaims | null {
   try {
@@ -782,7 +797,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       Effect.orElseSucceed(() => null),
     );
     return faviconPath === claims.filePath
-      ? ({ kind: "file", path: faviconPath } satisfies ResolvedAsset)
+      ? ({ kind: "file", path: faviconPath, mutable: true } satisfies ResolvedAsset)
       : null;
   }
 
@@ -798,7 +813,9 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   if (claims.kind === "native-app-icon") {
     const nativeAppIconResolver = yield* NativeAppIconResolver.NativeAppIconResolver;
     const iconPath = yield* nativeAppIconResolver.resolve(claims.app);
-    return iconPath ? ({ kind: "file", path: iconPath } satisfies ResolvedAsset) : null;
+    return iconPath
+      ? ({ kind: "file", path: iconPath, mutable: false } satisfies ResolvedAsset)
+      : null;
   }
 
   const decodedPath = decodeRelativePath(relativePath);
@@ -825,7 +842,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       Effect.orElseSucceed(() => null),
     );
     return file
-      ? ({ kind: "file", path: canonicalFile, mimeType, file } satisfies ResolvedAsset)
+      ? ({ kind: "file", path: canonicalFile, mutable: true, mimeType, file } satisfies ResolvedAsset)
       : null;
   }
   if (claims.kind === "workspace-file-exact") {

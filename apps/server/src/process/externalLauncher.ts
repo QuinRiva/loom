@@ -126,7 +126,7 @@ const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(()
  * "Zed (remote)" editor. Unset on a local install, where the ordinary
  * server-spawned editors already work.
  */
-export const readRemoteEditorSshHost = Config.string("LOOM_ZED_SSH_HOST").pipe(
+export const readRemoteEditorSshHost = Config.String("LOOM_ZED_SSH_HOST").pipe(
   Config.option,
   Effect.orElseSucceed(() => Option.none<string>()),
 );

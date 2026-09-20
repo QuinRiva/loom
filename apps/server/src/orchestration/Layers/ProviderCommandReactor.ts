@@ -674,6 +674,17 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
+  // loom: the settle-open-questions paths need the question activities and
+  // nothing else, so they read a detail narrowed to those two kinds rather than
+  // the full activity window.
+  const resolveThreadUserInputActivities = Effect.fnUntraced(function* (threadId: ThreadId) {
+    return yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId, {
+        activityKinds: ["user-input.requested", "user-input.resolved"],
+      })
+      .pipe(Effect.map(Option.getOrUndefined));
+  });
+
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly currentModelSelection: ModelSelection;
@@ -1701,6 +1712,7 @@ const make = Effect.gen(function* () {
           runtimeMode: thread.runtimeMode,
           activeTurnId: null,
           lastError: null,
+          queuedMessages: { steering: [], followUp: [] },
           updatedAt: event.payload.createdAt,
         },
         createdAt: event.payload.createdAt,
@@ -1819,8 +1831,8 @@ const make = Effect.gen(function* () {
         ? `${workstreamChildPrompt({ role: thread.role, brief: kickoffBrief, gateTargetId: gateLoopTargetOf(thread) })}\n\n${message.text}`
         : message.text;
 
-    const userMessages = thread.messages.filter((entry) => entry.role === "user");
-    const isFirstUserMessageTurn = userMessages.length === 1;
+    // Upstream's shell read answers this without materialising the message list.
+    const isFirstUserMessageTurn = !hasOtherUserMessages;
     const titleSeed = toNonEmptyProviderInput(event.payload.titleSeed);
 
     // loom: §1 workstream children NEVER interpret intent: they inherit their
@@ -1883,7 +1895,13 @@ const make = Effect.gen(function* () {
         // changes") that must be EXCLUDED entirely, or it reproduces the bug of
         // naming the goal after the instruction. We anchor on the first user
         // message (which predates the trigger) and its attachments.
-        const openingMessage = userMessages[0];
+        // Read the detail only on this branch: it runs while the thread still
+        // lacks a goal or a derived title, not on every turn.
+        const openingMessage = isFirstUserMessageTurn
+          ? undefined
+          : (yield* resolveThreadDetail(event.payload.threadId))?.messages.find(
+              (entry) => entry.role === "user",
+            );
         const interpretationText = isFirstUserMessageTurn
           ? effectiveMessageText
           : (openingMessage?.text ?? effectiveMessageText);
@@ -2122,11 +2140,14 @@ const make = Effect.gen(function* () {
     // Settle BEFORE the liveness check: an interrupt of a thread whose provider is
     // already gone must still end its open questions, or a human pressing Stop on
     // a wedged thread changes nothing.
-    yield* settleOpenUserInputRequests({
-      thread,
-      createdAt: event.payload.createdAt,
-      tag: "turn-interrupt",
-    });
+    const threadQuestions = yield* resolveThreadUserInputActivities(event.payload.threadId);
+    if (threadQuestions) {
+      yield* settleOpenUserInputRequests({
+        thread: threadQuestions,
+        createdAt: event.payload.createdAt,
+        tag: "turn-interrupt",
+      });
+    }
 
     const session = thread.session;
     if (!session || session.status === "stopped") {
@@ -2380,7 +2401,14 @@ const make = Effect.gen(function* () {
     // As with interrupt: settle from the command path first, so a stop against an
     // inactive adapter (where `ProviderService` skips `adapter.stopSession`
     // entirely) still ends the thread's open questions.
-    yield* settleOpenUserInputRequests({ thread, createdAt: now, tag: "session-stop" });
+    const stopThreadQuestions = yield* resolveThreadUserInputActivities(event.payload.threadId);
+    if (stopThreadQuestions) {
+      yield* settleOpenUserInputRequests({
+        thread: stopThreadQuestions,
+        createdAt: now,
+        tag: "session-stop",
+      });
+    }
     const wasCompacting = compactingThreadIds.has(thread.id);
     stoppingThreadIds.add(thread.id);
     const clearStopping = Effect.sync(() => void stoppingThreadIds.delete(thread.id));
