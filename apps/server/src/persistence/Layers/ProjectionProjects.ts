@@ -9,6 +9,7 @@ import * as Struct from "effect/Struct";
 import { ModelSelection, ProjectIconOverride, ProjectScript } from "@t3tools/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
+  DeleteProjectionProjectInput,
   GetProjectionProjectInput,
   ProjectionProject,
   ProjectionProjectRepository,

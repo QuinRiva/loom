@@ -43,6 +43,11 @@ export const GetProjectionProjectInput = Schema.Struct({
 });
 export type GetProjectionProjectInput = typeof GetProjectionProjectInput.Type;
 
+export const DeleteProjectionProjectInput = Schema.Struct({
+  projectId: ProjectId,
+});
+export type DeleteProjectionProjectInput = typeof DeleteProjectionProjectInput.Type;
+
 /**
  * ProjectionProjectRepositoryShape - Service API for projected project records.
  */
