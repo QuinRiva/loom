@@ -20,18 +20,10 @@ import {
   type ProviderApprovalDecision,
   type UserInputQuestion,
 } from "@t3tools/contracts";
+import { Atom } from "effect/unstable/reactivity";
 
-import {
-  buildUserInputAnswers,
-  userInputAnswerDraftKey,
-  userInputAnswerDraftsOf,
-  userInputAnswerDraftThreadKey,
-  withResolvedUserInputDraftsEvicted,
-  withToggledUserInputOption,
-  withUserInputCustomAnswer,
-} from "@t3tools/shared/userInputAnswers";
 import { threadEnvironment } from "../state/threads";
-import { updateUserInputDrafts, userInputDraftsAtom } from "./user-input-drafts";
+import { scopedRequestKey } from "../lib/scopedEntities";
 import {
   buildPendingUserInputAnswers,
   setPendingUserInputCustomAnswer,
@@ -100,7 +92,7 @@ export function useSelectedThreadRequests() {
   );
   const { selectedThread: selectedThreadShell } = useThreadSelection();
   const selectedThread = useSelectedThreadDetail();
-  const userInputDrafts = useAtomValue(userInputDraftsAtom);
+  const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
   const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
@@ -190,28 +182,8 @@ export function useSelectedThreadRequests() {
         )
       : {};
   const activePendingUserInputAnswers = activePendingUserInput
-    ? buildUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
+    ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingUserInputDrafts)
     : null;
-
-  // Eviction judges ONLY the selected thread's requests: its open set says nothing
-  // about any other thread, so evicting beyond it would discard a draft the user is
-  // still part-way through on a thread they merely navigated away from.
-  useEffect(() => {
-    if (!selectedThreadShell || selectedThreadKey === null) {
-      return;
-    }
-    const openRequestKeys = new Set(
-      activePendingUserInputs.map((pending) =>
-        userInputAnswerDraftKey(selectedThreadShell.environmentId, pending.requestId),
-      ),
-    );
-    updateUserInputDrafts((entries) =>
-      withResolvedUserInputDraftsEvicted(entries, {
-        threadKey: selectedThreadKey,
-        openRequestKeys,
-      }),
-    );
-  }, [activePendingUserInputs, selectedThreadKey, selectedThreadShell]);
 
   const onSelectUserInputOption = useCallback(
     (requestId: ApprovalRequestId, question: UserInputQuestion, value: string) => {
@@ -222,7 +194,7 @@ export function useSelectedThreadRequests() {
       const requestKey = scopedRequestKey(selectedThreadShell.environmentId, requestId);
       setUserInputDraftOption(requestKey, question, value);
     },
-    [selectedThreadKey, selectedThreadShell],
+    [selectedThreadShell],
   );
 
   const onChangeUserInputCustomAnswer = useCallback(
@@ -336,9 +308,6 @@ export function useSelectedThreadRequests() {
     selectedThreadShell,
   ]);
 
-  // The human's way out of an open question, with no provider round trip on the
-  // critical path: settlement is server-side, so this works even when the asking
-  // session is long dead.
   // Closes an async question without messaging the agent.
   const onDismissUserInput = useCallback(async () => {
     if (!selectedThreadShell || !activePendingUserInput) {
@@ -362,12 +331,10 @@ export function useSelectedThreadRequests() {
   return {
     activePendingApproval,
     activePendingUserInput,
-    activePendingUserInputCount: activePendingUserInputs.length,
     activePendingUserInputDrafts,
     activePendingUserInputAnswers,
     respondingApprovalId,
     respondingUserInputId,
-    dismissingUserInputId,
     onRespondToApproval,
     onSelectUserInputOption,
     onChangeUserInputCustomAnswer,

@@ -99,22 +99,18 @@ const runReconciliation = (input: {
       input.providerService ?? makeProviderService(input.liveThreadIds),
     ),
     Effect.provide(
-      Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)(input.directory),
-    ),
-    Effect.provide(
-      Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        readThreadEvents: () => Stream.empty,
-        readStreamEvents: () => Stream.empty,
-        getThreadReplayStats: () => Effect.die("unused thread replay stats"),
-        dispatch: input.dispatch,
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      }),
-    ),
-    Effect.provide(
       Layer.mergeAll(
+        Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)(input.directory),
+        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+          readEvents: () => Stream.empty,
+          readThreadEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused thread replay stats"),
+          dispatch: input.dispatch,
+          streamDomainEvents: Stream.empty,
+          subscribeDomainEvents: Effect.succeed(Stream.empty),
+          latestSequence: Effect.succeed(0),
+        }),
         ServerSettings.layerTest({
           continueThreadsAfterServerUpdate: input.continueAfterRestart ?? false,
         }),
@@ -147,18 +143,18 @@ it.effect("marks active running sessions that have persisted resume state", () =
     ),
     Effect.provide(
       Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
-      getBinding: (threadId) =>
-        Effect.sync(() => bindingReads.push(threadId)).pipe(
-          Effect.as(
-            Option.some({
-              threadId,
-              provider: ProviderDriverKind.make("codex"),
-              providerInstanceId,
-              ...(threadId === active.id ? { resumeCursor: { threadId } } : {}),
-              runtimePayload: { activeTurnId: "turn-mark-active" },
-            }),
+        getBinding: (threadId) =>
+          Effect.sync(() => bindingReads.push(threadId)).pipe(
+            Effect.as(
+              Option.some({
+                threadId,
+                provider: ProviderDriverKind.make("codex"),
+                providerInstanceId,
+                ...(threadId === active.id ? { resumeCursor: { threadId } } : {}),
+                runtimePayload: { activeTurnId: "turn-mark-active" },
+              }),
+            ),
           ),
-        ),
         upsert: (binding) => Effect.sync(() => upserts.push(binding)),
         listBindings: () => Effect.succeed([]),
       }),
@@ -715,23 +711,24 @@ it.effect("does not fail startup when the live provider session inventory cannot
       listSessions: () => Effect.die("provider inventory unavailable"),
     }),
     Effect.provide(
-      Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
-        listBindings: () => Effect.succeed([]),
-      }),
+      Layer.mergeAll(
+        Layer.mock(ProviderSessionDirectory.ProviderSessionDirectory)({
+          listBindings: () => Effect.succeed([]),
+        }),
+        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+          readEvents: () => Stream.empty,
+          readThreadEvents: () => Stream.empty,
+          readStreamEvents: () => Stream.empty,
+          getThreadReplayStats: () => Effect.die("unused thread replay stats"),
+          dispatch: () => Effect.die("unused"),
+          streamDomainEvents: Stream.empty,
+          subscribeDomainEvents: Effect.succeed(Stream.empty),
+          latestSequence: Effect.succeed(0),
+        }),
+        NodeServices.layer,
+        ServerSettings.layerTest(),
+      ),
     ),
-    Effect.provide(
-      Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        readThreadEvents: () => Stream.empty,
-        readStreamEvents: () => Stream.empty,
-        getThreadReplayStats: () => Effect.die("unused thread replay stats"),
-        dispatch: () => Effect.die("unused"),
-        streamDomainEvents: Stream.empty,
-        subscribeDomainEvents: Effect.succeed(Stream.empty),
-        latestSequence: Effect.succeed(0),
-      }),
-    ),
-    Effect.provide(Layer.mergeAll(NodeServices.layer, ServerSettings.layerTest())),
     Effect.tap(() => Effect.sync(() => assert.equal(queried, false))),
   );
 });

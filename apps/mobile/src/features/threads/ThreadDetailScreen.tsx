@@ -79,8 +79,12 @@ import { useEnvironmentQuery } from "../../state/query";
 import { threadDevicePreviews } from "../devices/threadDevicePreviews";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import type { UserInputAnswerDraft } from "@t3tools/shared/userInputAnswers";
-import type { PendingApproval, PendingUserInput, ThreadFeedEntry } from "../../lib/threadActivity";
+import type {
+  PendingApproval,
+  PendingUserInput,
+  PendingUserInputDraftAnswer,
+  ThreadFeedEntry,
+} from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
@@ -132,11 +136,9 @@ export interface ThreadDetailScreenProps {
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
   readonly activePendingUserInput: PendingUserInput | null;
-  readonly activePendingUserInputCount: number;
-  readonly activePendingUserInputDrafts: Record<string, UserInputAnswerDraft>;
+  readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: ProviderUserInputAnswers | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
-  readonly dismissingUserInputId: ApprovalRequestId | null;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;
   readonly connectionStateLabel: EnvironmentConnectionPhase;

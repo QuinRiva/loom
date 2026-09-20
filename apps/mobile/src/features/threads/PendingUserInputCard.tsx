@@ -1,19 +1,3 @@
-import type {
-  ApprovalRequestId,
-  ProviderUserInputAnswers,
-  UserInputQuestion,
-} from "@t3tools/contracts";
-import { Pressable, ScrollView, View } from "react-native";
-
-import {
-  isUsingCustomUserInputAnswer,
-  selectedUserInputOptionLabels,
-  type UserInputAnswerDraft,
-} from "@t3tools/shared/userInputAnswers";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { MarkdownBlock } from "../../components/MarkdownBlock";
-import { cn } from "../../lib/cn";
-import type { PendingUserInput } from "../../lib/threadActivity";
 import { RequestActionButton } from "./RequestActionButton";
 import { QuestionAttachments } from "./QuestionAttachments";
 import type { ApprovalRequestId, UserInputQuestion } from "@t3tools/contracts";
@@ -29,10 +13,13 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+
 import { USER_INPUT_TOGGLE_DURATION_MS } from "./pendingUserInputLayout";
+
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
+import { cn } from "../../lib/cn";
 import {
   isPendingUserInputOptionSelected,
   type PendingUserInput,
@@ -41,12 +28,35 @@ import {
 
 export interface PendingUserInputCardProps {
   readonly pendingUserInput: PendingUserInput;
-  /** Total open requests, so a second question is never invisible. */
-  readonly pendingCount: number;
-  readonly drafts: Record<string, UserInputAnswerDraft>;
-  readonly answers: ProviderUserInputAnswers | null;
+  /**
+   * Constant while a request is pending (it reserves keyboard space), so the
+   * keyboard transition is pure translation; changes only on rare discrete
+   * corrections, which the layout transition smooths.
+   */
+  readonly maxHeight: number;
+  readonly collapsed: boolean;
+  readonly onToggleCollapsed: () => void;
+  /** Renders a stop control on the collapsed bar, which replaces the composer. */
+  readonly onStopThread?: () => void;
+  /**
+   * 0 collapsed → 1 expanded. Slides the iOS overlay card down behind the
+   * collapsed bar (inside a clipping window) on the UI thread; the host
+   * animates it directly from the tap handler so the card and the feed
+   * inset glide start the same frame.
+   */
+  readonly cardProgress?: SharedValue<number>;
+  /**
+   * Receives how far the expanded card extends above the bar footprint
+   * (written from onLayout with no re-render); the host adds it to the
+   * thread feed's end inset so the end of the chat stays visible above the
+   * card.
+   */
+  readonly cardCoverage?: SharedValue<number>;
+  /** Fires on custom-answer focus/blur; hosts use it to vet stale keyboard state. */
+  readonly onInputFocusChange?: (focused: boolean) => void;
+  readonly drafts: Record<string, PendingUserInputDraftAnswer>;
+  readonly answers: Record<string, string | ReadonlyArray<string>> | null;
   readonly respondingUserInputId: ApprovalRequestId | null;
-  readonly dismissingUserInputId: ApprovalRequestId | null;
   readonly onSelectOption: (
     requestId: ApprovalRequestId,
     question: UserInputQuestion,
@@ -61,6 +71,23 @@ export interface PendingUserInputCardProps {
   /** Closes an async question without a reply. Hidden for native callback questions. */
   readonly onDismiss: () => Promise<unknown>;
 }
+
+/**
+ * On iOS the collapsed bar is the PERMANENT in-flow footprint — the expanded
+ * card is an absolutely-positioned overlay rising above it. The overlay's
+ * measured height (which drives the thread feed's bottom inset) therefore
+ * never changes on collapse/expand, so the transcript stays perfectly still
+ * while the card animates over it.
+ *
+ * Android cannot use the overlay: it does not hit-test touches outside a
+ * parent's bounds, which made everything above the bar-sized wrapper
+ * untouchable. There the expanded card renders in-flow instead (the wrapper
+ * grows with it, and the host skips the coverage inset since the measured
+ * overlay already includes the card).
+ */
+const EXPANDED_CARD_IS_OVERLAY = Platform.OS === "ios";
+
+const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
 
 export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const questionCount = props.pendingUserInput.questions.length;

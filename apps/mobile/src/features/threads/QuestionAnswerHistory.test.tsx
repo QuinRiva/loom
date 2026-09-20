@@ -1,4 +1,8 @@
-import { ApprovalRequestId, EnvironmentId } from "@t3tools/contracts";
+import {
+  ApprovalRequestId,
+  EnvironmentId,
+  type ProviderUserInputAnswers,
+} from "@t3tools/contracts";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -15,7 +19,7 @@ vi.mock("../../state/assets", () => ({ useAssetUrl: () => null }));
 import { QuestionAnswerHistory } from "./QuestionAnswerHistory";
 
 describe("QuestionAnswerHistory", () => {
-  it.each([{}, { text: "Text-only answer", file: "Answer with a file" }])(
+  it.each<ProviderUserInputAnswers>([{}, { text: "Text-only answer", file: "Answer with a file" }])(
     "renders attachment-only questions alongside text answers: %j",
     (answers) => {
       const markup = renderToStaticMarkup(

@@ -1795,7 +1795,7 @@ describe("buildThreadFeed", () => {
     expect(serializedToolOutputs).toBe(0);
     expect(group.activities[0]?.getFullDetail()).toContain('"output"');
     expect(serializedToolOutputs).toBe(1);
-    expect(group.activities[0]?.copyText).toContain('"output"');
+    expect(group.activities[0]?.getCopyText()).toContain('"output"');
     expect(serializedToolOutputs).toBe(1);
   });
 

@@ -645,6 +645,57 @@ export const LoomThreadShellFields = {
   faninSince: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
 } as const;
 
+/**
+ * The "no workstream" value of every REQUIRED field `LoomThreadFields` adds to
+ * a thread row. Anything building a thread literal by hand — a client-side
+ * optimistic shell, a fixture — spreads this first and overrides after, so the
+ * next fork field is one edit here rather than one per construction site.
+ * Optional fields (`titleProvenance`, `finalCommitSha`, …) are deliberately
+ * absent: under `exactOptionalPropertyTypes` an explicit `undefined` is not the
+ * same as omission.
+ */
+export const loomThreadDefaults = {
+  goalId: null,
+  parentThreadId: null,
+  role: null,
+  purpose: null,
+  brief: null,
+  kickoffBriefPath: null,
+  graphKey: null,
+  planLane: "in_progress",
+  attention: [],
+  blockedBy: [],
+  spawnGeneration: null,
+  continuesThreadId: null,
+  forkFromThreadId: null,
+  reportPath: null,
+  routes: [],
+  gateRounds: 0,
+  pendingRework: false,
+  lastOutcome: null,
+  isolation: "shared",
+  fanInState: "none",
+  cumulativeCostUsd: 0,
+  toolUses: null,
+  usedTokens: null,
+  maxTokens: null,
+  diffAdditions: null,
+  diffDeletions: null,
+  handoffDestinations: [],
+  notifySendLog: [],
+} as const;
+
+/** `loomThreadDefaults` plus the shell-only projections. */
+export const loomThreadShellDefaults = {
+  ...loomThreadDefaults,
+  lastActivityPreview: null,
+  consults: [],
+  peerMessages: [],
+  planLaneSince: null,
+  dependenciesSince: null,
+  faninSince: null,
+} as const;
+
 // Spread into `OrchestrationSession`.
 export const LoomSessionFields = {
   // Classification of `lastError`, carried by `thread.session.set`. Persisted so

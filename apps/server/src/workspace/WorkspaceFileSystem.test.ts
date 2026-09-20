@@ -1,6 +1,5 @@
 // Test-only: mkfifo has no Effect API and is only used to fabricate a
 // non-regular file for the statPaths kind check.
-// @effect-diagnostics-next-line nodeBuiltinImport:off
 // @effect-diagnostics nodeBuiltinImport:off - FileSystem cannot create a FIFO.
 import * as NodeChildProcess from "node:child_process";
 

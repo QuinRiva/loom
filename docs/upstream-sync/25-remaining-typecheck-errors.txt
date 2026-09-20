@@ -1,84 +1,47 @@
-# Cadence pull 7 — remaining typecheck errors after session 7
+# Cadence pull 7 — remaining typecheck errors: NONE
 
-Measured with `vp run typecheck` (all 15 packages) at session 7's last commit,
-AFTER `vp i`.
+`vp run typecheck` is GREEN across all 15 packages as of session 8, measured
+after `vp i` and after deleting the stale `tsconfig.tsbuildinfo` files.
 
-    GREEN (13 of 15): contracts, shared, client-runtime, effect-acp,
-                      effect-codex-app-server, oxlint-plugin-t3code, ssh,
-                      tailscale, scripts, marketing, apps/desktop,
-                      **apps/web (117 -> 0)**, + 1 other
+    contracts, shared, client-runtime, effect-acp, effect-codex-app-server,
+    oxlint-plugin-t3code, ssh, tailscale, scripts, marketing, infra/relay,
+    apps/desktop, apps/web, apps/mobile, apps/server   — all ✓
 
-    apps/server   26   (was 176 at the start of session 7)
-    apps/mobile   63   (untouched this session)
+Session-by-session: 176+117+63 (+3 relay) -> 0.
 
-## apps/web — 0. DONE.
+## Three traps worth carrying into pull 8
 
-Session 7 took it 117 -> 0. Nothing is stubbed or suppressed; every fix was
-either a restored loom declaration, a corrected caller, or a fixture updated to
-a shape a parent genuinely changed. Two deliberate deletions are recorded in
-§Session 7 of the sync note (the unadopted ChatMarkdown workspace-image test and
-two orphaned `pendingUserInput` composer-logic cases).
+1. **A single `warning TS…` fails the package.** `tsc --noEmit` here exits 1 on
+   the Effect language-service *warnings* (`multipleEffectProvide`,
+   `@effect-diagnostics directive has no effect`), not only on errors — so
+   `grep -c "error TS"` reporting 0 while the gate stays red is expected.
+   Verified by injecting a lone warning into a green package.
+2. **`apps/server` can exit 137 (OOM) under `vp run typecheck`** when 15 `tsc`
+   processes run at once; that is not a type error. The root script
+   `pnpm typecheck` uses `--concurrency-limit 2` for this reason. Re-measure the
+   package on its own before believing a failure.
+3. **Delete `apps/<app>/tsconfig.tsbuildinfo` before believing a count.**
+   `composite: true` means cached errors are re-reported against paths that no
+   longer exist.
 
-## apps/server — 26 (every one in a test/integration file)
+## Method that worked (reuse it in pull 8)
 
-     4 src/orchestration/Layers/ProviderCommandReactor.test.ts
-     3 src/orchestration/Layers/OrchestrationEngine.test.ts
-     2 src/provider/makeManagedServerProvider.test.ts        (maintenanceCapabilities)
-     2 src/project/AgentSessionImporter.test.ts              (missing layer: ProviderLaunchClaims | WorkspaceOccupancy)
-     2 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts (user-input `answers` payload shape)
-     2 src/orchestration/Layers/ProjectionSnapshotQuery.test.ts  (missing ServerConfig in layer)
-     2 integration/orphanedProviderSessionStartup.integration.test.ts (missing ExhaustionResumeSweep)
-     2 integration/OrchestrationEngineHarness.integration.ts (missing PullRequestSyncReactor in layer)
-     1 each: ProviderSessionReaper, ClaudeAdapter (requestId), AntigravityProtocol,
-            AgentSessionScanner, ThreadSettlementReactor, projector (Effect-aware
-            test API), HandoffDrafterReactor
-
-The bulk classes session 7 already cleared, for reference when they recur:
-  - whole-shape service doubles missing a member one parent added:
-    `removeIfStopped` (loom's), `readStreamEvents` / `readThreadEvents` /
-    `getThreadReplayStats` / `getSession` (upstream's). Fixed either by adding
-    the member or, better, by switching `Effect.provideService(Tag, {...})` to
-    `Effect.provide(Layer.mock(Tag)({...}))` — `Layer.mock` fills the rest with
-    unimplemented defects, so the NEXT pull's new members cannot break the test.
-  - thread fixtures missing the ~27 loom workstream fields. There is now ONE
-    shared block for this: `apps/server/src/orchestration/deciderTestThread.ts`
-    exports `loomThreadFixtureDefaults` (read-model row) and
-    `loomThreadShellFixtureDefaults` (shell row). Spread it first, override after.
-  - `defaultStartFromOrigin` (new required project field), `goals: []` (new
-    required read-model/snapshot field), `emitsExitOnStop` (new REQUIRED
-    provider capability — codex's real adapter says `true`).
-  - `{ ...base, ...overrides }` where `overrides: Partial<T>`: under
-    `exactOptionalPropertyTypes` that widens every field back to optional. Use
-    `Object.assign(base, overrides)`.
-
-## apps/mobile — 63. NOT STARTED.
-
-    40 src/features/threads/PendingUserInputCard.tsx
-    18 src/state/use-selected-thread-requests.ts
-     1 each: pending-thread-creation.ts (needs loomThreadShellFixtureDefaults'
-            field set), threadActivity.test, ThreadDetailScreen,
-            QuestionAnswerHistory.test, environment-cache-store.test
-
-Session 4's guidance stands, and the brief's is more specific:
-`use-selected-thread-requests.ts` needs the upstream-only declarations restored
-(`Atom` import, `scopedRequestKey`, `selectedThreadKey`, `dismissingUserInputId`)
-and then loom's `@t3tools/shared/userInputAnswers` hoist re-applied on top.
-`PendingUserInputCard.tsx` compiles as upstream's redesign (loom's option
-previews and multi-select are tracked separately as task `a4b1ddfa`); note its
-props are consumed by `ThreadDetailScreen.tsx:1023`, which still passes loom's
-`maxHeight` / `collapsed` / `onToggleCollapsed` / `onStopThread`, so caller and
-callee must be decided together.
-
-## Method that worked (reuse it)
-
-1. `docs/upstream-sync/pull7-tools/whatismissing.sh <repo-relative-path> <name>...`
+1. `docs/upstream-sync/pull7-tools/whatismissing.sh <repo-relative-path> <name>…`
    on every TS2304/TS2305/TS2552/TS2724 — it names which parent still declares
-   the symbol. Note: the path must be relative to the REPO ROOT, and the tool
-   must be run from the repo root.
+   the symbol. Run it from the repo root with repo-root-relative paths.
 2. Prop/member-shape errors (TS2739/TS2740/TS2741) are almost always "loom's
    caller, upstream's callee" (or the reverse). Diff the callee against BOTH
-   parents before touching the caller.
-3. **Delete the stale `apps/<app>/tsconfig.tsbuildinfo` before believing a
-   count.** `composite: true` means tsc reports cached errors against paths that
-   no longer exist; session 7 lost time chasing a `@types/hast` mismatch that
-   the cache alone was reporting.
+   parents before touching the caller — and do not trust a prior session's
+   claim about which side owns a prop: session 8 found the ownership of the
+   mobile question-card props recorded backwards.
+3. For a file the mechanical resolution interleaved (duplicate imports, half of
+   each side's body), do not patch it hunk by hunk: `git show <parent>:<path>`
+   the chosen side wholesale, then re-apply the other side's deliberate delta.
+4. Whole-shape service doubles: `Layer.mock(Tag)({partial})`, never
+   `Layer.succeed(Tag, {whole})` — `Layer.mock` defects on unimplemented
+   members, so the next pull's new members cannot break a double that never
+   calls them.
+5. Thread fixtures: spread `loomThreadDefaults` / `loomThreadShellDefaults` from
+   `@t3tools/contracts` (the values now live beside the schema that adds the
+   fields; `apps/server/src/orchestration/deciderTestThread.ts` re-exports them
+   as the fixture names the decider tests already use).

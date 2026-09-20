@@ -84,27 +84,27 @@ const run = (activities: ReadonlyArray<ReturnType<typeof recordedSetup>>) =>
     const dispatched: Array<OrchestrationCommand> = [];
     yield* ServerRuntimeStartup.reconcileWorktreeSetups.pipe(
       Effect.provide(
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-          listActivitiesByKind: (kind: string) =>
-            Effect.succeed(kind === WORKTREE_SETUP_ACTIVITY_KIND ? activities : []),
-        }),
+        Layer.mergeAll(
+          Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+            listActivitiesByKind: (kind: string) =>
+              Effect.succeed(kind === WORKTREE_SETUP_ACTIVITY_KIND ? activities : []),
+          }),
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            readThreadEvents: () => Stream.empty,
+            getThreadReplayStats: () => Effect.die("unused"),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatched.push(command);
+                return { sequence: dispatched.length };
+              }),
+            streamDomainEvents: Stream.empty,
+            subscribeDomainEvents: Effect.succeed(Stream.empty),
+            latestSequence: Effect.succeed(0),
+          }),
+          NodeServices.layer,
+        ),
       ),
-      Effect.provide(
-        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-          readEvents: () => Stream.empty,
-          readThreadEvents: () => Stream.empty,
-          getThreadReplayStats: () => Effect.die("unused"),
-          dispatch: (command) =>
-            Effect.sync(() => {
-              dispatched.push(command);
-              return { sequence: dispatched.length };
-            }),
-          streamDomainEvents: Stream.empty,
-          subscribeDomainEvents: Effect.succeed(Stream.empty),
-          latestSequence: Effect.succeed(0),
-        }),
-      ),
-      Effect.provide(NodeServices.layer),
     );
     return dispatched;
   });

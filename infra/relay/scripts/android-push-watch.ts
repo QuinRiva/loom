@@ -151,7 +151,7 @@ const main = Effect.gen(function* () {
               projects.delete(item.projectId);
               break;
             case "thread-upserted":
-              threads.set(item.thread.id, item.thread);
+              for (const thread of item.threads) threads.set(thread.id, thread);
               break;
             case "thread-removed":
               threads.delete(item.threadId);
@@ -168,14 +168,21 @@ const main = Effect.gen(function* () {
             });
             if (state) next.set(thread.id, state);
           }
-          const state = item.kind === "thread-upserted" ? next.get(item.thread.id) : undefined;
-          const previous = state ? states.get(state.threadId) : undefined;
+          // A thread-upserted frame is batched, so alert on the first thread in it
+          // whose phase actually moved.
+          const state =
+            item.kind === "thread-upserted"
+              ? item.threads
+                  .map((thread) => next.get(thread.id))
+                  .find(
+                    (candidate) =>
+                      candidate !== undefined &&
+                      candidate.phase !== states.get(candidate.threadId)?.phase,
+                  )
+              : undefined;
           // A fresh subscription restores ongoing work without announcing old completions.
           const now = yield* Clock.currentTimeMillis;
-          const alert =
-            state && state.phase !== previous?.phase && item.kind !== "snapshot"
-              ? FcmDeliveries.androidAlertForState(state, preferences, now)
-              : null;
+          const alert = state ? FcmDeliveries.androidAlertForState(state, preferences, now) : null;
           const aggregate = makeAggregateState({
             activeStates: [...next.values()],
             terminalState: null,
