@@ -2399,10 +2399,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         thread_id AS "threadId",
         turn_id AS "turnId",
         role,
+        -- loom: the fork's message row schema requires these columns; omitting
+        -- them fails the decode at runtime, where typecheck cannot see it.
+        origin,
+        control_payload_json AS "controlPayload",
         text,
         attachments_json AS "attachments",
         context_json AS "context",
         is_streaming AS "isStreaming",
+        reasoning_text AS "reasoningText",
+        reasoning_streaming AS "reasoningStreaming",
+        reasoning_ms AS "reasoningMs",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
         EXISTS (
