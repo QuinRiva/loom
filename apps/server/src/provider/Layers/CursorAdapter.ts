@@ -1340,8 +1340,11 @@ export function makeCursorAdapter(
     return {
       provider: PROVIDER,
       // `stopSession` → `stopSessionInternal` emits `session.exited` (:501-508).
-      capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
-      capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        emitsExitOnStop: true,
+        supportsConversationRollback: false,
+      },
       compaction: { type: "slash-command", command: "/compress" },
       startSession,
       sendTurn,

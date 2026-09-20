@@ -4627,7 +4627,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         // above, before the listener existed; settle now so the dialog
         // cannot hang with a lingering pending question.
         if (callbackOptions.signal.aborted) {
-          yield* settleAsAborted;
+          onAbort();
         }
 
         // Block until the question is settled. Settlement is durable BEFORE this

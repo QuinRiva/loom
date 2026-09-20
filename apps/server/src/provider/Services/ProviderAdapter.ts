@@ -59,11 +59,30 @@ export const userInputContentDelivered: UserInputDeliveryResult = { deliveredCon
 /** The callback was released, but its content must be re-delivered as a turn. */
 export const userInputContentUndelivered: UserInputDeliveryResult = { deliveredContent: false };
 
+/**
+ * Native adapters expose a start call and must emit a compacted thread state
+ * when they finish. Slash-command adapters get the command sent as a turn.
+ */
+export type ProviderCompaction<TError> =
+  | {
+      readonly type: "native";
+      readonly start: (
+        threadId: ThreadId,
+        modelSelection?: ProviderSendTurnInput["modelSelection"],
+      ) => Effect.Effect<void, TError>;
+    }
+  | { readonly type: "slash-command"; readonly command: `/${string}` };
+
 export interface ProviderAdapterCapabilities {
   /**
    * Declares whether changing the model on an existing session is supported.
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
+  /** Starts a resumed turn with no synthetic user prompt. Omitted means the
+      adapter needs an explicit continuation instruction. */
+  readonly promptlessTurnContinuation?: boolean;
+  /** False when native conversation history cannot be rewound. */
+  readonly supportsConversationRollback?: boolean;
   /**
    * Does `stopSession` cause a `session.exited` runtime event to be emitted for
    * the stopped session?

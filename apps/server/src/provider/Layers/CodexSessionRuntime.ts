@@ -2633,7 +2633,7 @@ export const makeCodexSessionRuntime = (
           // loop before the interrupts below are sent.
           yield* settlePendingApprovals("cancel");
           // Pending user-input prompts block the same way; settle them too.
-          yield* settlePendingUserInputs({});
+          yield* settlePendingUserInputsAsCancelled;
           // Stop-everything: children are full threads with their own turns;
           // interrupting only the parent leaves the fleet running. Interrupt
           // each live child turn first, best-effort per child, BOUNDED: the

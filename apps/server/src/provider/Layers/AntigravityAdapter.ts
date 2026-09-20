@@ -495,7 +495,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
           threadId: context.threadId,
           turnId,
           requestId: runtimeRequestId,
-          payload: { answers: answer.answers },
+          payload: { answers: answer.answers, outcome: "answered" },
         });
         return answer.result;
       }).pipe(Effect.ensuring(Effect.sync(() => context.questions.delete(requestId))));
@@ -1247,7 +1247,14 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
 
   return {
     provider: PROVIDER,
-    capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+    // `stopSession` → `stopContext` publishes `session.exited` on the event
+    // PubSub, so the exit is still owed to `ProviderService` when the call
+    // returns — same shape as the Cursor and Grok adapters.
+    capabilities: {
+      sessionModelSwitch: "in-session",
+      emitsExitOnStop: true,
+      supportsConversationRollback: false,
+    },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,
     sendTurn,

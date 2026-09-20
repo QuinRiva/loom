@@ -25,6 +25,17 @@ interface ProviderSnapshotState {
   readonly enrichmentGeneration: number;
 }
 
+function withUsageLimits(
+  snapshot: ServerProvider,
+  usageLimits: ServerProvider["usageLimits"],
+): ServerProvider {
+  if (snapshot.usageLimits === usageLimits) {
+    return snapshot;
+  }
+  const { usageLimits: _previous, ...rest } = snapshot;
+  return usageLimits ? { ...rest, usageLimits } : rest;
+}
+
 /**
  * Snapshot list fields whose content can regress across a refresh: the model
  * catalogue and the two command palettes.

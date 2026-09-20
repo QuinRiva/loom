@@ -1943,7 +1943,7 @@ export function makeOpenCodeAdapter(
       emitUnsafe({
         ...base,
         type: "user-input.resolved",
-        payload: { answers },
+        payload: { answers, outcome: "answered" },
       });
     });
 
@@ -1983,7 +1983,11 @@ export function makeOpenCodeAdapter(
         if (context.emittedTerminalRequestIds.has(request.id)) continue;
         context.pendingQuestions.delete(request.id);
         context.emittedTerminalRequestIds.add(request.id);
-        emitUnsafe({ ...base, type: "user-input.resolved", payload: { answers: {} } });
+        emitUnsafe({
+          ...base,
+          type: "user-input.resolved",
+          payload: { answers: {}, outcome: "cancelled" },
+        });
       }
     });
 

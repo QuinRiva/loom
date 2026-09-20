@@ -2247,8 +2247,11 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
     return {
       provider: PROVIDER,
       // `stopSession` → `stopSessionInternal` emits `session.exited` (:539-546).
-      capabilities: { sessionModelSwitch: "in-session", emitsExitOnStop: true },
-      capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        emitsExitOnStop: true,
+        supportsConversationRollback: false,
+      },
       compaction: { type: "slash-command", command: "/compact" },
       startSession,
       sendTurn,
