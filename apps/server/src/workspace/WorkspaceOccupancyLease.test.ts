@@ -8,7 +8,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
-import { makeWorkspaceLease } from "./WorkspaceLease.ts";
+import { makeWorkspaceLease } from "./WorkspaceOccupancyLease.ts";
 
 const PATH = "/wt/child";
 

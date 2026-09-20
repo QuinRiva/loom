@@ -345,6 +345,16 @@ const releaseOpenCodeQuestion = (
   return release ? Deferred.succeed(release, void 0).pipe(Effect.ignore) : Effect.void;
 };
 
+type OpenCodeTextPart = Extract<Part, { readonly type: "text" | "reasoning" }>;
+
+type OpenCodeTextPartState = Pick<OpenCodeTextPart, "id" | "messageID" | "type" | "time"> & {
+  text: string | undefined;
+  emittedText: string | undefined;
+  completed: boolean;
+};
+
+type OpenCodeStepUsage = Pick<Extract<Part, { readonly type: "step-finish" }>, "id" | "tokens">;
+
 interface OpenCodeSessionContext {
   session: ProviderSession;
   readonly client: OpencodeClient;
