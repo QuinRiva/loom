@@ -4638,9 +4638,7 @@ function ChatViewContent(props: ChatViewProps) {
       prompt: promptForSend,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
-      attachedContextCount:
-        composerPreviewAnnotations.length +
-        composerReviewComments.length,
+      attachedContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
     });
     // `/handoff <explanation>` is intercepted here at the real send authority
     // (plan D2): it must NEVER become a turn on the source thread. Every

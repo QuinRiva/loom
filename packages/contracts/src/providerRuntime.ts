@@ -109,7 +109,6 @@ export type RuntimeContentStreamKind = typeof RuntimeContentStreamKind.Type;
 const RuntimeSessionExitKind = Schema.Literals(["graceful", "error"]);
 export type RuntimeSessionExitKind = typeof RuntimeSessionExitKind.Type;
 
-
 const TOOL_LIFECYCLE_ITEM_TYPES = [
   "command_execution",
   "file_change",
@@ -599,7 +598,6 @@ export const UserInputRequestedPayload = Schema.Struct({
   responseMode: Schema.optional(Schema.Literal("message")),
 });
 export type UserInputRequestedPayload = typeof UserInputRequestedPayload.Type;
-
 
 // The default is applied by the CONTRACT, not by each consumer: a decoded
 // `user-input.resolved` payload always carries an explicit outcome, so the

@@ -1941,8 +1941,8 @@ const make = Effect.gen(function* () {
         return clearPendingTurnStart.pipe(
           Effect.flatMap(() =>
             setThreadSessionErrorOnTurnStartFailure({
-          threadId: event.payload.threadId,
-          detail,
+              threadId: event.payload.threadId,
+              detail,
               createdAt: event.payload.createdAt,
             }),
           ),

@@ -29,21 +29,13 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import {
-  readProjects,
-  readThreadShell,
-  useProjects,
-  useThread,
-} from "../state/entities";
+import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
   resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
-import {
-  environmentServerConfigsAtom,
-  primaryServerSettingsAtom,
-} from "../state/server";
+import { environmentServerConfigsAtom, primaryServerSettingsAtom } from "../state/server";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";

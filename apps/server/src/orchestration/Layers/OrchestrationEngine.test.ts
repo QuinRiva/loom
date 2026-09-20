@@ -33,12 +33,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import {
-  describe,
-  expect,
-  it,
-  vi,
-} from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { TestClock } from "effect/testing";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";

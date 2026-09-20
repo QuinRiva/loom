@@ -842,7 +842,13 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       Effect.orElseSucceed(() => null),
     );
     return file
-      ? ({ kind: "file", path: canonicalFile, mutable: true, mimeType, file } satisfies ResolvedAsset)
+      ? ({
+          kind: "file",
+          path: canonicalFile,
+          mutable: true,
+          mimeType,
+          file,
+        } satisfies ResolvedAsset)
       : null;
   }
   if (claims.kind === "workspace-file-exact") {

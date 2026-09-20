@@ -6,9 +6,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
-import {
-  it as effectIt,
-} from "@effect/vitest";
+import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vite-plus/test";
 

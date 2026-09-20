@@ -60,16 +60,16 @@ were dropped deliberately** — packages no longer carry `build` scripts and
 
 ### Delete conflicts — all resolved
 
-| file                                                             | resolution                                                                                    |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `apps/web/src/pendingUserInput.ts` (+test)                        | stay deleted (human-ruled; loom's non-modal question card replaced it)                        |
-| `chat/ComposerPendingUserInputPanel.tsx` (+test)                  | stay deleted                                                                                  |
-| `chat/ComposerPrimaryActions.test.tsx`                            | stay deleted                                                                                  |
-| `packages/shared/src/threadSettled.test.ts`                       | loom's kept (single-sourced in `@t3tools/shared`)                                             |
-| `apps/server/src/persistence/NodeSqliteClient.ts` (+test)         | **loom's kept.** Upstream moved its client to `packages/shared/src/nodeSqliteClient.ts` (#7272) for the desktop cookie-DB readers; loom's worker-backed split (`NodeSqliteConnection` + `NodeSqliteWorkerClient`) is a different concern and both now coexist |
-| `apps/server/src/git/Utils.ts`                                    | kept with loom's `directoryExists`; upstream's `isGitRepository` moved into `CheckpointStore`  |
-| `chat/ComposerPendingReviewComments.tsx` (+test)                  | **restored** — upstream deleted the component but loom's `ChatComposer` still mounts it       |
-| `docs/internals/scripts.md`                                       | upstream retired the doc (#9755); loom's 53-line worktree/`--watch-path` section re-homed to **`docs/internals/worktree-development.md`** |
+| file                                                      | resolution                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/pendingUserInput.ts` (+test)                | stay deleted (human-ruled; loom's non-modal question card replaced it)                                                                                                                                                                                        |
+| `chat/ComposerPendingUserInputPanel.tsx` (+test)          | stay deleted                                                                                                                                                                                                                                                  |
+| `chat/ComposerPrimaryActions.test.tsx`                    | stay deleted                                                                                                                                                                                                                                                  |
+| `packages/shared/src/threadSettled.test.ts`               | loom's kept (single-sourced in `@t3tools/shared`)                                                                                                                                                                                                             |
+| `apps/server/src/persistence/NodeSqliteClient.ts` (+test) | **loom's kept.** Upstream moved its client to `packages/shared/src/nodeSqliteClient.ts` (#7272) for the desktop cookie-DB readers; loom's worker-backed split (`NodeSqliteConnection` + `NodeSqliteWorkerClient`) is a different concern and both now coexist |
+| `apps/server/src/git/Utils.ts`                            | kept with loom's `directoryExists`; upstream's `isGitRepository` moved into `CheckpointStore`                                                                                                                                                                 |
+| `chat/ComposerPendingReviewComments.tsx` (+test)          | **restored** — upstream deleted the component but loom's `ChatComposer` still mounts it                                                                                                                                                                       |
+| `docs/internals/scripts.md`                               | upstream retired the doc (#9755); loom's 53-line worktree/`--watch-path` section re-homed to **`docs/internals/worktree-development.md`**                                                                                                                     |
 
 ### Notable semantic resolutions
 
@@ -164,7 +164,7 @@ in loom's tree.
 > delta is small" pass silently dropped **real fork features** (the Pi-only
 > driver registry, the handoff-drafter reactor, the AppImage env strip, the
 > `PI_DEFAULT_MODEL` project default, loom's `thread` composer trigger). Both
-> were reverted. Union is safe only for *complete, balanced* additive statements.
+> were reverted. Union is safe only for _complete, balanced_ additive statements.
 
 ## ⚠️ The mechanical-resolution ledger — MUST be audited
 
@@ -186,14 +186,14 @@ Highest-risk entries (loom's side dropped, `"mode": "theirs"`):
 Wave-1 fold-ins (brief rule 2) were taken as **upstream wholesale** and still
 need loom's affordances re-applied by hand:
 
-| file                                              | what must be re-applied                                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `apps/mobile/src/lib/threadActivity.ts` (+test)   | loom's `@t3tools/shared/userInputAnswers` hoist; consumers adapted to lazy getters |
-| `apps/mobile/src/state/use-selected-thread-requests.ts` | same (still conflicted)                                                       |
-| `settings/ProviderModelsSection.tsx`              | loom's `SearchableModelList` picker over upstream's design tokens                  |
-| `chat/ModelPickerContent.tsx`                     | same                                                                               |
-| `packages/client-runtime/src/state/shell.ts`      | resolved as `ours` — **upstream's `shouldResubscribeAfterWakeup` still to fold in** |
-| `apps/web/src/routeTree.gen.ts`                   | generated file, taken from upstream — **regenerate, do not merge**                 |
+| file                                                    | what must be re-applied                                                             |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `apps/mobile/src/lib/threadActivity.ts` (+test)         | loom's `@t3tools/shared/userInputAnswers` hoist; consumers adapted to lazy getters  |
+| `apps/mobile/src/state/use-selected-thread-requests.ts` | same (still conflicted)                                                             |
+| `settings/ProviderModelsSection.tsx`                    | loom's `SearchableModelList` picker over upstream's design tokens                   |
+| `chat/ModelPickerContent.tsx`                           | same                                                                                |
+| `packages/client-runtime/src/state/shell.ts`            | resolved as `ours` — **upstream's `shouldResubscribeAfterWakeup` still to fold in** |
+| `apps/web/src/routeTree.gen.ts`                         | generated file, taken from upstream — **regenerate, do not merge**                  |
 
 ## What remains
 
@@ -203,23 +203,23 @@ Each was tried as whole-ours, whole-theirs and union; none parses as a single
 side, so every one needs interleaved hand resolution. Ordered by the brief's
 risk ranking, not by size:
 
-| file                                                          | markers | brief rule / note                                                                 |
-| -------------------------------------------------------------- | ------: | ----------------------------------------------------------------------------------- |
-| `apps/server/src/ws.ts`                                        |      23 | rule 4 — loom's #115 fail-loud shell catch-up, #4079 reasoning re-home and PR-191 burst coalescing must all survive; upstream's swallowing `orElseSucceed` must never return |
-| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts` | 31 | rule 6 — **an auto-resolution to `theirs` was reverted deliberately**: pull 6 silently dropped columns here three times. Resolve by hand, then run the alias check (every `SqlSchema` query's alias list vs the widest list for the same `Result` schema) |
-| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts` |    17 | settlement gate; loom's exactly-once seam                                          |
-| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts` |  13 | checkpoint cadence + loom's reasoning ingestion                                     |
-| `apps/web/src/components/Sidebar.tsx`                          |      13 | loom's workstream roll-up badge, root filter, `Staged` pill, goal menu, attention status, activity-order sort (doc 23 §I1) |
-| `apps/web/src/components/files/FilePreviewPanel.tsx`           |      10 | loom's MDX plan renderer path                                                       |
-| `apps/web/src/rightPanelStore.ts`                              |       7 | loom's `tasks`/`workstream` surfaces + `seedSurfaces` vs upstream's `userActionRevision` / device / attachment surfaces (see `docs/architecture/loom-ui-state-tiers.md`) |
-| `apps/mobile/src/state/use-selected-thread-requests.ts`        |       6 | wave-1 fold-in                                                                      |
-| `apps/server/src/provider/Layers/ClaudeAdapter.ts`             |       6 | loom's `settlement`/`released` pending-user-input seam                              |
-| `apps/server/src/provider/Layers/ProviderRegistry.test.ts`     |       6 | Pi-only registry: upstream's non-pi cases stay deleted                              |
-| `apps/web/src/components/chat/MessagesTimeline.logic.ts`       |       5 | chat surface — **an auto-resolution to `theirs` was reverted**; keep loom's side    |
-| `apps/server/src/workspace/WorkspaceFileSystem.ts`             |       3 | loom's `WorkspaceAbsoluteReadError` + out-of-workspace absolute read                |
-| `apps/web/src/components/ChatView.logic.ts`                    |       1 | one 149-vs-366-line hunk: loom's `/handoff` intercept copy vs upstream's `agentControlledBrowserCloseConfirmation` — both are additive, interleave them |
-| `apps/web/src/markdown-links.ts`                               |       1 | loom's Windows-path normalisation vs upstream's extracted `inlineCodeFilePathCandidate` |
-| `apps/mobile/src/features/threads/PendingUserInputCard.tsx`    |       1 | deferred ledger (mobile question card) — keep loom's, adapt to upstream's `cardCoverage` props |
+| file                                                               | markers | brief rule / note                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server/src/ws.ts`                                            |      23 | rule 4 — loom's #115 fail-loud shell catch-up, #4079 reasoning re-home and PR-191 burst coalescing must all survive; upstream's swallowing `orElseSucceed` must never return                                                                              |
+| `apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`  |      31 | rule 6 — **an auto-resolution to `theirs` was reverted deliberately**: pull 6 silently dropped columns here three times. Resolve by hand, then run the alias check (every `SqlSchema` query's alias list vs the widest list for the same `Result` schema) |
+| `apps/server/src/orchestration/Layers/ProviderCommandReactor.ts`   |      17 | settlement gate; loom's exactly-once seam                                                                                                                                                                                                                 |
+| `apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts` |      13 | checkpoint cadence + loom's reasoning ingestion                                                                                                                                                                                                           |
+| `apps/web/src/components/Sidebar.tsx`                              |      13 | loom's workstream roll-up badge, root filter, `Staged` pill, goal menu, attention status, activity-order sort (doc 23 §I1)                                                                                                                                |
+| `apps/web/src/components/files/FilePreviewPanel.tsx`               |      10 | loom's MDX plan renderer path                                                                                                                                                                                                                             |
+| `apps/web/src/rightPanelStore.ts`                                  |       7 | loom's `tasks`/`workstream` surfaces + `seedSurfaces` vs upstream's `userActionRevision` / device / attachment surfaces (see `docs/architecture/loom-ui-state-tiers.md`)                                                                                  |
+| `apps/mobile/src/state/use-selected-thread-requests.ts`            |       6 | wave-1 fold-in                                                                                                                                                                                                                                            |
+| `apps/server/src/provider/Layers/ClaudeAdapter.ts`                 |       6 | loom's `settlement`/`released` pending-user-input seam                                                                                                                                                                                                    |
+| `apps/server/src/provider/Layers/ProviderRegistry.test.ts`         |       6 | Pi-only registry: upstream's non-pi cases stay deleted                                                                                                                                                                                                    |
+| `apps/web/src/components/chat/MessagesTimeline.logic.ts`           |       5 | chat surface — **an auto-resolution to `theirs` was reverted**; keep loom's side                                                                                                                                                                          |
+| `apps/server/src/workspace/WorkspaceFileSystem.ts`                 |       3 | loom's `WorkspaceAbsoluteReadError` + out-of-workspace absolute read                                                                                                                                                                                      |
+| `apps/web/src/components/ChatView.logic.ts`                        |       1 | one 149-vs-366-line hunk: loom's `/handoff` intercept copy vs upstream's `agentControlledBrowserCloseConfirmation` — both are additive, interleave them                                                                                                   |
+| `apps/web/src/markdown-links.ts`                                   |       1 | loom's Windows-path normalisation vs upstream's extracted `inlineCodeFilePathCandidate`                                                                                                                                                                   |
+| `apps/mobile/src/features/threads/PendingUserInputCard.tsx`        |       1 | deferred ledger (mobile question card) — keep loom's, adapt to upstream's `cardCoverage` props                                                                                                                                                            |
 
 ### 2. Then, in order
 
@@ -246,7 +246,7 @@ risk ranking, not by size:
 An early import-union heuristic (since abandoned, see the method note) left a
 **broken import block** in `packages/contracts/src/orchestration.ts` — an
 orphaned member list with no `import {` — that was only caught by the parse
-sweep at the very end of the session and repaired. It parsed as a *different*
+sweep at the very end of the session and repaired. It parsed as a _different_
 error than it looked like. The same pass touched 85 files; every one of them now
 parses, but **duplicate import specifiers parse fine and only typecheck will
 find them**. Expect a cluster of "duplicate identifier" / "already declared"
@@ -296,11 +296,11 @@ preferred order of union → ours → theirs: **all nine variants fail to parse*
 (recorded by `docs/upstream-sync/pull7-tools/protected.mjs`). They cannot be
 resolved mechanically.
 
-| file | markers | shape of the conflict |
-| ------ | -------: | ----------------------- |
-| `apps/web/src/components/Sidebar.tsx` | 13 | loom's Sidebar v2 re-home (doc 23 §I1: workstream roll-up badge, root filter, `Staged` pill, goal menu, attention status, activity-order sort) vs upstream's sidebar changes |
-| `apps/web/src/components/files/FilePreviewPanel.tsx` | 10 | loom's MDX plan renderer + `openInEditorPath` vs upstream's delimited-table preview (`DelimitedTablePreview`, `tableDelimiter`, `renderTable`) and its switch from `openInEditorPath` to `absolutePath` + `workspaceRoot` |
-| `apps/web/src/rightPanelStore.ts` | 7 | loom's `tasks`/`workstream` surfaces + `seedSurfaces` (durable one-shot auto-open, plan W1) vs upstream's `userActionRevisionByThreadKey` / `automaticUpdate` vs `userAction` write policy, `openDevice`, `openAttachment`, `pull-requests` surface |
+| file                                                 | markers | shape of the conflict                                                                                                                                                                                                                               |
+| ---------------------------------------------------- | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/components/Sidebar.tsx`                |      13 | loom's Sidebar v2 re-home (doc 23 §I1: workstream roll-up badge, root filter, `Staged` pill, goal menu, attention status, activity-order sort) vs upstream's sidebar changes                                                                        |
+| `apps/web/src/components/files/FilePreviewPanel.tsx` |      10 | loom's MDX plan renderer + `openInEditorPath` vs upstream's delimited-table preview (`DelimitedTablePreview`, `tableDelimiter`, `renderTable`) and its switch from `openInEditorPath` to `absolutePath` + `workspaceRoot`                           |
+| `apps/web/src/rightPanelStore.ts`                    |       7 | loom's `tasks`/`workstream` surfaces + `seedSurfaces` (durable one-shot auto-open, plan W1) vs upstream's `userActionRevisionByThreadKey` / `automaticUpdate` vs `userAction` write policy, `openDevice`, `openAttachment`, `pull-requests` surface |
 
 `rightPanelStore.ts` is the load-bearing one: the clean-merged text around the
 markers already calls `userAction(...)`, `automaticUpdate(...)` and
@@ -322,7 +322,7 @@ shape was adopted and loom's three invariants re-homed onto it:
 
 - **#115 fail-loud is preserved and now documented against upstream's newer
   shape.** Upstream replaced its old swallowing `orElseSucceed` with
-  `retryShellProjectionRead`, which no longer *collapses* failed-lookup with
+  `retryShellProjectionRead`, which no longer _collapses_ failed-lookup with
   absent-row (the outer/inner `Option` split) but still **drops** the stream
   item on failure. Loom keeps `shellLookupRetry` + a live
   `ProjectionRepositoryError` channel so the client self-heals with a fresh
@@ -331,18 +331,18 @@ shape was adopted and loom's three invariants re-homed onto it:
 - **Upstream's `thread-removed`-on-successful-`none` IS adopted** — it is what
   makes coalescing correct (a burst can collapse a `thread.deleted` behind a
   later refetchable event for the same thread). This is the load-bearing
-  distinction from the paragraph above: a *successful* `none` means the row is
-  genuinely gone; a *failed* lookup stays in the error channel.
+  distinction from the paragraph above: a _successful_ `none` means the row is
+  genuinely gone; a _failed_ lookup stays in the error channel.
 - **Eager PubSub attach kept.** Upstream forks `streamDomainEvents` (lazy —
   subscribes whenever the fibre first pulls, which is not ordered against the
-  enclosing generator). Loom's `subscribeDomainEvents` is yielded *before* the
+  enclosing generator). Loom's `subscribeDomainEvents` is yielded _before_ the
   snapshot read, which is the only thing that actually closes the connect-gap.
   Both `subscribeShell` and `subscribeThread` use it.
 - **Brief-needed decoration re-homed** into a per-subscription
   `makeShellStreamEventMapper` that now also owns the coalescers
   (`coalesceShellStream`, `coalesceShellLiveInputs`) because the mapper is
   per-subscription. `briefNeededAttention.invalidate` moved **out** of the
-  removal branch and **into** `coalesceShellEvents`, checked over the *whole*
+  removal branch and **into** `coalesceShellEvents`, checked over the _whole_
   batch rather than the survivors — coalescing can otherwise drop a removal
   behind a later event for the same aggregate and strand a parent's derived flag.
 - **`shellResumeCompletionMarker` flipped `false` → `true`.** Loom advertised
@@ -368,7 +368,7 @@ shape was adopted and loom's three invariants re-homed onto it:
 - **Bootstrap worktree path: upstream's `WorktreeSetupTracker` adopted, loom's
   `worktreeProvisioner.provisionWorktree`/`runSetup` calls dropped from
   `ws.ts`.** ~400 lines of upstream's staged-progress/cancellation machinery had
-  already clean-merged *around* the conflicts, and upstream's inline path does
+  already clean-merged _around_ the conflicts, and upstream's inline path does
   everything loom's provisioner did for this caller (createWorktree with
   progress → `thread.meta.update` with branch/worktreePath → setup script) while
   adding live stage progress and cancellation. **The `t3code-setup-state.json`
@@ -428,23 +428,23 @@ see "open items". It is the single highest-value verification left, because pull
 
 #### The other ten
 
-| file | resolution |
-| ------ | ------------ |
-| `ProviderCommandReactor.ts` (17) | Upstream's **context-compaction** feature adopted whole (`compactingThreadIds`, `turnsAfterCompaction`, `restoreCompaction`, `stoppingThreadIds`, the compaction-aware session stop). Loom's Fix-A `clearPendingTurnStartForFailedTurn` folded into upstream's `handleCompactionFailure` so a failed compaction cannot leave the thread permanently non-idle. Loom's §1/§4 emergent-goal + title-provenance interpretation is kept as the **single** first-turn title source: upstream's `maybeGenerateThreadTitleForFirstTurn` was dropped rather than run alongside it (two title writers would race), and upstream's second model call for the worktree branch name was not folded in because loom renames the branch from the derived title inside `startThreadInterpretation` (its definition did not survive the merge anyway). Loom's worktree-isolation re-provision chokepoint, kickoff-brief recovery, role overlays / ship-policy / relocation system-prompt composition, and settle-before-liveness on interrupt and stop all kept; upstream's `ensureThreadWorktree`, `dispatchFromClient` origin plumbing, `projectComposerContextForProvider`, `refreshWorkspaceSnapshot` tap and `attachmentsByQuestionId` folded in. |
-| `ProviderRuntimeIngestion.ts` (13) | Upstream's per-project `resolveResponseStreamingMode` + paced `appendBufferedAssistantText(id, delta, mode, nowMs)` adopted (loom's `enableLegacyTokenStreaming` branch is superseded), as is `resolveThreadRuntimeContext` (loom's `resolveThreadShell` no longer exists) and the `content.delta` stream-kind filter. Loom's account-usage registry feed, liveness heartbeat, usage-ledger rows, interrupted-tool activities, `shouldPersistActivity` de-dupe and the narrow first-terminal-wins `catchIf` all kept. Loom's transient reasoning bus was renamed `liveReasoningDelta` so it coexists with upstream's new **durable** reasoning deltas rather than shadowing them, and its live-streaming gate now reads `resolveResponseStreamingMode(...) === "token"`. |
-| `ClaudeAdapter.ts` (6) | Upstream's richer rate-limit mapping (`claudeRateLimitEventToUpdate`, scoped limit names, the parked-window warning) and `stopSessions` adopted; upstream's `onUserDialog` / `supportedDialogKinds: ["resume_return"]` folded in. Loom's settlement-deferred pending-user-input dismissal, best-effort replacement-stop cleanup, the `releasedForCall` promise-boundary release, and `getSession` kept. The worktree `node_modules/.bin` PATH prepend now wraps **inside** upstream's `McpProviderSession.withAgentDeviceEnvironment`. A broken import block in a clean-merged region (a leftover of session 1's abandoned import heuristic) was repaired. |
-| `WorkspaceFileSystem.ts` (3) | Both helpers kept: upstream's `resolveReadTarget` (absolute paths read in place, no root check) and loom's shared `readTextFromRealPath`, with loom's `WorkspaceAbsoluteReadError` / absolute-directory listing intact. `Schema.TaggedErrorClass` → `Schema.TaggedError` applied file-wide, matching the contracts rename. |
-| `ProviderRegistry.test.ts` (6) | All six taken as **ours**: the Pi-first registry ships pi only, so upstream's codex re-probe and cursor-defaults cases stay deleted. One orphaned upstream fragment in a clean region was removed. |
-| `ChatView.logic.ts` (1) | Union — loom's `/handoff` intercept copy and upstream's `agentControlledBrowserCloseConfirmation` are both additive. A mangled import block and a missing closing brace, both in clean-merged regions, were repaired. |
-| `markdown-links.ts` (1) | Loom's Windows drive/UNC normalisation and extensionless-with-`:line` fallback kept, then the normalised span handed to upstream's extracted `inlineCodeFilePathCandidate` + three-arg `resolveMarkdownFileLinkMeta`. A duplicate `MARKDOWN_LINK_HREF_PATTERN` / `extractMarkdownLinkHrefs` pair (clean-region merge damage; upstream's newer `<...>`-aware pattern survives) was removed. |
-| `chat/MessagesTimeline.logic.ts` (5) | **Ours**, per the chat-surface decision. Loom's spawn/consult card grouping and `/handoff` receipt splicing kept; upstream's worktree-setup card, queued-message rows and `deriveMessagesTimelineRowsWithState` streaming-row reuse are **not** folded in (`MessagesTimeline.tsx` itself is loom's file wholesale, so nothing consumes them). |
-| `mobile/PendingUserInputCard.tsx` (1) | **Theirs** — see "open items"; this diverges from the session-1 table's "keep loom's, adapt to `cardCoverage`". |
-| `mobile/use-selected-thread-requests.ts` (6) | **Theirs** (wave 1), loom's `@t3tools/shared/userInputAnswers` hoist **not yet re-applied** — see "open items". |
+| file                                         | resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ProviderCommandReactor.ts` (17)             | Upstream's **context-compaction** feature adopted whole (`compactingThreadIds`, `turnsAfterCompaction`, `restoreCompaction`, `stoppingThreadIds`, the compaction-aware session stop). Loom's Fix-A `clearPendingTurnStartForFailedTurn` folded into upstream's `handleCompactionFailure` so a failed compaction cannot leave the thread permanently non-idle. Loom's §1/§4 emergent-goal + title-provenance interpretation is kept as the **single** first-turn title source: upstream's `maybeGenerateThreadTitleForFirstTurn` was dropped rather than run alongside it (two title writers would race), and upstream's second model call for the worktree branch name was not folded in because loom renames the branch from the derived title inside `startThreadInterpretation` (its definition did not survive the merge anyway). Loom's worktree-isolation re-provision chokepoint, kickoff-brief recovery, role overlays / ship-policy / relocation system-prompt composition, and settle-before-liveness on interrupt and stop all kept; upstream's `ensureThreadWorktree`, `dispatchFromClient` origin plumbing, `projectComposerContextForProvider`, `refreshWorkspaceSnapshot` tap and `attachmentsByQuestionId` folded in. |
+| `ProviderRuntimeIngestion.ts` (13)           | Upstream's per-project `resolveResponseStreamingMode` + paced `appendBufferedAssistantText(id, delta, mode, nowMs)` adopted (loom's `enableLegacyTokenStreaming` branch is superseded), as is `resolveThreadRuntimeContext` (loom's `resolveThreadShell` no longer exists) and the `content.delta` stream-kind filter. Loom's account-usage registry feed, liveness heartbeat, usage-ledger rows, interrupted-tool activities, `shouldPersistActivity` de-dupe and the narrow first-terminal-wins `catchIf` all kept. Loom's transient reasoning bus was renamed `liveReasoningDelta` so it coexists with upstream's new **durable** reasoning deltas rather than shadowing them, and its live-streaming gate now reads `resolveResponseStreamingMode(...) === "token"`.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `ClaudeAdapter.ts` (6)                       | Upstream's richer rate-limit mapping (`claudeRateLimitEventToUpdate`, scoped limit names, the parked-window warning) and `stopSessions` adopted; upstream's `onUserDialog` / `supportedDialogKinds: ["resume_return"]` folded in. Loom's settlement-deferred pending-user-input dismissal, best-effort replacement-stop cleanup, the `releasedForCall` promise-boundary release, and `getSession` kept. The worktree `node_modules/.bin` PATH prepend now wraps **inside** upstream's `McpProviderSession.withAgentDeviceEnvironment`. A broken import block in a clean-merged region (a leftover of session 1's abandoned import heuristic) was repaired.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `WorkspaceFileSystem.ts` (3)                 | Both helpers kept: upstream's `resolveReadTarget` (absolute paths read in place, no root check) and loom's shared `readTextFromRealPath`, with loom's `WorkspaceAbsoluteReadError` / absolute-directory listing intact. `Schema.TaggedErrorClass` → `Schema.TaggedError` applied file-wide, matching the contracts rename.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `ProviderRegistry.test.ts` (6)               | All six taken as **ours**: the Pi-first registry ships pi only, so upstream's codex re-probe and cursor-defaults cases stay deleted. One orphaned upstream fragment in a clean region was removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ChatView.logic.ts` (1)                      | Union — loom's `/handoff` intercept copy and upstream's `agentControlledBrowserCloseConfirmation` are both additive. A mangled import block and a missing closing brace, both in clean-merged regions, were repaired.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `markdown-links.ts` (1)                      | Loom's Windows drive/UNC normalisation and extensionless-with-`:line` fallback kept, then the normalised span handed to upstream's extracted `inlineCodeFilePathCandidate` + three-arg `resolveMarkdownFileLinkMeta`. A duplicate `MARKDOWN_LINK_HREF_PATTERN` / `extractMarkdownLinkHrefs` pair (clean-region merge damage; upstream's newer `<...>`-aware pattern survives) was removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `chat/MessagesTimeline.logic.ts` (5)         | **Ours**, per the chat-surface decision. Loom's spawn/consult card grouping and `/handoff` receipt splicing kept; upstream's worktree-setup card, queued-message rows and `deriveMessagesTimelineRowsWithState` streaming-row reuse are **not** folded in (`MessagesTimeline.tsx` itself is loom's file wholesale, so nothing consumes them).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `mobile/PendingUserInputCard.tsx` (1)        | **Theirs** — see "open items"; this diverges from the session-1 table's "keep loom's, adapt to `cardCoverage`".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `mobile/use-selected-thread-requests.ts` (6) | **Theirs** (wave 1), loom's `@t3tools/shared/userInputAnswers` hoist **not yet re-applied** — see "open items".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### A latent damage class session 1 under-reported
 
 Session 1 recorded that the abandoned import-union heuristic had been reverted.
-It was reverted in *unconflicted* files, but **the clean-merged regions of
+It was reverted in _unconflicted_ files, but **the clean-merged regions of
 conflicted files still carried the damage**, because the parse sweep skips a
 file that contains `<<<<<<<`. Three of the twelve files resolved this session
 (`ClaudeAdapter.ts`, `ChatView.logic.ts`, `markdown-links.ts`) had a broken
@@ -465,7 +465,7 @@ anything else about it.
    list against the widest list for the same `Result` schema. Pull 6 dropped
    columns here three times and typecheck cannot see it.
 4. **`vp run typecheck`** — must list all 15 packages. Known repairs already
-   identified and *not* done:
+   identified and _not_ done:
    - `McpSessionRegistry.test.ts` still asserts the old exact capability set;
      change it to a `has("workstream")` check (the invariant holds; session 1
      added `"workstream"` unconditionally to upstream's derived set).
@@ -531,10 +531,10 @@ commits followed. Nothing has been pushed.
 
 ### Topology (verified)
 
-| ref | hash |
-| ----- | ------ |
-| merge commit | `116eff1261` |
-| `HEAD^1` (loom `origin/main`) | `5c350f7a63` |
+| ref                                              | hash         |
+| ------------------------------------------------ | ------------ |
+| merge commit                                     | `116eff1261` |
+| `HEAD^1` (loom `origin/main`)                    | `5c350f7a63` |
 | `HEAD^2` (upstream tip v0.0.43-nightly.20260920) | `c14f6015bf` |
 
 Branch `t3code/upstream-sync-20260921`. Every commit used `--no-verify`; `^2`
@@ -601,7 +601,7 @@ path in place server-side), and loom's file surfaces already mirror the
 absolute path into `relativePath`, so the separate prop and the separate
 `useProjectAbsoluteFileQuery` read were a second mechanism for one thing. The
 one caller line in `ChatView.tsx` was removed. Loom's MDX plan renderer, its
-8 MiB `MDX_PREVIEW_MAX_BYTES` budget (correctly threaded as the *fifth*
+8 MiB `MDX_PREVIEW_MAX_BYTES` budget (correctly threaded as the _fifth_
 argument — upstream's 4-arg call would have passed a boolean as `maxBytes`),
 the still-truncated-MDX guard and the artefact-viewer button all survive.
 
@@ -612,14 +612,14 @@ damage. It is broader than that: **the mechanical pass and the clean merge also
 dropped whole top-level declarations from files nobody flagged.** Found and
 repaired so far:
 
-| file | what was lost | whose |
-| ------ | --------------- | ------- |
-| `apps/web/src/components/Sidebar.logic.ts` | `reduceSidebarProjectScopeMenuState` + its two types | upstream |
-| `apps/web/src/components/Sidebar.logic.ts` | `shouldNavigateAfterProjectRemoval` (still called by `Sidebar.tsx`) | loom |
-| `packages/contracts/src/server.ts` | the whole environment-themes block (`EnvironmentThemeColor`, `EnvironmentThemeId`, `environmentThemeFields`, `EnvironmentThemeFile`, `EnvironmentTheme`, `environmentThemeFileHasColors`) **and** `ServerConfigStream{EnvironmentThemesUpdated,UsageLimitSourcesUpdated}Event` with their payloads — while every server/client consumer survived | upstream |
-| `packages/contracts/src/settings.ts` | 9 client/server settings fields (`notificationMode`, `inAppNotificationsEnabled`, `diffColorScheme`, `loadBalancing{Enabled,Weights}`, `appearanceContrast`, `panelAnimationDurationMs`, `storageCleanup`, `worktreeCleanup`) across four structs | upstream |
-| `packages/client-runtime/src/state/server.ts` | `projectServerWelcome` (loom) and `refreshUsageRates` (upstream) | both |
-| `apps/web/src/components/NoActiveThreadState.tsx` | `NoActiveThreadState` itself — the resolver took `theirs` and dropped a hunk spanning loom's `ThreadHydratingState` tail and upstream's function head | upstream |
+| file                                              | what was lost                                                                                                                                                                                                                                                                                                                                    | whose    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `apps/web/src/components/Sidebar.logic.ts`        | `reduceSidebarProjectScopeMenuState` + its two types                                                                                                                                                                                                                                                                                             | upstream |
+| `apps/web/src/components/Sidebar.logic.ts`        | `shouldNavigateAfterProjectRemoval` (still called by `Sidebar.tsx`)                                                                                                                                                                                                                                                                              | loom     |
+| `packages/contracts/src/server.ts`                | the whole environment-themes block (`EnvironmentThemeColor`, `EnvironmentThemeId`, `environmentThemeFields`, `EnvironmentThemeFile`, `EnvironmentTheme`, `environmentThemeFileHasColors`) **and** `ServerConfigStream{EnvironmentThemesUpdated,UsageLimitSourcesUpdated}Event` with their payloads — while every server/client consumer survived | upstream |
+| `packages/contracts/src/settings.ts`              | 9 client/server settings fields (`notificationMode`, `inAppNotificationsEnabled`, `diffColorScheme`, `loadBalancing{Enabled,Weights}`, `appearanceContrast`, `panelAnimationDurationMs`, `storageCleanup`, `worktreeCleanup`) across four structs                                                                                                | upstream |
+| `packages/client-runtime/src/state/server.ts`     | `projectServerWelcome` (loom) and `refreshUsageRates` (upstream)                                                                                                                                                                                                                                                                                 | both     |
+| `apps/web/src/components/NoActiveThreadState.tsx` | `NoActiveThreadState` itself — the resolver took `theirs` and dropped a hunk spanning loom's `ThreadHydratingState` tail and upstream's function head                                                                                                                                                                                            | upstream |
 
 A structural auditor for exactly this is now at
 `docs/upstream-sync/pull7-tools/lostdecls.py` (compare top-level exported
@@ -640,7 +640,7 @@ is correct), and **exactly one name that loom lost still exists upstream**
 expected (the chat-surface decision), the others are not.
 
 ⚠️ **The auditor only sees top-level declarations.** The `settings.ts` and
-`server.ts` losses above were *fields inside structs* and did not show up.
+`server.ts` losses above were _fields inside structs_ and did not show up.
 Field-level drops in contracts are the residual risk, and typecheck only finds
 them where a consumer exists.
 
@@ -667,11 +667,11 @@ failure mode three times over and it did not recur.
 client-runtime, effect-acp, effect-codex-app-server, oxlint-plugin-t3code, ssh,
 tailscale, scripts, marketing, **apps/web**.
 
-| package | errors | shape |
-| --------- | -------: | ------- |
-| `apps/mobile` | 140 | 114 are the wave-1 deferrals (`threadActivity.test.ts` 46, `PendingUserInputCard.tsx` 40, `use-selected-thread-requests.ts` 28); the rest are merge damage (`FileMarkdownPreview.tsx` duplicate import block, `MarkdownBlock.tsx` missing `../lib/useThemeColor`, `responseStreamingMode` settings drift, `ThreadFeedActivity` lazy-getter vs upstream's eager `fullDetail`/`copyText`) |
-| `apps/server` | 2044 | 998 are Effect diagnostics (`TS377030` unknown-in-R, `TS377004` missing service) that likely cascade from a handful of layer wirings; 76 `TS2300` duplicate identifiers and 167 `TS2304` cannot-find-name are the same import-union/dropped-declaration damage as above, across ~40 files |
-| `apps/desktop` | not run | `vp` skips it while server fails; run `cd apps/desktop && npx tsc --noEmit` |
+| package        |  errors | shape                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------- | ------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/mobile`  |     140 | 114 are the wave-1 deferrals (`threadActivity.test.ts` 46, `PendingUserInputCard.tsx` 40, `use-selected-thread-requests.ts` 28); the rest are merge damage (`FileMarkdownPreview.tsx` duplicate import block, `MarkdownBlock.tsx` missing `../lib/useThemeColor`, `responseStreamingMode` settings drift, `ThreadFeedActivity` lazy-getter vs upstream's eager `fullDetail`/`copyText`) |
+| `apps/server`  |    2044 | 998 are Effect diagnostics (`TS377030` unknown-in-R, `TS377004` missing service) that likely cascade from a handful of layer wirings; 76 `TS2300` duplicate identifiers and 167 `TS2304` cannot-find-name are the same import-union/dropped-declaration damage as above, across ~40 files                                                                                               |
+| `apps/desktop` | not run | `vp` skips it while server fails; run `cd apps/desktop && npx tsc --noEmit`                                                                                                                                                                                                                                                                                                             |
 
 Full inventory (per file, per error code, plus the duplicate-identifier and
 cannot-find-name lists that localise the merge damage):
@@ -745,24 +745,24 @@ merge the two blocks, keep the union.
 pass deleted entire declarations, whole `case` arms, interface members and
 object-literal entries while leaving every reference intact. Repaired:
 
-| file | what was lost | whose |
-| ------ | --------------- | ------- |
-| `apps/server/src/orchestration/decider.ts` | `nowIso`, `isScriptRunCommand`, `threadPullRequestLinksEqual`, `findPullRequestLink`, **and the whole `thread.pull-request.link` / `.unlink` / `thread.message.user.append` case arms** | upstream |
-| `apps/server/src/provider/Layers/ProviderService.ts` | a 370-line block: `fileSystem`, `pathService`, the compaction registry (`pendingCompactions`, `timedOutNativeCompactions`, `settleCompaction`) and the entire turn-analytics subsystem (`turnAnalytics` … `recordTurnCompletedAnalytics`) | upstream |
-| `apps/server/src/provider/Layers/CodexAdapter.ts` | 230 lines of MCP tool-presentation helpers (`asUnknownRecord` … `mcpToolPresentation`) | upstream |
-| `apps/server/src/persistence/Layers/OrchestrationEventStore.ts` | the aggregate-replay request/result schemas, `readAggregateEventRows`, `readAggregateReplayStats`, `getAggregateReplayStats` | upstream |
-| `apps/server/src/orchestration/Layers/OrchestrationEngine.ts` | `readThreadEvents`, `getThreadReplayStats`, `userInputActivity`, `isOrchestrationCommandInvariantError`, the `dispatch` `options` parameter | both |
-| `apps/server/src/vcs/VcsStatusBroadcaster.ts` | `VcsAutoPullPolicy` + `autoPullPolicyLayer`, and `refreshPullRequestStatus` | upstream |
-| `apps/server/src/git/GitManager.ts` | `branchPullRequest` (the **interface member**, not the impl), `resolveRemoteRepositoryContext`, `resolvePrLookupRepositoryIdentity`, `targetRemoteUrlKey` | upstream |
-| `apps/server/src/provider/Services/ProviderAdapter.ts` | `ProviderCompaction` + the `promptlessTurnContinuation` / `supportsConversationRollback` capability fields | upstream |
-| `apps/server/src/persistence/Services/Projection{Projects,Threads}.ts` | `DeleteProjectionProjectInput`, `DeleteProjectionThreadInput`, `ListProjectionThreadsByProjectInput` | loom |
-| `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts` | `ProjectionEventReplayStats` | upstream |
-| `apps/server/src/textGeneration/TextGeneration.ts` | `TextGenerationShape`, `ThreadTitleGenerationResult.needsRefinement` | both |
-| `apps/server/src/provider/makeManagedServerProvider.ts` | `withUsageLimits` | upstream |
-| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts` | `shouldRefreshThreadShellSummary` | upstream |
-| `apps/server/src/server.ts` | **five layers dropped from the runtime composition**: `PullRequestServiceLive`, `GitHubCli.layer`, `DeviceLayerLive`, `ModelManifest.layer`, `CodexResetCredit.layer`, plus `ThreadSettlementReactor` / `PullRequestSyncReactor` / `ThreadPullRequestReactor` from the reactor layer | upstream |
-| `apps/server/src/serverRuntimeStartup.ts` | `resolveAutoBootstrapWelcomeTargets` was spliced from BOTH versions into a body that referenced variables from neither; rewritten on upstream's structure with loom's pi default and loom's idempotent re-resolve | both |
-| `apps/mobile/src/lib/threadActivity.ts` | the `ThreadFeedActivity` interface still declared loom's eager `fullDetail`/`copyText` while the producer already emitted upstream's lazy `canExpand`/`getFullDetail`/`getCopyText` — one interface edit cleared 50 errors | upstream |
+| file                                                                   | what was lost                                                                                                                                                                                                                                                                        | whose    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `apps/server/src/orchestration/decider.ts`                             | `nowIso`, `isScriptRunCommand`, `threadPullRequestLinksEqual`, `findPullRequestLink`, **and the whole `thread.pull-request.link` / `.unlink` / `thread.message.user.append` case arms**                                                                                              | upstream |
+| `apps/server/src/provider/Layers/ProviderService.ts`                   | a 370-line block: `fileSystem`, `pathService`, the compaction registry (`pendingCompactions`, `timedOutNativeCompactions`, `settleCompaction`) and the entire turn-analytics subsystem (`turnAnalytics` … `recordTurnCompletedAnalytics`)                                            | upstream |
+| `apps/server/src/provider/Layers/CodexAdapter.ts`                      | 230 lines of MCP tool-presentation helpers (`asUnknownRecord` … `mcpToolPresentation`)                                                                                                                                                                                               | upstream |
+| `apps/server/src/persistence/Layers/OrchestrationEventStore.ts`        | the aggregate-replay request/result schemas, `readAggregateEventRows`, `readAggregateReplayStats`, `getAggregateReplayStats`                                                                                                                                                         | upstream |
+| `apps/server/src/orchestration/Layers/OrchestrationEngine.ts`          | `readThreadEvents`, `getThreadReplayStats`, `userInputActivity`, `isOrchestrationCommandInvariantError`, the `dispatch` `options` parameter                                                                                                                                          | both     |
+| `apps/server/src/vcs/VcsStatusBroadcaster.ts`                          | `VcsAutoPullPolicy` + `autoPullPolicyLayer`, and `refreshPullRequestStatus`                                                                                                                                                                                                          | upstream |
+| `apps/server/src/git/GitManager.ts`                                    | `branchPullRequest` (the **interface member**, not the impl), `resolveRemoteRepositoryContext`, `resolvePrLookupRepositoryIdentity`, `targetRemoteUrlKey`                                                                                                                            | upstream |
+| `apps/server/src/provider/Services/ProviderAdapter.ts`                 | `ProviderCompaction` + the `promptlessTurnContinuation` / `supportsConversationRollback` capability fields                                                                                                                                                                           | upstream |
+| `apps/server/src/persistence/Services/Projection{Projects,Threads}.ts` | `DeleteProjectionProjectInput`, `DeleteProjectionThreadInput`, `ListProjectionThreadsByProjectInput`                                                                                                                                                                                 | loom     |
+| `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts`    | `ProjectionEventReplayStats`                                                                                                                                                                                                                                                         | upstream |
+| `apps/server/src/textGeneration/TextGeneration.ts`                     | `TextGenerationShape`, `ThreadTitleGenerationResult.needsRefinement`                                                                                                                                                                                                                 | both     |
+| `apps/server/src/provider/makeManagedServerProvider.ts`                | `withUsageLimits`                                                                                                                                                                                                                                                                    | upstream |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts`           | `shouldRefreshThreadShellSummary`                                                                                                                                                                                                                                                    | upstream |
+| `apps/server/src/server.ts`                                            | **five layers dropped from the runtime composition**: `PullRequestServiceLive`, `GitHubCli.layer`, `DeviceLayerLive`, `ModelManifest.layer`, `CodexResetCredit.layer`, plus `ThreadSettlementReactor` / `PullRequestSyncReactor` / `ThreadPullRequestReactor` from the reactor layer | upstream |
+| `apps/server/src/serverRuntimeStartup.ts`                              | `resolveAutoBootstrapWelcomeTargets` was spliced from BOTH versions into a body that referenced variables from neither; rewritten on upstream's structure with loom's pi default and loom's idempotent re-resolve                                                                    | both     |
+| `apps/mobile/src/lib/threadActivity.ts`                                | the `ThreadFeedActivity` interface still declared loom's eager `fullDetail`/`copyText` while the producer already emitted upstream's lazy `canExpand`/`getFullDetail`/`getCopyText` — one interface edit cleared 50 errors                                                           | upstream |
 
 **(c) Marker-less semantic conflicts.** Resolved below.
 
@@ -778,10 +778,11 @@ reads `message.reasoningText`), so upstream's pair is re-dropped and the
 matching durable dispatch sites in `ProviderRuntimeIngestion` (the buffered
 reasoning-delta block, the `item.completed` reasoning snapshot, and four
 `role: "reasoning"` segment finalisations) are removed. Loom's ReasoningStreamBus
-+ `finalizeReasoningForMessage` remains the single mechanism.
-⚠️ Cost: upstream's whole-block *snapshot* fallback (a provider that reports one
-reasoning block without streaming it) has no loom equivalent and is gone. The
-inert `"reasoning"` member of `OrchestrationMessageRole` now has no producer.
+
+- `finalizeReasoningForMessage` remains the single mechanism.
+  ⚠️ Cost: upstream's whole-block _snapshot_ fallback (a provider that reports one
+  reasoning block without streaming it) has no loom equivalent and is gone. The
+  inert `"reasoning"` member of `OrchestrationMessageRole` now has no producer.
 
 **`account.rate-limits.updated` carries both shapes, both optional.** Loom's
 `windows`/`planType` rollup (consumed by `ProviderRuntimeIngestion` →
@@ -821,7 +822,7 @@ to 365.
 
 ### Auto-settle: open question 1 is RESOLVED (teach the server)
 
-The orchestrator chose *teach the server sweep the blocker*, and it landed as a
+The orchestrator chose _teach the server sweep the blocker_, and it landed as a
 ~20-line local change in `apps/server/src/orchestration/decider.ts`'s
 `thread.auto-settle` arm: the command read model already holds the thread graph,
 so the arm reuses loom's own `collectLiveSubtreeIds` + shared `isTerminalLane`
@@ -843,12 +844,12 @@ genuinely unused or reachable only from a path no consumer types.
 
 ### Gate status
 
-| package | errors |
-| --------- | -------: |
-| the 11 green after session 3 | 0 |
-| `apps/desktop` | **0** |
-| `apps/server` | 740 — **all in test/integration files** |
-| `apps/mobile` | 73 — `PendingUserInputCard.tsx` (40) + `use-selected-thread-requests.ts` (28) are the wave-1 deferrals, the other 5 are one-line test fixture drift |
+| package                      |                                                                                                                                              errors |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------: |
+| the 11 green after session 3 |                                                                                                                                                   0 |
+| `apps/desktop`               |                                                                                                                                               **0** |
+| `apps/server`                |                                                                                                             740 — **all in test/integration files** |
+| `apps/mobile`                | 73 — `PendingUserInputCard.tsx` (40) + `use-selected-thread-requests.ts` (28) are the wave-1 deferrals, the other 5 are one-line test fixture drift |
 
 `pnpm build`, `vp check`, the migration smoke and the PR #191 transfer budget
 are **not started** — they sit behind a green `vp run typecheck`.
@@ -914,12 +915,12 @@ session 4's HEAD `b84b466aeb`**.
 
 Current, after session 5's work and `vp i`:
 
-| package | errors | note |
-|---|---|---|
-| 11 packages incl. `apps/desktop` | **0** | unchanged, still green |
-| `apps/web` | **635** | was 851; mostly SOURCE files, not tests |
-| `apps/server` | **176** | was 740; all test/integration files |
-| `apps/mobile` | **63** | untouched this session |
+| package                          | errors  | note                                    |
+| -------------------------------- | ------- | --------------------------------------- |
+| 11 packages incl. `apps/desktop` | **0**   | unchanged, still green                  |
+| `apps/web`                       | **635** | was 851; mostly SOURCE files, not tests |
+| `apps/server`                    | **176** | was 740; all test/integration files     |
+| `apps/mobile`                    | **63**  | untouched this session                  |
 
 `apps/web` is the bigger half of the remaining work and is qualitatively worse
 than the server's: the server's residue is test doubles, whereas web's is
@@ -932,13 +933,13 @@ concentrated in shipped components — `ProviderSetupSection.tsx` (75),
 Session 2 decided "chat surface: keep loom's side + fold wave 1". The ledger
 records the opposite for several of those files, and HEAD matches:
 
-| file | ledger mode | HEAD vs upstream | HEAD vs loom |
-|---|---|---|---|
-| `apps/web/src/components/chat/MessagesTimeline.logic.ts` | `theirs` | 299 diff lines | 1059 diff lines |
-| `apps/web/src/components/ChatView.logic.ts` | **`FAILED`** | 212 diff lines | 915 diff lines |
-| `apps/web/src/components/chat/ComposerCommandMenu.tsx` | `theirs` | — | — |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | `theirs` | — | — |
-| `apps/web/src/components/settings/ProviderSettingsPanel.tsx` | `theirs` | — | — |
+| file                                                         | ledger mode  | HEAD vs upstream | HEAD vs loom    |
+| ------------------------------------------------------------ | ------------ | ---------------- | --------------- |
+| `apps/web/src/components/chat/MessagesTimeline.logic.ts`     | `theirs`     | 299 diff lines   | 1059 diff lines |
+| `apps/web/src/components/ChatView.logic.ts`                  | **`FAILED`** | 212 diff lines   | 915 diff lines  |
+| `apps/web/src/components/chat/ComposerCommandMenu.tsx`       | `theirs`     | —                | —               |
+| `apps/web/src/components/settings/SettingsPanels.tsx`        | `theirs`     | —                | —               |
+| `apps/web/src/components/settings/ProviderSettingsPanel.tsx` | `theirs`     | —                | —               |
 
 HEAD sits far closer to upstream than to loom on both of the big two, and
 `ChatView.logic.ts`'s resolution is recorded as having **failed outright**. That
@@ -1003,17 +1004,17 @@ of loom's schema-derived type.
 
 ### Gate status
 
-| gate | state |
-|---|---|
-| `vp run typecheck` | **RED** — web 635, server 176, mobile 63; 11 packages green |
-| `pnpm build` | not attempted (gated on typecheck) |
-| `vp check` | not attempted (gated on typecheck) |
-| PR #191 WS transfer budget | not attempted |
-| migrations 041–053 smoke | not attempted |
-| targeted test run | not attempted |
-| composition audit vs both parents | **not done** — but see the two defects above, both found by the same lens |
-| ledger audit (269 dropped hunks) | partial — `server.test.ts` (20), `ProviderService.test.ts` (11), `ProjectSetupScriptRunner.ts` (8) adjudicated |
-| `importPastedComposerText` | still unadjudicated |
+| gate                              | state                                                                                                          |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `vp run typecheck`                | **RED** — web 635, server 176, mobile 63; 11 packages green                                                    |
+| `pnpm build`                      | not attempted (gated on typecheck)                                                                             |
+| `vp check`                        | not attempted (gated on typecheck)                                                                             |
+| PR #191 WS transfer budget        | not attempted                                                                                                  |
+| migrations 041–053 smoke          | not attempted                                                                                                  |
+| targeted test run                 | not attempted                                                                                                  |
+| composition audit vs both parents | **not done** — but see the two defects above, both found by the same lens                                      |
+| ledger audit (269 dropped hunks)  | partial — `server.test.ts` (20), `ProviderService.test.ts` (11), `ProjectSetupScriptRunner.ts` (8) adjudicated |
+| `importPastedComposerText`        | still unadjudicated                                                                                            |
 
 ### What the next session should do, in order
 
@@ -1062,13 +1063,13 @@ Seven commits, `a04a73b564` … tree clean, nothing pushed, every commit
 `chat/MessagesTimeline.logic.ts`, `chat/ComposerCommandMenu.tsx` and their four
 test companions, then the minimum v0.0.43 adaptation:
 
-| adaptation | why |
-| --- | --- |
+| adaptation                                                     | why                                                                                       |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `isImageAttachment()` instead of `attachment.type === "image"` | upstream's attachment union has an open member, so a literal comparison no longer narrows |
-| `pullRequests: []` in `buildLocalDraftThread` | new required `EnvironmentThread` field |
-| `TimelineDurationMessage.role` widened with `"reasoning"` | loom's ephemeral reasoning v2 rows |
-| `dismissible: payload.responseMode === "message"` | new required `PendingUserInput` field |
-| `workEntryDisplayIndicatesToolFailure` at the render site | upstream's fix: a rendered row must not read the user's own command as error output |
+| `pullRequests: []` in `buildLocalDraftThread`                  | new required `EnvironmentThread` field                                                    |
+| `TimelineDurationMessage.role` widened with `"reasoning"`      | loom's ephemeral reasoning v2 rows                                                        |
+| `dismissible: payload.responseMode === "message"`              | new required `PendingUserInput` field                                                     |
+| `workEntryDisplayIndicatesToolFailure` at the render site      | upstream's fix: a rendered row must not read the user's own command as error output       |
 
 Six **loom-only modules the merge deleted outright** were restored because the
 kept components import them: `chat/changedFilesPresentation.ts`,
@@ -1154,13 +1155,13 @@ feature. Same class as pull 6's unmounted Agents panel. Task `2cfc0a7d`.
 
 ### Gate status
 
-| gate | state |
-| --- | --- |
-| `vp run typecheck` | **RED** — web 117, server 176, mobile 63; 11 packages green (re-verified after the contracts/client-runtime edits) |
-| `pnpm build` | not attempted (gated on typecheck) |
-| `vp check` | not attempted |
-| composition audit vs both parents | **not done** |
-| migration smoke, PR #191 budget, targeted tests | not attempted |
+| gate                                            | state                                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `vp run typecheck`                              | **RED** — web 117, server 176, mobile 63; 11 packages green (re-verified after the contracts/client-runtime edits) |
+| `pnpm build`                                    | not attempted (gated on typecheck)                                                                                 |
+| `vp check`                                      | not attempted                                                                                                      |
+| composition audit vs both parents               | **not done**                                                                                                       |
+| migration smoke, PR #191 budget, targeted tests | not attempted                                                                                                      |
 
 ### New tool
 
@@ -1193,13 +1194,13 @@ each. `vp i` first.
 
 ### Five loom features the merge had silently broken (not "test drift")
 
-Each of these compiled only because the *caller* had been deleted along with the
+Each of these compiled only because the _caller_ had been deleted along with the
 declaration, or degraded silently. They are the real value of this session.
 
 1. **The provider "show only selected models" curation surface.** Loom's
    `selectedModels` / `showOnlySelectedModels` allow-list is persisted in
    `packages/contracts/src/settings.loom.ts`, written by
-   `ProviderSettingsPanel`'s `updateProviderModelPreferences`, and *read* by
+   `ProviderSettingsPanel`'s `updateProviderModelPreferences`, and _read_ by
    `modelSelection.ts` and the model picker — but the merge took upstream's
    settings render, which has no toggle and no bulk select. A user who had ever
    enabled it could not see the setting, edit the list, or turn it off: a
@@ -1261,13 +1262,13 @@ upstream: `migrationEntries` is `export`ed (plus a two-line comment saying why).
 Doc 22 §3.2 asks for byte-identity, and the merge had correctly reverted loom's
 divergence — but `LoomMigrations.test.ts`, the guard that proves the two-lane
 split is schema-equivalent to the pre-split single ledger, replays the
-*historical interleaved order* and therefore needs upstream's migration
+_historical interleaved order_ and therefore needs upstream's migration
 **bodies**. `migrationManifest` exposes only `[id, name]`, and
 `runMigrations({ toMigrationInclusive })` cannot express
 "upstream 1–32, then fork 1001–1032 renumbered to 33–64, then upstream 33/34 as
 65/66". Loom's parent `5c350f7a63` already carried exactly this one-word
-divergence, so this is a *restored* fork state, not a new one. The practical
-conflict surface stays nil: upstream appends *inside* the array, never on the
+divergence, so this is a _restored_ fork state, not a new one. The practical
+conflict surface stays nil: upstream appends _inside_ the array, never on the
 declaration line. **Flagged for the reviewer** — if byte-identity is to be
 absolute, the alternative is to move the equivalence guard's fixture into
 `LoomMigrations.ts` and accept duplicating 34 migration bodies.

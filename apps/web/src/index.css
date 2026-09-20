@@ -1112,7 +1112,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       background: var(--chat-composer-glass-surface);
     }
   }
-
 }
 
 /* Safe-area inset utilities for surfaces that opt into edge-to-edge rendering.

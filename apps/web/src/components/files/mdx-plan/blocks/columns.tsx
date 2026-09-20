@@ -54,7 +54,6 @@ export const columnBlock: PlanBlock<ColumnData> = {
 
 /* -------------------------------------------------------------------------- */
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ColumnsData {}
 
 export const columnsSchema = z.object({}) as unknown as z.ZodType<ColumnsData>;

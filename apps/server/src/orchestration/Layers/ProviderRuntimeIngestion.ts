@@ -2518,8 +2518,7 @@ const make = Effect.gen(function* () {
         }
         // Token streaming pushes live transient deltas; any paced mode
         // accumulates only (the user opted out of live token streaming).
-        const liveStreaming =
-          (yield* resolveResponseStreamingMode(thread.projectId)) === "token";
+        const liveStreaming = (yield* resolveResponseStreamingMode(thread.projectId)) === "token";
         yield* handleReasoningDelta({
           threadId: thread.id,
           messageId: reasoningMessageId,

@@ -119,7 +119,6 @@ export function useLoomThreadExtensions(inputs: {
     if (eligible.length === 0) return;
     useRightPanelStore.getState().seedSurfaces(activeThreadRef, eligible, "tasks");
     useWorkstreamUiStore.getState().markAutoOpened(activeThreadRef, eligible);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThreadRef is reset transitively
   }, [
     activeThreadKey,
     activeThread?.goalId,

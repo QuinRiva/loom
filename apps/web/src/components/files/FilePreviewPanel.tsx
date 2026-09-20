@@ -52,10 +52,7 @@ import { cn } from "~/lib/utils";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { isArtifactViewerPath } from "~/components/artifact/artifactView";
-import {
-  isAbsolutePath,
-  resolvePathLinkTarget,
-} from "~/terminal-links";
+import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
@@ -971,7 +968,11 @@ function RenderedMarkdownSurface({
                   const currentContents =
                     getOptimisticProjectFileQueryData(environmentId, cwd, relativePath)?.contents ??
                     contents;
-                  const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
+                  const nextContents = setMarkdownTaskChecked(
+                    currentContents,
+                    markerOffset,
+                    checked,
+                  );
                   if (nextContents === currentContents) return;
                   setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
                   saveCoordinator.change(nextContents);

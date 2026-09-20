@@ -154,7 +154,8 @@ function openBlockingRequests(
   const openIds = new Set([...openUserInputRequestIds(thread.activities), ...openApprovalIds]);
   const requests = new Map<string, OrchestrationThreadActivity>();
   for (const activity of thread.activities) {
-    if (activity.kind !== "approval.requested" && activity.kind !== "user-input.requested") continue;
+    if (activity.kind !== "approval.requested" && activity.kind !== "user-input.requested")
+      continue;
     const payload =
       typeof activity.payload === "object" && activity.payload !== null
         ? (activity.payload as Record<string, unknown>)

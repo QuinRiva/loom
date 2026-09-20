@@ -1075,17 +1075,15 @@ const makeWsRpcLayer = (
                     }),
                   ),
                 onSome: (thread: OrchestrationThreadShell) =>
-                  briefNeededAttention
-                    .decorateUpsert(thread)
-                    .pipe(
-                      Effect.map((threads) =>
-                        Option.some<OrchestrationShellStreamEvent>({
-                          kind: "thread-upserted" as const,
-                          sequence,
-                          threads,
-                        }),
-                      ),
+                  briefNeededAttention.decorateUpsert(thread).pipe(
+                    Effect.map((threads) =>
+                      Option.some<OrchestrationShellStreamEvent>({
+                        kind: "thread-upserted" as const,
+                        sequence,
+                        threads,
+                      }),
                     ),
+                  ),
               }),
             ),
           );

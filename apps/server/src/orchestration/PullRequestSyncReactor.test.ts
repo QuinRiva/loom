@@ -68,32 +68,35 @@ function makeThread(
   id: string,
   overrides: Partial<OrchestrationThreadShell> = {},
 ): OrchestrationThreadShell {
-  return Object.assign({
-    ...loomThreadShellFixtureDefaults,
-    id: ThreadId.make(id),
-    projectId: PROJECT_ID,
-    title: id,
-    modelSelection: {
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-5",
+  return Object.assign(
+    {
+      ...loomThreadShellFixtureDefaults,
+      id: ThreadId.make(id),
+      projectId: PROJECT_ID,
+      title: id,
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      pullRequests: [],
+      latestTurn: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+      latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
     },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: null,
-    worktreePath: null,
-    pullRequests: [],
-    latestTurn: null,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-20T00:00:00.000Z",
-    archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
-    session: null,
-    latestUserMessageAt: "2026-08-20T00:00:00.000Z",
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-  }, overrides);
+    overrides,
+  );
 }
 
 function makeLink(
@@ -101,28 +104,31 @@ function makeLink(
   snapshot: Partial<ThreadPullRequestSnapshot> | null = null,
   overrides: Partial<ThreadPullRequestLink> = {},
 ): ThreadPullRequestLink {
-  return Object.assign({
-    host: "github.com",
-    repository: "owner/repository",
-    number,
-    url: `https://github.com/owner/repository/pull/${number}`,
-    source: "manual",
-    linkedAt: "2026-08-10T00:00:00.000Z",
-    snapshot:
-      snapshot === null
-        ? null
-        : {
-            state: "open",
-            title: "Pull request",
-            headBranch: "feature",
-            baseBranch: "main",
-            isDraft: false,
-            updatedAt: "2026-08-27T00:00:00.000Z",
-            syncedAt: "2026-08-27T00:00:00.000Z",
-            ...snapshot,
-          },
-    stack: null,
-  }, overrides);
+  return Object.assign(
+    {
+      host: "github.com",
+      repository: "owner/repository",
+      number,
+      url: `https://github.com/owner/repository/pull/${number}`,
+      source: "manual",
+      linkedAt: "2026-08-10T00:00:00.000Z",
+      snapshot:
+        snapshot === null
+          ? null
+          : {
+              state: "open",
+              title: "Pull request",
+              headBranch: "feature",
+              baseBranch: "main",
+              isDraft: false,
+              updatedAt: "2026-08-27T00:00:00.000Z",
+              syncedAt: "2026-08-27T00:00:00.000Z",
+              ...snapshot,
+            },
+      stack: null,
+    },
+    overrides,
+  );
 }
 
 function makeSnapshot(
@@ -142,18 +148,21 @@ function makeSummary(
   input: PullRequestRef,
   overrides: Partial<PullRequestSummary> = {},
 ): PullRequestSummary {
-  return Object.assign({
-    provider: "github",
-    projectId: input.projectId,
-    repository: input.repository,
-    number: input.number,
-    title: "Pull request",
-    url: `https://github.com/${input.repository}/pull/${input.number}`,
-    state: "open",
-    headBranch: "feature",
-    baseBranch: "main",
-    updatedAt: "2026-08-27T00:00:00.000Z",
-  }, overrides);
+  return Object.assign(
+    {
+      provider: "github",
+      projectId: input.projectId,
+      repository: input.repository,
+      number: input.number,
+      title: "Pull request",
+      url: `https://github.com/${input.repository}/pull/${input.number}`,
+      state: "open",
+      headBranch: "feature",
+      baseBranch: "main",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    },
+    overrides,
+  );
 }
 
 interface HarnessOptions {

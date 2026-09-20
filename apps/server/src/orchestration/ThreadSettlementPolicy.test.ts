@@ -11,31 +11,33 @@ import { type SettlementPullRequest, resolveAutoSettlementAt } from "./ThreadSet
 import { loomThreadShellFixtureDefaults } from "./deciderTestThread.ts";
 
 const NOW = "2026-08-28T12:00:00.000Z";
-const makeThread = (
-  overrides: Partial<OrchestrationThreadShell> = {},
-): OrchestrationThreadShell => (Object.assign({
-  ...loomThreadShellFixtureDefaults,
-  id: ThreadId.make("thread-1"),
-  projectId: ProjectId.make("project-1"),
-  title: "Thread",
-  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-  runtimeMode: "full-access",
-  interactionMode: "default",
-  pullRequests: [],
-  branch: "feature",
-  worktreePath: "/repo",
-  latestTurn: null,
-  createdAt: "2026-08-01T00:00:00.000Z",
-  updatedAt: "2026-08-20T00:00:00.000Z",
-  archivedAt: null,
-  settledOverride: null,
-  settledAt: null,
-  session: null,
-  latestUserMessageAt: "2026-08-20T00:00:00.000Z",
-  hasPendingApprovals: false,
-  hasPendingUserInput: false,
-  hasActionableProposedPlan: false,
-}, overrides));
+const makeThread = (overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell =>
+  Object.assign(
+    {
+      ...loomThreadShellFixtureDefaults,
+      id: ThreadId.make("thread-1"),
+      projectId: ProjectId.make("project-1"),
+      title: "Thread",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      pullRequests: [],
+      branch: "feature",
+      worktreePath: "/repo",
+      latestTurn: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+      latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    },
+    overrides,
+  );
 
 const decide = (
   thread: OrchestrationThreadShell,

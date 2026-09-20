@@ -13,7 +13,6 @@ import { PLAN_BLOCKS } from "./registry";
 // zod's runtime `_def` shape is untyped for our purposes; the schemas are cast
 // to `z.ZodType<T>` at compile time but remain concrete ZodObject/ZodArray/…
 // nodes at runtime, so we introspect via `any`.
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyDef = any;
 
 function def(zt: any): AnyDef {

@@ -4972,18 +4972,17 @@ pending_approval_requests AS (
                 sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
               );
 
-            const snapshot = {
-              snapshotSequence: computeSnapshotSequence(stateRows),
-              projects: Arr.filterMap(projectRows, (row) =>
-                row.deletedAt === null && activeProjectIds.has(row.projectId)
-                  ? Result.succeed(
-                      mapProjectShellRow(row, repositoryIdentities.get(row.projectId) ?? null),
-                    )
-                  : Result.failVoid,
-              ),
-              goals: [],
-              threads: threadRows.map(
-                (row): OrchestrationThreadShell => ({
+              const snapshot = {
+                snapshotSequence: computeSnapshotSequence(stateRows),
+                projects: Arr.filterMap(projectRows, (row) =>
+                  row.deletedAt === null && activeProjectIds.has(row.projectId)
+                    ? Result.succeed(
+                        mapProjectShellRow(row, repositoryIdentities.get(row.projectId) ?? null),
+                      )
+                    : Result.failVoid,
+                ),
+                goals: [],
+                threads: threadRows.map((row): OrchestrationThreadShell => ({
                   id: row.threadId,
                   projectId: row.projectId,
                   goalId: row.goalId,
@@ -5061,10 +5060,9 @@ pending_approval_requests AS (
                   consults: [],
                   peerMessages: [],
                   notifySendLog: [],
-                }),
-              ),
-              updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
-            };
+                })),
+                updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
+              };
 
               return yield* decodeShellSnapshot(snapshot).pipe(
                 Effect.mapError(

@@ -230,7 +230,10 @@ export {
   AutocompleteCollection,
 };
 
-export function AutocompleteSeparator({ className, ...props }: AutocompletePrimitive.Separator.Props) {
+export function AutocompleteSeparator({
+  className,
+  ...props
+}: AutocompletePrimitive.Separator.Props) {
   return (
     <AutocompletePrimitive.Separator
       className={cn("mx-2 my-1 h-px bg-border last:hidden", className)}

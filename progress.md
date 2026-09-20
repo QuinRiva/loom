@@ -32,20 +32,20 @@ All must-fix issues addressed (see
 `plans/db-goals-and-tasks-migration.fix-implementation.md`):
 
 - [x] 1. Shell stream emits goal-upserted/goal-removed for goal/task events
-     (ws.ts `toShellStreamEvent` goal branch + new `getGoalShellById`).
+      (ws.ts `toShellStreamEvent` goal branch + new `getGoalShellById`).
 - [x] 2. client-runtime `shellSnapshotReducer` handles goal-upserted/goal-removed;
-     `threadDetailReducer` applies `goalId` on thread.meta-updated. (web store
-     already handled both.)
+      `threadDetailReducer` applies `goalId` on thread.meta-updated. (web store
+      already handled both.)
 - [x] 3. Project-scoped goal assignment: thread.create/meta.update use
-     `requireActiveGoalInProject` (active + same project); clearing goalId still ok.
+      `requireActiveGoalInProject` (active + same project); clearing goalId still ok.
 - [x] 4. Slug uniqueness matches DB constraint: deleted goals still reserve
-     slugs (`requireUniqueGoalSlug` no longer filters deletedAt).
+      slugs (`requireUniqueGoalSlug` no longer filters deletedAt).
 - [x] 5. `projection.goals` added to REQUIRED_SNAPSHOT_PROJECTORS.
 - [x] 6. Archive coherence: `toGoalShells` excludes archived; task mutations and
-     goal assignment require active goal (`requireGoalActive`).
+      goal assignment require active goal (`requireGoalActive`).
 - [x] 7. Task reparent disallowed for MVP: `parentTaskId` removed from
-     goal.task.update command/payload + decider/projector/projection; create still
-     sets parentTaskId.
+      goal.task.update command/payload + decider/projector/projection; create still
+      sets parentTaskId.
 - [x] 8. Migration 036 documented in-file as an enabling dogfood runtime-data fix.
 
 Validation: `vp run typecheck` PASS (15/15); focused tests PASS (server

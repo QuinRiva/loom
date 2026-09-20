@@ -25,10 +25,7 @@ import {
   RefreshCwIcon,
   SettingsIcon,
 } from "lucide-react";
-import {
-  Link,
-  useNavigate,
-} from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type CSSProperties,
   type ReactNode,

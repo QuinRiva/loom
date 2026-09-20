@@ -71,10 +71,7 @@ import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts
 import * as ProviderService from "../Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
-import {
-  makeWorkspaceLease,
-  WorkspaceLease,
-} from "../../workspace/WorkspaceOccupancyLease.ts";
+import { makeWorkspaceLease, WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -274,9 +271,8 @@ function makeFakeCodexAdapter(
     Effect.succeed(sessions.has(threadId)),
   );
 
-  const getSession = vi.fn(
-    (threadId: ThreadId): Effect.Effect<ProviderSession | undefined> =>
-      Effect.sync(() => sessions.get(threadId)),
+  const getSession = vi.fn((threadId: ThreadId): Effect.Effect<ProviderSession | undefined> =>
+    Effect.sync(() => sessions.get(threadId)),
   );
 
   const readThread = vi.fn(
@@ -494,11 +490,12 @@ function makeProviderServiceLayer(
     readonly registry?: ProviderAdapterRegistry.ProviderAdapterRegistry["Service"];
   } = {},
 ) {
-  const codex = makeFakeCodexAdapter(CODEX_DRIVER, {
-    ...(input.supportsConversationRollback !== undefined
+  const codex = makeFakeCodexAdapter(
+    CODEX_DRIVER,
+    input.supportsConversationRollback !== undefined
       ? { supportsConversationRollback: input.supportsConversationRollback }
-      : {}),
-  });
+      : {},
+  );
   const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
   const cursor = makeFakeCodexAdapter(CURSOR_DRIVER);
   // A pi-shaped driver: no resume cursor is ever produced, and resumability is

@@ -61,16 +61,13 @@ export class ShipProtectedBranchError extends Schema.TaggedError<ShipProtectedBr
   }
 }
 
-export class ShipProcessError extends Schema.TaggedError<ShipProcessError>()(
-  "ShipProcessError",
-  {
-    operation: Schema.Literals(["spawn", "communicate"]),
-    kind: Schema.String,
-    executable: Schema.String,
-    argumentCount: Schema.Number,
-    cause: Schema.Defect(),
-  },
-) {
+export class ShipProcessError extends Schema.TaggedError<ShipProcessError>()("ShipProcessError", {
+  operation: Schema.Literals(["spawn", "communicate"]),
+  kind: Schema.String,
+  executable: Schema.String,
+  argumentCount: Schema.Number,
+  cause: Schema.Defect(),
+}) {
   override get message(): string {
     return `Ship step "${this.kind}" failed to ${this.operation} "${this.executable}".`;
   }

@@ -29,10 +29,7 @@ import {
   uploadedAttachmentContextRecord,
 } from "~/lib/composerContextRecords";
 import type { TerminalContextDraft } from "~/lib/terminalContext";
-import type {
-  LineReviewCommentContext,
-  ReviewCommentContext,
-} from "~/reviewCommentContext";
+import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
 import {
   createContextPresentationRegistry,
@@ -387,7 +384,11 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
         }
         const isPullRequest = isPullRequestSummaryContext(entry.record);
         const pullRequestState = pullRequestContextDisplayState(entry.record) ?? "unknown";
-        if (isPullRequest && entry.record.kind === "line" && entry.record.pullRequest !== undefined) {
+        if (
+          isPullRequest &&
+          entry.record.kind === "line" &&
+          entry.record.pullRequest !== undefined
+        ) {
           return (
             <PullRequestContextChip
               record={entry.record}

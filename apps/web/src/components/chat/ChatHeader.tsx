@@ -12,10 +12,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ChangeRequestSettleSource } from "@t3tools/shared/threadSettled";
-import {
-  ChevronDownIcon,
-  EllipsisIcon,
-} from "lucide-react";
+import { ChevronDownIcon, EllipsisIcon } from "lucide-react";
 import {
   memo,
   useCallback,

@@ -162,8 +162,8 @@ effect on the next server start.
 > Put `usageSources` on the **same provider instance that actually routes the pooled traffic** (its
 > `instanceId` is what a thread's model selection carries). An instance that declares usage sources
 > but routes nothing will report an accurate pill, but its exhaustion marks won't gate any traffic.
-A local router uses an ordinary Claude provider instance. Give it a separate
-config directory and put the router's endpoint and credential variables in that
-instance's **Environment variables**. The router must run where the environment
-can reach it. Follow the [Claude Code Router instructions](https://github.com/musistudio/claude-code-router)
-for its installation and routing configuration.
+> A local router uses an ordinary Claude provider instance. Give it a separate
+> config directory and put the router's endpoint and credential variables in that
+> instance's **Environment variables**. The router must run where the environment
+> can reach it. Follow the [Claude Code Router instructions](https://github.com/musistudio/claude-code-router)
+> for its installation and routing configuration.

@@ -6,19 +6,13 @@ import {
 } from "@t3tools/contracts";
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { useAtomValue } from "@effect/atom-react";
-import {
-  LegendList,
-  type LegendListRef,
-} from "@legendapp/list/react";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { ModelListRow } from "./ModelListRow";
 import { ModelPickerSidebar } from "./ModelPickerSidebar";
 import { SearchableModelList } from "./SearchableModelList";
 import { isModelPickerNewModel } from "./modelPickerModelHighlights";
-import {
-  buildModelPickerSearchText,
-  scoreModelPickerSearch,
-} from "./modelPickerSearch";
+import { buildModelPickerSearchText, scoreModelPickerSearch } from "./modelPickerSearch";
 
 import { ChevronRightIcon, SearchIcon } from "lucide-react";
 

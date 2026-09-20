@@ -914,9 +914,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         prompt,
         imageCount: composerImages.length,
         terminalContexts: composerTerminalContexts,
-        attachedContextCount:
-          composerPreviewAnnotations.length +
-          composerReviewComments.length,
+        attachedContextCount: composerPreviewAnnotations.length + composerReviewComments.length,
       }),
     [
       composerImages.length,

@@ -21,7 +21,6 @@ import {
   Files,
   FolderOpen,
   GitBranch,
-  GitPullRequest,
   Smartphone,
   ChevronDown,
   ChevronLeft,

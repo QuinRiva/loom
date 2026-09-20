@@ -970,10 +970,7 @@ function $setComposerEditorPrompt(
     }
     // loom: citations and context references have no chip node in this editor,
     // so they stay the literal markdown link the prompt already carries.
-    $appendTextWithLineBreaks(
-      paragraph,
-      segment.type === "text" ? segment.text : segment.source,
-    );
+    $appendTextWithLineBreaks(paragraph, segment.type === "text" ? segment.text : segment.source);
   }
 }
 

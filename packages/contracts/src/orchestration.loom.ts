@@ -1881,9 +1881,7 @@ type LoomCommandMemberType =
   | ReturnType<typeof makeLoomScaffoldCommandMembers>[number]["Type"]["type"];
 
 // Exactness, both directions.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _MissingLoomCommandTypes = AssertNever<Exclude<LoomCommandMemberType, LoomCommandType>>;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ExtraLoomCommandTypes = AssertNever<Exclude<LoomCommandType, LoomCommandMemberType>>;
 
 export type LoomOrchestrationCommand = Extract<OrchestrationCommand, { type: LoomCommandType }>;
@@ -1900,9 +1898,7 @@ type LoomEventMemberType = ReturnType<
   typeof makeLoomOrchestrationEventMembers<Record<never, never>>
 >[number]["Type"]["type"];
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _MissingLoomEventTypes = AssertNever<Exclude<LoomEventMemberType, LoomEventType>>;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _ExtraLoomEventTypes = AssertNever<Exclude<LoomEventType, LoomEventMemberType>>;
 
 export type LoomOrchestrationEvent = Extract<OrchestrationEvent, { type: LoomEventType }>;

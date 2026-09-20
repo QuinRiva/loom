@@ -296,8 +296,8 @@ export function buildUsageBurnChartGeometry({
       point.x,
       y(lowerAt(point) + (point.values.get(model) ?? 0)),
     ]);
-    const lower: Array<readonly [number, number]> = points
-      .toReversed()
+    const lower: Array<readonly [number, number]> = [...points]
+      .reverse()
       .map((point) => [point.x, y(lowerAt(point))]);
     lowerModels = [...lowerModels, model];
     return {
@@ -368,7 +368,7 @@ export function sortUsageRows<Row>(
   direction: UsageSortDirection,
 ): ReadonlyArray<Row> {
   const sign = direction === "asc" ? 1 : -1;
-  return rows.toSorted((left, right) => {
+  return [...rows].sort((left, right) => {
     const a = value(left);
     const b = value(right);
     if (a === null && b === null) return 0;
@@ -410,7 +410,7 @@ export function groupUsageConsumers(
   }
   return Array.from(byRoot.entries())
     .map(([rootThreadId, rows]): UsageConsumerGroup => {
-      const members = rows.toSorted((a, b) => b.costUsd - a.costUsd);
+      const members = [...rows].sort((a, b) => b.costUsd - a.costUsd);
       const rootRow = members.find((row) => row.threadId === rootThreadId);
       return {
         rootThreadId: rootThreadId as ServerUsageBreakdownConsumer["rootThreadId"],

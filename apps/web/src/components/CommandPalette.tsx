@@ -186,11 +186,7 @@ import {
   resolveDefaultProviderModelSelection,
 } from "../providerInstances";
 
-import {
-  CommandDialog,
-  CommandDialogPopup,
-  CommandFooterAction,
-} from "./ui/command";
+import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";

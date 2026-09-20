@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  serializeComposerFileLink,
-  serializeComposerThreadLink,
-} from "./composerTrigger.ts";
+import { serializeComposerFileLink, serializeComposerThreadLink } from "./composerTrigger.ts";
 
 describe("serializeComposerFileLink", () => {
   it("uses the basename as the markdown label", () => {

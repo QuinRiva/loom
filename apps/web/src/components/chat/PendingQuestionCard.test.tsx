@@ -198,7 +198,7 @@ describe("PendingQuestionCard", () => {
       pendingUserInput: {
         requestId: REQUEST_ID,
         createdAt: "2026-07-29T00:00:00.000Z",
-          dismissible: false,
+        dismissible: false,
         questions: [question({ stakes: "Getting this wrong costs a migration." })],
       },
     });

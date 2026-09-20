@@ -1264,106 +1264,86 @@ const buildAppUnderTest = (options?: {
       ),
     );
 
-    const appLayer = servedRoutesLayer.pipe(
-      Layer.provide(resourceTelemetryLayer),
-      Layer.provide(UsageService.layerTest),
-      Layer.provide(
-        Layer.mock(AccountUsageRegistry.AccountUsageRegistry)({
-          snapshot: Effect.succeed([]),
-          update: () => Effect.void,
-          streamChanges: Stream.empty,
-          usageSlopePerMinute: () => Effect.succeed(null),
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ProviderHealthRegistry)({
-          isExhausted: () => Effect.succeed(false),
-          exhaustedUntil: () => Effect.succeed(null),
-          markExhausted: () => Effect.void,
-          snapshot: Effect.succeed([]),
-          streamChanges: Stream.empty,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(UsageBreakdownQuery.UsageBreakdownQuery)({
-          getBreakdown: (input) =>
-            Effect.succeed({
-              window: input.window,
-              scope: input.scope ?? "all",
-              windowStart: "1970-01-01T00:00:00.000Z",
-              windowEnd: "1970-01-01T00:00:00.000Z",
-              boundarySource: "trailing" as const,
-              generatedAt: "1970-01-01T00:00:00.000Z",
-              gauges: [],
-              bucketMinutes: input.window === "primary" ? 5 : 60,
-              series: [],
-              projectedCostAtReset: null,
-              models: [],
-              consumers: [],
-              providers: [],
-            }),
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ReasoningStreamBus.ReasoningStreamBus)({
-          publish: () => Effect.void,
-          subscribe: Effect.flatMap(PubSub.unbounded<ReasoningStreamItem>(), (pubsub) =>
-            PubSub.subscribe(pubsub),
-          ),
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
-          record: () => Effect.void,
-          ...options?.layers?.browserTraceCollector,
-        }),
-      ),
-      Layer.provide(otlpSerializationLayer(config.otlpProtocol)),
-      Layer.provide(
-        Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
-          publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
-          snapshot: Effect.succeed({ sequence: 0, events: [] }),
-          stream: Stream.empty,
-          ...options?.layers?.serverLifecycleEvents,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
-          awaitCommandReady: Effect.void,
-          markHttpListening: Effect.void,
-          markRunningProviderSessionsForContinuation: Effect.succeed([]),
-          clearProviderSessionContinuationMarkers: () => Effect.void,
-          enqueueCommand: (effect) => effect,
-          ...options?.layers?.serverRuntimeStartup,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-          reportClientActivity: () => Effect.void,
-          removeRpcClient: () => Effect.void,
-          reportHostPowerState: () => Effect.void,
-          snapshot: Effect.succeed({
-            hostPower: {
-              source: "unknown",
-              idle: "unknown",
-              idleSeconds: null,
-              locked: "unknown",
-              suspended: false,
-              onBattery: "unknown",
-              lowPowerMode: "unknown",
-              thermalState: "unknown",
-              stale: true,
-              updatedAt: TEST_EPOCH,
-            },
-            leases: [],
-            activeForegroundLeaseCount: 0,
-            activeScopeKeys: [],
-            shouldRunOpportunisticWork: false,
-            updatedAt: TEST_EPOCH,
+    const appLayer = servedRoutesLayer
+      .pipe(
+        Layer.provide(resourceTelemetryLayer),
+        Layer.provide(UsageService.layerTest),
+        Layer.provide(
+          Layer.mock(AccountUsageRegistry.AccountUsageRegistry)({
+            snapshot: Effect.succeed([]),
+            update: () => Effect.void,
+            streamChanges: Stream.empty,
+            usageSlopePerMinute: () => Effect.succeed(null),
           }),
-          streamChanges: Stream.empty,
-          subscribe: Effect.succeed({
-            latest: {
+        ),
+        Layer.provide(
+          Layer.mock(ProviderHealthRegistry)({
+            isExhausted: () => Effect.succeed(false),
+            exhaustedUntil: () => Effect.succeed(null),
+            markExhausted: () => Effect.void,
+            snapshot: Effect.succeed([]),
+            streamChanges: Stream.empty,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(UsageBreakdownQuery.UsageBreakdownQuery)({
+            getBreakdown: (input) =>
+              Effect.succeed({
+                window: input.window,
+                scope: input.scope ?? "all",
+                windowStart: "1970-01-01T00:00:00.000Z",
+                windowEnd: "1970-01-01T00:00:00.000Z",
+                boundarySource: "trailing" as const,
+                generatedAt: "1970-01-01T00:00:00.000Z",
+                gauges: [],
+                bucketMinutes: input.window === "primary" ? 5 : 60,
+                series: [],
+                projectedCostAtReset: null,
+                models: [],
+                consumers: [],
+                providers: [],
+              }),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ReasoningStreamBus.ReasoningStreamBus)({
+            publish: () => Effect.void,
+            subscribe: Effect.flatMap(PubSub.unbounded<ReasoningStreamItem>(), (pubsub) =>
+              PubSub.subscribe(pubsub),
+            ),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
+            record: () => Effect.void,
+            ...options?.layers?.browserTraceCollector,
+          }),
+        ),
+        Layer.provide(otlpSerializationLayer(config.otlpProtocol)),
+        Layer.provide(
+          Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
+            publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
+            snapshot: Effect.succeed({ sequence: 0, events: [] }),
+            stream: Stream.empty,
+            ...options?.layers?.serverLifecycleEvents,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
+            awaitCommandReady: Effect.void,
+            markHttpListening: Effect.void,
+            markRunningProviderSessionsForContinuation: Effect.succeed([]),
+            clearProviderSessionContinuationMarkers: () => Effect.void,
+            enqueueCommand: (effect) => effect,
+            ...options?.layers?.serverRuntimeStartup,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+            reportClientActivity: () => Effect.void,
+            removeRpcClient: () => Effect.void,
+            reportHostPowerState: () => Effect.void,
+            snapshot: Effect.succeed({
               hostPower: {
                 source: "unknown",
                 idle: "unknown",
@@ -1381,95 +1361,118 @@ const buildAppUnderTest = (options?: {
               activeScopeKeys: [],
               shouldRunOpportunisticWork: false,
               updatedAt: TEST_EPOCH,
-            },
-            changes: Stream.empty,
-          }),
-          hasDemand: () => Effect.succeed(false),
-          shouldRunScopeWork: () => Effect.succeed(false),
-          shouldRunOpportunisticWork: Effect.succeed(false),
-        }),
-      ),
-      // loom: `.pipe` tops out at 20 arguments and the merged stack (upstream's
-      // layers plus the fork's mocks) is 23, so the chain is split in two. The
-      // split is positional only; chained pipes compose identically.
-    ).pipe(
-      Layer.provide(
-        Layer.mock(AnalyticsService.AnalyticsService)({
-          record: () => Effect.void,
-          flush: Effect.void,
-          ...options?.layers?.analyticsService,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerEnvironment.ServerEnvironment)({
-          getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
-          getDescriptor: Effect.succeed(testEnvironmentDescriptor),
-          ...options?.layers?.serverEnvironment,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
-          resolve: () => Effect.succeed(null),
-          ...options?.layers?.repositoryIdentityResolver,
-        }),
-      ),
-      Layer.provide(
-        Layer.succeed(
-          CloudManagedEndpointRuntime.CloudManagedEndpointRuntime,
-          CloudManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
-            applyConfig: () => Effect.succeed({ status: "disabled" }),
-            ...options?.layers?.cloudManagedEndpointRuntime,
-          }),
-        ),
-      ),
-      Layer.provide(
-        Layer.succeed(
-          RelayClient.RelayClient,
-          RelayClient.RelayClient.of({
-            resolve: Effect.succeed({
-              status: "missing",
-              version: RelayClient.CLOUDFLARED_VERSION,
             }),
-            install: Effect.die("unused relay-client install"),
-            installWithProgress: () => Effect.die("unused relay-client install"),
-            ...options?.layers?.relayClient,
+            streamChanges: Stream.empty,
+            subscribe: Effect.succeed({
+              latest: {
+                hostPower: {
+                  source: "unknown",
+                  idle: "unknown",
+                  idleSeconds: null,
+                  locked: "unknown",
+                  suspended: false,
+                  onBattery: "unknown",
+                  lowPowerMode: "unknown",
+                  thermalState: "unknown",
+                  stale: true,
+                  updatedAt: TEST_EPOCH,
+                },
+                leases: [],
+                activeForegroundLeaseCount: 0,
+                activeScopeKeys: [],
+                shouldRunOpportunisticWork: false,
+                updatedAt: TEST_EPOCH,
+              },
+              changes: Stream.empty,
+            }),
+            hasDemand: () => Effect.succeed(false),
+            shouldRunScopeWork: () => Effect.succeed(false),
+            shouldRunOpportunisticWork: Effect.succeed(false),
           }),
         ),
-      ),
-      Layer.provide(
-        Layer.mock(CloudCliTokenManager.CloudCliTokenManager)({
-          get: Effect.die(new Error("Unexpected T3 Connect CLI authorization request.")),
-          getExisting: Effect.succeed(Option.none()),
-          hasCredential: Effect.succeed(false),
-          clear: Effect.void,
-          ...options?.layers?.cloudCliTokenManager,
-        }),
-      ),
-      Layer.updateService(PairingGrantStore.PairingGrantStore, (grants) => {
-        const subscribed = options?.onPairingChangesSubscribed;
-        if (!subscribed) return grants;
-        return {
-          ...grants,
-          streamChanges: Stream.unwrap(
-            Effect.gen(function* () {
-              const changes = yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
-              yield* grants.streamChanges.pipe(
-                Stream.runForEach((change) => Queue.offer(changes, change)),
-                Effect.forkScoped({ startImmediately: true }),
-              );
-              yield* subscribed;
-              return Stream.fromQueue(changes);
+        // loom: `.pipe` tops out at 20 arguments and the merged stack (upstream's
+        // layers plus the fork's mocks) is 23, so the chain is split in two. The
+        // split is positional only; chained pipes compose identically.
+      )
+      .pipe(
+        Layer.provide(
+          Layer.mock(AnalyticsService.AnalyticsService)({
+            record: () => Effect.void,
+            flush: Effect.void,
+            ...options?.layers?.analyticsService,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(ServerEnvironment.ServerEnvironment)({
+            getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
+            getDescriptor: Effect.succeed(testEnvironmentDescriptor),
+            ...options?.layers?.serverEnvironment,
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+            resolve: () => Effect.succeed(null),
+            ...options?.layers?.repositoryIdentityResolver,
+          }),
+        ),
+        Layer.provide(
+          Layer.succeed(
+            CloudManagedEndpointRuntime.CloudManagedEndpointRuntime,
+            CloudManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
+              applyConfig: () => Effect.succeed({ status: "disabled" }),
+              ...options?.layers?.cloudManagedEndpointRuntime,
             }),
           ),
-        };
-      }),
-      Layer.provideMerge(makeAuthTestLayer()),
-      Layer.provideMerge(ServerSecretStore.layer),
-      Layer.provide(workspaceAndProjectServicesLayer),
-      Layer.provideMerge(FetchHttpClient.layer),
-      Layer.provide(GitHubCli.layer.pipe(Layer.provideMerge(VcsProcess.layer))),
-      Layer.provide(layerConfig),
-    );
+        ),
+        Layer.provide(
+          Layer.succeed(
+            RelayClient.RelayClient,
+            RelayClient.RelayClient.of({
+              resolve: Effect.succeed({
+                status: "missing",
+                version: RelayClient.CLOUDFLARED_VERSION,
+              }),
+              install: Effect.die("unused relay-client install"),
+              installWithProgress: () => Effect.die("unused relay-client install"),
+              ...options?.layers?.relayClient,
+            }),
+          ),
+        ),
+        Layer.provide(
+          Layer.mock(CloudCliTokenManager.CloudCliTokenManager)({
+            get: Effect.die(new Error("Unexpected T3 Connect CLI authorization request.")),
+            getExisting: Effect.succeed(Option.none()),
+            hasCredential: Effect.succeed(false),
+            clear: Effect.void,
+            ...options?.layers?.cloudCliTokenManager,
+          }),
+        ),
+        Layer.updateService(PairingGrantStore.PairingGrantStore, (grants) => {
+          const subscribed = options?.onPairingChangesSubscribed;
+          if (!subscribed) return grants;
+          return {
+            ...grants,
+            streamChanges: Stream.unwrap(
+              Effect.gen(function* () {
+                const changes =
+                  yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
+                yield* grants.streamChanges.pipe(
+                  Stream.runForEach((change) => Queue.offer(changes, change)),
+                  Effect.forkScoped({ startImmediately: true }),
+                );
+                yield* subscribed;
+                return Stream.fromQueue(changes);
+              }),
+            ),
+          };
+        }),
+        Layer.provideMerge(makeAuthTestLayer()),
+        Layer.provideMerge(ServerSecretStore.layer),
+        Layer.provide(workspaceAndProjectServicesLayer),
+        Layer.provideMerge(FetchHttpClient.layer),
+        Layer.provide(GitHubCli.layer.pipe(Layer.provideMerge(VcsProcess.layer))),
+        Layer.provide(layerConfig),
+      );
 
     yield* Layer.build(appLayer);
     return config;
@@ -10725,9 +10728,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               terminalId: "setup-setup",
               cwd: "/tmp/bootstrap-worktree",
               async: true,
-              completion: Deferred.await(setupCompletionGate).pipe(
-                Effect.as({ exitCode: 0 }),
-              ),
+              completion: Deferred.await(setupCompletionGate).pipe(Effect.as({ exitCode: 0 })),
             }),
         );
 

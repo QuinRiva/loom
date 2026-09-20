@@ -169,16 +169,14 @@ export const resolveGoalTaskRewrite = (input: {
 } => {
   const currentById = new Map(input.current.map((task) => [task.id as string, task]));
   const ids = input.lines.map((line) => line.taskId ?? input.mintTaskId());
-  const tasks = input.lines.map(
-    (line, index): GoalTaskRewriteEntry => ({
-      taskId: ids[index]!,
-      parentTaskId: line.parentIndex === null ? null : ids[line.parentIndex]!,
-      text: line.text,
-      done: line.done,
-      position: line.position,
-      createdAt: currentById.get(ids[index]!)?.createdAt ?? input.now,
-    }),
-  );
+  const tasks = input.lines.map((line, index): GoalTaskRewriteEntry => ({
+    taskId: ids[index]!,
+    parentTaskId: line.parentIndex === null ? null : ids[line.parentIndex]!,
+    text: line.text,
+    done: line.done,
+    position: line.position,
+    createdAt: currentById.get(ids[index]!)?.createdAt ?? input.now,
+  }));
 
   const siblingsSeen = new Map<string, number>();
   const currentRank = new Map<string, number>();

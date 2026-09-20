@@ -1,6 +1,10 @@
 // @effect-diagnostics globalDate:off -- Tests exercise local calendar and elapsed-time snooze input.
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { localSnoozeDate, localSnoozeTime, resolveCustomSnooze } from "@t3tools/shared/threadSettled";
+import {
+  localSnoozeDate,
+  localSnoozeTime,
+  resolveCustomSnooze,
+} from "@t3tools/shared/threadSettled";
 
 const now = new Date(2026, 8, 14, 14, 30);
 

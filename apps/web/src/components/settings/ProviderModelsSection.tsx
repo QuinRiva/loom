@@ -10,12 +10,7 @@ import {
   StarIcon,
   XIcon,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ProviderDriverKind,
   type ProviderInstanceId,

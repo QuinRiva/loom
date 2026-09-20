@@ -25,7 +25,6 @@ import {
   CircleSlashIcon,
   CloudIcon,
   FolderGit2Icon,
-  GitPullRequestIcon,
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";

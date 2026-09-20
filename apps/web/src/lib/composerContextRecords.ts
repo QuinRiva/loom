@@ -37,10 +37,7 @@ import {
   normalizeTerminalContextText,
   type TerminalContextDraft,
 } from "./terminalContext";
-import type {
-  LineReviewCommentContext,
-  ReviewCommentContext,
-} from "~/reviewCommentContext";
+import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext";
 
 /**
  * Builds the wire records behind a draft's inline references, and the reverse for reading a
