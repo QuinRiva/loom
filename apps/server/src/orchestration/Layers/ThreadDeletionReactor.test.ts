@@ -1,5 +1,14 @@
 import { CommandId, EventId, type OrchestrationEvent, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  CorrelationId,
+  EventId,
+  type OrchestrationEvent,
+  ThreadId,
+} from "@t3tools/contracts";
+import { it as effectIt } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
@@ -12,6 +21,15 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import * as Fiber from "effect/Fiber";
+import {
+  ProviderService,
+  type ProviderServiceShape,
+} from "../../provider/Services/ProviderService.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "../Services/OrchestrationEngine.ts";
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import {
   logCleanupCauseUnlessInterrupted,

@@ -1283,10 +1283,9 @@ function ComposerInlineTokenBackspacePlugin() {
 }
 
 /**
- * Chips render as non-editable decorators, so the browser never paints the
- * native text selection over them; without help, a selection spanning chips
- * is only visible in the slivers between them. Mirror the selection onto the
- * chips with a data attribute the stylesheet turns into a highlight overlay.
+ * The composer editor. Tiptap in both modes: the `richTextEnabled` setting
+ * toggles Markdown styling, never the engine. Plain mode renders every
+ * marker as a literal character and serializes byte-identically.
  */
 function ComposerChipSelectionPlugin() {
   const [editor] = useLexicalComposerContext();

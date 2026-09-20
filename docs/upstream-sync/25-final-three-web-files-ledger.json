@@ -1,0 +1,20 @@
+[
+ {
+  "file": "apps/web/src/components/Sidebar.tsx",
+  "mode": "FAILED",
+  "hunks": 13,
+  "dropped": []
+ },
+ {
+  "file": "apps/web/src/components/files/FilePreviewPanel.tsx",
+  "mode": "FAILED",
+  "hunks": 10,
+  "dropped": []
+ },
+ {
+  "file": "apps/web/src/rightPanelStore.ts",
+  "mode": "FAILED",
+  "hunks": 7,
+  "dropped": []
+ }
+]

@@ -43,6 +43,7 @@ export class ConnectionDriver extends Context.Service<
 
 const AUTH_PROBE_TIMEOUT = Duration.seconds(5);
 
+/** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
   const sessions = yield* RpcSession.RpcSessionFactory;

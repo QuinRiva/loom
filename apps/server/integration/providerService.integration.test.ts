@@ -25,7 +25,7 @@ import {
 } from "../src/provider/Services/ProviderService.ts";
 import * as ServerConfig from "../src/config.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
-import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
+import { AnalyticsService } from "../src/telemetry/AnalyticsService.ts";
 import { SqlitePersistenceMemory } from "../src/persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../src/persistence/ProviderSessionRuntime.ts";
 import { layer as WorkspaceLeaseLive } from "../src/workspace/WorkspaceLease.ts";
@@ -102,7 +102,10 @@ const makeIntegrationFixture = (options?: { readonly analytics?: Layer.Layer<Ana
       WorkspaceLeaseLive,
     ).pipe(Layer.provide(SqlitePersistenceMemory));
 
-    const layer = makeProviderServiceLive().pipe(Layer.provide(shared));
+    const layer = makeProviderServiceLive().pipe(
+      Layer.provide(NodeServices.layer),
+      Layer.provide(shared),
+    );
 
     return {
       cwd,

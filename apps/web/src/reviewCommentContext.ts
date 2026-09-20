@@ -2,6 +2,7 @@ import type { PullRequestReviewPosition } from "@t3tools/contracts";
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
 import { PlanCommentAnchor } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { PullRequestContextMetadata, type PullRequestReviewPosition } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { planCommentAnchorDetails } from "./planCommentAnchor";
@@ -43,6 +44,7 @@ export const LineReviewCommentContextSchema = Schema.Struct({
   diff: Schema.String,
   fenceLanguage: Schema.optional(Schema.String),
   selection: Schema.optional(ReviewCommentSelectionSchema),
+  pullRequest: Schema.optional(PullRequestContextMetadata),
 });
 
 export const MdxAnchorReviewCommentContextSchema = Schema.Struct({
@@ -60,6 +62,20 @@ export const ReviewCommentContextSchema = Schema.Union([
 export type LineReviewCommentContext = typeof LineReviewCommentContextSchema.Type;
 export type MdxAnchorReviewCommentContext = typeof MdxAnchorReviewCommentContextSchema.Type;
 export type ReviewCommentContext = typeof ReviewCommentContextSchema.Type;
+export interface ReviewCommentContext {
+  readonly id: string;
+  readonly sectionId: string;
+  readonly sectionTitle: string;
+  readonly filePath: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly rangeLabel: string;
+  readonly text: string;
+  readonly diff: string;
+  readonly fenceLanguage?: string | undefined;
+  readonly selection?: ReviewCommentSelection | undefined;
+  readonly pullRequest?: PullRequestContextMetadata | undefined;
+}
 
 interface DiffReviewLine {
   readonly change: "context" | "add" | "delete";

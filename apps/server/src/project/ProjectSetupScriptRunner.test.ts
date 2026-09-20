@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
 import { type OrchestrationProject, ProjectId, type TerminalWriteInput } from "@t3tools/contracts";
+import { type OrchestrationProject, ProjectId, type TerminalEvent } from "@t3tools/contracts";
+import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -10,6 +12,7 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
 
@@ -34,6 +37,8 @@ const makeProject = (
 
 const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
   Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+    getUserInputActivity: () => Effect.die("unused"),
+    listActivitiesByKind: () => Effect.die("unused"),
     getCommandReadModel: () => Effect.die("unused"),
     getSnapshot: () => Effect.die("unused"),
     getShellSnapshot: () => Effect.die("unused"),
@@ -44,10 +49,12 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getArchivedShellSnapshot: () => Effect.die("unused"),
     getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 1 }),
     getCounts: () => Effect.die("unused"),
+    getEventReplayStats: () => Effect.die("unused"),
     getActiveProjectByWorkspaceRoot: (workspaceRoot) =>
       Effect.succeed(
         workspaceRoot === project.workspaceRoot ? Option.some(project) : Option.none(),
       ),
+    getProjectShells: () => Effect.die("unused"),
     getProjectShellById: (projectId) =>
       Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
@@ -67,6 +74,8 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
     getInFlightToolByThreadId: () => Effect.die("unused in this test"),
     getThreadCheckpointContext: () => Effect.die("unused"),
     getFullThreadDiffContext: () => Effect.die("unused"),
+    getThreadRuntimeContext: () => Effect.die("unused"),
+    getTurnStartMessage: () => Effect.die("unused"),
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
     getThreadActivitiesPage: () => Effect.die("unused"),
@@ -80,7 +89,6 @@ const makeTerminalManagerLayer = (
     Partial<Pick<TerminalManager.TerminalManager["Service"], "subscribe">>,
 ) =>
   Layer.succeed(TerminalManager.TerminalManager, {
-    ...overrides,
     attachStream: () => Effect.die(new Error("unused")),
     resize: () => Effect.void,
     clear: () => Effect.void,
@@ -88,6 +96,7 @@ const makeTerminalManagerLayer = (
     close: () => Effect.void,
     subscribe: overrides.subscribe ?? (() => Effect.succeed(() => undefined)),
     subscribeMetadata: () => Effect.succeed(() => undefined),
+    ...overrides,
   });
 
 const testLayer = (
@@ -102,6 +111,69 @@ const testLayer = (
   );
 
 describe("ProjectSetupScriptRunner", () => {
+  it.effect("runs the inherited machine setup action in the checkout's worktree", () => {
+    const open = vi.fn(() =>
+      Effect.succeed({
+        threadId: "thread-1",
+        terminalId: "setup-default-setup",
+        cwd: "/repo/worktrees/a",
+        worktreePath: "/repo/worktrees/a",
+        status: "running" as const,
+        pid: 123,
+        history: "",
+        exitCode: null,
+        exitSignal: null,
+        label: "setup-default-setup",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    const write = vi.fn(() => Effect.void);
+    return Effect.gen(function* () {
+      const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const result = yield* runner.runForThread({
+        threadId: "thread-1",
+        projectId: "project-1",
+        worktreePath: "/repo/worktrees/a",
+      });
+      expect(result).toMatchObject({ status: "started", scriptId: "default-setup" });
+      expect(open).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-default-setup",
+        cwd: "/repo/worktrees/a",
+        worktreePath: "/repo/worktrees/a",
+        env: {
+          T3CODE_PROJECT_ROOT: "/repo/project",
+          T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
+          NO_COLOR: "1",
+          FORCE_COLOR: "0",
+        },
+      });
+      expect(write).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        terminalId: "setup-default-setup",
+        data: "npm install\r",
+      });
+    }).pipe(
+      Effect.provide(
+        testLayer(
+          makeProject([]),
+          { open, write },
+          ServerSettings.layerTest({
+            defaultProjectScripts: [
+              {
+                id: "default-setup",
+                name: "Setup",
+                command: "npm install",
+                icon: "configure",
+                runOnWorktreeCreate: true,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+  });
+
   it.effect("returns no-script when no setup script exists", () => {
     const open = vi.fn(() => Effect.die("unexpected open"));
     const write = vi.fn(() => Effect.die("unexpected write"));
@@ -162,8 +234,10 @@ describe("ProjectSetupScriptRunner", () => {
           status: "started",
           scriptId: "setup",
           scriptName: "Setup",
+          scriptCommand: "bun install",
           terminalId: "setup-setup",
           cwd: "/repo/worktrees/a",
+          async: true,
         });
         expect(open).toHaveBeenCalledWith({
           threadId: "thread-1",
@@ -171,6 +245,8 @@ describe("ProjectSetupScriptRunner", () => {
           cwd: "/repo/worktrees/a",
           worktreePath: "/repo/worktrees/a",
           env: {
+            NO_COLOR: "1",
+            FORCE_COLOR: "0",
             T3CODE_PROJECT_ROOT: "/repo/project",
             T3CODE_WORKTREE_PATH: "/repo/worktrees/a",
           },

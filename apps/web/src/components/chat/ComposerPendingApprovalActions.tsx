@@ -1,10 +1,19 @@
-import { type ApprovalRequestId, type ProviderApprovalDecision } from "@t3tools/contracts";
+import {
+  type ApprovalRequestId,
+  type ProviderApprovalDecision,
+  type ProviderApprovalOption,
+} from "@t3tools/contracts";
 import { memo } from "react";
+import { EllipsisIcon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { composerFloatingLayerProps } from "./composerEventScope";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
   isResponding: boolean;
+  options?: ReadonlyArray<ProviderApprovalOption> | undefined;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -12,9 +21,17 @@ interface ComposerPendingApprovalActionsProps {
   scheduleComposerFocus: () => void;
 }
 
+const DEFAULT_APPROVAL_OPTIONS = [
+  { decision: "cancel", label: "Cancel" },
+  { decision: "decline", label: "Decline" },
+  { decision: "acceptForSession", label: "Always allow this session" },
+  { decision: "accept", label: "Approve" },
+] satisfies ReadonlyArray<ProviderApprovalOption>;
+
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
   isResponding,
+  options = DEFAULT_APPROVAL_OPTIONS,
   onRespondToApproval,
   scheduleComposerFocus,
 }: ComposerPendingApprovalActionsProps) {

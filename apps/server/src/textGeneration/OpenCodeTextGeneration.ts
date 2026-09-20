@@ -1,9 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
-import * as Semaphore from "effect/Semaphore";
 
 import {
   NonNegativeInt,
@@ -32,8 +28,7 @@ import {
   type TextGenerationOperation,
 } from "./TextGenerationUtils.ts";
 import * as OpenCodeRuntime from "../provider/opencodeRuntime.ts";
-
-const OPENCODE_TEXT_GENERATION_IDLE_TTL = "30 seconds";
+import * as OpenCodeServerOwner from "../provider/OpenCodeServerOwner.ts";
 
 const OpenCodeTextGenerationOperation = Schema.Literals([
   "generateCommitMessage",
@@ -50,7 +45,7 @@ const openCodeTextGenerationErrorContext = {
   cwd: Schema.String,
 };
 
-export class OpenCodeTextGenerationSessionRequestError extends Schema.TaggedErrorClass<OpenCodeTextGenerationSessionRequestError>()(
+export class OpenCodeTextGenerationSessionRequestError extends Schema.TaggedError<OpenCodeTextGenerationSessionRequestError>()(
   "OpenCodeTextGenerationSessionRequestError",
   {
     ...openCodeTextGenerationErrorContext,
@@ -62,7 +57,7 @@ export class OpenCodeTextGenerationSessionRequestError extends Schema.TaggedErro
   }
 }
 
-export class OpenCodeTextGenerationSessionPayloadError extends Schema.TaggedErrorClass<OpenCodeTextGenerationSessionPayloadError>()(
+export class OpenCodeTextGenerationSessionPayloadError extends Schema.TaggedError<OpenCodeTextGenerationSessionPayloadError>()(
   "OpenCodeTextGenerationSessionPayloadError",
   openCodeTextGenerationErrorContext,
 ) {
@@ -78,7 +73,7 @@ const openCodePromptErrorContext = {
   modelId: Schema.String,
 };
 
-export class OpenCodeTextGenerationPromptRequestError extends Schema.TaggedErrorClass<OpenCodeTextGenerationPromptRequestError>()(
+export class OpenCodeTextGenerationPromptRequestError extends Schema.TaggedError<OpenCodeTextGenerationPromptRequestError>()(
   "OpenCodeTextGenerationPromptRequestError",
   {
     ...openCodePromptErrorContext,
@@ -90,7 +85,7 @@ export class OpenCodeTextGenerationPromptRequestError extends Schema.TaggedError
   }
 }
 
-export class OpenCodeTextGenerationPromptResponseError extends Schema.TaggedErrorClass<OpenCodeTextGenerationPromptResponseError>()(
+export class OpenCodeTextGenerationPromptResponseError extends Schema.TaggedError<OpenCodeTextGenerationPromptResponseError>()(
   "OpenCodeTextGenerationPromptResponseError",
   {
     ...openCodePromptErrorContext,
@@ -104,7 +99,7 @@ export class OpenCodeTextGenerationPromptResponseError extends Schema.TaggedErro
   }
 }
 
-export class OpenCodeTextGenerationEmptyOutputError extends Schema.TaggedErrorClass<OpenCodeTextGenerationEmptyOutputError>()(
+export class OpenCodeTextGenerationEmptyOutputError extends Schema.TaggedError<OpenCodeTextGenerationEmptyOutputError>()(
   "OpenCodeTextGenerationEmptyOutputError",
   {
     ...openCodePromptErrorContext,
@@ -177,23 +172,8 @@ function getOpenCodeTextResponse(parts: ReadonlyArray<unknown> | undefined): str
     .trim();
 }
 
-interface SharedOpenCodeTextGenerationServerState {
-  server: OpenCodeRuntime.OpenCodeServerProcess | null;
-  /**
-   * The scope that owns the shared server's lifetime. Closing this scope
-   * terminates the OpenCode child process and interrupts any fibers the
-   * runtime forked during startup. We don't hold a `close()` function on
-   * the server handle anymore — the scope is the only lifecycle handle.
-   */
-  serverScope: Scope.Closeable | null;
-  binaryPath: string | null;
-  activeRequests: number;
-  idleCloseFiber: Fiber.Fiber<void, never> | null;
-}
-
 export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration")(function* (
   openCodeSettings: OpenCodeSettings,
-  environment?: NodeJS.ProcessEnv,
 ) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
@@ -355,6 +335,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       }),
     ),
   );
+  const serverOwner = yield* OpenCodeServerOwner.OpenCodeServerOwner;
 
   const runOpenCodeJson = Effect.fn("runOpenCodeJson")(function* <S extends Schema.Top>(input: {
     readonly operation: OpenCodeTextGenerationOperation;
@@ -373,19 +354,22 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
     }
 
     const fileParts = OpenCodeRuntime.toOpenCodeFileParts({
-      attachments: input.attachments,
+      attachments: input.attachments?.filter((attachment) => attachment.type === "image"),
       resolveAttachmentPath: (attachment) =>
         resolveAttachmentPath({ attachmentsDir: serverConfig.attachmentsDir, attachment }),
     });
 
     const runAgainstServer = Effect.fn("runOpenCodeJson.runAgainstServer")(
-      function* (server: Pick<OpenCodeRuntime.OpenCodeServerConnection, "url">) {
+      function* (
+        server: Pick<
+          OpenCodeRuntime.OpenCodeServerConnection,
+          "url" | "serverPassword" | "version"
+        >,
+      ) {
         const client = openCodeRuntime.createOpenCodeSdkClient({
           baseUrl: server.url,
           directory: input.cwd,
-          ...(openCodeSettings.serverUrl.length > 0 && openCodeSettings.serverPassword
-            ? { serverPassword: openCodeSettings.serverPassword }
-            : {}),
+          ...(server.serverPassword !== undefined ? { serverPassword: server.serverPassword } : {}),
         });
         const session = yield* Effect.tryPromise({
           try: () =>
@@ -494,17 +478,31 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       }),
     );
 
-    const rawOutput =
+    const serverOutput =
       openCodeSettings.serverUrl.length > 0
-        ? yield* runAgainstServer({ url: openCodeSettings.serverUrl })
-        : yield* Effect.acquireUseRelease(
-            acquireSharedServer({
+        ? openCodeRuntime
+            .connectToOpenCodeServer({
               binaryPath: openCodeSettings.binaryPath,
+              directory: input.cwd,
+              serverUrl: openCodeSettings.serverUrl,
+              ...(openCodeSettings.serverPassword
+                ? { serverPassword: openCodeSettings.serverPassword }
+                : {}),
+            })
+            .pipe(Effect.flatMap(runAgainstServer), Effect.scoped)
+        : serverOwner.withServer(runAgainstServer);
+    const rawOutput = yield* serverOutput.pipe(
+      Effect.catchTags({
+        OpenCodeRuntimeError: (cause) =>
+          Effect.fail(
+            new TextGenerationError({
               operation: input.operation,
+              detail: OpenCodeRuntime.openCodeRuntimeErrorDetail(cause),
+              cause,
             }),
-            runAgainstServer,
-            releaseSharedServer,
-          );
+          ),
+      }),
+    );
 
     const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(input.outputSchemaJson));
     return yield* decodeOutput(extractJsonObject(rawOutput)).pipe(
@@ -597,6 +595,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
       const { prompt, outputSchema } = buildThreadTitlePrompt({
         message: input.message,
         previousTitle: input.previousTitle,
+        linkedContext: input.linkedContext,
         attachments: input.attachments,
       });
       const generated = yield* runOpenCodeJson({
@@ -610,6 +609,7 @@ export const makeOpenCodeTextGeneration = Effect.fn("makeOpenCodeTextGeneration"
 
       return {
         title: sanitizeThreadTitle(generated.title),
+        ...(generated.needsRefinement ? { needsRefinement: true } : {}),
       };
     });
 

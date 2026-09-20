@@ -7,12 +7,17 @@
  * @module ServerConfig
  */
 import * as Context from "effect/Context";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as LogLevel from "effect/LogLevel";
 import * as Path from "effect/Path";
+import type * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+
+import { sweepStalePendingAttachments } from "./attachmentStore.ts";
+import { OtlpProtocol } from "@t3tools/shared/observability";
 
 export const DEFAULT_PORT = 3773;
 
@@ -30,6 +35,8 @@ export interface ServerDerivedPaths {
   readonly dbPath: string;
   readonly keybindingsConfigPath: string;
   readonly settingsPath: string;
+  /** Palettes this machine publishes for clients to follow, one file per theme. */
+  readonly environmentThemesDir: string;
   readonly providerStatusCacheDir: string;
   readonly worktreesDir: string;
   readonly attachmentsDir: string;
@@ -54,6 +61,8 @@ export interface ServerDerivedPaths {
   // Retained read-only consult_thread fork session jsonls (deep-inspection
   // artefacts). Sibling of workstreamReportsDir under the durable state dir.
   readonly workstreamConsultsDir: string;
+  /** Screenshots the agent asks the collaborative browser to keep for the user. */
+  readonly browserArtifactsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
   readonly serverTracePath: string;
@@ -84,8 +93,11 @@ export class ServerConfig extends Context.Service<
     readonly traceMaxFiles: number;
     readonly otlpTracesUrl: string | undefined;
     readonly otlpMetricsUrl: string | undefined;
+    readonly otlpLogsUrl: string | undefined;
     readonly otlpExportIntervalMs: number;
     readonly otlpServiceName: string;
+    readonly otlpHeaders: Readonly<Record<string, string>> | undefined;
+    readonly otlpProtocol: OtlpProtocol;
     readonly mode: RuntimeMode;
     readonly port: number;
     readonly host: string | undefined;
@@ -93,6 +105,7 @@ export class ServerConfig extends Context.Service<
     readonly baseDir: string;
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;
+    readonly devAuthToken?: Redacted.Redacted<string> | undefined;
     readonly devAllowedOrigins: ReadonlyArray<string>;
     readonly noBrowser: boolean;
     readonly startupPresentation: StartupPresentation;
@@ -114,6 +127,18 @@ export class ServerConfig extends Context.Service<
 }
 
 export const make = (config: ServerConfig["Service"]) => ServerConfig.of(config);
+
+/**
+ * Resource attributes shared by every OTLP exporter, so traces, metrics, and
+ * logs report the same service identity to the collector.
+ */
+export const otlpResource = (config: ServerConfig["Service"]) => ({
+  serviceName: config.otlpServiceName,
+  attributes: {
+    "service.runtime": "t3-server",
+    "service.mode": config.mode,
+  },
+});
 
 export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerConfig, make(config));
 
@@ -144,6 +169,7 @@ export const deriveServerPaths = Effect.fn(function* (
     dbPath,
     keybindingsConfigPath: join(stateDir, "keybindings.json"),
     settingsPath: join(stateDir, "settings.json"),
+    environmentThemesDir: join(stateDir, "themes"),
     providerStatusCacheDir,
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
@@ -152,6 +178,7 @@ export const deriveServerPaths = Effect.fn(function* (
     workstreamLaunchIdentityDir, // loom:
     workstreamPromptDebugDir,
     workstreamConsultsDir,
+    browserArtifactsDir: join(stateDir, "browser-artifacts"),
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
     serverTracePath: join(logsDir, "server.trace.ndjson"),
@@ -191,6 +218,14 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
     ],
     { concurrency: "unbounded" },
   );
+
+  const swept = sweepStalePendingAttachments({
+    attachmentsDir: derivedPaths.attachmentsDir,
+    nowMs: yield* Clock.currentTimeMillis,
+  });
+  if (swept.deleted > 0) {
+    yield* Effect.logInfo("Removed expired attachment uploads.", { deleted: swept.deleted });
+  }
 });
 
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
@@ -215,8 +250,11 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     traceMaxFiles: 10,
     otlpTracesUrl: undefined,
     otlpMetricsUrl: undefined,
+    otlpLogsUrl: undefined,
     otlpExportIntervalMs: 10_000,
     otlpServiceName: "t3-server",
+    otlpHeaders: undefined,
+    otlpProtocol: "http/json",
     cwd,
     baseDir,
     ...derivedPaths,

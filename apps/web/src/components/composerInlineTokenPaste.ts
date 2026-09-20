@@ -2,21 +2,46 @@ import {
   type ComposerInlineToken,
   collectComposerInlineTokens,
 } from "@t3tools/shared/composerInlineTokens";
+import { ComposerContextId } from "@t3tools/contracts";
+import type { ComposerContextClipboardFragment } from "@t3tools/contracts";
 import {
-  $createLineBreakNode,
-  $createTextNode,
-  $getRoot,
-  $getSelection,
-  $isRangeSelection,
-  COMMAND_PRIORITY_HIGH,
-  PASTE_COMMAND,
-  type LexicalEditor,
-  type LexicalNode,
-} from "lexical";
-
-interface ComposerInlineTokenPasteOptions {
-  createMentionNode: (path: string) => LexicalNode;
-  getExpandedAbsoluteOffsetForPoint: (node: LexicalNode, pointOffset: number) => number;
+  COMPOSER_CONTEXT_CLIPBOARD_MIME,
+  decodeComposerContextFragment,
+  decodeComposerContextClipboardHtml,
+} from "@t3tools/shared/composerContextClipboard";
+import {
+  collectComposerContextReferences,
+  formatComposerContextReference,
+  replaceComposerContextReferences,
+} from "@t3tools/shared/composerContextReferences";
+/** Clipboard records referenced by the copied text, including dependent screenshots. */
+export function readPastedComposerContext(
+  clipboardData: Pick<DataTransfer, "getData">,
+): ComposerContextClipboardFragment | null {
+  const pastedText = clipboardData.getData("text/plain");
+  // Only records whose links are in the pasted text get imported; a fragment may carry
+  // more (it was built for a larger copy) and must not start transfers for those.
+  const decodedFragment =
+    decodeComposerContextFragment(clipboardData.getData(COMPOSER_CONTEXT_CLIPBOARD_MIME)) ??
+    decodeComposerContextClipboardHtml(clipboardData.getData("text/html"));
+  if (decodedFragment === null) return null;
+  const pastedIds = new Set<string>(
+    collectComposerContextReferences(pastedText).map((occurrence) => occurrence.contextId),
+  );
+  for (const record of decodedFragment.records) {
+    if (
+      record.kind === "preview-annotation" &&
+      !("payload" in record) &&
+      pastedIds.has(record.contextId) &&
+      record.screenshotContextId
+    ) {
+      pastedIds.add(record.screenshotContextId);
+    }
+  }
+  return {
+    ...decodedFragment,
+    records: decodedFragment.records.filter((record) => pastedIds.has(record.contextId)),
+  };
 }
 
 export function registerComposerInlineTokenPaste(

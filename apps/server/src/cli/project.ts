@@ -29,6 +29,10 @@ import { layerConfig as SqlitePersistenceLayerLive } from "../persistence/Layers
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as ServerRuntimeStartup from "../serverRuntimeStartup.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  clearPersistedServerRuntimeState,
+  readPersistedServerRuntimeState,
+} from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { readPreProvisionedCliToken } from "./cliToken.ts";
 import { CLI_LIVE_SERVER_TIMEOUT, isRuntimeStateProcessAlive } from "./liveServer.ts";
@@ -48,7 +52,7 @@ type ProjectCliDispatchCommand = Extract<
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
-export class ProjectCommandIdGenerationError extends Schema.TaggedErrorClass<ProjectCommandIdGenerationError>()(
+export class ProjectCommandIdGenerationError extends Schema.TaggedError<ProjectCommandIdGenerationError>()(
   "ProjectCommandIdGenerationError",
   {
     operation: Schema.Literal("generateProjectCommandId"),
@@ -60,7 +64,7 @@ export class ProjectCommandIdGenerationError extends Schema.TaggedErrorClass<Pro
   }
 }
 
-export class ProjectLiveServerDeclaredResponseError extends Schema.TaggedErrorClass<ProjectLiveServerDeclaredResponseError>()(
+export class ProjectLiveServerDeclaredResponseError extends Schema.TaggedError<ProjectLiveServerDeclaredResponseError>()(
   "ProjectLiveServerDeclaredResponseError",
   {
     operation: Schema.Literal("callLiveServer"),
@@ -76,7 +80,7 @@ export class ProjectLiveServerDeclaredResponseError extends Schema.TaggedErrorCl
   }
 }
 
-export class ProjectLiveServerUndeclaredStatusError extends Schema.TaggedErrorClass<ProjectLiveServerUndeclaredStatusError>()(
+export class ProjectLiveServerUndeclaredStatusError extends Schema.TaggedError<ProjectLiveServerUndeclaredStatusError>()(
   "ProjectLiveServerUndeclaredStatusError",
   {
     operation: Schema.Literal("callLiveServer"),
@@ -89,7 +93,7 @@ export class ProjectLiveServerUndeclaredStatusError extends Schema.TaggedErrorCl
   }
 }
 
-export class ProjectLiveServerRequestError extends Schema.TaggedErrorClass<ProjectLiveServerRequestError>()(
+export class ProjectLiveServerRequestError extends Schema.TaggedError<ProjectLiveServerRequestError>()(
   "ProjectLiveServerRequestError",
   {
     operation: Schema.Literal("callLiveServer"),
@@ -103,7 +107,7 @@ export class ProjectLiveServerRequestError extends Schema.TaggedErrorClass<Proje
   }
 }
 
-export class ProjectTitleEmptyError extends Schema.TaggedErrorClass<ProjectTitleEmptyError>()(
+export class ProjectTitleEmptyError extends Schema.TaggedError<ProjectTitleEmptyError>()(
   "ProjectTitleEmptyError",
   {
     operation: Schema.Literal("validateProjectTitle"),
@@ -115,7 +119,7 @@ export class ProjectTitleEmptyError extends Schema.TaggedErrorClass<ProjectTitle
   }
 }
 
-export class ProjectIdentifierEmptyError extends Schema.TaggedErrorClass<ProjectIdentifierEmptyError>()(
+export class ProjectIdentifierEmptyError extends Schema.TaggedError<ProjectIdentifierEmptyError>()(
   "ProjectIdentifierEmptyError",
   {
     operation: Schema.Literal("resolveProjectTarget"),
@@ -127,7 +131,7 @@ export class ProjectIdentifierEmptyError extends Schema.TaggedErrorClass<Project
   }
 }
 
-export class ProjectNotFoundError extends Schema.TaggedErrorClass<ProjectNotFoundError>()(
+export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundError>()(
   "ProjectNotFoundError",
   {
     operation: Schema.Literal("resolveProjectTarget"),
@@ -142,7 +146,7 @@ export class ProjectNotFoundError extends Schema.TaggedErrorClass<ProjectNotFoun
   }
 }
 
-export class ProjectAlreadyExistsError extends Schema.TaggedErrorClass<ProjectAlreadyExistsError>()(
+export class ProjectAlreadyExistsError extends Schema.TaggedError<ProjectAlreadyExistsError>()(
   "ProjectAlreadyExistsError",
   {
     operation: Schema.Literal("addProject"),
@@ -269,10 +273,10 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
   const normalizedWorkspaceRoot =
     normalizedWorkspaceRootResult._tag === "Success" ? normalizedWorkspaceRootResult.success : null;
 
-  const exactWorkspaceMatch =
-    normalizedWorkspaceRoot === null
-      ? undefined
-      : activeProjects.find((project) => project.workspaceRoot === normalizedWorkspaceRoot);
+  // A stored workspace path still identifies its project after the directory is gone.
+  const exactWorkspaceMatch = activeProjects.find(
+    (project) => project.workspaceRoot === (normalizedWorkspaceRoot ?? trimmedIdentifier),
+  );
 
   const resolved = exactWorkspaceMatch;
   if (!resolved) {
@@ -432,10 +436,10 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
 
 const projectAddCommand = Command.make("add", {
   ...projectLocationFlags,
-  workspaceRoot: Argument.string("path").pipe(
+  workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
-  title: Flag.string("title").pipe(Flag.withDescription("Optional project title."), Flag.optional),
+  title: Flag.String("title").pipe(Flag.withDescription("Optional project title."), Flag.optional),
 }).pipe(
   Command.withDescription("Add a project."),
   Command.withHandler((flags) =>
@@ -470,7 +474,6 @@ const projectAddCommand = Command.make("add", {
           projectId,
           title,
           workspaceRoot,
-          defaultModelSelection: ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(),
           createdAt: DateTime.formatIso(yield* DateTime.now),
         });
         return `Added project ${projectId} (${title}) at ${workspaceRoot}.`;
@@ -481,10 +484,10 @@ const projectAddCommand = Command.make("add", {
 
 const projectRemoveCommand = Command.make("remove", {
   ...projectLocationFlags,
-  project: Argument.string("project").pipe(
+  project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
-  force: Flag.boolean("force").pipe(
+  force: Flag.Boolean("force").pipe(
     Flag.withDescription("Delete the project and all of its threads."),
     Flag.withDefault(false),
   ),
@@ -520,10 +523,10 @@ const projectRemoveCommand = Command.make("remove", {
 
 const projectRenameCommand = Command.make("rename", {
   ...projectLocationFlags,
-  project: Argument.string("project").pipe(
+  project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
-  title: Argument.string("title").pipe(Argument.withDescription("New project title.")),
+  title: Argument.String("title").pipe(Argument.withDescription("New project title.")),
 }).pipe(
   Command.withDescription("Rename a project."),
   Command.withHandler((flags) =>
