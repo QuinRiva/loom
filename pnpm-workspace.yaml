@@ -156,6 +156,13 @@ overrides:
   # which pins esbuild at exactly 0.28.2; astro (the only other ^0.28 consumer)
   # is pulled up to match so one instance serves both.
   "astro>esbuild": 0.28.2
+  # loom: same shape as the esbuild pin. `@types/hast` is a structural type every
+  # hast utility both consumes and (via mdx) module-augments, so two copies mean
+  # two incompatible `Element` types. Upstream never sees the split — its apps/web
+  # has no mdx chain — but loom's `@mdx-js/mdx`/`remark-mdx` pull 3.0.5 in beside
+  # the 3.0.4 that `hast-util-to-html`/`-to-jsx-runtime` resolve, which fails
+  # HighlightedCodeLines.tsx. One version serves the whole graph.
+  "@types/hast": 3.0.5
   "@expo/dom-webview": 57.0.1
   "@expo/metro-config": 57.0.12
   expo-constants: 57.0.16
