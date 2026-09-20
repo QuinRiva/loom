@@ -25,7 +25,7 @@ import { WorktreeReaper } from "./Services/WorktreeReaper.ts";
 import { performWorktreeRemoval } from "./worktreeRemoval.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../git/WorktreeMutationLock.ts";
-import { WorkspaceLease } from "../workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "../workspace/WorkspaceOccupancyLease.ts";
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 
 /**

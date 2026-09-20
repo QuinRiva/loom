@@ -35,6 +35,11 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
  *
  * Plan lane appears nowhere here: terminal must never imply safe-to-delete.
  *
+ * File name: the fork owns this module, and upstream's unrelated
+ * `workspaceLease.ts` (a plain per-cwd mutex around checkout removal/startup)
+ * would otherwise clash with it on a case-insensitive filesystem. Upstream's
+ * path is kept byte-identical so future pulls stay mechanical; this one moved.
+ *
  * Relationship to `WorktreeMutationLock` (its closest cousin): that lock
  * serialises *git mutations* per repo cwd between the provisioner and the
  * fan-in reactor and knows nothing about processes; this lease is about

@@ -114,7 +114,7 @@ import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as ServerConfig from "./config.ts";
 import { layer as WorktreeProvisionerLive } from "./project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "./git/WorktreeMutationLock.ts";
-import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceLease.ts";
+import { layer as WorkspaceLeaseLive } from "./workspace/WorkspaceOccupancyLease.ts";
 import * as ReasoningStreamBus from "./orchestration/Services/ReasoningStreamBus.ts";
 import * as AccountUsageRegistry from "./provider/Services/AccountUsageRegistry.ts";
 import { ProviderHealthRegistry } from "./provider/Services/ProviderHealthRegistry.ts";

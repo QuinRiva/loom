@@ -34,7 +34,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { loomMigrationsTable } from "../src/persistence/LoomMigrations.ts";
 import * as NodeSqliteClient from "../src/persistence/NodeSqliteClient.ts";
 
-export class LedgerRollbackRefusedError extends Schema.TaggedErrorClass<LedgerRollbackRefusedError>()(
+export class LedgerRollbackRefusedError extends Schema.TaggedError<LedgerRollbackRefusedError>()(
   "LedgerRollbackRefusedError",
   { reason: Schema.String },
 ) {

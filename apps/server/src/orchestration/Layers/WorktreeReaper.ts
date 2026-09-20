@@ -22,7 +22,7 @@ import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 
 import { ServerConfig } from "../../config.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
-import { WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WorktreeReaper, type WorktreeReaperShape } from "../Services/WorktreeReaper.ts";

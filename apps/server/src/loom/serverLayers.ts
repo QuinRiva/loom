@@ -31,7 +31,7 @@ import { ProviderHealthRegistryLive } from "../provider/Services/ProviderHealthR
 import { SubscriptionUsagePollerLive } from "../provider/Layers/SubscriptionUsagePoller.ts";
 import { layer as WorktreeProvisionerLive } from "../project/WorktreeProvisioner.ts";
 import { layer as WorktreeMutationLockLive } from "../git/WorktreeMutationLock.ts";
-import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceLease.ts";
+import { layer as WorkspaceLeaseLive } from "../workspace/WorkspaceOccupancyLease.ts";
 import { UsageBreakdownQueryOnSqlReadClient } from "../persistence/Layers/SqliteLanes.ts";
 import * as WorkstreamSpawnHttp from "../mcp/WorkstreamSpawnHttp.ts";
 import * as GoalTaskHttp from "../mcp/GoalTaskHttp.ts";

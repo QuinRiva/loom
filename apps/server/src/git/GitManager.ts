@@ -122,6 +122,11 @@ export class GitManager extends Context.Service<
       },
       options?: GitVcsDriver.GitRemoteStatusOptions,
     ) => Effect.Effect<ReadonlyArray<VcsStatusRemoteResult | null>, GitManagerServiceError>;
+    /** Resolve the PR for a saved branch without changing the current checkout. */
+    readonly branchPullRequest: (
+      input: { readonly cwd: string; readonly branch: string },
+      options?: { readonly refresh?: boolean },
+    ) => Effect.Effect<GitBranchPullRequest | null, GitManagerServiceError>;
     readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
     readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;

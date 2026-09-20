@@ -28,7 +28,7 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GIT_LOCK_RETRY } from "../../git/gitLockRetry.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 import { WorktreeMutationLock } from "../../git/WorktreeMutationLock.ts";
-import { WorkspaceLease } from "../../workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "../../workspace/WorkspaceOccupancyLease.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { WORKSTREAM_CONTROL_PLANE_MARKER } from "./WorkstreamDispatcher.ts";

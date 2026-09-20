@@ -130,7 +130,7 @@ describe("toThreadCleanupRequest", () => {
   });
 });
 
-class StubCloseError extends Schema.TaggedErrorClass<StubCloseError>()("StubCloseError", {}) {}
+class StubCloseError extends Schema.TaggedError<StubCloseError>()("StubCloseError", {}) {}
 
 interface Recorded {
   readonly closes: ReadonlyArray<{

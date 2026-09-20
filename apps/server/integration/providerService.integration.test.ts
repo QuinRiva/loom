@@ -28,7 +28,7 @@ import { ServerSettingsService } from "../src/serverSettings.ts";
 import { AnalyticsService } from "../src/telemetry/AnalyticsService.ts";
 import { SqlitePersistenceMemory } from "../src/persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../src/persistence/ProviderSessionRuntime.ts";
-import { layer as WorkspaceLeaseLive } from "../src/workspace/WorkspaceLease.ts";
+import { layer as WorkspaceLeaseLive } from "../src/workspace/WorkspaceOccupancyLease.ts";
 
 import {
   makeTestProviderAdapterHarness,

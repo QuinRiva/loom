@@ -170,7 +170,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import { WorktreeProvisioner } from "./project/WorktreeProvisioner.ts";
-import { WorkspaceLease } from "./workspace/WorkspaceLease.ts";
+import { WorkspaceLease } from "./workspace/WorkspaceOccupancyLease.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
