@@ -310,7 +310,7 @@ export function resolveProviderDriverKindForInstanceSelection(
   providers: ReadonlyArray<ServerProvider>,
   selection: ProviderInstanceId | ProviderDriverKind | null | undefined,
 ): ProviderDriverKind | undefined {
-  export const matchedEntry = entries.find((entry) => entry.instanceId === selection);
+  const matchedEntry = entries.find((entry) => entry.instanceId === selection);
   if (matchedEntry) {
     return matchedEntry.driverKind;
   }

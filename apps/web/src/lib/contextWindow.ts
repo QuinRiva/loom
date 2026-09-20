@@ -180,7 +180,7 @@ export function formatProviderDisplayName(provider: string | null | undefined): 
       return "OpenCode";
     default: {
       // Title-case unknown driver kinds so they read reasonably.
-      export const trimmed = provider.replace(/Agent$/i, "").trim();
+      const trimmed = provider.replace(/Agent$/i, "").trim();
       if (trimmed.length === 0) return provider;
       return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
     }
