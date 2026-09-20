@@ -721,3 +721,134 @@ they sit behind a green typecheck.
 3. Open question 1 from session 1 is unchanged: loom's fork test files still
    need entries in upstream's `no-manual-effect-runtime-in-tests`
    `maxOccurrences` lint option rather than the rule being weakened.
+
+## Session 4 — apps/desktop green, every apps/server SOURCE file green; 740 test errors remain
+
+`apps/server` went **2044 → 740 errors, and all 740 are in test/integration
+files**: every non-test source file in the package now typechecks. `apps/mobile`
+went 140 → 73. **`apps/desktop` is green** (it had exactly one error once the
+server compiled). 13 of 15 packages are fully green.
+
+Refreshed inventory: `docs/upstream-sync/25-remaining-typecheck-errors.txt`,
+raw log `docs/upstream-sync/25-server-typecheck-raw.txt`.
+
+### The damage, by class
+
+**(a) Import-union damage.** Duplicate import blocks in ~14 files
+(`cli/project.ts`, `ProviderCommandReactor`, `projector`,
+`ProjectionThreadMessages`, `ProjectionThreads`, `ProjectSetupScriptRunner`,
+`serverRuntimeStartup`, `GitVcsDriver`, `ws.ts`, `server.test.ts`,
+`FileMarkdownPreview.tsx`, `use-selected-thread-requests.ts`, …). Mechanical:
+merge the two blocks, keep the union.
+
+**(b) Dropped whole declarations — by far the biggest class.** The mechanical
+pass deleted entire declarations, whole `case` arms, interface members and
+object-literal entries while leaving every reference intact. Repaired:
+
+| file | what was lost | whose |
+| ------ | --------------- | ------- |
+| `apps/server/src/orchestration/decider.ts` | `nowIso`, `isScriptRunCommand`, `threadPullRequestLinksEqual`, `findPullRequestLink`, **and the whole `thread.pull-request.link` / `.unlink` / `thread.message.user.append` case arms** | upstream |
+| `apps/server/src/provider/Layers/ProviderService.ts` | a 370-line block: `fileSystem`, `pathService`, the compaction registry (`pendingCompactions`, `timedOutNativeCompactions`, `settleCompaction`) and the entire turn-analytics subsystem (`turnAnalytics` … `recordTurnCompletedAnalytics`) | upstream |
+| `apps/server/src/provider/Layers/CodexAdapter.ts` | 230 lines of MCP tool-presentation helpers (`asUnknownRecord` … `mcpToolPresentation`) | upstream |
+| `apps/server/src/persistence/Layers/OrchestrationEventStore.ts` | the aggregate-replay request/result schemas, `readAggregateEventRows`, `readAggregateReplayStats`, `getAggregateReplayStats` | upstream |
+| `apps/server/src/orchestration/Layers/OrchestrationEngine.ts` | `readThreadEvents`, `getThreadReplayStats`, `userInputActivity`, `isOrchestrationCommandInvariantError`, the `dispatch` `options` parameter | both |
+| `apps/server/src/vcs/VcsStatusBroadcaster.ts` | `VcsAutoPullPolicy` + `autoPullPolicyLayer`, and `refreshPullRequestStatus` | upstream |
+| `apps/server/src/git/GitManager.ts` | `branchPullRequest` (the **interface member**, not the impl), `resolveRemoteRepositoryContext`, `resolvePrLookupRepositoryIdentity`, `targetRemoteUrlKey` | upstream |
+| `apps/server/src/provider/Services/ProviderAdapter.ts` | `ProviderCompaction` + the `promptlessTurnContinuation` / `supportsConversationRollback` capability fields | upstream |
+| `apps/server/src/persistence/Services/Projection{Projects,Threads}.ts` | `DeleteProjectionProjectInput`, `DeleteProjectionThreadInput`, `ListProjectionThreadsByProjectInput` | loom |
+| `apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts` | `ProjectionEventReplayStats` | upstream |
+| `apps/server/src/textGeneration/TextGeneration.ts` | `TextGenerationShape`, `ThreadTitleGenerationResult.needsRefinement` | both |
+| `apps/server/src/provider/makeManagedServerProvider.ts` | `withUsageLimits` | upstream |
+| `apps/server/src/orchestration/Layers/ProjectionPipeline.ts` | `shouldRefreshThreadShellSummary` | upstream |
+| `apps/server/src/server.ts` | **five layers dropped from the runtime composition**: `PullRequestServiceLive`, `GitHubCli.layer`, `DeviceLayerLive`, `ModelManifest.layer`, `CodexResetCredit.layer`, plus `ThreadSettlementReactor` / `PullRequestSyncReactor` / `ThreadPullRequestReactor` from the reactor layer | upstream |
+| `apps/server/src/serverRuntimeStartup.ts` | `resolveAutoBootstrapWelcomeTargets` was spliced from BOTH versions into a body that referenced variables from neither; rewritten on upstream's structure with loom's pi default and loom's idempotent re-resolve | both |
+| `apps/mobile/src/lib/threadActivity.ts` | the `ThreadFeedActivity` interface still declared loom's eager `fullDetail`/`copyText` while the producer already emitted upstream's lazy `canExpand`/`getFullDetail`/`getCopyText` — one interface edit cleared 50 errors | upstream |
+
+**(c) Marker-less semantic conflicts.** Resolved below.
+
+### Semantic resolutions
+
+**Reasoning is loom's ephemeral v2, on the server too.** Upstream's
+`thread.message.reasoning.complete` was re-added to `orchestration.ts` next to
+loom's re-homed one in `orchestration.loom.ts` — **two structs with the same tag
+in one union, which cannot coexist**, and upstream's `.delta` sibling came with
+it. Loom's variant is the registered `LOOM_COMMAND_TYPES` member, is decided by
+`decider.loom.ts`, and is what the merged web actually paints (`ReasoningBlock`
+reads `message.reasoningText`), so upstream's pair is re-dropped and the
+matching durable dispatch sites in `ProviderRuntimeIngestion` (the buffered
+reasoning-delta block, the `item.completed` reasoning snapshot, and four
+`role: "reasoning"` segment finalisations) are removed. Loom's ReasoningStreamBus
++ `finalizeReasoningForMessage` remains the single mechanism.
+⚠️ Cost: upstream's whole-block *snapshot* fallback (a provider that reports one
+reasoning block without streaming it) has no loom equivalent and is gone. The
+inert `"reasoning"` member of `OrchestrationMessageRole` now has no producer.
+
+**`account.rate-limits.updated` carries both shapes, both optional.** Loom's
+`windows`/`planType` rollup (consumed by `ProviderRuntimeIngestion` →
+`AccountUsageRegistry`) and upstream's normalised `limits` (consumed by
+`ProviderUsageLimitsIngestion`) are BOTH live, with different emitters (Codex
+vs Claude) and no adapter able to derive both from one native notification.
+Making either required broke the other's emitter, so both are optional and each
+consumer skips an event that lacks its field.
+
+**`enableLegacyTokenStreaming` → `responseStreamingMode`.** Upstream's rename
+adopted: the rest of the tree (including `resolveResponseStreamingMode`) had
+already moved, only the `ServerSettings` struct still held the old key.
+
+**`WorkspaceLease.ts` → `WorkspaceOccupancyLease.ts` (fork file moved).**
+Upstream added `workspaceLease.ts` — a 23-line per-cwd mutex — which collides
+with loom's `WorkspaceLease.ts` process-occupancy service on a case-insensitive
+filesystem (TS1149). They are different mechanisms with different semantics
+(fail-fast exclusive vs queueing mutex), so folding one onto the other would
+change behaviour. **Upstream's path is kept byte-identical and the fork's file
+moved** — 15 one-line import edits once, so future pulls stay mechanical.
+
+**Other side-picks.** `ProviderCommandReactor`'s branch rename keeps loom's
+single-model-call derivation (upstream's separate `generateBranchName` body had
+been grafted onto loom's signature); `thread.title.generate.complete` reverts to
+loom's `thread.meta.update` + `titleProvenance`; the in-file OpenCode shared
+server is deleted (upstream's `OpenCodeServerOwner` subsumes it, same 30s idle
+TTL); `Sqlite.ts`'s bun client loader is deleted (the package is not installed
+and upstream converged on `@t3tools/shared/nodeSqliteClient`);
+`sidebarAutoSettle{AfterDays,OnMerge}` move client→server with upstream;
+mobile's `MarkdownBlock` moves from loom's per-variable `useThemeColor` (which
+upstream retired) to one `useUniwindTheme()` palette read.
+
+**`server.test.ts`'s 554 errors were one root cause.** The merged `appLayer`
+pipe had 23 arguments; `.pipe` tops out at 20. Split into two chained pipes
+(positionally identical) → 554 became 194, and the duplicate-import fix took it
+to 365.
+
+### Auto-settle: open question 1 is RESOLVED (teach the server)
+
+The orchestrator chose *teach the server sweep the blocker*, and it landed as a
+~20-line local change in `apps/server/src/orchestration/decider.ts`'s
+`thread.auto-settle` arm: the command read model already holds the thread graph,
+so the arm reuses loom's own `collectLiveSubtreeIds` + shared `isTerminalLane`
+and returns `OrchestrationThreadSettleBlockedError` when any non-deleted,
+non-archived descendant sits in a lane other than `done`/`cancelled`. It mirrors
+`workstreamAutoSettleBlocked`'s third clause, and — exactly as on the client — an
+EXPLICIT `thread.settle` still outranks it. No switch, no disabled sweep.
+
+### lostdecls.py adjudication
+
+Of the 6 unadjudicated upstream-only losses, 3 are now **repaired** (they were
+real): `ProjectionEventReplayStats`, `ProjectSetupScriptOutputLine`'s sibling
+`ProjectSetupScriptRunnerResultStarted.async`, and `ProviderCompaction`.
+`VcsAutoPullPolicy`/`autoPullPolicyLayer` was also real and is restored.
+`MessagesTimelineRowsProjection`/`deriveMessagesTimelineRowsWithState` remains
+an **intentional** drop (the chat-surface decision). `importPastedComposerText`
+is still unadjudicated — it produced no typecheck error, so it is either
+genuinely unused or reachable only from a path no consumer types.
+
+### Gate status
+
+| package | errors |
+| --------- | -------: |
+| the 11 green after session 3 | 0 |
+| `apps/desktop` | **0** |
+| `apps/server` | 740 — **all in test/integration files** |
+| `apps/mobile` | 73 — `PendingUserInputCard.tsx` (40) + `use-selected-thread-requests.ts` (28) are the wave-1 deferrals, the other 5 are one-line test fixture drift |
+
+`pnpm build`, `vp check`, the migration smoke and the PR #191 transfer budget
+are **not started** — they sit behind a green `vp run typecheck`.

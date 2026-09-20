@@ -1,136 +1,61 @@
-# Cadence pull 7 — remaining typecheck errors after session 3
+# Cadence pull 7 — remaining typecheck errors after session 4
 
-Green: contracts, shared, client-runtime, effect-acp, effect-codex-app-server,
-oxlint-plugin-t3code, ssh, tailscale, scripts, marketing, apps/web (11 of 15).
-Remaining: apps/mobile (140), apps/server (2044), apps/desktop (not yet run —
-vp skips it while server fails; run `cd apps/desktop && npx tsc --noEmit`).
+Green: 13 of 15 packages — contracts, shared, client-runtime, effect-acp,
+effect-codex-app-server, oxlint-plugin-t3code, ssh, tailscale, scripts,
+marketing, apps/web, **apps/desktop**, and every non-test source file in
+apps/server. Remaining: apps/mobile (73), apps/server (740 — ALL in tests).
 
-## apps/mobile — 140
+## apps/mobile — 73, by file
 
-     46 src/lib/threadActivity.test.ts
      40 src/features/threads/PendingUserInputCard.tsx
      28 src/state/use-selected-thread-requests.ts
-     10 src/features/files/FileMarkdownPreview.tsx
-      4 src/features/settings/settings-scoped-server.test.ts
-      3 src/features/threads/thread-work-log.tsx
-      2 src/features/settings/SettingsServerControlsRouteScreen.tsx
       1 src/state/pending-thread-creation.ts
-      1 src/lib/threadActivity.ts
-      1 src/features/threads/ThreadFeed.tsx
+      1 src/lib/threadActivity.test.ts
       1 src/features/threads/ThreadDetailScreen.tsx
       1 src/features/threads/QuestionAnswerHistory.test.tsx
       1 src/connection/environment-cache-store.test.ts
-      1 src/components/MarkdownBlock.tsx
 
-## apps/server — 2044, by file
+## apps/server — 740, by file (every one is a test/integration file)
 
-    554 src/server.test.ts
-    122 src/provider/Layers/ProviderService.test.ts
-     88 src/bin.test.ts
-     80 src/cli/theme.test.ts
-     75 src/vcs/VcsStatusBroadcaster.test.ts
-     74 src/orchestration/ThreadSettlementReactor.test.ts
-     51 src/git/GitManager.test.ts
-     48 src/orchestration/ThreadPullRequestReactor.test.ts
-     46 src/textGeneration/OpenCodeTextGeneration.test.ts
-     45 src/provider/Layers/ProviderService.ts
-     38 src/provider/Layers/ClaudeProvider.ts
-     36 src/orchestration/decider.ts
-     32 src/server.ts
-     31 src/ws.ts
-     28 src/cli/app.test.ts
-     25 src/textGeneration/OpenCodeTextGeneration.ts
-     25 integration/OrchestrationEngineHarness.integration.ts
-     24 src/orchestration/Layers/ProviderCommandReactor.ts
-     23 src/orchestration/Layers/ProviderCommandReactor.test.ts
-     23 scripts/loom-ledger-rollback.test.ts
-     22 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts
-     21 src/project/AgentSessionImporter.test.ts
+    365 src/server.test.ts
+     99 src/provider/Layers/ProviderService.test.ts
+     22 src/project/ProjectSetupScriptRunner.test.ts
      20 src/serverRuntimeStartup.test.ts
      20 src/serverRuntimeStartup.reconcile.test.ts
-     20 integration/providerService.integration.test.ts
-     18 src/orchestration/Layers/ThreadDeletionReactor.test.ts
      18 src/orchestration/Layers/OrchestrationEngine.test.ts
-     17 src/cli/pair.test.ts
-     16 src/orchestration/Layers/CheckpointReactor.ts
-     14 scripts/loom-ledger-rollback.ts
+     17 src/orchestration/Layers/ProviderCommandReactor.test.ts
+     16 src/orchestration/Layers/ThreadDeletionReactor.test.ts
+     14 src/project/AgentSessionImporter.test.ts
      13 src/terminal/Manager.test.ts
      13 src/persistence/LoomMigrations.test.ts
-     13 src/orchestration/ThreadSettlementReactor.ts
-     12 src/serverRuntimeStartup.ts
      12 src/provider/Layers/ProviderInstanceRegistryLive.test.ts
-     12 src/provider/Layers/OpenCodeAdapter.ts
      12 src/orchestration/Layers/WorkstreamDispatcher.test.ts
-     11 src/project/ProjectSetupScriptRunner.ts
-     11 src/orchestration/Layers/ProviderRuntimeIngestion.ts
-     10 src/provider/Layers/CodexAdapter.ts
-     10 src/provider/Layers/ClaudeAdapter.ts
-     10 src/cli/goal.ts
-      9 src/storageCleanup.ts
-      9 src/orchestration/ThreadPullRequestReactor.ts
       9 src/orchestration/Layers/ProjectionSnapshotQuery.test.ts
-      9 src/git/GitManager.ts
       8 src/provider/Layers/ProviderSessionReaper.test.ts
-      8 src/provider/Layers/CodexSessionRuntime.ts
-      8 src/persistence/Layers/OrchestrationEventStore.ts
-      8 src/orchestration/decider.loom.ts
-      7 src/persistence/NodeSqliteConnection.ts
-      7 src/orchestration/Layers/ProjectionSnapshotQuery.ts
-      7 src/orchestration/Layers/OrchestrationEngine.ts
+      8 src/orchestration/Layers/ProviderRuntimeIngestion.test.ts
+      7 src/orchestration/ThreadSettlementReactor.test.ts
       7 integration/orphanedProviderSessionStartup.integration.test.ts
-      6 src/vcs/VcsStatusBroadcaster.ts
-      6 src/project/ProjectSetupScriptRunner.test.ts
-      6 src/orchestration/projector.ts
       6 src/orchestration/Layers/CheckpointReactor.test.ts
-      5 src/orchestration/Layers/ThreadDeletionReactor.ts
+      5 src/orchestration/ThreadPullRequestReactor.test.ts
       4 src/relay/AgentAwarenessRelay.test.ts
-      4 src/provider/Layers/CursorAdapter.test.ts
-      4 src/provider/Drivers/PiDriver.ts
-      4 src/provider/Drivers/OpenCodeDriver.ts
-      4 src/persistence/Layers/ProjectionThreads.ts
-      4 src/orchestration/workstreamAsk.ts
       4 src/orchestration/projector.test.ts
-      4 src/orchestration/Layers/WorkstreamFanInReactor.test.ts
       4 src/orchestration/Layers/ProjectionPipeline.test.ts
       4 src/orchestration/decider.turnDiffComplete.test.ts
-      4 src/cli/server.ts
-      4 src/bin.ts
-      4 src/assets/AssetAccess.ts
-      3 src/provider/Layers/OpenCodeAdapter.test.ts
-      3 src/provider/Layers/GrokAdapter.ts
-      3 src/provider/Layers/CodexAdapter.test.ts
-      3 src/provider/Layers/AntigravityAdapter.ts
-      3 src/provider/Drivers/AntigravityDriver.ts
-      3 src/persistence/Layers/Sqlite.ts
       3 src/orchestration/PullRequestSyncReactor.test.ts
-      2 src/vcs/GitVcsDriver.ts
-      2 src/provider/makeManagedServerProvider.ts
       2 src/provider/makeManagedServerProvider.test.ts
-      2 src/provider/Layers/CursorAdapter.ts
-      2 src/provider/Drivers/GrokDriver.ts
-      2 src/provider/Drivers/CursorDriver.ts
       2 src/project/AgentSessionScanner.test.ts
-      2 src/persistence/Layers/ProjectionThreadMessages.ts
       2 src/persistence/Layers/ProjectionRepositories.test.ts
       2 src/orchestration/ThreadSettlementPolicy.test.ts
       2 src/orchestration/decider.pullRequests.test.ts
       2 src/orchestration/decider.active-order.test.ts
       2 src/mcp/toolkits/pullRequests/handlers.test.ts
       2 src/git/linkCreatedPullRequest.test.ts
-      2 src/cli/project.ts
-      1 src/textGeneration/AntigravityTextGeneration.ts
-      1 src/sourceControl/GitHubSourceControlProvider.ts
+      2 integration/OrchestrationEngineHarness.integration.ts
       1 src/serverRuntimeStartup.worktreeSetup.test.ts
-      1 src/provider/Services/ProviderAdapter.ts
       1 src/provider/Layers/ClaudeCapabilitiesProbe.test.ts
       1 src/provider/Layers/ClaudeAdapter.test.ts
       1 src/provider/acp/AntigravityProtocol.test.ts
-      1 src/process/externalLauncher.ts
-      1 src/persistence/Layers/ProjectionProjects.ts
-      1 src/orchestration/worktreeRemoval.ts
-      1 src/orchestration/Services/ProjectionSnapshotQuery.ts
       1 src/orchestration/messageContext.test.ts
-      1 src/orchestration/Layers/ProjectionPipeline.ts
       1 src/orchestration/Layers/HandoffDrafterReactor.test.ts
       1 src/orchestration/decider.userMessageAppend.test.ts
       1 src/orchestration/decider.userInputSupersede.test.ts
@@ -138,158 +63,28 @@ vp skips it while server fails; run `cd apps/desktop && npx tsc --noEmit`).
       1 src/orchestration/decider.questionAttachments.test.ts
       1 src/orchestration/decider.projectScripts.test.ts
       1 src/orchestration/decider.import.test.ts
-      1 src/http.ts
-      1 src/dev/seedConfig.ts
-      1 scripts/evaluate-thread-titles.ts
 
 ## apps/server — by error code
 
-    644 TS377030
-    354 TS377004
-    333 TS2375
-    167 TS2304
-     96 TS2741
-     76 TS2300
-     49 TS2339
-     40 TS2552
-     37 TS2322
-     32 TS2345
-     27 TS2739
-     26 TS2353
-     22 TS7006
-     17 TS7031
-     17 TS2551
-     16 TS18046
-     15 TS2379
-     14 TS377003
+    200 TS377004
+    193 TS2375
+     83 TS2741
+     58 channel which is not recommended.
+     44 TS2300
+     35 TS2304
+     25 TS2739
+     19 TS2322
+     14 TS2345
+     12 TS7031
      12 TS2740
-     11 TS2554
-      8 TS18004
-      5 TS377034
-      4 TS4112
-      3 TS2488
-      3 TS1117
-      2 TS377062
-      2 TS2724
-      2 TS2307
+      9 TS2552
+      8 TS2353
+      7 TS7006
+      6 TS2379
+      5 TS2339
+      4 TS18004
+      2 TS377034
       1 TS7053
       1 TS377105
-      1 TS2769
-      1 TS2678
+      1 TS2554
       1 TS2459
-      1 TS2440
-      1 TS2367
-      1 TS2305
-      1 TS1360
-      1 TS1149
-
-## apps/server — duplicate identifiers (import-union merge damage)
-
-src/cli/project.ts  'readPersistedServerRuntimeState'.
-src/orchestration/Layers/CheckpointReactor.test.ts  'checkpointRefForThreadTurn'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'describe'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'EventId'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'expect'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'it'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'NodeOS'.
-src/orchestration/Layers/OrchestrationEngine.test.ts  'NodePath'.
-src/orchestration/Layers/ProjectionPipeline.test.ts  'DEFAULT_PROVIDER_INTERACTION_MODE'.
-src/orchestration/Layers/ProviderCommandReactor.ts  'ServerSettingsService'.
-src/orchestration/Layers/ProviderRuntimeIngestion.test.ts  'ProviderRuntimeIngestionLive'.
-src/orchestration/Layers/ProviderRuntimeIngestion.test.ts  'RuntimeRequestId'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'CommandId'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'EventId'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'OrchestrationEngineService'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'OrchestrationEvent'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'ProviderService'.
-src/orchestration/Layers/ThreadDeletionReactor.test.ts  'ThreadId'.
-src/orchestration/projector.test.ts  'effectIt'.
-src/orchestration/projector.ts  'OrchestrationEvent'.
-src/orchestration/projector.ts  'OrchestrationReadModel'.
-src/orchestration/projector.ts  'ThreadId'.
-src/persistence/Layers/ProjectionThreadMessages.ts  'ChatAttachment'.
-src/persistence/Layers/ProjectionThreads.ts  'ModelSelection'.
-src/project/ProjectSetupScriptRunner.test.ts  'OrchestrationProject'.
-src/project/ProjectSetupScriptRunner.test.ts  'ProjectId'.
-src/project/ProjectSetupScriptRunner.ts  'HostProcessPlatform'.
-src/project/ProjectSetupScriptRunner.ts  'projectScriptRuntimeEnv'.
-src/project/ProjectSetupScriptRunner.ts  'setupProjectScript'.
-src/serverRuntimeStartup.test.ts  'ProjectId'.
-src/serverRuntimeStartup.test.ts  'ProviderInstanceId'.
-src/serverRuntimeStartup.test.ts  'ThreadId'.
-src/serverRuntimeStartup.ts  'Cause'.
-src/server.test.ts  'isThreadDetailEvent'.
-src/server.test.ts  'makeRoutesLayer'.
-src/server.test.ts  'resolveAvailableEditorsForConfig'.
-src/vcs/GitVcsDriver.ts  'makeGitVcsDriverCore'.
-src/ws.ts  'RepositoryIdentityResolver'.
-
-## apps/server — cannot-find-name (dropped declarations)
-
-     21 src/orchestration/decider.ts  'nowIso'.
-     17 src/provider/Layers/ProviderService.test.ts  'WorkspaceLeaseTestLive'.
-     15 src/provider/Layers/ClaudeProvider.ts  'buildSelectOptionDescriptor'.
-      6 src/provider/Layers/ClaudeProvider.ts  'buildBooleanOptionDescriptor'.
-      5 src/serverRuntimeStartup.ts  'nextProjectDefaultModelSelection'.
-      5 src/provider/Layers/ProviderSessionReaper.test.ts  'DateTime'.
-      5 src/provider/Layers/ProviderService.ts  'pendingCompactions'.
-      5 src/provider/Layers/ClaudeProvider.ts  'compareSemverVersions'.
-      4 src/textGeneration/OpenCodeTextGeneration.ts  'Scope'.
-      4 src/provider/Layers/OpenCodeAdapter.ts  'OpenCodeTextPartState'.
-      4 src/orchestration/Layers/ProjectionSnapshotQuery.ts  'activityRows'.
-      3 src/textGeneration/OpenCodeTextGeneration.ts  'Exit'.
-      3 src/server.test.ts  'async'.
-      3 src/provider/Layers/OpenCodeAdapter.ts  'OpenCodeStepUsage'.
-      3 src/provider/Layers/CodexAdapter.ts  'normalizedDisplayName'.
-      3 src/provider/Layers/ClaudeProvider.ts  'ServerProviderModel'.
-      2 src/server.test.ts  'scriptExit'.
-      2 src/provider/Layers/CodexAdapter.ts  'McpToolPresentation'.
-      2 src/provider/Layers/CodexAdapter.ts  'asUnknownRecord'.
-      2 src/provider/Layers/ClaudeProvider.ts  'ModelSelection'.
-      2 src/provider/Layers/ClaudeProvider.ts  'getProviderOptionDescriptors'.
-      2 src/provider/Layers/ClaudeProvider.ts  'getProviderOptionCurrentValue'.
-      2 src/orchestration/Layers/ProviderRuntimeIngestion.ts  'resolveThreadDetail'.
-      2 src/orchestration/Layers/OrchestrationEngine.ts  'userInputActivity'.
-      2 src/orchestration/Layers/CheckpointReactor.ts  'statusRefreshWorker'.
-      2 src/git/GitManager.ts  'resolvePrLookupRepositoryIdentity'.
-      1 src/ws.ts  'serverEventId'.
-      1 src/textGeneration/OpenCodeTextGeneration.ts  'SharedOpenCodeTextGenerationServerState'.
-      1 src/textGeneration/OpenCodeTextGeneration.ts  'Semaphore'.
-      1 src/textGeneration/OpenCodeTextGeneration.ts  'OPENCODE_TEXT_GENERATION_IDLE_TTL'.
-      1 src/textGeneration/OpenCodeTextGeneration.ts  'Fiber'.
-      1 src/textGeneration/OpenCodeTextGeneration.ts  'environment'.
-      1 src/server.ts  'launcher'.
-      1 src/server.test.ts  'setupCompletionGate'.
-      1 src/server.test.ts  'nextProviders'.
-      1 src/server.test.ts  'missingWorkspaceRoot'.
-      1 src/server.test.ts  'liveEvents'.
-      1 src/server.test.ts  'cancel'.
-      1 src/serverRuntimeStartup.test.ts  'AnalyticsService'.
-      1 src/provider/Services/ProviderAdapter.ts  'ProviderCompaction'.
-      1 src/provider/makeManagedServerProvider.ts  'withUsageLimits'.
-      1 src/provider/Layers/ProviderService.ts  'timedOutNativeCompactions'.
-      1 src/provider/Layers/ProviderService.ts  'settleCompaction'.
-      1 src/provider/Layers/ProviderService.ts  'ServerSettingsValue'.
-      1 src/provider/Layers/ProviderService.ts  'recordCompletedTurnProperties'.
-      1 src/provider/Layers/ProviderService.ts  'pathService'.
-      1 src/provider/Layers/ProviderService.ts  'finishTurnAnalytics'.
-      1 src/provider/Layers/ProviderService.ts  'clearPendingTurnAnalytics'.
-      1 src/provider/Layers/ProviderService.ts  'beginTurnAnalytics'.
-      1 src/provider/Layers/ProviderService.ts  'associateTurnAnalytics'.
-      1 src/provider/Layers/ProviderService.test.ts  'before'.
-      1 src/provider/Layers/OpenCodeAdapter.ts  'OpenCodeTextPart'.
-      1 src/provider/Layers/CodexAdapter.ts  'normalizeMcpIntentTitle'.
-      1 src/provider/Layers/ClaudeProvider.ts  'getModelSelectionStringOptionValue'.
-      1 src/provider/Layers/ClaudeCapabilitiesProbe.test.ts  'isLegacyClaudeModel'.
-      1 src/provider/Layers/ClaudeAdapter.ts  'settleAsAborted'.
-      1 src/persistence/Layers/Sqlite.ts  'SqlError'.
-      1 src/persistence/Layers/ProjectionThreads.ts  'ListProjectionThreadsByProjectInput'.
-      1 src/persistence/Layers/OrchestrationEventStore.ts  'readAggregateEventRows'.
-      1 src/orchestration/Services/ProjectionSnapshotQuery.ts  'ProjectionEventReplayStats'.
-      1 src/orchestration/Layers/ProviderRuntimeIngestion.ts  'OrchestrationThread'.
-      1 src/orchestration/Layers/ProviderCommandReactor.ts  'resolveThread'.
-      1 src/orchestration/Layers/ProviderCommandReactor.ts  'attachments'.
-      1 src/orchestration/Layers/CheckpointReactor.ts  'sessionRuntime'.
-      1 src/orchestration/decider.ts  'OrchestrationThreadActivity'.
-      1 src/orchestration/decider.ts  'isScriptRunCommand'.
-      1 src/orchestration/decider.ts  'findPullRequestLink'.
