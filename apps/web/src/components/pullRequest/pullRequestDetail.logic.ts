@@ -30,7 +30,11 @@ import {
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
 
-import { inferReviewCommentFenceLanguage, type ReviewCommentContext } from "~/reviewCommentContext";
+import {
+  inferReviewCommentFenceLanguage,
+  type LineReviewCommentContext,
+  type ReviewCommentContext,
+} from "~/reviewCommentContext";
 import { reviewCommentContextId } from "~/lib/composerContextRecords";
 import { removeInlineContextReference } from "~/lib/composerContextReferences";
 
@@ -580,7 +584,7 @@ function boundedField(value: string): string {
 function reviewThreadContext(
   thread: PullRequestReviewThread,
   pullRequestNumber: number,
-): ReviewCommentContext {
+): LineReviewCommentContext {
   const lineIndex = Math.max(0, (thread.line ?? 1) - 1);
   return {
     kind: "line",
@@ -913,7 +917,7 @@ function pullRequestContextComment(
     readonly isDraft: boolean;
   },
   instructions: ReadonlyArray<string>,
-): ReviewCommentContext {
+): LineReviewCommentContext {
   return {
     kind: "line",
     id: `pull-request-context:${input.number}`,
@@ -951,7 +955,7 @@ function pullRequestContextComment(
  */
 export function buildPullRequestReferenceContext(
   input: PullRequestContextMetadata,
-): ReviewCommentContext {
+): LineReviewCommentContext {
   const comment = pullRequestContextComment(input, []);
   return { ...comment, id: `pr-reference:${input.number}` };
 }

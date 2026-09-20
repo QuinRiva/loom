@@ -1451,6 +1451,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddAgents={props.onAddAgents}
             onAddTasks={props.onAddTasks}
             onAddWorkstream={props.onAddWorkstream}
+            onAddDevice={props.onAddDevice}
+            deviceAvailable={props.deviceAvailable}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}

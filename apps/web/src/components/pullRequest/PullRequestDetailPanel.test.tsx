@@ -122,6 +122,7 @@ vi.mock("./PullRequestCodeTab", () => ({
         onAddToAgentSelection?.({
           request: "Fix this line",
           comment: {
+            kind: "line",
             id: "note-1",
             sectionId: "file:a.ts",
             sectionTitle: "a.ts",

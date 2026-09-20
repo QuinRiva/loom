@@ -24,6 +24,25 @@ import {
   selectChipBinding,
 } from "./markdown-links";
 
+function renderMarkdownLinkHref(markdown: string): string | undefined {
+  let renderedHref: string | undefined;
+  renderToStaticMarkup(
+    createElement(
+      ReactMarkdown,
+      {
+        components: {
+          a({ href }) {
+            renderedHref = href;
+            return createElement("a", { href });
+          },
+        },
+      },
+      markdown,
+    ),
+  );
+  return renderedHref;
+}
+
 describe("isAbsolutePreviewablePath", () => {
   it("accepts POSIX absolute paths the out-of-workspace preview can serve", () => {
     expect(isAbsolutePreviewablePath("/home/carl/report.md")).toBe(true);

@@ -65,6 +65,7 @@ const render = (overrides?: Partial<PendingQuestionCardProps>): string => {
         pendingUserInput={{
           requestId: REQUEST_ID,
           createdAt: "2026-07-29T00:00:00.000Z",
+          dismissible: false,
           questions: [question()],
         }}
         pendingCount={1}
@@ -100,7 +101,12 @@ function LiveCard({
 
   return (
     <PendingQuestionCard
-      pendingUserInput={{ requestId: REQUEST_ID, createdAt: "2026-07-29T00:00:00.000Z", questions }}
+      pendingUserInput={{
+        requestId: REQUEST_ID,
+        createdAt: "2026-07-29T00:00:00.000Z",
+        questions,
+        dismissible: false,
+      }}
       pendingCount={1}
       drafts={drafts}
       answers={buildUserInputAnswers(questions, drafts)}
@@ -192,6 +198,7 @@ describe("PendingQuestionCard", () => {
       pendingUserInput: {
         requestId: REQUEST_ID,
         createdAt: "2026-07-29T00:00:00.000Z",
+          dismissible: false,
         questions: [question({ stakes: "Getting this wrong costs a migration." })],
       },
     });

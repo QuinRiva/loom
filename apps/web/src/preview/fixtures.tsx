@@ -754,6 +754,7 @@ function PendingUserInputPreview({
             requestId: "preview-request" as ApprovalRequestId,
             createdAt: "2026-02-23T00:00:00.000Z",
             questions,
+            dismissible: false,
           }}
           pendingCount={1}
           drafts={drafts}
