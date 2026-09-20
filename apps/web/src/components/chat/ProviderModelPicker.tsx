@@ -43,6 +43,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   keybindings?: ResolvedKeybindingsConfig;
   modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   activeProviderIconClassName?: string;
+  /** loom: the compact composer footer caps the trigger harder and never shrinks it. */
+  compact?: boolean;
   instanceIndicatorBackground?: string;
   size?: ComposerControlSize;
   isComposerOwned?: boolean;
@@ -211,8 +213,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             size={size}
             data-chat-provider-model-picker="true"
             className={cn(
-              "min-w-0 shrink justify-between whitespace-nowrap",
-              !props.isComposerOwned && "max-w-48 sm:max-w-56",
+              "min-w-0 justify-between whitespace-nowrap",
+              props.compact ? "max-w-42 shrink-0" : "shrink",
+              !props.compact && !props.isComposerOwned && "max-w-48 sm:max-w-56",
               props.triggerClassName,
             )}
             disabled={props.disabled}

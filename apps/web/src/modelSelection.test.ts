@@ -567,6 +567,8 @@ describe("instance-scoped model selection", () => {
           [instanceId]: {
             hiddenModels: [missingModel],
             modelOrder: [],
+            selectedModels: [],
+            showOnlySelectedModels: false,
           },
         },
       };
@@ -797,7 +799,12 @@ describe("instance-scoped model selection", () => {
     const hiddenSettings: UnifiedSettings = {
       ...settings,
       providerModelPreferences: {
-        [instanceId]: { hiddenModels: [nativeModel], modelOrder: [] },
+        [instanceId]: {
+          hiddenModels: [nativeModel],
+          modelOrder: [],
+          selectedModels: [],
+          showOnlySelectedModels: false,
+        },
       },
     };
     expect(

@@ -37,7 +37,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isPreparingWorktree,
   hasSendableContent,
   preserveComposerFocusOnPointerDown = false,
-  onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {

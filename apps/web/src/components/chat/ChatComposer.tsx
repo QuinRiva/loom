@@ -792,6 +792,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         models: selectedProviderModels,
         promptInjectionState: composerPromptInjectionState,
         modelOptions: composerModelOptions?.[selectedInstanceId],
+        planModeEnabled: settings.planModeEnabled,
       }),
     [
       composerModelOptions,
@@ -800,6 +801,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedModel,
       selectedProvider,
       selectedProviderModels,
+      settings.planModeEnabled,
     ],
   );
 
@@ -1140,6 +1142,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
+    planModeEnabled: settings.planModeEnabled,
     prompt,
     onPromptChange: setPromptFromTraits,
   });
@@ -1151,6 +1154,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
+    planModeEnabled: settings.planModeEnabled,
     prompt,
     onPromptChange: setPromptFromTraits,
   });
