@@ -3,17 +3,24 @@
 Green: 13 of 15 packages — contracts, shared, client-runtime, effect-acp,
 effect-codex-app-server, oxlint-plugin-t3code, ssh, tailscale, scripts,
 marketing, apps/web, **apps/desktop**, and every non-test source file in
-apps/server. Remaining: apps/mobile (73), apps/server (740 — ALL in tests).
+apps/server. Remaining: apps/mobile (63), apps/server (740 — ALL in tests).
 
-## apps/mobile — 73, by file
+## apps/mobile — 63, by file
 
      40 src/features/threads/PendingUserInputCard.tsx
-     28 src/state/use-selected-thread-requests.ts
+     18 src/state/use-selected-thread-requests.ts
       1 src/state/pending-thread-creation.ts
       1 src/lib/threadActivity.test.ts
       1 src/features/threads/ThreadDetailScreen.tsx
       1 src/features/threads/QuestionAnswerHistory.test.tsx
       1 src/connection/environment-cache-store.test.ts
+
+PendingUserInputCard.tsx + use-selected-thread-requests.ts are the wave-1
+deferrals: both need a side-by-side reconciliation (upstream's redesigned
+card / pending-requests derivation vs loom's draft helpers), not import
+surgery. use-selected-thread-requests.ts is still missing upstream-only
+declarations: the `Atom` import, `scopedRequestKey`, `selectedThreadKey`,
+`dismissingUserInputId`. The other 4 are one-line test fixture drift.
 
 ## apps/server — 740, by file (every one is a test/integration file)
 

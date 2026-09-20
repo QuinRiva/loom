@@ -13,7 +13,6 @@ import {
   composerAttachmentsStillUploading,
 } from "./composer-attachment-uploads";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -33,7 +32,6 @@ import {
 } from "@t3tools/shared/userInputAnswers";
 import { threadEnvironment } from "../state/threads";
 import { updateUserInputDrafts, userInputDraftsAtom } from "./user-input-drafts";
-import { derivePendingApprovals, derivePendingUserInputs } from "../lib/threadActivity";
 import {
   buildPendingUserInputAnswers,
   setPendingUserInputCustomAnswer,
