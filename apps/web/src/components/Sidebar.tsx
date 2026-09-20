@@ -1000,6 +1000,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // False on environments whose server predates thread.settle/unsettle:
   // the lifecycle affordances hide entirely rather than fail on click.
   settlementSupported: boolean;
+  // loom: drilled rather than read per row — the list owns the one subscription.
+  autoSettleOnMerge: boolean;
   // Same contract for thread.snooze/unsnooze.
   snoozeSupported: boolean;
   // Pinned threads show the same pin marker in active, settled, and snoozed
@@ -2610,6 +2612,9 @@ export default function Sidebar() {
     settledThreads,
     snoozeNow,
   } = useMemo(() => {
+    // loom: settle classification runs on the quantized minute so the whole
+    // list does not re-partition on every tick.
+    const now = `${nowMinute}:00.000Z`;
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
     // the shelf for the rest of the minute. snoozeWakeTick re-runs this
@@ -4424,7 +4429,6 @@ export default function Sidebar() {
       markThreadUnread,
       openProjectSettings,
       projectByKey,
-      projectCwdByKey,
       projectScopeKey,
       runThreadGoalMenuAction, // loom:
       serverConfigs,
@@ -4846,6 +4850,7 @@ export default function Sidebar() {
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSettlement === true
                             }
+                            autoSettleOnMerge={autoSettleOnMerge}
                             snoozeSupported={
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSnooze === true

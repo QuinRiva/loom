@@ -1145,12 +1145,7 @@ export function resolveActivityTimestamp(thread: ActivityTimestampInput): string
       latestMs = parsed;
     }
   }
-}
-
-/** The timestamp a settled row sorts and labels by: settledAt when stamped
-    (explicit settles), otherwise last activity. */
-export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
-  return firstValidTimestamp(thread.settledAt) ?? resolveActivityTimestamp(thread);
+  return latest ?? firstValidTimestamp(thread.updatedAt);
 }
 
 // loom: the ACTIVE list's order — last activity, most recent first. Upstream's
