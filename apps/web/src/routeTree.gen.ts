@@ -75,6 +75,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
+const SettingsWorktreesRoute = SettingsWorktreesRouteImport.update({
+  id: '/worktrees',
+  path: '/worktrees',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: '/storage',
   path: '/storage',
@@ -83,11 +88,6 @@ const SettingsStorageRoute = SettingsStorageRouteImport.update({
 const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
   id: '/source-control',
   path: '/source-control',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsWorktreesRoute = SettingsWorktreesRouteImport.update({
-  id: '/worktrees',
-  path: '/worktrees',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsSnapShotRoute = SettingsSnapShotRouteImport.update({
@@ -189,9 +189,9 @@ export interface FileRoutesByFullPath {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
-  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
 }
@@ -215,9 +215,9 @@ export interface FileRoutesByTo {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
-  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -244,9 +244,9 @@ export interface FileRoutesById {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/providers': typeof SettingsProvidersRoute
   '/settings/snap-shot': typeof SettingsSnapShotRoute
-  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/worktrees': typeof SettingsWorktreesRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -274,9 +274,9 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/providers'
     | '/settings/snap-shot'
-    | '/settings/worktrees'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/settings/worktrees'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
   fileRoutesByTo: FileRoutesByTo
@@ -300,9 +300,9 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/providers'
     | '/settings/snap-shot'
-    | '/settings/worktrees'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/settings/worktrees'
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -328,9 +328,9 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/providers'
     | '/settings/snap-shot'
-    | '/settings/worktrees'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/settings/worktrees'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -405,6 +405,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/settings/worktrees': {
+      id: '/settings/worktrees'
+      path: '/worktrees'
+      fullPath: '/settings/worktrees'
+      preLoaderRoute: typeof SettingsWorktreesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/storage': {
       id: '/settings/storage'
       path: '/storage'
@@ -424,13 +431,6 @@ declare module '@tanstack/react-router' {
       path: '/snap-shot'
       fullPath: '/settings/snap-shot'
       preLoaderRoute: typeof SettingsSnapShotRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/worktrees': {
-      id: '/settings/worktrees'
-      path: '/worktrees'
-      fullPath: '/settings/worktrees'
-      preLoaderRoute: typeof SettingsWorktreesRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/providers': {
@@ -562,9 +562,9 @@ interface SettingsRouteChildren {
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsProvidersRoute: typeof SettingsProvidersRoute
   SettingsSnapShotRoute: typeof SettingsSnapShotRoute
-  SettingsWorktreesRoute: typeof SettingsWorktreesRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
+  SettingsWorktreesRoute: typeof SettingsWorktreesRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -579,9 +579,9 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsProvidersRoute: SettingsProvidersRoute,
   SettingsSnapShotRoute: SettingsSnapShotRoute,
-  SettingsWorktreesRoute: SettingsWorktreesRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
+  SettingsWorktreesRoute: SettingsWorktreesRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

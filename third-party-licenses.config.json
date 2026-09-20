@@ -131,7 +131,7 @@
       "generatedNotices": [
         {
           "licenseId": "Apache-2.0",
-          "copyrights": ["Copyright 2009, 2010, 2013 André Berg"]
+          "copyrights": ["Copyright 2009, 2010, 2013 Andr\u00e9 Berg"]
         }
       ]
     },
@@ -472,6 +472,105 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "fastdom",
+      "sourceUrl": "https://github.com/wilsonpage/fastdom",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2016 Wilson Page"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "strictdom",
+      "sourceUrl": "https://github.com/wilsonpage/strictdom",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2016 Wilson Page"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "standardwebhooks",
+      "sourceUrl": "https://github.com/standard-webhooks/standard-webhooks",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 Standard Webhooks"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "data-uri-to-buffer",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2014 Nathan Rajlich"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-coding-agent",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/coding-agent",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/chord",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/chord",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-agent-core",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/agent",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-ai",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/ai",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-telemetry",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/telemetry",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "@earendil-works/pi-tui",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/tui",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+      }
+    },
+    {
+      "license": "MIT",
+      "name": "khroma",
+      "sourceUrl": "https://github.com/fabiospampinato/khroma",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
       }
     }
   ]
