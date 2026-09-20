@@ -138,6 +138,7 @@ function makeShell(input: {
     purpose: null,
     brief: null,
     planLane: "planned" as const,
+    pullRequests: [],
     attention: [],
     blockedBy: [],
     spawnGeneration: null,

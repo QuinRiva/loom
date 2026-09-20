@@ -143,7 +143,7 @@ const countTasks = (tasks: ReadonlyArray<OrchestrationGoalTask>): { done: number
 
 const goalListCommand = Command.make("list", {
   ...projectLocationFlags,
-  project: Flag.string("project").pipe(
+  project: Flag.String("project").pipe(
     Flag.withDescription("Filter by project id or workspace root."),
     Flag.optional,
   ),
@@ -191,12 +191,12 @@ const goalShowCommand = Command.make("show", {
 
 const goalCreateCommand = Command.make("create", {
   ...projectLocationFlags,
-  project: Flag.string("project").pipe(
+  project: Flag.String("project").pipe(
     Flag.withDescription("Project id or workspace root that owns the goal."),
   ),
-  slug: Flag.string("slug").pipe(Flag.withDescription("Stable goal slug.")),
-  title: Flag.string("title").pipe(Flag.withDescription("Goal title.")),
-  description: Flag.string("description").pipe(
+  slug: Flag.String("slug").pipe(Flag.withDescription("Stable goal slug.")),
+  title: Flag.String("title").pipe(Flag.withDescription("Goal title.")),
+  description: Flag.String("description").pipe(
     Flag.withDescription("Goal objective paragraph."),
     Flag.optional,
   ),
@@ -227,8 +227,8 @@ const goalCreateCommand = Command.make("create", {
 const goalUpdateCommand = Command.make("update", {
   ...projectLocationFlags,
   goal: Argument.string("goal").pipe(Argument.withDescription("Goal id or slug.")),
-  title: Flag.string("title").pipe(Flag.withDescription("New goal title."), Flag.optional),
-  description: Flag.string("description").pipe(
+  title: Flag.String("title").pipe(Flag.withDescription("New goal title."), Flag.optional),
+  description: Flag.String("description").pipe(
     Flag.withDescription("New goal objective paragraph."),
     Flag.optional,
   ),
@@ -256,7 +256,7 @@ const goalTaskAddCommand = Command.make("add", {
   ...projectLocationFlags,
   goal: Argument.string("goal").pipe(Argument.withDescription("Goal id or slug.")),
   text: Argument.string("text").pipe(Argument.withDescription("Task text.")),
-  parent: Flag.string("parent").pipe(Flag.withDescription("Parent task id."), Flag.optional),
+  parent: Flag.String("parent").pipe(Flag.withDescription("Parent task id."), Flag.optional),
 }).pipe(
   Command.withDescription("Add a task to a goal."),
   Command.withHandler((flags) =>
@@ -377,7 +377,7 @@ const readRewriteMarkdown = Effect.fn("readGoalTaskRewriteMarkdown")(function* (
 const goalTaskRewriteCommand = Command.make("rewrite", {
   ...projectLocationFlags,
   goal: Argument.string("goal").pipe(Argument.withDescription("Goal id or slug.")),
-  file: Flag.string("file").pipe(
+  file: Flag.String("file").pipe(
     Flag.withDescription("Markdown checklist file; omit to read stdin."),
     Flag.optional,
   ),
