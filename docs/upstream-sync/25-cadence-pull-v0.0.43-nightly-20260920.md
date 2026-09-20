@@ -520,3 +520,204 @@ anything else about it.
    started.** It remains the single largest lost-feature risk in this pull, and
    open question 2 (`ProviderInstanceCard` / `ProviderSettingsPanel` /
    `SettingsPanels`) sits inside it.
+
+---
+
+## Session 3 — merge COMMITTED; 11 of 15 packages typecheck; mobile + server remain
+
+**The merge is committed.** The three remaining web files were hand-resolved,
+the merge commit was created with the correct two-parent topology, and repair
+commits followed. Nothing has been pushed.
+
+### Topology (verified)
+
+| ref | hash |
+| ----- | ------ |
+| merge commit | `116eff1261` |
+| `HEAD^1` (loom `origin/main`) | `5c350f7a63` |
+| `HEAD^2` (upstream tip v0.0.43-nightly.20260920) | `c14f6015bf` |
+
+Branch `t3code/upstream-sync-20260921`. Every commit used `--no-verify`; `^2`
+was re-verified after each. No rebase, no squash.
+
+### The three web resolutions
+
+**`apps/web/src/rightPanelStore.ts`** — upstream's `userActionRevision`
+write-policy split was adopted whole, and loom's `seedSurfaces` was
+**re-expressed as an `automaticUpdate`** rather than kept as a second
+mechanism: seeding now cannot advance the user-action revision, so it can never
+masquerade as a panel choice the user made. Loom's `tasks` / `workstream` /
+`dir` / `artifact` surfaces, `openFileAbsolute` / `openFilesAt` /
+`openDirectoryAbsolute` / `openArtifact` and the `filesSurface` reveal fields
+all survive alongside upstream's `openDevice` / `renameDevice` /
+`openAttachment` / `pull-requests`. Upstream's Windows/trailing-slash path
+normalisation was folded into loom's `upsertFileSurface`; `RIGHT_PANEL_KINDS`
+takes upstream's un-exported form (no consumer outside the module);
+`updatePullRequestTabStatus` was dropped with upstream (its only consumer is
+gone). The `plan` surface stays dropped, as intended.
+
+**`apps/web/src/components/Sidebar.tsx`** — upstream's marker-driven list
+assembly (`sidebarListItems`, `SidebarDragBoundary` / `SidebarSectionHeader` /
+`SidebarSectionPlaceholder`, one unified `DndContext`, `optimisticDrop`,
+`applySidebarThreadDrop`) replaces loom's older pinned-only Dnd block wholesale;
+loom's `graphRollup` prop was re-homed onto upstream's `renderThreadRowInner`.
+Every one of loom's 21 `// loom:` markers in the file is accounted for.
+
+Three semantic decisions inside it:
+
+1. **`changeRequestSnapshot` plumbing retired.** Upstream deleted the whole
+   client-side `threadChangeRequestSnapshotsAtom` machinery because the PR now
+   rides the thread shell (`thread.pullRequests`). Loom's auto-settle-on-merge
+   therefore reads the request from the shell through a new
+   `threadChangeRequest(thread)` in `Sidebar.logic.ts` (loom's branch guard
+   kept), and the per-row write-back prop pair is gone. Same concern arrived at
+   twice; upstream's side is strictly better-sourced.
+2. **Loom's client-side auto-settle branch KEPT.** Upstream retired its own
+   client-side `effectiveSettled` partition (it auto-settles server-side now),
+   but loom's branch carries the **workstream blocker** — a root with
+   non-terminal descendants must not settle — which the server does not know.
+   ⚠️ Whether upstream's server-side `ThreadAutoSettleCommand` can now settle a
+   loom root behind that blocker's back is **an open question for the reviewer
+   gate** (see open items).
+3. **The active-order collision was resolved by composition, not by choosing.**
+   Upstream made the active block user-arrangeable (`activeOrderKey`, drag
+   placement gated on `threadActiveReorder`, which loom's server advertises);
+   loom sorts the active block by activity (doc 23 §I1, marked PROVISIONAL).
+   Keeping loom's sort as-is would have made a dragged row snap back the moment
+   the optimistic hold cleared, and emptying `activeReorderableKeys` would have
+   killed pinned→active and settled→active drops too (`planSidebarThreadDrop`
+   returns `{kind:"none"}` for the whole active target). So
+   `sortActiveThreadsByActivityForSidebar` is now **upstream's comparator with
+   loom's activity anchor for unarranged rows**: never drag and the block is
+   pure activity order; drag once and that placement sticks.
+
+**`apps/web/src/components/files/FilePreviewPanel.tsx`** — upstream's preview
+rework adopted (media/PDF/HTML/`DelimitedTablePreview`, directory handling,
+attachments, `ReadOnlySourcePreview`, `FileMarkdownPreview`'s relative-image
+base dir, the `FileSurfaceAction` toolbar). **Loom's `absolutePath` prop was
+dropped**: upstream converged on the same concept as `isHostFile`
+(`isAbsolutePath(relativePath)`, with `resolveReadTarget` reading an absolute
+path in place server-side), and loom's file surfaces already mirror the
+absolute path into `relativePath`, so the separate prop and the separate
+`useProjectAbsoluteFileQuery` read were a second mechanism for one thing. The
+one caller line in `ChatView.tsx` was removed. Loom's MDX plan renderer, its
+8 MiB `MDX_PREVIEW_MAX_BYTES` budget (correctly threaded as the *fifth*
+argument — upstream's 4-arg call would have passed a boolean as `maxBytes`),
+the still-truncated-MDX guard and the artefact-viewer button all survive.
+
+### The real finding of this session: declaration-level merge damage
+
+Session 2 warned that clean-merged regions of conflicted files carried import
+damage. It is broader than that: **the mechanical pass and the clean merge also
+dropped whole top-level declarations from files nobody flagged.** Found and
+repaired so far:
+
+| file | what was lost | whose |
+| ------ | --------------- | ------- |
+| `apps/web/src/components/Sidebar.logic.ts` | `reduceSidebarProjectScopeMenuState` + its two types | upstream |
+| `apps/web/src/components/Sidebar.logic.ts` | `shouldNavigateAfterProjectRemoval` (still called by `Sidebar.tsx`) | loom |
+| `packages/contracts/src/server.ts` | the whole environment-themes block (`EnvironmentThemeColor`, `EnvironmentThemeId`, `environmentThemeFields`, `EnvironmentThemeFile`, `EnvironmentTheme`, `environmentThemeFileHasColors`) **and** `ServerConfigStream{EnvironmentThemesUpdated,UsageLimitSourcesUpdated}Event` with their payloads — while every server/client consumer survived | upstream |
+| `packages/contracts/src/settings.ts` | 9 client/server settings fields (`notificationMode`, `inAppNotificationsEnabled`, `diffColorScheme`, `loadBalancing{Enabled,Weights}`, `appearanceContrast`, `panelAnimationDurationMs`, `storageCleanup`, `worktreeCleanup`) across four structs | upstream |
+| `packages/client-runtime/src/state/server.ts` | `projectServerWelcome` (loom) and `refreshUsageRates` (upstream) | both |
+| `apps/web/src/components/NoActiveThreadState.tsx` | `NoActiveThreadState` itself — the resolver took `theirs` and dropped a hunk spanning loom's `ThreadHydratingState` tail and upstream's function head | upstream |
+
+A structural auditor for exactly this is now at
+`docs/upstream-sync/pull7-tools/lostdecls.py` (compare top-level exported
+declaration names in every merged file against BOTH parents). Run:
+
+```
+python3 docs/upstream-sync/pull7-tools/lostdecls.py 5c350f7a63 c14f6015bf
+```
+
+Its current in-tree verdict: **336 files lost some export; 7 lost an UPSTREAM
+export** (the rest are upstream deletions of code loom merely inherited, which
+is correct), and **exactly one name that loom lost still exists upstream**
+(`NoActiveThreadState`, now repaired). Of the remaining 6 upstream-only losses,
+`ProjectionEventReplayStats`, `ProjectSetupScriptOutputLine`,
+`ProviderCompaction`, `VcsAutoPullPolicy`/`autoPullPolicyLayer`,
+`MessagesTimelineRowsProjection`/`deriveMessagesTimelineRowsWithState` and
+`importPastedComposerText` are **not yet adjudicated** — the timeline pair is
+expected (the chat-surface decision), the others are not.
+
+⚠️ **The auditor only sees top-level declarations.** The `settings.ts` and
+`server.ts` losses above were *fields inside structs* and did not show up.
+Field-level drops in contracts are the residual risk, and typecheck only finds
+them where a consumer exists.
+
+### The doc-24 alias structural check: CLEAN
+
+`docs/upstream-sync/pull7-tools/aliascheck.py` (rebuilt this session; it parses
+the SELECT list at paren depth 0 rather than splitting on commas) over
+`apps/server/src/orchestration/Layers/ProjectionSnapshotQuery.ts`:
+
+```
+43 Result schemas, 78 queries, 1 narrower than widest
+```
+
+The single hit is a **false positive**: two unrelated inline `Schema.Struct`
+results group by literal text. Every named `Result` schema — including
+`ProjectionThreadDbRowSchema` (4 queries) and
+`ProjectionThreadActivityDbRowSchema` (7 queries) — selects an identical alias
+set across all of its queries. **No dropped columns.** This was the pull-6
+failure mode three times over and it did not recur.
+
+### Gate status
+
+`vp run typecheck`: **11 of 15 packages green** — contracts, shared,
+client-runtime, effect-acp, effect-codex-app-server, oxlint-plugin-t3code, ssh,
+tailscale, scripts, marketing, **apps/web**.
+
+| package | errors | shape |
+| --------- | -------: | ------- |
+| `apps/mobile` | 140 | 114 are the wave-1 deferrals (`threadActivity.test.ts` 46, `PendingUserInputCard.tsx` 40, `use-selected-thread-requests.ts` 28); the rest are merge damage (`FileMarkdownPreview.tsx` duplicate import block, `MarkdownBlock.tsx` missing `../lib/useThemeColor`, `responseStreamingMode` settings drift, `ThreadFeedActivity` lazy-getter vs upstream's eager `fullDetail`/`copyText`) |
+| `apps/server` | 2044 | 998 are Effect diagnostics (`TS377030` unknown-in-R, `TS377004` missing service) that likely cascade from a handful of layer wirings; 76 `TS2300` duplicate identifiers and 167 `TS2304` cannot-find-name are the same import-union/dropped-declaration damage as above, across ~40 files |
+| `apps/desktop` | not run | `vp` skips it while server fails; run `cd apps/desktop && npx tsc --noEmit` |
+
+Full inventory (per file, per error code, plus the duplicate-identifier and
+cannot-find-name lists that localise the merge damage):
+`docs/upstream-sync/25-remaining-typecheck-errors.txt`, with the raw server log
+at `docs/upstream-sync/25-server-typecheck-raw.txt`.
+
+`pnpm build`, `vp check`, the migration smoke on a DB copy, the PR #191
+transfer-budget re-run and the 113-file ledger audit are **all not started** —
+they sit behind a green typecheck.
+
+### What the next session should do, in order
+
+1. **`apps/server` (2044) and `apps/mobile` (140), then `apps/desktop`.** Work
+   the `TS2300`/`TS2304` lists in
+   `docs/upstream-sync/25-remaining-typecheck-errors.txt` first: they are
+   mechanical (a duplicated import line, or a declaration to restore from
+   `git show c14f6015bf:<path>` / `5c350f7a63:<path>`) and they are what the
+   Effect diagnostics are most likely cascading from. Re-count after.
+2. **Mobile wave 1** (note open item 8, task `a4b1ddfa`): re-apply loom's
+   `@t3tools/shared/userInputAnswers` hoist onto upstream's attachment-aware
+   draft shape in `use-selected-thread-requests.ts`, and loom's **option
+   previews** + **multi-select** onto upstream's redesigned
+   `PendingUserInputCard`. `threadActivity`'s lazy getters
+   (`canExpand`/`getFullDetail`/`getCopyText`) should be adapted to upstream's
+   eager `fullDetail`/`copyText` — the merge already took upstream's module.
+3. **Re-run `lostdecls.py`** after the repairs and adjudicate the 6 unresolved
+   upstream-only losses listed above.
+4. Then the untouched gates: `pnpm build`, `vp check`, migration smoke
+   (041–053 on a `VACUUM INTO` copy, fork lane `1001+` untouched, spare `139xx`
+   port, never 13900), PR #191 transfer budget, and the **113-file ledger
+   audit**, which remains the largest lost-feature risk and now has a second
+   reason to be done: the mechanical resolver demonstrably dropped whole
+   declarations, not just hunks.
+
+### Open questions — escalated, not guessed
+
+1. **Auto-settle now has two owners.** Loom keeps its client-side
+   `effectiveSettled` partition (it carries the workstream
+   `hasNonTerminalDescendant` blocker); upstream added a server-side
+   `ThreadAutoSettleCommand`. If the server settles a loom root that has live
+   sub-threads, the blocker is bypassed and the root vanishes from the inbox
+   while its children work. Needs a decision: teach the server the blocker,
+   disable the server-side sweep for loom, or accept it.
+2. **Active-block ordering** was resolved by composition (above) rather than by
+   picking a side. It is a visible behaviour change either way and doc 23 §I1
+   should be updated once a human has looked at it.
+3. Open question 1 from session 1 is unchanged: loom's fork test files still
+   need entries in upstream's `no-manual-effect-runtime-in-tests`
+   `maxOccurrences` lint option rather than the rule being weakened.
